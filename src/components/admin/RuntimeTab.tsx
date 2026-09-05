@@ -501,6 +501,21 @@ export function RuntimeTab({ token }: { token: string }) {
             hint="A batch prediction whose rows drift past this population stability index notifies the model's owner. 0.25 is the usual line."
           />
         </div>
+        <p className="text-xs font-medium text-muted-foreground">Data monitors</p>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <NumberField
+            label="Monitors per sweep"
+            value={form.data_monitors_per_sweep}
+            onChange={(n) => set("data_monitors_per_sweep", n)}
+            hint="Due data monitors one scheduler sweep runs (sweeps run every 60 s)."
+          />
+          <NumberField
+            label="Anomaly threshold (sigma)"
+            value={form.data_monitor_anomaly_sigma}
+            onChange={(n) => set("data_monitor_anomaly_sigma", n)}
+            hint="Standard deviations from the learned baseline beyond which a volume check alerts. 3 is the usual choice."
+          />
+        </div>
         <p className="text-xs font-medium text-muted-foreground">AI gateway</p>
         <div className="grid gap-3 sm:grid-cols-3">
           <NumberField

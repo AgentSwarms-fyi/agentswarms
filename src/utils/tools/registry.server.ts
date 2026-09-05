@@ -1348,6 +1348,7 @@ export const TOOLABLE_IDS = [
   "weather",
   "sql_query",
   "metric_query",
+  "data_health",
   "ml_predict",
   "memory_remember",
   "memory_recall",
@@ -1822,6 +1823,86 @@ export async function resolveAgentTools(
   // only when the caller can use at least one model with a production
   // version, so the LLM never sees a tool that has nothing to predict with.
   // On headless runs the caller is scopeUserId; grants are re-derived there.
+  if (allows("data_health")) {
+    // Data monitors and their incidents, for "is the revenue table fresh?".
+    // Owner-scoped: on a headless run scopeUserId is the owner, and the
+    // loaders below read that user's monitors only.
+    const monitorOwner = ctx.scopeUserId ?? ctx.userId;
+    tools.push({
+      type: "function",
+      function: {
+        name: "data_health",
+        description:
+          "Report the health of the user's data tables from their data monitors: every monitor " +
+          "(freshness, volume, schema, null rate, uniqueness, custom SQL) with its table, last " +
+          "status, last value and message, plus the open incidents. Call it before answering " +
+          "whether a table is fresh, complete or trustworthy. Optionally filter by table name.",
+        parameters: {
+          type: "object",
+          properties: {
+            table: {
+              type: "string",
+              description: "Optional: only monitors whose schema.table contains this text",
+            },
+          },
+        },
+      },
+    });
+    handlers.set("data_health", async (c, a) => {
+      // The caller's client: RLS-scoped for a person, the run owner's scope on a headless run.
+      const sb = c.sb;
+      const filter = typeof a?.table === "string" ? a.table.trim().toLowerCase() : "";
+      const [{ data: monitors }, { data: incidents }] = await Promise.all([
+        sb
+          .from("data_monitors")
+          .select(
+            "id, name, source_kind, schema_name, table_name, kind, schedule, is_active, last_run_at, last_status, last_value, last_message",
+          )
+          .eq("user_id", monitorOwner)
+          .order("last_run_at", { ascending: false }),
+        sb
+          .from("data_incidents")
+          .select("monitor_id, status, severity, title, opened_at, last_seen_at, occurrences")
+          .eq("user_id", monitorOwner)
+          .neq("status", "resolved")
+          .order("opened_at", { ascending: false }),
+      ]);
+      const rows = (monitors ?? []).filter(
+        (m) => !filter || `${m.schema_name}.${m.table_name}`.toLowerCase().includes(filter),
+      );
+      const ids = new Set(rows.map((m) => m.id));
+      return JSON.stringify({
+        monitors: rows.map((m) => ({
+          name: m.name,
+          table: `${m.schema_name}.${m.table_name}`,
+          source: m.source_kind,
+          check: m.kind,
+          schedule: m.schedule,
+          active: m.is_active,
+          last_run_at: m.last_run_at,
+          last_status: m.last_status,
+          last_value: m.last_value,
+          last_message: m.last_message,
+        })),
+        open_incidents: (incidents ?? [])
+          .filter((i) => ids.has(i.monitor_id))
+          .map((i) => ({
+            status: i.status,
+            severity: i.severity,
+            title: i.title,
+            opened_at: i.opened_at,
+            last_seen_at: i.last_seen_at,
+            occurrences: i.occurrences,
+          })),
+        notes: [
+          "last_status ok means the last check passed; alert means it failed and an incident is open unless resolved; error means the check could not run.",
+          rows.length === 0
+            ? "No monitors match; the user can create one under Data & BI -> Data monitors."
+            : "A table with no monitor has no health record; say so rather than assuming it is fine.",
+        ],
+      });
+    });
+  }
   if (allows("ml_predict")) {
     const mlOwner = ctx.scopeUserId ?? ctx.userId;
     const { listModelsForUser } = await import("@/utils/ml/access.server");
@@ -2222,6 +2303,11 @@ function buildRoutingGuidance(enabled: ResolvedTools["enabled"], tools: ToolDef[
     lines.push(
       "- ml_predict scores rows with a trained model from the registry; call ml_list_models first " +
         "for each model's feature columns and accepted categories, and pass real values, never guessed ones.",
+    );
+  }
+  if (has("data_health")) {
+    lines.push(
+      "- data_health reports the tables' monitors and open incidents; call it before saying a table is fresh, complete or trustworthy, and say when a table has no monitor.",
     );
   }
   if (has("list_warehouse_tables")) {

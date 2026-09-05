@@ -47,6 +47,7 @@ export function enabledToolsFromToggles(
   if (t.sql_query) out.push("sql_query");
   if (t.metric_query) out.push("metric_query");
   if (t.ml_predict) out.push("ml_predict");
+  if (t.data_health) out.push("data_health");
   if (t.n8n || t.n8n_run_workflow) out.push("n8n_run_workflow");
   if (t.mcp || t.mcp_call_tool) out.push("mcp_call_tool");
   if (t.send_notification || t.notifications) out.push("send_notification");

@@ -44,6 +44,7 @@ import {
   Brain,
   Trash2,
   Boxes,
+  HeartPulse,
 } from "lucide-react";
 import { ModelRegistryPicker } from "@/components/agents/ModelRegistryPicker";
 import { ModelCombobox } from "@/components/models/ModelCombobox";
@@ -127,6 +128,15 @@ const BUILT_IN_TOOLS: BuiltInTool[] = [
     icon: Database,
     category: "data",
     requiresConfig: true,
+  },
+  {
+    id: "data_health",
+    name: "Data health",
+    description:
+      "Answer whether a table is fresh, complete and trustworthy from your data monitors and their open incidents (Data & BI → Data monitors).",
+    icon: HeartPulse,
+    category: "data",
+    requiresConfig: false,
   },
   {
     id: "ml_predict",

@@ -40,6 +40,8 @@ export type NbRuntimeSettings = {
   ml_drift_alert_psi: number;
   gateway_rate_limit_per_min: number;
   gateway_fallback_models: string[];
+  data_monitors_per_sweep: number;
+  data_monitor_anomaly_sigma: number;
   sandbox_tmpfs_mb: number;
   batch_max_minutes: number;
   egress_allowlist: string[];
@@ -119,6 +121,8 @@ const DEFAULTS: NbRuntimeSettings = {
   ml_drift_alert_psi: 0.25,
   gateway_rate_limit_per_min: 60,
   gateway_fallback_models: [],
+  data_monitors_per_sweep: 20,
+  data_monitor_anomaly_sigma: 3,
   sandbox_tmpfs_mb: 512,
   batch_max_minutes: 120,
   egress_allowlist: ["pypi.org", "files.pythonhosted.org", "openrouter.ai", "api.openai.com"],
@@ -171,6 +175,8 @@ export const nbRuntimeGetState = createServerFn({ method: "POST" })
           ml_drift_alert_psi: row.ml_drift_alert_psi ?? 0.25,
           gateway_rate_limit_per_min: row.gateway_rate_limit_per_min ?? 60,
           gateway_fallback_models: row.gateway_fallback_models ?? [],
+          data_monitors_per_sweep: row.data_monitors_per_sweep ?? 20,
+          data_monitor_anomaly_sigma: row.data_monitor_anomaly_sigma ?? 3,
           sandbox_tmpfs_mb: row.sandbox_tmpfs_mb ?? 512,
           batch_max_minutes: row.batch_max_minutes,
           egress_allowlist: row.egress_allowlist,
@@ -249,6 +255,8 @@ export const nbRuntimeUpdateSettings = createServerFn({ method: "POST" })
         ml_drift_alert_psi: z.number().min(0.01).max(5).optional(),
         gateway_rate_limit_per_min: z.number().int().min(1).max(100000).optional(),
         gateway_fallback_models: z.array(z.string().min(1).max(160)).max(10).optional(),
+        data_monitors_per_sweep: z.number().int().min(1).max(10000).optional(),
+        data_monitor_anomaly_sigma: z.number().min(0.5).max(20).optional(),
         sandbox_tmpfs_mb: z.number().int().min(64).optional(),
         egress_allowlist: z.array(z.string().min(1).max(255)).max(200).optional(),
         pip_allowed: z.boolean().optional(),

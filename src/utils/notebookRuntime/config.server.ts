@@ -56,6 +56,10 @@ export type PlatformResourceSettings = {
   gatewayRateLimitPerMin: number;
   /** provider/model entries every gateway call may fall back to, after the key's chain. */
   gatewayFallbackModels: string[];
+  /** Due data monitors one scheduler sweep runs. */
+  dataMonitorsPerSweep: number;
+  /** Standard deviations from the learned baseline beyond which a volume check alerts. */
+  dataMonitorAnomalySigma: number;
 };
 
 /** A stored override only counts when it is a usable positive number. */
@@ -90,7 +94,7 @@ export async function getPlatformResources(): Promise<PlatformResourceSettings> 
   const { data } = await supabaseAdmin
     .from("notebook_runtime_settings")
     .select(
-      "lakehouse_memory_limit, lakehouse_threads, etl_max_concurrent_runs_per_user, etl_pipelines_per_sweep, ml_train_max_rows, ml_train_time_budget_minutes, ml_train_mem_limit_mb, ml_max_concurrent_trainings_per_user, ml_predict_max_rows, ml_train_gpus, ml_drift_alert_psi, gateway_rate_limit_per_min, gateway_fallback_models",
+      "lakehouse_memory_limit, lakehouse_threads, etl_max_concurrent_runs_per_user, etl_pipelines_per_sweep, ml_train_max_rows, ml_train_time_budget_minutes, ml_train_mem_limit_mb, ml_max_concurrent_trainings_per_user, ml_predict_max_rows, ml_train_gpus, ml_drift_alert_psi, gateway_rate_limit_per_min, gateway_fallback_models, data_monitors_per_sweep, data_monitor_anomaly_sigma",
     )
     .eq("id", true)
     .maybeSingle();
@@ -130,6 +134,10 @@ export async function getPlatformResources(): Promise<PlatformResourceSettings> 
           .split(",")
           .map((s) => s.trim())
           .filter(Boolean),
+    dataMonitorsPerSweep:
+      positive(data?.data_monitors_per_sweep) ?? envInt("DATA_MONITORS_PER_SWEEP") ?? 20,
+    dataMonitorAnomalySigma:
+      positiveNum(data?.data_monitor_anomaly_sigma) ?? envNum("DATA_MONITOR_ANOMALY_SIGMA") ?? 3,
   };
 }
 

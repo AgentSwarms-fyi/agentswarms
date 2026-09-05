@@ -33,6 +33,7 @@ import {
   Wrench,
   type LucideIcon,
   Brain,
+  HeartPulse,
 } from "lucide-react";
 
 export type NavItem = { title: string; url: string; icon: LucideIcon };
@@ -75,6 +76,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { title: "ETL Pipelines", url: "/etl", icon: Waypoints },
       { title: "Lakehouse", url: "/lakehouse", icon: Warehouse },
       { title: "ML Models", url: "/ml", icon: Brain },
+      { title: "Data monitors", url: "/data-monitors", icon: HeartPulse },
       { title: "Developer workspace", url: "/notebooks", icon: NotebookPen },
     ],
   },

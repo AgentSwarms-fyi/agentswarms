@@ -4,7 +4,7 @@
 // schema access, audits every statement, and writes query history.
 import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import {
   ChevronDown,
@@ -796,6 +796,14 @@ function TableTab({
             partitioned by {detail.partitioned_by.join(", ")}
           </Badge>
         )}
+        <Link
+          to="/data-monitors"
+          search={{ source: "lakehouse", schema, table, create: true }}
+          className="text-xs text-primary hover:underline"
+          title="Watch this table for staleness, volume changes, schema drift, nulls or duplicates"
+        >
+          Monitor this table
+        </Link>
         {matview && (
           <Badge
             variant="outline"

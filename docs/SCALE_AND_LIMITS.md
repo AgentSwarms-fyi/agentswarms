@@ -309,20 +309,22 @@ as well. Each value below is resolved per call as **settings row → environment
 variable → default**; the settings row is edited under **Admin → Developer
 runtime** and takes effect on the next job, no redeploy.
 
-| Setting                                | Default   | What it bounds                                                                                            |
-| -------------------------------------- | --------- | --------------------------------------------------------------------------------------------------------- |
-| `ML_TRAIN_MAX_ROWS`                    | 2,000,000 | Rows one training run reads. A larger table is reservoir-sampled to this many, and the version says so.   |
-| `ML_TRAIN_TIME_BUDGET_MINUTES`         | 30        | Default wall-clock budget per run; candidates are skipped, not aborted, once 85% is spent.                |
-| `ML_TRAIN_MEM_LIMIT_MB`                | 8192      | Memory ceiling of a training sandbox. A model that needs more fails with the sandbox's OOM, not silently. |
-| `ML_MAX_CONCURRENT_TRAININGS_PER_USER` | 2         | Training jobs one user may have live at once.                                                             |
-| `ML_PREDICT_MAX_ROWS`                  | 5,000,000 | Rows one batch prediction may score.                                                                      |
-| `ML_API_RATE_LIMIT_PER_MIN`            | 60        | Calls a minute one ML API key may make, across every `/api/ml/*` endpoint (global limiter).               |
-| `ML_TRAIN_GPUS`                        | 0         | GPUs requested per training sandbox: a Docker device request, or `nvidia.com/gpu` on Kubernetes.          |
-| `ML_DRIFT_ALERT_PSI`                   | 0.25      | Population stability index above which a batch prediction audits `ml.drift.alert` and notifies the owner. |
-| `AI_GATEWAY_RATE_LIMIT_PER_MIN`        | 60        | Calls a minute one AI-gateway key may make unless the key sets its own (global limiter across replicas).  |
-| `AI_GATEWAY_FALLBACK_MODELS`           | —         | Comma-separated `provider/model` entries every gateway call may fall back to, after the key's own chain.  |
-| `NOTEBOOK_K8S_GPU_NODE_SELECTOR`       | —         | Kubernetes only: JSON node selector for GPU training pods (`ML_TRAIN_GPUS` > 0).                          |
-| `NOTEBOOK_K8S_GPU_TOLERATIONS`         | —         | Kubernetes only: JSON tolerations for GPU training pods, for a tainted GPU pool.                          |
+| Setting                                | Default   | What it bounds                                                                                                    |
+| -------------------------------------- | --------- | ----------------------------------------------------------------------------------------------------------------- |
+| `ML_TRAIN_MAX_ROWS`                    | 2,000,000 | Rows one training run reads. A larger table is reservoir-sampled to this many, and the version says so.           |
+| `ML_TRAIN_TIME_BUDGET_MINUTES`         | 30        | Default wall-clock budget per run; candidates are skipped, not aborted, once 85% is spent.                        |
+| `ML_TRAIN_MEM_LIMIT_MB`                | 8192      | Memory ceiling of a training sandbox. A model that needs more fails with the sandbox's OOM, not silently.         |
+| `ML_MAX_CONCURRENT_TRAININGS_PER_USER` | 2         | Training jobs one user may have live at once.                                                                     |
+| `ML_PREDICT_MAX_ROWS`                  | 5,000,000 | Rows one batch prediction may score.                                                                              |
+| `ML_API_RATE_LIMIT_PER_MIN`            | 60        | Calls a minute one ML API key may make, across every `/api/ml/*` endpoint (global limiter).                       |
+| `ML_TRAIN_GPUS`                        | 0         | GPUs requested per training sandbox: a Docker device request, or `nvidia.com/gpu` on Kubernetes.                  |
+| `ML_DRIFT_ALERT_PSI`                   | 0.25      | Population stability index above which a batch prediction audits `ml.drift.alert` and notifies the owner.         |
+| `AI_GATEWAY_RATE_LIMIT_PER_MIN`        | 60        | Calls a minute one AI-gateway key may make unless the key sets its own (global limiter across replicas).          |
+| `AI_GATEWAY_FALLBACK_MODELS`           | —         | Comma-separated `provider/model` entries every gateway call may fall back to, after the key's own chain.          |
+| `DATA_MONITORS_PER_SWEEP`              | 20        | Due data monitors one scheduler sweep runs; a check must answer within 60 seconds.                                |
+| `DATA_MONITOR_ANOMALY_SIGMA`           | 3         | Standard deviations from a volume monitor's learned baseline beyond which it alerts (needs five runs of history). |
+| `NOTEBOOK_K8S_GPU_NODE_SELECTOR`       | —         | Kubernetes only: JSON node selector for GPU training pods (`ML_TRAIN_GPUS` > 0).                                  |
+| `NOTEBOOK_K8S_GPU_TOLERATIONS`         | —         | Kubernetes only: JSON tolerations for GPU training pods, for a tainted GPU pool.                                  |
 
 Nothing here is a ceiling in the code. On a 64-core, 512 GB machine set
 `ML_TRAIN_MAX_ROWS` to the size of your largest table and

@@ -1799,6 +1799,9 @@ export const Route = createFileRoute("/api/chat")({
               // the swarm owner's own + shared models. Its per-agent allow-list
               // narrows it further and is deny-by-default.
               "metric_query",
+              // Data health reads the owner's own monitors and incidents by
+              // scopeUserId; nothing else, so it is safe headless.
+              "data_health",
               // Safe for the same reason again: the ML tools re-derive grants
               // from scopeUserId (the run's owner) and every prediction is
               // audited with the run's decision id. Without this entry a

@@ -744,6 +744,55 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     ]
   },
   {
+    "route": "/docs/data-monitors",
+    "title": "Data monitors",
+    "description": "Standing checks on your tables, run on the platform's own clock, with the history to know what normal looks like, an incident opened when a check fails and closed when it passes again, and a notification either way.",
+    "terms": [
+      "DATA_MONITORS_PER_SWEEP",
+      "DATA_MONITOR_ANOMALY_SIGMA",
+      "data.incident.acknowledged",
+      "data.incident.resolved",
+      "data.monitor.alert"
+    ],
+    "headings": [
+      {
+        "id": "what",
+        "text": "What it is",
+        "level": 2
+      },
+      {
+        "id": "checks",
+        "text": "What a monitor checks",
+        "level": 2
+      },
+      {
+        "id": "baselines",
+        "text": "Baselines",
+        "level": 2
+      },
+      {
+        "id": "incidents",
+        "text": "Schedules and incidents",
+        "level": 2
+      },
+      {
+        "id": "agents",
+        "text": "Agents",
+        "level": 2
+      },
+      {
+        "id": "governance",
+        "text": "Governance",
+        "level": 2
+      },
+      {
+        "id": "troubleshooting",
+        "text": "Troubleshooting",
+        "level": 3
+      }
+    ]
+  },
+  {
     "route": "/docs/data-prep",
     "title": "Data preparation",
     "description": "Raw tables rarely answer a question on their own. Prep joins them, fixes the columns and saves the whole recipe so tomorrow's data goes through the same steps.",

@@ -1486,6 +1486,204 @@ export type Database = {
         };
         Relationships: [];
       };
+      data_incidents: {
+        Row: {
+          acknowledged_at: string | null;
+          acknowledged_by: string | null;
+          detail: Json;
+          id: string;
+          last_seen_at: string;
+          monitor_id: string;
+          notified_at: string | null;
+          occurrences: number;
+          opened_at: string;
+          resolved_at: string | null;
+          resolved_by: string | null;
+          severity: string;
+          status: string;
+          title: string;
+          user_id: string;
+        };
+        Insert: {
+          acknowledged_at?: string | null;
+          acknowledged_by?: string | null;
+          detail?: Json;
+          id?: string;
+          last_seen_at?: string;
+          monitor_id: string;
+          notified_at?: string | null;
+          occurrences?: number;
+          opened_at?: string;
+          resolved_at?: string | null;
+          resolved_by?: string | null;
+          severity: string;
+          status?: string;
+          title: string;
+          user_id: string;
+        };
+        Update: {
+          acknowledged_at?: string | null;
+          acknowledged_by?: string | null;
+          detail?: Json;
+          id?: string;
+          last_seen_at?: string;
+          monitor_id?: string;
+          notified_at?: string | null;
+          occurrences?: number;
+          opened_at?: string;
+          resolved_at?: string | null;
+          resolved_by?: string | null;
+          severity?: string;
+          status?: string;
+          title?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "data_incidents_monitor_id_fkey";
+            columns: ["monitor_id"];
+            isOneToOne: false;
+            referencedRelation: "data_monitors";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      data_monitor_runs: {
+        Row: {
+          baseline: Json | null;
+          detail: Json;
+          duration_ms: number | null;
+          id: string;
+          message: string | null;
+          monitor_id: string;
+          ran_at: string;
+          snapshot_id: string | null;
+          status: string;
+          trigger: string;
+          user_id: string;
+          value: number | null;
+        };
+        Insert: {
+          baseline?: Json | null;
+          detail?: Json;
+          duration_ms?: number | null;
+          id?: string;
+          message?: string | null;
+          monitor_id: string;
+          ran_at?: string;
+          snapshot_id?: string | null;
+          status: string;
+          trigger?: string;
+          user_id: string;
+          value?: number | null;
+        };
+        Update: {
+          baseline?: Json | null;
+          detail?: Json;
+          duration_ms?: number | null;
+          id?: string;
+          message?: string | null;
+          monitor_id?: string;
+          ran_at?: string;
+          snapshot_id?: string | null;
+          status?: string;
+          trigger?: string;
+          user_id?: string;
+          value?: number | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "data_monitor_runs_monitor_id_fkey";
+            columns: ["monitor_id"];
+            isOneToOne: false;
+            referencedRelation: "data_monitors";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      data_monitors: {
+        Row: {
+          config: Json;
+          consecutive_alerts: number;
+          created_at: string;
+          cron_expr: string | null;
+          id: string;
+          is_active: boolean;
+          kind: string;
+          last_message: string | null;
+          last_run_at: string | null;
+          last_status: string | null;
+          last_value: number | null;
+          name: string;
+          next_run_at: string | null;
+          schedule: string;
+          schema_name: string;
+          severity: string;
+          source_kind: string;
+          table_name: string;
+          timezone: string | null;
+          updated_at: string;
+          user_id: string;
+          warehouse_id: string | null;
+        };
+        Insert: {
+          config?: Json;
+          consecutive_alerts?: number;
+          created_at?: string;
+          cron_expr?: string | null;
+          id?: string;
+          is_active?: boolean;
+          kind: string;
+          last_message?: string | null;
+          last_run_at?: string | null;
+          last_status?: string | null;
+          last_value?: number | null;
+          name: string;
+          next_run_at?: string | null;
+          schedule?: string;
+          schema_name: string;
+          severity?: string;
+          source_kind: string;
+          table_name: string;
+          timezone?: string | null;
+          updated_at?: string;
+          user_id: string;
+          warehouse_id?: string | null;
+        };
+        Update: {
+          config?: Json;
+          consecutive_alerts?: number;
+          created_at?: string;
+          cron_expr?: string | null;
+          id?: string;
+          is_active?: boolean;
+          kind?: string;
+          last_message?: string | null;
+          last_run_at?: string | null;
+          last_status?: string | null;
+          last_value?: number | null;
+          name?: string;
+          next_run_at?: string | null;
+          schedule?: string;
+          schema_name?: string;
+          severity?: string;
+          source_kind?: string;
+          table_name?: string;
+          timezone?: string | null;
+          updated_at?: string;
+          user_id?: string;
+          warehouse_id?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "data_monitors_warehouse_id_fkey";
+            columns: ["warehouse_id"];
+            isOneToOne: false;
+            referencedRelation: "data_warehouse_connections";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       data_quality_results: {
         Row: {
           detail: string | null;
@@ -4529,6 +4727,8 @@ export type Database = {
           batch_mem_limit_mb: number;
           cell_timeout_seconds: number;
           cpu_limit: string;
+          data_monitor_anomaly_sigma: number | null;
+          data_monitors_per_sweep: number | null;
           default_image: string;
           egress_allowlist: string[];
           etl_max_concurrent_runs_per_user: number | null;
@@ -4563,6 +4763,8 @@ export type Database = {
           batch_mem_limit_mb?: number;
           cell_timeout_seconds?: number;
           cpu_limit?: string;
+          data_monitor_anomaly_sigma?: number | null;
+          data_monitors_per_sweep?: number | null;
           default_image?: string;
           egress_allowlist?: string[];
           etl_max_concurrent_runs_per_user?: number | null;
@@ -4597,6 +4799,8 @@ export type Database = {
           batch_mem_limit_mb?: number;
           cell_timeout_seconds?: number;
           cpu_limit?: string;
+          data_monitor_anomaly_sigma?: number | null;
+          data_monitors_per_sweep?: number | null;
           default_image?: string;
           egress_allowlist?: string[];
           etl_max_concurrent_runs_per_user?: number | null;

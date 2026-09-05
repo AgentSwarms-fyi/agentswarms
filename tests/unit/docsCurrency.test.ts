@@ -53,6 +53,21 @@ type Currency = {
 const CASES: Currency[] = [
   {
     capability:
+      "Data monitors judge volume against a learned baseline and open one incident per monitor",
+    code: "src/utils/dataMonitors/run.server.ts",
+    codeContains: "baselineOf(",
+    doc: "src/routes/docs.data-monitors.tsx",
+    docMentions: [/baseline/i, /incident/i, /five/],
+  },
+  {
+    capability: "Agents can report table health from the monitors",
+    code: "src/utils/tools/registry.server.ts",
+    codeContains: 'name: "data_health"',
+    doc: "src/routes/docs.data-monitors.tsx",
+    docMentions: [/Data health/],
+  },
+  {
+    capability:
       "An OpenAI-compatible endpoint fronts agents and models with a per-key fallback chain",
     code: "src/utils/gateway/api.server.ts",
     codeContains: "fallbackCandidates(",
