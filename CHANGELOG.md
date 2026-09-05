@@ -12,6 +12,204 @@ development branch and may be ahead of the latest tag.
 
 ---
 
+## 1.3.0 — 2026-09-05
+
+**The data half grows up, and gets a machine-learning platform on top.** Sixty-two
+commits and 330 files, the largest release since 1.0. AgentSwarms now ships its
+own lakehouse (DuckDB over Parquet in your bucket, with a transactional
+catalog), ETL pipelines that feed it, no-code machine learning that trains on
+it, and decision provenance that ties every answer to the snapshot it read.
+Around those: web-crawl and Confluence knowledge sources, Jira and Zendesk
+datasets, Azure Blob lakes, local embedding models, a production server that
+uses every core, a Kubernetes path proven on a real cluster, backups that prove
+they restore, and a README half the size. Twenty-seven migrations — run
+`npx supabase db push` after upgrading (the setup scripts and the Kubernetes
+installer apply them for you).
+
+### The lakehouse
+
+- **A columnar warehouse built in.** DuckDB as the engine, a Postgres catalog for
+  transactions, zstd Parquet in your own object storage. Compute is per-request
+  and stateless, so replicas behind a load balancer share storage instead of
+  sharding it, and a losing concurrent commit is retried rather than failed.
+  Browse schemas, tables, columns and snapshots under **Data & BI → Lakehouse**;
+  query with governed SQL or plain language; read any table as of a snapshot.
+- **Warehouse features that matter on one node.** Partitioning for scan pruning,
+  a result cache keyed on the catalog snapshot so a write invalidates it rather
+  than a timer, `EXPLAIN` with rows scanned, materialized views rebuilt on a
+  schedule in one commit, memory limits with spill to disk, and hourly
+  compaction that merges small files and expires old snapshots. Mount a data
+  lake as a read-only schema and join raw Parquet, CSV and JSON in place.
+- **One chokepoint for governance.** Every statement is classified and
+  access-checked before the engine sees it, and row filters and column masks
+  are applied by rewriting the query's parse tree, so a CTE or an alias cannot
+  route around them. The lakehouse registers as a warehouse with no credentials
+  to enter, so BI, the AI Analyst and agents reach it immediately.
+- **It says when its data is gone.** A table whose Parquet no longer exists
+  reported its catalogued row count; it now reports the missing files, and a
+  browse renders what a missing file means instead of a raw S3 404.
+
+### ETL pipelines
+
+- **Move data between systems**, under **Data & BI → ETL Pipelines**: a visual
+  canvas with the compiled Python one toggle away, a full code mode, and AI
+  generate and refine on your own model. Object storage, databases,
+  change-data-capture from Postgres logical slots, HTTP APIs, webhook ingest,
+  the lakehouse and custom Python in; object storage, databases, native
+  Snowflake, BigQuery and Databricks, and the lakehouse out, with replace,
+  append and merge.
+- **Operability from the first run.** Cron schedules with real timezone math, a
+  retry ladder with backoff, overlap guards, run chaining, engine-managed
+  incremental watermarks, per-target schema-drift policy, quality gates that
+  fail, warn or drop rows, per-node data preview, version history with
+  restore, and per-pipeline alert policy. Runs execute on the sandboxed
+  runtime; credentials reach process memory only. Every successful load
+  re-crawls its destination so new tables appear everywhere.
+- **Transforms are configured, not hand-typed.** The visual editor's transform
+  nodes take structured input instead of asking for their own syntax, and a
+  failure in the data stack names what went wrong before it costs a run.
+
+### Machine learning
+
+- **No-code models on lakehouse tables**, under **Data & BI → ML Models**. Pick a
+  table and a goal — predict a column, forecast a series, find groups, find
+  anomalies, recommend items — and a sandboxed trainer profiles the data,
+  prepares it (filters, imputation, encoding, free text as features), tries
+  several algorithms under a time budget with optional hyperparameter search,
+  and keeps the best with its metrics, leaderboard, permutation importance and
+  a passport: lakehouse snapshot, decision id, artifact digest.
+- **A registry, not a notebook.** Versions with candidate, production and
+  archived stages; compare versions side by side; a model card assembled from
+  the registry rows; scheduled retraining that promotes only when better; drift
+  measured against the training distribution on every batch, with an alert
+  above a threshold you set; GPUs requested per training job on Docker or
+  Kubernetes.
+- **Used from everywhere.** Batch predictions written back as lakehouse tables,
+  a try-it panel, the `ml_predict` agent tool with notes that say what each
+  column means, forecasts and forecast-basis alerts on BI dashboards through one
+  shared forecaster, and a scoped public API with per-model `mlk_` keys.
+- **The trainer says when a score could mislead.** Possible leakage (a feature
+  that predicts the target on its own), a lopsided class that makes accuracy a
+  do-nothing baseline, a regression with no signal, a category or time column
+  that would decide a distance alone, an anomaly rate that is a setting, a
+  rating scale used as strength, and forecasts with an incomplete first or last
+  period, empty periods, a one-point holdout or projections below zero. Each
+  warning sits on the version, in the compare view, in the model card and in
+  the agent tool's notes.
+- **A forecast says what a period is.** The period is chosen in the wizard
+  (hourly to quarterly, or inferred), an incomplete last period is dropped, a
+  moving average rivals the flat baseline, and the page, the tool and the API
+  state the period, the aggregation and the method.
+- **Data preparation reaches the lakehouse.** The visual Data Prep studio reads
+  lakehouse tables in place and saves a flow as a lakehouse table (a
+  materialized view on a schedule), which is the way to wrangle a training set.
+
+### Decision provenance
+
+- **One id per answer.** Every chat turn, swarm run and dashboard refresh
+  carries a decision id across the model calls, data reads, cost and approvals
+  it made, plus the lakehouse snapshot it saw, so "where did this number come
+  from?" has one key to assemble.
+- **Take the evidence with you, and check it later.** A signed **Answer
+  Passport** export; **Replay** that re-runs the recorded queries against the
+  original snapshot and against today; and a retention floor so a shorter trace
+  window cannot destroy the evidence.
+- **Replay tells tampering from non-determinism.** It no longer accuses every
+  lakehouse read, measures whether a query answers the same way twice before
+  blaming the record, and answers "does this still hold?" for warehouses that
+  cannot answer "was the record faithful?".
+- **A deleted account cannot rewrite the audit trail.** The hash chain survives
+  user deletion instead of reporting itself broken.
+
+### Knowledge bases and data sources
+
+- **Feed a knowledge base from a website** discovered by sitemap or by following
+  its links, re-checked on a schedule so an edited page is re-embedded and a
+  removed one dropped. No credential needed.
+- **Connect Confluence**, Cloud or Data Center, decided from the host.
+- **See an Azure lake.** Blob Storage and ADLS Gen2 join the S3-compatible
+  stores, with their own signature scheme.
+- **Jira and Zendesk become datasets**, beside Google Sheets, Stripe, Shopify,
+  HubSpot and Salesforce: 29 connectors in all.
+- **Embed with the provider that is connected**, not an operator's OpenAI key,
+  and with local models — Ollama and vLLM at their own vector widths — so an
+  air-gapped install can search its own documents.
+- **Deleting a knowledge base asks first.** Every document, chunk and connected
+  source went on one click; agents wired to the base lost their knowledge in
+  the same instant.
+
+### Governance and security
+
+- **Headless runs read as their owner.** Six reads in the tool registry let a
+  scheduled run see more than the owner could by hand; they are scoped now, and
+  a dashboard's alerts are evaluated as the dashboard's owner.
+- **Agents' warehouse queries are governed and recorded** the way the UI's are:
+  who ran it, against which connection, which tables it touched.
+- **Data Prep sees shared datasets** and bills the warehouse work it runs to the
+  right budget.
+- **A browser cannot switch a destructive button back on.** Every confirmation
+  in the app is enforced server-side.
+
+### Deployment and operations
+
+- **A production server that uses the machine.** `npm start` serves through
+  `server.mjs`, one worker per CPU (`WEB_CONCURRENCY` to override), instead of
+  Vite's single-threaded preview. On an 8-core host SSR went from 19 to 55
+  requests per second.
+- **Kubernetes, proven.** The fully self-hosted path — Supabase as pods, the app,
+  the Office renderer, the JS sandbox, the lakehouse catalog, the cron job —
+  came up on a real cluster, and then on one that is not this laptop; GPU
+  placement and egress for the ML platform included. The runtime doc says
+  plainly that kernel isolation on Kubernetes is the NetworkPolicy.
+- **Spend the machine you bought.** The six compute knobs that lived in three
+  places, two of them constants in TypeScript, are settings under Admin, and
+  the sizing guide says what to set them to for ETL, the lakehouse and ML
+  training.
+- **Backups that prove they restore.** `npm run backup` captures the four
+  stateful things a self-hosted install cannot regenerate — the application
+  database, the lakehouse catalog, the lake bucket, the secrets — and
+  `npm run restore -- <dir> --drill` restores them into a scratch target first.
+- **The egress allow-list is generated, not tracked**, and the Kubernetes proxy
+  config is level with Compose again. CI generates the route tree before
+  type-checking, so it can pass.
+
+### The product's face
+
+- **Session restore**, contributed by @theniteshdev: a tab that closed or
+  crashed mid-work is offered back on the next visit — "We found an unsaved
+  session from your last visit" — with Restore Session and Start Fresh.
+- **The dashboard, the tagline and the README admit the data half.** The
+  landing dashboard counts lakehouse tables, semantic models and dashboards,
+  the tagline reads "unified agentic AI and data platform", and the README is
+  half its previous size with the same screenshots and install guide.
+- **How it is built, in seven chapters** under `docs/engineering/`, and one
+  worked scenario across the whole platform in `docs/END_TO_END_DATA_AND_AI.md`:
+  three systems that disagree about revenue, seven planted defects, and the
+  pipeline, metric, dashboard and policy that catch them.
+
+### Upgrading
+
+```bash
+git pull
+npm install
+npx supabase db push                                 # 27 migrations
+docker compose --profile all up -d --build           # rebuilds the notebook runtime image too
+```
+
+The notebook runtime image gained the machine-learning stack, so rebuild it;
+`--profile all` does. The compose file adds a `lakehouse-catalog` Postgres
+service with its own volume — it is one of the four things `npm run backup`
+captures, so start backing it up. Ten environment variables are new and all
+optional with working defaults: `ETL_TRIGGER_PER_MIN`,
+`PROVENANCE_SIGNING_SECRET` (set it to sign Answer Passports),
+`ML_TRAIN_MAX_ROWS`, `ML_TRAIN_TIME_BUDGET_MINUTES`, `ML_TRAIN_MEM_LIMIT_MB`,
+`ML_MAX_CONCURRENT_TRAININGS_PER_USER`, `ML_PREDICT_MAX_ROWS`,
+`ML_API_RATE_LIMIT_PER_MIN`, `ML_TRAIN_GPUS`, `ML_DRIFT_ALERT_PSI`. The
+generated egress allow-list files are no longer tracked; a working tree that
+showed them as modified will be clean after pulling.
+
+---
+
 ## 1.2.2 — 2026-08-29
 
 **A new default look, and a self-hosted install that actually starts.** Thirty-five
