@@ -2903,6 +2903,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "BI_DIRECT_QUERY_RATE_PER_MIN",
       "BLOCK_PRIVATE_NETWORK_FETCH",
       "BUDGET_FAIL_CLOSED",
+      "BackendConfig",
       "CONNECTION_HEALTH_HOURS",
       "CONNECTOR_MAX_RETRIES",
       "CONNECTOR_RETRY_500",
@@ -2910,6 +2911,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "CONNECTOR_RETRY_MAX_MS",
       "CREDENTIAL_MAX_AGE_DAYS",
       "CronJob",
+      "DENIED",
       "DISABLE_INPROCESS_SCHEDULER",
       "DOCGEN_SERVICE_URL",
       "DOCGEN_TOKEN",
@@ -2929,6 +2931,8 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "JS_SANDBOX_URL",
       "LAKEHOUSE_CATALOG_PASSWORD",
       "LAKEHOUSE_MEMORY_LIMIT=16GB",
+      "LAKEHOUSE_S3_ENDPOINT",
+      "LAKEHOUSE_S3_URL_STYLE=path",
       "LOCAL_ENGINE_MEMORY_MB",
       "LOCAL_ENGINE_THREADS",
       "LOCAL_ENGINE_TIMEOUT_MS",
@@ -2936,6 +2940,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "MCP_MAX_CONCURRENT_PER_SERVER",
       "METRICS_TOKEN",
       "MIRROR_BUDGET_BYTES",
+      "ManagedCertificate",
       "NOTEBOOK_CELL_TIMEOUT_SECONDS",
       "NOTEBOOK_CRON_TOKEN",
       "NOTEBOOK_GATEWAY_URL",
@@ -2961,6 +2966,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "PROVIDER_CREDS_SECRET",
       "PROVIDER_CREDS_SECRET_OLD",
       "PUBLIC_APP_URL",
+      "Provisioning",
       "RESEND_API_KEY",
       "SITE_URL",
       "SMTP_HOST",
@@ -3000,6 +3006,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "agentswarms-docgen",
       "anon",
       "authenticator",
+      "aws",
       "baseline",
       "change-me",
       "deploy/k8s/app/",
@@ -3009,9 +3016,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "docker-compose.yml",
       "docs/DEPLOYMENT.md",
       "docs/INSTALL.md",
+      "eksctl",
       "email_send_log",
       "emptyDir",
       "function",
+      "gp3",
       "helm",
       "http://127.0.0.1:8091",
       "http://js-sandbox:8091",
@@ -3019,11 +3028,13 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "kubectl",
       "max_connections",
       "noreply@example.com",
+      "oci-bv",
       "off",
       "onboarding@resend.dev",
       "resources.limits.cpu",
       "restricted",
       "runAsNonRoot",
+      "storage.googleapis.com",
       "supabase/postgres",
       "supabase_auth_admin",
       "svc/agentswarms",
@@ -3145,6 +3156,31 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       {
         "id": "kubernetes",
         "text": "Kubernetes, in detail",
+        "level": 3
+      },
+      {
+        "id": "k8s-eks",
+        "text": "Amazon EKS, step by step",
+        "level": 3
+      },
+      {
+        "id": "k8s-gke",
+        "text": "Google GKE, step by step",
+        "level": 3
+      },
+      {
+        "id": "k8s-aks",
+        "text": "Azure AKS, step by step",
+        "level": 3
+      },
+      {
+        "id": "k8s-oke",
+        "text": "Oracle OKE, step by step",
+        "level": 3
+      },
+      {
+        "id": "k8s-verify",
+        "text": "After any of them",
         "level": 3
       },
       {

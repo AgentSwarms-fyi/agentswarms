@@ -480,37 +480,45 @@ in-cluster. See [DEVELOPER_WORKSPACE_RUNTIME.md](./DEVELOPER_WORKSPACE_RUNTIME.m
 
 The manifests in this repository use core Kubernetes APIs only and name no
 StorageClass, so the same `kubectl apply` lands on any managed cluster. What
-differs is everything around them, and it is the same four decisions on each
-cloud:
+differs is everything around them, and it is the same six decisions on each
+cloud: where the images live, what the default StorageClass provisions,
+which CNI actually enforces `NetworkPolicy`, how traffic and TLS arrive,
+where the lakehouse catalog's Postgres lives, and which object store holds
+the lake.
 
-| Decision              | Why it is a decision                                                                                                                                                      |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Registry**          | Nodes pull from a registry. Images built on your laptop end in `ImagePullBackOff` on every cluster that is not local (see D1a).                                           |
-| **Default storage**   | The lakehouse catalog StatefulSet and the Supabase chart claim volumes from the default StorageClass. On EKS there is no usable one until you install the EBS CSI driver. |
-| **NetworkPolicy CNI** | The policy that denies the JS sandbox all egress is silently inert without a CNI that enforces policy. The manifest applies either way.                                   |
-| **Ingress and TLS**   | `port-forward` proves the install; a hostname and a certificate make it usable, and `PUBLIC_APP_URL` has to match the result.                                             |
+Each runbook below walks all six from an empty account to a working
+instance, in order, with a check after every step. They are long because
+they are meant to be followed rather than read: nothing is left as "and then
+configure ingress".
 
-Here is how those land per cloud, with the cluster sizes each runbook below
-creates:
+| Decision              | Why it is a decision                                                                                                                                                                                                            |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Registry**          | Nodes pull from a registry. Images built on your laptop end in `ImagePullBackOff` on every cluster that is not local.                                                                                                           |
+| **Default storage**   | The lakehouse catalog and the Supabase chart claim volumes from the default StorageClass. On EKS there is no working one until you install a CSI driver yourself.                                                               |
+| **NetworkPolicy CNI** | The policy that denies the JS sandbox all egress is silently inert without a CNI that enforces policy — it applies cleanly and does nothing. On GKE and AKS the choice is made at cluster creation and cannot be changed later. |
+| **Ingress and TLS**   | `port-forward` proves the install; a hostname and a certificate make it usable, and `PUBLIC_APP_URL` has to match the result.                                                                                                   |
+| **Catalog Postgres**  | The DuckLake catalog is the one part of the lakehouse that cannot be rebuilt from object storage. In production it belongs on managed Postgres, not the in-cluster StatefulSet.                                                 |
+| **Lake object store** | The lakehouse writes Parquet to S3-compatible storage. Three of these four clouds have one; Azure does not (see its runbook).                                                                                                   |
 
-| Cloud     | Registry          | Storage                              | Policy enforcement                   | Ingress                                  |
-| --------- | ----------------- | ------------------------------------ | ------------------------------------ | ---------------------------------------- |
-| **AWS**   | ECR               | EBS CSI add-on, then a default `gp3` | VPC CNI with network policy enabled  | AWS Load Balancer Controller (ALB) + ACM |
-| **GCP**   | Artifact Registry | `standard-rwo`, default already      | Dataplane V2 (enable at create time) | GKE Ingress + ManagedCertificate         |
-| **Azure** | ACR               | Azure Disks, default already         | `--network-policy` at create time    | App Routing add-on (managed NGINX) + DNS |
-| **OCI**   | OCIR              | `oci-bv`, default already            | Calico, installed by you             | OCI native ingress controller, or NGINX  |
+| Cloud     | Registry          | Storage                              | Policy enforcement                  | Ingress                                  |
+| --------- | ----------------- | ------------------------------------ | ----------------------------------- | ---------------------------------------- |
+| **AWS**   | ECR               | EBS CSI add-on, then a default `gp3` | VPC CNI with network policy enabled | AWS Load Balancer Controller (ALB) + ACM |
+| **GCP**   | Artifact Registry | `standard-rwo`, default already      | Dataplane V2, at creation           | GKE Ingress + ManagedCertificate         |
+| **Azure** | ACR               | Azure Disks, default already         | `--network-policy`, at creation     | App Routing add-on (managed NGINX)       |
+| **OCI**   | OCIR              | `oci-bv`, default already            | Calico, installed by you            | Native ingress controller, or NGINX      |
 
 The in-cluster observations in D1 and D2 come from the clusters this was
 built and broken on. The vendor commands below are each cloud's documented
-path for those four decisions and for the managed Postgres and object
-storage the lakehouse prefers — run them against a scratch cluster first,
-and read your provider's current CLI reference beside them, because flag
-names move.
+path for those six decisions; run them against a scratch cluster before a
+production one, and read your provider's current CLI reference beside them,
+because flag names move.
 
-**Push five images, not three.** D1a names the three the installer
-substitutes. Two more are pulled by the notebook namespace if you use the
-developer workspace, ETL, or anything in the ML platform — which run as
-batch pods there:
+#### What every cloud needs first: five images
+
+D1a names the three images the installer substitutes. Two more are pulled by
+the notebook namespace if you use the developer workspace, ETL, or anything
+in the ML platform — training, prediction and pipeline runs are all batch
+pods there:
 
 | Image                                 | Build context                 | Needed for                             |
 | ------------------------------------- | ----------------------------- | -------------------------------------- |
@@ -520,38 +528,77 @@ batch pods there:
 | `agentswarms/notebook-gateway:latest` | `./services/notebook-gateway` | the notebook session gateway           |
 | `agentswarms/notebook-runtime:latest` | `./docker/notebook-runtime`   | notebook, ETL, ML training and scoring |
 
+The build loop is the same everywhere; only `REGISTRY` changes. Run it from
+the repository root:
+
+```bash
+export REGISTRY=<your registry host and path>   # set per cloud, below
+export TAG=1.4.0
+docker build -t "$REGISTRY/agentswarms:$TAG" .
+docker build -t "$REGISTRY/docgen:$TAG" ./docgen-service
+docker build -t "$REGISTRY/js-sandbox:$TAG" ./services/js-sandbox
+docker build -t "$REGISTRY/notebook-gateway:$TAG" ./services/notebook-gateway
+docker build -t "$REGISTRY/notebook-runtime:$TAG" ./docker/notebook-runtime
+for i in agentswarms docgen js-sandbox notebook-gateway notebook-runtime; do docker push "$REGISTRY/$i:$TAG"; done
+```
+
+On an Apple Silicon laptop pushing to an x86 node pool, build for the
+cluster's architecture or every pod crash-loops with `exec format error`:
+
+```bash
+docker buildx build --platform linux/amd64 -t "$REGISTRY/agentswarms:$TAG" --push .
+```
+
 The first three reach the manifests through the installer's environment
-variables; the gateway is named in `deploy/k8s/notebooks/notebook-runtime.yaml`
-and the runtime through `NOTEBOOK_RUNTIME_IMAGE` in the app's Secret.
+variables. The gateway is named in
+`deploy/k8s/notebooks/notebook-runtime.yaml` (edit the `image:` line) and the
+runtime through `NOTEBOOK_RUNTIME_IMAGE` in the app's Secret.
 
 #### Amazon EKS (AWS)
 
-**1. Create the cluster.** Three 4-vCPU nodes clear the roughly 3 CPU / 6 GiB
-our own pods request, with room for the Supabase chart:
+**Before you start.** `aws` v2, `eksctl`, `kubectl` and `helm` on your path,
+and an IAM principal that can create EKS clusters, IAM roles, ECR
+repositories, RDS instances and S3 buckets. Set the variables this runbook
+uses:
 
 ```bash
-eksctl create cluster --name agentswarms --region us-east-1 \
-  --nodegroup-name app --node-type m6i.xlarge --nodes 3 --managed --with-oidc
+export AWS_REGION=us-east-1
+export CLUSTER=agentswarms
+export ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+export REGISTRY="$ACCOUNT.dkr.ecr.$AWS_REGION.amazonaws.com"
+export TAG=1.4.0
 ```
 
-**2. Give it a working default StorageClass.** A new EKS cluster has no CSI
-driver installed, so every `PersistentVolumeClaim` sits in `Pending` and the
-lakehouse catalog never starts. Install the driver with an IAM role, then
-make `gp3` the default:
-
-```bash
-eksctl create iamserviceaccount --cluster agentswarms --region us-east-1 \
-  --namespace kube-system --name ebs-csi-controller-sa \
-  --role-name AgentSwarmsEBSCSIRole \
-  --attach-policy-arn arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy \
-  --approve --role-only
-```
+**1. Create the cluster.** Three 4-vCPU nodes clear the roughly 3 CPU and
+6 GiB our own pods request, with room for the Supabase chart. `--with-oidc`
+is not optional here: every add-on below authenticates with IRSA, which
+needs the OIDC provider that flag creates.
 
 ```bash
-eksctl create addon --cluster agentswarms --region us-east-1 \
-  --name aws-ebs-csi-driver --force \
-  --service-account-role-arn "arn:aws:iam::$(aws sts get-caller-identity --query Account --output text):role/AgentSwarmsEBSCSIRole"
+eksctl create cluster --name "$CLUSTER" --region "$AWS_REGION" --version 1.31 --nodegroup-name app --node-type m6i.xlarge --nodes 3 --nodes-min 3 --nodes-max 6 --managed --with-oidc
 ```
+
+Fifteen to twenty minutes. Check:
+
+```bash
+kubectl get nodes -o wide
+```
+
+**2. Give the cluster a working default StorageClass.** A current EKS
+cluster ships a `gp2` StorageClass whose provisioner is not installed, so
+every `PersistentVolumeClaim` sits in `Pending` for ever and the lakehouse
+catalog never starts. Install the EBS CSI driver with its own IAM role:
+
+```bash
+eksctl create iamserviceaccount --cluster "$CLUSTER" --region "$AWS_REGION" --namespace kube-system --name ebs-csi-controller-sa --role-name AgentSwarmsEBSCSIRole --attach-policy-arn arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy --approve --role-only
+```
+
+```bash
+eksctl create addon --cluster "$CLUSTER" --region "$AWS_REGION" --name aws-ebs-csi-driver --service-account-role-arn "arn:aws:iam::$ACCOUNT:role/AgentSwarmsEBSCSIRole" --force
+```
+
+Then make `gp3` the default and take the mark off `gp2` — two defaults is
+the same as none:
 
 ```bash
 kubectl apply -f - <<'YAML'
@@ -564,50 +611,110 @@ metadata:
 provisioner: ebs.csi.aws.com
 parameters:
   type: gp3
+  encrypted: "true"
 volumeBindingMode: WaitForFirstConsumer
 allowVolumeExpansion: true
 YAML
 ```
 
-If the cluster shipped a `gp2` class marked default, take the mark off it —
-two defaults is the same as none:
-
 ```bash
-kubectl annotate storageclass gp2 storageclass.kubernetes.io/is-default-class-
+kubectl annotate storageclass gp2 storageclass.kubernetes.io/is-default-class- --overwrite
 ```
 
-**3. Turn on network policy.** The VPC CNI enforces `NetworkPolicy` only when
-told to:
+Check exactly one class is marked `(default)`:
 
 ```bash
-aws eks update-addon --cluster-name agentswarms --addon-name vpc-cni \
-  --resolve-conflicts PRESERVE \
-  --configuration-values '{"enableNetworkPolicy":"true"}'
+kubectl get storageclass
 ```
 
-**4. Push the images to ECR.**
+**3. Turn on network policy.** The VPC CNI enforces `NetworkPolicy` only
+when told to, and the JS sandbox's egress ban depends on it:
 
 ```bash
-aws ecr get-login-password --region us-east-1 | docker login --username AWS \
-  --password-stdin "$(aws sts get-caller-identity --query Account --output text).dkr.ecr.us-east-1.amazonaws.com"
+aws eks update-addon --cluster-name "$CLUSTER" --region "$AWS_REGION" --addon-name vpc-cni --resolve-conflicts PRESERVE --configuration-values '{"enableNetworkPolicy":"true"}'
 ```
 
 ```bash
-for r in agentswarms docgen js-sandbox notebook-gateway notebook-runtime; do aws ecr create-repository --repository-name "$r" --region us-east-1; done
+aws eks describe-addon --cluster-name "$CLUSTER" --region "$AWS_REGION" --addon-name vpc-cni --query 'addon.status'
 ```
 
-Build and push each from the contexts in the table above, tagged
-`<account>.dkr.ecr.us-east-1.amazonaws.com/<name>:<version>`.
+Wait for `ACTIVE` before continuing.
 
-**5. Install.** Either path from D1 or D2, with the pushed names:
+**4. Create the ECR repositories and push.**
 
 ```bash
-AGENTSWARMS_IMAGE=<account>.dkr.ecr.us-east-1.amazonaws.com/agentswarms:1.4.0 DOCGEN_IMAGE=<account>.dkr.ecr.us-east-1.amazonaws.com/docgen:1.4.0 JS_SANDBOX_IMAGE=<account>.dkr.ecr.us-east-1.amazonaws.com/js-sandbox:1.4.0 ADMIN_EMAIL=you@corp.com ADMIN_PASSWORD='...' bash scripts/setup-k8s.sh
+for r in agentswarms docgen js-sandbox notebook-gateway notebook-runtime; do aws ecr create-repository --repository-name "$r" --region "$AWS_REGION" >/dev/null || true; done
 ```
 
-**6. Put an ALB in front.** Install the AWS Load Balancer Controller (its own
-IAM policy and service account — follow the controller's install guide), then
-an Ingress with an ACM certificate:
+```bash
+aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$REGISTRY"
+```
+
+Then run the build loop from "What every cloud needs first".
+
+**5. Install AgentSwarms.** Fully self-hosted, Supabase in the cluster too:
+
+```bash
+AGENTSWARMS_IMAGE="$REGISTRY/agentswarms:$TAG" DOCGEN_IMAGE="$REGISTRY/docgen:$TAG" JS_SANDBOX_IMAGE="$REGISTRY/js-sandbox:$TAG" ADMIN_EMAIL=you@corp.com ADMIN_PASSWORD='choose-a-strong-one' bash scripts/setup-k8s.sh
+```
+
+Or, with your own Supabase, follow D2 instead and apply
+`deploy/k8s/app/agentswarms.yaml` and `deploy/k8s/app/services.yaml`.
+
+**6. Watch it come up.**
+
+```bash
+kubectl -n agentswarms get pods -w
+```
+
+```bash
+kubectl -n agentswarms port-forward svc/agentswarms 8080:80
+```
+
+Then open `http://localhost:8080` and sign in as the admin you named. A pod
+in `Pending` with a `FailedScheduling` event is capacity; one waiting on a
+volume is step 2; `ImagePullBackOff` is step 4.
+
+**7. Put an ALB in front, with TLS.** Install the AWS Load Balancer
+Controller — the IAM policy comes from the controller's own repository, so
+it stays current:
+
+```bash
+curl -fsSL -o alb-policy.json https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v2.9.2/docs/install/iam_policy.json
+```
+
+```bash
+aws iam create-policy --policy-name AgentSwarmsALBControllerPolicy --policy-document file://alb-policy.json
+```
+
+```bash
+eksctl create iamserviceaccount --cluster "$CLUSTER" --region "$AWS_REGION" --namespace kube-system --name aws-load-balancer-controller --role-name AgentSwarmsALBControllerRole --attach-policy-arn "arn:aws:iam::$ACCOUNT:policy/AgentSwarmsALBControllerPolicy" --approve
+```
+
+```bash
+helm repo add eks https://aws.github.io/eks-charts && helm repo update
+```
+
+```bash
+helm install aws-load-balancer-controller eks/aws-load-balancer-controller --namespace kube-system --set clusterName="$CLUSTER" --set serviceAccount.create=false --set serviceAccount.name=aws-load-balancer-controller --set region="$AWS_REGION"
+```
+
+```bash
+kubectl -n kube-system rollout status deploy/aws-load-balancer-controller
+```
+
+Request a certificate for the hostname and validate it by DNS:
+
+```bash
+aws acm request-certificate --domain-name agentswarms.example.com --validation-method DNS --region "$AWS_REGION"
+```
+
+```bash
+aws acm describe-certificate --certificate-arn <arn from the previous command> --region "$AWS_REGION" --query 'Certificate.DomainValidationOptions[0].ResourceRecord'
+```
+
+Create that CNAME in your DNS, wait for `Status: ISSUED`, then apply the
+Ingress:
 
 ```bash
 kubectl apply -f - <<'YAML'
@@ -619,9 +726,11 @@ metadata:
   annotations:
     alb.ingress.kubernetes.io/scheme: internet-facing
     alb.ingress.kubernetes.io/target-type: ip
-    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
-    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-east-1:ACCOUNT:certificate/ID
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:REGION:ACCOUNT:certificate/ID
     alb.ingress.kubernetes.io/healthcheck-path: /api/health/ready
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: "15"
 spec:
   ingressClassName: alb
   rules:
@@ -634,87 +743,187 @@ spec:
 YAML
 ```
 
-Point the health check at `/api/health/ready`, not `/api/health` — the
-readiness answer is what holds an analytics pod, or a pod that cannot reach
-the database, out of the target group.
-
-**7. Managed data services.** For anything beyond a trial, move the lakehouse
-catalog off the in-cluster StatefulSet and the lake into S3:
-
-- **RDS for PostgreSQL** in the cluster's VPC, then
-  `LAKEHOUSE_CATALOG_URL=postgres://user:pass@host:5432/lakehouse_catalog` in
-  the app Secret.
-- **An S3 bucket** for the lake. Leave `LAKEHOUSE_S3_ENDPOINT` unset (it is
-  for MinIO and other S3-compatible stores), set `LAKEHOUSE_S3_REGION`,
-  `LAKEHOUSE_S3_URL_STYLE=vhost` and `LAKEHOUSE_S3_USE_SSL=true`, and give the
-  key pair `s3:GetObject`, `s3:PutObject`, `s3:DeleteObject` and
-  `s3:ListBucket` on that bucket only.
-- Add the bucket's host to the notebook egress allow-list (see
-  [The ML platform on Kubernetes](#the-ml-platform-on-kubernetes)) or the
-  first training job fails with DuckDB's misleading "Authentication Failure".
-
-**8. GPUs, if you train on them.**
+Health-check `/api/health/ready`, not `/api/health`: readiness is the answer
+that holds an analytics pod, or a pod that cannot reach the database, out of
+the target group. Get the load balancer's hostname and point your domain at
+it with an ALIAS or CNAME record:
 
 ```bash
-eksctl create nodegroup --cluster agentswarms --region us-east-1 \
-  --name gpu --node-type g5.xlarge --nodes 1 --node-labels accelerator=nvidia
+kubectl -n agentswarms get ingress agentswarms -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
 ```
 
-Install the NVIDIA device plugin, then in the app Secret:
+**8. Tell the app its own hostname.** `PUBLIC_APP_URL` is what invitations,
+embeds and OAuth callbacks use, so it has to be the name people type:
 
 ```bash
-ML_TRAIN_GPUS=1
-NOTEBOOK_K8S_GPU_NODE_SELECTOR='{"accelerator":"nvidia"}'
-NOTEBOOK_K8S_GPU_TOLERATIONS='[{"key":"nvidia.com/gpu","operator":"Exists","effect":"NoSchedule"}]'
+kubectl -n agentswarms patch secret agentswarms-env --type merge -p "{\"stringData\":{\"PUBLIC_APP_URL\":\"https://agentswarms.example.com\"}}"
 ```
 
-The built-in trainers are CPU-only, so this is worth doing only with a CUDA
-build of the runtime image named in `NOTEBOOK_RUNTIME_IMAGE`.
+```bash
+kubectl -n agentswarms rollout restart deploy/agentswarms
+```
+
+**9. Managed Postgres for the lakehouse catalog.** The in-cluster
+StatefulSet is fine for a trial and wrong for production. Create an RDS
+instance in the cluster's VPC:
+
+```bash
+export VPC=$(aws eks describe-cluster --name "$CLUSTER" --region "$AWS_REGION" --query 'cluster.resourcesVpcConfig.vpcId' --output text)
+```
+
+```bash
+aws rds create-db-instance --db-instance-identifier agentswarms-catalog --engine postgres --engine-version 16.4 --db-instance-class db.t4g.medium --allocated-storage 50 --storage-encrypted --master-username lakehouse --master-user-password '<strong-password>' --db-name lakehouse_catalog --no-publicly-accessible --vpc-security-group-ids <sg allowing 5432 from the node group> --region "$AWS_REGION"
+```
+
+When it is `available`, put its endpoint in the Secret and restart:
+
+```bash
+kubectl -n agentswarms patch secret agentswarms-env --type merge -p "{\"stringData\":{\"LAKEHOUSE_CATALOG_URL\":\"postgres://lakehouse:<password>@<endpoint>:5432/lakehouse_catalog\"}}"
+```
+
+**10. S3 for the lake.** Leave `LAKEHOUSE_S3_ENDPOINT` unset — it is for
+MinIO and other S3-compatible stores, and setting it to an AWS host is the
+usual cause of a lakehouse that cannot read its own Parquet:
+
+```bash
+aws s3api create-bucket --bucket agentswarms-lake --region "$AWS_REGION"
+```
+
+```bash
+kubectl -n agentswarms patch secret agentswarms-env --type merge -p "{\"stringData\":{\"LAKEHOUSE_DATA_URL\":\"s3://agentswarms-lake/main\",\"LAKEHOUSE_S3_REGION\":\"$AWS_REGION\",\"LAKEHOUSE_S3_URL_STYLE\":\"vhost\",\"LAKEHOUSE_S3_USE_SSL\":\"true\",\"LAKEHOUSE_S3_KEY_ID\":\"<key>\",\"LAKEHOUSE_S3_SECRET\":\"<secret>\"}}"
+```
+
+Give that key pair `s3:GetObject`, `s3:PutObject`, `s3:DeleteObject` and
+`s3:ListBucket` on that one bucket, and nothing else.
+
+**11. The notebook namespace, if you train or run pipelines.** Edit the
+gateway image in the manifest first, then:
+
+```bash
+kubectl apply -f deploy/k8s/notebooks/notebook-runtime.yaml
+```
+
+```bash
+kubectl -n agentswarms patch secret agentswarms-env --type merge -p "{\"stringData\":{\"NOTEBOOK_RUNTIME_BACKEND\":\"k8s\",\"NOTEBOOK_RUNTIME_IMAGE\":\"$REGISTRY/notebook-runtime:$TAG\"}}"
+```
+
+The sandbox reaches the internet through a squid proxy whose allow-list is a
+ConfigMap. Under Compose the app rewrites it; on Kubernetes it cannot, so
+add the lake's host by hand or the first training job fails with DuckDB's
+misleading "Authentication Failure":
+
+```bash
+kubectl -n agentswarms-notebooks edit configmap notebook-egress
+```
+
+```bash
+kubectl -n agentswarms-notebooks rollout restart deploy/notebook-egress
+```
+
+**12. GPUs, only if you bring a CUDA runtime image.** The built-in trainers
+are CPU-only, so this buys nothing on its own:
+
+```bash
+eksctl create nodegroup --cluster "$CLUSTER" --region "$AWS_REGION" --name gpu --node-type g5.xlarge --nodes 1 --node-labels accelerator=nvidia
+```
+
+```bash
+kubectl apply -f https://raw.githubusercontent.com/NVIDIA/k8s-device-plugin/v0.17.0/deployments/static/nvidia-device-plugin.yml
+```
+
+```bash
+kubectl -n agentswarms patch secret agentswarms-env --type merge -p '{"stringData":{"ML_TRAIN_GPUS":"1","NOTEBOOK_K8S_GPU_NODE_SELECTOR":"{\"accelerator\":\"nvidia\"}","NOTEBOOK_K8S_GPU_TOLERATIONS":"[{\"key\":\"nvidia.com/gpu\",\"operator\":\"Exists\",\"effect\":\"NoSchedule\"}]"}}'
+```
+
+**13. Tearing it down.** `eksctl delete cluster` leaves the load balancer,
+the RDS instance and the bucket behind, and they keep charging:
+
+```bash
+kubectl -n agentswarms delete ingress agentswarms
+```
+
+```bash
+eksctl delete cluster --name "$CLUSTER" --region "$AWS_REGION"
+```
+
+```bash
+aws rds delete-db-instance --db-instance-identifier agentswarms-catalog --skip-final-snapshot --region "$AWS_REGION"
+```
 
 #### Google GKE (GCP)
 
-**1. Create the cluster with Dataplane V2**, which is what enforces
-`NetworkPolicy`. It cannot be turned on later without recreating the cluster,
-so this flag is the one to get right at creation:
+**Before you start.** `gcloud`, `kubectl` and `helm`, a project with billing
+enabled, and the Kubernetes Engine, Artifact Registry, Cloud SQL Admin and
+Cloud Storage APIs turned on:
 
 ```bash
-gcloud container clusters create agentswarms \
-  --region us-central1 --num-nodes 1 --machine-type e2-standard-4 \
-  --enable-dataplane-v2 --enable-ip-alias \
-  --workload-pool="$(gcloud config get-value project).svc.id.goog"
+export PROJECT=$(gcloud config get-value project)
+export REGION=us-central1
+export CLUSTER=agentswarms
+export REGISTRY="$REGION-docker.pkg.dev/$PROJECT/agentswarms"
+export TAG=1.4.0
+gcloud services enable container.googleapis.com artifactregistry.googleapis.com sqladmin.googleapis.com storage.googleapis.com
 ```
+
+**1. Create the cluster with Dataplane V2.** This is the flag to get right:
+it is what enforces `NetworkPolicy`, and it cannot be turned on afterwards
+without recreating the cluster.
 
 ```bash
-gcloud container clusters get-credentials agentswarms --region us-central1
+gcloud container clusters create "$CLUSTER" --region "$REGION" --num-nodes 1 --machine-type e2-standard-4 --enable-dataplane-v2 --enable-ip-alias --workload-pool="$PROJECT.svc.id.goog" --release-channel regular
 ```
 
-`--num-nodes 1` is per zone, so a regional cluster gives three nodes.
+`--num-nodes` is per zone, so a regional cluster gives three nodes. Then:
+
+```bash
+gcloud container clusters get-credentials "$CLUSTER" --region "$REGION"
+```
+
 Autopilot works too, with one caveat: it applies its own admission and
-resource rules, so check the Office renderer first — it is the one image here
-that runs as root. Standard clusters keep that choice yours.
+resource rules, so check the Office renderer first — it is the one image
+here that runs as root. Standard clusters keep that choice yours.
 
-**2. Storage needs nothing.** GKE ships `standard-rwo` as the default
-StorageClass and the PD CSI driver is already installed.
-
-**3. Push the images to Artifact Registry.**
+**2. Storage needs nothing.** GKE ships `standard-rwo` as the default and
+the PD CSI driver is already installed. Confirm before you rely on it:
 
 ```bash
-gcloud artifacts repositories create agentswarms --repository-format=docker --location=us-central1
+kubectl get storageclass
+```
+
+**3. Create the Artifact Registry repository and push.**
+
+```bash
+gcloud artifacts repositories create agentswarms --repository-format=docker --location="$REGION" --description="AgentSwarms images"
 ```
 
 ```bash
-gcloud auth configure-docker us-central1-docker.pkg.dev
+gcloud auth configure-docker "$REGION-docker.pkg.dev"
 ```
 
-Tag each as
-`us-central1-docker.pkg.dev/<project>/agentswarms/<name>:<version>`.
+Then run the build loop from "What every cloud needs first".
 
-**4. Install** with D1 or D2, naming the pushed images exactly as in the EKS
-step above.
+**4. Install AgentSwarms.**
 
-**5. Ingress and a Google-managed certificate.** The Service in front needs
-to be `NodePort` or have the container-native load balancing annotation; the
-certificate is its own object:
+```bash
+AGENTSWARMS_IMAGE="$REGISTRY/agentswarms:$TAG" DOCGEN_IMAGE="$REGISTRY/docgen:$TAG" JS_SANDBOX_IMAGE="$REGISTRY/js-sandbox:$TAG" ADMIN_EMAIL=you@corp.com ADMIN_PASSWORD='choose-a-strong-one' bash scripts/setup-k8s.sh
+```
+
+```bash
+kubectl -n agentswarms get pods -w
+```
+
+**5. Ingress with a Google-managed certificate.** Reserve a static address
+first, so the DNS record you create outlives a rebuild of the Ingress:
+
+```bash
+gcloud compute addresses create agentswarms-ip --global
+```
+
+```bash
+gcloud compute addresses describe agentswarms-ip --global --format='value(address)'
+```
+
+Create an A record for that address, then:
 
 ```bash
 kubectl apply -f - <<'YAML'
@@ -726,6 +935,17 @@ metadata:
 spec:
   domains: [agentswarms.example.com]
 ---
+apiVersion: cloud.google.com/v1
+kind: BackendConfig
+metadata:
+  name: agentswarms
+  namespace: agentswarms
+spec:
+  healthCheck:
+    type: HTTP
+    requestPath: /api/health/ready
+    port: 8080
+---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -733,6 +953,7 @@ metadata:
   namespace: agentswarms
   annotations:
     kubernetes.io/ingress.class: gce
+    kubernetes.io/ingress.global-static-ip-name: agentswarms-ip
     networking.gke.io/managed-certificates: agentswarms
 spec:
   rules:
@@ -745,86 +966,156 @@ spec:
 YAML
 ```
 
-A managed certificate stays `Provisioning` until the domain's A record points
-at the Ingress address, which takes tens of minutes on first issue. Set
-`PUBLIC_APP_URL` to the same hostname.
-
-**6. Managed data services.**
-
-- **Cloud SQL for PostgreSQL** for `LAKEHOUSE_CATALOG_URL`, reached through
-  the Cloud SQL Auth Proxy or a private IP in the cluster's VPC.
-- **Cloud Storage** for the lake, through its S3-compatible interoperability
-  endpoint: create an HMAC key for a service account, then
-  `LAKEHOUSE_S3_ENDPOINT=storage.googleapis.com`,
-  `LAKEHOUSE_S3_URL_STYLE=path`, `LAKEHOUSE_S3_USE_SSL=true`, and the HMAC
-  pair in `LAKEHOUSE_S3_KEY_ID` / `LAKEHOUSE_S3_SECRET`.
-
-**7. GPUs.**
+The `BackendConfig` needs the Service to reference it, which is one
+annotation:
 
 ```bash
-gcloud container node-pools create gpu --cluster agentswarms --region us-central1 \
-  --machine-type g2-standard-8 --accelerator type=nvidia-l4,count=1,gpu-driver-version=latest \
-  --num-nodes 1
+kubectl -n agentswarms annotate service agentswarms cloud.google.com/backend-config='{"default":"agentswarms"}' --overwrite
 ```
 
-`gpu-driver-version=latest` has GKE install the drivers, so no device-plugin
-DaemonSet of your own. Then:
+A managed certificate stays `Provisioning` until the A record resolves to
+the reserved address, which takes tens of minutes on first issue:
 
 ```bash
-NOTEBOOK_K8S_GPU_NODE_SELECTOR='{"cloud.google.com/gke-accelerator":"nvidia-l4"}'
+kubectl -n agentswarms describe managedcertificate agentswarms
+```
+
+Then set the hostname as in the AWS runbook's step 8.
+
+**6. Cloud SQL for the lakehouse catalog.**
+
+```bash
+gcloud sql instances create agentswarms-catalog --database-version=POSTGRES_16 --tier=db-custom-2-7680 --region="$REGION" --storage-auto-increase
+```
+
+```bash
+gcloud sql databases create lakehouse_catalog --instance=agentswarms-catalog
+```
+
+```bash
+gcloud sql users create lakehouse --instance=agentswarms-catalog --password='<strong-password>'
+```
+
+Reach it over private IP from the cluster's VPC, or run the Cloud SQL Auth
+Proxy as a sidecar; then set `LAKEHOUSE_CATALOG_URL` as in the AWS runbook.
+
+**7. Cloud Storage for the lake, through its S3-compatible endpoint.** GCS
+speaks S3 with an HMAC key, which is what the lakehouse needs:
+
+```bash
+gcloud storage buckets create "gs://agentswarms-lake" --location="$REGION" --uniform-bucket-level-access
+```
+
+```bash
+gcloud storage hmac create <service-account-email>
+```
+
+```bash
+kubectl -n agentswarms patch secret agentswarms-env --type merge -p '{"stringData":{"LAKEHOUSE_DATA_URL":"s3://agentswarms-lake/main","LAKEHOUSE_S3_ENDPOINT":"storage.googleapis.com","LAKEHOUSE_S3_URL_STYLE":"path","LAKEHOUSE_S3_USE_SSL":"true","LAKEHOUSE_S3_KEY_ID":"<access id>","LAKEHOUSE_S3_SECRET":"<secret>"}}'
+```
+
+**8. The notebook namespace** — identical to the AWS runbook's step 11, with
+`storage.googleapis.com` as the host to add to the egress allow-list.
+
+**9. GPUs.** GKE installs the drivers for you when the pool asks for them:
+
+```bash
+gcloud container node-pools create gpu --cluster "$CLUSTER" --region "$REGION" --machine-type g2-standard-8 --accelerator type=nvidia-l4,count=1,gpu-driver-version=latest --num-nodes 1
+```
+
+```bash
+kubectl -n agentswarms patch secret agentswarms-env --type merge -p '{"stringData":{"ML_TRAIN_GPUS":"1","NOTEBOOK_K8S_GPU_NODE_SELECTOR":"{\"cloud.google.com/gke-accelerator\":\"nvidia-l4\"}"}}'
+```
+
+**10. Tearing it down.**
+
+```bash
+gcloud container clusters delete "$CLUSTER" --region "$REGION"
+```
+
+```bash
+gcloud sql instances delete agentswarms-catalog
+```
+
+```bash
+gcloud compute addresses delete agentswarms-ip --global
 ```
 
 #### Azure AKS
 
-**1. Create the cluster with a policy-enforcing dataplane.**
+**Before you start.** `az`, `kubectl` and `helm`, and a subscription where
+you can create resource groups, AKS clusters, container registries and
+databases:
 
 ```bash
-az group create --name agentswarms-rg --location eastus
+export RG=agentswarms-rg
+export LOCATION=eastus
+export CLUSTER=agentswarms
+export ACR=agentswarmsacr          # must be globally unique
+export REGISTRY="$ACR.azurecr.io"
+export TAG=1.4.0
+az group create --name "$RG" --location "$LOCATION"
+```
+
+**1. Create the cluster with a policy-enforcing dataplane.** Like GKE's
+Dataplane V2, this is chosen at creation: `--network-policy` cannot be added
+to a running cluster.
+
+```bash
+az aks create --resource-group "$RG" --name "$CLUSTER" --node-count 3 --node-vm-size Standard_D4s_v5 --network-plugin azure --network-dataplane cilium --network-policy cilium --enable-managed-identity --enable-cluster-autoscaler --min-count 3 --max-count 6 --generate-ssh-keys
 ```
 
 ```bash
-az aks create --resource-group agentswarms-rg --name agentswarms \
-  --node-count 3 --node-vm-size Standard_D4s_v5 \
-  --network-plugin azure --network-dataplane cilium --network-policy cilium \
-  --enable-managed-identity --generate-ssh-keys
+az aks get-credentials --resource-group "$RG" --name "$CLUSTER"
 ```
 
 ```bash
-az aks get-credentials --resource-group agentswarms-rg --name agentswarms
+kubectl get nodes -o wide
 ```
 
-Like GKE's Dataplane V2, the policy choice is made at creation. `--network-policy azure`
-and `calico` are the alternatives.
+`--network-policy azure` and `calico` are the alternatives; Cilium is the
+current default recommendation and enforces the sandbox's egress ban.
 
 **2. Storage needs nothing.** AKS ships a default StorageClass backed by
-Azure Disks, so claims bind without help. Check which one carries the mark
-before you assume the tier: `kubectl get storageclass`.
-
-**3. Push the images to ACR, and let the cluster pull without a secret.**
+Azure Disks. Confirm which one carries the mark before you assume the tier:
 
 ```bash
-az acr create --resource-group agentswarms-rg --name agentswarmsacr --sku Standard
+kubectl get storageclass
+```
+
+**3. Create the registry and let the cluster pull without a secret.**
+
+```bash
+az acr create --resource-group "$RG" --name "$ACR" --sku Standard
 ```
 
 ```bash
-az aks update --resource-group agentswarms-rg --name agentswarms --attach-acr agentswarmsacr
+az aks update --resource-group "$RG" --name "$CLUSTER" --attach-acr "$ACR"
 ```
 
 ```bash
-az acr login --name agentswarmsacr
+az acr login --name "$ACR"
 ```
 
-`--attach-acr` grants the cluster's identity `AcrPull`, which is why no
-`imagePullSecrets` appear anywhere below. Tag each image as
-`agentswarmsacr.azurecr.io/<name>:<version>`.
+`--attach-acr` grants the cluster's kubelet identity `AcrPull`, which is why
+no `imagePullSecrets` appear anywhere in this runbook. Then run the build
+loop from "What every cloud needs first".
 
-**4. Install** with D1 or D2 and the pushed names.
+**4. Install AgentSwarms.**
+
+```bash
+AGENTSWARMS_IMAGE="$REGISTRY/agentswarms:$TAG" DOCGEN_IMAGE="$REGISTRY/docgen:$TAG" JS_SANDBOX_IMAGE="$REGISTRY/js-sandbox:$TAG" ADMIN_EMAIL=you@corp.com ADMIN_PASSWORD='choose-a-strong-one' bash scripts/setup-k8s.sh
+```
+
+```bash
+kubectl -n agentswarms get pods -w
+```
 
 **5. Ingress with the managed NGINX add-on**, which brings its own public IP
-and integrates with Azure DNS and Key Vault certificates:
+and can manage certificates from Key Vault:
 
 ```bash
-az aks approuting enable --resource-group agentswarms-rg --name agentswarms
+az aks approuting enable --resource-group "$RG" --name "$CLUSTER"
 ```
 
 ```bash
@@ -834,6 +1125,9 @@ kind: Ingress
 metadata:
   name: agentswarms
   namespace: agentswarms
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-body-size: 64m
 spec:
   ingressClassName: webapprouting.kubernetes.io
   rules:
@@ -846,126 +1140,261 @@ spec:
 YAML
 ```
 
-**6. Managed data services.**
-
-- **Azure Database for PostgreSQL Flexible Server** for
-  `LAKEHOUSE_CATALOG_URL`, with the cluster's subnet allowed through its
-  firewall.
-- **The lake wants S3-compatible storage**, which Azure Blob is not. Two
-  honest options: keep the MinIO the compose stack uses, running in the
-  cluster against a Premium disk, or point the lakehouse at an S3 endpoint in
-  another cloud. Azure Blob and ADLS Gen2 _are_ first-class as **mounted data
-  lakes** — a read-only schema over data that already lives there — which is a
-  different feature from the lakehouse's own storage.
-
-**7. GPUs.**
+The read timeout matters: an AI Analyst turn takes 30–95 seconds, and NGINX's
+60-second default cuts it off with a 504 halfway through. Get the address
+and create the DNS record:
 
 ```bash
-az aks nodepool add --resource-group agentswarms-rg --cluster-name agentswarms \
-  --name gpu --node-count 1 --node-vm-size Standard_NC4as_T4_v3 \
-  --node-taints nvidia.com/gpu=present:NoSchedule --labels accelerator=nvidia
+kubectl -n app-routing-system get service nginx -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
 ```
 
-Install the NVIDIA device plugin, then set the two placement variables as in
-the EKS step, matching the label and taint above.
+For TLS, either attach a Key Vault certificate to the add-on, or install
+cert-manager and add the usual `cert-manager.io/cluster-issuer` annotation
+and `tls:` block. Then set the hostname as in the AWS runbook's step 8.
+
+**6. Azure Database for PostgreSQL for the lakehouse catalog.**
+
+```bash
+az postgres flexible-server create --resource-group "$RG" --name agentswarms-catalog --location "$LOCATION" --tier Burstable --sku-name Standard_B2s --version 16 --storage-size 64 --admin-user lakehouse --admin-password '<strong-password>' --public-access None --yes
+```
+
+```bash
+az postgres flexible-server db create --resource-group "$RG" --server-name agentswarms-catalog --database-name lakehouse_catalog
+```
+
+Give the cluster's subnet a private endpoint or a firewall rule, then set
+`LAKEHOUSE_CATALOG_URL` as in the AWS runbook's step 9.
+
+**7. The lake needs S3-compatible storage, and Azure Blob is not.** This is
+the one place AKS differs materially. Two honest options:
+
+- **Run MinIO in the cluster**, backed by a Premium disk, and point
+  `LAKEHOUSE_S3_ENDPOINT` at its Service. This is what the Compose stack
+  does and what the lakehouse was built against.
+- **Use an S3 endpoint elsewhere** — an existing AWS account, or any
+  S3-compatible store you already operate.
+
+Azure Blob and ADLS Gen2 _are_ first-class as **mounted data lakes**: a
+read-only schema over data that already lives there, queried in place. That
+is a different feature from the lakehouse's own storage, and it needs none of
+this.
+
+**8. The notebook namespace** — identical to the AWS runbook's step 11, with
+whichever S3 host you chose in step 7 added to the egress allow-list.
+
+**9. GPUs.**
+
+```bash
+az aks nodepool add --resource-group "$RG" --cluster-name "$CLUSTER" --name gpu --node-count 1 --node-vm-size Standard_NC4as_T4_v3 --node-taints nvidia.com/gpu=present:NoSchedule --labels accelerator=nvidia
+```
+
+```bash
+kubectl apply -f https://raw.githubusercontent.com/NVIDIA/k8s-device-plugin/v0.17.0/deployments/static/nvidia-device-plugin.yml
+```
+
+Then set `ML_TRAIN_GPUS`, `NOTEBOOK_K8S_GPU_NODE_SELECTOR` and
+`NOTEBOOK_K8S_GPU_TOLERATIONS` to match that label and taint, as in the AWS
+runbook's step 12.
+
+**10. Tearing it down.** One command, because everything is in the group:
+
+```bash
+az group delete --name "$RG" --yes --no-wait
+```
 
 #### Oracle OKE (OCI)
 
-**1. Create the cluster.** OKE's "Quick create" in the console builds the VCN,
-subnets and node pool in one pass and is the shortest path; the CLI equivalent
-needs the VCN and subnet OCIDs to already exist:
+**Before you start.** The `oci` CLI configured, `kubectl` and `helm`, and a
+compartment you can create clusters, databases and buckets in. OKE's
+**Quick create** in the console builds the VCN, subnets and node pool in one
+pass and is the shortest path; the CLI needs those OCIDs to exist already:
 
 ```bash
-oci ce cluster create --compartment-id "$COMPARTMENT" --name agentswarms \
-  --vcn-id "$VCN" --kubernetes-version v1.31.1 \
-  --service-lb-subnet-ids '["'"$LB_SUBNET"'"]'
+export COMPARTMENT=<compartment OCID>
+export OCI_REGION=us-ashburn-1
+export REGION_KEY=iad                     # the registry prefix for that region
+export NAMESPACE=$(oci os ns get --query data --raw-output)
+export REGISTRY="$REGION_KEY.ocir.io/$NAMESPACE/agentswarms"
+export TAG=1.4.0
+```
+
+**1. Create the cluster and a node pool.** Size the pool for the roughly
+3 CPU and 6 GiB our pods request plus the Supabase chart — three
+`VM.Standard.E4.Flex` nodes at 4 OCPUs and 32 GB is comfortable:
+
+```bash
+oci ce cluster create --compartment-id "$COMPARTMENT" --name agentswarms --vcn-id <VCN OCID> --kubernetes-version v1.31.1 --service-lb-subnet-ids '["<LB subnet OCID>"]'
 ```
 
 ```bash
-oci ce cluster create-kubeconfig --cluster-id "$CLUSTER" --file "$HOME/.kube/config" \
-  --region us-ashburn-1 --token-version 2.0.0
+oci ce cluster create-kubeconfig --cluster-id <cluster OCID> --file "$HOME/.kube/config" --region "$OCI_REGION" --token-version 2.0.0
 ```
 
-Size the node pool for the same roughly 3 CPU / 6 GiB our pods request, plus
-the Supabase chart: three `VM.Standard.E4.Flex` nodes at 4 OCPUs and 32 GB is
-comfortable.
+```bash
+kubectl get nodes -o wide
+```
 
 **2. Storage needs nothing.** OKE ships `oci-bv` (Block Volume CSI) as the
-default StorageClass. Block volumes are zonal, so keep the lakehouse catalog's
-node pool in one availability domain or move the catalog to managed Postgres
-(step 6).
+default. Block volumes are zonal, so keep the lakehouse catalog's node pool
+in one availability domain — or move the catalog to managed Postgres in
+step 7 and stop caring.
 
-**3. Install Calico if you want the sandbox's egress denial enforced.** OKE's
-flannel and VCN-native pod networking do not enforce `NetworkPolicy` on their
-own; Oracle documents installing Calico on top. Without it the policy applies
-and does nothing — which is the quiet failure mode D1a warns about, on every
-cloud.
+**3. Install Calico if you want the sandbox's egress ban enforced.** OKE's
+flannel and VCN-native pod networking do not enforce `NetworkPolicy` on
+their own; Oracle documents installing Calico over the top. Without it the
+policy applies cleanly and does nothing — the quiet failure this guide keeps
+warning about.
 
-**4. Push the images to OCIR.** The registry host is your region key and the
-repository path starts with the tenancy's object-storage namespace:
-
-```bash
-docker login iad.ocir.io --username "<tenancy-namespace>/oracleidentitycloudservice/you@corp.com"
-```
-
-The password is an **auth token** generated in the console, not your console
-password. Tag each image as
-`iad.ocir.io/<tenancy-namespace>/agentswarms/<name>:<version>`, and create an
-`imagePullSecret` from the same credentials unless the repositories are public:
+**4. Push to OCIR.** The password is an **auth token** generated in the
+console under your user's Auth Tokens, not your console password, and the
+username carries the tenancy namespace:
 
 ```bash
-kubectl create secret docker-registry ocir --namespace agentswarms --docker-server=iad.ocir.io --docker-username='<tenancy-namespace>/oracleidentitycloudservice/you@corp.com' --docker-password='<auth-token>'
+docker login "$REGION_KEY.ocir.io" --username "$NAMESPACE/oracleidentitycloudservice/you@corp.com"
 ```
 
-Add it to the namespace's `default` ServiceAccount, which is the change D1a
-describes for any registry that needs credentials.
+Run the build loop from "What every cloud needs first". Unless you make the
+repositories public, the cluster needs the same credentials:
 
-**5. Install** with D1 or D2 and the pushed names.
+```bash
+kubectl create namespace agentswarms --dry-run=client -o yaml | kubectl apply -f -
+```
 
-**6. Ingress.** Either enable the **native ingress controller** cluster add-on,
-which fronts the cluster with an OCI load balancer, or install ingress-nginx
-and let its `LoadBalancer` Service create one. A `Service` of type
-`LoadBalancer` alone is enough to get a public IP for a first look:
+```bash
+kubectl create secret docker-registry ocir --namespace agentswarms --docker-server="$REGION_KEY.ocir.io" --docker-username="$NAMESPACE/oracleidentitycloudservice/you@corp.com" --docker-password='<auth-token>'
+```
+
+```bash
+kubectl -n agentswarms patch serviceaccount default -p '{"imagePullSecrets":[{"name":"ocir"}]}'
+```
+
+**5. Install AgentSwarms.**
+
+```bash
+AGENTSWARMS_IMAGE="$REGISTRY/agentswarms:$TAG" DOCGEN_IMAGE="$REGISTRY/docgen:$TAG" JS_SANDBOX_IMAGE="$REGISTRY/js-sandbox:$TAG" ADMIN_EMAIL=you@corp.com ADMIN_PASSWORD='choose-a-strong-one' bash scripts/setup-k8s.sh
+```
+
+**6. Ingress.** Either enable the **native ingress controller** cluster
+add-on, which fronts the cluster with an OCI load balancer, or install
+ingress-nginx and let its `LoadBalancer` Service create one:
+
+```bash
+helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx && helm repo update
+```
+
+```bash
+helm install ingress-nginx ingress-nginx/ingress-nginx --namespace ingress-nginx --create-namespace --set controller.service.annotations."service\.beta\.kubernetes\.io/oci-load-balancer-shape"=flexible --set controller.service.annotations."service\.beta\.kubernetes\.io/oci-load-balancer-shape-flex-min"=10 --set controller.service.annotations."service\.beta\.kubernetes\.io/oci-load-balancer-shape-flex-max"=100
+```
+
+```bash
+kubectl -n ingress-nginx get service ingress-nginx-controller
+```
+
+Then an Ingress with `ingressClassName: nginx`, the same
+`proxy-read-timeout` annotation the AKS runbook explains, and cert-manager
+for TLS. For a first look, a `LoadBalancer` Service is enough:
 
 ```bash
 kubectl -n agentswarms patch svc agentswarms -p '{"spec":{"type":"LoadBalancer"}}'
 ```
 
-**7. Managed data services.**
+**7. OCI Database with PostgreSQL for the lakehouse catalog**, in a subnet
+the cluster can reach; then set `LAKEHOUSE_CATALOG_URL` as in the AWS
+runbook's step 9.
 
-- **OCI Database with PostgreSQL** for `LAKEHOUSE_CATALOG_URL`, in a subnet
-  the cluster can reach.
-- **OCI Object Storage** for the lake, through its S3 compatibility endpoint.
-  Create a **Customer Secret Key** for the user, then
-  `LAKEHOUSE_S3_ENDPOINT=<tenancy-namespace>.compat.objectstorage.us-ashburn-1.oraclecloud.com`,
-  `LAKEHOUSE_S3_URL_STYLE=path`, `LAKEHOUSE_S3_USE_SSL=true`,
-  `LAKEHOUSE_S3_REGION=us-ashburn-1`, and the key pair in
-  `LAKEHOUSE_S3_KEY_ID` / `LAKEHOUSE_S3_SECRET`.
+**8. OCI Object Storage for the lake**, through its S3 compatibility
+endpoint. Create a **Customer Secret Key** for the user (console: Identity →
+Users → Customer Secret Keys) — an auth token will not work here, they are
+different credentials:
 
-**8. GPUs.** Add a node pool on a GPU shape (`VM.GPU.A10.1`, for example) with
-Oracle's GPU image, install the NVIDIA device plugin, and set the same two
-placement variables against whatever label and taint the pool carries.
+```bash
+oci os bucket create --compartment-id "$COMPARTMENT" --name agentswarms-lake
+```
 
-#### After any of them: the same five checks
+```bash
+kubectl -n agentswarms patch secret agentswarms-env --type merge -p "{\"stringData\":{\"LAKEHOUSE_DATA_URL\":\"s3://agentswarms-lake/main\",\"LAKEHOUSE_S3_ENDPOINT\":\"$NAMESPACE.compat.objectstorage.$OCI_REGION.oraclecloud.com\",\"LAKEHOUSE_S3_URL_STYLE\":\"path\",\"LAKEHOUSE_S3_USE_SSL\":\"true\",\"LAKEHOUSE_S3_REGION\":\"$OCI_REGION\",\"LAKEHOUSE_S3_KEY_ID\":\"<access key>\",\"LAKEHOUSE_S3_SECRET\":\"<secret key>\"}}"
+```
+
+**9. The notebook namespace** — identical to the AWS runbook's step 11, with
+the `compat.objectstorage` host added to the egress allow-list.
+
+**10. GPUs.** Add a node pool on a GPU shape (`VM.GPU.A10.1`, for example)
+with Oracle's GPU image, install the NVIDIA device plugin as in the AKS
+runbook, and set the same three variables against that pool's label and
+taint.
+
+**11. Tearing it down.**
+
+```bash
+oci ce cluster delete --cluster-id <cluster OCID> --force
+```
+
+Then delete the load balancer, the database and the bucket, which outlive
+the cluster.
+
+#### After any of them: the same seven checks
 
 ```bash
 kubectl -n agentswarms get pods
 ```
 
-1. **Every pod is Running and Ready.** A pod stuck in `Pending` with a
-   `FailedScheduling` event is capacity; one stuck on a volume is the
-   StorageClass; `ImagePullBackOff` is the registry.
+1. **Every pod is Running and Ready.** `Pending` with a `FailedScheduling`
+   event is capacity; `Pending` on a volume is the StorageClass step;
+   `ImagePullBackOff` is the registry step; `CrashLoopBackOff` with
+   `exec format error` is an image built for the wrong architecture.
 2. **The Office renderer exists.** No pod and no error is the `restricted`
    Pod Security Standard refusing its root image — the failure D1a describes,
-   which prints a warning at apply time and nothing afterwards.
+   which warns at apply time and is silent afterwards.
+
+```bash
+kubectl -n agentswarms get deploy agentswarms-docgen -o jsonpath='{.status.replicas}/{.status.readyReplicas}'
+```
+
 3. **`resources.limits.cpu` is set on the web Deployment.** The worker count
-   is read from it; without a limit a pod on a large node forks a worker per
+   is read from it, so a pod with no limit on a large node forks a worker per
    core at up to a gigabyte each.
-4. **The sandbox's egress is actually denied.** Exec into the JS sandbox pod
-   and try to reach the internet. If it succeeds, the CNI is not enforcing
-   policy and step 3 of your cloud's runbook did not take.
-5. **`PUBLIC_APP_URL` matches the hostname people type**, and the load
-   balancer health-checks `/api/health/ready`.
+
+```bash
+kubectl -n agentswarms get deploy agentswarms -o jsonpath='{.spec.template.spec.containers[0].resources}'
+```
+
+4. **The sandbox's egress really is denied**, which is only true if the CNI
+   enforces policy:
+
+```bash
+kubectl -n agentswarms exec deploy/agentswarms-js-sandbox -- sh -c 'wget -qO- --timeout=5 https://example.com || echo DENIED'
+```
+
+`DENIED` is the pass. Anything else means the network-policy step did not
+take, and user-supplied code can reach the internet.
+
+5. **Readiness and liveness answer different questions.** The load balancer
+   must health-check `/api/health/ready`:
+
+```bash
+kubectl -n agentswarms exec deploy/agentswarms -- wget -qO- localhost:8080/api/health/ready
+```
+
+6. **`PUBLIC_APP_URL` matches the hostname people type.** Invitations,
+   embeds and OAuth callbacks are built from it.
+7. **The lakehouse can write.** Sign in, open **Data & BI → Lakehouse**, and
+   run `CREATE SCHEMA IF NOT EXISTS smoke; CREATE TABLE smoke.t AS SELECT 1 AS n;`
+   — this exercises the catalog Postgres and the object store together, which
+   is the pair most likely to be misconfigured.
+
+#### When it does not work
+
+| Symptom                                                        | Cause                                                                                                                    |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Every PVC `Pending`, no events about capacity                  | No usable default StorageClass. On EKS the `gp2` class exists with no driver behind it — install the EBS CSI add-on.     |
+| `ImagePullBackOff` on a cloud cluster                          | The images are still only on your laptop, or the pull secret is missing. Five images, not three.                         |
+| Pods `CrashLoopBackOff` with `exec format error`               | An arm64 image on an amd64 node pool. Rebuild with `docker buildx --platform linux/amd64`.                               |
+| Every pod fails readiness with `Invalid supabaseUrl`           | The Secret was built from a `.env` with the quotes left on. Strip them (D2).                                             |
+| `couldn't find key … in Secret`                                | A variable Compose was defaulting for you. `BI_CRON_TOKEN`, `INTERNAL_RUN_SECRET` and `LAKEHOUSE_CATALOG_PASSWORD` (D2). |
+| The analyst answers in the app but 504s through the ingress    | The proxy's read timeout. A turn takes 30–95 seconds; NGINX defaults to 60.                                              |
+| A training job fails with "Authentication Failure" from DuckDB | The object store's host is not in the notebook egress allow-list. The app log names the host to add.                     |
+| `kubectl rollout status` hangs on an analytics Deployment      | It has a readiness probe. `APP_ROLE=analytics` answers readiness 503 for ever by design; exclude those pods by label.    |
+| The sandbox reaches the internet                               | The CNI is not enforcing `NetworkPolicy`. On GKE and AKS that is decided at cluster creation and needs a new cluster.    |
 
 ---
 
