@@ -46,6 +46,12 @@ import {
   Workflow,
 } from "lucide-react";
 import { toast } from "sonner";
+import {
+  defaultStreamConfig,
+  isStreamSource,
+  validateStreamSource,
+  type StreamSourceConfig,
+} from "@/utils/etl/streaming";
 
 import {
   AggregationsEditor,
@@ -1048,6 +1054,9 @@ const SOURCE_TYPES = [
   { type: "platform_dataset", label: "Platform dataset" },
   { type: "lakehouse", label: "Lakehouse table" },
   { type: "ingest", label: "Streamed rows (push)" },
+  { type: "kafka", label: "Kafka / Redpanda topic" },
+  { type: "kinesis", label: "Amazon Kinesis stream" },
+  { type: "pubsub", label: "Google Pub/Sub subscription" },
   { type: "python", label: "Custom Python" },
 ] as const;
 
@@ -1097,6 +1106,10 @@ function defaultNodeConfig(
         return { type, mode: "table", table: "" };
       case "http_api":
         return { type, url: "https://", records_path: "" };
+      case "kafka":
+      case "kinesis":
+      case "pubsub":
+        return defaultStreamConfig(type);
       default:
         return { type: "python", code: "return [{'id': 1}]" };
     }
@@ -2088,6 +2101,9 @@ function NodePanel({
           </p>
         </>
       )}
+      {isStreamSource(c as { type?: string }) && node.kind === "source" && (
+        <StreamSourceFields cfg={c as unknown as StreamSourceConfig} set={set} />
+      )}
       {c.type === "ingest" && node.kind === "source" && (
         <p className="text-[11px] text-muted-foreground">
           Drains rows pushed to <span className="font-mono">POST /api/etl/ingest</span> with this
@@ -2613,6 +2629,227 @@ function NodePanel({
         </>
       )}
     </div>
+  );
+}
+
+/** The three stream sources: address, payload, where to start, the batch, the secrets. */
+function StreamSourceFields({
+  cfg,
+  set,
+}: {
+  cfg: StreamSourceConfig;
+  set: (updates: Record<string, unknown>) => void;
+}) {
+  const problem = validateStreamSource(cfg);
+  const secretField = (label: string, key: string, value: string, placeholder: string) => (
+    <Field label={label}>
+      <Input
+        className="h-8 font-mono text-xs"
+        value={value}
+        onChange={(e) => set({ [key]: e.target.value })}
+        placeholder={placeholder}
+        title="The name of a secret under Settings → Secrets; its value never enters the graph"
+      />
+    </Field>
+  );
+  return (
+    <>
+      {cfg.type === "kafka" && (
+        <>
+          <Field label="Brokers">
+            <Input
+              className="h-8 font-mono text-xs"
+              value={cfg.brokers}
+              onChange={(e) => set({ brokers: e.target.value })}
+              placeholder="broker-1:9092,broker-2:9092"
+            />
+          </Field>
+          <Field label="Topic">
+            <Input
+              className="h-8 font-mono text-xs"
+              value={cfg.topic}
+              onChange={(e) => set({ topic: e.target.value })}
+              placeholder="orders"
+            />
+          </Field>
+          <Field label="Security">
+            <Select value={cfg.security} onValueChange={(v) => set({ security: v })}>
+              <SelectTrigger className="h-8">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="plaintext">Plaintext</SelectItem>
+                <SelectItem value="ssl">TLS</SelectItem>
+                <SelectItem value="sasl_plaintext">SASL (plaintext)</SelectItem>
+                <SelectItem value="sasl_ssl">SASL over TLS</SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
+          {cfg.security.startsWith("sasl") && (
+            <>
+              <Field label="SASL mechanism">
+                <Select
+                  value={cfg.sasl_mechanism}
+                  onValueChange={(v) => set({ sasl_mechanism: v })}
+                >
+                  <SelectTrigger className="h-8">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="PLAIN">PLAIN</SelectItem>
+                    <SelectItem value="SCRAM-SHA-256">SCRAM-SHA-256</SelectItem>
+                    <SelectItem value="SCRAM-SHA-512">SCRAM-SHA-512</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
+              {secretField(
+                "Username secret",
+                "username_secret",
+                cfg.username_secret,
+                "KAFKA_USERNAME",
+              )}
+              {secretField(
+                "Password secret",
+                "password_secret",
+                cfg.password_secret,
+                "KAFKA_PASSWORD",
+              )}
+            </>
+          )}
+          <Field label="Start (first run)">
+            <Select value={cfg.start} onValueChange={(v) => set({ start: v })}>
+              <SelectTrigger className="h-8">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="earliest">Earliest retained message</SelectItem>
+                <SelectItem value="latest">Only new messages</SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
+        </>
+      )}
+      {cfg.type === "kinesis" && (
+        <>
+          <Field label="Stream name">
+            <Input
+              className="h-8 font-mono text-xs"
+              value={cfg.stream}
+              onChange={(e) => set({ stream: e.target.value })}
+              placeholder="orders-stream"
+            />
+          </Field>
+          <Field label="Region">
+            <Input
+              className="h-8 font-mono text-xs"
+              value={cfg.region}
+              onChange={(e) => set({ region: e.target.value })}
+              placeholder="us-east-1"
+            />
+          </Field>
+          <Field label="Endpoint (optional)">
+            <Input
+              className="h-8 font-mono text-xs"
+              value={cfg.endpoint}
+              onChange={(e) => set({ endpoint: e.target.value })}
+              placeholder="https://kinesis.us-east-1.amazonaws.com"
+            />
+          </Field>
+          {secretField(
+            "Access key id secret",
+            "access_key_secret",
+            cfg.access_key_secret,
+            "AWS_ACCESS_KEY_ID",
+          )}
+          {secretField(
+            "Secret access key secret",
+            "secret_key_secret",
+            cfg.secret_key_secret,
+            "AWS_SECRET_ACCESS_KEY",
+          )}
+          <Field label="Start (first run)">
+            <Select value={cfg.start} onValueChange={(v) => set({ start: v })}>
+              <SelectTrigger className="h-8">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="trim_horizon">Oldest retained record</SelectItem>
+                <SelectItem value="latest">Only new records</SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
+        </>
+      )}
+      {cfg.type === "pubsub" && (
+        <>
+          <Field label="Project id">
+            <Input
+              className="h-8 font-mono text-xs"
+              value={cfg.project}
+              onChange={(e) => set({ project: e.target.value })}
+              placeholder="my-gcp-project"
+            />
+          </Field>
+          <Field label="Subscription">
+            <Input
+              className="h-8 font-mono text-xs"
+              value={cfg.subscription}
+              onChange={(e) => set({ subscription: e.target.value })}
+              placeholder="orders-sub"
+            />
+          </Field>
+          {secretField(
+            "Service-account JSON secret",
+            "credentials_secret",
+            cfg.credentials_secret,
+            "GCP_SERVICE_ACCOUNT",
+          )}
+          <p className="text-[11px] text-muted-foreground">
+            Pub/Sub has no replayable position: a message is acknowledged as it is read. Give the
+            subscription a dead-letter topic, or use Kafka, when a failed run must not lose
+            messages.
+          </p>
+        </>
+      )}
+      <Field label="Payload">
+        <Select value={cfg.format} onValueChange={(v) => set({ format: v })}>
+          <SelectTrigger className="h-8">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="json">JSON object per message (keys become columns)</SelectItem>
+            <SelectItem value="text">Text (one value column)</SelectItem>
+          </SelectContent>
+        </Select>
+      </Field>
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="Messages per run">
+          <Input
+            type="number"
+            min={1}
+            className="h-8 font-mono text-xs"
+            value={cfg.max_messages}
+            onChange={(e) => set({ max_messages: Number(e.target.value) })}
+          />
+        </Field>
+        <Field label="Stop after quiet (ms)">
+          <Input
+            type="number"
+            min={0}
+            className="h-8 font-mono text-xs"
+            value={cfg.idle_ms}
+            onChange={(e) => set({ idle_ms: Number(e.target.value) })}
+          />
+        </Field>
+      </div>
+      <p className="text-[11px] text-muted-foreground">
+        Each run reads from where the previous run durably loaded, up to the message cap or until
+        the stream goes quiet, and stores the new positions as its watermark - a failed run re-reads
+        the same messages. Rows carry the payload's fields plus _stream_* columns. The broker or
+        service host must be on the sandbox egress allow-list (Admin → Developer runtime).
+      </p>
+      {problem && <p className="text-[11px] text-destructive">{problem}</p>}
+    </>
   );
 }
 

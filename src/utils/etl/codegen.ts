@@ -24,7 +24,15 @@
 export type SourceFileFormat = "csv" | "tsv" | "json" | "jsonl" | "parquet" | "xlsx";
 export type TargetFileFormat = "parquet" | "csv" | "jsonl";
 
+import {
+  isStreamSource,
+  streamSourcePython,
+  validateStreamSource,
+  type StreamSourceConfig,
+} from "@/utils/etl/streaming";
+
 export type EtlSourceConfig =
+  | StreamSourceConfig
   | {
       type: "object_storage";
       /** Catalog storage source supplying credentials (resolved server-side). */
@@ -372,6 +380,11 @@ function sourceFn(node: EtlNode): string {
   const c = node.config as EtlSourceConfig;
   const key = envKey(node.id);
   const head = `def _src_${node.id}():`;
+  if (isStreamSource(c)) {
+    const bad = validateStreamSource(c);
+    if (bad) throw new Error(`Stream source "${node.label || node.id}": ${bad}`);
+    return streamSourcePython(node.id, key, c);
+  }
   if (c.type === "lakehouse") {
     const schema = pyIdent(c.schema, "Lakehouse schema");
     const sql =
@@ -785,23 +798,29 @@ function targetBlock(node: EtlNode, input: string, cdcInput = false): string {
         ? [`        con.execute('CREATE OR REPLACE TABLE ${fq} AS SELECT * FROM _src')`]
         : c.write_mode === "append"
           ? [
-              `        con.execute('CREATE TABLE IF NOT EXISTS ${fq} AS SELECT * FROM _src WHERE false')`,
-              `        con.execute('INSERT INTO ${fq} SELECT * FROM _src')`,
+              // An empty batch (a stream with nothing new, a filter that kept
+              // nothing) loads nothing and must not shape the table: an empty
+              // frame carries only the columns the source could name. BY NAME
+              // keeps a batch honest when its columns arrive in another order.
+              `        if len(_src):`,
+              `            con.execute('CREATE TABLE IF NOT EXISTS ${fq} AS SELECT * FROM _src WHERE false')`,
+              `            con.execute('INSERT INTO ${fq} BY NAME SELECT * FROM _src')`,
             ]
           : [
               // Upsert: delete the incoming keys, then insert — one transaction,
               // so a reader never sees the gap between the two.
-              `        con.execute('CREATE TABLE IF NOT EXISTS ${fq} AS SELECT * FROM _src WHERE false')`,
-              `        con.execute('BEGIN TRANSACTION')`,
-              `        con.execute(${pyStr(
+              `        if len(_src):`,
+              `            con.execute('CREATE TABLE IF NOT EXISTS ${fq} AS SELECT * FROM _src WHERE false')`,
+              `            con.execute('BEGIN TRANSACTION')`,
+              `            con.execute(${pyStr(
                 `DELETE FROM ${fq} WHERE (${(c.primary_key ?? [])
                   .map((k) => `"${pyIdent(k, "Primary key column")}"`)
                   .join(", ")}) IN (SELECT ${(c.primary_key ?? [])
                   .map((k) => `"${pyIdent(k, "Primary key column")}"`)
                   .join(", ")} FROM _src)`,
               )})`,
-              `        con.execute('INSERT INTO ${fq} SELECT * FROM _src')`,
-              `        con.execute('COMMIT')`,
+              `            con.execute('INSERT INTO ${fq} BY NAME SELECT * FROM _src')`,
+              `            con.execute('COMMIT')`,
             ];
     return [
       `    # target ${node.id}: lakehouse → ${schema}.${table} (${c.write_mode})`,
@@ -1057,13 +1076,18 @@ export function compileGraph(graph: EtlGraph): string {
   )) {
     lines.push(`_ingest_last_${n.id} = None`);
   }
+  for (const n of order.filter((x) => x.kind === "source" && isStreamSource(x.config))) {
+    lines.push(`_stream_last_${n.id} = None`);
+  }
 
   const incremental = order.filter(
     (n) =>
       n.kind === "source" &&
       ((n.config as { incremental?: { cursor_column?: string } }).incremental?.cursor_column ||
         (n.config as { mode?: string }).mode === "cdc" ||
-        (n.config as { type?: string }).type === "ingest"),
+        (n.config as { type?: string }).type === "ingest" ||
+        // A stream node reports its positions the same way.
+        isStreamSource(n.config)),
   );
   const cdcNodes = order.filter(
     (n) => n.kind === "source" && (n.config as { mode?: string }).mode === "cdc",
@@ -1095,6 +1119,10 @@ export function compileGraph(graph: EtlGraph): string {
       if (c.type === "http_api") return c.url ?? "";
       if (c.type === "platform_dataset") return `platform:${c.table_name ?? c.table_id ?? ""}`;
       if (c.type === "ingest") return "webhook-ingest";
+      if (c.type === "kafka") return `kafka:${(c as { topic?: string }).topic ?? ""}`;
+      if (c.type === "kinesis") return `kinesis:${(c as { stream?: string }).stream ?? ""}`;
+      if (c.type === "pubsub")
+        return `pubsub:${(c as { subscription?: string }).subscription ?? ""}`;
       if (c.type === "lakehouse")
         return `lakehouse:${c.schema ?? ""}${c.table ? `.${c.table}` : ""}`;
       return "python";
@@ -1123,6 +1151,14 @@ export function compileGraph(graph: EtlGraph): string {
         lines.push(
           `    if _cdc_last_${n.id}:`,
           `        _watermarks['${n.id}'] = _cdc_last_${n.id}`,
+        );
+      }
+      if (isStreamSource(n.config)) {
+        // The next positions per partition / shard, persisted only when the
+        // run's load commits - so a failed run re-reads the same messages.
+        lines.push(
+          `    if _stream_last_${n.id}:`,
+          `        _watermarks['${n.id}'] = _stream_last_${n.id}`,
         );
       }
       const inc = (n.config as { incremental?: { cursor_column?: string } }).incremental;

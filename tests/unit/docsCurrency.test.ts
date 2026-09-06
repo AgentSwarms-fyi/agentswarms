@@ -75,6 +75,14 @@ const CASES: Currency[] = [
     docMentions: [/vision model/i, /scanned/i, /Pages per document/],
   },
   {
+    capability:
+      "ETL pipelines read Kafka, Kinesis and Pub/Sub in micro-batches with engine-managed positions",
+    code: "src/utils/etl/streaming.ts",
+    codeContains: "export function streamSourcePython(",
+    doc: "src/routes/docs.etl.tsx",
+    docMentions: [/Kafka/, /Kinesis/, /Pub\/Sub/, /at-least-once/],
+  },
+  {
     capability: "Agents can report table health from the monitors",
     code: "src/utils/tools/registry.server.ts",
     codeContains: 'name: "data_health"',

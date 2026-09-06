@@ -29,6 +29,14 @@ import { auditEvent } from "@/utils/audit.server";
 import { notifyUser } from "@/utils/notify.server";
 import { startSession, stopSession, getSession } from "@/utils/notebookRuntime/service.server";
 import { resolveSecretRefs } from "@/utils/secrets.server";
+import {
+  isStreamSource,
+  streamEgressHosts,
+  streamSecretEnv,
+  validateStreamSource,
+} from "@/utils/etl/streaming";
+import { normalizeEgressHost } from "@/utils/notebookRuntime/egress";
+import { platformEgressHosts } from "@/utils/notebookRuntime/egressApply.server";
 
 export type EtlPipelineRow = Database["public"]["Tables"]["etl_pipelines"]["Row"];
 export type EtlRunRow = Database["public"]["Tables"]["etl_runs"]["Row"];
@@ -174,6 +182,55 @@ export async function resolveRunEnv(
     secretValues.push(cfg.secret_access_key);
   };
 
+  // Stream sources: the broker or service address, and the credentials the
+  // owner bound by secret name, under the node's stem. Brokers are named in
+  // the graph, so the run refuses unless every host is already on the egress
+  // allow-list: a pipeline author cannot widen where the sandbox may reach.
+  let allowedEgress: Set<string> | null = null;
+  const streamEnv = async (
+    node: EtlNode,
+    cfg: Parameters<typeof streamSecretEnv>[1],
+    stem: string,
+  ) => {
+    const bad = validateStreamSource(cfg);
+    if (bad) throw new Error(`Node "${node.label || node.id}": ${bad}`);
+    if (!allowedEgress) {
+      const { data } = await supabaseAdmin
+        .from("notebook_runtime_settings")
+        .select("egress_allowlist")
+        .eq("id", true)
+        .maybeSingle();
+      allowedEgress = new Set(
+        [...((data?.egress_allowlist ?? []) as string[]), ...platformEgressHosts()]
+          .map((h) => normalizeEgressHost(h))
+          .filter((h): h is string => Boolean(h)),
+      );
+    }
+    for (const host of streamEgressHosts(cfg)) {
+      const norm = normalizeEgressHost(host);
+      if (!norm || !allowedEgress.has(norm)) {
+        throw new Error(
+          `Node "${node.label || node.id}" reads from ${host}, which is not on the sandbox egress allow-list. ` +
+            `An administrator adds it under Admin → Developer runtime → Egress allow-list.`,
+        );
+      }
+    }
+    if (cfg.type === "kafka") {
+      env[`${stem}_BROKERS`] = cfg.brokers.trim();
+      env[`${stem}_TOPIC`] = cfg.topic.trim();
+    }
+    for (const { env: name, secret } of streamSecretEnv(stem, cfg)) {
+      const value = await resolveSecretRefs(pipeline.user_id, `{{secret:${secret}}}`);
+      if (!value || value === `{{secret:${secret}}}`) {
+        throw new Error(
+          `Node "${node.label || node.id}": the secret "${secret}" is not set for this account (Settings → Secrets).`,
+        );
+      }
+      env[name] = value;
+      secretValues.push(value);
+    }
+  };
+
   const databaseEnv = async (connectionId: string, stem: string, isTarget: boolean) => {
     const conn = await loadWarehouseConnectionForUser(
       supabaseAdmin,
@@ -222,6 +279,9 @@ export async function resolveRunEnv(
       }
       await databaseEnv(c.connection_id, stem, node.kind === "target");
     }
+    if (node.kind === "source" && isStreamSource(c)) {
+      await streamEnv(node as EtlNode, c, stem);
+    }
   }
 
   // Engine-managed incremental cursors: a source node marked incremental
@@ -235,7 +295,12 @@ export async function resolveRunEnv(
       mode?: string;
       type?: string;
     };
-    return Boolean(c.incremental?.cursor_column) || c.mode === "cdc" || c.type === "ingest";
+    return (
+      Boolean(c.incremental?.cursor_column) ||
+      c.mode === "cdc" ||
+      c.type === "ingest" ||
+      isStreamSource(c)
+    );
   });
   if (incrementalNodes.length) {
     const { data: state } = await supabaseAdmin

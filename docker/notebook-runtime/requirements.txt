@@ -34,5 +34,9 @@ statsmodels>=0.14
 duckdb>=1.4
 pyarrow>=15
 s3fs>=2024.2
+# ETL streaming sources (Kafka / Redpanda, Kinesis, Pub/Sub), read in micro-batches.
+confluent-kafka>=2.5
+boto3==1.43.56  # the botocore version s3fs/aiobotocore pin in this image; bump both together
+google-cloud-pubsub>=2.21
 joblib>=1.3
 scipy>=1.11

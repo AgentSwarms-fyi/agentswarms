@@ -112,6 +112,46 @@ pushing for near-real-time. Rows arrive with `_ingest_id` and
 backlog without consuming it. Verified live: 3 pushed rows loaded, 2 more
 pushed, second run drained the first 3 and loaded exactly the 2 new ones.
 
+## Streaming sources (Kafka, Kinesis, Pub/Sub)
+
+Three source nodes read a stream in **micro-batches on the pipeline's own
+schedule**: a **Kafka / Redpanda topic** (and anything that speaks the Kafka
+protocol - Confluent, MSK, Event Hubs), an **Amazon Kinesis stream** and a
+**Google Pub/Sub subscription**. A run reads from where the previous run
+durably loaded, up to _messages per run_ or until the stream has been quiet
+for _stop after quiet_, and reports the new positions - Kafka offsets per
+partition, Kinesis sequence numbers per shard - as its engine-managed
+watermark, the same `etl_pipeline_state` cursor the CDC source uses. The
+cursor is persisted only when the run's load committed, so a run that fails
+after reading re-reads the same messages: **at-least-once, never lost**. No
+consumer-group offsets are committed to the broker; the platform is the
+record, and a preview reads without moving anything. Pub/Sub is the
+exception, because it has no replayable position: a message is acknowledged
+as it is read (never on a preview), so give the subscription a dead-letter
+topic, or use Kafka, when a failed run must not lose messages.
+
+Rows carry the payload - a JSON object's keys become columns, or one `value`
+column for text - plus `_stream_*` metadata (`_stream_topic`,
+`_stream_partition`, `_stream_offset`, `_stream_key`, `_stream_timestamp`
+for Kafka; shard, sequence, key and arrival time for Kinesis; message id,
+publish time and attributes for Pub/Sub). Schedule the pipeline every minute
+for a near-real-time feed into the lakehouse; the merge target with primary
+keys deduplicates a replayed batch.
+
+Credentials are **secrets by name**: the node names the secrets (Settings →
+Secrets) holding the SASL username and password, the AWS access key pair, or
+the service-account JSON, and the run resolves them as the owner into the
+node's env stem (`ETL_<NODE>_SASL_USERNAME`, `ETL_<NODE>_ACCESS_KEY_ID`,
+`ETL_<NODE>_CREDENTIALS_JSON`, …). Their values never enter the graph. The
+broker or service host must already be on the **sandbox egress allow-list**
+(Admin → Developer runtime); a run refuses before it starts when it is not,
+naming the host - a pipeline author cannot widen where the sandbox may
+reach. Kafka is a raw TCP protocol, so the brokers must be reachable from the
+kernel network itself (the same Docker network, a VPC peering, or
+`NOTEBOOK_NETWORK`); Kinesis and Pub/Sub are HTTPS and go through the egress
+proxy like every other web call. The runtime image ships `confluent-kafka`,
+`boto3` and `google-cloud-pubsub`.
+
 ## Reverse ETL (HTTP API targets)
 
 The **HTTP API** target pushes the incoming frame to an external endpoint in

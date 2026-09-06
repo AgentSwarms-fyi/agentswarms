@@ -343,6 +343,10 @@ function EtlDocsPage() {
             body: "After every successful run the linked catalog source is crawled, so new tables appear as assets without waiting for a crawl schedule.",
           },
           {
+            title: "Streaming sources: Kafka, Kinesis, Pub/Sub",
+            body: "A Kafka / Redpanda topic, a Kinesis stream or a Pub/Sub subscription is a source node read in micro-batches on the schedule: each run continues from where the last one durably loaded (offsets per partition, sequence numbers per shard, kept as the engine cursor and persisted only when the load committed - at-least-once, never lost), up to a message cap or until the stream goes quiet. Rows carry the payload's fields plus _stream_* metadata; credentials are secrets by name; the broker host must be on the sandbox egress allow-list.",
+          },
+          {
             title: "Streamed rows and reverse ETL",
             body: "Push JSON rows to /api/etl/ingest under the pipeline's trigger token and an ingest source drains them exactly once per run. On the way out, an HTTP API target sends rows to any external endpoint in authenticated JSON batches.",
           },
