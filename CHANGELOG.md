@@ -12,6 +12,75 @@ development branch and may be ahead of the latest tag.
 
 ---
 
+## Unreleased
+
+Work on `main` since the 1.4.0 tag. One migration —
+run `npx supabase db push` after pulling.
+
+### The AI gateway keeps growing
+
+- **The semantic layer answers over HTTP.** A gateway key with the new
+  `metrics` scope reaches `GET /api/v1/metrics` and
+  `POST /api/v1/metrics/query`: the governed metric definitions, and answers
+  compiled from them, without an agent or a model in between. A key names the
+  semantic models it may read, or reads every one its owner can. The row cap
+  is the instance's, and a truncated answer says so rather than quietly
+  returning a full page — the compiler's own default limit used to make a
+  complete page look like an incomplete one.
+- **A semantic cache in front of the gateway.** A key can switch on a cache
+  that matches on the **meaning** of a question rather than its bytes, so the
+  same question asked twice is answered once. It is **off unless a key turns
+  it on**: a cache that answers a question with a nearly identical question's
+  answer is a correctness risk nobody should inherit by upgrading. An entry
+  belongs to one owner, one target and one system instruction, so no answer
+  crosses a user, an agent, or a differently instructed run of the same
+  agent. A conversation with a history is never cached — "and for Europe?"
+  means nothing without what came before it — and neither is a turn above
+  the temperature ceiling or an answer that reached for a tool, which read
+  something live. Every reply says `X-Gateway-Cache: hit | miss | skip |
+off`, a hit reports zero usage because it spends nothing at the provider,
+  and the owner can see every stored question and empty the cache from the
+  same card. Similarity, lifetime and the temperature ceiling are the
+  instance's to set under **Admin → Developer runtime**.
+
+### Slack talks to agents, not just the analyst
+
+- **A route per slash command.** `/ask` can stay the AI Analyst while
+  `/support` is an agent. A command with no route still reaches the
+  workspace's analyst, so nothing changed for an existing installation until
+  it adds a row.
+- **@mentions and direct messages answered in thread.** A second endpoint
+  (`/api/slack/events`) takes Slack's Events API, verifies the signature over
+  the raw body before parsing anything, acknowledges inside Slack's three
+  seconds, and posts the answer into the question's own thread with the
+  workspace's bot token. Retries are acknowledged and dropped rather than
+  answered three times. Teams is deliberately not here: an Outgoing Webhook
+  must answer in about five seconds and an agent turn takes thirty to ninety.
+
+### The ETL editor stops asking you to type
+
+- **Every source and target is picked from what the platform knows.**
+  Lakehouse sources and targets get hierarchical schema-then-table pickers;
+  the Data Catalog is a source, browsed by catalog, then asset; connections,
+  datasets, pipelines, models and warehouse tables all come from dropdowns.
+  A menu entry now provably produces a node of its own type — a "Lakehouse
+  table" source used to fall through to a Custom Python node.
+- **Icons in the menus**, so a source, a transform and a target read at a
+  glance rather than by reading.
+
+### Getting it running
+
+- **The sidebar is the whole product in eight groups**, collapsible and
+  remembered per browser, with the group holding the current page opened for
+  you.
+- **Kubernetes runbooks for AWS, GCP, Azure and OCI** — the actual commands
+  for the cluster, the registry, the secrets, the ingress and the
+  certificate on each, plus the seven checks that prove an install works and
+  a table of what to do when one fails. In `docs/DEPLOYMENT.md` and on the
+  in-app Self-hosting page.
+
+---
+
 ## 1.4.0 — 2026-09-06
 
 **The platform opens outward: an AI gateway in, Iceberg out, streams and

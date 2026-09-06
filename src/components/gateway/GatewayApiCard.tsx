@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
-import { Check, Copy, KeyRound, Loader2, Plus, ShieldOff } from "lucide-react";
+import { Check, Copy, DatabaseZap, KeyRound, Loader2, Plus, ShieldOff, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,15 +22,26 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
   gatewayAgentsList,
+  gatewayCacheClear,
+  gatewayCacheList,
   gatewayKeyCreate,
   gatewayKeyRevoke,
   gatewayKeysList,
+  gatewayKeyUpdate,
   gatewaySemanticModelsList,
   type GatewayKeyListRow,
 } from "@/utils/gatewayKeys.functions";
 import { GATEWAY_KEY_SCOPES, type GatewayKeyScope } from "@/utils/gateway/keys";
 
 type AgentOption = { id: string; name: string; model: string };
+type CacheEntry = {
+  id: string;
+  question: string;
+  model: string;
+  hits: number;
+  created_at: string;
+  expires_at: string;
+};
 type SemanticOption = { id: string; name: string; label: string | null; shared: boolean };
 
 const SCOPE_LABEL: Record<GatewayKeyScope, string> = {
@@ -48,6 +59,21 @@ function relTime(iso: string | null): string {
   const h = Math.round(m / 60);
   if (h < 48) return `${h}h ago`;
   return `${Math.round(h / 24)}d ago`;
+}
+
+/**
+ * How long until an instant. relTime above measures backwards from now, which
+ * reads every future date as "just now" - a lifetime is the one value here
+ * that is always ahead of us.
+ */
+function untilTime(iso: string): string {
+  const ms = new Date(iso).getTime() - Date.now();
+  if (!Number.isFinite(ms) || ms <= 0) return "expired";
+  const m = Math.round(ms / 60000);
+  if (m < 60) return `in ${m}m`;
+  const h = Math.round(m / 60);
+  if (h < 48) return `in ${h}h`;
+  return `in ${Math.round(h / 24)}d`;
 }
 
 function CopyButton({ text, label }: { text: string; label?: string }) {
@@ -78,11 +104,15 @@ export function GatewayApiCard({ token }: { token: string }) {
   const agentsFn = useServerFn(gatewayAgentsList);
   const semanticFn = useServerFn(gatewaySemanticModelsList);
   const createFn = useServerFn(gatewayKeyCreate);
+  const updateFn = useServerFn(gatewayKeyUpdate);
   const revokeFn = useServerFn(gatewayKeyRevoke);
+  const cacheListFn = useServerFn(gatewayCacheList);
+  const cacheClearFn = useServerFn(gatewayCacheClear);
 
   const [keys, setKeys] = useState<GatewayKeyListRow[] | null>(null);
   const [agents, setAgents] = useState<AgentOption[]>([]);
   const [semanticModels, setSemanticModels] = useState<SemanticOption[]>([]);
+  const [cache, setCache] = useState<CacheEntry[]>([]);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [revoking, setRevoking] = useState<GatewayKeyListRow | null>(null);
@@ -99,6 +129,7 @@ export function GatewayApiCard({ token }: { token: string }) {
   const [semanticModelIds, setSemanticModelIds] = useState<string[]>([]);
   const [modelAllow, setModelAllow] = useState("");
   const [fallbacks, setFallbacks] = useState("");
+  const [semanticCache, setSemanticCache] = useState(false);
   const [rateLimit, setRateLimit] = useState("");
   const [budget, setBudget] = useState("");
   const [expiresDays, setExpiresDays] = useState("0");
@@ -107,21 +138,25 @@ export function GatewayApiCard({ token }: { token: string }) {
   const baseUrl = `${origin}/api/v1`;
 
   const reload = useCallback(async () => {
-    const [k, a, s] = await Promise.all([
+    const [k, a, s, c] = await Promise.all([
       listFn({ data: { access_token: token } }),
       agentsFn({ data: { access_token: token } }),
       semanticFn({ data: { access_token: token } }),
+      cacheListFn({ data: { access_token: token } }),
     ]);
     if (k.ok) setKeys(k.keys);
     else toast.error(k.error);
     if (a.ok) setAgents(a.agents);
     if (s.ok) setSemanticModels(s.models);
-  }, [listFn, agentsFn, semanticFn, token]);
+    if (c.ok) setCache(c.entries);
+  }, [listFn, agentsFn, semanticFn, cacheListFn, token]);
 
   useEffect(() => {
     void reload();
   }, [reload]);
 
+  /** The panel shows itself once anything can fill it, and not before. */
+  const cacheOn = useMemo(() => (keys ?? []).some((k) => k.semantic_cache), [keys]);
   const agentName = useMemo(() => new Map(agents.map((a) => [a.id, a.name])), [agents]);
   const semanticName = useMemo(
     () => new Map(semanticModels.map((m) => [m.id, m.label ?? m.name])),
@@ -152,6 +187,7 @@ export function GatewayApiCard({ token }: { token: string }) {
           model_allow: scopes.includes("models") ? lines(modelAllow) : [],
           semantic_model_ids: scopes.includes("metrics") ? semanticModelIds : [],
           fallback_models: lines(fallbacks),
+          semantic_cache: semanticCache,
           rate_limit_per_min: rateLimit.trim() ? Number(rateLimit) : null,
           monthly_cap_usd: budget.trim() ? Number(budget) : null,
           expires_at,
@@ -170,11 +206,42 @@ export function GatewayApiCard({ token }: { token: string }) {
       setSemanticModelIds([]);
       setModelAllow("");
       setFallbacks("");
+      setSemanticCache(false);
       setRateLimit("");
       setBudget("");
       setExpiresDays("0");
       setScopes(["agents"]);
       toast.success("Key created");
+      await reload();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** Flip one key's cache. A live switch, because the answer to "is this key
+   * reusing answers it should not?" is usually needed now, not next release. */
+  async function toggleCache(k: GatewayKeyListRow, on: boolean) {
+    setBusy(true);
+    try {
+      const res = await updateFn({
+        data: { access_token: token, id: k.id, semantic_cache: on },
+      });
+      if (!res.ok) return toast.error(res.error);
+      toast.success(on ? `Cache on for ${k.name}` : `Cache off for ${k.name}`);
+      await reload();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function clearCache() {
+    setBusy(true);
+    try {
+      const res = await cacheClearFn({ data: { access_token: token } });
+      if (!res.ok) return toast.error(res.error);
+      toast.success(
+        res.cleared === 1 ? "Cleared 1 cached answer" : `Cleared ${res.cleared} cached answers`,
+      );
       await reload();
     } finally {
       setBusy(false);
@@ -316,6 +383,7 @@ curl ${baseUrl}/metrics/query \\
                   <th className="px-3 py-2 font-medium">Key</th>
                   <th className="px-3 py-2 font-medium">Reaches</th>
                   <th className="px-3 py-2 font-medium">Fallbacks</th>
+                  <th className="px-3 py-2 font-medium">Cache</th>
                   <th className="px-3 py-2 font-medium">Budget</th>
                   <th className="px-3 py-2 font-medium">Used</th>
                   <th className="px-3 py-2 font-medium">State</th>
@@ -363,6 +431,19 @@ curl ${baseUrl}/metrics/query \\
                       <td className="px-3 py-2 font-mono text-xs">
                         {k.fallback_models.length ? k.fallback_models.join(" → ") : "—"}
                       </td>
+                      <td className="px-3 py-2 text-xs">
+                        <label className="flex items-center gap-1.5">
+                          <Checkbox
+                            checked={k.semantic_cache}
+                            disabled={busy || revoked}
+                            onCheckedChange={(v) => void toggleCache(k, v === true)}
+                            aria-label={`Semantic cache for ${k.name}`}
+                          />
+                          <span className="text-muted-foreground">
+                            {k.semantic_cache ? "on" : "off"}
+                          </span>
+                        </label>
+                      </td>
                       <td className="px-3 py-2 text-xs tabular-nums">
                         {k.monthly_cap_usd ? `$${k.monthly_cap_usd}/mo` : "—"}
                       </td>
@@ -397,6 +478,67 @@ curl ${baseUrl}/metrics/query \\
             </table>
           </div>
         )}
+
+        {cacheOn || cache.length > 0 ? (
+          <div className="space-y-2 rounded-md border p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-sm font-medium">
+                <DatabaseZap className="h-4 w-4" /> Semantic cache
+                <span className="font-normal text-muted-foreground">
+                  {cache.length === 0
+                    ? "empty"
+                    : cache.length === 1
+                      ? "1 answer stored"
+                      : `${cache.length} answers stored`}
+                </span>
+              </div>
+              {cache.length > 0 ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={busy}
+                  onClick={() => void clearCache()}
+                >
+                  <Trash2 className="mr-1 h-3.5 w-3.5" /> Clear cache
+                </Button>
+              ) : null}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              A key with the cache on answers a repeated question from here instead of calling the
+              provider. Only single-question calls that used no tools are stored, and never across
+              users, agents or system prompts. Clear it if an answer is being reused for a question
+              it does not answer.
+            </p>
+            {cache.length > 0 ? (
+              <div className="max-h-56 overflow-y-auto rounded border">
+                <table className="w-full text-xs">
+                  <thead className="bg-muted text-left">
+                    <tr>
+                      <th className="px-2 py-1.5 font-medium">Question</th>
+                      <th className="px-2 py-1.5 font-medium">Answered by</th>
+                      <th className="px-2 py-1.5 font-medium">Reused</th>
+                      <th className="px-2 py-1.5 font-medium">Expires</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cache.map((e) => (
+                      <tr key={e.id} className="border-t align-top">
+                        <td className="max-w-md truncate px-2 py-1.5" title={e.question}>
+                          {e.question}
+                        </td>
+                        <td className="px-2 py-1.5 font-mono">{e.model}</td>
+                        <td className="px-2 py-1.5 tabular-nums">{e.hits}×</td>
+                        <td className="px-2 py-1.5 tabular-nums text-muted-foreground">
+                          {untilTime(e.expires_at)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </CardContent>
 
       <Dialog open={open} onOpenChange={setOpen}>
@@ -527,6 +669,23 @@ curl ${baseUrl}/metrics/query \\
                 instance-wide chain. One provider/model per line.
               </p>
             </div>
+            <label className="flex items-start gap-2 rounded-md border p-3">
+              <Checkbox
+                id="gw-cache"
+                checked={semanticCache}
+                onCheckedChange={(v) => setSemanticCache(v === true)}
+                className="mt-0.5"
+              />
+              <span className="text-sm">
+                Answer repeated questions from the semantic cache
+                <span className="block text-xs text-muted-foreground">
+                  A question close enough in meaning to one this key already asked is answered from
+                  the stored answer instead of the provider. Single-question calls only, nothing
+                  that used a tool, and never across users, agents or system prompts. Leave off if
+                  every call must reach the model.
+                </span>
+              </span>
+            </label>
             <div className="grid gap-3 sm:grid-cols-3">
               <div className="space-y-1">
                 <Label htmlFor="gw-rate">Calls per minute</Label>

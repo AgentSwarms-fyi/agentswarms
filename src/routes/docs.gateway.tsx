@@ -124,8 +124,8 @@ print(reply.choices[0].message.content)`}</Code>
         <li>
           <strong>Added to the reply:</strong> an <C>agentswarms</C> object with the trace id, the
           model fallen back from, citations, tool calls and any guardrail note; headers{" "}
-          <C>X-Trace-Id</C>, <C>X-Gateway-Model</C> (the model that answered) and{" "}
-          <C>X-Gateway-Fallback</C>.
+          <C>X-Trace-Id</C>, <C>X-Gateway-Model</C> (the model that answered),{" "}
+          <C>X-Gateway-Fallback</C> and <C>X-Gateway-Cache</C>.
         </li>
         <li>
           <strong>No memory between calls.</strong> The caller holds the conversation and replays
@@ -212,11 +212,12 @@ curl https://<your host>/api/v1/metrics/query \\
           <C>insufficient_quota</C>.
         </li>
         <li>
-          <strong>Audit.</strong> <C>gateway.chat</C> for every turn, <C>gateway.fallback</C> for
-          every switch, <C>gateway.access.denied</C> for a revoked, expired, out-of-scope or
-          throttled key with the caller&apos;s address; agent turns also audit <C>agent.chat</C>. A
-          metric query audits <C>metric.query</C> with <C>via: gateway</C>, the key, the compiled
-          SQL and a digest of the result.
+          <strong>Audit.</strong> <C>gateway.chat</C> for every turn — including whether the cache
+          answered it — <C>gateway.cache.clear</C> when an owner empties the cache,{" "}
+          <C>gateway.fallback</C> for every switch, <C>gateway.access.denied</C> for a revoked,
+          expired, out-of-scope or throttled key with the caller&apos;s address; agent turns also
+          audit <C>agent.chat</C>. A metric query audits <C>metric.query</C> with{" "}
+          <C>via: gateway</C>, the key, the compiled SQL and a digest of the result.
         </li>
         <li>
           <strong>Traces.</strong> Each turn is an execution trace under the owner with the
@@ -228,6 +229,64 @@ curl https://<your host>/api/v1/metrics/query \\
         (401), <C>insufficient_scope</C> and <C>model_not_allowed</C> (403), <C>model_not_found</C>{" "}
         (404), <C>rate_limit_exceeded</C> and <C>insufficient_quota</C> (429),{" "}
         <C>invalid_request_error</C> (400), <C>upstream_error</C> (502).
+      </Callout>
+
+      <H2 id="cache">Semantic cache</H2>
+      <P>
+        The same question asked twice costs twice. A key can switch on a cache that matches on the{" "}
+        <strong>meaning</strong> of a question rather than its bytes, so &ldquo;what was revenue
+        last quarter&rdquo; and &ldquo;how much revenue did we make last quarter&rdquo; are one
+        question, answered once. It is <strong>off unless a key turns it on</strong> — on the key
+        when it is minted, or from the <C>Cache</C> column afterwards. Nobody inherits one by
+        upgrading, because a cache that answers a question with a nearly identical question&apos;s
+        answer is a correctness risk that has to be chosen deliberately.
+      </P>
+      <P>
+        An entry belongs to one owner, one target (the agent id, or <C>provider/model</C> for a bare
+        model call) and one system instruction. No answer crosses a user, an agent, or a differently
+        instructed run of the same agent. There is no global cache and no way to ask for one.
+      </P>
+      <UL>
+        <li>
+          <strong>Never cached: a conversation with a history.</strong> &ldquo;And for
+          Europe?&rdquo; means nothing without what came before it, and matching on the last message
+          alone would answer it with whatever the last person who asked that got.
+        </li>
+        <li>
+          <strong>Never cached: a turn above the temperature ceiling.</strong> A high temperature
+          asks for variety; serving it from cache answers a different question than the one asked.
+        </li>
+        <li>
+          <strong>Never cached: an answer that used a tool.</strong> It read something live, and
+          freezing it for a day would serve yesterday&apos;s number tomorrow.
+        </li>
+        <li>
+          <strong>What you get back.</strong> Every reply carries <C>X-Gateway-Cache</C> —{" "}
+          <C>hit</C>, <C>miss</C>, <C>skip</C> (the cache is on but this call was not eligible) or{" "}
+          <C>off</C>. A hit sets <C>X-Gateway-Model</C> to the model that wrote the answer, puts{" "}
+          <C>cached</C> in the <C>agentswarms</C> object with the similarity and the question it
+          matched, and reports zero usage, because a hit spends nothing at the provider.
+        </li>
+        <li>
+          <strong>It still costs one embedding</strong> of the question, on the owner&apos;s
+          connected embedding provider — the same one the knowledge bases use, roughly three orders
+          of magnitude less than a completion. With no embedding provider connected, every call
+          simply misses.
+        </li>
+      </UL>
+      <P>
+        The cache is consulted <strong>after</strong> every check that can refuse a call — inactive
+        key, wrong scope, forbidden model, exhausted budget — and before the first provider call. A
+        refused key stays refused whether or not the answer happens to be sitting in a table. A hit
+        audits <C>gateway.chat</C> with <C>cache: hit</C>, the similarity and zero tokens; flipping
+        the switch on a key audits through the key table&apos;s own trigger; and emptying the cache
+        from the same card audits <C>gateway.cache.clear</C>.
+      </P>
+      <Callout title="0.97 similarity is deliberately high">
+        Two questions a cosine hair apart can still want different answers — &ldquo;revenue in
+        2025&rdquo; against &ldquo;revenue in 2024&rdquo; — and a cache that answers the wrong one
+        is worse than one that misses. Lower it under Admin &rarr; Developer runtime only with a
+        corpus of questions you have looked at.
       </Callout>
 
       <H2 id="limits">Limits</H2>
@@ -248,6 +307,21 @@ curl https://<your host>/api/v1/metrics/query \\
             "AI_GATEWAY_METRICS_MAX_ROWS",
             "10,000",
             "Rows one metrics query may return; a smaller limit in the request wins. Admin → Developer runtime.",
+          ],
+          [
+            "AI_GATEWAY_CACHE_SIMILARITY",
+            "0.97",
+            "Similarity a cached question must reach to answer a new one; Admin → Developer runtime.",
+          ],
+          [
+            "AI_GATEWAY_CACHE_TTL_HOURS",
+            "24",
+            "Hours a cached answer stays reusable; expired rows are never served.",
+          ],
+          [
+            "AI_GATEWAY_CACHE_MAX_TEMPERATURE",
+            "0.3",
+            "Above this temperature a turn is neither served from nor written to the cache.",
           ],
           [
             "Fallback entries per key",
@@ -290,6 +364,18 @@ curl https://<your host>/api/v1/metrics/query \\
           [
             "The reply came from a different model",
             "A fallback fired; X-Gateway-Model names it and the audit log has gateway.fallback with the reason.",
+          ],
+          [
+            "The same answer keeps coming back",
+            "The key's semantic cache is answering. X-Gateway-Cache: hit says so; clear the cache or turn the switch off on the key.",
+          ],
+          [
+            "X-Gateway-Cache is always skip",
+            "The cache is on but nothing qualifies: the calls are follow-ups with a history, or the temperature is above the ceiling.",
+          ],
+          [
+            "X-Gateway-Cache is always miss",
+            "Nothing similar enough is stored yet, the answers used tools, or no embedding provider is connected for the owner.",
           ],
           [
             "404 model_not_found on /metrics/query",

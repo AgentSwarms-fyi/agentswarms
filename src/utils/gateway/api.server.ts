@@ -19,6 +19,20 @@ import { rateLimitedGlobal } from "@/utils/rateLimit.server";
 import { clientIp, clientUserAgent } from "@/utils/requestMeta.server";
 import type { ProviderId } from "@/utils/providers/types";
 import {
+  cacheLookupDecision,
+  cacheStoreDecision,
+  promptHashOf,
+  targetKeyFor,
+  usedTools,
+  type CacheScope,
+} from "@/utils/gateway/cache";
+import {
+  cacheSettings,
+  lookupCached,
+  recordCacheHit,
+  storeCached,
+} from "@/utils/gateway/cache.server";
+import {
   fallbackCandidates,
   hashGatewayKey,
   isRetryableFailure,
@@ -53,6 +67,8 @@ export type GatewayKeyRow = {
   /** With the metrics scope: semantic models the key may query; empty = every model the owner may read. */
   semantic_model_ids: string[];
   fallback_models: string[];
+  /** Whether this key may answer from the semantic cache. Off unless asked for. */
+  semantic_cache: boolean;
   rate_limit_per_min: number | null;
   is_active: boolean;
   expires_at: string | null;
@@ -61,7 +77,7 @@ export type GatewayKeyRow = {
 };
 
 const KEY_COLUMNS =
-  "id, user_id, name, scopes, agent_ids, model_allow, semantic_model_ids, fallback_models, rate_limit_per_min, is_active, expires_at, revoked_at, use_count";
+  "id, user_id, name, scopes, agent_ids, model_allow, semantic_model_ids, fallback_models, semantic_cache, rate_limit_per_min, is_active, expires_at, revoked_at, use_count";
 
 export type GatewayAuth =
   | { ok: true; key: GatewayKeyRow }
@@ -447,6 +463,12 @@ export type CompletionMeta = {
   includeUsage: boolean;
   traceId: string | null;
   fallbackFrom: string | null;
+  /**
+   * Present only when this answer came out of the semantic cache. It rides in
+   * the `agentswarms` field of both shapes, so a caller can tell a reused
+   * answer from a fresh one without reading a header it may not have kept.
+   */
+  cached?: { similarity: number; asked: string; answered_at: string };
 };
 
 /**
@@ -494,6 +516,7 @@ export function adaptUpstreamSse(
           agentswarms: {
             trace_id: meta.traceId,
             fallback_from: meta.fallbackFrom,
+            ...(meta.cached ? { cached: meta.cached } : {}),
             ...acc.extras,
           },
         };
@@ -536,9 +559,38 @@ export async function collectUpstreamSse(
       { index: 0, message: { role: "assistant", content: acc.text }, finish_reason: "stop" },
     ],
     usage: acc.usage ?? { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
-    agentswarms: { trace_id: meta.traceId, fallback_from: meta.fallbackFrom, ...acc.extras },
+    agentswarms: {
+      trace_id: meta.traceId,
+      fallback_from: meta.fallbackFrom,
+      ...(meta.cached ? { cached: meta.cached } : {}),
+      ...acc.extras,
+    },
   };
   return { body, text: acc.text, usage: acc.usage, extras: acc.extras };
+}
+
+/**
+ * A cached answer dressed as one of the platform's own SSE streams, so both
+ * shapes above produce it byte for byte the way a live turn does.
+ *
+ * Re-using the adapters rather than hand-rolling a second response shape is
+ * the whole point: a cached completion that framed itself slightly
+ * differently would be a bug nobody found until a client broke on it. The
+ * cost frame reports zeros because a cache hit spends nothing, which is the
+ * honest number rather than a copy of what the original turn cost.
+ */
+export function cachedUpstream(answer: string): ReadableStream<Uint8Array> {
+  const enc = new TextEncoder();
+  const frame = (payload: unknown, event?: string) =>
+    enc.encode(`${event ? `event: ${event}\n` : ""}data: ${JSON.stringify(payload)}\n\n`);
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(frame({ choices: [{ delta: { content: answer } }] }));
+      controller.enqueue(frame({ tokensIn: 0, tokensOut: 0, costUsd: 0 }, "cost"));
+      controller.enqueue(enc.encode("data: [DONE]\n\n"));
+      controller.close();
+    },
+  });
 }
 
 function num(v: unknown, lo: number, hi: number): number | undefined {
@@ -721,10 +773,8 @@ export async function runGatewayCompletion(args: {
   const created = Math.floor(Date.now() / 1000);
   const origin = resolveInternalOrigin();
 
-  let lastFailure: { status: number; code: OpenAiErrorCode; message: string } | null = null;
-  for (let i = 0; i < candidates.length; i++) {
-    const candidate = candidates[i];
-    const internal = buildInternalChatBody({
+  const internalFor = (candidate: { provider: string; model: string }) =>
+    buildInternalChatBody({
       ownerId: key.user_id,
       costScope: { type: "gateway_key", id: key.id },
       target,
@@ -733,6 +783,103 @@ export async function runGatewayCompletion(args: {
       temperature,
       maxTokens,
     });
+  // Built once up front, for the primary, because the cache needs two things
+  // out of it that only it can answer authoritatively: the system instruction
+  // the model will actually be given, and the temperature that will actually
+  // apply once the agent's own default has had its say. Deriving either of
+  // them a second time here is how a cache ends up scoped by something subtly
+  // different from what the model was told.
+  const primaryBody = internalFor(primary);
+  const systemPrompt = typeof primaryBody.systemPrompt === "string" ? primaryBody.systemPrompt : "";
+  const effectiveTemperature =
+    typeof primaryBody.temperature === "number" ? primaryBody.temperature : 0.4;
+
+  // The cache sits AFTER every check that can refuse this request — inactive
+  // key, wrong scope, forbidden model, exhausted budget — and before the first
+  // provider call. A refused key stays refused whether or not the answer
+  // happens to be sitting in a table.
+  const scope: CacheScope = {
+    userId: key.user_id,
+    targetKey: targetKeyFor(target),
+    promptHash: promptHashOf(systemPrompt),
+  };
+  const cacheRules = await cacheSettings();
+  const lookup = cacheLookupDecision({
+    keyCacheEnabled: key.semantic_cache === true,
+    messages,
+    temperature: effectiveTemperature,
+    maxTemperature: cacheRules.maxTemperature,
+  });
+  /** The question's vector, kept so a miss does not pay to embed it twice. */
+  let questionVector: number[] | null = null;
+  if (lookup.cacheable) {
+    const found = await lookupCached(scope, lookup.question, cacheRules.similarity);
+    questionVector = found.embedding;
+    if (found.hit) {
+      recordCacheHit(found.hit.id);
+      const meta: CompletionMeta = {
+        id,
+        // The model that WROTE the answer, not the one that would have been
+        // asked: a caller comparing the two can see the answer is reused.
+        model: found.hit.model,
+        created,
+        includeUsage,
+        traceId: null,
+        fallbackFrom: null,
+        cached: {
+          similarity: found.hit.similarity,
+          asked: found.hit.question.slice(0, 500),
+          answered_at: new Date().toISOString(),
+        },
+      };
+      auditEvent({
+        userId: key.user_id,
+        action: "gateway.chat",
+        resourceType: "gateway_key",
+        resourceId: key.id,
+        resourceName: key.name,
+        detail: {
+          target: target.kind === "agent" ? `agent:${target.agent.id}` : requestedModel,
+          agent_name: target.kind === "agent" ? target.agent.name : null,
+          model: found.hit.model,
+          stream,
+          status: "success",
+          cache: "hit",
+          cache_similarity: found.hit.similarity,
+          // A hit spends nothing at the provider, and the row says so rather
+          // than leaving the reader to infer it from a missing number.
+          tokens_in: 0,
+          tokens_out: 0,
+        },
+      });
+      const cacheHeaders = { "X-Gateway-Model": found.hit.model, "X-Gateway-Cache": "hit" };
+      if (stream) {
+        return new Response(adaptUpstreamSse(cachedUpstream(found.hit.answer), meta), {
+          headers: {
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            Connection: "keep-alive",
+            ...CORS,
+            ...cacheHeaders,
+          },
+        });
+      }
+      const collected = await collectUpstreamSse(cachedUpstream(found.hit.answer), meta);
+      return gatewayJson(collected.body, 200, cacheHeaders);
+    }
+  }
+  /**
+   * What the header and the audit row call this turn. "skip" is its own state
+   * on purpose: a key with the cache on whose every call reads "skip" is
+   * asking multi-turn questions or running hot, and that is a different
+   * conversation from a cache that is simply cold.
+   */
+  const cacheState = !key.semantic_cache ? "off" : lookup.cacheable ? "miss" : "skip";
+
+  let lastFailure: { status: number; code: OpenAiErrorCode; message: string } | null = null;
+  for (let i = 0; i < candidates.length; i++) {
+    const candidate = candidates[i];
+    const internal = i === 0 ? primaryBody : internalFor(candidate);
     let res: Response;
     try {
       res = await fetch(`${origin}/api/chat`, {
@@ -780,6 +927,7 @@ export async function runGatewayCompletion(args: {
     };
     const headers: Record<string, string> = {
       "X-Gateway-Model": served,
+      "X-Gateway-Cache": cacheState,
       ...(meta.traceId ? { "X-Trace-Id": meta.traceId } : {}),
       ...(i > 0 ? { "X-Gateway-Fallback": "true" } : {}),
     };
@@ -798,15 +946,37 @@ export async function runGatewayCompletion(args: {
           fallback_from: meta.fallbackFrom,
           stream,
           status,
+          cache: cacheState,
           tokens_in: usage?.prompt_tokens ?? null,
           tokens_out: usage?.completion_tokens ?? null,
           trace_id: meta.traceId,
         },
       });
+    /**
+     * Store what just came back, if the rules still allow it. They are
+     * re-checked here rather than assumed from the lookup because one of them
+     * can only be decided now: an answer that reached for a tool read
+     * something live, and freezing that for a day would serve yesterday's
+     * number tomorrow.
+     */
+    const maybeStore = (text: string, extras: { tools?: unknown[] }) => {
+      if (!lookup.cacheable || !questionVector) return;
+      const decision = cacheStoreDecision({ lookup, usedTools: usedTools(extras), answer: text });
+      if (!decision.cacheable) return;
+      storeCached({
+        scope,
+        question: decision.question,
+        answer: text,
+        model: served,
+        embedding: questionVector,
+        ttlHours: cacheRules.ttlHours,
+      });
+    };
     if (stream) {
-      const out = adaptUpstreamSse(res.body, meta, (s) =>
-        audit(s.text || s.usage ? "success" : "error", s.usage),
-      );
+      const out = adaptUpstreamSse(res.body, meta, (s) => {
+        audit(s.text || s.usage ? "success" : "error", s.usage);
+        maybeStore(s.text, s.extras);
+      });
       return new Response(out, {
         headers: {
           "Content-Type": "text/event-stream",
@@ -819,6 +989,7 @@ export async function runGatewayCompletion(args: {
     }
     const collected = await collectUpstreamSse(res.body, meta);
     audit(collected.text || collected.usage ? "success" : "error", collected.usage);
+    maybeStore(collected.text, collected.extras);
     return gatewayJson(collected.body, 200, headers);
   }
   const f = lastFailure ?? {

@@ -40,7 +40,11 @@ function envVarsInCode(): Set<string> {
           /process\.env\.([A-Z][A-Z0-9_]{2,})/g,
           /process\.env\[["']([A-Z][A-Z0-9_]{2,})["']\]/g,
           /import\.meta\.env\.([A-Z][A-Z0-9_]{2,})/g,
-          /env(?:Int|Bool|Num|Str)\(\s*["']([A-Z][A-Z0-9_]{2,})["']/g,
+          // Any envInt/envNum/envBool/envStr reader, including a suffixed
+          // variant (envNumZeroOk, for a knob whose zero is a real setting).
+          // Pinned to the exact names made the check miss a variable that IS
+          // read and report it as dead, which is the one wrong answer here.
+          /env(?:Int|Bool|Num|Str)[A-Za-z]*\(\s*["']([A-Z][A-Z0-9_]{2,})["']/g,
           /\benv\.([A-Z][A-Z0-9_]{2,})/g,
         ]) {
           for (const m of src.matchAll(re)) out.add(m[1]);

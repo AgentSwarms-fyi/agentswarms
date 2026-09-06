@@ -41,6 +41,9 @@ export type NbRuntimeSettings = {
   gateway_rate_limit_per_min: number;
   gateway_fallback_models: string[];
   gateway_metrics_max_rows: number;
+  gateway_cache_similarity: number;
+  gateway_cache_ttl_hours: number;
+  gateway_cache_max_temperature: number;
   data_monitors_per_sweep: number;
   data_monitor_anomaly_sigma: number;
   ai_sql_max_calls_per_statement: number;
@@ -128,6 +131,9 @@ const DEFAULTS: NbRuntimeSettings = {
   gateway_rate_limit_per_min: 60,
   gateway_fallback_models: [],
   gateway_metrics_max_rows: 10000,
+  gateway_cache_similarity: 0.97,
+  gateway_cache_ttl_hours: 24,
+  gateway_cache_max_temperature: 0.3,
   data_monitors_per_sweep: 20,
   data_monitor_anomaly_sigma: 3,
   ai_sql_max_calls_per_statement: 200,
@@ -188,6 +194,9 @@ export const nbRuntimeGetState = createServerFn({ method: "POST" })
           gateway_rate_limit_per_min: row.gateway_rate_limit_per_min ?? 60,
           gateway_fallback_models: row.gateway_fallback_models ?? [],
           gateway_metrics_max_rows: row.gateway_metrics_max_rows ?? 10000,
+          gateway_cache_similarity: row.gateway_cache_similarity ?? 0.97,
+          gateway_cache_ttl_hours: row.gateway_cache_ttl_hours ?? 24,
+          gateway_cache_max_temperature: row.gateway_cache_max_temperature ?? 0.3,
           data_monitors_per_sweep: row.data_monitors_per_sweep ?? 20,
           data_monitor_anomaly_sigma: row.data_monitor_anomaly_sigma ?? 3,
           ai_sql_max_calls_per_statement: row.ai_sql_max_calls_per_statement ?? 200,
@@ -276,6 +285,12 @@ export const nbRuntimeUpdateSettings = createServerFn({ method: "POST" })
         gateway_rate_limit_per_min: z.number().int().min(1).max(100000).optional(),
         gateway_fallback_models: z.array(z.string().min(1).max(160)).max(10).optional(),
         gateway_metrics_max_rows: z.number().int().min(1).max(100_000_000).optional(),
+        // A floor below 0.8 stops being a cache and starts being a coin toss;
+        // 1 is an exact-meaning match, which is the strictest setting that is
+        // still a semantic cache rather than a disabled one.
+        gateway_cache_similarity: z.number().min(0.8).max(1).optional(),
+        gateway_cache_ttl_hours: z.number().int().min(1).max(8760).optional(),
+        gateway_cache_max_temperature: z.number().min(0).max(2).optional(),
         data_monitors_per_sweep: z.number().int().min(1).max(10000).optional(),
         data_monitor_anomaly_sigma: z.number().min(0.5).max(20).optional(),
         ai_sql_max_calls_per_statement: z.number().int().min(1).max(1000000).optional(),

@@ -33,17 +33,48 @@ import {
   type PreflightCheck,
 } from "@/utils/notebookRuntimeAdmin.functions";
 
+/**
+ * What to say when the schema refuses a save.
+ *
+ * A rejected save used to show nothing at all: the validator throws before the
+ * handler runs, the promise rejected into the console, and the page sat there
+ * looking saved. On a form of thirty numbers, "invalid input" is not an answer
+ * either - the field has to be named, so this digs the issues out of the zod
+ * payload and reads the column name back as words.
+ */
+function refusalMessage(e: unknown): string {
+  const raw = e instanceof Error ? e.message : String(e);
+  try {
+    const issues = JSON.parse(raw) as { path?: (string | number)[]; message?: string }[];
+    if (Array.isArray(issues) && issues.length > 0) {
+      return issues
+        .slice(0, 3)
+        .map((i) => {
+          const field = (i.path ?? []).join(".").replace(/_/g, " ") || "A value";
+          return `${field}: ${i.message ?? "not allowed"}`;
+        })
+        .join("; ");
+    }
+  } catch {
+    // Not a zod payload. The plain message is the best there is.
+  }
+  return raw || "The settings could not be saved";
+}
+
 function NumberField({
   label,
   value,
   onChange,
   hint,
   warn,
+  step,
 }: {
   label: string;
   value: number;
   onChange: (n: number) => void;
   hint?: string;
+  /** Decimal knobs say so, or the browser marks every fraction invalid. */
+  step?: number;
   /** Shown when the value exceeds what this host reports — advice, not a block. */
   warn?: string | null;
 }) {
@@ -52,6 +83,7 @@ function NumberField({
       <Label className="text-xs">{label}</Label>
       <Input
         type="number"
+        step={step}
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
         className={`h-8 ${warn ? "border-amber-500/60" : ""}`}
@@ -216,6 +248,8 @@ export function RuntimeTab({ token }: { token: string }) {
         );
       }
       load();
+    } catch (e) {
+      toast.error(refusalMessage(e));
     } finally {
       setSaving(false);
     }
@@ -513,6 +547,7 @@ export function RuntimeTab({ token }: { token: string }) {
             label="Anomaly threshold (sigma)"
             value={form.data_monitor_anomaly_sigma}
             onChange={(n) => set("data_monitor_anomaly_sigma", n)}
+            step={0.1}
             hint="Standard deviations from the learned baseline beyond which a volume check alerts. 3 is the usual choice."
           />
         </div>
@@ -592,6 +627,35 @@ export function RuntimeTab({ token }: { token: string }) {
             value={form.gateway_metrics_max_rows}
             onChange={(n) => set("gateway_metrics_max_rows", n)}
             hint="Rows one /api/v1/metrics/query call may return; a smaller limit in the request wins."
+          />
+        </div>
+        <p className="text-xs font-medium text-muted-foreground">
+          Semantic cache
+          <span className="ml-2 font-normal">
+            Applies only to keys that switch it on (Integrations &rarr; LLM Gateway &rarr; API
+            access).
+          </span>
+        </p>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <NumberField
+            label="Similarity to reuse an answer"
+            value={form.gateway_cache_similarity}
+            onChange={(n) => set("gateway_cache_similarity", n)}
+            step={0.01}
+            hint="Cosine similarity a cached question must reach before its answer is reused. Lower reuses more and risks answering a near-miss."
+          />
+          <NumberField
+            label="Answer lifetime (hours)"
+            value={form.gateway_cache_ttl_hours}
+            onChange={(n) => set("gateway_cache_ttl_hours", n)}
+            hint="How long a cached answer stays reusable before the model is asked again."
+          />
+          <NumberField
+            label="Temperature ceiling"
+            value={form.gateway_cache_max_temperature}
+            onChange={(n) => set("gateway_cache_max_temperature", n)}
+            step={0.1}
+            hint="Above this temperature a turn is never served from, or written to, the cache: a high temperature asks for variety."
           />
         </div>
       </div>

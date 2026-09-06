@@ -83,8 +83,9 @@ completion (or on the final streamed chunk) with the `trace_id`, the
 `fallback_from` model if one was used, the citations and tool calls the
 turn produced, and any guardrail note; and headers `X-Trace-Id`,
 `X-Gateway-Model` (the model that actually answered) and
-`X-Gateway-Fallback: true` when it was not the one requested. Usage arrives
-in `usage` on non-streamed replies and, when `include_usage` is set, on the
+`X-Gateway-Fallback: true` when it was not the one requested, plus
+`X-Gateway-Cache` (see [Semantic cache](#semantic-cache)). Usage arrives in
+`usage` on non-streamed replies and, when `include_usage` is set, on the
 final chunk.
 
 An agent called through the gateway keeps no memory between calls: the
@@ -160,6 +161,77 @@ key's allow-list narrows that access and never widens it. Rate limits and
 expiry apply as to any other call; a metrics query makes no model call, so
 budgets are not touched.
 
+## Semantic cache
+
+The same question asked twice costs twice. A key can switch on a cache that
+matches on the MEANING of a question rather than its bytes, so "what was
+revenue last quarter" and "how much revenue did we make last quarter" are one
+question, answered once.
+
+It is **off unless a key turns it on**, under Integrations → LLM Gateway ->
+API access, on the key when it is minted or from the `Cache` column
+afterwards. Nobody inherits one by upgrading, because a cache that answers a
+question with a NEARLY identical question's answer is a correctness risk that
+has to be chosen deliberately.
+
+**What is scoped.** An entry belongs to one owner, one target (the agent id,
+or `provider/model` for a bare model call) and one system instruction. No
+answer crosses a user, an agent, or a differently instructed run of the same
+agent, and there is no global cache and no way to ask for one.
+
+**What is never cached**, whatever the key says:
+
+- Anything but a single question. A conversation with a history is always a
+  miss: "and for Europe?" means nothing without what came before it, and
+  matching on the last message alone would answer it with whatever the last
+  person who asked that got.
+- A turn above the temperature ceiling. A high temperature asks for variety,
+  and serving it from cache answers a different question than the one asked.
+- An answer that used a tool. It read something live, and freezing it for a
+  day would serve yesterday's number tomorrow.
+- An empty answer.
+
+**What you get back.** Every reply carries `X-Gateway-Cache: hit | miss |
+skip | off` — `skip` means the key has the cache on but this call was not
+eligible (a follow-up, or too hot). A hit also sets `X-Gateway-Model` to the
+model that WROTE the answer, and puts `cached` in the `agentswarms` object
+with the similarity and the question that was matched. Its `usage` is all
+zeroes, because a hit spends nothing at the provider.
+
+**Cost.** A hit still pays for one embedding of the question, using the
+embedding provider the key's owner has connected — the same resolution the
+knowledge bases use. That is roughly three orders of magnitude less than a
+completion. An install with no embedding provider connected simply misses.
+
+**What an operator sets** (Admin → Developer runtime → AI gateway ->
+Semantic cache; each is a settings row first, then the environment variable,
+then the default):
+
+| Setting             | Env                                | Default | Meaning                                                             |
+| ------------------- | ---------------------------------- | ------- | ------------------------------------------------------------------- |
+| Similarity          | `AI_GATEWAY_CACHE_SIMILARITY`      | 0.97    | Cosine similarity a cached question must reach to answer a new one. |
+| Answer lifetime     | `AI_GATEWAY_CACHE_TTL_HOURS`       | 24      | Hours an answer stays reusable. Expired rows are never served.      |
+| Temperature ceiling | `AI_GATEWAY_CACHE_MAX_TEMPERATURE` | 0.3     | Above this, a turn is neither served from nor written to the cache. |
+
+0.97 is deliberately high. Two questions a cosine hair apart can still want
+different answers — "revenue in 2025" against "revenue in 2024" — and a
+cache that answers the wrong one is worse than one that misses. Lower it only
+with a corpus of questions you have looked at.
+
+**Governance.** A hit audits `gateway.chat` like any other turn, with
+`cache: "hit"`, the similarity it matched at and zero tokens; a live call
+carries `cache: "miss" | "skip" | "off"`. Turning the switch on or off for a
+key is a configuration change on `gateway_keys` and audits through that
+table's own trigger. The owner can see every stored question and empty the
+whole cache from the same card, which audits `gateway.cache.clear`. Rows are
+owner-only under RLS, and the lookup function filters on the owner before it
+ranks rather than after.
+
+The cache is consulted **after** every check that can refuse a call --
+inactive key, wrong scope, forbidden model, exhausted budget — and before
+the first provider call. A refused key stays refused whether or not the
+answer happens to be sitting in a table.
+
 ## Fallback
 
 When the requested model fails with a provider error, the gateway tries the
@@ -189,7 +261,9 @@ the models, the status and the reason.
   estimated. Over budget answers 429 `insufficient_quota`.
 - **Rate limits.** Per key, per minute, across every replica.
 - **Audit.** `gateway.chat` for every completed turn (target, model,
-  fallback, tokens, trace id), `gateway.fallback` for every switch,
+  fallback, tokens, trace id, and whether the cache answered it),
+  `gateway.cache.clear` when an owner empties the cache,
+  `gateway.fallback` for every switch,
   `gateway.access.denied` for a revoked, expired, out-of-scope or throttled
   key with the caller's address, and the table's own trigger for key
   changes. Agent turns also audit `agent.chat`, as in the app. A metric
@@ -233,6 +307,9 @@ this endpoint in front of the agents.
 | 403 `model_not_allowed`                   | Your IAM model rules forbid the model, or the key's model patterns do.                                                                                             |
 | 429 `insufficient_quota`                  | The owner's or the key's monthly budget is spent.                                                                                                                  |
 | The reply came from a different model     | A fallback fired; `X-Gateway-Model` names it and the audit log has `gateway.fallback` with the reason.                                                             |
+| The same answer keeps coming back         | The key's semantic cache is answering. `X-Gateway-Cache: hit` says so; clear the cache or turn the switch off on the key.                                          |
+| `X-Gateway-Cache` is always `skip`        | The cache is on but nothing qualifies: the calls are follow-ups with a history, or the temperature is above the ceiling.                                           |
+| `X-Gateway-Cache` is always `miss`        | Nothing similar enough is stored yet, the answers used tools, or no embedding provider is connected for the owner.                                                 |
 | 502 `upstream_error` after several models | Every candidate failed; `gateway.chat` in the audit log lists the models tried.                                                                                    |
 | 404 `model_not_found` on `/metrics/query` | The name is not among `GET /metrics`: not a model the owner owns or is granted. A model the key's allow-list excludes answers 403 `model_not_allowed`.             |
 | 400 on `/metrics/query` names a field     | The request or the compiler refused it: an unknown metric or dimension, a grain on a non-time dimension, a missing parameter. `GET /metrics` shows the vocabulary. |

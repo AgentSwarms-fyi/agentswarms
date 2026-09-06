@@ -58,6 +58,12 @@ export type PlatformResourceSettings = {
   gatewayFallbackModels: string[];
   /** Rows one metrics API query (/api/v1/metrics/query) may return. */
   gatewayMetricsMaxRows: number;
+  /** Cosine similarity a cached question must reach before its answer is reused. */
+  gatewayCacheSimilarity: number;
+  /** Hours a cached gateway answer stays reusable. */
+  gatewayCacheTtlHours: number;
+  /** Above this temperature a turn is never served from, or written to, the cache. */
+  gatewayCacheMaxTemperature: number;
   /** Due data monitors one scheduler sweep runs. */
   dataMonitorsPerSweep: number;
   /** Standard deviations from the learned baseline beyond which a volume check alerts. */
@@ -102,11 +108,24 @@ function envNum(name: string): number | undefined {
   return Number.isFinite(n) && n > 0 ? n : undefined;
 }
 
+/**
+ * A decimal knob whose zero is a real setting rather than an unset one.
+ *
+ * The cache's temperature ceiling is the case: 0 means only a fully
+ * deterministic turn may be cached, which is the strictest an operator can
+ * ask for, and reading it as "unset" would silently loosen it to the default.
+ */
+function envNumZeroOk(name: string): number | undefined {
+  const raw = process.env[name];
+  const n = raw ? Number.parseFloat(raw) : Number.NaN;
+  return Number.isFinite(n) && n >= 0 ? n : undefined;
+}
+
 export async function getPlatformResources(): Promise<PlatformResourceSettings> {
   const { data } = await supabaseAdmin
     .from("notebook_runtime_settings")
     .select(
-      "lakehouse_memory_limit, lakehouse_threads, etl_max_concurrent_runs_per_user, etl_pipelines_per_sweep, ml_train_max_rows, ml_train_time_budget_minutes, ml_train_mem_limit_mb, ml_max_concurrent_trainings_per_user, ml_predict_max_rows, ml_train_gpus, ml_drift_alert_psi, gateway_rate_limit_per_min, gateway_fallback_models, gateway_metrics_max_rows, data_monitors_per_sweep, data_monitor_anomaly_sigma, ai_sql_max_calls_per_statement, ai_sql_default_model, ai_sql_cache_ttl_days, document_vision_model, document_vision_max_pages",
+      "lakehouse_memory_limit, lakehouse_threads, etl_max_concurrent_runs_per_user, etl_pipelines_per_sweep, ml_train_max_rows, ml_train_time_budget_minutes, ml_train_mem_limit_mb, ml_max_concurrent_trainings_per_user, ml_predict_max_rows, ml_train_gpus, ml_drift_alert_psi, gateway_rate_limit_per_min, gateway_fallback_models, gateway_metrics_max_rows, gateway_cache_similarity, gateway_cache_ttl_hours, gateway_cache_max_temperature, data_monitors_per_sweep, data_monitor_anomaly_sigma, ai_sql_max_calls_per_statement, ai_sql_default_model, ai_sql_cache_ttl_days, document_vision_model, document_vision_max_pages",
     )
     .eq("id", true)
     .maybeSingle();
@@ -140,6 +159,19 @@ export async function getPlatformResources(): Promise<PlatformResourceSettings> 
       positive(data?.gateway_rate_limit_per_min) ?? envInt("AI_GATEWAY_RATE_LIMIT_PER_MIN") ?? 60,
     gatewayMetricsMaxRows:
       positive(data?.gateway_metrics_max_rows) ?? envInt("AI_GATEWAY_METRICS_MAX_ROWS") ?? 10000,
+    // 0.97 is deliberately high. Two questions a cosine hair apart can still
+    // want different answers ("revenue in 2025" against "revenue in 2024"),
+    // and a cache that answers the wrong one is worse than one that misses.
+    gatewayCacheSimilarity:
+      positiveNum(Number(data?.gateway_cache_similarity ?? Number.NaN)) ??
+      envNum("AI_GATEWAY_CACHE_SIMILARITY") ??
+      0.97,
+    gatewayCacheTtlHours:
+      positive(data?.gateway_cache_ttl_hours) ?? envInt("AI_GATEWAY_CACHE_TTL_HOURS") ?? 24,
+    gatewayCacheMaxTemperature:
+      nonNegative(Number(data?.gateway_cache_max_temperature ?? Number.NaN)) ??
+      envNumZeroOk("AI_GATEWAY_CACHE_MAX_TEMPERATURE") ??
+      0.3,
     gatewayFallbackModels: Array.isArray(data?.gateway_fallback_models)
       ? data.gateway_fallback_models.filter(
           (s): s is string => typeof s === "string" && s.trim() !== "",

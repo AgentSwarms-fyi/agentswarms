@@ -28,6 +28,8 @@ export type GatewayKeyListRow = {
   model_allow: string[];
   semantic_model_ids: string[];
   fallback_models: string[];
+  /** Whether this key may answer from the semantic cache instead of the provider. */
+  semantic_cache: boolean;
   rate_limit_per_min: number | null;
   is_active: boolean;
   expires_at: string | null;
@@ -48,7 +50,7 @@ async function resolveCaller(accessToken: string): Promise<{ ok: true; userId: s
 }
 
 const KEY_COLUMNS =
-  "id, name, key_prefix, scopes, agent_ids, model_allow, semantic_model_ids, fallback_models, rate_limit_per_min, is_active, expires_at, revoked_at, last_used_at, use_count, created_at";
+  "id, name, key_prefix, scopes, agent_ids, model_allow, semantic_model_ids, fallback_models, semantic_cache, rate_limit_per_min, is_active, expires_at, revoked_at, last_used_at, use_count, created_at";
 
 /** A chain entry must parse as provider/model; the UI shows what was rejected. */
 function validChain(entries: string[]): { ok: string[]; rejected: string[] } {
@@ -179,6 +181,7 @@ const createSchema = z.object({
   model_allow: z.array(z.string().min(1).max(160)).max(50).optional(),
   semantic_model_ids: z.array(z.string().uuid()).max(200).optional(),
   fallback_models: z.array(z.string().min(1).max(160)).max(10).optional(),
+  semantic_cache: z.boolean().optional(),
   rate_limit_per_min: z.number().int().min(1).max(100000).nullable().optional(),
   monthly_cap_usd: z.number().min(0).max(1_000_000).nullable().optional(),
   expires_at: z.string().datetime().nullable().optional(),
@@ -222,6 +225,7 @@ export const gatewayKeyCreate = createServerFn({ method: "POST" })
           model_allow: (data.model_allow ?? []).map((p) => p.trim()).filter(Boolean),
           semantic_model_ids: semanticModelIds,
           fallback_models: chain.ok,
+          semantic_cache: data.semantic_cache === true,
           rate_limit_per_min: data.rate_limit_per_min ?? null,
           expires_at: data.expires_at ?? null,
         })
@@ -264,6 +268,7 @@ export const gatewayKeyUpdate = createServerFn({ method: "POST" })
         fallback_models: z.array(z.string().min(1).max(160)).max(10).optional(),
         model_allow: z.array(z.string().min(1).max(160)).max(50).optional(),
         semantic_model_ids: z.array(z.string().uuid()).max(200).optional(),
+        semantic_cache: z.boolean().optional(),
         rate_limit_per_min: z.number().int().min(1).max(100000).nullable().optional(),
         monthly_cap_usd: z.number().min(0).max(1_000_000).nullable().optional(),
         is_active: z.boolean().optional(),
@@ -279,6 +284,7 @@ export const gatewayKeyUpdate = createServerFn({ method: "POST" })
       fallback_models?: string[];
       model_allow?: string[];
       semantic_model_ids?: string[];
+      semantic_cache?: boolean;
       rate_limit_per_min?: number | null;
       is_active?: boolean;
     } = { updated_at: new Date().toISOString() };
@@ -298,6 +304,7 @@ export const gatewayKeyUpdate = createServerFn({ method: "POST" })
         data.semantic_model_ids,
       );
     }
+    if (data.semantic_cache !== undefined) patch.semantic_cache = data.semantic_cache;
     if (data.rate_limit_per_min !== undefined) patch.rate_limit_per_min = data.rate_limit_per_min;
     if (data.is_active !== undefined) patch.is_active = data.is_active;
     const { data: row, error } = await supabaseAdmin
@@ -338,6 +345,69 @@ export const gatewayKeyUpdate = createServerFn({ method: "POST" })
       });
     }
     return { ok: true, rejected_fallbacks: rejected };
+  });
+
+/**
+ * What this account's semantic cache currently holds, newest first.
+ *
+ * The questions are shown in full and the answers are not: an owner needs to
+ * see WHAT is being reused to judge whether reusing it is right, and the
+ * answer is one API call away for anyone entitled to it.
+ */
+export const gatewayCacheList = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .handler(
+    async ({
+      data,
+    }): Promise<
+      | Fail
+      | {
+          ok: true;
+          entries: {
+            id: string;
+            question: string;
+            model: string;
+            hits: number;
+            created_at: string;
+            expires_at: string;
+          }[];
+        }
+    > => {
+      const caller = await resolveCaller(data.access_token);
+      if (!caller.ok) return caller;
+      const { listCacheEntries } = await import("@/utils/gateway/cache.server");
+      return { ok: true, entries: await listCacheEntries(caller.userId) };
+    },
+  );
+
+/**
+ * Empty this account's cache. The escape hatch for the one failure mode a
+ * semantic cache has that an exact one does not: an answer that is being
+ * reused for a question it does not actually answer.
+ *
+ * Audited, because it is a deliberate act with a visible effect on what
+ * callers get back, and because the next question after it costs money again.
+ */
+export const gatewayCacheClear = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .handler(async ({ data }): Promise<Fail | { ok: true; cleared: number }> => {
+    const caller = await resolveCaller(data.access_token);
+    if (!caller.ok) return caller;
+    try {
+      const { clearCache } = await import("@/utils/gateway/cache.server");
+      const cleared = await clearCache(caller.userId);
+      auditEvent({
+        userId: caller.userId,
+        action: "gateway.cache.clear",
+        resourceType: "gateway_cache",
+        resourceId: caller.userId,
+        resourceName: "Semantic cache",
+        detail: { cleared },
+      });
+      return { ok: true, cleared };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
   });
 
 export const gatewayKeyRevoke = createServerFn({ method: "POST" })

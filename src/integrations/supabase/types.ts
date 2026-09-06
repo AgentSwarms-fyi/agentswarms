@@ -2601,6 +2601,51 @@ export type Database = {
         };
         Relationships: [];
       };
+      gateway_cache: {
+        Row: {
+          answer: string;
+          created_at: string;
+          embedding: string;
+          expires_at: string;
+          hits: number;
+          id: string;
+          last_hit_at: string | null;
+          model: string;
+          prompt_hash: string;
+          question: string;
+          target_key: string;
+          user_id: string;
+        };
+        Insert: {
+          answer: string;
+          created_at?: string;
+          embedding: string;
+          expires_at: string;
+          hits?: number;
+          id?: string;
+          last_hit_at?: string | null;
+          model: string;
+          prompt_hash: string;
+          question: string;
+          target_key: string;
+          user_id: string;
+        };
+        Update: {
+          answer?: string;
+          created_at?: string;
+          embedding?: string;
+          expires_at?: string;
+          hits?: number;
+          id?: string;
+          last_hit_at?: string | null;
+          model?: string;
+          prompt_hash?: string;
+          question?: string;
+          target_key?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
       gateway_keys: {
         Row: {
           agent_ids: string[];
@@ -2618,6 +2663,7 @@ export type Database = {
           rate_limit_per_min: number | null;
           revoked_at: string | null;
           scopes: string[];
+          semantic_cache: boolean;
           semantic_model_ids: string[];
           updated_at: string;
           use_count: number;
@@ -2639,6 +2685,7 @@ export type Database = {
           rate_limit_per_min?: number | null;
           revoked_at?: string | null;
           scopes?: string[];
+          semantic_cache?: boolean;
           semantic_model_ids?: string[];
           updated_at?: string;
           use_count?: number;
@@ -2660,6 +2707,7 @@ export type Database = {
           rate_limit_per_min?: number | null;
           revoked_at?: string | null;
           scopes?: string[];
+          semantic_cache?: boolean;
           semantic_model_ids?: string[];
           updated_at?: string;
           use_count?: number;
@@ -4838,6 +4886,9 @@ export type Database = {
           egress_allowlist: string[];
           etl_max_concurrent_runs_per_user: number | null;
           etl_pipelines_per_sweep: number | null;
+          gateway_cache_max_temperature: number | null;
+          gateway_cache_similarity: number | null;
+          gateway_cache_ttl_hours: number | null;
           gateway_fallback_models: string[] | null;
           gateway_metrics_max_rows: number | null;
           gateway_rate_limit_per_min: number | null;
@@ -4880,6 +4931,9 @@ export type Database = {
           egress_allowlist?: string[];
           etl_max_concurrent_runs_per_user?: number | null;
           etl_pipelines_per_sweep?: number | null;
+          gateway_cache_max_temperature?: number | null;
+          gateway_cache_similarity?: number | null;
+          gateway_cache_ttl_hours?: number | null;
           gateway_fallback_models?: string[] | null;
           gateway_metrics_max_rows?: number | null;
           gateway_rate_limit_per_min?: number | null;
@@ -4922,6 +4976,9 @@ export type Database = {
           egress_allowlist?: string[];
           etl_max_concurrent_runs_per_user?: number | null;
           etl_pipelines_per_sweep?: number | null;
+          gateway_cache_max_temperature?: number | null;
+          gateway_cache_similarity?: number | null;
+          gateway_cache_ttl_hours?: number | null;
           gateway_fallback_models?: string[] | null;
           gateway_metrics_max_rows?: number | null;
           gateway_rate_limit_per_min?: number | null;
@@ -6557,6 +6614,10 @@ export type Database = {
         Returns: boolean;
       };
       increment_blog_view: { Args: { _slug: string }; Returns: number };
+      increment_gateway_cache_hit: {
+        Args: { p_id: string };
+        Returns: undefined;
+      };
       insert_sample_rows: {
         Args: { _rows: Json; _table_id: string };
         Returns: number;
@@ -6579,6 +6640,22 @@ export type Database = {
           parent_id: string;
           question: string;
           rank: number;
+        }[];
+      };
+      match_gateway_cache: {
+        Args: {
+          min_similarity?: number;
+          p_prompt_hash: string;
+          p_target_key: string;
+          p_user_id: string;
+          query_embedding: string;
+        };
+        Returns: {
+          answer: string;
+          id: string;
+          model: string;
+          question: string;
+          similarity: number;
         }[];
       };
       match_kb_chunks: {
