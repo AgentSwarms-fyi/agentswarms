@@ -758,7 +758,11 @@ curl -X POST https://your-instance/api/ml/predict/batch \\
             "Any joblib pipeline under a small contract",
             "Any framework, containers",
           ],
-          ["Feature store", "Not yet — prep flows and lakehouse tables play that role", "Yes"],
+          [
+            "Feature store",
+            "Feature views: score by key, read from the table training read; describes rather than materialises",
+            "Yes",
+          ],
           [
             "Distributed / GPU training",
             "One sandbox per job; GPUs requestable, CPU image by default",
@@ -766,7 +770,7 @@ curl -X POST https://your-instance/api/ml/predict/batch \\
           ],
           [
             "Experiment tracking",
-            "Leaderboard and tuning trials per version; no MLflow-style run logging from notebooks yet",
+            "Runs logged from a notebook or a script with params, metrics and curves; a run promotes into the registry",
             "MLflow / Experiments",
           ],
           ["Model cards", "Generated from the registry", "SageMaker Model Cards"],
@@ -788,9 +792,10 @@ curl -X POST https://your-instance/api/ml/predict/batch \\
         ]}
       />
       <P>
-        The gaps that matter most — a warm real-time endpoint, a feature store, distributed
-        training, notebook experiment logging — are on the road map; everything in the left column
-        is shipped and tested.
+        The gap that matters most is now <strong>distributed training</strong>: a job is one
+        sandbox, so a model that does not fit one box does not train here. Everything in the left
+        column is shipped and tested — including the three that used to sit beside it on this list,
+        the warm endpoint, the feature store and run logging.
       </P>
 
       <H2 id="use-cases">Use cases</H2>

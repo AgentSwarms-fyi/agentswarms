@@ -632,17 +632,18 @@ Where AgentSwarms stands against Databricks ML and SageMaker, honestly:
 | Scheduled retraining       | Cron/cadence, promote-when-better, one platform clock                                                                       | Workflows / Pipelines                                  |
 | Public API                 | Per-model scoped keys, rate limits, audited denials, BYO registration                                                       | Yes, IAM-based                                         |
 | Bring your own model       | Any joblib pipeline under a small contract                                                                                  | Any framework, containers                              |
-| Feature store              | Not yet — prep flows and lakehouse tables play that role                                                                    | Yes                                                    |
+| Feature store              | Feature views: score by key, read from the table training read; describes rather than materialises                          | Yes                                                    |
 | Distributed / GPU training | One sandbox per job; GPUs requestable, CPU image by default                                                                 | Clusters, distributed frameworks, GPU instances        |
-| Experiment tracking        | Leaderboard and tuning trials per version; no MLflow-style run logging from notebooks yet                                   | MLflow / Experiments                                   |
+| Experiment tracking        | Runs logged from a notebook or a script with params, metrics and curves; a run promotes into the registry                   | MLflow / Experiments                                   |
 | Model cards                | Generated from the registry                                                                                                 | SageMaker Model Cards                                  |
 | Governance                 | IAM shares, trigger audit, decision ids, result digests, one statement guard for all data                                   | Unity Catalog / IAM                                    |
 | Agents and BI              | Models are agent tools; forecasts and drift live in the BI layer                                                            | Separate products                                      |
 | Cost and residency         | Self-hosted, your infrastructure, no per-call charges                                                                       | Managed, metered                                       |
 
-The gaps that matter most — a warm real-time endpoint, a feature store,
-distributed training, notebook experiment logging — are on the road map;
-everything in the left column is shipped and tested.
+The gap that matters most is now **distributed training**: a job is one
+sandbox, so a model that does not fit one box does not train here. Everything
+in the left column is shipped and tested — including the three that used to sit
+beside it on this list, the warm endpoint, the feature store and run logging.
 
 ## Use cases
 
