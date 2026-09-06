@@ -239,9 +239,10 @@ describe("the wiring", () => {
 
   it("the editor offers the three sources, the image ships the clients, and the docs say at-least-once", () => {
     const ui = rd("src/routes/_authenticated/etl.tsx");
-    expect(ui).toContain('{ type: "kafka", label: "Kafka / Redpanda topic" }');
+    const menus = rd("src/utils/etl/nodeDefaults.ts");
+    expect(menus).toContain('{ type: "kafka", label: "Kafka / Redpanda topic" }');
     expect(ui).toContain("function StreamSourceFields(");
-    expect(ui).toContain("return defaultStreamConfig(type);");
+    expect(menus).toContain("return defaultStreamConfig(type);");
     const req = rd("docker/notebook-runtime/requirements.txt");
     for (const dep of ["confluent-kafka", "boto3", "google-cloud-pubsub"])
       expect(req).toContain(dep);

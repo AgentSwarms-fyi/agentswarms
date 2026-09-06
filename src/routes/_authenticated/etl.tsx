@@ -47,7 +47,6 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import {
-  defaultStreamConfig,
   isStreamSource,
   validateStreamSource,
   type StreamSourceConfig,
@@ -59,6 +58,24 @@ import {
   ColumnCombo,
   RenameEditor,
 } from "@/components/etl/TransformFields";
+import {
+  SOURCE_TYPES,
+  TARGET_TYPES,
+  TRANSFORM_TYPES,
+  defaultNodeConfig,
+  typeLabel,
+} from "@/utils/etl/nodeDefaults";
+import { nodeTypeIcon } from "@/components/etl/nodeIcons";
+import {
+  CatalogAssetPicker,
+  LakehousePicker,
+  RegionPicker,
+  SecretPicker,
+  StoragePathPicker,
+  StorageTargetPicker,
+  WarehouseTablePicker,
+  useSecretNames,
+} from "@/components/etl/SourcePickers";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -118,12 +135,8 @@ import {
   starterGraph,
   type EtlGraph,
   type EtlNode,
-  type EtlSourceConfig,
-  type EtlTargetConfig,
-  type EtlTransformConfig,
   type QualityRule,
 } from "@/utils/etl/codegen";
-import { getLakehouseOverview } from "@/utils/lakehouse.functions";
 import { ETL_TEMPLATES } from "@/lib/etlTemplates";
 import { listWarehouseConnections } from "@/utils/warehouse.functions";
 import type { WarehouseConnectionSummary } from "@/utils/warehouse/types";
@@ -958,6 +971,7 @@ function PipelineEditor({ id, onBack }: { id: string; onBack: () => void }) {
           {p.mode === "visual" ? (
             <CanvasBuilder
               pipelineId={p.id}
+              destCatalogSourceId={p.dest_catalog_source_id}
               graph={p.graph ?? starterGraph()}
               onChange={(graph) => patch({ graph, requirements: requirementsFor(graph) })}
               onEject={(code) => {
@@ -1047,183 +1061,11 @@ function RunParamsDialog({
 
 // ── Canvas builder ──────────────────────────────────────────────────────────
 
-const SOURCE_TYPES = [
-  { type: "object_storage", label: "Object storage files" },
-  { type: "database", label: "Database / warehouse" },
-  { type: "http_api", label: "HTTP API (JSON)" },
-  { type: "platform_dataset", label: "Platform dataset" },
-  { type: "lakehouse", label: "Lakehouse table" },
-  { type: "ingest", label: "Streamed rows (push)" },
-  { type: "kafka", label: "Kafka / Redpanda topic" },
-  { type: "kinesis", label: "Amazon Kinesis stream" },
-  { type: "pubsub", label: "Google Pub/Sub subscription" },
-  { type: "python", label: "Custom Python" },
-] as const;
-
-const TRANSFORM_TYPES = [
-  { type: "filter", label: "Filter rows" },
-  { type: "select", label: "Select columns" },
-  { type: "rename", label: "Rename columns" },
-  { type: "derive", label: "Derive column" },
-  { type: "join", label: "Join" },
-  { type: "union", label: "Union" },
-  { type: "aggregate", label: "Aggregate" },
-  { type: "sort", label: "Sort" },
-  { type: "dedupe", label: "Deduplicate" },
-  { type: "fill_nulls", label: "Fill nulls" },
-  { type: "drop_nulls", label: "Drop nulls" },
-  { type: "limit", label: "Limit rows" },
-  { type: "quality_gate", label: "Quality gate" },
-  { type: "sql", label: "SQL" },
-  { type: "python", label: "Custom Python" },
-] as const;
-
-const TARGET_TYPES = [
-  { type: "object_storage", label: "Object storage" },
-  { type: "database", label: "Database / warehouse" },
-  { type: "lakehouse", label: "Lakehouse table" },
-  { type: "http_api", label: "HTTP API (reverse ETL)" },
-] as const;
-
-function typeLabel(node: EtlNode): string {
-  const t = (node.config as { type: string }).type;
-  const all = [...SOURCE_TYPES, ...TRANSFORM_TYPES, ...TARGET_TYPES] as readonly {
-    type: string;
-    label: string;
-  }[];
-  return all.find((x) => x.type === t)?.label ?? t;
-}
-
-function defaultNodeConfig(
-  kind: EtlNode["kind"],
-  type: string,
-): EtlSourceConfig | EtlTransformConfig | EtlTargetConfig {
-  if (kind === "source") {
-    switch (type) {
-      case "object_storage":
-        return { type, path: "raw/*.csv", format: "csv" };
-      case "database":
-        return { type, mode: "table", table: "" };
-      case "http_api":
-        return { type, url: "https://", records_path: "" };
-      case "kafka":
-      case "kinesis":
-      case "pubsub":
-        return defaultStreamConfig(type);
-      default:
-        return { type: "python", code: "return [{'id': 1}]" };
-    }
-  }
-  if (kind === "target") {
-    if (type === "http_api") {
-      return { type: "http_api", url: "https://", method: "POST", batch_size: 500 };
-    }
-    if (type === "lakehouse") {
-      return { type: "lakehouse", schema: "", table: "", write_mode: "replace" };
-    }
-    return type === "database"
-      ? { type: "database", dataset: "public", table: "etl_output", write_mode: "replace" }
-      : {
-          type: "object_storage",
-          dataset: "etl",
-          table: "output",
-          format: "parquet",
-          write_mode: "replace",
-        };
-  }
-  switch (type) {
-    case "platform_dataset":
-      return { type, table_id: "" };
-    case "ingest":
-      return { type };
-    case "lakehouse":
-      return { type, schema: "", mode: "table", table: "" };
-    case "filter":
-      return { type, expr: "amount > 0" };
-    case "select":
-      return { type, columns: [] };
-    case "rename":
-      return { type, mapping: {} };
-    case "derive":
-      return { type, column: "total", expr: "price * quantity" };
-    case "join":
-      return { type, how: "inner", left_on: ["id"], right_on: ["id"] };
-    case "union":
-      return { type };
-    case "aggregate":
-      return { type, group_by: [], aggs: [{ column: "id", fn: "count", as: "rows" }] };
-    case "sort":
-      return { type, by: [], descending: false };
-    case "dedupe":
-      return { type };
-    case "fill_nulls":
-      return { type, value: "0" };
-    case "drop_nulls":
-      return { type };
-    case "limit":
-      return { type, n: 1000 };
-    case "sql":
-      return { type, query: "SELECT * FROM t" };
-    case "quality_gate":
-      return { type, rules: [{ check: "not_null", column: "id", severity: "fail" }] };
-    default:
-      return { type: "python", code: "# df is the input frame\nreturn df" };
-  }
-}
-
 /**
  * Run this node on sampled sources in the sandbox and show the frame it
  * produces. Polls the preview session until it lands; the pipeline itself is
  * untouched (no loads, no watermark movement).
  */
-/** Lakehouse schemas the signed-in user can reach (owned + IAM-granted). */
-function LakehouseSchemaPicker({
-  value,
-  onPick,
-}: {
-  value: string;
-  onPick: (schema: string) => void;
-}) {
-  const { session } = useAuth();
-  const token = session?.access_token ?? "";
-  const overviewFn = useServerFn(getLakehouseOverview);
-  const [schemas, setSchemas] = useState<string[]>([]);
-  const [enabled, setEnabled] = useState(true);
-  useEffect(() => {
-    if (!token) return;
-    void overviewFn({ data: { access_token: token } })
-      .then((res) => {
-        setEnabled(res.enabled);
-        setSchemas(res.schemas.map((sch) => sch.name));
-      })
-      .catch(() => setSchemas([]));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
-  if (!enabled) {
-    return (
-      <p className="text-[11px] text-red-500">
-        The lakehouse isn&apos;t configured on this deployment — this node can&apos;t run.
-      </p>
-    );
-  }
-  return (
-    <Field label="Lakehouse schema">
-      <Select value={value} onValueChange={onPick}>
-        <SelectTrigger className="h-8">
-          <SelectValue placeholder="Choose a schema" />
-        </SelectTrigger>
-        <SelectContent>
-          {schemas.map((sch) => (
-            <SelectItem key={sch} value={sch}>
-              {sch}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </Field>
-  );
-}
-
 /** Datasets already on the platform: uploads, prep outputs, connector syncs. */
 function PlatformDatasetPicker({
   tableId,
@@ -1555,7 +1397,7 @@ type FlowData = { node: EtlNode };
 function EtlFlowNode({ data, selected }: NodeProps) {
   const node = (data as FlowData).node;
   const style = NODE_STYLE[node.kind];
-  const Icon = style.icon;
+  const Icon = nodeTypeIcon(node.kind, (node.config as { type: string }).type) ?? style.icon;
   return (
     <div
       className={cn(
@@ -1586,11 +1428,14 @@ function CanvasBuilder({
   pipelineId,
   onChange,
   onEject,
+  destCatalogSourceId,
 }: {
   graph: EtlGraph;
   pipelineId: string;
   onChange: (g: EtlGraph) => void;
   onEject: (code: string) => void;
+  /** The pipeline's default storage destination (Settings), for targets that pick no bucket. */
+  destCatalogSourceId?: string | null;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showCode, setShowCode] = useState(false);
@@ -1732,13 +1577,24 @@ function CanvasBuilder({
     <div className="flex h-full min-h-0 gap-3">
       <div className="relative min-w-0 flex-1 overflow-hidden rounded-lg border">
         <div className="absolute left-2 top-2 z-10 flex gap-1">
-          <AddMenu label="Source" items={SOURCE_TYPES} onPick={(t, l) => addNode("source", t, l)} />
           <AddMenu
+            kind="source"
+            label="Source"
+            items={SOURCE_TYPES}
+            onPick={(t, l) => addNode("source", t, l)}
+          />
+          <AddMenu
+            kind="transform"
             label="Transform"
             items={TRANSFORM_TYPES}
             onPick={(t, l) => addNode("transform", t, l)}
           />
-          <AddMenu label="Target" items={TARGET_TYPES} onPick={(t, l) => addNode("target", t, l)} />
+          <AddMenu
+            kind="target"
+            label="Target"
+            items={TARGET_TYPES}
+            onPick={(t, l) => addNode("target", t, l)}
+          />
         </div>
         <div className="absolute right-2 top-2 z-10 flex gap-1">
           <Button
@@ -1812,6 +1668,7 @@ function CanvasBuilder({
             node={selected}
             graph={graph}
             pipelineId={pipelineId}
+            destCatalogSourceId={destCatalogSourceId}
             columnsByNode={columnsByNode}
             onColumns={rememberColumns}
             onChange={updateSelected}
@@ -1830,10 +1687,12 @@ function CanvasBuilder({
 }
 
 function AddMenu({
+  kind,
   label,
   items,
   onPick,
 }: {
+  kind: EtlNode["kind"];
   label: string;
   items: readonly { type: string; label: string }[];
   onPick: (type: string, label: string) => void;
@@ -1847,11 +1706,15 @@ function AddMenu({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start">
         <DropdownMenuLabel>{label}</DropdownMenuLabel>
-        {items.map((it) => (
-          <DropdownMenuItem key={it.type} onClick={() => onPick(it.type, it.label)}>
-            {it.label}
-          </DropdownMenuItem>
-        ))}
+        {items.map((it) => {
+          const Icon = nodeTypeIcon(kind, it.type);
+          return (
+            <DropdownMenuItem key={it.type} onClick={() => onPick(it.type, it.label)}>
+              {Icon ? <Icon className="mr-2 h-3.5 w-3.5 text-muted-foreground" /> : null}
+              {it.label}
+            </DropdownMenuItem>
+          );
+        })}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -1859,14 +1722,11 @@ function AddMenu({
 
 // ── Node config panel ───────────────────────────────────────────────────────
 
-function csv(list: string[] | undefined): string {
-  return (list ?? []).join(", ");
-}
-function unCsv(s: string): string[] {
-  return s
-    .split(",")
-    .map((x) => x.trim())
-    .filter(Boolean);
+/** "schema.table" → its parts; a bare name is a table with no schema. */
+function qualifiedParts(fqn: string | undefined): { schema: string; table: string } {
+  const s = (fqn ?? "").trim();
+  const i = s.indexOf(".");
+  return i < 0 ? { schema: "", table: s } : { schema: s.slice(0, i), table: s.slice(i + 1) };
 }
 
 function NodePanel({
@@ -1877,6 +1737,7 @@ function NodePanel({
   onDelete,
   columnsByNode,
   onColumns,
+  destCatalogSourceId,
 }: {
   node: EtlNode;
   graph: EtlGraph;
@@ -1886,13 +1747,17 @@ function NodePanel({
   /** Columns a preview has resolved, per node id. */
   columnsByNode: Record<string, string[]>;
   onColumns: (nodeId: string, columns: string[]) => void;
+  destCatalogSourceId?: string | null;
 }) {
   const { session } = useAuth();
+  const token = session?.access_token ?? "";
+  const { names: secretNames } = useSecretNames(token);
   const [storageSources, setStorageSources] = useState<CatalogSource[]>([]);
   const [connections, setConnections] = useState<WarehouseConnectionSummary[]>([]);
   const listConnFn = useServerFn(listWarehouseConnections);
 
   const c = node.config as { type: string } & Record<string, unknown>;
+  const TypeIcon = nodeTypeIcon(node.kind, c.type);
   const needsStorage = c.type === "object_storage";
   const needsDb = c.type === "database";
 
@@ -1925,11 +1790,17 @@ function NodePanel({
 
   const set = (updates: Record<string, unknown>) =>
     onChange({ ...node.config, ...updates } as EtlNode["config"]);
+  // Columns a picker learned about what it picked: kept beside the preview's,
+  // so the cursor, the merge keys and downstream transforms list them at once.
+  const remember = (cols?: string[]) => {
+    if (cols?.length) onColumns(node.id, cols);
+  };
 
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <Badge variant="outline" className="capitalize">
+          {TypeIcon ? <TypeIcon className="mr-1 inline h-3 w-3" /> : null}
           {node.kind} · {typeLabel(node)}
         </Badge>
         <Button size="icon" variant="ghost" className="h-7 w-7" onClick={onDelete}>
@@ -2017,10 +1888,6 @@ function NodePanel({
 
       {c.type === "lakehouse" && (
         <>
-          <LakehouseSchemaPicker
-            value={(c.schema as string) ?? ""}
-            onPick={(schema) => set({ schema })}
-          />
           {node.kind === "source" ? (
             <>
               <Field label="Read">
@@ -2037,6 +1904,19 @@ function NodePanel({
                   </SelectContent>
                 </Select>
               </Field>
+              <LakehousePicker
+                token={token}
+                schema={(c.schema as string) ?? ""}
+                table={(c.table as string) ?? ""}
+                withTable={c.mode !== "query"}
+                onChange={(v) => {
+                  set({
+                    ...(v.schema !== undefined ? { schema: v.schema } : {}),
+                    ...(v.table !== undefined ? { table: v.table } : {}),
+                  });
+                  remember(v.columns);
+                }}
+              />
               {c.mode === "query" ? (
                 <Field label="Query (schema-qualified)">
                   <Textarea
@@ -2047,27 +1927,22 @@ function NodePanel({
                     placeholder="SELECT * FROM analytics.orders WHERE amount > 100"
                   />
                 </Field>
-              ) : (
-                <Field label="Table">
-                  <Input
-                    className="h-8 font-mono text-xs"
-                    value={(c.table as string) ?? ""}
-                    onChange={(e) => set({ table: e.target.value.toLowerCase() })}
-                    placeholder="orders"
-                  />
-                </Field>
-              )}
+              ) : null}
             </>
           ) : (
             <>
-              <Field label="Table">
-                <Input
-                  className="h-8 font-mono text-xs"
-                  value={(c.table as string) ?? ""}
-                  onChange={(e) => set({ table: e.target.value.toLowerCase() })}
-                  placeholder="orders"
-                />
-              </Field>
+              <LakehousePicker
+                token={token}
+                schema={(c.schema as string) ?? ""}
+                table={(c.table as string) ?? ""}
+                allowNew
+                onChange={(v) =>
+                  set({
+                    ...(v.schema !== undefined ? { schema: v.schema } : {}),
+                    ...(v.table !== undefined ? { table: v.table } : {}),
+                  })
+                }
+              />
               <Field label="Write mode">
                 <Select
                   value={(c.write_mode as string) ?? "replace"}
@@ -2085,11 +1960,11 @@ function NodePanel({
               </Field>
               {c.write_mode === "merge" && (
                 <Field label="Primary key columns">
-                  <Input
-                    className="h-8 font-mono text-xs"
-                    value={csv(c.primary_key as string[])}
-                    onChange={(e) => set({ primary_key: unCsv(e.target.value) })}
-                    placeholder="id"
+                  <ColumnChips
+                    value={(c.primary_key as string[]) ?? []}
+                    onChange={(primary_key) => set({ primary_key })}
+                    columns={upstreamColumns}
+                    emptyMeans="Pick the column(s) rows are matched on."
                   />
                 </Field>
               )}
@@ -2102,7 +1977,11 @@ function NodePanel({
         </>
       )}
       {isStreamSource(c as { type?: string }) && node.kind === "source" && (
-        <StreamSourceFields cfg={c as unknown as StreamSourceConfig} set={set} />
+        <StreamSourceFields
+          cfg={c as unknown as StreamSourceConfig}
+          set={set}
+          secrets={secretNames}
+        />
       )}
       {c.type === "ingest" && node.kind === "source" && (
         <p className="text-[11px] text-muted-foreground">
@@ -2110,6 +1989,29 @@ function NodePanel({
           pipeline&apos;s trigger token (Settings → External trigger). Each run loads everything
           received since the last run — push, then trigger a run for near-real-time.
         </p>
+      )}
+      {c.type === "catalog_asset" && node.kind === "source" && (
+        <>
+          <CatalogAssetPicker
+            token={token}
+            assetId={(c.asset_id as string) ?? ""}
+            onPick={(cfg, cols) => {
+              onChange(
+                {
+                  ...cfg,
+                  incremental: c.incremental as { cursor_column: string } | undefined,
+                } as EtlNode["config"],
+                node.label && node.label !== "Data Catalog asset" ? node.label : cfg.fqn,
+              );
+              remember(cols);
+            }}
+          />
+          <p className="text-[11px] text-muted-foreground">
+            Read the way the asset&apos;s source is read — a warehouse table through its connection,
+            a bucket file through its storage source, a lakehouse table through the engine — with
+            the same credentials and access checks. Lineage records the asset.
+          </p>
+        </>
       )}
       {c.type === "platform_dataset" && node.kind === "source" && (
         <PlatformDatasetPicker
@@ -2119,14 +2021,19 @@ function NodePanel({
       )}
       {c.type === "object_storage" && node.kind === "source" && (
         <>
-          <Field label="Path or glob">
-            <Input
-              className="h-8 font-mono text-xs"
-              value={c.path as string}
-              onChange={(e) => set({ path: e.target.value })}
-              placeholder="raw/orders/*.csv"
-            />
-          </Field>
+          <StoragePathPicker
+            token={token}
+            sourceId={(c.catalog_source_id as string) || undefined}
+            path={(c.path as string) ?? ""}
+            format={(c.format as string) ?? "csv"}
+            onChange={(v) => {
+              set({
+                ...(v.path !== undefined ? { path: v.path } : {}),
+                ...(v.format ? { format: v.format } : {}),
+              });
+              remember(v.columns);
+            }}
+          />
           <Field label="Format">
             <Select value={c.format as string} onValueChange={(v) => set({ format: v })}>
               <SelectTrigger className="h-8">
@@ -2158,14 +2065,20 @@ function NodePanel({
             </Select>
           </Field>
           {c.mode === "table" || c.mode === "cdc" ? (
-            <Field label="Table">
-              <Input
-                className="h-8 font-mono text-xs"
-                value={(c.table as string) ?? ""}
-                onChange={(e) => set({ table: e.target.value })}
-                placeholder="schema.orders"
-              />
-            </Field>
+            <WarehouseTablePicker
+              token={token}
+              connectionId={(c.connection_id as string) || undefined}
+              schema={(c.schema as string) || qualifiedParts(c.table as string).schema}
+              table={qualifiedParts(c.table as string).table}
+              onChange={(v) => {
+                const schema =
+                  v.schema ?? ((c.schema as string) || qualifiedParts(c.table as string).schema);
+                const table = v.table ?? qualifiedParts(c.table as string).table;
+                // The compiler reads `table`; it is qualified only once both are picked.
+                set({ schema, table: schema && table ? `${schema}.${table}` : "" });
+                remember(v.columns);
+              }}
+            />
           ) : (
             <Field label="Query">
               <Textarea
@@ -2200,24 +2113,24 @@ function NodePanel({
           )}
         </>
       )}
-      {(c.type === "database" || c.type === "object_storage") &&
+      {(c.type === "database" ||
+        c.type === "object_storage" ||
+        (c.type === "catalog_asset" &&
+          Boolean(c.resolved) &&
+          (c.resolved as { type?: string }).type !== "lakehouse")) &&
         node.kind === "source" &&
         c.mode !== "cdc" && (
           <Field label="Incremental cursor column (optional)">
-            <Input
-              className="h-8 font-mono text-xs"
+            <ColumnCombo
               value={
                 ((c.incremental as { cursor_column?: string } | undefined)?.cursor_column as
                   | string
                   | undefined) ?? ""
               }
-              onChange={(e) =>
-                set({
-                  incremental: e.target.value.trim()
-                    ? { cursor_column: e.target.value.trim() }
-                    : undefined,
-                })
+              onChange={(v) =>
+                set({ incremental: v.trim() ? { cursor_column: v.trim() } : undefined })
               }
+              columns={upstreamColumns}
               placeholder="updated_at"
             />
             <p className="mt-1 text-[11px] text-muted-foreground">
@@ -2226,7 +2139,7 @@ function NodePanel({
             </p>
           </Field>
         )}
-      {c.type === "http_api" && (
+      {c.type === "http_api" && node.kind === "source" && (
         <>
           <Field label="URL">
             <Input
@@ -2514,38 +2427,54 @@ function NodePanel({
               placeholder="records"
             />
           </Field>
-          <Field label="Bearer token env var (optional)">
-            <Input
-              className="h-8 font-mono text-xs"
-              value={(c.auth_env as string) ?? ""}
-              onChange={(e) => set({ auth_env: e.target.value.trim() || undefined })}
-              placeholder="MY_API_TOKEN"
-            />
-          </Field>
+          <SecretPicker
+            label="Bearer token secret (optional)"
+            secrets={secretNames}
+            value={(c.auth_secret as string) ?? ""}
+            onChange={(v) => set({ auth_secret: v || undefined, auth_env: undefined })}
+          />
+          {c.auth_env && !c.auth_secret ? (
+            <p className="text-[11px] text-muted-foreground">
+              Currently bound to the env var <span className="font-mono">{String(c.auth_env)}</span>{" "}
+              from Settings → secret bindings; picking a secret above replaces it.
+            </p>
+          ) : null}
           <p className="text-[11px] text-muted-foreground">
-            Bind the env var to a secret under Settings → secret bindings; it is sent as a Bearer
-            Authorization header and scrubbed from logs.
+            Sent as a Bearer Authorization header, resolved as the pipeline owner at run start and
+            scrubbed from logs.
           </p>
         </>
       )}
       {node.kind === "target" && c.type !== "http_api" && c.type !== "lakehouse" && (
         <>
-          <div className="grid grid-cols-2 gap-2">
-            <Field label={c.type === "database" ? "Schema" : "Dataset"}>
-              <Input
-                className="h-8 font-mono text-xs"
-                value={c.dataset as string}
-                onChange={(e) => set({ dataset: e.target.value })}
-              />
-            </Field>
-            <Field label="Table">
-              <Input
-                className="h-8 font-mono text-xs"
-                value={c.table as string}
-                onChange={(e) => set({ table: e.target.value })}
-              />
-            </Field>
-          </div>
+          {c.type === "database" ? (
+            <WarehouseTablePicker
+              token={token}
+              connectionId={(c.connection_id as string) || undefined}
+              schema={(c.dataset as string) ?? ""}
+              table={(c.table as string) ?? ""}
+              allowNew
+              onChange={(v) =>
+                set({
+                  ...(v.schema !== undefined ? { dataset: v.schema } : {}),
+                  ...(v.table !== undefined ? { table: v.table } : {}),
+                })
+              }
+            />
+          ) : (
+            <StorageTargetPicker
+              token={token}
+              sourceId={(c.catalog_source_id as string) || destCatalogSourceId || undefined}
+              dataset={(c.dataset as string) ?? ""}
+              table={(c.table as string) ?? ""}
+              onChange={(v) =>
+                set({
+                  ...(v.dataset !== undefined ? { dataset: v.dataset } : {}),
+                  ...(v.table !== undefined ? { table: v.table } : {}),
+                })
+              }
+            />
+          )}
           {c.type === "object_storage" && (
             <div className="grid grid-cols-2 gap-2">
               <Field label="Table format">
@@ -2603,11 +2532,11 @@ function NodePanel({
           </Field>
           {c.write_mode === "merge" && (
             <Field label="Primary key columns">
-              <Input
-                className="h-8 font-mono text-xs"
-                value={csv(c.primary_key as string[])}
-                onChange={(e) => set({ primary_key: unCsv(e.target.value) })}
-                placeholder="id"
+              <ColumnChips
+                value={(c.primary_key as string[]) ?? []}
+                onChange={(primary_key) => set({ primary_key })}
+                columns={upstreamColumns}
+                emptyMeans="Pick the column(s) rows are matched on."
               />
             </Field>
           )}
@@ -2636,21 +2565,22 @@ function NodePanel({
 function StreamSourceFields({
   cfg,
   set,
+  secrets,
 }: {
   cfg: StreamSourceConfig;
   set: (updates: Record<string, unknown>) => void;
+  /** The owner's secrets by name, for the credential pickers. */
+  secrets: string[];
 }) {
   const problem = validateStreamSource(cfg);
   const secretField = (label: string, key: string, value: string, placeholder: string) => (
-    <Field label={label}>
-      <Input
-        className="h-8 font-mono text-xs"
-        value={value}
-        onChange={(e) => set({ [key]: e.target.value })}
-        placeholder={placeholder}
-        title="The name of a secret under Settings → Secrets; its value never enters the graph"
-      />
-    </Field>
+    <SecretPicker
+      label={label}
+      secrets={secrets}
+      value={value}
+      onChange={(v) => set({ [key]: v })}
+      placeholder={`e.g. ${placeholder}`}
+    />
   );
   return (
     <>
@@ -2739,14 +2669,7 @@ function StreamSourceFields({
               placeholder="orders-stream"
             />
           </Field>
-          <Field label="Region">
-            <Input
-              className="h-8 font-mono text-xs"
-              value={cfg.region}
-              onChange={(e) => set({ region: e.target.value })}
-              placeholder="us-east-1"
-            />
-          </Field>
+          <RegionPicker value={cfg.region} onChange={(region) => set({ region })} />
           <Field label="Endpoint (optional)">
             <Input
               className="h-8 font-mono text-xs"

@@ -23,6 +23,7 @@ import {
   type EtlNode,
 } from "@/utils/etl/codegen";
 import { etlErrorMessage } from "@/utils/etl/explainError";
+import { isCatalogAsset, unwrapSourceConfig } from "@/utils/etl/catalogAsset";
 import { loadWarehouseConnectionForUser } from "@/utils/warehouse/connections.server";
 import type { WarehouseConfig } from "@/utils/warehouse/types";
 import { auditEvent } from "@/utils/audit.server";
@@ -255,10 +256,14 @@ export async function resolveRunEnv(
   // it exactly once (in Settings).
   const graph = normalizeGraph(pipeline.graph);
   for (const node of graph?.nodes ?? []) {
-    const c = (node as EtlNode).config as {
+    const raw = (node as EtlNode).config as { type?: string };
+    // A catalog asset resolves credentials as the source it stands for; an
+    // asset that was never picked refuses here, in the picker's words.
+    const c = (node.kind === "source" && isCatalogAsset(raw) ? unwrapSourceConfig(raw) : raw) as {
       type?: string;
       catalog_source_id?: string;
       connection_id?: string;
+      auth_secret?: string;
     };
     const stem = envKey(node.id);
     if (opts?.skipTargets && node.kind === "target") continue;
@@ -281,6 +286,17 @@ export async function resolveRunEnv(
     }
     if (node.kind === "source" && isStreamSource(c)) {
       await streamEnv(node as EtlNode, c, stem);
+    }
+    // A reverse-ETL target's bearer token, picked as a secret on the node.
+    if (node.kind === "target" && c.type === "http_api" && c.auth_secret) {
+      const value = await resolveSecretRefs(pipeline.user_id, `{{secret:${c.auth_secret}}}`);
+      if (!value || value === `{{secret:${c.auth_secret}}}`) {
+        throw new Error(
+          `Node "${(node as EtlNode).label || node.id}": the secret "${c.auth_secret}" is not set for this account (Settings → Secrets).`,
+        );
+      }
+      env[`${stem}_AUTH_TOKEN`] = value;
+      secretValues.push(value);
     }
   }
 
@@ -318,9 +334,16 @@ export async function resolveRunEnv(
   // uses. Access is checked HERE, as the pipeline's owner — the sandbox holds
   // engine-level credentials, so a schema the owner cannot reach must never
   // become reachable by writing its name into a graph.
-  const lakehouseNodes = (graph?.nodes ?? []).filter(
-    (n) => ((n as EtlNode).config as { type?: string }).type === "lakehouse",
-  );
+  // A catalog asset that resolved to a lakehouse table is a lakehouse node
+  // for the access check: the schema it names must be one the owner reaches.
+  const effective = (n: { kind: string; config: unknown }) => {
+    const c = n.config as { type?: string };
+    return (n.kind === "source" && isCatalogAsset(c) ? unwrapSourceConfig(c) : c) as {
+      type?: string;
+      schema?: string;
+    };
+  };
+  const lakehouseNodes = (graph?.nodes ?? []).filter((n) => effective(n).type === "lakehouse");
   if (lakehouseNodes.length) {
     const { lakehouseConfig, accessibleSchemas, catalogUrlToLibpq } =
       await import("@/utils/lakehouse/core.server");
@@ -332,7 +355,7 @@ export async function resolveRunEnv(
     }
     const allowed = new Set((await accessibleSchemas(pipeline.user_id)).map((sch) => sch.name));
     for (const node of lakehouseNodes) {
-      const schema = ((node as EtlNode).config as { schema?: string }).schema ?? "";
+      const schema = effective(node).schema ?? "";
       if (!allowed.has(schema)) {
         throw new Error(
           `Node "${(node as EtlNode).label || node.id}": no access to lakehouse schema "${schema}" — ` +
@@ -1254,7 +1277,11 @@ export async function finalizeEtlRun(
       const graphNodes = (normalizeGraph(pipeline.graph)?.nodes ?? []) as EtlNode[];
       const upstreamSourceId = graphNodes
         .filter((n) => n.kind === "source")
-        .map((n) => (n.config as { catalog_source_id?: string }).catalog_source_id)
+        .map((n) => {
+          const c = n.config as { type?: string; catalog_source_id?: string; source_id?: string };
+          // A catalog asset belongs to its catalog source outright.
+          return isCatalogAsset(c) ? c.source_id : c.catalog_source_id;
+        })
         .find(Boolean);
       const lineageSourceId =
         (pipeline.dest_catalog_source_id as string | null) ?? upstreamSourceId ?? null;

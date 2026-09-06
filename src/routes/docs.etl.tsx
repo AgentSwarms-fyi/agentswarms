@@ -95,10 +95,12 @@ function EtlDocsPage() {
             name: "Sources",
             body: (
               <>
-                Object storage files (CSV, TSV, JSON, JSONL, Parquet, Excel — with glob patterns
-                like <C>raw/orders/*.csv</C>), a database or warehouse table or SQL query, an HTTP
-                API returning JSON, a platform dataset (uploads, prep outputs, connector-synced
-                tables), a Lakehouse table, or custom Python.
+                A Data Catalog asset (any table, view, file or dataset the catalog crawled), object
+                storage files (CSV, TSV, JSON, JSONL, Parquet, Excel — the datasets the crawl found,
+                or a glob like <C>raw/orders/*.csv</C>), a database or warehouse table or SQL query,
+                an HTTP API returning JSON, a platform dataset (uploads, prep outputs,
+                connector-synced tables), a Lakehouse table, a Kafka, Kinesis or Pub/Sub stream, or
+                custom Python.
               </>
             ),
           },
@@ -122,6 +124,16 @@ function EtlDocsPage() {
           },
         ]}
       />
+      <P>
+        <strong>Nothing is typed that the platform already knows.</strong> A connection, then its
+        schema, then a table; a bucket, then a folder, then a dataset; a lakehouse schema, then a
+        table; a catalog source, then its schema or folder, then an asset; secrets by name; AWS
+        regions. Every one is a picker, each level narrowing the next, and a target that may create
+        something offers <em>New …</em> before asking for a name. Each pick reports its columns, so
+        the incremental cursor, the merge keys and the transforms downstream are picked too, before
+        any preview has run. What stays a field is what only you know: a URL, a topic, an
+        expression, a query.
+      </P>
       <H3 id="code">Code</H3>
       <P>
         A full-height Python editor. The contract is small: define <C>entrypoint(inputs=None)</C>,

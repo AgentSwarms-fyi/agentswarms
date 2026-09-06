@@ -27,6 +27,9 @@ import {
   type EtlRunRow,
 } from "@/utils/etl/service.server";
 import { etlErrorMessage } from "@/utils/etl/explainError";
+import { loadWarehouseConnectionForUser } from "@/utils/warehouse/connections.server";
+import { listWarehouseTables } from "@/utils/warehouse/drivers.server";
+import type { WarehouseTable } from "@/utils/warehouse/types";
 import { nextEtlRunAt } from "@/utils/etl/schedule.server";
 import { validateCron } from "@/lib/cron";
 import { computeEtlOverview, type OverviewRun } from "@/lib/etlOverview";
@@ -104,6 +107,64 @@ export type EtlPipelineSummary = Pick<
 > & { has_trigger_token: boolean };
 
 // ── List / read ─────────────────────────────────────────────────────────────
+
+/**
+ * The schemas, tables and columns behind one of the caller's warehouse
+ * connections (own or IAM-granted), for the editor's pickers: read through
+ * the connection as the caller, the moment the picker opens.
+ */
+export const etlListWarehouseTables = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z.object({ access_token: z.string().min(1), connection_id: z.string().uuid() }).parse(input),
+  )
+  .handler(
+    async ({
+      data,
+    }): Promise<{ ok: true; tables: WarehouseTable[] } | { ok: false; error: string }> => {
+      try {
+        const userId = await resolveCaller(data.access_token);
+        const conn = await loadWarehouseConnectionForUser(
+          supabaseAdmin,
+          { connectionId: data.connection_id },
+          userId,
+        );
+        return { ok: true, tables: await listWarehouseTables(conn.config) };
+      } catch (e) {
+        return { ok: false, error: e instanceof Error ? e.message : "Could not list tables" };
+      }
+    },
+  );
+
+/**
+ * The lakehouse schemas the caller can reach, which of them they may write
+ * to, and the tables with their columns - from information_schema alone, so
+ * the picker answers at once even on a cold engine (the Lakehouse overview
+ * counts rows in every table, which is what a picker must not wait for).
+ */
+export const etlListLakehouseTables = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .handler(
+    async ({
+      data,
+    }): Promise<
+      | {
+          ok: true;
+          enabled: boolean;
+          schemas: { name: string; writable: boolean }[];
+          tables: { schema: string; table: string; columns: { name: string; type: string }[] }[];
+        }
+      | { ok: false; error: string }
+    > => {
+      try {
+        const userId = await resolveCaller(data.access_token);
+        const { listLakehouseTablesForUser } = await import("@/utils/lakehouse/tables.server");
+        const listing = await listLakehouseTablesForUser(userId);
+        return { ok: true, ...listing };
+      } catch (e) {
+        return { ok: false, error: e instanceof Error ? e.message : "Could not list tables" };
+      }
+    },
+  );
 
 export const listEtlPipelines = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))

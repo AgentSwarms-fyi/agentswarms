@@ -30,9 +30,16 @@ import {
   validateStreamSource,
   type StreamSourceConfig,
 } from "@/utils/etl/streaming";
+import {
+  catalogAssetLineage,
+  isCatalogAsset,
+  unwrapSourceConfig,
+  type CatalogAssetSourceConfig,
+} from "@/utils/etl/catalogAsset";
 
 export type EtlSourceConfig =
   | StreamSourceConfig
+  | CatalogAssetSourceConfig
   | {
       type: "object_storage";
       /** Catalog storage source supplying credentials (resolved server-side). */
@@ -53,6 +60,8 @@ export type EtlSourceConfig =
       provider?: string;
       /** cdc: Postgres logical replication (wal2json slot, batch-consumed). */
       mode: "table" | "query" | "cdc";
+      /** The picked schema, kept apart so the picker can restore it; `table` is schema-qualified once both are picked. */
+      schema?: string;
       table?: string;
       query?: string;
       /** cdc only: full table read on first run (slot created first, so no gap). */
@@ -166,6 +175,8 @@ export type EtlTargetConfig =
       method?: "POST" | "PUT" | "PATCH";
       /** Env var carrying a bearer token — bind one via a secret in Settings. */
       auth_env?: string;
+      /** A secret (Settings → Secrets) holding the bearer token; resolved as the owner at run start. */
+      auth_secret?: string;
       batch_size?: number;
       /** Wrap each batch as {<wrap_key>: rows}; bare array when empty. */
       wrap_key?: string;
@@ -376,8 +387,27 @@ const READERS: Record<SourceFileFormat, string> = {
   xlsx: "pd.read_excel(f)",
 };
 
+/** A source node's config as the compiler sees it: a catalog asset is what it resolved to. */
+function effectiveConfig(n: EtlNode): Record<string, unknown> {
+  const c = n.config as { type?: string };
+  if (n.kind === "source" && isCatalogAsset(c)) {
+    return unwrapSourceConfig(c) as unknown as Record<string, unknown>;
+  }
+  return c as Record<string, unknown>;
+}
+
+/** The same, without refusing an asset that was never resolved - for feature detection. */
+function effectiveType(n: EtlNode): string | undefined {
+  const c = n.config as { type?: string };
+  return isCatalogAsset(c) ? c.resolved?.type : c.type;
+}
+
 function sourceFn(node: EtlNode): string {
   const c = node.config as EtlSourceConfig;
+  // A catalog asset is read as the source it resolved to when it was picked.
+  if (isCatalogAsset(c)) {
+    return sourceFn({ ...node, config: unwrapSourceConfig(c) as EtlSourceConfig });
+  }
   const key = envKey(node.id);
   const head = `def _src_${node.id}():`;
   if (isStreamSource(c)) {
@@ -843,12 +873,19 @@ function targetBlock(node: EtlNode, input: string, cdcInput = false): string {
       `    # target ${node.id}: reverse ETL → ${method} ${c.url}`,
       `    import requests`,
       `    _hdrs = {'Content-Type': 'application/json'}`,
-      ...(c.auth_env
+      // A secret picked on the node arrives as <STEM>_AUTH_TOKEN, resolved as
+      // the owner at run start; the older env-var binding still works.
+      ...(c.auth_secret
         ? [
-            `    if os.environ.get(${pyStr(c.auth_env)}):`,
-            `        _hdrs['Authorization'] = 'Bearer ' + os.environ[${pyStr(c.auth_env)}]`,
+            `    if os.environ.get('${envKey(node.id)}_AUTH_TOKEN'):`,
+            `        _hdrs['Authorization'] = 'Bearer ' + os.environ['${envKey(node.id)}_AUTH_TOKEN']`,
           ]
-        : []),
+        : c.auth_env
+          ? [
+              `    if os.environ.get(${pyStr(c.auth_env)}):`,
+              `        _hdrs['Authorization'] = 'Bearer ' + os.environ[${pyStr(c.auth_env)}]`,
+            ]
+          : []),
       `    _records = json.loads(${input}.to_json(orient='records', date_format='iso'))`,
       `    _sent = 0`,
       `    for _i in range(0, len(_records), ${batch}):`,
@@ -1002,7 +1039,12 @@ export function compileGraph(graph: EtlGraph): string {
 
   // Refuse unsupported database providers at compile time, not in a container.
   for (const n of order) {
-    const c = n.config as { type?: string; provider?: string; mode?: string; table?: string };
+    const c = effectiveConfig(n) as {
+      type?: string;
+      provider?: string;
+      mode?: string;
+      table?: string;
+    };
     if (c.type !== "database") continue;
     if (n.kind === "source" && c.mode === "cdc") {
       if (dbFamily(c.provider) !== "postgres")
@@ -1052,7 +1094,7 @@ export function compileGraph(graph: EtlGraph): string {
     const c = n.config as Extract<EtlTransformConfig, { type: "python" }>;
     lines.push(``, `def _fn_${n.id}(df):`, indent(c.code, "    "), `    return df`, ``);
   }
-  if (order.some((n) => (n.config as { type?: string }).type === "lakehouse")) {
+  if (order.some((n) => effectiveType(n) === "lakehouse")) {
     lines.push(``, lakehouseAttachFn());
   }
   const gates = order.filter(
@@ -1109,6 +1151,7 @@ export function compileGraph(graph: EtlGraph): string {
         mode?: string;
         url?: string;
       };
+      if (isCatalogAsset(c)) return catalogAssetLineage(c as CatalogAssetSourceConfig);
       if (c.type === "object_storage") return c.path ?? "";
       if (c.type === "database")
         return c.mode === "table"
@@ -1286,7 +1329,7 @@ export function compilePreview(graph: EtlGraph, nodeId: string): string {
   // the same graph ran fine as a pipeline — the preview is a SECOND compiler
   // over the same nodes, and anything the source functions depend on has to be
   // emitted by both.
-  if (slice.some((n) => (n.config as { type?: string }).type === "lakehouse")) {
+  if (slice.some((n) => effectiveType(n) === "lakehouse")) {
     lines.push(``, lakehouseAttachFn());
   }
   if (gates.length) {
@@ -1341,7 +1384,11 @@ export function requirementsFor(graph: EtlGraph): string {
   const reqs = new Set<string>(["pandas", "pyarrow"]);
   let anyDlt = false;
   for (const n of graph.nodes ?? []) {
-    const c = n.config as { type?: string; format?: string; provider?: string };
+    const c = (
+      n.kind === "source" && isCatalogAsset(n.config as { type?: string })
+        ? ((n.config as CatalogAssetSourceConfig).resolved ?? {})
+        : n.config
+    ) as { type?: string; format?: string; provider?: string };
     if (n.kind === "source") {
       if (c.type === "object_storage") {
         reqs.add("s3fs");

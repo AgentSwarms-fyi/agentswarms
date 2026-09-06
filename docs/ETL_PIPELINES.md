@@ -40,6 +40,45 @@ BigQuery, Redshift, Databricks, Trino, Athena, Oracle, ClickHouse) refuse at
 save time with guidance to stage through object storage, which all of them
 ingest natively.
 
+## Picking sources and targets
+
+Nothing a pipeline reads from or writes to is typed. The node panel offers
+what the platform already knows: the warehouse connections and, behind each,
+its schemas and tables read from `information_schema` the moment the picker
+opens; the lakehouse schemas the owner can reach and their tables; the buckets
+registered as Data Catalog storage sources and the files and partitioned
+folders the crawl found in them, with their formats; the secrets under
+Settings → Secrets, by name; the AWS regions a Kinesis stream may live in. A
+target that may create something offers **New …** and asks for a name only
+then. Every pick reports the columns of what was picked, so the incremental
+cursor, the merge keys and the transforms downstream are picked from a list
+too, before any preview has run. What stays a field is what the platform
+cannot know: a URL, a topic on somebody else's broker, a Pub/Sub project, an
+expression, a query.
+
+The pickers follow the way each system is organised, one level at a time:
+a connection, then its schema, then a table; a bucket, then a folder, then a
+file or partitioned dataset; a lakehouse schema, then a table (a target sees
+only the schemas it may write to - a mounted lake or Iceberg namespace is
+read-only). Every level lists what the previous one holds, with the counts,
+formats and rows the crawl knows.
+
+The **Data Catalog asset** source goes one step further: a catalog source,
+then its schema or folder, then any table, view, file or dataset the catalog
+crawled there. Picking one resolves
+it to the source the compiler already knows — a warehouse table through the
+catalog source's connection, a bucket file or folder through its storage
+source, a lakehouse table through the engine — and stores that resolution on
+the node, so a run reads exactly what was picked with the same credentials
+and the same access checks (a lakehouse schema the owner cannot reach still
+refuses at run start). Lineage records the asset as `catalog:<fqn>`. An
+Iceberg REST catalog table is listed but read through a lakehouse mount, and
+the entry says so.
+
+A reverse-ETL target's bearer token is a secret picked by name on the node,
+resolved as the pipeline owner at run start and scrubbed from logs; the older
+env-var binding through Settings → secret bindings still works.
+
 ## Execution model
 
 A run is a **batch kernel on the notebook runtime** — the same container image,
