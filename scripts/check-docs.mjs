@@ -98,7 +98,7 @@ const publicRoutes = new Set(
  * pages that cite it move together, which is the point.
  */
 const APP_NAV = {
-  Overview: ["Dashboard"],
+  Overview: ["Dashboard", "Documentation"],
   Build: ["Agent Builder", "Knowledge Base", "Agent Chat", "Agent Swarms", "MCP Builder"],
   "Data & BI": [
     "AI Analyst",
@@ -113,6 +113,7 @@ const APP_NAV = {
     "Developer workspace",
   ],
   Library: ["Prompt Library", "Skill Library"],
+  Experiment: ["Prompt Compare", "Evaluations", "Image Playground"],
   Integrations: ["Integrations", "Web Embedding", "Secrets", "MCP Servers", "Model Registry"],
   Observability: [
     "Analytics",
@@ -122,7 +123,6 @@ const APP_NAV = {
     "AI Budgets",
     "Monitoring",
   ],
-  Experiment: ["Prompt Compare", "Evaluations", "Image Playground"],
   Admin: ["IAM", "Developer runtime"],
 };
 

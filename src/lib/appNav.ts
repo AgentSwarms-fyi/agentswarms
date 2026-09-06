@@ -1,5 +1,11 @@
-// The app's navigation map — single source of truth shared by the sidebar
-// and the command palette, so a new page added here appears in both.
+// The app's navigation map — single source of truth shared by the sidebar,
+// the command palette and the session-restore labels, so a new page added
+// here appears in all of them.
+//
+// GROUP LABELS ARE A PUBLIC NAME. The docs write nav paths as
+// "Observability → AI Budgets", and scripts/check-docs.mjs checks those
+// claims against this map, so a group renamed here renames a sentence in
+// every page that cites it. Order is free; names are not.
 import {
   Warehouse,
   BrainCircuit,
@@ -31,6 +37,8 @@ import {
   Code2,
   LifeBuoy,
   Wrench,
+  Server,
+  ShieldCheck,
   type LucideIcon,
   Brain,
   HeartPulse,
@@ -87,6 +95,16 @@ export const NAV_GROUPS: NavGroup[] = [
       { title: "Skill Library", url: "/skills", icon: Wand2 },
     ],
   },
+  // Beside the libraries: both are where an agent's raw material is written
+  // and tried out, rather than where the product is operated.
+  {
+    label: "Experiment",
+    items: [
+      { title: "Prompt Compare", url: "/prompt-compare", icon: Columns },
+      { title: "Evaluations", url: "/evaluations", icon: FlaskConical },
+      { title: "Image Playground", url: "/image-playground", icon: ImageIcon },
+    ],
+  },
   {
     label: "Integrations",
     items: [
@@ -110,12 +128,36 @@ export const NAV_GROUPS: NavGroup[] = [
       { title: "Monitoring", url: "/monitoring", icon: Activity },
     ],
   },
-  {
-    label: "Experiment",
-    items: [
-      { title: "Prompt Compare", url: "/prompt-compare", icon: Columns },
-      { title: "Evaluations", url: "/evaluations", icon: FlaskConical },
-      { title: "Image Playground", url: "/image-playground", icon: ImageIcon },
-    ],
-  },
 ];
+
+/**
+ * Shown only to superadmins, by the sidebar and the palette alike — which is
+ * why it lives here rather than being written out twice. The routes enforce
+ * the restriction themselves; hiding the links is courtesy, not security.
+ */
+export const ADMIN_GROUP: NavGroup = {
+  label: "Admin",
+  items: [
+    { title: "IAM", url: "/admin/iam", icon: ShieldCheck },
+    { title: "Developer runtime", url: "/admin/runtime", icon: Server },
+  ],
+};
+
+/**
+ * The nav item a path is "in", by longest matching url: /ml/<id> belongs to
+ * ML Models, and /analytics/observability to Swarm Traces rather than to
+ * Analytics, which is a prefix of it. Exported because the sidebar's
+ * highlight, the group that opens with it and the session-restore label all
+ * have to answer this question the same way.
+ */
+export function navItemForPath(path: string, groups: NavGroup[] = NAV_GROUPS): NavItem | undefined {
+  const pathname = path.split("?")[0].split("#")[0];
+  let best: NavItem | undefined;
+  for (const group of groups) {
+    for (const item of group.items) {
+      const hit = pathname === item.url || pathname.startsWith(`${item.url}/`);
+      if (hit && (!best || item.url.length > best.url.length)) best = item;
+    }
+  }
+  return best;
+}

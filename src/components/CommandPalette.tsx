@@ -15,7 +15,7 @@ import {
   CommandSeparator,
   CommandShortcut,
 } from "@/components/ui/command";
-import { NAV_GROUPS } from "@/lib/appNav";
+import { ADMIN_GROUP, NAV_GROUPS } from "@/lib/appNav";
 import { THEMES, useTheme } from "@/hooks/use-theme";
 import { useIsSuperadmin } from "@/hooks/use-iam";
 
@@ -38,19 +38,10 @@ export function CommandPalette({
   const { theme, setTheme } = useTheme();
   const isSuperadmin = useIsSuperadmin();
 
-  const groups = useMemo(() => {
-    if (!isSuperadmin) return NAV_GROUPS;
-    return [
-      ...NAV_GROUPS,
-      {
-        label: "Admin",
-        items: [
-          { title: "IAM", url: "/admin/iam", icon: undefined },
-          { title: "Developer runtime", url: "/admin/runtime", icon: undefined },
-        ],
-      },
-    ];
-  }, [isSuperadmin]);
+  const groups = useMemo(
+    () => (isSuperadmin ? [...NAV_GROUPS, ADMIN_GROUP] : NAV_GROUPS),
+    [isSuperadmin],
+  );
 
   const run = (fn: () => void) => {
     onOpenChange(false);

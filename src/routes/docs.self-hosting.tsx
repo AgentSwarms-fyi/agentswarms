@@ -760,6 +760,53 @@ ADMIN_EMAIL=you@corp.com ADMIN_PASSWORD='...' bash scripts/setup-k8s.sh`}</Code>
         enabled) or the sandbox&rsquo;s egress ban is inert; and roughly 3 CPU and 6 GiB of requests
         for our pods before the Supabase chart&rsquo;s own.
       </P>
+      <P>
+        Those decisions land differently on each managed cluster. <C>docs/DEPLOYMENT.md</C> has a
+        step-by-step runbook per cloud — cluster creation, the registry, storage, policy
+        enforcement, ingress and TLS, the managed Postgres and object storage the lakehouse prefers,
+        and a GPU pool if you train — under &ldquo;Managed clusters: AWS, GCP, Azure, OCI&rdquo;.
+        The short version:
+      </P>
+      <Table
+        headers={["Cloud", "Registry", "Storage", "Policy enforcement", "Ingress"]}
+        rows={[
+          [
+            "AWS (EKS)",
+            "ECR",
+            "Install the EBS CSI add-on, then mark a gp3 class default — a new cluster has none that works, and every claim sits in Pending",
+            "VPC CNI with enableNetworkPolicy",
+            "AWS Load Balancer Controller + ACM",
+          ],
+          [
+            "GCP (GKE)",
+            "Artifact Registry",
+            "standard-rwo, default already",
+            "Dataplane V2 — chosen at creation, not after",
+            "GKE Ingress + ManagedCertificate",
+          ],
+          [
+            "Azure (AKS)",
+            "ACR, attached with --attach-acr so no pull secret is needed",
+            "Azure Disks, default already",
+            "--network-policy at creation",
+            "App Routing add-on (managed NGINX)",
+          ],
+          [
+            "OCI (OKE)",
+            "OCIR, with an auth token as the password",
+            "oci-bv, default already",
+            "Calico, installed by you",
+            "Native ingress controller, or NGINX",
+          ],
+        ]}
+      />
+      <P>
+        Push <strong>five</strong> images, not three, if you use the developer workspace, ETL or the
+        ML platform: the notebook gateway (<C>./services/notebook-gateway</C>) is named in{" "}
+        <C>deploy/k8s/notebooks/notebook-runtime.yaml</C>, and the runtime image (
+        <C>./docker/notebook-runtime</C>) in <C>NOTEBOOK_RUNTIME_IMAGE</C>. Training, prediction and
+        pipeline runs are all batch pods in that namespace.
+      </P>
       <Callout title="The Office renderer is the one pod a `restricted` cluster refuses">
         Every workload was applied to a namespace enforcing the <C>restricted</C> Pod Security
         Standard. Web, analytics, the JS sandbox, the lakehouse catalog and the BI CronJob were all
