@@ -37,6 +37,7 @@ export type NbRuntimeSettings = {
   ml_max_concurrent_trainings_per_user: number;
   ml_predict_max_rows: number;
   ml_train_gpus: number;
+  ml_train_workers: number;
   ml_drift_alert_psi: number;
   gateway_rate_limit_per_min: number;
   gateway_fallback_models: string[];
@@ -127,6 +128,7 @@ const DEFAULTS: NbRuntimeSettings = {
   ml_max_concurrent_trainings_per_user: 2,
   ml_predict_max_rows: 5000000,
   ml_train_gpus: 0,
+  ml_train_workers: 1,
   ml_drift_alert_psi: 0.25,
   gateway_rate_limit_per_min: 60,
   gateway_fallback_models: [],
@@ -190,6 +192,7 @@ export const nbRuntimeGetState = createServerFn({ method: "POST" })
           ml_max_concurrent_trainings_per_user: row.ml_max_concurrent_trainings_per_user ?? 2,
           ml_predict_max_rows: row.ml_predict_max_rows ?? 5000000,
           ml_train_gpus: row.ml_train_gpus ?? 0,
+          ml_train_workers: row.ml_train_workers ?? 1,
           ml_drift_alert_psi: row.ml_drift_alert_psi ?? 0.25,
           gateway_rate_limit_per_min: row.gateway_rate_limit_per_min ?? 60,
           gateway_fallback_models: row.gateway_fallback_models ?? [],
@@ -281,6 +284,7 @@ export const nbRuntimeUpdateSettings = createServerFn({ method: "POST" })
         ml_max_concurrent_trainings_per_user: z.number().int().min(1).optional(),
         ml_predict_max_rows: z.number().int().min(1).optional(),
         ml_train_gpus: z.number().int().min(0).max(64).optional(),
+        ml_train_workers: z.number().int().min(1).max(64).optional(),
         ml_drift_alert_psi: z.number().min(0.01).max(5).optional(),
         gateway_rate_limit_per_min: z.number().int().min(1).max(100000).optional(),
         gateway_fallback_models: z.array(z.string().min(1).max(160)).max(10).optional(),

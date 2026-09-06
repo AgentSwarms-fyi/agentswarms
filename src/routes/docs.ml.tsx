@@ -189,6 +189,50 @@ function MlDocsPage() {
         model. Inference refuses an artifact whose bytes do not hash to the digest.
       </Callout>
 
+      <H3 id="search-workers">A search across several sandboxes</H3>
+      <P>
+        A training job tries several algorithms and then tunes the best of them, and by default it
+        does all of that inside <strong>one</strong> container, one candidate after another. Set{" "}
+        <strong>Search workers</strong> under <strong>Admin → Developer runtime</strong> (or{" "}
+        <C>ML_TRAIN_WORKERS</C>) above 1 and the search is dealt out instead: worker <em>w</em> of{" "}
+        <em>n</em> takes candidates <em>w</em>, <em>w+n</em>, <em>w+2n</em>… and the job keeps
+        whichever worker&apos;s model scored best.
+      </P>
+      <Callout title="A single model still trains in one container">
+        Nothing here splits one fit across machines — that needs a distributed framework and a
+        cluster, and a model that does not fit in one sandbox&apos;s memory still does not fit. What
+        this buys is wall-clock on the search, which is where the wizard&apos;s time goes.
+      </Callout>
+      <UL>
+        <li>
+          <strong>Only classification and regression have a search to split.</strong> Clustering
+          picks its <C>k</C> from the row count and forecasting its methods from the shape of the
+          series, both inside the sandbox, so the server cannot deal out their candidates.
+        </li>
+        <li>
+          <strong>Never more workers than candidates, or than the runtime allows.</strong> Sessions
+          per user (3 by default) is the ceiling that actually bites, and it counts open notebooks
+          too. A job takes fewer workers rather than failing to start the extras.
+        </li>
+        <li>
+          <strong>A worker that dies does not lose the job.</strong> Three of four finishing still
+          produces a model; the leaderboard is merged from everyone who reported, each row keeps the
+          worker that ran it, and the version&apos;s warnings say how many did not come back. Only
+          an all-workers-failed search fails.
+        </li>
+        <li>
+          <strong>Ties break on the lowest worker number</strong>, so re-running the same job on the
+          same data picks the same model.
+        </li>
+        <li>
+          <strong>A split search is not the same search.</strong> Tuning runs per worker, on that
+          worker&apos;s own best candidates, so several workers tune more models than one container
+          would have and can land on a different winner from identical data. Usually a better search
+          — but the two are not comparable runs, so train with the same worker count each time when
+          exact reproduction matters.
+        </li>
+      </UL>
+
       <H2 id="results">Read the results</H2>
       <UL>
         <li>
@@ -765,7 +809,7 @@ curl -X POST https://your-instance/api/ml/predict/batch \\
           ],
           [
             "Distributed / GPU training",
-            "One sandbox per job; GPUs requestable, CPU image by default",
+            "The algorithm search spreads across several sandboxes; one model still trains in one container; GPUs requestable",
             "Clusters, distributed frameworks, GPU instances",
           ],
           [
@@ -792,10 +836,9 @@ curl -X POST https://your-instance/api/ml/predict/batch \\
         ]}
       />
       <P>
-        The gap that matters most is now <strong>distributed training</strong>: a job is one
-        sandbox, so a model that does not fit one box does not train here. Everything in the left
-        column is shipped and tested — including the three that used to sit beside it on this list,
-        the warm endpoint, the feature store and run logging.
+        What is left is <strong>training one model across machines</strong>: the search now spreads
+        over sandboxes, but a single fit still happens in one container, so a model too large for
+        one box does not train here. Everything in the left column is shipped and tested.
       </P>
 
       <H2 id="use-cases">Use cases</H2>

@@ -4695,6 +4695,9 @@ export type Database = {
           model_id: string;
           result: Json | null;
           session_id: string | null;
+          shard_results: Json;
+          shard_sessions: string[];
+          shards: number;
           started_at: string | null;
           status: string;
           trigger: string;
@@ -4711,6 +4714,9 @@ export type Database = {
           model_id: string;
           result?: Json | null;
           session_id?: string | null;
+          shard_results?: Json;
+          shard_sessions?: string[];
+          shards?: number;
           started_at?: string | null;
           status?: string;
           trigger?: string;
@@ -4727,6 +4733,9 @@ export type Database = {
           model_id?: string;
           result?: Json | null;
           session_id?: string | null;
+          shard_results?: Json;
+          shard_sessions?: string[];
+          shards?: number;
           started_at?: string | null;
           status?: string;
           trigger?: string;
@@ -5159,6 +5168,7 @@ export type Database = {
           ml_train_max_rows: number | null;
           ml_train_mem_limit_mb: number | null;
           ml_train_time_budget_minutes: number | null;
+          ml_train_workers: number | null;
           pip_allowed: boolean;
           require_grant: boolean;
           sandbox_tmpfs_mb: number | null;
@@ -5206,6 +5216,7 @@ export type Database = {
           ml_train_max_rows?: number | null;
           ml_train_mem_limit_mb?: number | null;
           ml_train_time_budget_minutes?: number | null;
+          ml_train_workers?: number | null;
           pip_allowed?: boolean;
           require_grant?: boolean;
           sandbox_tmpfs_mb?: number | null;
@@ -5253,6 +5264,7 @@ export type Database = {
           ml_train_max_rows?: number | null;
           ml_train_mem_limit_mb?: number | null;
           ml_train_time_budget_minutes?: number | null;
+          ml_train_workers?: number | null;
           pip_allowed?: boolean;
           require_grant?: boolean;
           sandbox_tmpfs_mb?: number | null;
@@ -7062,6 +7074,13 @@ export type Database = {
           parent_id: string;
           question: string;
           similarity: number;
+        }[];
+      };
+      ml_job_record_shard: {
+        Args: { _job: string; _result: Json; _shard: number };
+        Returns: {
+          done: number;
+          total: number;
         }[];
       };
       prune_agent_memory_items: {

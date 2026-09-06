@@ -14,7 +14,7 @@ development branch and may be ahead of the latest tag.
 
 ## Unreleased
 
-Work on `main` since the 1.4.0 tag. Nine migrations —
+Work on `main` since the 1.4.0 tag. Eleven migrations —
 run `npx supabase db push` after pulling.
 
 ### A transformation layer over the lakehouse
@@ -51,6 +51,53 @@ run `npx supabase db push` after pulling.
   saved. Every build audits what happened to each model; model-to-model
   lineage now appears in the Data Catalog beside crawled and ETL edges. Under
   **Data & BI → SQL Models**.
+
+### Training searches across several sandboxes
+
+- **A job is no longer one container.** A training job tries several
+  algorithms and then tunes the best of them, and it did all of that in one
+  sandbox, one candidate after another. Set **Search workers** under
+  **Admin → Developer runtime** (or `ML_TRAIN_WORKERS`) above 1 and the search
+  is dealt out: worker _w_ of _n_ takes candidates _w_, _w+n_, _w+2n_…, and the
+  job keeps whichever worker's model scored best.
+- **A single model still trains in one container**, and the docs say so in
+  those words. Splitting one fit across machines needs a distributed framework
+  and a cluster; a model that does not fit in one sandbox's memory still does
+  not fit. What this buys is wall-clock on the search, which is where the
+  wizard's time actually goes. Claiming more would be a lie the user discovers
+  at the worst moment.
+- **Three limits bound it and the job takes the smallest.** Only
+  classification and regression enumerate their candidates up front —
+  clustering picks its `k` from the row count and forecasting its methods from
+  the shape of the series, both inside the sandbox, so the server cannot deal
+  out their candidates and those tasks still run in one container. Never more
+  workers than candidates. And never more than the runtime lets one person
+  hold, which is the limit that actually bites: sessions-per-user counts their
+  open notebooks too, so a job takes fewer workers rather than failing to start
+  the extras.
+- **Candidates are dealt round-robin, not in blocks.** The list is ordered
+  cheapest-first, so blocks would hand worker 0 every fast model and the last
+  worker every slow one — and a job takes as long as its slowest worker.
+- **A worker that dies does not lose the job.** Three of four finishing still
+  produces a model: the leaderboard is merged from everyone who reported, each
+  row keeps the worker that ran it (so "why is there no lightgbm row" has an
+  answer), and the version's warnings say how many workers never came back and
+  what the failed ones said. Only an all-workers-failed search fails.
+- **Exactly one worker finalises the job.** The count of finished workers is
+  kept by a database function that appends and counts in a single statement,
+  so of _n_ simultaneous callbacks precisely one sees itself as last. A
+  repeated callback for a worker already recorded matches nothing and does
+  nothing. Cancelling stops every sandbox, and the orphan sweep polls every
+  worker's session rather than the first — with _n_ workers there are _n_
+  callbacks that can be lost.
+- **Ties break on the lowest worker number**, so re-running the same job on the
+  same data picks the same model. A winner that depended on which container
+  answered first would not be reproducible, and reproducibility is most of what
+  the registry is for.
+- The version is written by **one** function whichever way the job trained, so
+  a distributed run cannot record itself differently from a single-container
+  one. A job with one worker is byte-identical to what it was: no shard in the
+  stash, no candidate list in the bundle, the same artifact path.
 
 ### Experiments — the twenty runs behind the one version
 

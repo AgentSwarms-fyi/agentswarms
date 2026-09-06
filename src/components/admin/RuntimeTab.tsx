@@ -523,6 +523,12 @@ export function RuntimeTab({ token }: { token: string }) {
             onChange={(n) => set("ml_predict_max_rows", n)}
           />
           <NumberField
+            label="Search workers"
+            value={form.ml_train_workers}
+            onChange={(n) => set("ml_train_workers", n)}
+            hint="Sandboxes one training job spreads its algorithm search across. Each worker trains its own share of the candidates and the job keeps the best; a single model still trains in one container. Bounded by sessions per user above, and only classification and regression have a search to split."
+          />
+          <NumberField
             label="Training GPUs"
             value={form.ml_train_gpus}
             onChange={(n) => set("ml_train_gpus", n)}

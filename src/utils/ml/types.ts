@@ -143,17 +143,33 @@ export type MlTrainResult = {
 
 /** The key a training session carries in its runtime session inputs. */
 export const ML_JOB_KEY = "__ml_job";
-export type MlJobStash = { job_id: string; kind: "train" | "predict" };
+export type MlJobStash = {
+  job_id: string;
+  kind: "train" | "predict";
+  /**
+   * Which worker of a distributed search this sandbox is, and how many there
+   * are. Absent on every job that runs in one container, which keeps the
+   * single-shard path byte-identical to what it was.
+   */
+  shard?: number;
+  shards?: number;
+};
 
 /** Pull the job id out of a session's inputs, or null for any other session. */
 export function mlJobStashOf(inputs: unknown): MlJobStash | null {
   const raw = (inputs as { [ML_JOB_KEY]?: unknown } | null)?.[ML_JOB_KEY];
   if (!raw || typeof raw !== "object") return null;
-  const j = (raw as { job_id?: unknown; kind?: unknown }).job_id;
+  const j = (raw as { job_id?: unknown }).job_id;
   const k = (raw as { kind?: unknown }).kind;
-  return typeof j === "string" && j.length > 0
-    ? { job_id: j, kind: k === "predict" ? "predict" : "train" }
-    : null;
+  if (typeof j !== "string" || j.length === 0) return null;
+  const shard = (raw as { shard?: unknown }).shard;
+  const shards = (raw as { shards?: unknown }).shards;
+  return {
+    job_id: j,
+    kind: k === "predict" ? "predict" : "train",
+    ...(typeof shard === "number" && Number.isInteger(shard) && shard >= 0 ? { shard } : {}),
+    ...(typeof shards === "number" && shards > 1 ? { shards } : {}),
+  };
 }
 
 /** Human label for a metric key, shared by the UI and documentation. */

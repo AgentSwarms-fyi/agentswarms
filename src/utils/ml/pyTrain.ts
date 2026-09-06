@@ -309,7 +309,11 @@ def _build_preprocessor(schema, features, prep, df=None, compact=False):
 
 
 # ── Candidates and tuning ────────────────────────────────────────────────────
-def _candidates(task, prep):
+def _candidates(task, prep, only=None):
+    # 'only' is this worker's slice of a distributed search: the server deals
+    # the candidate names round-robin and each sandbox trains just its own.
+    # Absent (the single-container case) every candidate is tried, exactly as
+    # before.
     balanced = (prep or {}).get('class_weight') == 'balanced' and task == 'classification'
     cw = 'balanced' if balanced else None
     cands = []
@@ -335,6 +339,15 @@ def _candidates(task, prep):
             cands.append(('lightgbm', lambda: LGBMRegressor(n_estimators=400, learning_rate=0.05, random_state=42, verbose=-1)))
         except Exception as e:
             _log('lightgbm unavailable (%s); continuing without it' % str(e)[:120])
+    if only:
+        wanted = set(only)
+        cands = [c for c in cands if c[0] in wanted]
+        missing = wanted - set(n for n, _ in cands)
+        if missing:
+            # Named rather than silently dropped: a worker asked to train
+            # something this image cannot import must say so, or its slice
+            # just disappears from the leaderboard with no explanation.
+            _log('this worker was asked for %s but they are unavailable here' % ', '.join(sorted(missing)))
     return cands
 
 
@@ -597,7 +610,7 @@ def _train_tabular(df, cfg, warnings_):
     leaderboard, ranked = [], []
     higher = task == 'classification'
     metric = 'f1_macro' if higher else 'rmse'
-    for name, make in _candidates(task, prep):
+    for name, make in _candidates(task, prep, cfg.get('candidates')):
         if leaderboard and _elapsed() > budget * 0.85:
             leaderboard.append({'algorithm': name, 'metric': metric, 'value': None, 'higher_is_better': higher,
                                 'fit_seconds': 0.0, 'status': 'skipped', 'note': 'time budget spent'})

@@ -104,6 +104,52 @@ DuckLake data path, so orphan-file cleanup can never delete a model — and
 its SHA-256 is recorded; inference refuses an artifact whose bytes do not
 hash to it.
 
+### A search across several sandboxes
+
+A training job tries several algorithms and then tunes the best of them, and by
+default it does all of that inside **one** container, one candidate after
+another. Set **Search workers** under **Admin → Developer runtime** (or
+`ML_TRAIN_WORKERS`) above 1 and the search is dealt out instead: worker _w_ of
+_n_ takes candidates _w_, _w+n_, _w+2n_…, trains and tunes only those, and the
+job keeps whichever worker's model scored best.
+
+**A single model still trains in one container.** Nothing here splits one fit
+across machines — that needs a distributed framework and a cluster, and a model
+that does not fit in one sandbox's memory still does not fit. What this buys is
+wall-clock on the search, which is where the wizard's time actually goes.
+
+Three things bound it, and the job takes the smallest:
+
+- **Only classification and regression have a search to split.** Clustering
+  picks its `k` values from the row count and forecasting picks its methods
+  from the shape of the series, both at runtime inside the sandbox, so the
+  server cannot hand a worker "its" candidates. Those tasks run in one
+  container, as they always did.
+- **Never more workers than candidates.** Four algorithms and eight workers
+  means four workers; an idle sandbox still costs a container start.
+- **Never more than the runtime lets one person hold.** Sessions per user
+  (3 by default) is the ceiling that actually bites, and it counts the
+  notebooks that person has open too. A job takes fewer workers rather than
+  failing to start the extras.
+
+Each worker uploads its own artifact and the job keeps the winner's. Ties break
+on the lowest worker number, so re-running the same job on the same data picks
+the same model.
+
+**A split search is not the same search.** Tuning runs per worker, on that
+worker's own best candidates, so four workers tune more models than one
+container would have — and a distributed job can land on a different winner
+than a single-container job on identical data. That is usually a better search
+rather than a worse one, but it means the two are not comparable runs, and a
+model whose exact reproduction matters should be trained with the same worker
+count every time.
+
+**A worker that dies does not lose the job.** Three of four finishing still
+produces a model — the leaderboard is merged from every worker that reported,
+each row keeps the worker that ran it, and the version's warnings say plainly
+how many workers did not come back and what the ones that failed said. A job is
+only failed when _every_ worker failed.
+
 ## Read the results
 
 - **Metric tiles** — the primary metric first (F1 macro, RMSE), then
@@ -633,17 +679,17 @@ Where AgentSwarms stands against Databricks ML and SageMaker, honestly:
 | Public API                 | Per-model scoped keys, rate limits, audited denials, BYO registration                                                       | Yes, IAM-based                                         |
 | Bring your own model       | Any joblib pipeline under a small contract                                                                                  | Any framework, containers                              |
 | Feature store              | Feature views: score by key, read from the table training read; describes rather than materialises                          | Yes                                                    |
-| Distributed / GPU training | One sandbox per job; GPUs requestable, CPU image by default                                                                 | Clusters, distributed frameworks, GPU instances        |
+| Distributed / GPU training | The algorithm search spreads across several sandboxes; one model still trains in one container; GPUs requestable            | Clusters, distributed frameworks, GPU instances        |
 | Experiment tracking        | Runs logged from a notebook or a script with params, metrics and curves; a run promotes into the registry                   | MLflow / Experiments                                   |
 | Model cards                | Generated from the registry                                                                                                 | SageMaker Model Cards                                  |
 | Governance                 | IAM shares, trigger audit, decision ids, result digests, one statement guard for all data                                   | Unity Catalog / IAM                                    |
 | Agents and BI              | Models are agent tools; forecasts and drift live in the BI layer                                                            | Separate products                                      |
 | Cost and residency         | Self-hosted, your infrastructure, no per-call charges                                                                       | Managed, metered                                       |
 
-The gap that matters most is now **distributed training**: a job is one
-sandbox, so a model that does not fit one box does not train here. Everything
-in the left column is shipped and tested — including the three that used to sit
-beside it on this list, the warm endpoint, the feature store and run logging.
+What is left is **training one model across machines**: the search now
+spreads over sandboxes, but a single fit still happens in one container, so a
+model too large for one box does not train here. Everything in the left column
+is shipped and tested.
 
 ## Use cases
 

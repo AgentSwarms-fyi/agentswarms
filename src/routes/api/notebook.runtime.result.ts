@@ -119,7 +119,9 @@ export const Route = createFileRoute("/api/notebook/runtime/result")({
                   m.finalizePrediction(mlStash.job_id, outcome),
                 )
               : import("@/utils/ml/train.server").then((m) =>
-                  m.finalizeMlJob(mlStash.job_id, outcome),
+                  // The shard rides in the session's own stash, so a worker
+                  // cannot claim to be a different one than it was started as.
+                  m.finalizeMlJob(mlStash.job_id, outcome, mlStash.shard),
                 )
           ).catch((e) => console.warn("[ml] finalize failed:", (e as Error).message));
         }

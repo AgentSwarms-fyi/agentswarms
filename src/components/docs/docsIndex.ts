@@ -2357,6 +2357,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "ML_TRAIN_MAX_ROWS",
       "ML_TRAIN_MEM_LIMIT_MB",
       "ML_TRAIN_TIME_BUDGET_MINUTES",
+      "ML_TRAIN_WORKERS",
       "NOTEBOOK_RUNTIME_IMAGE",
       "ResourceQuota",
       "SELECT",
@@ -2424,6 +2425,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "id": "train",
         "text": "Train a model",
         "level": 2
+      },
+      {
+        "id": "search-workers",
+        "text": "A search across several sandboxes",
+        "level": 3
       },
       {
         "id": "results",
