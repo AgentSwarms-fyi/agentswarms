@@ -1352,15 +1352,18 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     "terms": [
       "*/15",
       "/etl-samples/",
+      "200",
       "ETL_DEST_ACCESS_KEY_ID",
       "ETL_DEST_BUCKET_URL",
       "ETL_DEST_ENDPOINT_URL",
       "ETL_DEST_SECRET_ACCESS_KEY",
       "ETL_TRIGGER_PER_MIN",
       "Europe/Berlin",
+      "api.hubapi.com",
       "append",
       "docker",
       "e2b",
+      "email",
       "entrypoint(inputs)",
       "entrypoint(inputs=None)",
       "internal",
@@ -1368,8 +1371,10 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "lakehouse-catalog:5432",
       "merge",
       "notebooks",
+      "numErrors",
       "raw/orders/*.csv",
-      "replace"
+      "replace",
+      "success"
     ],
     "headings": [
       {
@@ -1436,6 +1441,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "id": "incremental",
         "text": "Engine-managed incremental loads",
         "level": 3
+      },
+      {
+        "id": "reverse-etl-saas",
+        "text": "Reverse ETL into a SaaS tool",
+        "level": 2
       },
       {
         "id": "ecosystem",

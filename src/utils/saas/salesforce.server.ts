@@ -67,7 +67,9 @@ export function normaliseInstanceUrl(input: string): string {
  * host (sandboxes and My Domain redirects). Using the RETURNED one rather than
  * the configured one is what makes those work.
  */
-async function authenticate(cfg: SalesforceCfg): Promise<{ token: string; instance: string }> {
+export async function salesforceAuth(
+  cfg: SalesforceCfg,
+): Promise<{ token: string; instance: string }> {
   const base = normaliseInstanceUrl(cfg.instance_url);
   const res = await connectorFetch(`${base}/services/oauth2/token`, {
     method: "POST",
@@ -122,7 +124,7 @@ async function sfGet<T>(instance: string, token: string, path: string): Promise<
 export async function listSalesforceStreams(cfg: SaasConfig): Promise<SaasStream[]> {
   // Authenticating here means a bad connected app fails during setup rather
   // than at the first sync.
-  await authenticate(cfg as SalesforceCfg);
+  await salesforceAuth(cfg as SalesforceCfg);
   return Object.entries(STREAMS).map(([id, s]) => ({ id, label: s.label }));
 }
 
@@ -169,7 +171,7 @@ export async function* fetchSalesforceRows(
 ): AsyncGenerator<Record<string, unknown>> {
   const stream = STREAMS[streamId];
   if (!stream) throw new Error(`Salesforce: unknown object "${streamId}"`);
-  const { token, instance } = await authenticate(cfg as SalesforceCfg);
+  const { token, instance } = await salesforceAuth(cfg as SalesforceCfg);
 
   const fields = await queryableFields(instance, token, stream.object);
   const soql = `SELECT ${fields.join(",")} FROM ${stream.object} LIMIT ${PAGE_SIZE}`;

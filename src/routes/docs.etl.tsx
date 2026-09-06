@@ -343,6 +343,54 @@ function EtlDocsPage() {
         cursor. State is server-held per node and never client-writable.
       </P>
 
+      <H2 id="reverse-etl-saas">Reverse ETL into a SaaS tool</H2>
+      <P>
+        The <strong>SaaS tool</strong> target pushes rows back into HubSpot or Salesforce through a
+        connection you have already made — the same one that syncs contacts <em>in</em> syncs them
+        back <em>out</em>, so there is no second copy of the CRM&apos;s credential to manage. Pick
+        the connection, the object, and the column that identifies a record: a HubSpot unique
+        property such as <C>email</C>, or a Salesforce External ID field. Every other column is sent
+        as a field, and it is an upsert — the same row twice updates rather than duplicates.
+      </P>
+      <Callout title="Why not just the HTTP API target">
+        These APIs answer <C>200</C> and report per-record failures inside the body. The HTTP target
+        checks the status code, sees 200, and records every row as loaded — so a run that pushed
+        5,000 contacts and had 4,000 rejected shows as a complete success, and nobody finds out
+        until somebody asks the CRM why the numbers are wrong. This target reads HubSpot&apos;s{" "}
+        <C>numErrors</C> and Salesforce&apos;s per-record <C>success</C> flag and fails the run,
+        naming what was rejected.
+      </Callout>
+      <UL>
+        <li>
+          <strong>The batch cap is applied for you.</strong> HubSpot takes 100 records per request
+          and Salesforce 200; exceeding it rejects the whole batch, not one record.
+        </li>
+        <li>
+          <strong>The id column is checked before the first request</strong>, because otherwise
+          every record is rejected one batch at a time.
+        </li>
+        <li>
+          <strong>Only HubSpot and Salesforce can be written to.</strong> Stripe, Shopify, Jira,
+          Zendesk and Google Sheets are read-only here — creating a charge or an issue from a
+          nightly pipeline is a different kind of decision.
+        </li>
+        <li>
+          <strong>A shared connection can be read from but not written to.</strong> Pushing records
+          into somebody else&apos;s CRM is a bigger step than reading rows out of it, so reverse-ETL
+          targets resolve owner-only.
+        </li>
+        <li>
+          <strong>Partial batches are not rolled back.</strong> One bad record does not block the
+          rest; the run fails with the rejections named, and re-running is safe because an upsert on
+          the same key updates rather than duplicates.
+        </li>
+      </UL>
+      <P>
+        The CRM&apos;s host must be on the egress allow-list (<C>api.hubapi.com</C>, or your
+        Salesforce My Domain) under <strong>Admin → Developer runtime</strong>. A run blocked by the
+        proxy says so by name rather than leaving you with a bare 403.
+      </P>
+
       <H2 id="ecosystem">Where the data goes next</H2>
       <Steps
         items={[

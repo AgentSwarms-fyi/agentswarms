@@ -202,6 +202,65 @@ which the retry ladder then handles. Verified live against a local sink:
 5 rows arrived as 3 batches with the bound bearer header, and the token
 never appeared in run logs.
 
+## Reverse ETL into a SaaS tool
+
+The **SaaS tool** target pushes rows back into HubSpot or Salesforce through a
+connection you have already made — the same one that syncs contacts _in_ syncs
+them back _out_, so there is no second copy of the CRM's credential to manage.
+
+Pick the connection, the object (Contacts, Companies, Deals, Accounts, Leads,
+Opportunities…), and the column that identifies a record: a HubSpot **unique
+property** such as `email`, or a Salesforce **External ID field**. Every other
+column is sent as a field. It is an **upsert** — the same row twice updates
+rather than duplicates.
+
+### Why this is not just the HTTP API target with a URL filled in
+
+**These APIs answer `200` and report per-record failures inside the body.** The
+HTTP target checks the status code, sees 200, and records every row as loaded.
+So a run that pushed 5,000 contacts and had 4,000 rejected for a missing
+required property shows in the run history as a complete success, and nobody
+finds out until somebody asks the CRM why the numbers are wrong.
+
+This target reads the response the way each vendor actually writes it —
+HubSpot's `numErrors`/`errors`, Salesforce's per-record `success` flag — and
+**fails the run**, naming what was rejected and why. A Salesforce reply that is
+not a per-record list at all counts as every record in the batch failing,
+because "the shape was wrong so nothing was checked" must never read as
+success.
+
+Two more things it knows that a URL does not:
+
+- **The batch cap.** HubSpot takes 100 records per request and Salesforce 200.
+  Exceeding it rejects the whole batch, not one record, so the cap is applied
+  here rather than left in a number you have to look up.
+- **The id column must exist.** Checked against the frame before the first
+  request, because otherwise every record is rejected one batch at a time.
+
+### What it deliberately does not do
+
+**Only HubSpot and Salesforce can be written to.** The other connectors —
+Stripe, Shopify, Jira, Zendesk, Google Sheets — are read-only here. Creating a
+charge or an issue from a nightly pipeline is a different kind of decision from
+updating a CRM record, and this is not the door for it.
+
+**A shared connection can be read from but not written to.** An IAM share
+grants the ability to pull rows out; pushing records into somebody else's CRM
+is a bigger step, and it should be its own grant rather than a side effect of
+that one. Reverse-ETL targets resolve owner-only.
+
+**Partial batches are not rolled back.** Salesforce is called with
+`allOrNone: false`, so one bad record does not block the rest — the run fails
+and tells you which records were rejected, and re-running is safe because an
+upsert on the same key updates rather than duplicates.
+
+The CRM's host must be on the egress allow-list (`api.hubapi.com`, or your
+Salesforce My Domain) under **Admin → Developer runtime**. A run blocked by the
+proxy **says so by name** — a 403 whose body is not JSON did not come from a
+JSON API, so the error names the host to add rather than leaving you reading
+squid's deny page as though the CRM had refused you. (The proxy also permits
+only ports 80, 443, 9000 and 19000; the real CRMs are on 443.)
+
 ## Cost attribution
 
 The dashboard's **Runtime · 7d** card totals sandbox wall-clock across

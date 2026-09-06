@@ -5,6 +5,7 @@
 import {
   ArrowDownUp,
   Code,
+  Contact,
   Columns3,
   CopyMinus,
   Database,
@@ -70,6 +71,8 @@ const TARGET: Record<string, LucideIcon> = {
   database: Database,
   lakehouse: Warehouse,
   http_api: Send,
+  // A CRM push is a send with a destination that knows what a record is.
+  saas: Contact,
 };
 
 const BY_KIND: Record<EtlNode["kind"], Record<string, LucideIcon>> = {

@@ -52,6 +52,7 @@ export const TARGET_TYPES = [
   { type: "database", label: "Database / warehouse" },
   { type: "lakehouse", label: "Lakehouse table" },
   { type: "http_api", label: "HTTP API (reverse ETL)" },
+  { type: "saas", label: "SaaS tool (HubSpot, Salesforce)" },
 ] as const;
 
 /** The menu label for a node's type, for the canvas card and the panel badge. */
@@ -104,6 +105,11 @@ export function defaultNodeConfig(
     switch (type) {
       case "http_api":
         return { type, url: "https://", method: "POST", batch_size: 500 };
+      case "saas":
+        // Everything else — the vendor, the object, the id column — comes from
+        // the connection the user picks, so there is nothing sensible to
+        // pre-fill and a half-filled default would only look configured.
+        return { type };
       case "lakehouse":
         return { type, schema: "", table: "", write_mode: "replace" };
       case "database":

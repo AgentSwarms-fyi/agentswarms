@@ -100,6 +100,29 @@ export function explainEtlError(raw: string | null | undefined): EtlErrorExplana
     };
   }
 
+  // A CRM host that nobody added to the allow-list. The proxy's 403 says
+  // nothing about which host or why, and "add api.hubapi.com under Admin →
+  // Developer runtime" is the whole fix — so name it rather than making
+  // somebody correlate a bare 403 with a proxy they had forgotten exists.
+  {
+    // Either the proxy's own words, or the hint the SaaS target raises when
+    // it sees a 403 with a non-JSON body — found live, where squid's deny
+    // page named neither the host nor the word Forbidden.
+    const m =
+      /looks like the egress proxy[^\n]*?add ([A-Za-z0-9._:-]+) to the allow-list/i.exec(text) ??
+      /(?:ProxyError|Tunnel connection failed|403 Forbidden)[^\n]*?((?:api\.hubapi\.com)|(?:[a-z0-9-]+\.my\.salesforce\.com))/i.exec(
+        text,
+      );
+    if (m) {
+      return {
+        kind: "egress_blocked_saas",
+        summary:
+          `The egress proxy blocked ${m[1]}. A sandbox may only reach hosts on the allow-list — ` +
+          "add it under Admin → Developer runtime → egress allow-list, then run again.",
+      };
+    }
+  }
+
   // A squid denial is an HTTP 403 with no body worth reading, and DuckDB in
   // particular reports it as an authentication failure — sending you after
   // credentials that are fine.

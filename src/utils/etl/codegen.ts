@@ -36,6 +36,15 @@ import {
   unwrapSourceConfig,
   type CatalogAssetSourceConfig,
 } from "@/utils/etl/catalogAsset";
+import {
+  SAAS_TARGETS,
+  batchSizeFor,
+  endpointPath,
+  methodFor,
+  validateSaasTarget,
+  type SaasTargetConfig,
+  type SaasTargetVendor,
+} from "@/lib/saasTargets";
 
 export type EtlSourceConfig =
   | StreamSourceConfig
@@ -135,6 +144,23 @@ export type EtlTransformConfig =
   | { type: "quality_gate"; rules: QualityRule[] };
 
 export type EtlTargetConfig =
+  | {
+      /**
+       * Reverse ETL into a SaaS tool, through a connection that already
+       * exists. Named rather than a URL because these APIs answer 200 and
+       * report per-record failures in the body — see @/lib/saasTargets.
+       */
+      type: "saas";
+      /** The SaaS connection to write through; credentials stay server-side. */
+      connection_id?: string;
+      vendor?: "hubspot" | "salesforce";
+      object?: string;
+      /** Column identifying a record — the vendor's unique/external id field. */
+      id_column?: string;
+      /** Columns sent as fields; empty = every column but the id column. */
+      columns?: string[];
+      batch_size?: number;
+    }
   | {
       type: "object_storage";
       catalog_source_id?: string;
@@ -814,6 +840,70 @@ function transformExpr(node: EtlNode, ins: string[]): string {
   }
 }
 
+/**
+ * The request body for one batch, as a Python expression over `_chunk`.
+ *
+ * Each vendor has its own envelope, and the id column is lifted out of the
+ * fields: HubSpot names it `idProperty`/`id`, Salesforce puts it beside the
+ * record's `attributes`. Both take `allOrNone: false` semantics — a batch is
+ * not rolled back for one bad record, which is why reading the per-record
+ * result below is not optional.
+ */
+function saasBodyExpr(cfg: SaasTargetConfig, idCol: string): string {
+  const id = pyStr(idCol);
+  if (cfg.vendor === "hubspot") {
+    return (
+      `{'inputs': [{'idProperty': ${id}, 'id': _r.get(${id}), ` +
+      `'properties': {_k: _r.get(_k) for _k in _cols if _r.get(_k) is not None}} for _r in _chunk]}`
+    );
+  }
+  return (
+    `{'allOrNone': False, 'records': [dict({'attributes': {'type': ${pyStr(cfg.object ?? "")}}, ` +
+    `${id}: _r.get(${id})}, **{_k: _r.get(_k) for _k in _cols if _r.get(_k) is not None}) for _r in _chunk]}`
+  );
+}
+
+/**
+ * Read the per-record outcome of one batch.
+ *
+ * Mirrors `readFailures` in @/lib/saasTargets, which is the tested statement
+ * of the same contract — the TypeScript one cannot run in the sandbox and the
+ * Python one cannot run in a unit test, so both exist and a test pins that
+ * they branch on the same fields.
+ */
+function saasFailureLines(cfg: SaasTargetConfig): string[] {
+  if (cfg.vendor === "salesforce") {
+    return [
+      `        if isinstance(_payload, list):`,
+      `            for _r in _payload:`,
+      `                if not (isinstance(_r, dict) and _r.get('success')):`,
+      `                    _failed += 1`,
+      `                    _e = ((_r or {}).get('errors') or [{}])[0]`,
+      `                    if len(_why) < 3:`,
+      `                        _why.append(str(_e.get('message') or 'rejected'))`,
+      `        else:`,
+      // Not an array at all means the request was rejected wholesale. Counting
+      // that as zero failures is exactly the silent success this target exists
+      // to prevent.
+      `            _failed += len(_chunk)`,
+      `            _why.append('Salesforce did not return a per-record result')`,
+    ];
+  }
+  return [
+    `        if isinstance(_payload, dict):`,
+    `            _errs = _payload.get('errors') or []`,
+    `            _n = _payload.get('numErrors')`,
+    `            if _n is None:`,
+    `                _res = _payload.get('results')`,
+    `                _n = len(_errs) if _errs else (max(0, len(_chunk) - len(_res)) if isinstance(_res, list) else 0)`,
+    `            if _n:`,
+    `                _failed += int(_n)`,
+    `                for _e in _errs[:3]:`,
+    `                    if len(_why) < 3:`,
+    `                        _why.append(str((_e or {}).get('message') or 'rejected'))`,
+  ];
+}
+
 function targetBlock(node: EtlNode, input: string, cdcInput = false): string {
   const c = node.config as EtlTargetConfig;
   if (c.type === "lakehouse") {
@@ -862,6 +952,59 @@ function targetBlock(node: EtlNode, input: string, cdcInput = false): string {
       `    finally:`,
       `        con.close()`,
       `    _loads.append({'target': '${schema}.${table}', 'fqn': '${schema}.${table}', 'rows': int(len(${input})), 'load_id': None})`,
+    ].join("\n");
+  }
+  if (c.type === "saas") {
+    const cfg = c as unknown as SaasTargetConfig;
+    const problem = validateSaasTarget(cfg);
+    if (problem) throw new Error(`SaaS target "${node.label || node.id}": ${problem}`);
+    const spec = SAAS_TARGETS[cfg.vendor as SaasTargetVendor];
+    const batch = batchSizeFor(cfg);
+    const stem = envKey(node.id);
+    const idCol = (cfg.id_column ?? "").trim();
+    const fields = (cfg.columns ?? []).filter((x) => x !== idCol);
+    return [
+      `    # target ${node.id}: reverse ETL → ${spec.label} ${cfg.object}`,
+      `    import requests`,
+      // The host is the tenant's own — HubSpot is fixed, a Salesforce org lives
+      // at its My Domain — and both arrive resolved as the pipeline's owner.
+      `    _base = os.environ['${stem}_BASE'].rstrip('/')`,
+      `    _url = _base + ${pyStr(endpointPath(cfg))}`,
+      `    _hdrs = {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + os.environ['${stem}_TOKEN']}`,
+      `    _df = ${input}`,
+      `    if ${pyStr(idCol)} not in _df.columns:`,
+      // Refused before the first request: without it every record would be
+      // rejected one batch at a time, which is a slow way to learn this.
+      `        raise RuntimeError(${pyStr(`${spec.label} target needs a "${idCol}" column to identify records; the frame has: `)} + ', '.join(map(str, _df.columns)))`,
+      fields.length
+        ? `    _cols = [_c for _c in [${fields.map((f) => pyStr(f)).join(", ")}] if _c in _df.columns]`
+        : `    _cols = [_c for _c in _df.columns if _c != ${pyStr(idCol)}]`,
+      `    _records = json.loads(_df.to_json(orient='records', date_format='iso'))`,
+      `    _sent, _failed, _why = 0, 0, []`,
+      `    for _i in range(0, len(_records), ${batch}):`,
+      `        _chunk = _records[_i:_i + ${batch}]`,
+      `        _body = ${saasBodyExpr(cfg, idCol)}`,
+      `        _resp = requests.request(${pyStr(methodFor(cfg))}, _url, json=_body, headers=_hdrs, timeout=120)`,
+      // A transport-level failure fails the run the ordinary way — except for
+      // the one that is nearly always the egress proxy rather than the API. A
+      // 403 whose body is not JSON did not come from a JSON API, and naming
+      // the proxy saves an hour spent looking at CRM permissions.
+      `        if _resp.status_code >= 400:`,
+      `            _hint = ''`,
+      `            if _resp.status_code == 403 and 'json' not in (_resp.headers.get('content-type') or ''):`,
+      `                _hint = ' (this looks like the egress proxy, not ${spec.label}: add ' + _base.split('//')[-1].split('/')[0] + ' to the allow-list under Admin -> Developer runtime)'`,
+      `            raise RuntimeError(${pyStr(`${spec.label} `)} + str(_resp.status_code) + _hint + ': ' + _resp.text[:300])`,
+      `        try:`,
+      `            _payload = _resp.json()`,
+      `        except Exception:`,
+      `            _payload = None`,
+      ...saasFailureLines(cfg),
+      `        _sent += len(_chunk)`,
+      `        print(${pyStr(`[etl] ${spec.label} ${cfg.object}: `)} + str(_sent) + '/' + str(len(_records)) + ' record(s) sent')`,
+      // The whole point: a 200 that rejected records is a failed run.
+      `    if _failed:`,
+      `        raise RuntimeError(${pyStr(`${spec.label} rejected `)} + str(_failed) + ' of ' + str(len(_records)) + ' record(s): ' + '; '.join(_why[:3]))`,
+      `    _loads.append({'target': ${pyStr(`${spec.label}:${cfg.object}`)}, 'fqn': ${pyStr(`saas:${cfg.vendor}:${cfg.object}`)}, 'rows': int(len(${input})), 'load_id': None})`,
     ].join("\n");
   }
   if (c.type === "http_api") {
@@ -1405,7 +1548,7 @@ export function requirementsFor(graph: EtlGraph): string {
       }
     }
     if (n.kind === "transform" && c.type === "sql") reqs.add("ibis-framework[duckdb]");
-    if (n.kind === "target" && c.type === "http_api") {
+    if (n.kind === "target" && (c.type === "http_api" || c.type === "saas")) {
       reqs.add("requests");
       continue;
     }
@@ -1439,7 +1582,7 @@ export function requirementsFor(graph: EtlGraph): string {
   const hasNonDltTarget = (graph.nodes ?? []).some(
     (n) =>
       n.kind === "target" &&
-      ["lakehouse", "http_api"].includes((n.config as { type?: string }).type ?? ""),
+      ["lakehouse", "http_api", "saas"].includes((n.config as { type?: string }).type ?? ""),
   );
   if (!anyDlt && !hasNonDltTarget) reqs.add("dlt[filesystem]>=1.3");
   return [...reqs].sort().join("\n");

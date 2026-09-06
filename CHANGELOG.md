@@ -52,6 +52,43 @@ run `npx supabase db push` after pulling.
   lineage now appears in the Data Catalog beside crawled and ETL edges. Under
   **Data & BI → SQL Models**.
 
+### Reverse ETL into HubSpot and Salesforce
+
+- **A named target, because a 200 is not a success here.** HubSpot and
+  Salesforce answer `200` and report per-record failures inside the body. The
+  generic HTTP target checks the status code, sees 200, and records every row
+  as loaded — so a run that pushed 5,000 contacts and had 4,000 rejected for a
+  missing required property shows in the run history as a complete success, and
+  nobody finds out until somebody asks the CRM why the numbers are wrong. The
+  new **SaaS tool** target reads HubSpot's `numErrors`/`errors` and
+  Salesforce's per-record `success` flag and **fails the run**, naming what was
+  rejected. A Salesforce reply that is not a per-record list at all counts as
+  every record failing, because "the shape was wrong so nothing was checked"
+  must never read as success.
+- **It writes through a connection you already have.** The same HubSpot or
+  Salesforce connection that syncs contacts in pushes them back out, so there
+  is no second copy of the CRM credential to manage. Pick the object and the
+  column that identifies a record — a HubSpot unique property, a Salesforce
+  External ID field — and every other column is sent as a field. It is an
+  upsert, so the same row twice updates rather than duplicates.
+- **Two vendor rules it applies for you.** The batch cap (100 for HubSpot, 200
+  for Salesforce) is enforced here, because exceeding it rejects the whole
+  batch rather than one record and nobody should have to look that number up.
+  And the id column is checked against the frame before the first request,
+  because otherwise every record is rejected one batch at a time.
+- **Read-only stays read-only.** Only HubSpot and Salesforce can be written to;
+  Stripe, Shopify, Jira, Zendesk and Google Sheets remain sources. Creating a
+  charge or an issue from a nightly pipeline is a different kind of decision,
+  and this is not the door for it.
+- **A shared connection can be read from but not written to.** An IAM share
+  grants pulling rows out; pushing records into somebody else's CRM is a bigger
+  step and should be its own grant. Reverse-ETL targets resolve owner-only, and
+  the stored credential is decrypted server-side, injected into the sandbox's
+  environment and added to the run's scrub list.
+- A run blocked by the egress proxy now **names the host** it could not reach
+  instead of leaving a bare 403 to be correlated with a proxy people forget is
+  there.
+
 ### Training searches across several sandboxes
 
 - **A job is no longer one container.** A training job tries several

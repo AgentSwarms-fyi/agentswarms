@@ -139,6 +139,8 @@ import {
 } from "@/utils/etl/codegen";
 import { ETL_TEMPLATES } from "@/lib/etlTemplates";
 import { listWarehouseConnections } from "@/utils/warehouse.functions";
+import { listSaasConnections } from "@/utils/saas.functions";
+import { SAAS_TARGETS, isWritableVendor, type SaasTargetVendor } from "@/lib/saasTargets";
 import type { WarehouseConnectionSummary } from "@/utils/warehouse/types";
 import {
   cancelEtlRunFn,
@@ -1754,12 +1756,17 @@ function NodePanel({
   const { names: secretNames } = useSecretNames(token);
   const [storageSources, setStorageSources] = useState<CatalogSource[]>([]);
   const [connections, setConnections] = useState<WarehouseConnectionSummary[]>([]);
+  const [saasConnections, setSaasConnections] = useState<
+    { id: string; name: string; provider: string }[]
+  >([]);
   const listConnFn = useServerFn(listWarehouseConnections);
+  const listSaasFn = useServerFn(listSaasConnections);
 
   const c = node.config as { type: string } & Record<string, unknown>;
   const TypeIcon = nodeTypeIcon(node.kind, c.type);
   const needsStorage = c.type === "object_storage";
   const needsDb = c.type === "database";
+  const needsSaas = c.type === "saas";
 
   // A transform is configured against the columns arriving from upstream, not
   // its own output — those don't exist until it runs. Fall back to this node's
@@ -1785,8 +1792,20 @@ function NodePanel({
         })
         .catch(() => {});
     }
+    if (needsSaas && session?.access_token) {
+      listSaasFn({ data: { access_token: session.access_token } })
+        .then((rows) =>
+          setSaasConnections(
+            rows.map((r) => ({ id: r.id, name: r.name, provider: r.provider as string })),
+          ),
+        )
+        .catch(() => {});
+    }
+    // The token belongs in here: without it a picker that ran before the
+    // session was ready would stay empty for good rather than filling in when
+    // it arrives.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [needsStorage, needsDb, node.id]);
+  }, [needsStorage, needsDb, needsSaas, node.id, session?.access_token]);
 
   const set = (updates: Record<string, unknown>) =>
     onChange({ ...node.config, ...updates } as EtlNode["config"]);
@@ -2382,6 +2401,106 @@ function NodePanel({
         </Field>
       )}
 
+      {node.kind === "target" && c.type === "saas" && (
+        <>
+          <Field label="Connection">
+            <Select
+              value={(c.connection_id as string) ?? ""}
+              onValueChange={(v) => {
+                const conn = saasConnections.find((x) => x.id === v);
+                set({
+                  connection_id: v,
+                  vendor: conn && isWritableVendor(conn.provider) ? conn.provider : undefined,
+                  object: undefined,
+                });
+              }}
+            >
+              <SelectTrigger className="h-8">
+                <SelectValue placeholder="Pick a connected tool…" />
+              </SelectTrigger>
+              <SelectContent>
+                {saasConnections
+                  .filter((x) => isWritableVendor(x.provider))
+                  .map((x) => (
+                    <SelectItem key={x.id} value={x.id}>
+                      {x.name} · {SAAS_TARGETS[x.provider as SaasTargetVendor].label}
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+          </Field>
+          {saasConnections.length > 0 &&
+          saasConnections.every((x) => !isWritableVendor(x.provider)) ? (
+            <p className="text-[11px] text-muted-foreground">
+              None of your connected tools can be written to. Writable destinations are HubSpot and
+              Salesforce; the rest are read-only sources.
+            </p>
+          ) : null}
+          {c.vendor ? (
+            <>
+              <div className="grid grid-cols-2 gap-2">
+                <Field label="Object">
+                  <Select
+                    value={(c.object as string) ?? ""}
+                    onValueChange={(v) => set({ object: v })}
+                  >
+                    <SelectTrigger className="h-8">
+                      <SelectValue placeholder="Pick…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {SAAS_TARGETS[c.vendor as SaasTargetVendor].objects.map((o) => (
+                        <SelectItem key={o.id} value={o.id}>
+                          {o.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
+                <Field label="Rows per request">
+                  <Input
+                    type="number"
+                    className="h-8 font-mono text-xs"
+                    value={
+                      (c.batch_size as number) ??
+                      SAAS_TARGETS[c.vendor as SaasTargetVendor].maxBatch
+                    }
+                    onChange={(e) => set({ batch_size: Number(e.target.value) || undefined })}
+                  />
+                </Field>
+              </div>
+              <Field label={SAAS_TARGETS[c.vendor as SaasTargetVendor].idLabel}>
+                {/*
+                  Typed, not picked from a list: an upstream node's columns are
+                  often unknown until it runs (a Python source, a SQL step), and
+                  a Select with no matching option renders a configured target
+                  as blank. Known columns are offered as suggestions instead.
+                */}
+                <Input
+                  className="h-8 font-mono text-xs"
+                  list={`saas-cols-${node.id}`}
+                  value={(c.id_column as string) ?? ""}
+                  onChange={(e) => set({ id_column: e.target.value })}
+                  placeholder="the column that identifies a record"
+                />
+                <datalist id={`saas-cols-${node.id}`}>
+                  {upstreamColumns.map((col) => (
+                    <option key={col} value={col} />
+                  ))}
+                </datalist>
+              </Field>
+              <p className="text-[11px] text-muted-foreground">
+                {SAAS_TARGETS[c.vendor as SaasTargetVendor].idHint}
+              </p>
+              <p className="text-[11px] text-muted-foreground">
+                Every other column is sent as a field. Batches are capped at{" "}
+                {SAAS_TARGETS[c.vendor as SaasTargetVendor].maxBatch} records because the API
+                rejects a larger one whole, and a response that reports rejected records fails the
+                run rather than counting them as loaded.
+              </p>
+            </>
+          ) : null}
+        </>
+      )}
       {node.kind === "target" && c.type === "http_api" && (
         <>
           <Field label="URL">
@@ -2445,118 +2564,121 @@ function NodePanel({
           </p>
         </>
       )}
-      {node.kind === "target" && c.type !== "http_api" && c.type !== "lakehouse" && (
-        <>
-          {c.type === "database" ? (
-            <WarehouseTablePicker
-              token={token}
-              connectionId={(c.connection_id as string) || undefined}
-              schema={(c.dataset as string) ?? ""}
-              table={(c.table as string) ?? ""}
-              allowNew
-              onChange={(v) =>
-                set({
-                  ...(v.schema !== undefined ? { dataset: v.schema } : {}),
-                  ...(v.table !== undefined ? { table: v.table } : {}),
-                })
-              }
-            />
-          ) : (
-            <StorageTargetPicker
-              token={token}
-              sourceId={(c.catalog_source_id as string) || destCatalogSourceId || undefined}
-              dataset={(c.dataset as string) ?? ""}
-              table={(c.table as string) ?? ""}
-              onChange={(v) =>
-                set({
-                  ...(v.dataset !== undefined ? { dataset: v.dataset } : {}),
-                  ...(v.table !== undefined ? { table: v.table } : {}),
-                })
-              }
-            />
-          )}
-          {c.type === "object_storage" && (
-            <div className="grid grid-cols-2 gap-2">
-              <Field label="Table format">
-                <Select
-                  value={(c.table_format as string) ?? "none"}
-                  onValueChange={(v) =>
-                    set(
-                      v === "none"
-                        ? { table_format: "none" }
-                        : { table_format: v, format: "parquet" },
-                    )
-                  }
-                >
-                  <SelectTrigger className="h-8">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Plain files</SelectItem>
-                    <SelectItem value="delta">Delta Lake</SelectItem>
-                    <SelectItem value="iceberg">Iceberg</SelectItem>
-                  </SelectContent>
-                </Select>
-              </Field>
-              <Field label="File format">
-                <Select
-                  value={c.format as string}
-                  onValueChange={(v) => set({ format: v })}
-                  disabled={c.table_format === "delta" || c.table_format === "iceberg"}
-                >
-                  <SelectTrigger className="h-8">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {["parquet", "csv", "jsonl"].map((f) => (
-                      <SelectItem key={f} value={f}>
-                        {f.toUpperCase()}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </Field>
-            </div>
-          )}
-          <Field label="Write mode">
-            <Select value={c.write_mode as string} onValueChange={(v) => set({ write_mode: v })}>
-              <SelectTrigger className="h-8">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="replace">Replace</SelectItem>
-                <SelectItem value="append">Append</SelectItem>
-                <SelectItem value="merge">Merge (upsert)</SelectItem>
-              </SelectContent>
-            </Select>
-          </Field>
-          {c.write_mode === "merge" && (
-            <Field label="Primary key columns">
-              <ColumnChips
-                value={(c.primary_key as string[]) ?? []}
-                onChange={(primary_key) => set({ primary_key })}
-                columns={upstreamColumns}
-                emptyMeans="Pick the column(s) rows are matched on."
+      {node.kind === "target" &&
+        c.type !== "http_api" &&
+        c.type !== "saas" &&
+        c.type !== "lakehouse" && (
+          <>
+            {c.type === "database" ? (
+              <WarehouseTablePicker
+                token={token}
+                connectionId={(c.connection_id as string) || undefined}
+                schema={(c.dataset as string) ?? ""}
+                table={(c.table as string) ?? ""}
+                allowNew
+                onChange={(v) =>
+                  set({
+                    ...(v.schema !== undefined ? { dataset: v.schema } : {}),
+                    ...(v.table !== undefined ? { table: v.table } : {}),
+                  })
+                }
               />
+            ) : (
+              <StorageTargetPicker
+                token={token}
+                sourceId={(c.catalog_source_id as string) || destCatalogSourceId || undefined}
+                dataset={(c.dataset as string) ?? ""}
+                table={(c.table as string) ?? ""}
+                onChange={(v) =>
+                  set({
+                    ...(v.dataset !== undefined ? { dataset: v.dataset } : {}),
+                    ...(v.table !== undefined ? { table: v.table } : {}),
+                  })
+                }
+              />
+            )}
+            {c.type === "object_storage" && (
+              <div className="grid grid-cols-2 gap-2">
+                <Field label="Table format">
+                  <Select
+                    value={(c.table_format as string) ?? "none"}
+                    onValueChange={(v) =>
+                      set(
+                        v === "none"
+                          ? { table_format: "none" }
+                          : { table_format: v, format: "parquet" },
+                      )
+                    }
+                  >
+                    <SelectTrigger className="h-8">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Plain files</SelectItem>
+                      <SelectItem value="delta">Delta Lake</SelectItem>
+                      <SelectItem value="iceberg">Iceberg</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </Field>
+                <Field label="File format">
+                  <Select
+                    value={c.format as string}
+                    onValueChange={(v) => set({ format: v })}
+                    disabled={c.table_format === "delta" || c.table_format === "iceberg"}
+                  >
+                    <SelectTrigger className="h-8">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {["parquet", "csv", "jsonl"].map((f) => (
+                        <SelectItem key={f} value={f}>
+                          {f.toUpperCase()}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
+              </div>
+            )}
+            <Field label="Write mode">
+              <Select value={c.write_mode as string} onValueChange={(v) => set({ write_mode: v })}>
+                <SelectTrigger className="h-8">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="replace">Replace</SelectItem>
+                  <SelectItem value="append">Append</SelectItem>
+                  <SelectItem value="merge">Merge (upsert)</SelectItem>
+                </SelectContent>
+              </Select>
             </Field>
-          )}
-          <Field label="Schema drift">
-            <Select
-              value={(c.schema_policy as string) ?? "evolve"}
-              onValueChange={(v) => set({ schema_policy: v })}
-            >
-              <SelectTrigger className="h-8">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="evolve">Evolve silently</SelectItem>
-                <SelectItem value="warn">Warn on drift</SelectItem>
-                <SelectItem value="strict">Fail on drift</SelectItem>
-              </SelectContent>
-            </Select>
-          </Field>
-        </>
-      )}
+            {c.write_mode === "merge" && (
+              <Field label="Primary key columns">
+                <ColumnChips
+                  value={(c.primary_key as string[]) ?? []}
+                  onChange={(primary_key) => set({ primary_key })}
+                  columns={upstreamColumns}
+                  emptyMeans="Pick the column(s) rows are matched on."
+                />
+              </Field>
+            )}
+            <Field label="Schema drift">
+              <Select
+                value={(c.schema_policy as string) ?? "evolve"}
+                onValueChange={(v) => set({ schema_policy: v })}
+              >
+                <SelectTrigger className="h-8">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="evolve">Evolve silently</SelectItem>
+                  <SelectItem value="warn">Warn on drift</SelectItem>
+                  <SelectItem value="strict">Fail on drift</SelectItem>
+                </SelectContent>
+              </Select>
+            </Field>
+          </>
+        )}
     </div>
   );
 }

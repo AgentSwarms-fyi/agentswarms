@@ -287,6 +287,28 @@ export async function resolveRunEnv(
     if (node.kind === "source" && isStreamSource(c)) {
       await streamEnv(node as EtlNode, c, stem);
     }
+    // A named SaaS target writes through a connection that already exists, so
+    // there is no second copy of the CRM's credential to manage. The row is
+    // scoped by user_id: a stale connection id in a shared graph cannot reach
+    // another tenant's CRM.
+    if (node.kind === "target" && c.type === "saas") {
+      if (!c.connection_id) {
+        throw new Error(
+          `Node "${(node as EtlNode).label || node.id}" has no SaaS connection selected`,
+        );
+      }
+      const { loadWritableConnection, saasWriteAuth } = await import("@/utils/saas/write.server");
+      let auth: { base: string; token: string; vendor: string };
+      try {
+        const conn = await loadWritableConnection(pipeline.user_id, c.connection_id);
+        auth = await saasWriteAuth(conn.config);
+      } catch (e) {
+        throw new Error(`Node "${(node as EtlNode).label || node.id}": ${(e as Error).message}`);
+      }
+      env[`${stem}_BASE`] = auth.base;
+      env[`${stem}_TOKEN`] = auth.token;
+      secretValues.push(auth.token);
+    }
     // A reverse-ETL target's bearer token, picked as a secret on the node.
     if (node.kind === "target" && c.type === "http_api" && c.auth_secret) {
       const value = await resolveSecretRefs(pipeline.user_id, `{{secret:${c.auth_secret}}}`);
