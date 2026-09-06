@@ -17,6 +17,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { WarehousesTab } from "@/components/integrations/WarehousesTab";
 import { SaasSourcesTab } from "@/components/integrations/SaasSourcesTab";
 import { SlackTab } from "@/components/integrations/SlackTab";
+import { TeamsTab } from "@/components/integrations/TeamsTab";
 import { Badge } from "@/components/ui/badge";
 import {
   Select,
@@ -1154,11 +1155,18 @@ function IntegrationsPage() {
                 surfaces — but opposite directions. Notifications posts OUT to
                 a webhook; this authenticates an inbound caller. */}
             <TabsTrigger value="slack">Slack</TabsTrigger>
+            {/* Beside Slack for the same reason: the other inbound chat
+                surface, authenticated a completely different way. */}
+            <TabsTrigger value="teams">Teams</TabsTrigger>
             <TabsTrigger value="n8n">n8n Workflows</TabsTrigger>
           </TabsList>
 
           <TabsContent value="slack" className="space-y-4">
             <SlackTab />
+          </TabsContent>
+
+          <TabsContent value="teams" className="space-y-4">
+            <TeamsTab />
           </TabsContent>
 
           <TabsContent value="warehouses" className="space-y-4">

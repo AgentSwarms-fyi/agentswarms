@@ -137,6 +137,7 @@ const PAGE_TABS = {
     "Web Search",
     "Notifications",
     "Slack",
+    "Teams",
     "n8n Workflows",
   ],
   IAM: ["Users", "Groups", "Access", "Attributes", "Budgets", "SSO", "Settings"],

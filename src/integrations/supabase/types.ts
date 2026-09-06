@@ -6542,6 +6542,54 @@ export type Database = {
         };
         Relationships: [];
       };
+      teams_bots: {
+        Row: {
+          app_id: string;
+          app_password_enc: Json | null;
+          created_at: string;
+          display_name: string | null;
+          id: string;
+          is_active: boolean;
+          last_activity_at: string | null;
+          last_error: string | null;
+          target_id: string | null;
+          target_type: string | null;
+          tenant_id: string | null;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          app_id: string;
+          app_password_enc?: Json | null;
+          created_at?: string;
+          display_name?: string | null;
+          id?: string;
+          is_active?: boolean;
+          last_activity_at?: string | null;
+          last_error?: string | null;
+          target_id?: string | null;
+          target_type?: string | null;
+          tenant_id?: string | null;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          app_id?: string;
+          app_password_enc?: Json | null;
+          created_at?: string;
+          display_name?: string | null;
+          id?: string;
+          is_active?: boolean;
+          last_activity_at?: string | null;
+          last_error?: string | null;
+          target_id?: string | null;
+          target_type?: string | null;
+          tenant_id?: string | null;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
       user_data_rows: {
         Row: {
           id: number;

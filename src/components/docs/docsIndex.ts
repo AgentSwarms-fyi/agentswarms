@@ -1893,6 +1893,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "level": 2
       },
       {
+        "id": "teams",
+        "text": "Answering in Microsoft Teams",
+        "level": 2
+      },
+      {
         "id": "n8n",
         "text": "n8n workflows",
         "level": 2

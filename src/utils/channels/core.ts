@@ -128,9 +128,16 @@ export function isSlackRetry(retryNumHeader: string | null | undefined): boolean
  * sentence, no internals: the person in Slack cannot fix an id, and the owner
  * reads the real reason on the integration page and in the audit log.
  */
-export function channelTargetMissing(target: ChannelTargetType | null): string {
+export function channelTargetMissing(
+  target: ChannelTargetType | null,
+  /** Where to send them: the settings page differs per channel, and this is
+   *  the message someone reads when the bot cannot answer, so pointing them at
+   *  the wrong page is the whole failure. */
+  surface: "slack" | "teams" = "slack",
+): string {
+  const where = surface === "teams" ? "Integrations → Teams" : "Integrations → Slack";
   if (target === "agent") {
-    return "That points at an agent this workspace can no longer reach. Whoever set it up can pick another under Integrations → Slack.";
+    return `That points at an agent this workspace can no longer reach. Whoever set it up can pick another under ${where}.`;
   }
-  return "No analyst or agent is connected to this workspace yet. Whoever set it up can pick one under Integrations → Slack.";
+  return `No analyst or agent is connected to this workspace yet. Whoever set it up can pick one under ${where}.`;
 }

@@ -289,6 +289,41 @@ function IntegrationsDoc() {
         URLs, so they are encrypted at rest and never shown again.
       </P>
 
+      <H2 id="teams">Answering in Microsoft Teams</H2>
+      <P>
+        The same idea as Slack, through a Bot Framework registration. Under{" "}
+        <strong>Integrations → Teams</strong>: paste the bot&apos;s Microsoft App id and a client
+        secret, choose the agent or analyst that answers, and put{" "}
+        <C>https://&lt;your host&gt;/api/teams/messages</C> in the bot&apos;s Messaging endpoint in
+        the Azure portal. The turn runs as the bot&apos;s owner, with the same model rules, budgets,
+        traces and audit rows as everywhere else.
+      </P>
+      <UL>
+        <li>
+          <strong>The secret is not optional.</strong> A Slack slash command arrives with a reply
+          URL that needs no credential; the Bot Framework never sends one, so every answer is posted
+          with a token minted from the client secret. A bot without one receives questions and
+          cannot answer them.
+        </li>
+        <li>
+          <strong>A single-tenant bot should name its tenant.</strong> Left empty the registration
+          answers any organisation Microsoft routes to it; with a tenant id set, another
+          tenant&apos;s activity is refused.
+        </li>
+        <li>
+          <strong>It never answers itself.</strong> Teams delivers a bot its own posts, and a bot
+          that answers itself never stops.
+        </li>
+      </UL>
+      <Callout title="How an inbound request proves itself">
+        Slack signs with a shared secret, so verifying is an HMAC. Microsoft signs with a rotating
+        RSA key it publishes, so verification checks the signature against that published key —
+        never one the token brought with it — plus the issuer, the audience (this bot&apos;s App id)
+        and the service URL the token authorises. That last one is what stops an attacker making the
+        bot post its answer to a host they control. The algorithm is pinned to RS256 rather than
+        read from the token, and every check fails closed.
+      </Callout>
+
       <H2 id="n8n">n8n workflows</H2>
       <P>
         The <em>n8n Workflows</em> tab connects an n8n instance by webhook URL and token, letting

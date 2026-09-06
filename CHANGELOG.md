@@ -14,7 +14,7 @@ development branch and may be ahead of the latest tag.
 
 ## Unreleased
 
-Work on `main` since the 1.4.0 tag. Eleven migrations —
+Work on `main` since the 1.4.0 tag. Twelve migrations —
 run `npx supabase db push` after pulling.
 
 ### A transformation layer over the lakehouse
@@ -51,6 +51,45 @@ run `npx supabase db push` after pulling.
   saved. Every build audits what happened to each model; model-to-model
   lineage now appears in the Data Catalog beside crawled and ETL edges. Under
   **Data & BI → SQL Models**.
+
+### Microsoft Teams as an agent channel
+
+- **An agent or the analyst answers in Teams**, configured under
+  **Integrations → Teams**: the bot's Microsoft App id, a client secret, and
+  which agent answers. The turn runs as the bot's owner through the same shared
+  path Slack uses — the same gateway body, IAM model rules, budgets, traces and
+  audit rows. It is not a second way to run an agent.
+- **Inbound requests are verified against Microsoft's published keys.** Slack
+  signs with a shared secret, so verifying is an HMAC; Microsoft signs with a
+  rotating RSA key, so this fetches the key set, picks the key the token names
+  and checks an RS256 signature — never a key the token brought with it, which
+  would verify the attacker's own signature. Then the issuer, the audience
+  (this bot's App id, so another bot's valid Microsoft token is still refused)
+  and **the service URL**: the token says where the bot may reply, and without
+  that check an attacker can make it post the answer, and whatever it read, to
+  a host they control. `alg` is pinned to RS256 rather than read from the
+  token, and every check fails closed.
+- **A single-tenant registration answers its own tenant only.** The token
+  proves Microsoft sent the request; it does not prove which organisation it
+  came from.
+- **It never answers itself.** Teams delivers a bot its own posts, and a bot
+  that answers itself never stops. Reactions, typing and `conversationUpdate`
+  are acknowledged and ignored — none of them is a question — and the mention
+  markup is taken out so the agent is not asked to interpret its own name as
+  part of the question.
+- **The client secret is not optional, and the page says so.** A Slack slash
+  command carries a reply URL that needs no credential; the Bot Framework never
+  sends one, so every answer is posted with a token minted from the secret. A
+  bot without one receives questions and cannot answer them. The secret is
+  written and never read back, an edit that does not mention it keeps the
+  stored one, and a 401 from Teams drops the cached token so a rotated secret
+  recovers on the next turn rather than repeating a stale one.
+- Teams stops waiting after about fifteen seconds and a turn takes 30–95, so
+  the endpoint acknowledges immediately and posts the answer to the
+  conversation when it is ready.
+- `channelTargetMissing` now names the right settings page per channel — it is
+  the message someone reads when the bot cannot answer, and sending a Teams
+  user to the Slack page was the whole failure.
 
 ### Reverse ETL into HubSpot and Salesforce
 

@@ -228,6 +228,62 @@ What the endpoints refuse, and why:
 Every turn audits `slack.command` with the workspace, the command or
 `@mention`, who asked as Slack names them, the question, and the trace id.
 
+## Answering in Microsoft Teams
+
+The same idea as Slack, through a Bot Framework registration. Configure it
+under **Integrations → Teams**: paste the bot's **Microsoft App id** and a
+client secret, choose the agent or analyst that answers, and put
+`https://<your host>/api/teams/messages` in the bot's **Messaging endpoint** in
+the Azure portal. The turn runs as the bot's owner, with the same model rules,
+budgets, traces and audit rows as everywhere else.
+
+**The secret is not optional here.** A Slack slash command arrives with a reply
+URL that needs no credential; the Bot Framework never sends one, so every
+answer is posted with a token minted from the app's client secret. A bot
+without one receives questions and cannot answer them, and the integration page
+says so rather than leaving you to wonder.
+
+**A single-tenant bot should name its tenant.** Left empty, the registration is
+treated as multi-tenant and answers any organisation Microsoft routes to it.
+With a tenant id set, an activity from a different tenant is refused — the
+token proves that Microsoft sent the request, not which company it came from.
+
+### How an inbound request proves itself
+
+Slack signs each request with a shared secret, so verifying one is an HMAC.
+Microsoft signs with a rotating RSA key it publishes, so verification means
+fetching the key set, choosing the key the token names, checking an RS256
+signature, and then checking the claims. Four of those matter, and each is a
+real vulnerability on its own:
+
+- **The signature**, against Microsoft's published key — never a key the token
+  brought with it, which would verify the attacker's own signature.
+- **The issuer**, which must be `https://api.botframework.com`.
+- **The audience**, which must be this bot's App id. A token minted for another
+  bot is a valid Microsoft token and still not yours.
+- **The service URL**, which the token carries and the activity must match.
+  Skip it and an attacker can make the bot post its answer — and whatever it
+  read — to a host they control.
+
+The algorithm is pinned to RS256 rather than read from the token, and every
+check fails closed: a missing header, an unknown key id, a key set that will
+not load are all refused. Failures answer the same terse 401 and explain
+themselves only in the server log.
+
+What the endpoint refuses, and why:
+
+| Situation                                                    | What happens                                                                                         |
+| ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
+| An unsigned, forged or expired token                         | 401, with the reason logged server-side only. An endpoint that explained itself would help a prober. |
+| An activity from a tenant a single-tenant bot does not serve | 401. Microsoft sent it; that is not the same as the right organisation sending it.                   |
+| The bot's own message coming back                            | Ignored. Teams delivers a bot its own posts, and a bot that answers itself never stops.              |
+| `conversationUpdate`, reactions, typing                      | Acknowledged and ignored — none of them is a question.                                               |
+| Nothing chosen to answer                                     | One sentence in Teams naming what to fix, and the reason on the integration page.                    |
+| No client secret saved                                       | Recorded on the bot row: the question arrived and there is no way to reply to it.                    |
+
+Every turn audits `teams.message` with the bot, who asked as Teams names them
+(an Entra object id), the question and the trace id.
+
 ## Embedding an agent
 
 Agents can be embedded on your own site (see **Integrations → Web Embedding**,
