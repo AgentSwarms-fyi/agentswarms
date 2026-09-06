@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
 import { useAuth } from "@/hooks/use-auth";
+import { ExperimentsPanel } from "@/components/ml/ExperimentsPanel";
 import { FeatureViewsPanel } from "@/components/ml/FeatureViewsPanel";
 import { cn } from "@/lib/utils";
 import { mlListModels, type MlModelSummary } from "@/utils/ml.functions";
@@ -56,7 +57,7 @@ function MlPage() {
   const listFn = useServerFn(mlListModels);
   const [data, setData] = useState<ListResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<"models" | "features">("models");
+  const [tab, setTab] = useState<"models" | "experiments" | "features">("models");
   const [q, setQ] = useState("");
   const [task, setTask] = useState<"all" | MlTask>("all");
 
@@ -135,6 +136,7 @@ function MlPage() {
         {(
           [
             ["models", "Models"],
+            ["experiments", "Experiments"],
             ["features", "Feature views"],
           ] as const
         ).map(([key, label]) => (
@@ -154,6 +156,7 @@ function MlPage() {
         ))}
       </div>
 
+      {tab === "experiments" ? <ExperimentsPanel token={token} /> : null}
       {tab === "features" ? <FeatureViewsPanel token={token} /> : null}
 
       {tab === "models" && stats ? (

@@ -14,7 +14,7 @@ development branch and may be ahead of the latest tag.
 
 ## Unreleased
 
-Work on `main` since the 1.4.0 tag. Two migrations —
+Work on `main` since the 1.4.0 tag. Nine migrations —
 run `npx supabase db push` after pulling.
 
 ### A transformation layer over the lakehouse
@@ -51,6 +51,50 @@ run `npx supabase db push` after pulling.
   saved. Every build audits what happened to each model; model-to-model
   lineage now appears in the Data Catalog beside crawled and ETL edges. Under
   **Data & BI → SQL Models**.
+
+### Experiments — the twenty runs behind the one version
+
+- **What was tried is now recorded, not just what shipped.** The registry
+  keeps every version with its metrics. What nothing kept was the work before
+  that: the runs in a notebook that led to the one worth keeping, which lived
+  in output cells until somebody re-ran it. Then "why is this the learning
+  rate" had no answer a month later, and a colleague could not see that the
+  obvious idea had been tried and had not worked.
+- **An experiment is a named question; a run is one attempt at it.** Anything
+  that can reach the platform can log one — a notebook with its session token,
+  a script with a user token — through `/api/ml/experiments`. In a notebook
+  the client is already injected: `with agentswarms.start_run("churn-v2",
+params={"lr": 0.01}) as run:`, then `run.log_metric("loss", loss,
+step=epoch)`.
+- **It fails in the right direction.** `start_run` raises if it cannot start,
+  because a run you believe is recording and is not is worse than one that
+  never began. Every later call warns and continues: losing an epoch's metrics
+  is not worth losing the epoch, and a logging call that raises three hours
+  into unattended training is the wrong trade. As a context manager it closes
+  the run whichever way the cell ends, recording the traceback as the failure.
+- **The curve survives and the score stays single.** `log_metric(k, v,
+step=n)` keeps the point as `k@n` and updates the bare `k` to the latest
+  value, so a training loop's history is there without giving up one answer to
+  "what did this run score". The panel draws those points as a sparkline, and
+  marks which parameters actually **differed** between the runs shown — in a
+  list of twenty the constants are noise and the one that moved is the
+  experiment.
+- **A run can become a version.** One that recorded both `artifact_uri` and
+  `artifact_sha256` is registered from its row through the same path an
+  external registration takes: same digest check before inference loads it,
+  same audit trail, same contract. Both fields, because a version whose
+  artifact nobody can verify is not a version. It arrives as a **candidate** —
+  promoting it is a separate, deliberate step, since that is the seam between
+  trying things and shipping one.
+- **Runs are data, not configuration.** Creating an experiment writes an audit
+  row; a metric does not, or a loop logging per epoch would write more audit
+  rows than the audit log is for. The promotion is audited as
+  `ml.experiment.promote`, because that is the moment something becomes
+  servable. Both tables are owner-only under RLS and every write re-checks the
+  caller's id: a run id is a uuid, not a capability. A finished run refuses
+  later writes, so a straggler cannot rewrite the record.
+- Under **ML Models → Experiments**. Nothing is created there: the first
+  `start_run()` call creates its own experiment.
 
 ### Feature views — score by key, not by row
 

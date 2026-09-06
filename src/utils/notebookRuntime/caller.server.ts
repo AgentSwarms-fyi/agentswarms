@@ -27,6 +27,12 @@ export type PythonCaller = {
   sb: SupabaseClient<Database>;
   /** Set only for the session-token path → explicit ownership scoping. */
   scopeUserId?: string;
+  /**
+   * The sandbox session that presented the token, when one did. Callers that
+   * record where something came from (an experiment run, say) can keep the
+   * link; nothing about access depends on it.
+   */
+  sessionId?: string;
 };
 
 function jwtClient(token: string): SupabaseClient<Database> | null {
@@ -46,7 +52,13 @@ export async function resolvePythonCaller(request: Request): Promise<PythonCalle
 
   // A server kernel presents a session token — verify and act as that user.
   const claims = await verifySessionToken(token);
-  if (claims) return { userId: claims.sub, sb: supabaseAdmin, scopeUserId: claims.sub };
+  if (claims)
+    return {
+      userId: claims.sub,
+      sb: supabaseAdmin,
+      scopeUserId: claims.sub,
+      sessionId: claims.sid,
+    };
 
   // Otherwise a Supabase user JWT from the browser runtime.
   const sb = jwtClient(token);

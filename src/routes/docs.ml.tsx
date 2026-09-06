@@ -292,6 +292,74 @@ function MlDocsPage() {
         row limit and tuning mode.
       </P>
 
+      <H2 id="experiments">Experiments</H2>
+      <P>
+        Versions record what you <strong>shipped</strong>. Experiments record what you{" "}
+        <strong>tried</strong>: the twenty runs behind the one version worth keeping, which
+        otherwise live in a notebook&apos;s output cells until somebody re-runs it. Then &quot;why
+        is this the learning rate&quot; has no answer a month later, and a colleague cannot see that
+        the obvious idea was tried and did not work.
+      </P>
+      <P>
+        An <strong>experiment</strong> is a named question; a <strong>run</strong> is one attempt at
+        it, with the parameters it used and the metrics it got. Anything that can reach the platform
+        can log one — a notebook with its session token, a script with a user token. From a notebook
+        the client is already injected:
+      </P>
+      <Code>{`import agentswarms
+
+with agentswarms.start_run("churn-v2", params={"lr": 0.01, "depth": 6}) as run:
+    for epoch in range(10):
+        run.log_metric("loss", loss, step=epoch)
+    run.log_metrics({"auc": 0.91, "accuracy": 0.88})
+    run.finish(artifact_uri=uri, artifact_sha256=digest)`}</Code>
+      <UL>
+        <li>
+          <strong>It fails in the right direction.</strong> <C>start_run</C> raises if it cannot
+          start — a run you believe is recording and is not is worse than one that never began.
+          Every later call warns and continues: losing an epoch&apos;s metrics is not worth losing
+          the epoch.
+        </li>
+        <li>
+          <strong>The curve survives, and so does the score.</strong>{" "}
+          <C>log_metric(key, value, step=n)</C> keeps the point as <C>key@n</C> and updates the bare{" "}
+          <C>key</C> to the latest value. The panel draws those points as a sparkline beside the
+          metric.
+        </li>
+        <li>
+          <strong>It shows what actually varied.</strong> In a list of twenty runs the parameters
+          held constant are noise; the ones that moved are marked, because that is the experiment.
+        </li>
+        <li>
+          <strong>A finished run is finished.</strong> Later writes are refused, so a straggler from
+          a process that outlived its own <C>finish</C> cannot rewrite the record.
+        </li>
+      </UL>
+      <P>
+        Find them under <strong>ML Models → Experiments</strong>. Nothing is created there: the
+        first <C>start_run()</C> call creates its own experiment.
+      </P>
+
+      <H3 id="experiment-promote">From a run to a version</H3>
+      <P>
+        A run that recorded <strong>both</strong> <C>artifact_uri</C> and <C>artifact_sha256</C> can
+        be registered from its row as a model version — both, because a version whose artifact
+        nobody can verify is not a version. It goes through the same path a{" "}
+        <DocLink to="/docs/ml" hash="external-models">
+          registered external version
+        </DocLink>{" "}
+        takes, so the digest is checked before inference loads it and the artifact follows the same
+        contract. It arrives as a <strong>candidate</strong>: promoting it is a separate, deliberate
+        step on the Versions tab.
+      </P>
+      <Callout title="Runs are data, not configuration">
+        Creating an experiment writes an audit row; a metric does not, or a training loop logging
+        per epoch would write more audit rows than the audit log is for. Promoting a run into the
+        registry is audited as <C>ml.experiment.promote</C>, because that is the moment something
+        becomes servable. Both tables are owner-only under RLS, and every write is re-checked
+        against the caller&apos;s own id — a run id is a uuid, not a capability.
+      </Callout>
+
       <H2 id="predictions">Predictions</H2>
       <H3 id="try-it">Try it</H3>
       <P>

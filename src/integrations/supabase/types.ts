@@ -4194,6 +4194,129 @@ export type Database = {
           },
         ];
       };
+      ml_experiment_runs: {
+        Row: {
+          artifact_sha256: string | null;
+          artifact_uri: string | null;
+          duration_ms: number | null;
+          error: string | null;
+          experiment_id: string;
+          finished_at: string | null;
+          id: string;
+          metrics: Json;
+          name: string | null;
+          notes: string | null;
+          params: Json;
+          registered_version_id: string | null;
+          session_id: string | null;
+          source: string;
+          started_at: string;
+          status: string;
+          tags: string[];
+          user_id: string;
+        };
+        Insert: {
+          artifact_sha256?: string | null;
+          artifact_uri?: string | null;
+          duration_ms?: number | null;
+          error?: string | null;
+          experiment_id: string;
+          finished_at?: string | null;
+          id?: string;
+          metrics?: Json;
+          name?: string | null;
+          notes?: string | null;
+          params?: Json;
+          registered_version_id?: string | null;
+          session_id?: string | null;
+          source?: string;
+          started_at?: string;
+          status?: string;
+          tags?: string[];
+          user_id: string;
+        };
+        Update: {
+          artifact_sha256?: string | null;
+          artifact_uri?: string | null;
+          duration_ms?: number | null;
+          error?: string | null;
+          experiment_id?: string;
+          finished_at?: string | null;
+          id?: string;
+          metrics?: Json;
+          name?: string | null;
+          notes?: string | null;
+          params?: Json;
+          registered_version_id?: string | null;
+          session_id?: string | null;
+          source?: string;
+          started_at?: string;
+          status?: string;
+          tags?: string[];
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "ml_experiment_runs_experiment_id_fkey";
+            columns: ["experiment_id"];
+            isOneToOne: false;
+            referencedRelation: "ml_experiments";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "ml_experiment_runs_registered_version_id_fkey";
+            columns: ["registered_version_id"];
+            isOneToOne: false;
+            referencedRelation: "ml_model_versions";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "ml_experiment_runs_session_id_fkey";
+            columns: ["session_id"];
+            isOneToOne: false;
+            referencedRelation: "notebook_runtime_sessions";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      ml_experiments: {
+        Row: {
+          created_at: string;
+          description: string | null;
+          id: string;
+          model_id: string | null;
+          name: string;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          description?: string | null;
+          id?: string;
+          model_id?: string | null;
+          name: string;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          description?: string | null;
+          id?: string;
+          model_id?: string | null;
+          name?: string;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "ml_experiments_model_id_fkey";
+            columns: ["model_id"];
+            isOneToOne: false;
+            referencedRelation: "ml_models";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       ml_model_versions: {
         Row: {
           algorithm: string | null;

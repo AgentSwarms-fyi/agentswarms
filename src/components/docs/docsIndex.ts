@@ -2365,12 +2365,18 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "_model_version",
       "_predict",
       "_predicted_at",
+      "artifact_sha256",
+      "artifact_uri",
       "classes",
       "features",
+      "finish",
+      "key",
+      "key@n",
       "keys_not_found",
       "ml-artifacts/",
       "ml.api_key.denied",
       "ml.drift.alert",
+      "ml.experiment.promote",
       "ml.predict_query",
       "ml.schedule.failed",
       "ml.schedule.run",
@@ -2392,6 +2398,8 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "probability",
       "read",
       "served",
+      "start_run",
+      "start_run()",
       "task",
       "train",
       "unique"
@@ -2431,6 +2439,16 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "id": "versions",
         "text": "Versions",
         "level": 2
+      },
+      {
+        "id": "experiments",
+        "text": "Experiments",
+        "level": 2
+      },
+      {
+        "id": "experiment-promote",
+        "text": "From a run to a version",
+        "level": 3
       },
       {
         "id": "predictions",

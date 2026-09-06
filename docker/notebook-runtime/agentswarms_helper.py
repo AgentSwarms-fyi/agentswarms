@@ -371,3 +371,162 @@ def _run_sync(coro):
 
 
 __all__ += ["chat_model", "llama_llm", "kb_retriever"]
+
+
+# --- Experiment tracking ---------------------------------------------------
+#
+# A training loop is the least patient caller in the platform: it is in the
+# middle of something, it is running unattended, and it will not tolerate a
+# logging call that raises three hours in. So the rules here are deliberate:
+#
+#   start_run RAISES if it cannot start, because a run you think is recording
+#   and is not is worse than one that never began. Every later call WARNS and
+#   continues — losing an epoch's metrics is not worth losing the epoch.
+#
+# Synchronous on purpose. The async helpers above exist because chat calls sit
+# in async notebooks; a loop logging once an epoch should not have to reach
+# through an event loop to do it.
+
+_RUN_TIMEOUT = 30
+
+
+def _post_sync(path, payload):
+    if not _ORIGIN or not _TOKEN:
+        raise RuntimeError(
+            "AgentSwarms runtime is not configured (AGENTSWARMS_ORIGIN / AGENTSWARMS_TOKEN)."
+        )
+    with httpx.Client(timeout=_RUN_TIMEOUT, trust_env=True) as client:
+        resp = client.post(
+            _ORIGIN + path, json=payload, headers={"Authorization": "Bearer " + _TOKEN}
+        )
+    try:
+        data = resp.json() if resp.content else {}
+    except Exception:
+        data = {}
+    if resp.status_code != 200:
+        raise RuntimeError(data.get("message") or data.get("error") or f"HTTP {resp.status_code}")
+    return data
+
+
+def _scalar(value):
+    """Flatten a value to something two runs can be compared on."""
+    if value is None or isinstance(value, (str, bool, int, float)):
+        # numpy scalars are not bool/int/float but do have .item()
+        return value
+    item = getattr(value, "item", None)
+    if callable(item):
+        try:
+            return item()
+        except Exception:
+            pass
+    return str(value)
+
+
+class Run:
+    """One attempt at an experiment: its parameters, its metrics, its outcome.
+
+    Usable as a context manager, which is the form worth reaching for — it
+    finishes the run whichever way the cell ends, including the traceback when
+    training raises:
+
+        with agentswarms.start_run("churn-v2", params={"lr": 0.01}) as run:
+            for epoch in range(10):
+                run.log_metric("loss", loss, step=epoch)
+            run.log_metric("auc", 0.91)
+    """
+
+    def __init__(self, run_id, experiment_id, experiment):
+        self.run_id = run_id
+        self.experiment_id = experiment_id
+        self.experiment = experiment
+        self._finished = False
+
+    def __repr__(self):
+        return f"<Run {self.run_id} of {self.experiment!r}>"
+
+    def _send(self, payload, what):
+        try:
+            _post_sync("/api/ml/experiments", dict(payload, run_id=self.run_id))
+            return True
+        except Exception as exc:  # noqa: BLE001 - logging must not end a run
+            print(f"[agentswarms] could not {what}: {exc}")
+            return False
+
+    def log_param(self, key, value):
+        """Record one setting this run used."""
+        return self.log_params({key: value})
+
+    def log_params(self, params):
+        return self._send({"op": "log", "params": {k: _scalar(v) for k, v in dict(params).items()}},
+                          "log params")
+
+    def log_metric(self, key, value, step=None):
+        """Record one measurement.
+
+        With a `step` the point is kept as `key@step` AND the bare `key` is
+        updated to the latest value — so the curve survives and "what did this
+        run score" still has a single answer.
+        """
+        if step is None:
+            return self.log_metrics({key: value})
+        return self.log_metrics({key: value, f"{key}@{int(step)}": value})
+
+    def log_metrics(self, metrics, step=None):
+        m = {k: _scalar(v) for k, v in dict(metrics).items()}
+        if step is not None:
+            m.update({f"{k}@{int(step)}": v for k, v in list(m.items())})
+        return self._send({"op": "log", "metrics": m}, "log metrics")
+
+    def finish(self, status="finished", metrics=None, notes=None, error=None,
+               artifact_uri=None, artifact_sha256=None):
+        """Close the run. Recording an artifact here is what makes it promotable
+        into the model registry later — both the URI and its sha256, because a
+        version whose artifact nobody can verify is not a version."""
+        if self._finished:
+            return True
+        payload = {"op": "finish", "status": status}
+        if metrics:
+            payload["metrics"] = {k: _scalar(v) for k, v in dict(metrics).items()}
+        if notes:
+            payload["notes"] = str(notes)[:4000]
+        if error:
+            payload["error"] = str(error)[:4000]
+        if artifact_uri:
+            payload["artifact_uri"] = str(artifact_uri)
+        if artifact_sha256:
+            payload["artifact_sha256"] = str(artifact_sha256)
+        ok = self._send(payload, "finish the run")
+        self._finished = True
+        return ok
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        if exc_type is not None:
+            self.finish(status="failed", error=f"{exc_type.__name__}: {exc}")
+        else:
+            self.finish()
+        return False  # never swallow the traceback
+
+
+def start_run(experiment, name=None, params=None, tags=None, model_id=None):
+    """Begin a run under `experiment`, creating the experiment on first use.
+
+    Raises if the run cannot be started — a run you believe is recording and is
+    not is the one failure mode worth interrupting for.
+    """
+    payload = {"op": "start", "experiment": str(experiment)}
+    if name:
+        payload["name"] = str(name)
+    if params:
+        payload["params"] = {k: _scalar(v) for k, v in dict(params).items()}
+    if tags:
+        payload["tags"] = [str(t) for t in tags]
+    if model_id:
+        payload["model_id"] = str(model_id)
+    data = _post_sync("/api/ml/experiments", payload)
+    return Run(data["run_id"], data["experiment_id"], str(experiment))
+
+
+__all__ += ["start_run", "Run"]

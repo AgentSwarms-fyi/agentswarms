@@ -179,6 +179,85 @@ candidates. **Train new version** re-reads the table as of the current
 snapshot with the model's saved data preparation, and takes its own budget,
 row limit and tuning mode.
 
+## Experiments
+
+Versions record what you **shipped**. Experiments record what you **tried**:
+the twenty runs behind the one version worth keeping, which otherwise live in
+a notebook's output cells until somebody re-runs it. Then "why is this the
+learning rate" has no answer a month later, and a colleague cannot see that
+the obvious idea was tried and did not work.
+
+An **experiment** is a named question; a **run** is one attempt at it, with
+the parameters it used and the metrics it got. Anything that can reach the
+platform can log one. From a notebook the client is already injected:
+
+```python
+import agentswarms
+
+with agentswarms.start_run("churn-v2", params={"lr": 0.01, "depth": 6}) as run:
+    for epoch in range(10):
+        run.log_metric("loss", loss, step=epoch)
+    run.log_metrics({"auc": 0.91, "accuracy": 0.88})
+    run.finish(artifact_uri=uri, artifact_sha256=digest)
+```
+
+`start_run` **raises** if it cannot start — a run you believe is recording and
+is not is worse than one that never began. Every later call **warns and
+continues**: losing an epoch's metrics is not worth losing the epoch. As a
+context manager it closes the run whichever way the cell ends, recording the
+traceback as the failure when training raises.
+
+`log_metric(key, value, step=n)` keeps the point as `key@n` **and** updates the
+bare `key` to the latest value, so the curve survives and "what did this run
+score" still has one answer. **ML Models → Experiments** draws those points as
+a sparkline beside the metric, and marks in the parameter list which parameters
+actually differed between the runs shown — in a list of twenty, the ones held
+constant are noise and the one that moved is the experiment.
+
+A script outside the platform logs the same way with a user token:
+
+```bash
+curl <origin>/api/ml/experiments \
+  -H "Authorization: Bearer <supabase access token>" \
+  -H "Content-Type: application/json" \
+  -d '{"op": "start", "experiment": "churn-v2", "params": {"lr": 0.01}}'
+```
+
+`{"op": "log", "run_id": …}` merges params or metrics into the run;
+`{"op": "finish", "run_id": …}` closes it. A finished run refuses further
+writes (409) — it is a record of what happened, and a straggler from a process
+that outlived its own `finish` would rewrite it.
+
+### From a run to a version
+
+A run that recorded **both** `artifact_uri` and `artifact_sha256` can be
+registered from its row as a model version. Both, because a version whose
+artifact nobody can verify is not a version: registration goes through the same
+path an [external registration](#bring-your-own-model) takes, so the digest is
+checked before inference ever loads it, the audit trail is the same, and the
+artifact must follow the same contract.
+
+It arrives as a **candidate**, never as production. Promoting it is a separate,
+deliberate step on the model's Versions tab — the seam between trying things
+and shipping one should be something a person crosses on purpose.
+
+### What is recorded, and what is audited
+
+Runs are data, not configuration. Creating or renaming an **experiment** writes
+an audit row; a metric does not, or a training loop logging per epoch would
+write more audit rows than the audit log is for. **Promoting** a run into the
+registry is audited as `ml.experiment.promote`, because that is the moment
+something becomes servable.
+
+Everything is owner-only, in the database as well as in the API: RLS on both
+tables, and every write re-checked against the caller's own id. A run id is a
+uuid, not a capability.
+
+Limits: 5,000 runs per experiment, and 2,000 named params or metrics per run —
+`log_metric(step=)` writes a key per step, which is the point, but a loop over
+100k steps would put 100k keys in one column and a row nothing can render is
+not a record of anything.
+
 ## Predictions
 
 **Try it** — a form generated from the feature schema (medians and category

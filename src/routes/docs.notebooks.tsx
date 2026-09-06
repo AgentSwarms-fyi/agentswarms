@@ -155,6 +155,14 @@ function NotebooksDoc() {
           — a LlamaIndex LLM and a retriever over your Knowledge Base (managed hybrid search, no
           embedding model to configure).
         </li>
+        <li>
+          <code>agentswarms.start_run("churn-v2", params={"{...}"})</code> — record what this
+          attempt tried and what it scored, so the runs behind a kept model do not vanish with the
+          output cells. Use it as a context manager and it closes the run whichever way the cell
+          ends; <code>run.log_metric("loss", v, step=epoch)</code> keeps the curve and the score.
+          They appear under <DocLink to="/docs/ml">ML Models → Experiments</DocLink>, and a run that
+          recorded an artifact can be registered as a model version from there.
+        </li>
       </UL>
 
       <Note>
