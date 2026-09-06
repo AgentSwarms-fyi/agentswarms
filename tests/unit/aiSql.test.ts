@@ -212,7 +212,8 @@ describe("the runner and its governance wiring", () => {
 
   it("the lakehouse runner wraps its read in the AI passes and reports the calls on the result", () => {
     const core = rd("src/utils/lakehouse/core.server.ts");
-    expect(core).toContain("const { result: reader, ai } = await runWithAiSql(");
+    expect(core).toContain("runWithAiSql(");
+    expect(core).toContain("const { result: reader, ai } = await execute().catch(");
     expect(core).toContain("ai: ai ?? undefined,");
     expect(core).toContain("ai?: AiSqlStats;");
   });

@@ -2071,8 +2071,13 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "count(*)",
       "docs/LAKEHOUSE.md",
       "f1_standings",
+      "iceberg_catalog",
       "internal",
       "lakehouse-catalog:5432",
+      "lakehouse.iceberg.import",
+      "lakehouse.iceberg.mount",
+      "lakehouse.iceberg.publish",
+      "lakehouse.iceberg.refresh",
       "orders",
       "record_count"
     ],
@@ -2130,6 +2135,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       {
         "id": "ecosystem",
         "text": "Across the ecosystem",
+        "level": 2
+      },
+      {
+        "id": "iceberg",
+        "text": "Iceberg interop",
         "level": 2
       },
       {

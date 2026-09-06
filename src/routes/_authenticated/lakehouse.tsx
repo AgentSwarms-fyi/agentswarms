@@ -54,6 +54,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { BiModelSelect } from "@/components/bi/BiModelSelect";
 import { AiFunctionsReference } from "@/components/lakehouse/AiFunctionsReference";
+import {
+  IcebergCatalogsDialog,
+  PublishToIcebergDialog,
+} from "@/components/lakehouse/IcebergDialog";
 import { downloadCsv } from "@/lib/exportData";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/integrations/supabase/client";
@@ -173,6 +177,7 @@ function LakehousePage() {
             <RefreshCw className="mr-1 h-4 w-4" /> Refresh
           </Button>
           {data?.enabled && <MountLakeDialog onMounted={reload} />}
+          {data?.enabled && <IcebergCatalogsDialog onChanged={reload} />}
           {data?.enabled && <NewSchemaDialog onCreated={reload} />}
         </div>
       </div>
@@ -370,9 +375,20 @@ function SchemaRail({
                       lake
                     </Badge>
                   )}
+                  {s.iceberg_catalog_id && (
+                    <Badge
+                      variant="outline"
+                      className="ml-1 text-[10px]"
+                      title={`A read-only mount of the Iceberg namespace ${s.iceberg_namespace ?? ""}`}
+                    >
+                      iceberg
+                    </Badge>
+                  )}
                 </button>
                 <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100">
-                  {!s.lake_source_id && <NewTableDialog schema={s.name} onCreated={onChanged} />}
+                  {!s.lake_source_id && !s.iceberg_catalog_id && (
+                    <NewTableDialog schema={s.name} onCreated={onChanged} />
+                  )}
                   {s.owned && (
                     <Button
                       size="icon"
@@ -816,6 +832,7 @@ function TableTab({
         >
           Monitor this table
         </Link>
+        <PublishToIcebergDialog schema={schema} table={table} />
         {matview && (
           <Badge
             variant="outline"

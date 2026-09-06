@@ -105,7 +105,35 @@ async function createEngine(cfg: LakehouseConfig): Promise<DuckDBInstance> {
   const c = await instance.connect();
   try {
     await c.run("INSTALL ducklake; INSTALL postgres; INSTALL httpfs; INSTALL azure;");
+    // Iceberg (and avro, which it needs) are installed HERE, before httpfs
+    // is loaded: once it is, DuckDB downloads extensions through it and the
+    // container's CA store refuses ("Failed to download extension avro",
+    // seen live twice; the same INSTALL succeeds before LOAD httpfs). A
+    // download that fails once is retried once. Never fatal: a lakehouse
+    // without Iceberg is still a lakehouse, and the catalog features say so.
+    let icebergInstalled = false;
+    for (let attempt = 0; attempt < 2 && !icebergInstalled; attempt++) {
+      try {
+        await c.run("INSTALL avro; INSTALL iceberg;");
+        icebergInstalled = true;
+      } catch (e) {
+        if (attempt === 0) {
+          await new Promise((r) => setTimeout(r, 1500));
+          continue;
+        }
+        console.warn("[lakehouse] iceberg extension unavailable:", firstLine(e));
+      }
+    }
     await c.run("LOAD ducklake; LOAD postgres; LOAD httpfs; LOAD azure;");
+    icebergLoaded = false;
+    if (icebergInstalled) {
+      try {
+        await c.run("LOAD avro; LOAD iceberg;");
+        icebergLoaded = true;
+      } catch (e) {
+        console.warn("[lakehouse] iceberg extension did not load:", firstLine(e));
+      }
+    }
     const s3parts = [
       "TYPE s3",
       `KEY_ID ${sq(cfg.s3.keyId)}`,
@@ -164,6 +192,13 @@ async function createEngine(cfg: LakehouseConfig): Promise<DuckDBInstance> {
     // Data-lake mounts: each mounted storage source gets its own scoped
     // credential so a view can read ITS bucket and nothing else.
     await ensureLakeSecrets(c);
+    // Iceberg REST catalogs: attached on the shared instance so mount views
+    // resolve; a catalog that fails to attach is noted on its row, not fatal.
+    if (icebergLoaded) {
+      await import("@/utils/lakehouse/iceberg.server")
+        .then((m) => m.ensureIcebergCatalogs(c))
+        .catch((e) => console.warn("[lakehouse] iceberg catalogs:", (e as Error).message));
+    }
   } finally {
     c.closeSync();
   }
@@ -311,10 +346,28 @@ export async function lakehouseEngine(): Promise<DuckDBInstance> {
   return enginePromise;
 }
 
+/** Whether the engine loaded the Iceberg extension at boot. */
+let icebergLoaded = false;
+
+/** The first line of an engine error: the part a person reads. */
+function firstLine(e: unknown): string {
+  return String((e as Error).message ?? e).split(String.fromCharCode(10))[0];
+}
+export function icebergExtensionAvailable(): boolean {
+  return icebergLoaded;
+}
+
 export async function lakehouseConnection(): Promise<DuckDBConnection> {
   const engine = await lakehouseEngine();
   const c = await engine.connect();
   await c.run("USE lake;");
+  if (icebergLoaded) {
+    // Catalogs registered on another worker reach this instance here (at
+    // most one catalog read every few seconds; nothing per statement).
+    await import("@/utils/lakehouse/iceberg.server")
+      .then((m) => m.ensureIcebergCatalogs(c))
+      .catch((e) => console.warn("[lakehouse] iceberg catalogs:", (e as Error).message));
+  }
   return c;
 }
 
@@ -568,13 +621,16 @@ export type SchemaRow = {
   description: string | null;
   /** Set = this schema is a READ-ONLY mount of a catalog storage source. */
   lake_source_id?: string | null;
+  /** Set = this schema is a READ-ONLY mount of one Iceberg namespace. */
+  iceberg_catalog_id?: string | null;
+  iceberg_namespace?: string | null;
 };
 
 /** Schemas this user owns or holds a grant on. */
 export async function accessibleSchemas(userId: string): Promise<SchemaRow[]> {
   const { data: all } = await supabaseAdmin
     .from("lakehouse_schemas")
-    .select("id, name, user_id, description, lake_source_id")
+    .select("id, name, user_id, description, lake_source_id, iceberg_catalog_id, iceberg_namespace")
     .order("name");
   const out: SchemaRow[] = [];
   for (const row of all ?? []) {
@@ -1003,13 +1059,22 @@ export async function runLakehouseStatement(
       try {
         // ai_* functions, when the statement calls any: registered on this
         // connection, answered through the model channel between passes.
-        const { result: reader, ai } = await runWithAiSql(
-          conn,
-          userId,
-          effectiveSql,
-          () => conn.runAndReadUntil(stripSqlComments(effectiveSql), rowCap + 1),
-          { auditVia: opts?.auditVia },
-        );
+        const execute = () =>
+          runWithAiSql(
+            conn,
+            userId,
+            effectiveSql,
+            () => conn.runAndReadUntil(stripSqlComments(effectiveSql), rowCap + 1),
+            { auditVia: opts?.auditVia },
+          );
+        const { result: reader, ai } = await execute().catch(async (e) => {
+          // An Iceberg mount's view names a catalog this instance may have
+          // attached seconds ago on another worker: sync and try once more.
+          const ice = await import("@/utils/lakehouse/iceberg.server");
+          if (!icebergLoaded || !ice.isMissingIcebergCatalogError((e as Error).message)) throw e;
+          await ice.ensureIcebergCatalogs(conn, true);
+          return execute();
+        });
         const names = reader.columnNames();
         const types = reader.columnTypes();
         const raw = reader.getRows();

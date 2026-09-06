@@ -83,6 +83,14 @@ const CASES: Currency[] = [
     docMentions: [/Kafka/, /Kinesis/, /Pub\/Sub/, /at-least-once/],
   },
   {
+    capability:
+      "Iceberg REST catalogs mount as governed schemas and lakehouse tables publish as Iceberg tables",
+    code: "src/utils/lakehouse/iceberg.server.ts",
+    codeContains: 'action: "lakehouse.iceberg.publish"',
+    doc: "src/routes/docs.lakehouse.tsx",
+    docMentions: [/Iceberg REST catalog/, /Publish to Iceberg/, /nothing is copied/i],
+  },
+  {
     capability: "Agents can report table health from the monitors",
     code: "src/utils/tools/registry.server.ts",
     codeContains: 'name: "data_health"',

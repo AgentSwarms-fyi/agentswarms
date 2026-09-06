@@ -342,6 +342,49 @@ Every statement — refusals included — lands in the user's **query history**
 and in the platform **audit trail** (`lakehouse.select|dml|ddl`,
 `lakehouse.schema.create|drop`, `lakehouse.import`, `lakehouse.nl2sql`).
 
+## Iceberg interop
+
+The lakehouse speaks Apache Iceberg in both directions through the engine's
+`iceberg` extension, so a table built here is readable by Spark, Trino,
+Flink, Snowflake or Databricks, and a table they own is queryable here
+without a copy.
+
+**Register a catalog.** Under Lakehouse → **Iceberg**, add an Iceberg REST
+catalog: its endpoint, the warehouse it serves, and how to authenticate -
+none, a bearer token, or OAuth2 client credentials - given as **secret
+names** (Settings → Secrets); the values never enter the row. Lakekeeper,
+Apache Polaris, Nessie, AWS Glue's REST endpoint, Unity Catalog and Snowflake
+Open Catalog all speak this protocol. The catalog is attached and asked for
+its namespaces before it is saved, so a wrong endpoint or a missing secret is
+refused with the engine's own words. Registered catalogs attach when the
+engine boots; one that fails to attach is marked on its row and skipped,
+never blocking the lakehouse. Table files are read with the credentials the
+catalog vends, or with the lakehouse's own storage credentials when both live
+in one object store.
+
+**Mount a namespace.** A namespace becomes a lakehouse schema: one
+read-only view per table, owned by you, shareable through IAM like any
+schema, and read through the per-user statement guard like any table.
+Nothing is copied - the engine reads the Parquet the catalog points at, at
+the catalog's current snapshot. **Refresh** brings the views level with the
+namespace when tables appear or are renamed. A user statement can never name
+an attached catalog directly; the guard refuses every catalog but the
+lakehouse's own, so the only way to an Iceberg table is a mount you can see.
+
+**Publish a table.** On a table tab, **Publish to Iceberg** writes a copy of
+the table into a catalog namespace as an Iceberg table (`CREATE TABLE AS`
+through the catalog, which commits the metadata and owns the files from then
+on). "Replace" drops and recreates - the extension has no `CREATE OR
+REPLACE` for Iceberg - and "refuse" keeps an existing table. **Import** is
+the reverse: copy an Iceberg table into a schema you created as a real
+DuckLake table, with no dependence on the catalog afterwards.
+
+Every action is audited: catalog definitions through the `iceberg_catalog`
+row trigger; `lakehouse.iceberg.mount`, `lakehouse.iceberg.refresh`,
+`lakehouse.iceberg.publish` and `lakehouse.iceberg.import` with the catalog,
+namespace, table and row counts. Removing a catalog removes its mounted
+schemas first and leaves the catalog's tables untouched.
+
 ## ETL pipelines
 
 Pipelines read and write the lakehouse with dedicated **Lakehouse table**

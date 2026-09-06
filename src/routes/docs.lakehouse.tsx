@@ -310,6 +310,43 @@ function LakehouseDocsPage() {
         the platform&apos;s connections follow.
       </P>
 
+      <H2 id="iceberg">Iceberg interop</H2>
+      <P>
+        The lakehouse speaks Apache Iceberg in both directions through the engine&apos;s iceberg
+        extension, so a table built here is readable by Spark, Trino, Flink, Snowflake or
+        Databricks, and a table they own is queryable here without a copy.
+      </P>
+      <UL>
+        <li>
+          <strong>Register a catalog.</strong> Under Lakehouse → <strong>Iceberg</strong>, add an
+          Iceberg REST catalog: its endpoint, the warehouse it serves, and how to authenticate
+          (none, a bearer token, or OAuth2 client credentials) given as secret names from Settings →
+          Secrets. Lakekeeper, Apache Polaris, Nessie, Glue, Unity Catalog and Snowflake Open
+          Catalog speak this protocol. The catalog is attached and asked for its namespaces before
+          it is saved; registered catalogs attach when the engine boots, and one that fails is
+          marked on its row and skipped.
+        </li>
+        <li>
+          <strong>Mount a namespace.</strong> A namespace becomes a lakehouse schema: one read-only
+          view per table, owned by you, shareable through IAM, read through the per-user statement
+          guard. Nothing is copied. <em>Refresh</em> brings the views level with the namespace. A
+          statement can never name an attached catalog directly; the only way to an Iceberg table is
+          a mount you can see.
+        </li>
+        <li>
+          <strong>Publish a table.</strong> On a table tab, <em>Publish to Iceberg</em> writes a
+          copy into a catalog namespace as an Iceberg table; replace drops and recreates, refuse
+          keeps an existing one. Import is the reverse: an Iceberg table copied into a schema you
+          created, as a real lakehouse table.
+        </li>
+        <li>
+          <strong>Audited:</strong> catalog definitions through the <C>iceberg_catalog</C> row
+          trigger; <C>lakehouse.iceberg.mount</C>, <C>lakehouse.iceberg.refresh</C>,{" "}
+          <C>lakehouse.iceberg.publish</C> and <C>lakehouse.iceberg.import</C> with the catalog,
+          namespace, table and row counts.
+        </li>
+      </UL>
+
       <H2 id="scaling">Scaling and limits</H2>
       <P>
         Stateless by construction: replicas need no coordination, and writes serialise through the

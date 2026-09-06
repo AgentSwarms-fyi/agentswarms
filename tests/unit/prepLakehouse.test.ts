@@ -166,7 +166,9 @@ describe("the server", () => {
   it("lists lakehouse tables for prep and ML from one place", () => {
     const tables = rd("src/utils/lakehouse/tables.server.ts");
     expect(tables).toContain("export async function listLakehouseTablesForUser(");
-    expect(tables).toContain("writable: s.user_id === userId && !s.lake_source_id,");
+    expect(tables).toContain(
+      "writable: s.user_id === userId && !s.lake_source_id && !s.iceberg_catalog_id,",
+    );
     expect(rd("src/utils/ml.functions.ts")).toContain(
       "const r = await listLakehouseTablesForUser(userId);",
     );

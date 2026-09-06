@@ -199,7 +199,7 @@ export async function saveMatviewForUser(
   if (schemaRow.user_id !== userId) {
     throw new Error("A materialized view can only be written into a schema you own");
   }
-  if (schemaRow.lake_source_id) {
+  if (schemaRow.lake_source_id || schemaRow.iceberg_catalog_id) {
     throw new Error("Data-lake mounts are read-only");
   }
   const { data: saved, error } = await supabaseAdmin

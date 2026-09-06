@@ -2891,6 +2891,60 @@ export type Database = {
         };
         Relationships: [];
       };
+      iceberg_catalogs: {
+        Row: {
+          auth_type: string;
+          client_id_secret: string | null;
+          client_secret_secret: string | null;
+          created_at: string;
+          endpoint: string;
+          id: string;
+          is_active: boolean;
+          last_error: string | null;
+          name: string;
+          oauth2_server_uri: string | null;
+          storage: string;
+          token_secret: string | null;
+          updated_at: string;
+          user_id: string;
+          warehouse: string;
+        };
+        Insert: {
+          auth_type?: string;
+          client_id_secret?: string | null;
+          client_secret_secret?: string | null;
+          created_at?: string;
+          endpoint: string;
+          id?: string;
+          is_active?: boolean;
+          last_error?: string | null;
+          name: string;
+          oauth2_server_uri?: string | null;
+          storage?: string;
+          token_secret?: string | null;
+          updated_at?: string;
+          user_id: string;
+          warehouse: string;
+        };
+        Update: {
+          auth_type?: string;
+          client_id_secret?: string | null;
+          client_secret_secret?: string | null;
+          created_at?: string;
+          endpoint?: string;
+          id?: string;
+          is_active?: boolean;
+          last_error?: string | null;
+          name?: string;
+          oauth2_server_uri?: string | null;
+          storage?: string;
+          token_secret?: string | null;
+          updated_at?: string;
+          user_id?: string;
+          warehouse?: string;
+        };
+        Relationships: [];
+      };
       integrations: {
         Row: {
           config: Json;
@@ -3487,6 +3541,8 @@ export type Database = {
         Row: {
           created_at: string;
           description: string | null;
+          iceberg_catalog_id: string | null;
+          iceberg_namespace: string | null;
           id: string;
           lake_source_id: string | null;
           name: string;
@@ -3495,6 +3551,8 @@ export type Database = {
         Insert: {
           created_at?: string;
           description?: string | null;
+          iceberg_catalog_id?: string | null;
+          iceberg_namespace?: string | null;
           id?: string;
           lake_source_id?: string | null;
           name: string;
@@ -3503,12 +3561,21 @@ export type Database = {
         Update: {
           created_at?: string;
           description?: string | null;
+          iceberg_catalog_id?: string | null;
+          iceberg_namespace?: string | null;
           id?: string;
           lake_source_id?: string | null;
           name?: string;
           user_id?: string;
         };
         Relationships: [
+          {
+            foreignKeyName: "lakehouse_schemas_iceberg_catalog_id_fkey";
+            columns: ["iceberg_catalog_id"];
+            isOneToOne: false;
+            referencedRelation: "iceberg_catalogs";
+            referencedColumns: ["id"];
+          },
           {
             foreignKeyName: "lakehouse_schemas_lake_source_id_fkey";
             columns: ["lake_source_id"];

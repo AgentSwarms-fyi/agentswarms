@@ -673,7 +673,7 @@ export const setLakehousePartitioning = createServerFn({ method: "POST" })
     const allowed = await accessibleSchemas(userId);
     const schemaRow = allowed.find((sch) => sch.name === data.schema);
     if (!schemaRow) throw new Error("No access to this schema");
-    if (schemaRow.lake_source_id) {
+    if (schemaRow.lake_source_id || schemaRow.iceberg_catalog_id) {
       throw new Error("Data-lake mounts are read-only — partitioning belongs to the source");
     }
     const c = await lakehouseConnection();
@@ -836,7 +836,7 @@ export const setLakehousePolicy = createServerFn({ method: "POST" })
     if (schemaRow.user_id !== userId) {
       throw new Error("Only the schema owner can set a security policy");
     }
-    if (schemaRow.lake_source_id) {
+    if (schemaRow.lake_source_id || schemaRow.iceberg_catalog_id) {
       throw new Error("Data-lake mounts are read-only — secure the source instead");
     }
 

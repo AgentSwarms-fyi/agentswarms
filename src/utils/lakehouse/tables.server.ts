@@ -24,7 +24,7 @@ export async function listLakehouseTablesForUser(userId: string): Promise<{
   const allowed = await accessibleSchemas(userId);
   const schemas = allowed.map((s) => ({
     name: s.name,
-    writable: s.user_id === userId && !s.lake_source_id,
+    writable: s.user_id === userId && !s.lake_source_id && !s.iceberg_catalog_id,
   }));
   if (!allowed.length) return { enabled: true, tables: [], schemas };
   // Same path as the Lakehouse overview: the engine connection, after the
