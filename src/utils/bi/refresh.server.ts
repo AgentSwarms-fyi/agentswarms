@@ -1211,6 +1211,7 @@ export type CronPassResult = {
   etl_runs: number;
   /** Materialized views refreshed this pass. */
   matview_refreshes: number;
+  sql_model_builds: number;
   swarm_schedules: number;
   kernels_reaped: number;
 };
@@ -1237,6 +1238,7 @@ export async function runCronPass(opts: { force?: boolean } = {}): Promise<CronP
     catalog_crawls: 0,
     etl_runs: 0,
     matview_refreshes: 0,
+    sql_model_builds: 0,
     swarm_schedules: 0,
     kernels_reaped: 0,
   };
@@ -1283,6 +1285,16 @@ export async function runCronPass(opts: { force?: boolean } = {}): Promise<CronP
       .then((m) => m.processDueMaterializedViews(force))
       .catch((e) => {
         console.warn("[lakehouse-matview] sweep failed:", (e as Error).message);
+        return 0;
+      });
+
+    // SQL models ride the same sweep. A due model builds itself AND its
+    // ancestors, and several due models for one owner become one build, so a
+    // shared staging table is built once rather than once per dependant.
+    const sql_model_builds = await import("@/utils/sqlModels/run.server")
+      .then((m) => m.processDueSqlModels(force))
+      .catch((e) => {
+        console.warn("[sql-models] sweep failed:", (e as Error).message);
         return 0;
       });
 
@@ -1381,6 +1393,7 @@ export async function runCronPass(opts: { force?: boolean } = {}): Promise<CronP
       catalog_crawls,
       etl_runs,
       matview_refreshes,
+      sql_model_builds,
       analyses,
       swarm_schedules,
       kernels_reaped,

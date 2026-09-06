@@ -14,8 +14,31 @@ development branch and may be ahead of the latest tag.
 
 ## Unreleased
 
-Work on `main` since the 1.4.0 tag. One migration —
+Work on `main` since the 1.4.0 tag. Two migrations —
 run `npx supabase db push` after pulling.
+
+### A transformation layer over the lakehouse
+
+- **SQL models.** A model is one `SELECT` that becomes a lakehouse table.
+  `ref('other')` names another model, which both declares the dependency and
+  resolves to its table, and a build walks the graph in dependency order — so
+  a staging table is always rebuilt before the fact that reads it. The
+  vocabulary is dbt's; the Jinja, macros, seeds and packages are deliberately
+  absent, because the gap being closed is ordered transformation, not a
+  templating language.
+- **A failure stops where it happened.** When a model fails, or a test on it
+  fails at `error` severity, everything downstream is **skipped** rather than
+  rebuilt from data you already know is wrong. That is the whole reason to
+  have a graph rather than a set of independent scheduled queries.
+- **Tests** run against the table a model just wrote: `not_null`, `unique`,
+  `accepted_values`, `range` and `row_count_min`, each at `error` (stop the
+  downstream) or `warn` (record and carry on). A test that cannot run counts
+  as an error, not a pass.
+- Models are built **as their owner**, into a schema that owner owns, with
+  access re-checked at every build rather than trusted from when the model was
+  saved. Every build audits what happened to each model; model-to-model
+  lineage now appears in the Data Catalog beside crawled and ETL edges. Under
+  **Data & BI → SQL Models**.
 
 ### The AI gateway keeps growing
 

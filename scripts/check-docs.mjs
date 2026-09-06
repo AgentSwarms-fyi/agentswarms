@@ -108,6 +108,7 @@ const APP_NAV = {
     "BI Workspace",
     "ETL Pipelines",
     "Lakehouse",
+    "SQL Models",
     "ML Models",
     "Data monitors",
     "Developer workspace",

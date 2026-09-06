@@ -1255,7 +1255,7 @@ export type Database = {
           downstream_fqn: string;
           id: string;
           pipeline_id: string | null;
-          source_id: string;
+          source_id: string | null;
           source_system: string;
           upstream_column: string | null;
           upstream_fqn: string;
@@ -1267,7 +1267,7 @@ export type Database = {
           downstream_fqn: string;
           id?: string;
           pipeline_id?: string | null;
-          source_id: string;
+          source_id?: string | null;
           source_system?: string;
           upstream_column?: string | null;
           upstream_fqn: string;
@@ -1279,7 +1279,7 @@ export type Database = {
           downstream_fqn?: string;
           id?: string;
           pipeline_id?: string | null;
-          source_id?: string;
+          source_id?: string | null;
           source_system?: string;
           upstream_column?: string | null;
           upstream_fqn?: string;
@@ -5469,6 +5469,117 @@ export type Database = {
             referencedColumns: ["id"];
           },
         ];
+      };
+      sql_model_runs: {
+        Row: {
+          duration_ms: number | null;
+          error: string | null;
+          finished_at: string | null;
+          id: string;
+          models: Json;
+          selected: string[];
+          started_at: string;
+          status: string;
+          trigger: string;
+          user_id: string;
+        };
+        Insert: {
+          duration_ms?: number | null;
+          error?: string | null;
+          finished_at?: string | null;
+          id?: string;
+          models?: Json;
+          selected?: string[];
+          started_at?: string;
+          status?: string;
+          trigger: string;
+          user_id: string;
+        };
+        Update: {
+          duration_ms?: number | null;
+          error?: string | null;
+          finished_at?: string | null;
+          id?: string;
+          models?: Json;
+          selected?: string[];
+          started_at?: string;
+          status?: string;
+          trigger?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
+      sql_models: {
+        Row: {
+          created_at: string;
+          cron_expr: string | null;
+          description: string | null;
+          id: string;
+          is_active: boolean;
+          last_duration_ms: number | null;
+          last_error: string | null;
+          last_row_count: number | null;
+          last_run_at: string | null;
+          last_status: string | null;
+          materialization: string;
+          name: string;
+          next_run_at: string | null;
+          schedule: string;
+          schema_name: string;
+          sql: string;
+          tags: string[];
+          tests: Json;
+          timezone: string;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          cron_expr?: string | null;
+          description?: string | null;
+          id?: string;
+          is_active?: boolean;
+          last_duration_ms?: number | null;
+          last_error?: string | null;
+          last_row_count?: number | null;
+          last_run_at?: string | null;
+          last_status?: string | null;
+          materialization?: string;
+          name: string;
+          next_run_at?: string | null;
+          schedule?: string;
+          schema_name: string;
+          sql: string;
+          tags?: string[];
+          tests?: Json;
+          timezone?: string;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          cron_expr?: string | null;
+          description?: string | null;
+          id?: string;
+          is_active?: boolean;
+          last_duration_ms?: number | null;
+          last_error?: string | null;
+          last_row_count?: number | null;
+          last_run_at?: string | null;
+          last_status?: string | null;
+          materialization?: string;
+          name?: string;
+          next_run_at?: string | null;
+          schedule?: string;
+          schema_name?: string;
+          sql?: string;
+          tags?: string[];
+          tests?: Json;
+          timezone?: string;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [];
       };
       sql_query_history: {
         Row: {

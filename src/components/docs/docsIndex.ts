@@ -3509,6 +3509,67 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     ]
   },
   {
+    "route": "/docs/sql-models",
+    "title": "SQL Models",
+    "description": "A model is one SELECT that becomes a lakehouse table. ref('other') names another model, which both declares the dependency and resolves to its table. A build walks the graph in dependency order, so a staging table is always rebuilt before the fact that reads it.",
+    "terms": [
+      "&lt;schema&gt;.stg_orders",
+      "+model",
+      "SELECT",
+      "error",
+      "not_null",
+      "ref(&apos;stg_orders&apos;)",
+      "ref()",
+      "schema.table",
+      "sql_model.build",
+      "sql_model.pause",
+      "sql_model.resume",
+      "stg_orders"
+    ],
+    "headings": [
+      {
+        "id": "what",
+        "text": "What it is",
+        "level": 2
+      },
+      {
+        "id": "why",
+        "text": "Why this and not a materialized view",
+        "level": 2
+      },
+      {
+        "id": "writing",
+        "text": "Writing a model",
+        "level": 2
+      },
+      {
+        "id": "materialization",
+        "text": "Table or view",
+        "level": 3
+      },
+      {
+        "id": "tests",
+        "text": "Tests",
+        "level": 2
+      },
+      {
+        "id": "building",
+        "text": "Building",
+        "level": 2
+      },
+      {
+        "id": "governance",
+        "text": "Governance",
+        "level": 2
+      },
+      {
+        "id": "troubleshooting",
+        "text": "Troubleshooting",
+        "level": 3
+      }
+    ]
+  },
+  {
     "route": "/docs/swarms",
     "title": "Swarm Canvas",
     "description": "A swarm is a directed graph of nodes. Output flows along the edges, shared state flows through all of them. This page documents all eighteen node kinds and every field on each.",
