@@ -1717,7 +1717,7 @@ function SwarmsCanvas({
 
   if (loading) {
     return (
-      <div className="flex h-[calc(100vh-3rem)] items-center justify-center">
+      <div className="flex h-canvas items-center justify-center">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
       </div>
     );
@@ -1764,7 +1764,7 @@ function SwarmsCanvas({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <div className="flex h-[calc(100vh-3rem)] w-full">
+      <div className="flex h-canvas w-full">
         {/* Palette */}
         <aside className="w-64 border-r border-border bg-card/40 flex flex-col overflow-y-auto">
           <div className="p-3 border-b border-border">

@@ -1408,7 +1408,7 @@ function PlaygroundPage() {
   };
 
   return (
-    <div className="flex h-[calc(100vh-3rem)] w-full overflow-hidden">
+    <div className="flex h-canvas w-full overflow-hidden">
       {/* Mobile sidebar trigger */}
       <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
         <SheetContent side="left" className="w-72 p-0">

@@ -1268,7 +1268,7 @@ function BiProjectPage() {
   return (
     // Bounded to the viewport (same pattern as /data-sql) so the canvas and
     // the builder pane scroll independently instead of the whole page.
-    <div className="flex h-[calc(100vh-3.5rem)] flex-col overflow-hidden">
+    <div className="flex h-canvas flex-col overflow-hidden">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 border-b border-border bg-background px-3 py-2">
         <Button
           asChild

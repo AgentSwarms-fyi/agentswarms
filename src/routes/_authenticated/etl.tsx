@@ -912,7 +912,7 @@ function PipelineEditor({ id, onBack }: { id: string; onBack: () => void }) {
   }
 
   return (
-    <div className="flex h-[calc(100vh-3.5rem)] w-full flex-col gap-3 p-3 md:p-4">
+    <div className="flex h-canvas w-full flex-col gap-3 p-3 md:p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
           <Button variant="ghost" size="sm" onClick={onBack}>

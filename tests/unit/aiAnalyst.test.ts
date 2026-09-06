@@ -292,6 +292,50 @@ describe("the prompts say what the loop relies on", () => {
 });
 
 describe("the wiring (real nav, source guards)", () => {
+  it("pins its own height, so the composer never leaves the screen", () => {
+    // It used to say `h-full`, which is height:100% against an ancestor that
+    // has only a MIN height — so it resolved to auto, the transcript's own
+    // scroller never engaged, and the page grew to the height of the whole
+    // analysis. Measured on a real thread: the "Ask the analyst" field sat at
+    // y=12944 on a 12992px document. You had to scroll the entire answer to
+    // reach the box you ask the next question in.
+    const page = readFileSync("src/routes/_authenticated/ai-analyst.tsx", "utf8");
+    expect(page).toContain("h-canvas");
+    expect(page).not.toContain('className="flex h-full min-h-0"');
+    // The transcript keeps its own scroller; that part was always right.
+    expect(page).toContain("min-h-0 flex-1 space-y-4 overflow-y-auto");
+
+    // And the height it subtracts is MEASURED, not guessed: with the
+    // session-restore banner up, a hard-coded 3rem is short by exactly the
+    // banner and puts the composer back under the fold.
+    const layout = readFileSync("src/components/AppLayout.tsx", "utf8");
+    expect(layout).toContain("--app-chrome-h");
+    expect(layout).toContain("ResizeObserver");
+    const css = readFileSync("src/styles.css", "utf8");
+    expect(css).toContain(".h-canvas");
+    expect(css).toContain("calc(100dvh - var(--app-chrome-h, 3rem))");
+  });
+
+  it("gives every full-height route the same height, from one place", () => {
+    // Seven routes each subtracted their own constant and two of them had the
+    // wrong one — the header is h-12, which is 3rem, not the 3.5rem they used.
+    const routes = [
+      "bi_.$dashboardId",
+      "data-sql",
+      "etl",
+      "lakehouse",
+      "notebooks",
+      "playground",
+      "swarms",
+      "ai-analyst",
+    ];
+    for (const r of routes) {
+      const src = readFileSync(`src/routes/_authenticated/${r}.tsx`, "utf8");
+      expect(src, r).toContain("h-canvas");
+      expect(src, r).not.toContain("h-[calc(100vh-");
+    }
+  });
+
   it("AI Analyst leads the pages that CONSUME data, after the ones that make it", () => {
     // This used to pin AI Analyst as the first item in the group, on the
     // reasoning that asking a question is what most people open the app to

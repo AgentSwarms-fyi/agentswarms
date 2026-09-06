@@ -939,7 +939,11 @@ function AiAnalystPage() {
 
   // ── Render ──────────────────────────────────────────────────────────
   return (
-    <div className="flex h-full min-h-0">
+    // A pinned height, like every other canvas route — the transcript scrolls
+    // inside it and the composer stays on screen. `h-full` here was height:100%
+    // against an ancestor with only a min-height, so it collapsed to auto and
+    // the whole document grew instead.
+    <div className="h-canvas flex w-full min-h-0 overflow-hidden">
       {/* Analyst rail */}
       <div className="flex w-64 shrink-0 flex-col border-r border-border">
         <div className="flex items-center justify-between border-b border-border px-3 py-2.5">

@@ -153,7 +153,7 @@ function DataCatalogRoute() {
   );
 
   return (
-    <div className="flex h-[calc(100vh-3.5rem)] flex-col overflow-hidden">
+    <div className="flex h-canvas flex-col overflow-hidden">
       <div className="flex items-center gap-3 border-b border-border bg-background px-3 py-1.5">
         <h1 className="text-sm font-semibold">Data Catalog</h1>
         <div className="flex rounded-lg border border-border bg-muted/50 p-0.5">

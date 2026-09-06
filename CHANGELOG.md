@@ -103,6 +103,17 @@ off`, a hit reports zero usage because it spends nothing at the provider,
 - **Icons in the menus**, so a source, a transform and a target read at a
   glance rather than by reading.
 
+### Fixes
+
+- **The AI Analyst's question box no longer scrolls off the page.** It was the
+  one full-height route that never pinned its height, so the page grew to the
+  length of the whole analysis and the composer sat at the bottom of the
+  document instead of the bottom of the screen. On a real thread it was 12,944
+  pixels down. Every full-height page now takes its height from one place, and
+  that height is measured rather than assumed — the constant each page used to
+  subtract was wrong whenever the session-restore banner was up, and two pages
+  had the wrong constant even without it.
+
 ### Getting it running
 
 - **The sidebar is the whole product in eight groups**, collapsible and

@@ -162,7 +162,7 @@ function LakehousePage() {
     // scrolls on its own. Stacking these (the old xl-only grid) put the schema
     // tree above the editor on every laptop screen, which is not what a
     // database explorer is.
-    <div className="flex h-[calc(100vh-3.5rem)] w-full flex-col overflow-hidden p-3 lg:p-4">
+    <div className="flex h-canvas w-full flex-col overflow-hidden p-3 lg:p-4">
       <div className="mb-3 flex flex-none flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="flex items-center gap-2 text-xl font-semibold">

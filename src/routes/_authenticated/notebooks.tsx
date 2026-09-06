@@ -117,7 +117,7 @@ function NotebooksLayout() {
   const claim = listClaim({ loaded, error, count: pyNotebooks.length });
 
   return (
-    <div className="flex h-[calc(100vh-3rem)] w-full min-w-0">
+    <div className="flex h-canvas w-full min-w-0">
       <aside className="w-72 min-w-[16rem] max-w-[20rem] shrink-0 border-r border-border bg-card/30 flex flex-col">
         <div className="px-3 py-3 border-b border-border">
           <div className="flex items-center justify-between gap-2">

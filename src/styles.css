@@ -542,3 +542,18 @@ html {
   stroke-width: 2;
   filter: drop-shadow(0 0 4px color-mix(in oklch, var(--primary) 50%, transparent));
 }
+
+/*
+ * A canvas route's height.
+ *
+ * Full-height pages — the analyst, agent chat, the lakehouse workbench, the
+ * ETL canvas — fill the screen below the app chrome and scroll INSIDE
+ * themselves. They each used to subtract a constant, and every one of those
+ * constants was wrong whenever the session-restore banner was up: the page ran
+ * one banner too tall and its bottom row went under the fold. AppLayout
+ * measures the chrome and publishes --app-chrome-h; the fallback is the
+ * header's own height, which is what applies anywhere that variable is absent.
+ */
+.h-canvas {
+  height: calc(100dvh - var(--app-chrome-h, 3rem));
+}
