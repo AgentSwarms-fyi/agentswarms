@@ -42,7 +42,7 @@ describe("gateway keys", () => {
     expect(h).toMatch(/^[0-9a-f]{64}$/);
     expect(h).not.toContain(k.slice(4));
     expect(await hashGatewayKey(k)).toBe(h);
-    expect([...GATEWAY_KEY_SCOPES]).toEqual(["agents", "models"]);
+    expect([...GATEWAY_KEY_SCOPES]).toEqual(["agents", "models", "metrics"]);
   });
 });
 

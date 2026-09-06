@@ -114,6 +114,14 @@ const CASES: Currency[] = [
     docMentions: [/budget/i, /insufficient_quota/],
   },
   {
+    capability:
+      "The semantic layer answers over HTTP through gateway keys, as the key's owner, audited like the agent tool",
+    code: "src/utils/gateway/metrics.server.ts",
+    codeContains: "runSemanticQuery(",
+    doc: "src/routes/docs.gateway.tsx",
+    docMentions: [/metrics\/query/, /metric\.query/, /access_note/],
+  },
+  {
     capability: "Models train in a sandbox and explain themselves by permutation importance",
     code: "src/utils/ml/pyTrain.ts",
     codeContains: "permutation_importance(",

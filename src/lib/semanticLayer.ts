@@ -450,6 +450,9 @@ export type SqlDialect =
   /** Local columnar engine. ANSI on every axis that matters here: double-quoted
    *  identifiers, no backslash escapes, standard DATE_TRUNC and an ESCAPE clause. */
   | "duckdb"
+  /** The built-in lakehouse: DuckDB over real DATE/TIMESTAMP columns, so the
+   *  ANSI defaults apply and date arithmetic needs no TRY_CAST. */
+  | "lakehouse"
   | "postgres"
   | "mysql"
   | "snowflake"
@@ -835,6 +838,8 @@ function dateAddExpr(sql: string, n: number, unit: DateAddUnit, dialect: SqlDial
       // are ISO TEXT typed by inference, so one unparseable value must become
       // NULL rather than abort the query.
       return `(TRY_CAST(${sql} AS DATE) + INTERVAL ${n} ${U})`;
+    case "lakehouse":
+      return `(CAST(${sql} AS DATE) + INTERVAL ${n} ${U})`;
     case "postgres":
     case "redshift":
       return `(CAST(${sql} AS DATE) + INTERVAL '${n} ${unit}')`;

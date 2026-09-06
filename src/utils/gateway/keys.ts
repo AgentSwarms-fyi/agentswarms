@@ -9,9 +9,11 @@ export const GATEWAY_KEY_PREFIX = "gw_";
 /**
  * What a key may reach. `agents`: the owner's saved agents, addressed as
  * `agent:<id or name>`. `models`: a connected model called directly, addressed
- * as `<provider>/<model>`, within the owner's IAM model rules.
+ * as `<provider>/<model>`, within the owner's IAM model rules. `metrics`: the
+ * semantic layer - the models the owner may read, listed and queried over
+ * HTTP (GET /metrics, POST /metrics/query).
  */
-export const GATEWAY_KEY_SCOPES = ["agents", "models"] as const;
+export const GATEWAY_KEY_SCOPES = ["agents", "models", "metrics"] as const;
 export type GatewayKeyScope = (typeof GATEWAY_KEY_SCOPES)[number];
 
 const ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789";

@@ -587,6 +587,12 @@ export function RuntimeTab({ token }: { token: string }) {
               fails with a provider error, after the key&apos;s own chain. Empty = none.
             </p>
           </div>
+          <NumberField
+            label="Metrics API rows per query"
+            value={form.gateway_metrics_max_rows}
+            onChange={(n) => set("gateway_metrics_max_rows", n)}
+            hint="Rows one /api/v1/metrics/query call may return; a smaller limit in the request wins."
+          />
         </div>
       </div>
 

@@ -1467,32 +1467,50 @@ export const DOCS_INDEX: DocsIndexPage[] = [
   {
     "route": "/docs/gateway",
     "title": "AI Gateway",
-    "description": "An OpenAI-compatible endpoint in front of your agents and connected models. Point any OpenAI SDK, IDE plugin, evaluation harness or other agent at /api/v1/ with a gateway key; every call runs as the key's owner, under that owner's model rules, budgets, traces and audit trail.",
+    "description": "An OpenAI-compatible endpoint in front of your agents and connected models, and a metrics API in front of the semantic layer. Point any OpenAI SDK, IDE plugin, evaluation harness or other agent at /api/v1/ with a gateway key; every call runs as the key's owner, under that owner's model rules, budgets, traces and audit trail.",
     "terms": [
+      "AI_GATEWAY_METRICS_MAX_ROWS",
       "X-Gateway-Fallback",
       "X-Gateway-Model",
       "X-Trace-Id",
+      "access_note",
       "agent.chat",
       "agentswarms",
+      "compare",
+      "dimensions",
+      "filters",
       "gateway.access.denied",
       "gateway.chat",
       "gateway.fallback",
+      "grains",
       "gw_…",
       "insufficient_quota",
       "insufficient_scope",
       "invalid_api_key",
       "invalid_request_error",
+      "last_n_days",
+      "limit",
       "max_tokens",
       "messages",
+      "metric.query",
+      "metric_query",
+      "metrics",
       "model",
       "model_not_allowed",
       "model_not_found",
+      "order_by",
+      "params",
       "rate_limit_exceeded",
+      "resolution_notes",
+      "rollup",
       "stream",
       "stream_options.include_usage",
       "temperature",
+      "this_month",
       "tools",
-      "upstream_error"
+      "truncated",
+      "upstream_error",
+      "ytd"
     ],
     "headings": [
       {
@@ -1508,6 +1526,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       {
         "id": "calling",
         "text": "Calling it",
+        "level": 2
+      },
+      {
+        "id": "metrics",
+        "text": "The semantic layer",
         "level": 2
       },
       {
@@ -3211,6 +3234,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "many_to_one",
       "max",
       "metric_query",
+      "metrics",
       "min",
       "mom",
       "month",

@@ -2618,6 +2618,7 @@ export type Database = {
           rate_limit_per_min: number | null;
           revoked_at: string | null;
           scopes: string[];
+          semantic_model_ids: string[];
           updated_at: string;
           use_count: number;
           user_id: string;
@@ -2638,6 +2639,7 @@ export type Database = {
           rate_limit_per_min?: number | null;
           revoked_at?: string | null;
           scopes?: string[];
+          semantic_model_ids?: string[];
           updated_at?: string;
           use_count?: number;
           user_id: string;
@@ -2658,6 +2660,7 @@ export type Database = {
           rate_limit_per_min?: number | null;
           revoked_at?: string | null;
           scopes?: string[];
+          semantic_model_ids?: string[];
           updated_at?: string;
           use_count?: number;
           user_id?: string;
@@ -4836,6 +4839,7 @@ export type Database = {
           etl_max_concurrent_runs_per_user: number | null;
           etl_pipelines_per_sweep: number | null;
           gateway_fallback_models: string[] | null;
+          gateway_metrics_max_rows: number | null;
           gateway_rate_limit_per_min: number | null;
           id: boolean;
           idle_ttl_minutes: number;
@@ -4877,6 +4881,7 @@ export type Database = {
           etl_max_concurrent_runs_per_user?: number | null;
           etl_pipelines_per_sweep?: number | null;
           gateway_fallback_models?: string[] | null;
+          gateway_metrics_max_rows?: number | null;
           gateway_rate_limit_per_min?: number | null;
           id?: boolean;
           idle_ttl_minutes?: number;
@@ -4918,6 +4923,7 @@ export type Database = {
           etl_max_concurrent_runs_per_user?: number | null;
           etl_pipelines_per_sweep?: number | null;
           gateway_fallback_models?: string[] | null;
+          gateway_metrics_max_rows?: number | null;
           gateway_rate_limit_per_min?: number | null;
           id?: boolean;
           idle_ttl_minutes?: number;

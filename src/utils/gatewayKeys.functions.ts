@@ -26,6 +26,7 @@ export type GatewayKeyListRow = {
   scopes: GatewayKeyScope[];
   agent_ids: string[];
   model_allow: string[];
+  semantic_model_ids: string[];
   fallback_models: string[];
   rate_limit_per_min: number | null;
   is_active: boolean;
@@ -47,7 +48,7 @@ async function resolveCaller(accessToken: string): Promise<{ ok: true; userId: s
 }
 
 const KEY_COLUMNS =
-  "id, name, key_prefix, scopes, agent_ids, model_allow, fallback_models, rate_limit_per_min, is_active, expires_at, revoked_at, last_used_at, use_count, created_at";
+  "id, name, key_prefix, scopes, agent_ids, model_allow, semantic_model_ids, fallback_models, rate_limit_per_min, is_active, expires_at, revoked_at, last_used_at, use_count, created_at";
 
 /** A chain entry must parse as provider/model; the UI shows what was rejected. */
 function validChain(entries: string[]): { ok: string[]; rejected: string[] } {
@@ -128,12 +129,55 @@ export const gatewayAgentsList = createServerFn({ method: "POST" })
     },
   );
 
+/**
+ * Semantic models named on a key must be ones the owner may read - their own
+ * or IAM-granted; anything else is dropped, never stored, so a key can never
+ * point at a model its owner could not query by hand.
+ */
+async function accessibleSemanticModelIds(userId: string, ids: string[]): Promise<string[]> {
+  const wanted = [...new Set(ids)];
+  if (wanted.length === 0) return [];
+  const { accessibleSemanticModels } = await import("@/utils/gateway/metrics.server");
+  const { models } = await accessibleSemanticModels(userId);
+  const ok = new Set(models.map((m) => m.id).filter(Boolean));
+  return wanted.filter((id) => ok.has(id));
+}
+
+/** The semantic models the caller may read, for the key form's allow-list. */
+export const gatewaySemanticModelsList = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .handler(
+    async ({
+      data,
+    }): Promise<
+      | Fail
+      | { ok: true; models: { id: string; name: string; label: string | null; shared: boolean }[] }
+    > => {
+      const caller = await resolveCaller(data.access_token);
+      if (!caller.ok) return caller;
+      const { accessibleSemanticModels } = await import("@/utils/gateway/metrics.server");
+      const { models } = await accessibleSemanticModels(caller.userId);
+      return {
+        ok: true,
+        models: models
+          .filter((m) => Boolean(m.id))
+          .map((m) => ({
+            id: m.id as string,
+            name: m.name,
+            label: m.label ?? null,
+            shared: m.ownerId !== caller.userId,
+          })),
+      };
+    },
+  );
+
 const createSchema = z.object({
   access_token: z.string().min(1),
   name: z.string().min(1).max(80),
   scopes: z.array(z.enum(GATEWAY_KEY_SCOPES)).min(1).max(GATEWAY_KEY_SCOPES.length),
   agent_ids: z.array(z.string().uuid()).max(200).optional(),
   model_allow: z.array(z.string().min(1).max(160)).max(50).optional(),
+  semantic_model_ids: z.array(z.string().uuid()).max(200).optional(),
   fallback_models: z.array(z.string().min(1).max(160)).max(10).optional(),
   rate_limit_per_min: z.number().int().min(1).max(100000).nullable().optional(),
   monthly_cap_usd: z.number().min(0).max(1_000_000).nullable().optional(),
@@ -161,6 +205,10 @@ export const gatewayKeyCreate = createServerFn({ method: "POST" })
         const ownSet = new Set((own ?? []).map((a) => a.id));
         agentIds = agentIds.filter((id) => ownSet.has(id));
       }
+      const semanticModelIds = await accessibleSemanticModelIds(
+        caller.userId,
+        data.semantic_model_ids ?? [],
+      );
       const plaintext = generateGatewayKey();
       const { data: row, error } = await supabaseAdmin
         .from("gateway_keys")
@@ -172,6 +220,7 @@ export const gatewayKeyCreate = createServerFn({ method: "POST" })
           scopes: [...new Set(data.scopes)],
           agent_ids: agentIds,
           model_allow: (data.model_allow ?? []).map((p) => p.trim()).filter(Boolean),
+          semantic_model_ids: semanticModelIds,
           fallback_models: chain.ok,
           rate_limit_per_min: data.rate_limit_per_min ?? null,
           expires_at: data.expires_at ?? null,
@@ -214,6 +263,7 @@ export const gatewayKeyUpdate = createServerFn({ method: "POST" })
         name: z.string().min(1).max(80).optional(),
         fallback_models: z.array(z.string().min(1).max(160)).max(10).optional(),
         model_allow: z.array(z.string().min(1).max(160)).max(50).optional(),
+        semantic_model_ids: z.array(z.string().uuid()).max(200).optional(),
         rate_limit_per_min: z.number().int().min(1).max(100000).nullable().optional(),
         monthly_cap_usd: z.number().min(0).max(1_000_000).nullable().optional(),
         is_active: z.boolean().optional(),
@@ -228,6 +278,7 @@ export const gatewayKeyUpdate = createServerFn({ method: "POST" })
       name?: string;
       fallback_models?: string[];
       model_allow?: string[];
+      semantic_model_ids?: string[];
       rate_limit_per_min?: number | null;
       is_active?: boolean;
     } = { updated_at: new Date().toISOString() };
@@ -240,6 +291,12 @@ export const gatewayKeyUpdate = createServerFn({ method: "POST" })
     }
     if (data.model_allow !== undefined) {
       patch.model_allow = data.model_allow.map((p) => p.trim()).filter(Boolean);
+    }
+    if (data.semantic_model_ids !== undefined) {
+      patch.semantic_model_ids = await accessibleSemanticModelIds(
+        caller.userId,
+        data.semantic_model_ids,
+      );
     }
     if (data.rate_limit_per_min !== undefined) patch.rate_limit_per_min = data.rate_limit_per_min;
     if (data.is_active !== undefined) patch.is_active = data.is_active;

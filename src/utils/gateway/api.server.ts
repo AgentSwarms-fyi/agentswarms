@@ -50,6 +50,8 @@ export type GatewayKeyRow = {
   scopes: GatewayKeyScope[];
   agent_ids: string[];
   model_allow: string[];
+  /** With the metrics scope: semantic models the key may query; empty = every model the owner may read. */
+  semantic_model_ids: string[];
   fallback_models: string[];
   rate_limit_per_min: number | null;
   is_active: boolean;
@@ -59,7 +61,7 @@ export type GatewayKeyRow = {
 };
 
 const KEY_COLUMNS =
-  "id, user_id, name, scopes, agent_ids, model_allow, fallback_models, rate_limit_per_min, is_active, expires_at, revoked_at, use_count";
+  "id, user_id, name, scopes, agent_ids, model_allow, semantic_model_ids, fallback_models, rate_limit_per_min, is_active, expires_at, revoked_at, use_count";
 
 export type GatewayAuth =
   | { ok: true; key: GatewayKeyRow }

@@ -25,11 +25,19 @@ import {
   gatewayKeyCreate,
   gatewayKeyRevoke,
   gatewayKeysList,
+  gatewaySemanticModelsList,
   type GatewayKeyListRow,
 } from "@/utils/gatewayKeys.functions";
 import { GATEWAY_KEY_SCOPES, type GatewayKeyScope } from "@/utils/gateway/keys";
 
 type AgentOption = { id: string; name: string; model: string };
+type SemanticOption = { id: string; name: string; label: string | null; shared: boolean };
+
+const SCOPE_LABEL: Record<GatewayKeyScope, string> = {
+  agents: "Agents (model = agent:<name or id>)",
+  models: "Models (model = <provider>/<model>)",
+  metrics: "Metrics (the semantic layer: GET /metrics, POST /metrics/query)",
+};
 
 function relTime(iso: string | null): string {
   if (!iso) return "never";
@@ -68,21 +76,27 @@ function CopyButton({ text, label }: { text: string; label?: string }) {
 export function GatewayApiCard({ token }: { token: string }) {
   const listFn = useServerFn(gatewayKeysList);
   const agentsFn = useServerFn(gatewayAgentsList);
+  const semanticFn = useServerFn(gatewaySemanticModelsList);
   const createFn = useServerFn(gatewayKeyCreate);
   const revokeFn = useServerFn(gatewayKeyRevoke);
 
   const [keys, setKeys] = useState<GatewayKeyListRow[] | null>(null);
   const [agents, setAgents] = useState<AgentOption[]>([]);
+  const [semanticModels, setSemanticModels] = useState<SemanticOption[]>([]);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [revoking, setRevoking] = useState<GatewayKeyListRow | null>(null);
-  const [minted, setMinted] = useState<{ key: string; name: string; rejected: string[] } | null>(
-    null,
-  );
+  const [minted, setMinted] = useState<{
+    key: string;
+    name: string;
+    rejected: string[];
+    scopes: GatewayKeyScope[];
+  } | null>(null);
 
   const [name, setName] = useState("");
   const [scopes, setScopes] = useState<GatewayKeyScope[]>(["agents"]);
   const [agentIds, setAgentIds] = useState<string[]>([]);
+  const [semanticModelIds, setSemanticModelIds] = useState<string[]>([]);
   const [modelAllow, setModelAllow] = useState("");
   const [fallbacks, setFallbacks] = useState("");
   const [rateLimit, setRateLimit] = useState("");
@@ -93,20 +107,26 @@ export function GatewayApiCard({ token }: { token: string }) {
   const baseUrl = `${origin}/api/v1`;
 
   const reload = useCallback(async () => {
-    const [k, a] = await Promise.all([
+    const [k, a, s] = await Promise.all([
       listFn({ data: { access_token: token } }),
       agentsFn({ data: { access_token: token } }),
+      semanticFn({ data: { access_token: token } }),
     ]);
     if (k.ok) setKeys(k.keys);
     else toast.error(k.error);
     if (a.ok) setAgents(a.agents);
-  }, [listFn, agentsFn, token]);
+    if (s.ok) setSemanticModels(s.models);
+  }, [listFn, agentsFn, semanticFn, token]);
 
   useEffect(() => {
     void reload();
   }, [reload]);
 
   const agentName = useMemo(() => new Map(agents.map((a) => [a.id, a.name])), [agents]);
+  const semanticName = useMemo(
+    () => new Map(semanticModels.map((m) => [m.id, m.label ?? m.name])),
+    [semanticModels],
+  );
 
   const lines = (s: string) =>
     s
@@ -130,6 +150,7 @@ export function GatewayApiCard({ token }: { token: string }) {
           scopes,
           agent_ids: scopes.includes("agents") ? agentIds : [],
           model_allow: scopes.includes("models") ? lines(modelAllow) : [],
+          semantic_model_ids: scopes.includes("metrics") ? semanticModelIds : [],
           fallback_models: lines(fallbacks),
           rate_limit_per_min: rateLimit.trim() ? Number(rateLimit) : null,
           monthly_cap_usd: budget.trim() ? Number(budget) : null,
@@ -137,10 +158,16 @@ export function GatewayApiCard({ token }: { token: string }) {
         },
       });
       if (!res.ok) return toast.error(res.error);
-      setMinted({ key: res.key, name: name.trim(), rejected: res.rejected_fallbacks });
+      setMinted({
+        key: res.key,
+        name: name.trim(),
+        rejected: res.rejected_fallbacks,
+        scopes: [...scopes],
+      });
       setOpen(false);
       setName("");
       setAgentIds([]);
+      setSemanticModelIds([]);
       setModelAllow("");
       setFallbacks("");
       setRateLimit("");
@@ -181,6 +208,13 @@ reply = client.chat.completions.create(
     messages=[{"role": "user", "content": "Hello"}],
 )
 print(reply.choices[0].message.content)`;
+  const metricsCurl = (key: string) =>
+    `curl ${baseUrl}/metrics -H "Authorization: Bearer ${key}"
+curl ${baseUrl}/metrics/query \\
+  -H "Authorization: Bearer ${key}" \\
+  -H "Content-Type: application/json" \\
+  -d '{"model": "<semantic model name>", "metrics": ["<metric>"],
+       "dimensions": ["<dimension>"], "limit": 100}'`;
 
   return (
     <Card>
@@ -191,7 +225,8 @@ print(reply.choices[0].message.content)`;
         <CardDescription>
           An OpenAI-compatible endpoint in front of your agents and connected models. Point any
           OpenAI SDK at the base URL below with a key from this list; every call runs as you, under
-          your model rules, budgets, guardrails, traces and audit trail.
+          your model rules, budgets, guardrails, traces and audit trail. A key with the metrics
+          scope also answers governed semantic-layer queries at /metrics and /metrics/query.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -241,6 +276,17 @@ print(reply.choices[0].message.content)`;
                   {python(minted.key)}
                 </pre>
               </div>
+              {minted.scopes.includes("metrics") ? (
+                <div className="space-y-1 md:col-span-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">Metrics API (curl)</span>
+                    <CopyButton text={metricsCurl(minted.key)} />
+                  </div>
+                  <pre className="overflow-x-auto rounded bg-background p-2 font-mono text-[11px] leading-snug">
+                    {metricsCurl(minted.key)}
+                  </pre>
+                </div>
+              ) : null}
             </div>
             <Button size="sm" variant="ghost" onClick={() => setMinted(null)}>
               Done
@@ -301,6 +347,16 @@ print(reply.choices[0].message.content)`;
                           <div>
                             Models:{" "}
                             {k.model_allow.length ? k.model_allow.join(", ") : "any allowed"}
+                          </div>
+                        ) : null}
+                        {k.scopes.includes("metrics") ? (
+                          <div>
+                            Metrics:{" "}
+                            {k.semantic_model_ids.length === 0
+                              ? "all"
+                              : k.semantic_model_ids
+                                  .map((id) => semanticName.get(id) ?? id.slice(0, 8))
+                                  .join(", ")}
                           </div>
                         ) : null}
                       </td>
@@ -374,9 +430,7 @@ print(reply.choices[0].message.content)`;
                         )
                       }
                     />
-                    {s === "agents"
-                      ? "Agents (model = agent:<name or id>)"
-                      : "Models (model = <provider>/<model>)"}
+                    {SCOPE_LABEL[s]}
                   </label>
                 ))}
               </div>
@@ -422,6 +476,40 @@ print(reply.choices[0].message.content)`;
                   One provider/model pattern per line; * matches anything. Empty = anything your
                   model rules allow.
                 </p>
+              </div>
+            ) : null}
+            {scopes.includes("metrics") ? (
+              <div className="space-y-2">
+                <Label>Semantic models this key may query</Label>
+                <p className="text-xs text-muted-foreground">
+                  None ticked = every model you own or are granted. Naming a model never grants
+                  access you do not have.
+                </p>
+                <div className="max-h-36 space-y-1 overflow-y-auto rounded-md border p-2">
+                  {semanticModels.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">
+                      No semantic models yet. Define one under Data &amp; BI → Semantic Layer.
+                    </p>
+                  ) : (
+                    semanticModels.map((m) => (
+                      <label key={m.id} className="flex items-center gap-2 text-sm">
+                        <Checkbox
+                          checked={semanticModelIds.includes(m.id)}
+                          onCheckedChange={(v) =>
+                            setSemanticModelIds((prev) =>
+                              v ? [...prev, m.id] : prev.filter((x) => x !== m.id),
+                            )
+                          }
+                        />
+                        <span>{m.label ?? m.name}</span>
+                        <span className="font-mono text-xs text-muted-foreground">
+                          {m.name}
+                          {m.shared ? " · shared" : ""}
+                        </span>
+                      </label>
+                    ))
+                  )}
+                </div>
               </div>
             ) : null}
             <div className="space-y-1">

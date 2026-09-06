@@ -321,6 +321,7 @@ runtime** and takes effect on the next job, no redeploy.
 | `ML_DRIFT_ALERT_PSI`                   | 0.25      | Population stability index above which a batch prediction audits `ml.drift.alert` and notifies the owner.         |
 | `AI_GATEWAY_RATE_LIMIT_PER_MIN`        | 60        | Calls a minute one AI-gateway key may make unless the key sets its own (global limiter across replicas).          |
 | `AI_GATEWAY_FALLBACK_MODELS`           | —         | Comma-separated `provider/model` entries every gateway call may fall back to, after the key's own chain.          |
+| `AI_GATEWAY_METRICS_MAX_ROWS`          | 10,000    | Rows one metrics API query (`/api/v1/metrics/query`) may return; a smaller `limit` in the request wins.           |
 | `DATA_MONITORS_PER_SWEEP`              | 20        | Due data monitors one scheduler sweep runs; a check must answer within 60 seconds.                                |
 | `DATA_MONITOR_ANOMALY_SIGMA`           | 3         | Standard deviations from a volume monitor's learned baseline beyond which it alerts (needs five runs of history). |
 | `AI_SQL_MAX_CALLS_PER_STATEMENT`       | 200       | Model calls one lakehouse statement may make through `ai_*` functions (distinct inputs; cached answers are free). |

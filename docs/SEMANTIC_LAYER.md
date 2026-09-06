@@ -526,6 +526,26 @@ no user JWT — so the tool still resolves the swarm owner's own and IAM-shared
 models via `scopeUserId`, never another tenant's, and the node's allow-list
 narrows it from there.
 
+## Over HTTP: the metrics API
+
+Any application can ask a governed question without an agent in between. A
+**gateway key** with the `metrics` scope (Integrations → LLM Gateway → API
+access) lists the models its owner may read at `GET /api/v1/metrics` — names,
+labels, types, synonyms, sampled values, parameters, and the grains and
+comparisons a time dimension accepts, never the SQL behind them — and runs a
+query at `POST /api/v1/metrics/query` in the same structured shape the runner
+and the agent tool use: `model`, `metrics`, `dimensions`, `filters`, `grains`,
+`order_by`, `limit`, `compare`, `params`. The answer carries the rows, the
+compiled SQL and whether the result was cut at the instance cap.
+
+The query runs as the key's owner through the same chokepoint as everything
+else on this page: the owner's models plus the ones IAM shares with them, a
+grantee's row filters and field masks rewritten into the query (and said so in
+`access_note`), the data read as the model owner, and a `metric.query` audit
+row with the key, the SQL and a digest of the result. A key can be narrowed to
+named models; naming one never grants access the owner lacks. Details and
+examples in [AI gateway](./AI_GATEWAY.md#the-semantic-layer).
+
 ## Execution backends
 
 - **Local datasets** run through the in-app **DuckDB** engine. Setting

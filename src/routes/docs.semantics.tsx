@@ -521,6 +521,17 @@ metric  order_count
             </>,
           ],
           [
+            <DocLink key="gw" to="/docs/gateway">
+              Any application
+            </DocLink>,
+            <>
+              A gateway key with the <C key="s">metrics</C> scope lists models at{" "}
+              <C key="l">GET /api/v1/metrics</C> and queries them at{" "}
+              <C key="q">POST /api/v1/metrics/query</C> — the same definitions, share policies and
+              audit row, reached from a spreadsheet, a notebook or another product.
+            </>,
+          ],
+          [
             <DocLink key="p" to="/docs/playground">
               Agent Chat
             </DocLink>,

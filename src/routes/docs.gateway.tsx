@@ -43,7 +43,7 @@ function GatewayDocsPage() {
       <DocsHeader
         eyebrow="Integrate & ship"
         title="AI Gateway"
-        description="An OpenAI-compatible endpoint in front of your agents and connected models. Point any OpenAI SDK, IDE plugin, evaluation harness or other agent at /api/v1/ with a gateway key; every call runs as the key's owner, under that owner's model rules, budgets, traces and audit trail."
+        description="An OpenAI-compatible endpoint in front of your agents and connected models, and a metrics API in front of the semantic layer. Point any OpenAI SDK, IDE plugin, evaluation harness or other agent at /api/v1/ with a gateway key; every call runs as the key's owner, under that owner's model rules, budgets, traces and audit trail."
       />
 
       <H2 id="what">What it is</H2>
@@ -68,7 +68,7 @@ function GatewayDocsPage() {
         rows={[
           [
             "Scopes",
-            "agents lets the key call your saved agents (model = agent:<name or id>); models lets it call a connected model directly (model = <provider>/<model>).",
+            "agents lets the key call your saved agents (model = agent:<name or id>); models lets it call a connected model directly (model = <provider>/<model>); metrics lets it read the semantic layer (GET /metrics, POST /metrics/query).",
           ],
           [
             "Agents",
@@ -77,6 +77,10 @@ function GatewayDocsPage() {
           [
             "Model patterns",
             "With the models scope, provider/model patterns the key may call (openrouter/*, anthropic/claude-*); empty means anything your IAM model rules allow.",
+          ],
+          [
+            "Semantic models",
+            "With the metrics scope, an optional allow-list of semantic models the key may query; none ticked means every model you own or are granted. Naming a model never grants access you lack.",
           ],
           [
             "Fallback chain",
@@ -129,6 +133,57 @@ print(reply.choices[0].message.content)`}</Code>
         </li>
       </UL>
 
+      <H2 id="metrics">The semantic layer</H2>
+      <P>
+        A key with the <C>metrics</C> scope answers governed questions without an agent in between.{" "}
+        <C>GET /metrics</C> lists the semantic models the key may query, described for a client:
+        names, labels, each metric&apos;s aggregation and format, each dimension&apos;s type,
+        synonyms and sampled values, the declared parameters, the hierarchies, and the grains and
+        period comparisons a time dimension accepts — never the SQL behind them. A shared model with
+        a restricted grant is listed with its <C>access_note</C> and without the masked fields.{" "}
+        <C>POST /metrics/query</C> runs one query in the same structured shape the runner and the{" "}
+        <C>metric_query</C> agent tool use.
+      </P>
+      <Code>{`curl https://<your host>/api/v1/metrics -H "Authorization: Bearer gw_..."
+
+curl https://<your host>/api/v1/metrics/query \\
+  -H "Authorization: Bearer gw_..." \\
+  -H "Content-Type: application/json" \\
+  -d '{"model": "revenue", "metrics": ["net_revenue", "orders"],
+       "dimensions": ["region", "order_date"], "grains": {"order_date": "month"},
+       "filters": [{"field": "order_date", "op": "last_n_days", "value": 180}],
+       "order_by": [{"field": "order_date", "dir": "desc"}], "limit": 500}'`}</Code>
+      <UL>
+        <li>
+          <strong>The body:</strong> <C>model</C> (a name or id from <C>GET /metrics</C>),{" "}
+          <C>metrics</C>, <C>dimensions</C>, <C>filters</C> (field, op, value — the comparison ops
+          and the relative-date windows such as <C>last_n_days</C>, <C>this_month</C>, <C>ytd</C>),{" "}
+          <C>grains</C> (dimension → day, week, month, quarter, year or a fiscal grain),{" "}
+          <C>order_by</C>, <C>limit</C>, <C>compare</C> (prior_period, mom, yoy) and <C>params</C>{" "}
+          for declared parameters. A request that fails validation answers 400 naming the field; one
+          the compiler refuses answers 400 in the compiler&apos;s words.
+        </li>
+        <li>
+          <strong>The answer:</strong>{" "}
+          <C>{`{ object: "metrics.result", model, columns, rows, row_count, truncated, sql }`}</C>,
+          with <C>access_note</C> for a restricted share, <C>rollup</C> when a pre-aggregate
+          answered and <C>resolution_notes</C> when a synonym was resolved. Rows stop at the
+          request&apos;s <C>limit</C>, the instance cap (<C>AI_GATEWAY_METRICS_MAX_ROWS</C>, 10,000
+          by default) or the semantic layer&apos;s own ceiling of 10,000 rows, whichever is
+          smallest; <C>truncated</C> says whether more matched.
+        </li>
+        <li>
+          <strong>Governance is the semantic layer&apos;s own.</strong> The query runs as the
+          key&apos;s owner through the same chokepoint as a dashboard tile or an agent&apos;s{" "}
+          <C>metric_query</C> call — the owner&apos;s models plus the ones IAM shares with them, a
+          grantee&apos;s row filters and field masks rewritten into the query, the data read as the
+          model owner — and audits <C>metric.query</C> with <C>via: gateway</C>, the key, the
+          compiled SQL and a digest of the result. The key&apos;s allow-list narrows that access and
+          never widens it. A metrics query makes no model call, so budgets are not touched. See{" "}
+          <DocLink to="/docs/semantics">Semantic layer</DocLink>.
+        </li>
+      </UL>
+
       <H2 id="fallback">Fallback</H2>
       <P>
         When the requested model fails with a provider error — throttling, exhausted credits, a
@@ -159,7 +214,9 @@ print(reply.choices[0].message.content)`}</Code>
         <li>
           <strong>Audit.</strong> <C>gateway.chat</C> for every turn, <C>gateway.fallback</C> for
           every switch, <C>gateway.access.denied</C> for a revoked, expired, out-of-scope or
-          throttled key with the caller&apos;s address; agent turns also audit <C>agent.chat</C>.
+          throttled key with the caller&apos;s address; agent turns also audit <C>agent.chat</C>. A
+          metric query audits <C>metric.query</C> with <C>via: gateway</C>, the key, the compiled
+          SQL and a digest of the result.
         </li>
         <li>
           <strong>Traces.</strong> Each turn is an execution trace under the owner with the
@@ -186,6 +243,11 @@ print(reply.choices[0].message.content)`}</Code>
             "AI_GATEWAY_FALLBACK_MODELS",
             "none",
             "Comma-separated provider/model entries every call may fall back to, after the key's chain.",
+          ],
+          [
+            "AI_GATEWAY_METRICS_MAX_ROWS",
+            "10,000",
+            "Rows one metrics query may return; a smaller limit in the request wins. Admin → Developer runtime.",
           ],
           [
             "Fallback entries per key",
@@ -228,6 +290,14 @@ print(reply.choices[0].message.content)`}</Code>
           [
             "The reply came from a different model",
             "A fallback fired; X-Gateway-Model names it and the audit log has gateway.fallback with the reason.",
+          ],
+          [
+            "404 model_not_found on /metrics/query",
+            "The name is not among GET /metrics: not a model the owner owns or is granted. A model the key's allow-list excludes answers 403 model_not_allowed.",
+          ],
+          [
+            "400 on /metrics/query names a field",
+            "The request or the compiler refused it: an unknown metric or dimension, a grain on a non-time dimension, a missing parameter. GET /metrics shows the vocabulary.",
           ],
         ]}
       />

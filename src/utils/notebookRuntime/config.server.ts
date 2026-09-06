@@ -56,6 +56,8 @@ export type PlatformResourceSettings = {
   gatewayRateLimitPerMin: number;
   /** provider/model entries every gateway call may fall back to, after the key's chain. */
   gatewayFallbackModels: string[];
+  /** Rows one metrics API query (/api/v1/metrics/query) may return. */
+  gatewayMetricsMaxRows: number;
   /** Due data monitors one scheduler sweep runs. */
   dataMonitorsPerSweep: number;
   /** Standard deviations from the learned baseline beyond which a volume check alerts. */
@@ -104,7 +106,7 @@ export async function getPlatformResources(): Promise<PlatformResourceSettings> 
   const { data } = await supabaseAdmin
     .from("notebook_runtime_settings")
     .select(
-      "lakehouse_memory_limit, lakehouse_threads, etl_max_concurrent_runs_per_user, etl_pipelines_per_sweep, ml_train_max_rows, ml_train_time_budget_minutes, ml_train_mem_limit_mb, ml_max_concurrent_trainings_per_user, ml_predict_max_rows, ml_train_gpus, ml_drift_alert_psi, gateway_rate_limit_per_min, gateway_fallback_models, data_monitors_per_sweep, data_monitor_anomaly_sigma, ai_sql_max_calls_per_statement, ai_sql_default_model, ai_sql_cache_ttl_days, document_vision_model, document_vision_max_pages",
+      "lakehouse_memory_limit, lakehouse_threads, etl_max_concurrent_runs_per_user, etl_pipelines_per_sweep, ml_train_max_rows, ml_train_time_budget_minutes, ml_train_mem_limit_mb, ml_max_concurrent_trainings_per_user, ml_predict_max_rows, ml_train_gpus, ml_drift_alert_psi, gateway_rate_limit_per_min, gateway_fallback_models, gateway_metrics_max_rows, data_monitors_per_sweep, data_monitor_anomaly_sigma, ai_sql_max_calls_per_statement, ai_sql_default_model, ai_sql_cache_ttl_days, document_vision_model, document_vision_max_pages",
     )
     .eq("id", true)
     .maybeSingle();
@@ -136,6 +138,8 @@ export async function getPlatformResources(): Promise<PlatformResourceSettings> 
     mlDriftAlertPsi: positiveNum(data?.ml_drift_alert_psi) ?? envNum("ML_DRIFT_ALERT_PSI") ?? 0.25,
     gatewayRateLimitPerMin:
       positive(data?.gateway_rate_limit_per_min) ?? envInt("AI_GATEWAY_RATE_LIMIT_PER_MIN") ?? 60,
+    gatewayMetricsMaxRows:
+      positive(data?.gateway_metrics_max_rows) ?? envInt("AI_GATEWAY_METRICS_MAX_ROWS") ?? 10000,
     gatewayFallbackModels: Array.isArray(data?.gateway_fallback_models)
       ? data.gateway_fallback_models.filter(
           (s): s is string => typeof s === "string" && s.trim() !== "",

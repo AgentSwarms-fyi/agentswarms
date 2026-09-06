@@ -40,6 +40,7 @@ export type NbRuntimeSettings = {
   ml_drift_alert_psi: number;
   gateway_rate_limit_per_min: number;
   gateway_fallback_models: string[];
+  gateway_metrics_max_rows: number;
   data_monitors_per_sweep: number;
   data_monitor_anomaly_sigma: number;
   ai_sql_max_calls_per_statement: number;
@@ -126,6 +127,7 @@ const DEFAULTS: NbRuntimeSettings = {
   ml_drift_alert_psi: 0.25,
   gateway_rate_limit_per_min: 60,
   gateway_fallback_models: [],
+  gateway_metrics_max_rows: 10000,
   data_monitors_per_sweep: 20,
   data_monitor_anomaly_sigma: 3,
   ai_sql_max_calls_per_statement: 200,
@@ -185,6 +187,7 @@ export const nbRuntimeGetState = createServerFn({ method: "POST" })
           ml_drift_alert_psi: row.ml_drift_alert_psi ?? 0.25,
           gateway_rate_limit_per_min: row.gateway_rate_limit_per_min ?? 60,
           gateway_fallback_models: row.gateway_fallback_models ?? [],
+          gateway_metrics_max_rows: row.gateway_metrics_max_rows ?? 10000,
           data_monitors_per_sweep: row.data_monitors_per_sweep ?? 20,
           data_monitor_anomaly_sigma: row.data_monitor_anomaly_sigma ?? 3,
           ai_sql_max_calls_per_statement: row.ai_sql_max_calls_per_statement ?? 200,
@@ -272,6 +275,7 @@ export const nbRuntimeUpdateSettings = createServerFn({ method: "POST" })
         ml_drift_alert_psi: z.number().min(0.01).max(5).optional(),
         gateway_rate_limit_per_min: z.number().int().min(1).max(100000).optional(),
         gateway_fallback_models: z.array(z.string().min(1).max(160)).max(10).optional(),
+        gateway_metrics_max_rows: z.number().int().min(1).max(100_000_000).optional(),
         data_monitors_per_sweep: z.number().int().min(1).max(10000).optional(),
         data_monitor_anomaly_sigma: z.number().min(0.5).max(20).optional(),
         ai_sql_max_calls_per_statement: z.number().int().min(1).max(1000000).optional(),
