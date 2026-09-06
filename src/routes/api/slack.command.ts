@@ -1,8 +1,8 @@
-// POST /api/slack/command — a Slack slash command asks the AI Analyst.
+// POST /api/slack/command — a Slack slash command asks an agent or the analyst.
 //
 // THE 3-SECOND RULE SHAPES EVERYTHING HERE. Slack shows the user an error if
-// the endpoint has not replied within three seconds, and an analyst turn takes
-// 30–95. So this acknowledges immediately and posts the real answer to the
+// the endpoint has not replied within three seconds, and a turn takes 30–95.
+// So this acknowledges immediately and posts the real answer to the
 // `response_url` afterwards. Anything that "just awaits the turn" works in
 // testing with a trivial question and fails in production with a real one.
 //
@@ -14,14 +14,26 @@
 //
 // The request also carries no AgentSwarms identity: the workspace's `team_id`
 // is the only link to an owner, which is why one workspace maps to exactly one
-// installation (see migration 20260833000000).
+// installation (see migration 20260833000000). WHICH target answers comes
+// from the command itself (migration 20260869000000), so /ask can stay the
+// analyst while /support is an agent.
 
 import { createFileRoute } from "@tanstack/react-router";
 
-import { analystAnswerBlocks, analystErrorBlocks, ackBlocks } from "@/lib/slackBlocks";
-import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import { decryptJson } from "@/utils/providers/crypto.server";
-import { runAnalystTurnServer } from "@/utils/analyst/run.server";
+import {
+  agentAnswerBlocks,
+  analystAnswerBlocks,
+  analystErrorBlocks,
+  ackBlocks,
+} from "@/lib/slackBlocks";
+import { channelTargetMissing, routeForCommand } from "@/utils/channels/core";
+import { answerForTarget, auditChannelTurn } from "@/utils/channels/run.server";
+import {
+  loadSlackWorkspace,
+  markSlackSeen,
+  slackRoutesFor,
+  slackSigningSecret,
+} from "@/utils/channels/slack.server";
 import {
   isSlackResponseUrl,
   parseSlashCommand,
@@ -78,49 +90,10 @@ export const Route = createFileRoute("/api/slack/command")({
         const teamId = new URLSearchParams(rawBody).get("team_id");
         if (!teamId) return deny();
 
-        // Cast for the reason budgetSpendClient documents: types.ts is
-        // generated from the DEPLOYED schema, and this table ships in
-        // migration 20260833000000. Regenerating types after applying it
-        // removes the need.
-        type SlackWorkspaceRow = {
-          id: string;
-          user_id: string;
-          analyst_id: string | null;
-          is_active: boolean;
-          signing_secret_enc: { ciphertext?: string; iv?: string } | null;
-        };
-        const admin = supabaseAdmin as unknown as {
-          from: (t: string) => {
-            select: (c: string) => {
-              eq: (
-                col: string,
-                v: string,
-              ) => { maybeSingle: () => Promise<{ data: SlackWorkspaceRow | null }> };
-            };
-            update: (v: Record<string, unknown>) => {
-              eq: (col: string, v: string) => Promise<unknown>;
-            };
-          };
-        };
-
-        const { data: ws } = await admin
-          .from("slack_workspaces")
-          .select("id, user_id, analyst_id, is_active, signing_secret_enc")
-          .eq("team_id", teamId)
-          .maybeSingle();
-        if (!ws || !ws.is_active) return deny();
-
-        const enc = ws.signing_secret_enc as { ciphertext?: string; iv?: string } | null;
-        if (!enc?.ciphertext || !enc?.iv) return deny();
-        let signingSecret: string;
-        try {
-          ({ secret: signingSecret } = await decryptJson<{ secret: string }>(
-            enc.ciphertext,
-            enc.iv,
-          ));
-        } catch {
-          return deny();
-        }
+        const ws = await loadSlackWorkspace(teamId);
+        if (!ws) return deny();
+        const signingSecret = await slackSigningSecret(ws);
+        if (!signingSecret) return deny();
 
         const verdict = verifySlackRequest({
           rawBody,
@@ -140,73 +113,98 @@ export const Route = createFileRoute("/api/slack/command")({
         if (!cmd.text) {
           return ephemeral("Ask me something — for example: `/ask what was revenue last month?`");
         }
-        if (!ws.analyst_id) {
+
+        // A route for this command wins; without one the workspace's analyst
+        // answers, which is what every installation had before routes existed.
+        const target = routeForCommand(cmd.command, await slackRoutesFor(ws.id), ws.analyst_id);
+        if (!target) {
           // Named precisely. "Something went wrong" here would send someone
           // hunting through Slack when the fix is two clicks in AgentSwarms.
-          return ephemeral(
-            "This workspace is connected but no analyst is selected yet. Pick one in AgentSwarms → Integrations → Slack.",
-          );
+          return ephemeral(channelTargetMissing(null));
         }
 
         // ANSWER OUT OF BAND. Started, deliberately not awaited: the ack below
         // has to be on its way inside three seconds.
         void (async () => {
-          try {
-            const outcome = await runAnalystTurnServer({
-              analystId: ws.analyst_id!,
-              ownerId: ws.user_id,
-              question: cmd.text,
-              priorTurns: [],
-              surface: "slack",
-            });
-            if (!outcome.ok) {
-              await postToSlack(cmd.responseUrl, {
-                response_type: "in_channel",
-                blocks: analystErrorBlocks({ question: cmd.text, error: outcome.error }),
-              });
-              return;
-            }
-            const turn = outcome.turn;
+          const fail = async (error: string) => {
             await postToSlack(cmd.responseUrl, {
               response_type: "in_channel",
-              blocks: analystAnswerBlocks({
-                question: cmd.text,
-                answer: turn.answer ?? "The analyst returned no summary.",
-                steps: (turn.steps ?? []).map((s) => ({
-                  title: s.goal,
-                  // The step's own self-check note is the closest thing to a
-                  // one-line summary the trace carries; the numbers stay in
-                  // the app either way.
-                  summary: s.check?.note,
-                  // `governed` is the compile's own disclosure — present only
-                  // when the semantic layer wrote the SQL. Slack must not be
-                  // the one surface where that distinction disappears.
-                  governed: Boolean(s.governed),
-                  // rowCount is the TRUE count before trimming, so it is only
-                  // worth showing when trimming actually happened.
-                  truncatedRows:
-                    typeof s.rowCount === "number" && s.rows && s.rowCount > s.rows.length
-                      ? s.rowCount
-                      : undefined,
-                })),
-              }),
-            });
-            await admin
-              .from("slack_workspaces")
-              .update({ last_command_at: new Date().toISOString(), last_error: null })
-              .eq("id", ws.id);
-          } catch (e) {
-            const msg = e instanceof Error ? e.message : "The analyst failed.";
-            await postToSlack(cmd.responseUrl, {
-              response_type: "in_channel",
-              blocks: analystErrorBlocks({ question: cmd.text, error: msg }),
+              blocks: analystErrorBlocks({ question: cmd.text, error }),
             });
             // Recorded on the row so a broken integration is visible in the
             // app, not only to whoever happened to be in the channel.
-            await admin
-              .from("slack_workspaces")
-              .update({ last_command_at: new Date().toISOString(), last_error: msg })
-              .eq("id", ws.id);
+            markSlackSeen(ws.id, "last_command_at", error);
+            auditChannelTurn({
+              ownerId: ws.user_id,
+              surface: "slack",
+              channelId: ws.id,
+              channelName: ws.team_name ?? ws.team_id,
+              target,
+              targetName: null,
+              question: cmd.text,
+              status: "error",
+              error,
+              command: cmd.command,
+              asker: cmd.userName || cmd.userId,
+            });
+          };
+          try {
+            const outcome = await answerForTarget({
+              ownerId: ws.user_id,
+              target,
+              question: cmd.text,
+              surface: "slack",
+            });
+            if (!outcome.ok) {
+              await fail(outcome.error);
+              return;
+            }
+            const blocks =
+              outcome.kind === "agent"
+                ? agentAnswerBlocks({
+                    question: cmd.text,
+                    answer: outcome.text,
+                    agentName: outcome.targetName,
+                  })
+                : analystAnswerBlocks({
+                    question: cmd.text,
+                    answer: outcome.turn.answer ?? "The analyst returned no summary.",
+                    steps: (outcome.turn.steps ?? []).map((s) => ({
+                      title: s.goal,
+                      // The step's own self-check note is the closest thing to
+                      // a one-line summary the trace carries; the numbers stay
+                      // in the app either way.
+                      summary: s.check?.note,
+                      // `governed` is the compile's own disclosure — present
+                      // only when the semantic layer wrote the SQL. Slack must
+                      // not be the one surface where that distinction
+                      // disappears.
+                      governed: Boolean(s.governed),
+                      // rowCount is the TRUE count before trimming, so it is
+                      // only worth showing when trimming actually happened.
+                      truncatedRows:
+                        typeof s.rowCount === "number" && s.rows && s.rowCount > s.rows.length
+                          ? s.rowCount
+                          : undefined,
+                    })),
+                  });
+            await postToSlack(cmd.responseUrl, { response_type: "in_channel", blocks });
+            markSlackSeen(ws.id, "last_command_at", null);
+            auditChannelTurn({
+              ownerId: ws.user_id,
+              surface: "slack",
+              channelId: ws.id,
+              channelName: ws.team_name ?? ws.team_id,
+              target,
+              targetName: outcome.targetName,
+              question: cmd.text,
+              status: "success",
+              traceId: outcome.kind === "agent" ? outcome.traceId : null,
+              command: cmd.command,
+              asker: cmd.userName || cmd.userId,
+            });
+          } catch (e) {
+            await fail(e instanceof Error ? e.message : "The turn failed.");
           }
         })();
 

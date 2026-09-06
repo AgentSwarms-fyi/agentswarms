@@ -188,6 +188,46 @@ against your connected provider's key, with the operator's shared
 `OPENROUTER_API_KEY` only as a zero-config fallback, and filtered by your IAM
 model rules.
 
+## Answering in Slack
+
+An agent can answer where the question is already being asked. Two ways in,
+both configured under **Integrations → Slack**, both running the agent as the
+workspace's owner — its prompt, its tools, its knowledge, its guardrails, the
+owner's IAM model rules and budgets, and a trace and an audit row for every
+turn, exactly as in the app.
+
+**Slash commands, routed per command.** A workspace can point `/ask` at an AI
+Analyst and `/support` at an agent; the request URL is
+`https://<your host>/api/slack/command`. A command with no route falls back to
+the workspace's analyst, which is what every installation had before routing
+existed, so adding this changed nothing until a route is added. Slack shows an
+error if nothing answers within three seconds and a turn takes 30–95, so the
+endpoint acknowledges immediately and posts the real answer to the reply URL
+afterwards.
+
+**@mentions and direct messages, answered in thread.** Subscribe the app's
+**Event Subscriptions** to `app_mention` and `message.im`, pointing at
+`https://<your host>/api/slack/events`, give it the `chat:write` scope, and
+paste the **Bot User OAuth Token** into the workspace. An event carries no
+reply URL — the only way to answer one is Slack's Web API with that token,
+which is why a workspace that only uses slash commands never needs it. The
+answer lands in the thread the question was asked in, or starts one under it,
+so a minute-long answer does not surface at the bottom of a channel that has
+moved on.
+
+What the endpoints refuse, and why:
+
+| Situation                                      | What happens                                                                                                                          |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| An unsigned or wrongly signed request          | The same terse 401 as every other failure. The reason is logged on the server; an endpoint that explained itself would help a prober. |
+| Slack retries an event (`X-Slack-Retry-Num`)   | Acknowledged and dropped. The first delivery is still being answered; answering the retry too would post the same answer three times. |
+| Another bot's message, an edit, a channel post | Ignored. Two bots in one channel would otherwise answer each other for as long as the workspace can afford it.                        |
+| The routed agent is paused or deleted          | One sentence in the channel naming what to fix, and the real reason on the integration page and in the audit log.                     |
+| No bot token, but a mention arrives            | Recorded on the workspace row, since there is no way to reply without one.                                                            |
+
+Every turn audits `slack.command` with the workspace, the command or
+`@mention`, who asked as Slack names them, the question, and the trace id.
+
 ## Embedding an agent
 
 Agents can be embedded on your own site (see **Integrations → Web Embedding**,

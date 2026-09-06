@@ -1,5 +1,6 @@
-// Server functions for the inbound Slack integration: list, save and remove
-// the workspaces allowed to ask the AI Analyst a question.
+// Server functions for the inbound Slack integration: the workspaces allowed
+// to ask a question, which agent or analyst answers each slash command, and
+// who answers an @mention.
 //
 // Mirrors saas.functions deliberately — one auth pattern for connection
 // management, not two — with one difference that matters: the signing secret
@@ -14,6 +15,7 @@ import { z } from "zod";
 import type { Database } from "@/integrations/supabase/types";
 import { encryptJson } from "@/utils/providers/crypto.server";
 import { auditEvent } from "@/utils/audit.server";
+import { normalizeSlashCommand } from "@/utils/channels/core";
 
 function userClient(accessToken: string) {
   const url = process.env.SUPABASE_URL;
@@ -44,6 +46,9 @@ export type SlackWorkspaceSummary = {
   team_id: string;
   team_name: string | null;
   analyst_id: string | null;
+  /** Who answers @mentions and DMs; null falls back to the analyst above. */
+  mention_target_type: "agent" | "analyst" | null;
+  mention_target_id: string | null;
   is_active: boolean;
   hasSigningSecret: boolean;
   hasBotToken: boolean;
@@ -59,6 +64,8 @@ type SlackRow = {
   team_id: string;
   team_name: string | null;
   analyst_id: string | null;
+  mention_target_type: "agent" | "analyst" | null;
+  mention_target_id: string | null;
   is_active: boolean;
   signing_secret_enc: { ciphertext?: string; iv?: string } | null;
   bot_token_enc: { ciphertext?: string; iv?: string } | null;
@@ -146,7 +153,7 @@ export const listSlackWorkspaces = createServerFn({ method: "POST" })
     const { data: rows, error } = await (sb as unknown as LooseClient)
       .from("slack_workspaces")
       .select(
-        "id, team_id, team_name, analyst_id, is_active, signing_secret_enc, bot_token_enc, last_command_at, last_error, created_at",
+        "id, team_id, team_name, analyst_id, mention_target_type, mention_target_id, is_active, signing_secret_enc, bot_token_enc, last_command_at, last_error, created_at",
       )
       .order("created_at", { ascending: false });
     if (error) throw new Error(error.message);
@@ -155,6 +162,8 @@ export const listSlackWorkspaces = createServerFn({ method: "POST" })
       team_id: r.team_id,
       team_name: r.team_name,
       analyst_id: r.analyst_id,
+      mention_target_type: r.mention_target_type ?? null,
+      mention_target_id: r.mention_target_id ?? null,
       is_active: r.is_active,
       // Presence only. The ciphertext never leaves the server either.
       hasSigningSecret: Boolean(r.signing_secret_enc?.ciphertext),
@@ -180,6 +189,8 @@ export const saveSlackWorkspace = createServerFn({ method: "POST" })
           .regex(/^T[A-Z0-9]{6,}$/i, "A Slack workspace id looks like T01AB2CD3EF."),
         team_name: z.string().trim().max(200).optional(),
         analyst_id: z.string().uuid().nullable().optional(),
+        mention_target_type: z.enum(["agent", "analyst"]).nullable().optional(),
+        mention_target_id: z.string().uuid().nullable().optional(),
         /** Omitted on edit = keep what is stored. "" is not a way to clear it. */
         signing_secret: z.string().trim().min(8).optional(),
         bot_token: z.string().trim().min(8).optional(),
@@ -197,6 +208,10 @@ export const saveSlackWorkspace = createServerFn({ method: "POST" })
       team_id: data.team_id.toUpperCase(),
       team_name: data.team_name || null,
       analyst_id: data.analyst_id ?? null,
+      // Both halves or neither: a type with no id names nothing, and an id
+      // with no type cannot be looked up in either table.
+      mention_target_type: data.mention_target_id ? (data.mention_target_type ?? null) : null,
+      mention_target_id: data.mention_target_type ? (data.mention_target_id ?? null) : null,
       is_active: data.is_active ?? true,
     };
     // Only overwrite a secret when a new one was actually typed. Writing
@@ -260,6 +275,120 @@ export const saveSlackWorkspace = createServerFn({ method: "POST" })
       detail: { analyst_id: data.analyst_id ?? null },
     });
     return { id: saved.id };
+  });
+
+/** One slash command, and what answers it. */
+export type SlackCommandRouteSummary = {
+  id: string;
+  workspace_id: string;
+  command: string;
+  target_type: "agent" | "analyst";
+  target_id: string;
+  is_active: boolean;
+};
+
+export const listSlackRoutes = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    parseInput(z.object({ access_token: z.string().min(1) }), input),
+  )
+  .handler(async ({ data }): Promise<SlackCommandRouteSummary[]> => {
+    const { sb } = await requireUser(data.access_token);
+    const { data: rows, error } = await sb
+      .from("slack_command_routes")
+      .select("id, workspace_id, command, target_type, target_id, is_active")
+      .order("command", { ascending: true });
+    if (error) throw new Error(error.message);
+    return (rows ?? []) as SlackCommandRouteSummary[];
+  });
+
+export const saveSlackRoute = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    parseInput(
+      z.object({
+        access_token: z.string().min(1),
+        id: z.string().uuid().optional(),
+        workspace_id: z.string().uuid(),
+        command: z.string().trim().min(1).max(40),
+        target_type: z.enum(["agent", "analyst"]),
+        target_id: z.string().uuid(),
+        is_active: z.boolean().optional(),
+      }),
+      input,
+    ),
+  )
+  .handler(async ({ data }): Promise<{ id: string }> => {
+    const { sb, userId } = await requireUser(data.access_token);
+
+    // Normalised here as well as at the endpoint, so "/Ask", "ask" and " /ask "
+    // are one route rather than three that shadow each other.
+    const command = normalizeSlashCommand(data.command);
+    if (!command) {
+      throw new Error(
+        "A slash command is letters, digits, dashes or underscores — for example /ask.",
+      );
+    }
+    // The target has to be something this user owns. RLS would stop a write to
+    // someone else's row, but nothing stops writing SOMEONE ELSE'S id into
+    // your own row, and the endpoint would then answer as them.
+    const { data: owned } =
+      data.target_type === "agent"
+        ? await sb
+            .from("agents")
+            .select("id")
+            .eq("id", data.target_id)
+            .eq("user_id", userId)
+            .maybeSingle()
+        : await sb
+            .from("ai_analysts")
+            .select("id")
+            .eq("id", data.target_id)
+            .eq("user_id", userId)
+            .maybeSingle();
+    if (!owned) throw new Error("Pick an agent or analyst you own.");
+
+    const row = {
+      user_id: userId,
+      workspace_id: data.workspace_id,
+      command,
+      target_type: data.target_type,
+      target_id: data.target_id,
+      is_active: data.is_active ?? true,
+    };
+    if (data.id) {
+      const { data: saved, error } = await sb
+        .from("slack_command_routes")
+        .update(row)
+        .eq("id", data.id)
+        .eq("user_id", userId)
+        .select("id")
+        .maybeSingle();
+      if (error) throw new Error(friendlyError(error));
+      if (!saved) throw new Error("That route is not yours to edit.");
+      return { id: saved.id };
+    }
+    const { data: saved, error } = await sb
+      .from("slack_command_routes")
+      .insert(row)
+      .select("id")
+      .maybeSingle();
+    if (error) throw new Error(friendlyError(error));
+    if (!saved) throw new Error("Could not save that route.");
+    return { id: saved.id };
+  });
+
+export const deleteSlackRoute = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    parseInput(z.object({ access_token: z.string().min(1), id: z.string().uuid() }), input),
+  )
+  .handler(async ({ data }): Promise<{ ok: true }> => {
+    const { sb, userId } = await requireUser(data.access_token);
+    const { error } = await sb
+      .from("slack_command_routes")
+      .delete()
+      .eq("id", data.id)
+      .eq("user_id", userId);
+    if (error) throw new Error(error.message);
+    return { ok: true };
   });
 
 export const deleteSlackWorkspace = createServerFn({ method: "POST" })

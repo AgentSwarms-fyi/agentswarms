@@ -167,6 +167,33 @@ export function analystErrorBlocks(args: {
   ];
 }
 
+/**
+ * An agent's answer. No step list: an agent's work is a conversation, not a
+ * query plan, and the trace holds the tool calls for anyone who needs them.
+ * The agent is named because a workspace can route several, and "which one
+ * said this?" is otherwise unanswerable from Slack.
+ */
+export function agentAnswerBlocks(args: {
+  question: string;
+  answer: string;
+  agentName: string;
+}): SlackBlock[] {
+  return [
+    {
+      type: "section",
+      text: { type: "mrkdwn", text: `*${escapeSlackText(truncateForSlack(args.question, 200))}*` },
+    },
+    {
+      type: "section",
+      text: { type: "mrkdwn", text: truncateForSlack(escapeSlackText(args.answer)) },
+    },
+    {
+      type: "context",
+      elements: [{ type: "mrkdwn", text: `Answered by *${escapeSlackText(args.agentName)}*` }],
+    },
+  ];
+}
+
 /** The immediate ack. Slack shows an error if nothing arrives within 3s. */
 export function ackBlocks(question: string): SlackBlock[] {
   return [

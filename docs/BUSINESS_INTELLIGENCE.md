@@ -596,7 +596,10 @@ sheet names does not open at all.
 ## Asking from Slack
 
 Questions get asked in Slack. An answer that needs another tab opened mostly
-does not get looked up, so an analyst can be reached with a slash command:
+does not get looked up, so an analyst can be reached with a slash command.
+The same door takes agents: a workspace routes each command to its own agent
+or analyst, and answers @mentions in thread — see
+[Answering in Slack](./AGENT_CHAT.md#answering-in-slack). For the analyst:
 
 ```
 /ask what was revenue last month

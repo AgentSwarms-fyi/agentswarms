@@ -197,6 +197,35 @@ function PlaygroundDoc() {
         retention window purges it.
       </P>
 
+      <H2 id="slack">Answering in Slack</H2>
+      <P>
+        An agent can answer where the question is already being asked. Both ways in are configured
+        under <strong>Integrations → Slack</strong>, and both run the agent as the workspace&apos;s
+        owner — its prompt, tools, knowledge and guardrails, the owner&apos;s model rules and
+        budgets, and a trace and an audit row per turn, exactly as in the app.
+      </P>
+      <UL>
+        <li>
+          <strong>Slash commands, routed per command.</strong> Point <C>/ask</C> at an AI Analyst
+          and <C>/support</C> at an agent; the request URL is <C>/api/slack/command</C>. A command
+          with no route falls back to the workspace&apos;s analyst, which is what every installation
+          had before routing existed.
+        </li>
+        <li>
+          <strong>@mentions and direct messages, answered in thread.</strong> Subscribe Event
+          Subscriptions to <C>app_mention</C> and <C>message.im</C> at <C>/api/slack/events</C>, add
+          the <C>chat:write</C> scope, and paste the Bot User OAuth Token into the workspace. An
+          event carries no reply URL, so the answer goes back over Slack&apos;s Web API — which is
+          the only reason a token is needed at all.
+        </li>
+      </UL>
+      <Callout kind="why" title="Why the answer is not instant, and why that is fine">
+        Slack errors if nothing replies within three seconds; a turn takes 30–95. Both endpoints
+        acknowledge immediately and post the real answer afterwards. A retry that arrives while the
+        first attempt is still thinking is acknowledged and dropped — answering it too would post
+        the same answer three times.
+      </Callout>
+
       <H2 id="image-playground">Image Playground</H2>
       <P>
         <strong>Experiment → Image Playground</strong> is the same idea for images: generate, edit

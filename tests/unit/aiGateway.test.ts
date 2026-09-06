@@ -258,7 +258,7 @@ describe("the platform's stream becomes OpenAI chunks", () => {
     ];
     const a = buildInternalChatBody({
       ownerId: "u1",
-      keyId: "k1",
+      costScope: { type: "gateway_key", id: "k1" },
       target: { kind: "agent", agent },
       candidate: { provider: "anthropic", model: "claude-sonnet-4" },
       messages: msgs,
@@ -278,7 +278,7 @@ describe("the platform's stream becomes OpenAI chunks", () => {
     // agent's toggles the way agent chat does.
     const ml = buildInternalChatBody({
       ownerId: "u1",
-      keyId: "k1",
+      costScope: { type: "gateway_key", id: "k1" },
       target: {
         kind: "agent",
         agent: { ...agent, tools: { builtInTools: { ml_predict: true, metric_query: true } } },
@@ -295,13 +295,22 @@ describe("the platform's stream becomes OpenAI chunks", () => {
     });
     const m = buildInternalChatBody({
       ownerId: "u1",
-      keyId: "k1",
+      costScope: { type: "gateway_key", id: "k1" },
       target: { kind: "model", provider: "openai", model: "gpt-4o" },
       candidate: { provider: "openai", model: "gpt-4o" },
       messages: msgs,
       temperature: 0.9,
     });
     expect(m.enabledTools).toEqual([]);
+    // A channel turn passes no scope, and the body then carries none at all
+    // rather than a null the chat route would have to interpret.
+    const channel = buildInternalChatBody({
+      ownerId: "u1",
+      target: { kind: "agent", agent },
+      candidate: { provider: "openrouter", model: "x" },
+      messages: [{ role: "user" as const, content: "Hi" }],
+    });
+    expect("costScope" in channel).toBe(false);
     expect(m.agentId).toBeUndefined();
     expect(m.systemPrompt).toBe("Answer in French.");
     expect(m.temperature).toBe(0.9);

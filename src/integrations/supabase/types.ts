@@ -5307,6 +5307,50 @@ export type Database = {
           },
         ];
       };
+      slack_command_routes: {
+        Row: {
+          command: string;
+          created_at: string;
+          id: string;
+          is_active: boolean;
+          target_id: string;
+          target_type: string;
+          updated_at: string;
+          user_id: string;
+          workspace_id: string;
+        };
+        Insert: {
+          command: string;
+          created_at?: string;
+          id?: string;
+          is_active?: boolean;
+          target_id: string;
+          target_type: string;
+          updated_at?: string;
+          user_id: string;
+          workspace_id: string;
+        };
+        Update: {
+          command?: string;
+          created_at?: string;
+          id?: string;
+          is_active?: boolean;
+          target_id?: string;
+          target_type?: string;
+          updated_at?: string;
+          user_id?: string;
+          workspace_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "slack_command_routes_workspace_id_fkey";
+            columns: ["workspace_id"];
+            isOneToOne: false;
+            referencedRelation: "slack_workspaces";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       slack_workspaces: {
         Row: {
           analyst_id: string | null;
@@ -5316,6 +5360,9 @@ export type Database = {
           is_active: boolean;
           last_command_at: string | null;
           last_error: string | null;
+          last_event_at: string | null;
+          mention_target_id: string | null;
+          mention_target_type: string | null;
           signing_secret_enc: Json | null;
           team_id: string;
           team_name: string | null;
@@ -5330,6 +5377,9 @@ export type Database = {
           is_active?: boolean;
           last_command_at?: string | null;
           last_error?: string | null;
+          last_event_at?: string | null;
+          mention_target_id?: string | null;
+          mention_target_type?: string | null;
           signing_secret_enc?: Json | null;
           team_id: string;
           team_name?: string | null;
@@ -5344,6 +5394,9 @@ export type Database = {
           is_active?: boolean;
           last_command_at?: string | null;
           last_error?: string | null;
+          last_event_at?: string | null;
+          mention_target_id?: string | null;
+          mention_target_type?: string | null;
           signing_secret_enc?: Json | null;
           team_id?: string;
           team_name?: string | null;

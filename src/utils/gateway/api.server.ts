@@ -550,7 +550,12 @@ function num(v: unknown, lo: number, hi: number): number | undefined {
 /** The body /api/chat's internal channel takes for one candidate model. */
 export function buildInternalChatBody(args: {
   ownerId: string;
-  keyId: string;
+  /**
+   * Whose ceiling this turn is measured against, when something other than
+   * the owner has one: a gateway key does, a chat channel does not. Omitted,
+   * the turn is metered by the owner's own budgets alone.
+   */
+  costScope?: { type: string; id: string };
   target: ResolvedTarget;
   candidate: { provider: string; model: string };
   messages: OpenAiMessage[];
@@ -560,7 +565,7 @@ export function buildInternalChatBody(args: {
   const { system, turns } = splitConversation(args.messages);
   const base: Record<string, unknown> = {
     internalUserId: args.ownerId,
-    costScope: { type: "gateway_key", id: args.keyId },
+    ...(args.costScope ? { costScope: args.costScope } : {}),
     provider: args.candidate.provider,
     model: args.candidate.model,
     messages: turns,
@@ -721,7 +726,7 @@ export async function runGatewayCompletion(args: {
     const candidate = candidates[i];
     const internal = buildInternalChatBody({
       ownerId: key.user_id,
-      keyId: key.id,
+      costScope: { type: "gateway_key", id: key.id },
       target,
       candidate,
       messages,

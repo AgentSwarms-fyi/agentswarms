@@ -2700,6 +2700,13 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     "title": "Agent Chat",
     "description": "The playground at /playground is where you talk to agents directly. It looks like a chat app; the difference is that every message produces a trace you can inspect, and the agent runs with its full saved configuration — same tools, same guardrails, same memory as anywhere else on the platform.",
     "terms": [
+      "/api/slack/command",
+      "/api/slack/events",
+      "/ask",
+      "/support",
+      "app_mention",
+      "chat:write",
+      "message.im",
       "tools.biVisuals"
     ],
     "headings": [
@@ -2737,6 +2744,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "id": "docgen-modes",
         "text": "Browser vs Deep",
         "level": 3
+      },
+      {
+        "id": "slack",
+        "text": "Answering in Slack",
+        "level": 2
       },
       {
         "id": "image-playground",
