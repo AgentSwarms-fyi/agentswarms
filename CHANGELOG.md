@@ -52,6 +52,30 @@ run `npx supabase db push` after pulling.
   lineage now appears in the Data Catalog beside crawled and ETL edges. Under
   **Data & BI → SQL Models**.
 
+### Feature views — score by key, not by row
+
+- **The caller stops computing features.** A model trained on a table whose
+  columns were built by SQL was scored by POSTing those same column names with
+  values the caller worked out itself, in its own code, months later. Nothing
+  checked that its arithmetic matched the training set's, so the model got
+  numbers of the right shape and the wrong meaning and answered confidently.
+  A **feature view** names a table, the column(s) that identify a row and
+  which columns are features; `/api/ml/predict` then accepts
+  `{"keys": [{"customer_id": "c-1"}]}` and reads the values from the same
+  table training read.
+- **It materialises nothing.** The table is whatever built it, and a
+  SQL model is the natural author: its name is its table, its schedule
+  keeps it fresh, its `unique` test can assert the key and its lineage is
+  already recorded.
+- **It does not guess.** Rows are matched back to keys by key rather than by
+  result order, a key that matches nothing is named in `keys_not_found` rather
+  than filled with nulls, and a key matching two rows is refused unless the
+  view says which column decides the latest. A column list is always sent
+  explicitly, so a column added to the table later cannot silently become a
+  feature the model never trained on.
+- Nothing changes for a model without a view: callers keep sending whole rows.
+  Under **ML Models → Feature views**, attached on the model page.
+
 ### Warm inference endpoints
 
 - **A model version can be held in memory instead of started per call.** Every

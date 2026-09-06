@@ -308,6 +308,74 @@ with s3fs.S3FileSystem().open(uri, "wb") as f: f.write(blob)
 # POST /api/ml/models/register with artifact_uri=uri, artifact_sha256=hashlib.sha256(blob).hexdigest()
 ```
 
+## Feature views
+
+A model trained on a table whose columns were built by SQL — `orders_30d`,
+`days_since_signup`, whatever — is normally scored by POSTing those same column
+NAMES with values the caller computed itself, in its own code, months later.
+Nothing checks that its arithmetic matches the training set's. The model
+receives numbers of the right shape and the wrong meaning, and answers
+confidently. That is training-serving skew, and it is quiet.
+
+A **feature view** removes the caller's arithmetic. It names a table, the
+column or columns that identify a row, and which columns are features. Serving
+then takes a **key** and reads the feature values from the same table training
+read:
+
+```bash
+curl <origin>/api/ml/predict \
+  -H "Authorization: Bearer mlk_…" -H "Content-Type: application/json" \
+  -d '{"keys": [{"customer_id": "c-1"}, {"customer_id": "c-2"}]}'
+```
+
+```json
+{
+  "prediction_id": "…",
+  "served": "warm",
+  "feature_view": "customer_features",
+  "keys_not_found": [],
+  "columns": ["customer_id", "orders_30d", "prediction", "probability"],
+  "rows": [["c-1", 4, "pro", 0.98]]
+}
+```
+
+Find them under **ML Models → Feature views**, and attach one to a model under
+**Automation → Input** on the model page. Without one, nothing changes: the
+caller keeps sending whole rows and keeps owning them.
+
+### What it does not do
+
+**It materialises nothing.** The table is whatever built it, and a
+[SQL model](./SQL_MODELS.md) is the natural author: the model's name IS its
+table, its schedule keeps the table fresh, its `unique` test can assert the
+key, and its lineage is already recorded. A second scheduler and a second copy
+of the data here would duplicate all of that, badly.
+
+**It does not guess.** Rows come back in the order the keys were asked for,
+matched by key rather than by result order, because a feature attributed to
+the wrong key is the worst failure this component has. A key that matches
+nothing is named in `keys_not_found` rather than filled with nulls — a row of
+nulls scores perfectly happily and means nothing.
+
+**It refuses an ambiguous key.** If a key matches two rows and the view has no
+timestamp column, the call fails and says so. Give the view a **latest row
+wins** column and the newest is used. Picking one of two arbitrarily is how a
+feature store starts lying.
+
+### Rules
+
+|               |                                                                                     |
+| ------------- | ----------------------------------------------------------------------------------- |
+| Key columns   | 1 to 8, composite supported. A key column may not also be a feature.                |
+| Features      | Named explicitly, or empty for every column that is not a key.                      |
+| Keys per call | 200, the same cap as rows.                                                          |
+| Reads         | Through the governed lakehouse chokepoint, as the model's owner, uncached, audited. |
+
+A column list is always sent explicitly rather than `SELECT *`, so a column
+added to the table later cannot silently become a feature the model never
+trained on. The view is checked against its table when you save it, because a
+missing column otherwise surfaces behind a live prediction.
+
 ## Warm endpoints
 
 By default a prediction starts a container, boots Python, imports the ML

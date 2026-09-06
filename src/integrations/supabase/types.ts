@@ -2601,6 +2601,48 @@ export type Database = {
         };
         Relationships: [];
       };
+      feature_views: {
+        Row: {
+          created_at: string;
+          description: string | null;
+          feature_columns: string[];
+          id: string;
+          key_columns: string[];
+          name: string;
+          schema_name: string;
+          table_name: string;
+          timestamp_column: string | null;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          description?: string | null;
+          feature_columns?: string[];
+          id?: string;
+          key_columns: string[];
+          name: string;
+          schema_name: string;
+          table_name: string;
+          timestamp_column?: string | null;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          description?: string | null;
+          feature_columns?: string[];
+          id?: string;
+          key_columns?: string[];
+          name?: string;
+          schema_name?: string;
+          table_name?: string;
+          timestamp_column?: string | null;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
       gateway_cache: {
         Row: {
           answer: string;
@@ -4254,6 +4296,7 @@ export type Database = {
           created_at: string;
           description: string | null;
           feature_columns: string[] | null;
+          feature_view_id: string | null;
           horizon: number | null;
           id: string;
           item_column: string | null;
@@ -4277,6 +4320,7 @@ export type Database = {
           created_at?: string;
           description?: string | null;
           feature_columns?: string[] | null;
+          feature_view_id?: string | null;
           horizon?: number | null;
           id?: string;
           item_column?: string | null;
@@ -4300,6 +4344,7 @@ export type Database = {
           created_at?: string;
           description?: string | null;
           feature_columns?: string[] | null;
+          feature_view_id?: string | null;
           horizon?: number | null;
           id?: string;
           item_column?: string | null;
@@ -4318,6 +4363,13 @@ export type Database = {
           user_id?: string;
         };
         Relationships: [
+          {
+            foreignKeyName: "ml_models_feature_view_id_fkey";
+            columns: ["feature_view_id"];
+            isOneToOne: false;
+            referencedRelation: "feature_views";
+            referencedColumns: ["id"];
+          },
           {
             foreignKeyName: "ml_models_production_version_fk";
             columns: ["production_version_id"];

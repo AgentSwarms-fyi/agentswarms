@@ -30,10 +30,49 @@ export const Route = createFileRoute("/api/ml/predict")({
       POST: async ({ request }) => {
         const auth = await authenticateMlApiKey(request, "predict");
         if (!auth.ok) return mlJson({ error: auth.error }, auth.status);
-        const body = await mlBody<{ rows?: unknown; version_id?: unknown; wait_seconds?: unknown }>(
-          request,
-        );
-        const rows = Array.isArray(body.rows) ? body.rows : null;
+        const body = await mlBody<{
+          rows?: unknown;
+          keys?: unknown;
+          version_id?: unknown;
+          wait_seconds?: unknown;
+        }>(request);
+
+        // Two ways in. `rows` means the caller computed the features and owns
+        // being right about them. `keys` means it did not: the platform reads
+        // them from the model's feature view, which is the same table training
+        // read, so there is nothing left for the caller to compute differently.
+        const wantsKeys = body.keys !== undefined;
+        let rows = Array.isArray(body.rows) ? (body.rows as Record<string, unknown>[]) : null;
+        let resolvedFrom: { view: string; missing: string[] } | null = null;
+
+        if (wantsKeys) {
+          if (rows) {
+            return mlJson({ error: "Send rows or keys, not both" }, 400);
+          }
+          if (!auth.model.feature_view_id) {
+            return mlJson(
+              {
+                error:
+                  "This model has no feature view, so it cannot be scored by key. Send rows, or attach a feature view to the model.",
+              },
+              400,
+            );
+          }
+          const { loadFeatureView, lookupFeatures } =
+            await import("@/utils/featureViews/lookup.server");
+          const view = await loadFeatureView(auth.model.feature_view_id, auth.model.user_id);
+          if (!view) return mlJson({ error: "The model's feature view is missing" }, 409);
+          const looked = await lookupFeatures({
+            view,
+            keys: body.keys as never,
+            userId: auth.model.user_id,
+            via: "ml-predict-api",
+          });
+          if (!looked.ok) return mlJson({ error: looked.error }, 400);
+          rows = looked.resolution.rows;
+          resolvedFrom = { view: view.name, missing: looked.resolution.missing };
+        }
+
         if (
           !rows ||
           !rows.length ||
@@ -125,6 +164,9 @@ export const Route = createFileRoute("/api/ml/predict")({
           warnings: result.warnings,
           elapsed_seconds: result.elapsedSeconds,
           served: result.served,
+          ...(resolvedFrom
+            ? { feature_view: resolvedFrom.view, keys_not_found: resolvedFrom.missing }
+            : {}),
         });
       },
     },

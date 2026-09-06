@@ -2367,6 +2367,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "_predicted_at",
       "classes",
       "features",
+      "keys_not_found",
       "ml-artifacts/",
       "ml.api_key.denied",
       "ml.drift.alert",
@@ -2392,7 +2393,8 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "read",
       "served",
       "task",
-      "train"
+      "train",
+      "unique"
     ],
     "headings": [
       {
@@ -2474,6 +2476,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "id": "forecast-period",
         "text": "What a forecast period is",
         "level": 3
+      },
+      {
+        "id": "features",
+        "text": "Feature views",
+        "level": 2
       },
       {
         "id": "warm",

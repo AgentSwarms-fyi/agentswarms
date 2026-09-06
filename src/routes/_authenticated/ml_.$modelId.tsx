@@ -81,6 +81,7 @@ import { PredictionsPanel } from "@/components/ml/PredictionsPanel";
 import { MlApiKeysDialog } from "@/components/ml/MlApiKeysDialog";
 import { ModelCardDialog } from "@/components/ml/ModelCardDialog";
 import { DeploymentPanel } from "@/components/ml/DeploymentPanel";
+import { ModelFeatureView } from "@/components/ml/FeatureViewsPanel";
 import { SchedulesPanel } from "@/components/ml/SchedulesPanel";
 
 // React 19's stricter JSX typing rejects recharts' class components — cast via any.
@@ -586,6 +587,15 @@ function ModelPage() {
           {/* Serving first: whether the endpoint is up changes what every
               prediction costs, which is the thing a reader wants before they
               think about when it retrains. */}
+          {/* What the model needs as INPUT comes before how it is served:
+              a key is a different contract from a row, and the panel below
+              only makes sense once that is settled. */}
+          <ModelFeatureView
+            token={token}
+            modelId={model.id}
+            featureViewId={(model as { feature_view_id?: string | null }).feature_view_id ?? null}
+            shared={shared}
+          />
           <DeploymentPanel
             token={token}
             modelId={model.id}

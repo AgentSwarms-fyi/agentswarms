@@ -457,6 +457,51 @@ curl -X POST https://your-instance/api/ml/predict/batch \\
         the last observed period and the method.
       </P>
 
+      <H2 id="features">Feature views</H2>
+      <P>
+        A model trained on a table whose columns were built by SQL is normally scored by POSTing
+        those same column names with values the caller computed itself, in its own code, months
+        later. Nothing checks that its arithmetic matches the training set&apos;s, so the model
+        receives numbers of the right shape and the wrong meaning and answers confidently. That is
+        training-serving skew, and it is quiet.
+      </P>
+      <P>
+        A <strong>feature view</strong> removes the caller&apos;s arithmetic. It names a table, the
+        column(s) that identify a row, and which columns are features; serving then takes a{" "}
+        <strong>key</strong> and reads the values from the same table training read. Under{" "}
+        <strong>ML Models → Feature views</strong>, attached to a model under{" "}
+        <strong>Automation → Input</strong>.
+      </P>
+      <Code>{`curl <origin>/api/ml/predict \\
+  -H "Authorization: Bearer mlk_…" -H "Content-Type: application/json" \\
+  -d '{"keys": [{"customer_id": "c-1"}]}'`}</Code>
+      <UL>
+        <li>
+          <strong>It materialises nothing.</strong> The table is whatever built it — a{" "}
+          <DocLink to="/docs/sql-models">SQL model</DocLink> is the natural author, since its
+          schedule keeps the table fresh and its <C>unique</C> test can assert the key.
+        </li>
+        <li>
+          <strong>It does not guess.</strong> Rows come back in the order the keys were asked for,
+          matched by key rather than by result order. A key matching nothing is named in{" "}
+          <C>keys_not_found</C> rather than filled with nulls, because a row of nulls scores happily
+          and means nothing.
+        </li>
+        <li>
+          <strong>It refuses an ambiguous key.</strong> A key matching two rows fails unless the
+          view names a column for <em>latest row wins</em>. Picking one of two arbitrarily is how a
+          feature store starts lying.
+        </li>
+        <li>
+          <strong>Nothing changes without one.</strong> Callers keep sending whole rows, and keep
+          owning them.
+        </li>
+      </UL>
+      <Callout title="A key may not also be a feature">
+        A key is what you look a row up by. Fed back in as a feature it teaches the model to
+        memorise identifiers, which scores beautifully in training and predicts nothing.
+      </Callout>
+
       <H2 id="warm">Warm endpoints</H2>
       <P>
         By default a prediction starts a container, boots Python, imports the ML stack, downloads

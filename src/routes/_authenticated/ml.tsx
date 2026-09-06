@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
 import { useAuth } from "@/hooks/use-auth";
+import { FeatureViewsPanel } from "@/components/ml/FeatureViewsPanel";
 import { cn } from "@/lib/utils";
 import { mlListModels, type MlModelSummary } from "@/utils/ml.functions";
 import {
@@ -55,6 +56,7 @@ function MlPage() {
   const listFn = useServerFn(mlListModels);
   const [data, setData] = useState<ListResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [tab, setTab] = useState<"models" | "features">("models");
   const [q, setQ] = useState("");
   const [task, setTask] = useState<"all" | MlTask>("all");
 
@@ -129,7 +131,32 @@ function MlPage() {
         </div>
       </div>
 
-      {stats ? (
+      <div className="flex items-center gap-1 border-b">
+        {(
+          [
+            ["models", "Models"],
+            ["features", "Feature views"],
+          ] as const
+        ).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setTab(key)}
+            className={cn(
+              "border-b-2 px-3 py-2 text-sm",
+              tab === key
+                ? "border-primary font-medium"
+                : "border-transparent text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "features" ? <FeatureViewsPanel token={token} /> : null}
+
+      {tab === "models" && stats ? (
         <div className="grid gap-3 sm:grid-cols-4">
           <Stat label="Models" value={fmtInt(stats.total)} />
           <Stat label="In production" value={fmtInt(stats.production)} />
@@ -142,7 +169,7 @@ function MlPage() {
         </div>
       ) : null}
 
-      <div className="flex flex-wrap items-center gap-2">
+      <div className={cn("flex flex-wrap items-center gap-2", tab !== "models" && "hidden")}>
         <div className="relative w-full max-w-sm">
           <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
@@ -171,7 +198,7 @@ function MlPage() {
         </div>
       </div>
 
-      {data === null && error !== null ? (
+      {tab !== "models" ? null : data === null && error !== null ? (
         <Card>
           <CardContent className="space-y-3 p-6">
             <p className="text-sm font-medium">Could not load models</p>
