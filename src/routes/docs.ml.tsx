@@ -457,6 +457,54 @@ curl -X POST https://your-instance/api/ml/predict/batch \\
         the last observed period and the method.
       </P>
 
+      <H2 id="warm">Warm endpoints</H2>
+      <P>
+        By default a prediction starts a container, boots Python, imports the ML stack, downloads
+        and digest-checks the artifact, scores, posts the answer back and exits — about{" "}
+        <strong>twenty seconds before any scoring happens</strong>. That is the right shape for a
+        batch job over a million rows and the wrong one for scoring a row behind a web request. A{" "}
+        <strong>deployment</strong> holds one version in memory and answers over HTTP instead, from{" "}
+        <strong>Automation → Warm endpoint</strong> on the model page.
+      </P>
+      <UL>
+        <li>
+          <strong>The scoring is identical.</strong> The sandbox loads the same program the batch
+          path runs and calls the same <C>_predict</C>, so the same fitted pipeline scores the same
+          digest-verified artifact. Only the waiting is different.
+        </li>
+        <li>
+          <strong>It pins a version.</strong> Promoting a new one marks the endpoint{" "}
+          <strong>stale</strong> and leaves it serving what it was serving. An endpoint that
+          silently changed its answers is the opposite of what pinning is for.
+        </li>
+        <li>
+          <strong>A missing endpoint is slower, never wrong.</strong> Down, loading, or serving a
+          different version, the prediction falls back to the sandbox. Every reply says which path
+          answered, in <C>served</C>.
+        </li>
+        <li>
+          <strong>Measured, one row, end to end:</strong> ~1.3 s warm against ~27 s cold on a laptop
+          with a remote database. The scoring itself is <strong>45 ms</strong> either way — that is
+          the model, and it does not change. What the endpoint removes is the container start; what
+          is left is the platform&apos;s own book-keeping, which on that setup is almost entirely
+          round trips to a database in another datacentre.
+        </li>
+        <li>
+          <strong>Recorded exactly like a cold prediction:</strong> the same row, the same drift
+          check, the same <C>ml.predict_query</C> audit event. Faster, not less accountable — and
+          those writes are part of the number above.
+        </li>
+        <li>
+          <strong>It costs memory while it is up</strong>, so it is off by default, an idle one is
+          stopped after its timeout unless <strong>Keep warm</strong> is on, and the instance caps
+          how many may be open.
+        </li>
+      </UL>
+      <Callout title="Forecast models have no endpoint">
+        A forecast is answered from the stored series with no model in the loop at all, so there is
+        nothing to hold warm.
+      </Callout>
+
       <H2 id="forecasting">Forecasting in BI</H2>
       <P>
         Line charts on a dashboard project ahead with the platform&apos;s shared forecaster:
@@ -574,7 +622,7 @@ curl -X POST https://your-instance/api/ml/predict/batch \\
           ],
           [
             "Real-time inference",
-            "A sandbox per call: seconds, not milliseconds; no warm autoscaled endpoint yet",
+            "Warm endpoints hold one version in memory: 45 ms of scoring instead of a ~25 s container start; one replica, no autoscaling",
             "Serving endpoints with autoscaling",
           ],
           [

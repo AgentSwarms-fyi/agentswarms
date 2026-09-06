@@ -4076,6 +4076,82 @@ export type Database = {
           },
         ];
       };
+      ml_deployments: {
+        Row: {
+          created_at: string;
+          endpoint: string | null;
+          id: string;
+          idle_ttl_minutes: number;
+          keep_warm: boolean;
+          last_error: string | null;
+          last_started_at: string | null;
+          last_used_at: string | null;
+          model_id: string;
+          request_count: number;
+          session_id: string | null;
+          status: string;
+          updated_at: string;
+          user_id: string;
+          version_id: string | null;
+        };
+        Insert: {
+          created_at?: string;
+          endpoint?: string | null;
+          id?: string;
+          idle_ttl_minutes?: number;
+          keep_warm?: boolean;
+          last_error?: string | null;
+          last_started_at?: string | null;
+          last_used_at?: string | null;
+          model_id: string;
+          request_count?: number;
+          session_id?: string | null;
+          status?: string;
+          updated_at?: string;
+          user_id: string;
+          version_id?: string | null;
+        };
+        Update: {
+          created_at?: string;
+          endpoint?: string | null;
+          id?: string;
+          idle_ttl_minutes?: number;
+          keep_warm?: boolean;
+          last_error?: string | null;
+          last_started_at?: string | null;
+          last_used_at?: string | null;
+          model_id?: string;
+          request_count?: number;
+          session_id?: string | null;
+          status?: string;
+          updated_at?: string;
+          user_id?: string;
+          version_id?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "ml_deployments_model_id_fkey";
+            columns: ["model_id"];
+            isOneToOne: true;
+            referencedRelation: "ml_models";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "ml_deployments_session_id_fkey";
+            columns: ["session_id"];
+            isOneToOne: false;
+            referencedRelation: "notebook_runtime_sessions";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "ml_deployments_version_id_fkey";
+            columns: ["version_id"];
+            isOneToOne: false;
+            referencedRelation: "ml_model_versions";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       ml_model_versions: {
         Row: {
           algorithm: string | null;
@@ -4901,6 +4977,8 @@ export type Database = {
           mem_limit_mb: number;
           ml_drift_alert_psi: number | null;
           ml_max_concurrent_trainings_per_user: number | null;
+          ml_max_deployments_per_user: number | null;
+          ml_max_deployments_total: number | null;
           ml_predict_max_rows: number | null;
           ml_train_gpus: number | null;
           ml_train_max_rows: number | null;
@@ -4946,6 +5024,8 @@ export type Database = {
           mem_limit_mb?: number;
           ml_drift_alert_psi?: number | null;
           ml_max_concurrent_trainings_per_user?: number | null;
+          ml_max_deployments_per_user?: number | null;
+          ml_max_deployments_total?: number | null;
           ml_predict_max_rows?: number | null;
           ml_train_gpus?: number | null;
           ml_train_max_rows?: number | null;
@@ -4991,6 +5071,8 @@ export type Database = {
           mem_limit_mb?: number;
           ml_drift_alert_psi?: number | null;
           ml_max_concurrent_trainings_per_user?: number | null;
+          ml_max_deployments_per_user?: number | null;
+          ml_max_deployments_total?: number | null;
           ml_predict_max_rows?: number | null;
           ml_train_gpus?: number | null;
           ml_train_max_rows?: number | null;
@@ -6726,6 +6808,10 @@ export type Database = {
       };
       increment_blog_view: { Args: { _slug: string }; Returns: number };
       increment_gateway_cache_hit: {
+        Args: { p_id: string };
+        Returns: undefined;
+      };
+      increment_ml_deployment_use: {
         Args: { p_id: string };
         Returns: undefined;
       };

@@ -112,6 +112,9 @@ export const Route = createFileRoute("/api/ml/predict")({
           }
           return mlJson({ error: result.error, prediction_id: result.predictionId ?? null }, 409);
         }
+        // `served` says whether a container was started for this call. A
+        // caller measuring latency otherwise cannot tell a cold answer from a
+        // slow model, and those want opposite fixes.
         return mlJson({
           prediction_id: result.predictionId,
           version_id: version.id,
@@ -121,6 +124,7 @@ export const Route = createFileRoute("/api/ml/predict")({
           rows: result.rows,
           warnings: result.warnings,
           elapsed_seconds: result.elapsedSeconds,
+          served: result.served,
         });
       },
     },

@@ -578,6 +578,91 @@ export async function cancelPrediction(id: string, userId: string): Promise<bool
  * agent tool. Polls the run; past the deadline it hands back the id so the
  * caller can keep polling instead of holding a connection open.
  */
+/**
+ * Score on a warm endpoint, or return null so the caller takes the sandbox.
+ *
+ * Null means "no endpoint answered", never "the answer was no": a deployment
+ * that is down, loading, or serving a different version is a slower path, not
+ * a failure. The one thing this must never do is answer when it is not certain
+ * which model answered.
+ *
+ * The prediction is recorded exactly as a cold one is — the same row, the same
+ * `finalizePrediction`, so the same digest, drift check and `ml.predict_query`
+ * audit. A warm endpoint is faster, not less accountable.
+ */
+async function scoreOnDeployment(args: {
+  model: MlModelRow;
+  version: MlVersionRow;
+  userId: string;
+  rows: Record<string, unknown>[];
+  via: string;
+  decisionId?: string | null;
+}): Promise<
+  | {
+      ok: true;
+      predictionId: string;
+      columns: string[];
+      rows: MlCell[][];
+      algorithm: string | null;
+      warnings: string[];
+      elapsedSeconds: number | null;
+      /** Which path answered. Warm means no container was started. */
+      served: "warm" | "sandbox";
+    }
+  | { ok: false; error: string; predictionId?: string }
+  | null
+> {
+  let scored: Awaited<ReturnType<typeof import("./serve.server").scoreWarm>>;
+  try {
+    const { scoreWarm } = await import("./serve.server");
+    scored = await scoreWarm({
+      model: args.model,
+      version: args.version,
+      userId: args.userId,
+      rows: args.rows,
+    });
+  } catch (e) {
+    console.warn("[ml-predict] warm path unavailable:", (e as Error).message);
+    return null;
+  }
+  if (!scored) return null;
+
+  const nowIso = new Date().toISOString();
+  const { data: row } = await supabaseAdmin
+    .from("ml_predictions")
+    .insert({
+      model_id: args.model.id,
+      version_id: args.version.id,
+      user_id: args.userId,
+      status: "running",
+      kind: ROWS_KIND,
+      via: args.via,
+      input: { kind: ROWS_KIND, count: args.rows.length, served: "warm" },
+      output: null,
+      created_at: nowIso,
+      started_at: nowIso,
+    })
+    .select("id")
+    .single();
+  if (!row) return null;
+
+  if (!scored.ok) {
+    await finalizePrediction(row.id, { status: "failed", error: scored.error });
+    return { ok: false, error: scored.error, predictionId: row.id };
+  }
+  await finalizePrediction(row.id, { status: "succeeded", result: scored.raw });
+  return {
+    ok: true,
+    predictionId: row.id,
+    columns: scored.columns,
+    rows: scored.rows as MlCell[][],
+    algorithm: scored.algorithm,
+    warnings: scored.warnings,
+    elapsedSeconds: scored.elapsedSeconds,
+    served: "warm",
+  };
+}
+
 export async function predictRowsSync(args: {
   model: MlModelRow;
   version: MlVersionRow;
@@ -595,9 +680,17 @@ export async function predictRowsSync(args: {
       algorithm: string | null;
       warnings: string[];
       elapsedSeconds: number | null;
+      /** Which path answered. Warm means no container was started. */
+      served: "warm" | "sandbox";
     }
   | { ok: false; error: string; predictionId?: string; pending?: boolean }
 > {
+  // A warm endpoint, if this model has one serving this exact version. It
+  // records the same row and writes the same audit as the sandbox path — the
+  // only thing that differs is the twenty seconds of container start.
+  const warm = await scoreOnDeployment(args);
+  if (warm) return warm;
+
   const started = await startPrediction({
     model: args.model,
     version: args.version,
@@ -630,6 +723,7 @@ export async function predictRowsSync(args: {
         algorithm: res.algorithm,
         warnings: res.warnings ?? [],
         elapsedSeconds: res.elapsed_seconds,
+        served: "sandbox",
       };
     }
     if (row.status === "failed" || row.status === "cancelled") {

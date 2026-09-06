@@ -241,3 +241,133 @@ export const mlModelCard = createServerFn({ method: "POST" })
       }),
     };
   });
+
+/**
+ * A model's warm endpoint, as the model page shows it.
+ *
+ * Readable by anyone who can read the model — whether an endpoint is up is the
+ * same kind of disclosure the version list already makes — while every write
+ * below requires ownership.
+ */
+export type MlDeploymentView = {
+  status: "starting" | "ready" | "failed" | "stopped";
+  version_id: string | null;
+  /** The version number actually loaded, for "serving v2 while v3 is production". */
+  version: number | null;
+  /** True when the model's production version is not the one being served. */
+  stale: boolean;
+  keep_warm: boolean;
+  idle_ttl_minutes: number;
+  last_used_at: string | null;
+  last_error: string | null;
+  request_count: number;
+  caps: { perUser: number; total: number };
+};
+
+export const mlDeploymentGet = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z.object({ accessToken: z.string().min(1), modelId: z.string().uuid() }).parse(input),
+  )
+  .handler(async ({ data }): Promise<Fail | { ok: true; deployment: MlDeploymentView | null }> => {
+    const userId = await resolveCaller(data.accessToken);
+    const { model } = await loadModelForUser(data.modelId, userId);
+    if (!model) return { ok: false, error: "Model not found" };
+    const { getDeployment, deploymentCaps } = await import("@/utils/ml/serve.server");
+    const [dep, caps] = await Promise.all([getDeployment(model.id), deploymentCaps()]);
+    if (!dep) return { ok: true, deployment: null };
+    const { data: version } = await supabaseAdmin
+      .from("ml_model_versions")
+      .select("version")
+      .eq("id", dep.version_id ?? "")
+      .maybeSingle();
+    return {
+      ok: true,
+      deployment: {
+        status: dep.status,
+        version_id: dep.version_id,
+        version: version?.version ?? null,
+        stale: Boolean(
+          model.production_version_id && dep.version_id !== model.production_version_id,
+        ),
+        keep_warm: dep.keep_warm,
+        idle_ttl_minutes: dep.idle_ttl_minutes,
+        last_used_at: dep.last_used_at,
+        last_error: dep.last_error,
+        request_count: dep.request_count,
+        caps,
+      },
+    };
+  });
+
+/**
+ * Bring the endpoint up on a version, and wait until it can actually score.
+ *
+ * Waits rather than returning "starting", because the useful answer to "is it
+ * deployed" is whether the next request will be fast, and a row that says
+ * ready before the model is loaded would be a lie the first caller pays for.
+ */
+export const mlDeploy = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z
+      .object({
+        accessToken: z.string().min(1),
+        modelId: z.string().uuid(),
+        versionId: z.string().uuid().optional(),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data }): Promise<Fail | { ok: true; version: number }> => {
+    const userId = await resolveCaller(data.accessToken);
+    const { model } = await loadModelForUser(data.modelId, userId, { write: true });
+    if (!model) return { ok: false, error: "Model not found" };
+    const { pickVersion } = await import("@/utils/ml/api.server");
+    const version = await pickVersion(model.id, data.versionId, model.production_version_id);
+    if (!version) return { ok: false, error: "No trained version to serve" };
+    const { ensureDeployment } = await import("@/utils/ml/serve.server");
+    const res = await ensureDeployment({ model, version, userId });
+    if (!res.ok) return { ok: false, error: res.error };
+    return { ok: true, version: version.version };
+  });
+
+export const mlUndeploy = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z.object({ accessToken: z.string().min(1), modelId: z.string().uuid() }).parse(input),
+  )
+  .handler(async ({ data }): Promise<Fail | { ok: true }> => {
+    const userId = await resolveCaller(data.accessToken);
+    const { model } = await loadModelForUser(data.modelId, userId, { write: true });
+    if (!model) return { ok: false, error: "Model not found" };
+    const { undeploy } = await import("@/utils/ml/serve.server");
+    await undeploy(model.id, userId);
+    return { ok: true };
+  });
+
+/** Keep it warm through idle periods, or change how long idle is allowed. */
+export const mlDeploymentUpdate = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z
+      .object({
+        accessToken: z.string().min(1),
+        modelId: z.string().uuid(),
+        keep_warm: z.boolean().optional(),
+        idle_ttl_minutes: z.number().int().min(1).max(1440).optional(),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data }): Promise<Fail | { ok: true }> => {
+    const userId = await resolveCaller(data.accessToken);
+    const { model } = await loadModelForUser(data.modelId, userId, { write: true });
+    if (!model) return { ok: false, error: "Model not found" };
+    const patch: { keep_warm?: boolean; idle_ttl_minutes?: number; updated_at: string } = {
+      updated_at: new Date().toISOString(),
+    };
+    if (data.keep_warm !== undefined) patch.keep_warm = data.keep_warm;
+    if (data.idle_ttl_minutes !== undefined) patch.idle_ttl_minutes = data.idle_ttl_minutes;
+    const { error } = await supabaseAdmin
+      .from("ml_deployments")
+      .update(patch)
+      .eq("model_id", model.id)
+      .eq("user_id", userId);
+    if (error) return { ok: false, error: error.message };
+    return { ok: true };
+  });

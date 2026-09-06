@@ -310,8 +310,11 @@ describe("compare and docs", () => {
         expect(rd(f), `${knob} in ${f}`).toContain(knob);
       }
     }
-    // The comparison is honest about the gaps.
-    expect(md).toContain("no warm autoscaled endpoint yet");
+    // The comparison is honest about the gaps — and about which ones have
+    // closed. Warm endpoints now exist; ONE replica of one, with no
+    // autoscaling, which is the part still worth admitting.
+    expect(md).toContain("one replica, no autoscaling");
+    expect(md).not.toContain("no warm autoscaled endpoint yet");
     expect(page).toContain("Feature store");
   });
 });

@@ -117,6 +117,11 @@ export async function processDueEtlPipelines(force = false): Promise<number> {
     // Due data monitors ride the same sweep, lease and clock.
     .then(() => import("@/utils/dataMonitors/run.server"))
     .then((m) => m.processDueDataMonitors(force))
+    // Warm inference endpoints nobody is calling. This is the ONLY thing that
+    // stops them: a service session has no expiry by design, and the generic
+    // reaper only knows how to idle out an MCP server.
+    .then(() => import("@/utils/ml/serve.server"))
+    .then((m) => m.reapIdleDeployments())
     .catch((e) => console.warn("[ml] orphan sweep failed:", (e as Error).message));
 
   return started;

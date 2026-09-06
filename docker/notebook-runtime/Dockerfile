@@ -26,6 +26,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY agentswarms_helper.py /opt/agentswarms/agentswarms.py
 COPY batch_runner.py /opt/agentswarms/batch_runner.py
 COPY mcp_runner.py /opt/agentswarms/mcp_runner.py
+COPY score_server.py /opt/agentswarms/score_server.py
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 

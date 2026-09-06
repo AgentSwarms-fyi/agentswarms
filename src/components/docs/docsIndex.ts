@@ -2363,6 +2363,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "SUMMARIZE",
       "WHERE",
       "_model_version",
+      "_predict",
       "_predicted_at",
       "classes",
       "features",
@@ -2389,6 +2390,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "proba_&lt;class&gt;",
       "probability",
       "read",
+      "served",
       "task",
       "train"
     ],
@@ -2472,6 +2474,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "id": "forecast-period",
         "text": "What a forecast period is",
         "level": 3
+      },
+      {
+        "id": "warm",
+        "text": "Warm endpoints",
+        "level": 2
       },
       {
         "id": "forecasting",

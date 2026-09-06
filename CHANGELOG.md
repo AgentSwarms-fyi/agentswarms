@@ -52,6 +52,31 @@ run `npx supabase db push` after pulling.
   lineage now appears in the Data Catalog beside crawled and ETL edges. Under
   **Data & BI → SQL Models**.
 
+### Warm inference endpoints
+
+- **A model version can be held in memory instead of started per call.** Every
+  prediction used to start a container, boot Python, import the ML stack,
+  download and digest-check the artifact, score, post back and exit. A
+  **deployment** pays that once. Measured end to end on one row: **1.3 s warm
+  against 27 s cold**, of which the scoring itself is **45 ms either way** —
+  that is the model, and it does not change. What is left is the platform's
+  own book-keeping, which on a laptop talking to a remote database is almost
+  entirely round trips.
+- **The scoring is not a second implementation.** The sandbox loads the same
+  program the batch path runs and calls the same `_predict`, so a warm answer
+  and a cold answer come from the same fitted pipeline and the same
+  digest-verified artifact. Verified live: identical class and identical
+  per-class probabilities to the last digit.
+- **It pins a version.** Promoting a new one marks the endpoint stale and
+  leaves it serving what it was serving, and it refuses to answer for a
+  version it is not holding. If the endpoint is down, loading, or on another
+  version, the prediction falls back to the sandbox — slower, never wrong.
+  Every reply says which path served it.
+- Recorded and audited exactly like a cold prediction. Off by default, stopped
+  when idle unless **Keep warm** is on, and capped per user and per instance,
+  because a held-open scorer costs memory whether or not anyone is scoring.
+  Under **Automation → Warm endpoint** on the model page.
+
 ### The AI gateway keeps growing
 
 - **The semantic layer answers over HTTP.** A gateway key with the new

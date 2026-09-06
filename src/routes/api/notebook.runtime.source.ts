@@ -118,6 +118,19 @@ async function handle(request: Request): Promise<Response> {
     return "error" in out ? json(404, out) : json(200, out);
   }
 
+  // A warm scorer: the model and version ride in the session's inputs, and it
+  // fetches the scoring program once at start rather than per request.
+  {
+    const serve = await import("@/utils/ml/serve.server");
+    const stash = serve.mlScoreStashOf(session?.inputs);
+    if (stash) {
+      // One call: the program, its config and the lakehouse credentials the
+      // artifact download needs. A scorer fetches this once, at start.
+      const out = await serve.mlScoreBundleFor(stash, claims.sub);
+      return "error" in out ? json(404, out) : json(200, out);
+    }
+  }
+
   // ETL node previews: no run row — the pipeline + node ride in the session's
   // inputs, and the bundle is compiled fresh (sampled sources, no loads).
   {

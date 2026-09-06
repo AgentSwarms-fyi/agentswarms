@@ -80,6 +80,7 @@ import {
 import { PredictionsPanel } from "@/components/ml/PredictionsPanel";
 import { MlApiKeysDialog } from "@/components/ml/MlApiKeysDialog";
 import { ModelCardDialog } from "@/components/ml/ModelCardDialog";
+import { DeploymentPanel } from "@/components/ml/DeploymentPanel";
 import { SchedulesPanel } from "@/components/ml/SchedulesPanel";
 
 // React 19's stricter JSX typing rejects recharts' class components — cast via any.
@@ -581,7 +582,17 @@ function ModelPage() {
           <PredictionsPanel token={token} model={model} versions={versions} shared={shared} />
         </TabsContent>
 
-        <TabsContent value="automation" className="mt-4">
+        <TabsContent value="automation" className="mt-4 space-y-4">
+          {/* Serving first: whether the endpoint is up changes what every
+              prediction costs, which is the thing a reader wants before they
+              think about when it retrains. */}
+          <DeploymentPanel
+            token={token}
+            modelId={model.id}
+            task={model.task}
+            shared={shared}
+            hasReadyVersion={versions.some((v) => v.status === "ready")}
+          />
           <SchedulesPanel token={token} modelId={model.id} task={model.task} shared={shared} />
         </TabsContent>
 

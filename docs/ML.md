@@ -182,7 +182,8 @@ row limit and tuning mode.
 ## Predictions
 
 **Try it** — a form generated from the feature schema (medians and category
-lists filled in). One row is scored in a sandbox, so allow half a minute; the
+lists filled in). Without a warm endpoint one row is scored in a sandbox, so
+allow half a minute; with one it comes back immediately. The
 result shows the predicted class with its confidence and the per-class
 probabilities, or the predicted number.
 
@@ -307,6 +308,75 @@ with s3fs.S3FileSystem().open(uri, "wb") as f: f.write(blob)
 # POST /api/ml/models/register with artifact_uri=uri, artifact_sha256=hashlib.sha256(blob).hexdigest()
 ```
 
+## Warm endpoints
+
+By default a prediction starts a container, boots Python, imports the ML
+stack, downloads and digest-checks the artifact, scores, posts the answer back
+and exits. Measured on an idle machine with the image already pulled, that is
+about **twenty seconds before any scoring happens**. It is the right shape for
+a batch job over a million rows and the wrong one entirely for scoring a row
+behind a web request.
+
+A **deployment** holds one version in memory and answers over HTTP instead.
+Find it on the model page under **Automation → Warm endpoint**.
+
+**The scoring is identical.** The sandbox loads the same program the batch path
+runs and calls the same `_predict`, so the same fitted pipeline scores the same
+digest-verified artifact. Only the waiting is different. A second scoring
+implementation would agree today and diverge quietly later, which is the one
+failure this feature could plausibly have introduced.
+
+**It pins a version.** A deployment names the version it loaded, not "whatever
+is in production". Promoting a new version marks the endpoint **stale** and
+leaves it serving what it was serving, because an endpoint that silently
+changed its answers is the opposite of what pinning is for. Redeploy when you
+mean to.
+
+**A missing endpoint is slower, never wrong.** If the deployment is down,
+loading, or serving a different version, the prediction falls back to the
+sandbox and takes the usual twenty seconds. Nothing fails, and nothing answers
+from a model you did not ask for. Every reply says which path served it:
+
+```json
+{ "prediction_id": "…", "version": 3, "served": "warm", "elapsed_seconds": 0.045 }
+```
+
+**What it actually costs.** Measured end to end on a laptop against a remote
+managed Postgres, one row through `/api/ml/predict`:
+
+|                            | Warm   | Cold  |
+| -------------------------- | ------ | ----- |
+| Whole API call             | ~1.3 s | ~27 s |
+| Scoring inside the sandbox | 45 ms  | 45 ms |
+
+The scoring is the same 45 ms either way — that is the model, and it never
+changed. What a warm endpoint removes is the twenty-odd seconds of container
+start around it.
+
+The ~1.2 s left over is **not** the model: it is the platform's own
+book-keeping, and on this setup almost all of it is round trips to a database
+in another datacentre. Authenticating the key, checking its rate limit,
+loading the model row, picking the version, finding the endpoint, writing the
+prediction row and auditing it are seven or eight round trips. Co-locate the
+database and the same code path is a small fraction of that; the endpoint
+itself answers in about 90 ms including HTTP.
+
+**It is recorded exactly like a cold prediction.** The same `ml_predictions`
+row, the same drift check, the same `ml.predict_query` audit event. Faster, not
+less accountable.
+
+**It costs memory while it is up.** A held-open scorer holds the ML stack and a
+fitted pipeline resident whether or not anyone is scoring, so:
+
+- it is **off by default**, per model;
+- an idle one is **stopped** after `idle_ttl_minutes` (15 by default), unless
+  **Keep warm** is on, which is for the endpoints where the first slow request
+  is the one that matters;
+- the instance caps how many may be open at once.
+
+Forecast models have no endpoint: a forecast is answered from the stored series
+with no model in the loop at all.
+
 ## Forecasting in BI
 
 Line charts on a BI dashboard project ahead with the platform's shared
@@ -371,6 +441,8 @@ them. A large VM or a Kubernetes node pool is allowed to use itself.
 | `ML_API_RATE_LIMIT_PER_MIN`            | 60        | Calls a minute one ML API key may make                 |
 | `ML_TRAIN_GPUS`                        | 0         | GPUs requested per training sandbox                    |
 | `ML_DRIFT_ALERT_PSI`                   | 0.25      | PSI above which a prediction run raises a drift alert  |
+| `ML_MAX_DEPLOYMENTS_PER_USER`          | 2         | Warm endpoints one person may hold open                |
+| `ML_MAX_DEPLOYMENTS_TOTAL`             | 10        | Warm endpoints this instance may hold open             |
 
 See [SCALE_AND_LIMITS.md](./SCALE_AND_LIMITS.md#machine-learning--srcutilsnotebookruntimeconfigserverts).
 
@@ -403,23 +475,23 @@ See [SCALE_AND_LIMITS.md](./SCALE_AND_LIMITS.md#machine-learning--srcutilsnotebo
 
 Where AgentSwarms stands against Databricks ML and SageMaker, honestly:
 
-| Capability                 | AgentSwarms                                                                               | Databricks / SageMaker                                 |
-| -------------------------- | ----------------------------------------------------------------------------------------- | ------------------------------------------------------ |
-| No-code AutoML             | Six tasks incl. clustering, anomaly, recommendation; tuning; data prep in the wizard      | AutoML / Canvas: similar tasks, larger search spaces   |
-| Registry, stages, lineage  | Versions, stages, snapshot + decision id per version, artifact digests                    | MLflow registry / Model Registry                       |
-| Batch scoring              | Into lakehouse tables, scheduled, with drift per run                                      | Jobs / Batch Transform                                 |
-| Real-time inference        | A sandbox per call: seconds, not milliseconds; no warm autoscaled endpoint yet            | Serving endpoints with autoscaling                     |
-| Drift monitoring           | PSI per feature on every batch, threshold alerts                                          | Lakehouse Monitoring / Model Monitor (more statistics) |
-| Scheduled retraining       | Cron/cadence, promote-when-better, one platform clock                                     | Workflows / Pipelines                                  |
-| Public API                 | Per-model scoped keys, rate limits, audited denials, BYO registration                     | Yes, IAM-based                                         |
-| Bring your own model       | Any joblib pipeline under a small contract                                                | Any framework, containers                              |
-| Feature store              | Not yet — prep flows and lakehouse tables play that role                                  | Yes                                                    |
-| Distributed / GPU training | One sandbox per job; GPUs requestable, CPU image by default                               | Clusters, distributed frameworks, GPU instances        |
-| Experiment tracking        | Leaderboard and tuning trials per version; no MLflow-style run logging from notebooks yet | MLflow / Experiments                                   |
-| Model cards                | Generated from the registry                                                               | SageMaker Model Cards                                  |
-| Governance                 | IAM shares, trigger audit, decision ids, result digests, one statement guard for all data | Unity Catalog / IAM                                    |
-| Agents and BI              | Models are agent tools; forecasts and drift live in the BI layer                          | Separate products                                      |
-| Cost and residency         | Self-hosted, your infrastructure, no per-call charges                                     | Managed, metered                                       |
+| Capability                 | AgentSwarms                                                                                                                 | Databricks / SageMaker                                 |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| No-code AutoML             | Six tasks incl. clustering, anomaly, recommendation; tuning; data prep in the wizard                                        | AutoML / Canvas: similar tasks, larger search spaces   |
+| Registry, stages, lineage  | Versions, stages, snapshot + decision id per version, artifact digests                                                      | MLflow registry / Model Registry                       |
+| Batch scoring              | Into lakehouse tables, scheduled, with drift per run                                                                        | Jobs / Batch Transform                                 |
+| Real-time inference        | Warm endpoints hold one version in memory: 45 ms of scoring instead of a ~25 s container start; one replica, no autoscaling | Serving endpoints with autoscaling                     |
+| Drift monitoring           | PSI per feature on every batch, threshold alerts                                                                            | Lakehouse Monitoring / Model Monitor (more statistics) |
+| Scheduled retraining       | Cron/cadence, promote-when-better, one platform clock                                                                       | Workflows / Pipelines                                  |
+| Public API                 | Per-model scoped keys, rate limits, audited denials, BYO registration                                                       | Yes, IAM-based                                         |
+| Bring your own model       | Any joblib pipeline under a small contract                                                                                  | Any framework, containers                              |
+| Feature store              | Not yet — prep flows and lakehouse tables play that role                                                                    | Yes                                                    |
+| Distributed / GPU training | One sandbox per job; GPUs requestable, CPU image by default                                                                 | Clusters, distributed frameworks, GPU instances        |
+| Experiment tracking        | Leaderboard and tuning trials per version; no MLflow-style run logging from notebooks yet                                   | MLflow / Experiments                                   |
+| Model cards                | Generated from the registry                                                                                                 | SageMaker Model Cards                                  |
+| Governance                 | IAM shares, trigger audit, decision ids, result digests, one statement guard for all data                                   | Unity Catalog / IAM                                    |
+| Agents and BI              | Models are agent tools; forecasts and drift live in the BI layer                                                            | Separate products                                      |
+| Cost and residency         | Self-hosted, your infrastructure, no per-call charges                                                                       | Managed, metered                                       |
 
 The gaps that matter most — a warm real-time endpoint, a feature store,
 distributed training, notebook experiment logging — are on the road map;

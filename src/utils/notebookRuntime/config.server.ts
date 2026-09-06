@@ -52,6 +52,10 @@ export type PlatformResourceSettings = {
   mlTrainGpus: number;
   /** PSI above which a batch prediction raises a drift notification. */
   mlDriftAlertPsi: number;
+  /** Warm inference endpoints one user may hold open. */
+  mlMaxDeploymentsPerUser: number;
+  /** Warm inference endpoints this instance may hold open. */
+  mlMaxDeploymentsTotal: number;
   /** Calls a minute one AI-gateway key may make unless it sets its own. */
   gatewayRateLimitPerMin: number;
   /** provider/model entries every gateway call may fall back to, after the key's chain. */
@@ -125,7 +129,7 @@ export async function getPlatformResources(): Promise<PlatformResourceSettings> 
   const { data } = await supabaseAdmin
     .from("notebook_runtime_settings")
     .select(
-      "lakehouse_memory_limit, lakehouse_threads, etl_max_concurrent_runs_per_user, etl_pipelines_per_sweep, ml_train_max_rows, ml_train_time_budget_minutes, ml_train_mem_limit_mb, ml_max_concurrent_trainings_per_user, ml_predict_max_rows, ml_train_gpus, ml_drift_alert_psi, gateway_rate_limit_per_min, gateway_fallback_models, gateway_metrics_max_rows, gateway_cache_similarity, gateway_cache_ttl_hours, gateway_cache_max_temperature, data_monitors_per_sweep, data_monitor_anomaly_sigma, ai_sql_max_calls_per_statement, ai_sql_default_model, ai_sql_cache_ttl_days, document_vision_model, document_vision_max_pages",
+      "lakehouse_memory_limit, lakehouse_threads, etl_max_concurrent_runs_per_user, etl_pipelines_per_sweep, ml_train_max_rows, ml_train_time_budget_minutes, ml_train_mem_limit_mb, ml_max_concurrent_trainings_per_user, ml_predict_max_rows, ml_train_gpus, ml_drift_alert_psi, ml_max_deployments_per_user, ml_max_deployments_total, gateway_rate_limit_per_min, gateway_fallback_models, gateway_metrics_max_rows, gateway_cache_similarity, gateway_cache_ttl_hours, gateway_cache_max_temperature, data_monitors_per_sweep, data_monitor_anomaly_sigma, ai_sql_max_calls_per_statement, ai_sql_default_model, ai_sql_cache_ttl_days, document_vision_model, document_vision_max_pages",
     )
     .eq("id", true)
     .maybeSingle();
@@ -155,6 +159,13 @@ export async function getPlatformResources(): Promise<PlatformResourceSettings> 
       positive(data?.ml_predict_max_rows) ?? envInt("ML_PREDICT_MAX_ROWS") ?? 5_000_000,
     mlTrainGpus: nonNegative(data?.ml_train_gpus) ?? envInt("ML_TRAIN_GPUS") ?? 0,
     mlDriftAlertPsi: positiveNum(data?.ml_drift_alert_psi) ?? envNum("ML_DRIFT_ALERT_PSI") ?? 0.25,
+    // A warm scorer costs its memory whether or not anyone is scoring, which
+    // is why these are small by default and a per-endpoint idle timer takes
+    // one down when it stops earning that memory.
+    mlMaxDeploymentsPerUser:
+      positive(data?.ml_max_deployments_per_user) ?? envInt("ML_MAX_DEPLOYMENTS_PER_USER") ?? 2,
+    mlMaxDeploymentsTotal:
+      positive(data?.ml_max_deployments_total) ?? envInt("ML_MAX_DEPLOYMENTS_TOTAL") ?? 10,
     gatewayRateLimitPerMin:
       positive(data?.gateway_rate_limit_per_min) ?? envInt("AI_GATEWAY_RATE_LIMIT_PER_MIN") ?? 60,
     gatewayMetricsMaxRows:
@@ -356,6 +367,10 @@ export async function countLiveServices(userId: string): Promise<number> {
     .select("id", { count: "exact", head: true })
     .eq("user_id", userId)
     .eq("kind", "service")
+    // MCP servers only. A warm model scorer is also a service session, and
+    // counting it here would spend an MCP slot on a model — and refuse an MCP
+    // server because somebody deployed one.
+    .not("mcp_app_id", "is", null)
     .in("status", LIVE_STATUSES);
   return count ?? 0;
 }
@@ -366,6 +381,7 @@ export async function countLiveServicesTotal(): Promise<number> {
     .from("notebook_runtime_sessions")
     .select("id", { count: "exact", head: true })
     .eq("kind", "service")
+    .not("mcp_app_id", "is", null)
     .in("status", LIVE_STATUSES);
   return count ?? 0;
 }

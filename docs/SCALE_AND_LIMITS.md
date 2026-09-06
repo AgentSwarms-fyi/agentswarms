@@ -319,6 +319,8 @@ runtime** and takes effect on the next job, no redeploy.
 | `ML_API_RATE_LIMIT_PER_MIN`            | 60        | Calls a minute one ML API key may make, across every `/api/ml/*` endpoint (global limiter).                       |
 | `ML_TRAIN_GPUS`                        | 0         | GPUs requested per training sandbox: a Docker device request, or `nvidia.com/gpu` on Kubernetes.                  |
 | `ML_DRIFT_ALERT_PSI`                   | 0.25      | Population stability index above which a batch prediction audits `ml.drift.alert` and notifies the owner.         |
+| `ML_MAX_DEPLOYMENTS_PER_USER`          | 2         | Warm inference endpoints one person may hold open; each is a container holding a model in memory.                 |
+| `ML_MAX_DEPLOYMENTS_TOTAL`             | 10        | Warm inference endpoints this instance may hold open at once.                                                     |
 | `AI_GATEWAY_RATE_LIMIT_PER_MIN`        | 60        | Calls a minute one AI-gateway key may make unless the key sets its own (global limiter across replicas).          |
 | `AI_GATEWAY_FALLBACK_MODELS`           | —         | Comma-separated `provider/model` entries every gateway call may fall back to, after the key's own chain.          |
 | `AI_GATEWAY_METRICS_MAX_ROWS`          | 10,000    | Rows one metrics API query (`/api/v1/metrics/query`) may return; a smaller `limit` in the request wins.           |

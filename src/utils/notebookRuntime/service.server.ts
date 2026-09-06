@@ -13,6 +13,16 @@ export type SessionRow = Database["public"]["Tables"]["notebook_runtime_sessions
 
 export const LIVE = ["queued", "starting", "ready", "running", "stopping"] as const;
 
+/**
+ * Which long-lived program a `service` session runs.
+ *
+ * "mcp" serves a user-authored FastMCP server; "score" holds one trained model
+ * version in memory and answers predictions over HTTP. Both are services to
+ * the orchestrator — no expiry, restart on failure — and differ only in the
+ * image entrypoint they land on.
+ */
+export type ServiceMode = "mcp" | "score";
+
 // Defaults adapt to how the app is deployed, so neither a compose install nor a
 // local `npm run dev` needs env wiring. Override any of them for custom setups.
 //
@@ -53,15 +63,17 @@ function buildKernelEnv(opts: {
   sessionId: string;
   token: string;
   kind: KernelKind;
+  serviceMode?: ServiceMode;
   entrypoint?: string | null;
   inputs?: unknown;
 }): Record<string, string> {
   const appUrl = internalAppUrl();
   const env: Record<string, string> = {
-    // The image's entrypoint names the MCP mode "mcp"; the session kind is
-    // "service" because that is what it is to the orchestrator. Map here rather
-    // than renaming either side.
-    NB_MODE: opts.kind === "service" ? "mcp" : opts.kind,
+    // The image's entrypoint names the programs; the session kind is "service"
+    // because that is what it is to the orchestrator. Map here rather than
+    // renaming either side. Two programs are long-lived services: an MCP
+    // server and a warm model scorer.
+    NB_MODE: opts.kind === "service" ? (opts.serviceMode ?? "mcp") : opts.kind,
     NB_SESSION_ID: opts.sessionId,
     // The in-container `agentswarms` helper calls back here for model/KB access.
     AGENTSWARMS_ORIGIN: appUrl,
@@ -108,11 +120,19 @@ export async function startSession(opts: {
   /** Batch only: this session executes an ETL run (source route serves its bundle). */
   etlRunId?: string | null;
   kind: KernelKind;
+  /** Services only: which program runs. Defaults to the MCP server. */
+  serviceMode?: ServiceMode;
   entrypoint?: string | null;
   inputs?: unknown;
   /** Services only: restart the sandbox if the user's process dies. */
   restartOnFailure?: boolean;
-  /** Batch only: override the runtime's default memory ceiling (MB). */
+  /**
+   * Override the default memory ceiling (MB), for a batch job or a service.
+   *
+   * A warm scorer holds a fitted sklearn pipeline and the ML stack resident,
+   * which is the training budget's problem rather than the 2 GB an MCP server
+   * gets — so a service may raise it too.
+   */
   memLimitMb?: number;
   /** Batch only: override the runtime's default wall-clock limit (minutes). */
   maxMinutes?: number;
@@ -124,7 +144,8 @@ export async function startSession(opts: {
   const service = opts.kind === "service";
   const cpu = batch ? settings.batchCpuLimit : settings.cpuLimit;
   const mem =
-    (batch && opts.memLimitMb) || (batch ? settings.batchMemLimitMb : settings.memLimitMb);
+    ((batch || service) && opts.memLimitMb) ||
+    (batch ? settings.batchMemLimitMb : settings.memLimitMb);
   const maxMin =
     (batch && opts.maxMinutes) || (batch ? settings.batchMaxMinutes : settings.sessionMaxMinutes);
   const nowIso = new Date().toISOString();
@@ -182,6 +203,7 @@ export async function startSession(opts: {
     sessionId: row.id,
     token,
     kind: opts.kind,
+    serviceMode: opts.serviceMode,
     entrypoint: opts.entrypoint,
     inputs: opts.inputs,
   });
