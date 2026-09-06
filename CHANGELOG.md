@@ -12,6 +12,135 @@ development branch and may be ahead of the latest tag.
 
 ---
 
+## 1.4.0 — 2026-09-06
+
+**The platform opens outward: an AI gateway in, Iceberg out, streams and
+scanned documents read, and the data watched.** Ten commits and 96 files
+close the gaps a 2026 buyer would list against the hosted platforms: an
+OpenAI-compatible endpoint that puts your agents and models behind one key,
+data monitors that learn a table's rhythm and open incidents when it breaks,
+AI functions inside SQL, a vision model reading scanned PDFs into knowledge
+bases, Kafka, Kinesis and Pub/Sub as pipeline sources, and Apache Iceberg
+catalogs mounted as lakehouse schemas or written to. Seven migrations — run
+`npx supabase db push` after upgrading (the setup scripts and the Kubernetes
+installer apply them for you).
+
+### The AI gateway
+
+- **One door for every client.** `/api/v1/chat/completions` and
+  `/api/v1/models` speak the OpenAI protocol, so an SDK, an IDE plugin, an
+  evaluation harness or another agent points at `https://<your host>/api/v1`
+  with a **gateway key** and talks to a saved agent — its prompt, tools,
+  knowledge and guardrails — or to a connected model directly. Streaming
+  included; the completion carries the trace id, the fallback model if one
+  was used, the citations and the tool calls the agent made.
+- **Keys reach what their owner could reach by hand.** Minted under
+  **Integrations → LLM Gateway → API access**, a key carries scopes (agents,
+  models), an agent allow-list, `provider/model` patterns, a per-key rate
+  limit, a monthly budget attributed on every trace, and an expiry. Every call
+  runs as the owner under the owner's IAM model rules, budgets, traces and
+  audit trail; a key's configuration changes are audited, its use is traced.
+- **Fallback that never lies mid-answer.** A key's ordered fallback chain, then
+  the instance-wide chain, are tried when a provider fails with 402, 408, 425,
+  429 or a 5xx — never after the first token has been sent.
+
+### Data monitors
+
+- **Standing checks on any table**, under **Data & BI → Data monitors**:
+  freshness, row volume, schema, nulls, uniqueness and custom SQL, on
+  lakehouse tables and connected warehouses alike, hourly, daily, weekly or
+  on a cron expression, claimed by clock so replicas never run one twice.
+- **Baselines instead of thresholds.** A volume check learns the table's rhythm
+  and alerts a configurable number of standard deviations from it; a schema
+  check remembers the columns it saw and names what changed.
+- **Incidents, not log lines.** The first failing run opens an incident and
+  notifies you in-app and on any connected channel; further failures extend
+  it and count occurrences; Acknowledge marks it seen and Resolve closes it by
+  hand. An agent asks `data_health` before it trusts a table.
+
+### AI in SQL
+
+- **Seven functions inside a lakehouse statement**: `ai_complete`,
+  `ai_classify`, `ai_extract`, `ai_sentiment`, `ai_summarize`, `ai_translate`
+  and `ai_filter`, with the model as an optional last argument. A statement
+  runs in two passes — the engine collects the distinct inputs, the model
+  answers them, the engine finishes — so a GROUP BY over a million rows with a
+  hundred distinct categories costs a hundred calls, not a million.
+- **Answers are cached and calls are capped.** A durable cache keyed on the
+  function, the inputs and the model reuses an answer for thirty days; a
+  statement that would exceed the per-statement call cap is refused before
+  the first call, with the count. Every call runs as the user under the IAM
+  model rules and budget, and is traced under **AI SQL**.
+- **A Data Prep step, too.** An **AI column** step in the visual Data Prep
+  studio compiles to the same functions on the lakehouse, so a wrangling flow
+  can classify or extract without leaving the canvas.
+
+### Document intelligence
+
+- **Scanned PDFs and images are read, not skipped.** A PDF whose pages are
+  pictures, and any image file, is rendered in the browser and transcribed by
+  the instance's vision model as the uploading user: the IAM model rules
+  apply, the budget applies, each page leaves a trace under **Document OCR**
+  and each batch a `kb.document.ocr` audit event with the page range, the
+  model and the cost. The document keeps `[page N]` markers so a citation can
+  say where.
+
+### Streaming sources
+
+- **Kafka, Kinesis and Pub/Sub as ETL sources.** A Kafka or Redpanda topic
+  (and Confluent, MSK and Event Hubs), an Amazon Kinesis stream or a Google
+  Pub/Sub subscription is read in micro-batches on the pipeline's own
+  schedule, from where the previous run durably loaded: at-least-once, never
+  lost, with the merge target deduplicating a replayed batch. Offsets per
+  partition and sequence numbers per shard live in the platform's own
+  watermark store; nothing is committed to the broker, and a preview moves
+  nothing.
+- **Credentials by name, hosts by allow-list.** The node names the secrets
+  holding its SASL, AWS or service-account credentials, resolved as the owner
+  at run time; a broker not on the sandbox egress allow-list refuses the run
+  before it starts, naming the host.
+
+### Iceberg interop
+
+- **An Iceberg REST catalog becomes lakehouse schemas.** Register a catalog
+  (Lakekeeper, Polaris, Nessie, Glue, Unity Catalog, Snowflake Open Catalog)
+  under **Lakehouse → Iceberg**, mount a namespace, and its tables are
+  read-only views in a schema with an owner and IAM shares — the statement
+  guard, the listing, BI, the analyst and the agents see them like any other
+  table, and nothing is copied. Refresh brings the views level.
+- **Publish and import.** A lakehouse table is written into a catalog namespace
+  as an Iceberg table, or an Iceberg table is imported as a real DuckLake
+  table; both check ownership and audit the catalog, namespace, table and row
+  count. The catalog is probed before it is saved, attaches when the engine
+  boots, and a dead endpoint is noted on its row and retried on a backoff
+  instead of blocking anyone.
+
+### Also
+
+- **The acknowledgements credit what actually runs**: the Python inside the
+  runtime and document images, the DuckDB extensions, the containers beside
+  the app and the sample datasets' provenance, every claim traced to the code
+  that imports the package and every link fetched.
+
+### Upgrading
+
+```bash
+git pull
+npm install
+npx supabase db push                                 # 7 migrations
+docker compose --profile all up -d --build           # rebuilds the notebook runtime image too
+```
+
+The notebook runtime image gained the Kafka, Kinesis and Pub/Sub clients, so
+rebuild it; `--profile all` does. Nine environment variables are new, all
+optional with working defaults, and every one is also a setting under
+**Admin → Developer**: the gateway's rate limit and fallback chain, the
+monitor sweep size and anomaly sigma, the AI SQL call cap, default model
+and cache lifetime, and the document vision model and page cap. The Iceberg
+features need the engine's `iceberg` extension, which the app installs on
+boot; an instance that cannot download it still runs the lakehouse and says
+the extension is missing where a catalog would be used.
+
 ## 1.3.0 — 2026-09-05
 
 **The data half grows up, and gets a machine-learning platform on top.** Sixty-two
