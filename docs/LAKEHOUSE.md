@@ -358,7 +358,8 @@ Open Catalog all speak this protocol. The catalog is attached and asked for
 its namespaces before it is saved, so a wrong endpoint or a missing secret is
 refused with the engine's own words. Registered catalogs attach when the
 engine boots; one that fails to attach is marked on its row and skipped,
-never blocking the lakehouse. Table files are read with the credentials the
+never blocking the lakehouse, and tried again every five minutes until it
+answers. Table files are read with the credentials the
 catalog vends, or with the lakehouse's own storage credentials when both live
 in one object store.
 

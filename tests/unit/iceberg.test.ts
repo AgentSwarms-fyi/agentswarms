@@ -183,6 +183,14 @@ describe("the wiring", () => {
     expect(core).toContain('if (ref.catalog && ref.catalog !== "lake") {');
     const server = rd("src/utils/lakehouse/iceberg.server.ts");
     expect(server).toContain(".update({ last_error: message })");
+    // A dead endpoint is retried on a backoff, never on every sync, and a
+    // forced sync (a statement that met the missing catalog) tries at once.
+    expect(server).toContain("const RETRY_FAILED_MS = 5 * 60_000;");
+    expect(server).toContain(
+      "if (!force && now - (failedAt.get(row.id) ?? 0) < RETRY_FAILED_MS) continue;",
+    );
+    expect(server).toContain("failedAt.set(row.id, Date.now());");
+    expect(server).toContain("failedAt.delete(row.id);");
     expect(server).toContain('action: "lakehouse.iceberg.mount"');
     expect(server).toContain('action: "lakehouse.iceberg.publish"');
     expect(server).toContain('action: "lakehouse.iceberg.import"');

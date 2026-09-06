@@ -324,7 +324,7 @@ function LakehouseDocsPage() {
           Secrets. Lakekeeper, Apache Polaris, Nessie, Glue, Unity Catalog and Snowflake Open
           Catalog speak this protocol. The catalog is attached and asked for its namespaces before
           it is saved; registered catalogs attach when the engine boots, and one that fails is
-          marked on its row and skipped.
+          marked on its row and skipped, then tried again every five minutes.
         </li>
         <li>
           <strong>Mount a namespace.</strong> A namespace becomes a lakehouse schema: one read-only

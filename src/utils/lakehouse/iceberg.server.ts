@@ -89,11 +89,20 @@ export async function attachIcebergCatalog(
 const attached = new Set<string>();
 let lastSync = 0;
 const SYNC_MS = 15_000;
+/**
+ * A catalog that failed to attach waits this long before the next try: each
+ * attempt holds the connection that triggered it for the endpoint's timeout
+ * and writes the row, and a dead endpoint retried every sync would tax every
+ * user of the lakehouse. A forced sync tries at once.
+ */
+const failedAt = new Map<string, number>();
+const RETRY_FAILED_MS = 5 * 60_000;
 
 /**
  * Attach every active catalog this instance lacks, detach the ones removed.
  * A catalog that fails to attach is noted on its row and skipped, so one
- * dead endpoint never blocks the lakehouse.
+ * dead endpoint never blocks the lakehouse; it is tried again after
+ * RETRY_FAILED_MS.
  */
 export async function ensureIcebergCatalogs(c: DuckDBConnection, force = false): Promise<void> {
   const now = Date.now();
@@ -107,13 +116,16 @@ export async function ensureIcebergCatalogs(c: DuckDBConnection, force = false):
   for (const row of (rows ?? []) as IcebergCatalogRow[]) {
     live.add(row.id);
     if (attached.has(row.id)) continue;
+    if (!force && now - (failedAt.get(row.id) ?? 0) < RETRY_FAILED_MS) continue;
     try {
       await attachIcebergCatalog(c, row.user_id, configOf(row), icebergAlias(row.id));
       attached.add(row.id);
+      failedAt.delete(row.id);
       if (row.last_error) {
         await supabaseAdmin.from("iceberg_catalogs").update({ last_error: null }).eq("id", row.id);
       }
     } catch (e) {
+      failedAt.set(row.id, Date.now());
       const message = (e as Error).message.slice(0, 500);
       console.warn(`[lakehouse] iceberg catalog "${row.name}" did not attach:`, message);
       await supabaseAdmin
