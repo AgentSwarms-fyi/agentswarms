@@ -832,6 +832,14 @@ function TableTab({
         >
           Monitor this table
         </Link>
+        <Link
+          to="/semantics"
+          search={{ source: "lakehouse", schema, table, create: true }}
+          className="text-xs text-primary hover:underline"
+          title="Name what these columns mean, so dashboards, the AI Analyst and agents all compute them the same way"
+        >
+          Define metrics on this
+        </Link>
         <PublishToIcebergDialog schema={schema} table={table} />
         {matview && (
           <Badge

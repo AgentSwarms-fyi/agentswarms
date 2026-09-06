@@ -5,7 +5,13 @@
 // GROUP LABELS ARE A PUBLIC NAME. The docs write nav paths as
 // "Observability → AI Budgets", and scripts/check-docs.mjs checks those
 // claims against this map, so a group renamed here renames a sentence in
-// every page that cites it. Order is free; names are not.
+// every page that cites it.
+//
+// ORDER WITHIN A GROUP IS THE ORDER OF THE WORK, not the alphabet and not the
+// order pages were built. Data & BI reads as the journey one table takes:
+// find it, move it, store it, shape it, define what it means, then ask it
+// questions. Someone who scans the rail top to bottom should be reading a
+// pipeline, because that is how they will actually use it.
 import {
   Activity,
   BarChart3,
@@ -74,19 +80,32 @@ export const NAV_GROUPS: NavGroup[] = [
   },
   {
     label: "Data & BI",
+    // In the order data moves through the platform. The four pages that
+    // produce or shape tables come first, then the two that say what those
+    // tables MEAN, then the three that consume them.
     items: [
-      { title: "AI Analyst", url: "/ai-analyst", icon: BrainCircuit },
+      // 1. Find it.
       { title: "Data Catalog", url: "/data-sql", icon: Database },
-      { title: "Semantic Layer", url: "/semantics", icon: Layers },
-      // The catalog sits beside the layer that defines it: authors go to
-      // Semantic Layer, everyone else comes here to find a metric to use.
-      { title: "Metrics", url: "/metrics", icon: Sigma },
-      { title: "BI Workspace", url: "/bi", icon: PieChart },
+      // 2. Move it.
       { title: "ETL Pipelines", url: "/etl", icon: Waypoints },
+      // 3. Store it.
       { title: "Lakehouse", url: "/lakehouse", icon: Warehouse },
+      // 4. Shape it. Directly after the Lakehouse because a model IS a
+      // lakehouse table, and directly before the Semantic Layer because
+      // defining metrics on what a model built is the next thing you do.
       { title: "SQL Models", url: "/sql-models", icon: Blocks },
+      // 5. Define what it means.
+      { title: "Semantic Layer", url: "/semantics", icon: Layers },
+      // 6. Browse those definitions: authors go to Semantic Layer, everyone
+      // else comes here to find a metric to use.
+      { title: "Metrics", url: "/metrics", icon: Sigma },
+      // 7-9. Consume it.
+      { title: "AI Analyst", url: "/ai-analyst", icon: BrainCircuit },
+      { title: "BI Workspace", url: "/bi", icon: PieChart },
       { title: "ML Models", url: "/ml", icon: Brain },
+      // 10. Watch it, once it is all running.
       { title: "Data monitors", url: "/data-monitors", icon: HeartPulse },
+      // 11. The escape hatch, last, for when none of the above fits.
       { title: "Developer workspace", url: "/notebooks", icon: NotebookPen },
     ],
   },
@@ -109,22 +128,31 @@ export const NAV_GROUPS: NavGroup[] = [
   },
   {
     label: "Integrations",
+    // What you connect, then what those connections need, then what you ship
+    // outward. Web Embedding is last because it is the only one that points
+    // away from the platform rather than into it.
     items: [
       { title: "Integrations", url: "/integrations", icon: Puzzle },
-      { title: "Web Embedding", url: "/embeds", icon: Code2 },
-      { title: "Secrets", url: "/secrets", icon: KeyRound },
       { title: "MCP Servers", url: "/mcp", icon: Plug },
       { title: "Model Registry", url: "/model-registry", icon: Boxes },
+      // Underneath all three above: every one of them stores a credential.
+      { title: "Secrets", url: "/secrets", icon: KeyRound },
+      { title: "Web Embedding", url: "/embeds", icon: Code2 },
     ],
   },
   {
     label: "Observability",
+    // Widening out: one run, then all runs, then the money, then the record,
+    // then the machine. Analytics leads because it is the summary everyone
+    // opens first and the place the other pages are reached from.
     items: [
       { title: "Analytics", url: "/analytics", icon: BarChart3 },
-      { title: "Swarm Traces", url: "/analytics/observability", icon: Network },
+      // The two trace pages are adjacent on purpose: same question, one for
+      // a single turn and one for a swarm.
       { title: "Traces & Logs", url: "/traces", icon: ScrollText },
-      { title: "Audit Log", url: "/audit", icon: FileClock },
+      { title: "Swarm Traces", url: "/analytics/observability", icon: Network },
       { title: "AI Budgets", url: "/budgets", icon: Settings },
+      { title: "Audit Log", url: "/audit", icon: FileClock },
       // Superadmin-only page; the route itself enforces that, and the link
       // is harmless for everyone else (it explains the restriction).
       { title: "Monitoring", url: "/monitoring", icon: Activity },

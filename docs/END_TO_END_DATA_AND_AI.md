@@ -64,7 +64,17 @@ fx_rates.csv   ─┤─────►  17 nodes, one per    ──►  analyti
 orders.csv     ─┤        defect + a quality        revenue_facts       defined ONCE          AI Analyst
 customers.csv  ─┘        gate                      (836 rows)                                agents (metric_query)
                                                                                              row/column security
+                              ▲                         ▲
+                              │                         │
+                    or SQL models: one SELECT per step, built in
+                    dependency order  (see Step 4a)
 ```
+
+Two things produce the table and one thing describes it. **ETL pipelines and
+SQL models both write `analytics.revenue_facts`;** the semantic layer never
+writes anything and only says what its columns mean. Which producer you pick
+is a matter of taste and of whether the work is SQL. The description is the
+same either way.
 
 **All of it is reproducible, raw files included** — see Step 1.
 
@@ -252,6 +262,62 @@ AOV by plan
 Worth noticing: **starter has the highest average order value.** That is the
 kind of finding that only shows up once the currencies are conformed — in the
 raw data it was buried under the exchange rates.
+
+---
+
+## Step 4a — the same shaping, as SQL models
+
+Step 2 built `revenue_facts` with a visual pipeline, which is the right tool
+when the work is joining files, handling late arrivals and gating quality. When
+the work is **SQL**, [SQL models](./SQL_MODELS.md) say the same thing in less
+space and give you something a pipeline cannot: models that name each other and
+are therefore always built in the right order.
+
+Two models, under **Data & BI → SQL Models**:
+
+```sql
+-- stg_orders
+select
+  order_id,
+  customer_id,
+  region,
+  status,
+  net_usd,
+  cast(placed_at as date) as placed_on
+from analytics.revenue_facts
+where net_usd is not null
+```
+
+```sql
+-- fct_region_revenue
+select
+  region,
+  count(*) as orders,
+  sum(net_usd) as revenue
+from ref('stg_orders')
+group by 1
+```
+
+`ref('stg_orders')` does two jobs at once. It resolves to the staging model's
+table, and it tells the builder that `fct_region_revenue` must never be built
+first. Give `stg_orders` a `not_null` test on `region` at **error** severity and
+the guarantee gets sharper: if the staging table ever comes back with a null
+region, the fact is **skipped**, not rebuilt from data you already know is
+wrong. Put a daily schedule on the fact and both rebuild together every morning.
+
+**Then press `Define metrics on this`** on the built model. That is the join
+between the two layers, and it is the step people miss:
+
+- The button carries the schema and table to the Semantic Layer editor and
+  opens a new model on it.
+- The lakehouse is reached as a **warehouse connection** whose provider is the
+  built-in lakehouse. If you have not made one, the editor offers to, and asks
+  only for a name because the deployment already holds the credentials.
+- From there it is Step 4 unchanged: name the dimensions and metrics once.
+
+Nothing about Steps 5 to 8 changes. The dashboard, the AI Analyst, the agents
+and the row-level security all read the semantic model, and the semantic model
+does not care which of the two producers wrote its table.
 
 ---
 

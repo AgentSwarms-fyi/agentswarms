@@ -36,6 +36,39 @@ catalog and the platform compiles the exact, consistent SQL.
 Every field has a stable **name** (`[a-zA-Z_][a-zA-Z0-9_]*`) used as the query
 handle and SQL alias, plus an optional label/description for humans and the AI.
 
+## Where a model's table comes from
+
+A semantic model never creates data. It binds a table that already exists and
+says what its columns mean, so the table has to come from somewhere first:
+
+| Source                           | Pick it as                                | Typically produced by                                                    |
+| -------------------------------- | ----------------------------------------- | ------------------------------------------------------------------------ |
+| An uploaded or prepared dataset  | **Local dataset**                         | An upload, or a Data Prep flow.                                          |
+| A table in your own lakehouse    | **Warehouse** → your lakehouse connection | A [SQL model](./SQL_MODELS.md), an ETL pipeline, or a materialized view. |
+| A table in an external warehouse | **Warehouse** → that connection           | Whatever builds it over there, dbt included.                             |
+
+The lakehouse is a **first-class warehouse provider**, not a separate kind of
+source, so a table a SQL model built is reached exactly like a Snowflake table.
+It needs a connection row once: **Integrations → Data Sources → AgentSwarms
+Lakehouse (built-in)**, which asks only for a name because the deployment
+already holds the credentials. Following **Define metrics on this** from a
+built model or a lakehouse table offers to create it for you and then opens
+the editor on that table.
+
+The division of labour is worth being explicit about, because the two layers
+look adjacent and are not:
+
+- **SQL models decide which tables exist.** They write rows, in dependency
+  order, on a schedule. Joining, filtering, casting and deduplicating belong
+  there, done once.
+- **The semantic layer decides what the columns mean.** It writes nothing and
+  compiles at query time. An aggregation, a ratio, a fiscal calendar or a
+  per-role row filter belongs here.
+
+A rule of thumb: if it changes the _shape_ of the data it is a model, and if
+it changes what a _number_ means it is a semantic definition. Writing the same
+`WHERE` clause into five dashboards is the signal you wanted a dimension.
+
 ## Defining models
 
 Open **Semantic Layer** in the sidebar:
@@ -553,6 +586,10 @@ examples in [AI gateway](./AI_GATEWAY.md#the-semantic-layer).
   functions or date arithmetic — period-over-period is unavailable there.
 - **Warehouse models** compile with the connection's dialect and run through the
   existing warehouse drivers (Snowflake, BigQuery, Redshift, Postgres, …).
+- **Lakehouse models** are warehouse models whose connection is this
+  deployment's own lakehouse. They compile with the lakehouse dialect and
+  execute through the same governed chokepoint every other lakehouse query
+  uses, so row filters and column masks still apply.
 
 Write dimension/metric SQL for the model's own backend — the compiler only
 composes SELECT/GROUP BY/WHERE/HAVING and quotes identifiers per dialect. It

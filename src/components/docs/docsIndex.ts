@@ -3343,6 +3343,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "level": 3
       },
       {
+        "id": "source",
+        "text": "Where a model&apos;s table comes from",
+        "level": 2
+      },
+      {
         "id": "define",
         "text": "Defining a metric",
         "level": 2
@@ -3515,8 +3520,12 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     "terms": [
       "&lt;schema&gt;.stg_orders",
       "+model",
+      "/api/v1/metrics",
       "SELECT",
+      "analytics.fct_orders",
       "error",
+      "metric_query",
+      "net_usd",
       "not_null",
       "ref(&apos;stg_orders&apos;)",
       "ref()",
@@ -3555,6 +3564,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       {
         "id": "building",
         "text": "Building",
+        "level": 2
+      },
+      {
+        "id": "metrics",
+        "text": "After it builds: naming what the columns mean",
         "level": 2
       },
       {

@@ -34,6 +34,18 @@ run `npx supabase db push` after pulling.
   `accepted_values`, `range` and `row_count_min`, each at `error` (stop the
   downstream) or `warn` (record and carry on). A test that cannot run counts
   as an error, not a pass.
+- **The two layers now point at each other.** A built model, and any lakehouse
+  table, offers **Define metrics on this**, which opens the Semantic Layer
+  editor on that table. The lakehouse is reached as a warehouse connection
+  whose provider is the built-in lakehouse; that connection is not
+  provisioned for anyone, so the editor offers to create it and asks only for
+  a name. This always worked and nothing said so, which is why the two read as
+  two features doing one job rather than two layers of one stack.
+- **The Data & BI rail reads in the order data moves through it**: find it,
+  move it, store it, shape it, define what it means, then use it. Eleven items
+  in no particular order is a list you search rather than read. The docs rail
+  follows the same order, and Integrations and Observability were tidied the
+  same way.
 - Models are built **as their owner**, into a schema that owner owns, with
   access re-checked at every build rather than trusted from when the model was
   saved. Every build audits what happened to each model; model-to-model

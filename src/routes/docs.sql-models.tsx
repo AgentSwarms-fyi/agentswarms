@@ -201,6 +201,38 @@ group by 1`}</Code>
         twice.
       </P>
 
+      <H2 id="metrics">After it builds: naming what the columns mean</H2>
+      <P>
+        A model produces a <strong>table</strong>. It does not say that <C>net_usd</C> summed is
+        &ldquo;revenue&rdquo;, that only completed orders count, or that nobody outside Finance may
+        see the margin. That is the <DocLink to="/docs/semantics">semantic layer</DocLink>, and the
+        two are meant to be used together.
+      </P>
+      <UL>
+        <li>
+          Build the model. It writes <C>analytics.fct_orders</C>.
+        </li>
+        <li>
+          Press <strong>Define metrics on this</strong> on the model, or on the table in the
+          Lakehouse page.
+        </li>
+        <li>The semantic editor opens on that table. Name the metrics and dimensions once.</li>
+        <li>
+          Dashboards, the AI Analyst, agents through the <C>metric_query</C> tool and the{" "}
+          <C>/api/v1/metrics</C> HTTP API then all compute them the same way.
+        </li>
+      </UL>
+      <P>
+        The lakehouse is reached as a warehouse connection whose provider is the built-in lakehouse,
+        so this needs one connection row the first time. The button offers to create it, and asks
+        only for a name.
+      </P>
+      <Callout title="Keep the division clean and both layers stay small">
+        Shape belongs in the model: joins, filters, casts, deduplication, incremental history, done
+        once at build time. Meaning belongs in the semantic layer: aggregations, ratios, fiscal
+        calendars, row filters per role, resolved at query time.
+      </Callout>
+
       <H2 id="governance">Governance</H2>
       <P>
         Everything a model does, it does <strong>as its owner</strong>. A schedule has no session

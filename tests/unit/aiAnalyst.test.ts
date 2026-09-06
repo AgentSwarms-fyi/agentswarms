@@ -292,11 +292,25 @@ describe("the prompts say what the loop relies on", () => {
 });
 
 describe("the wiring (real nav, source guards)", () => {
-  it("AI Analyst is the FIRST item under Data & BI", () => {
+  it("AI Analyst leads the pages that CONSUME data, after the ones that make it", () => {
+    // This used to pin AI Analyst as the first item in the group, on the
+    // reasoning that asking a question is what most people open the app to
+    // do. Data & BI now reads in the order data moves — find it, move it,
+    // store it, shape it, define it, then use it — because eleven items in
+    // an arbitrary order is a list you search rather than read.
+    //
+    // What survives that change is the part worth pinning: of everything
+    // that consumes the data, the Analyst comes first.
     const dataBi = NAV_GROUPS.find((g) => g.label === "Data & BI");
     expect(dataBi).toBeDefined();
-    expect(dataBi!.items[0].title).toBe("AI Analyst");
-    expect(dataBi!.items[0].url).toBe("/ai-analyst");
+    const titles = dataBi!.items.map((i) => i.title);
+    const analyst = titles.indexOf("AI Analyst");
+    expect(dataBi!.items[analyst].url).toBe("/ai-analyst");
+    for (const consumer of ["BI Workspace", "ML Models"]) {
+      expect(analyst, consumer).toBeLessThan(titles.indexOf(consumer));
+    }
+    // And it still comes after the layer that gives it its vocabulary.
+    expect(analyst).toBeGreaterThan(titles.indexOf("Semantic Layer"));
   });
 
   it("the page runs the real loop and stores TRIMMED turns", () => {

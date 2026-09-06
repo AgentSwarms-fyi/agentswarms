@@ -5,7 +5,7 @@
 // cannot answer: what order does this build in, and what broke downstream when
 // something failed.
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { Link, createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import {
@@ -1003,6 +1003,26 @@ function SqlModelsPage() {
                       <span>
                         builds into {selected.schema_name}.{selected.name}
                       </span>
+                      {/* The next step after a model exists, and the one thing
+                          nothing in the product used to point at: a table is
+                          rows, a semantic model is what those rows mean. Shown
+                          only once it has been built, because there is nothing
+                          to describe until then. */}
+                      {selected.last_status === "built" ? (
+                        <Link
+                          to="/semantics"
+                          search={{
+                            source: "lakehouse",
+                            schema: selected.schema_name,
+                            table: selected.name,
+                            create: true,
+                          }}
+                          className="text-primary hover:underline"
+                          title="Name what these columns mean, so dashboards, the AI Analyst and agents all compute them the same way"
+                        >
+                          Define metrics on this
+                        </Link>
+                      ) : null}
                       {selected.last_error ? (
                         <span className="text-destructive">{selected.last_error}</span>
                       ) : null}

@@ -80,17 +80,19 @@ export const DOCS_GROUPS: DocGroup[] = [
   {
     label: "Data & analytics",
     items: [
+      // Same journey the app's own rail follows: find it, move it, store it,
+      // shape it, say what it means, then use it.
       { to: "/docs/data", label: "Data Catalog & SQL", icon: Database },
       { to: "/docs/data-prep", label: "Data preparation", icon: Workflow },
       { to: "/docs/etl", label: "ETL Pipelines", icon: Waypoints },
       { to: "/docs/lakehouse", label: "Lakehouse", icon: Warehouse },
       { to: "/docs/sql-models", label: "SQL Models", icon: Blocks },
+      { to: "/docs/semantics", label: "Semantic Layer", icon: Layers },
+      { to: "/docs/bi", label: "BI Workspace", icon: PieChart },
       { to: "/docs/ml", label: "ML Models", icon: Brain },
       { to: "/docs/data-monitors", label: "Data monitors", icon: HeartPulse },
       { to: "/docs/ai-sql", label: "AI in SQL", icon: Sparkles },
       { to: "/docs/knowledge", label: "Knowledge Base", icon: BookOpen },
-      { to: "/docs/semantics", label: "Semantic Layer", icon: Layers },
-      { to: "/docs/bi", label: "BI Workspace", icon: PieChart },
     ],
   },
   {

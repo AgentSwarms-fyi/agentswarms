@@ -359,6 +359,47 @@ describe("the wiring", () => {
     expect(page).toContain("{whyLine(m)}");
   });
 
+  it("carries a built model to the layer that names its columns", () => {
+    // The two layers composed on paper and never in anyone's hands: nothing
+    // in the product pointed from one to the other.
+    const page = rd("src/routes/_authenticated/sql-models.tsx");
+    expect(page).toContain('to="/semantics"');
+    expect(page).toContain("Define metrics on this");
+    // Only once there is a table to describe.
+    expect(page).toContain('selected.last_status === "built"');
+    // The same door from where the tables actually live.
+    expect(rd("src/routes/_authenticated/lakehouse.tsx")).toContain("Define metrics on this");
+
+    const semantics = rd("src/routes/_authenticated/semantics.tsx");
+    expect(semantics).toContain("validateSearch");
+    expect(semantics).toContain("openOnLakehouseTable");
+    // The lakehouse is reached as a warehouse connection, not a third kind.
+    expect(semantics).toContain('source_kind: "warehouse"');
+    expect(semantics).toContain('c.provider === "lakehouse"');
+    // And the connection is offered rather than assumed: it is not
+    // provisioned for anyone, so the first arrival would otherwise dead-end.
+    expect(semantics).toContain("connectLakehouse");
+    expect(semantics).toContain("Connect the lakehouse");
+  });
+
+  it("explains the division of labour in both guides, each pointing at the other", () => {
+    const models = rd("docs/SQL_MODELS.md");
+    const semantic = rd("docs/SEMANTIC_LAYER.md");
+    expect(models).toContain("./SEMANTIC_LAYER.md");
+    expect(semantic).toContain("./SQL_MODELS.md");
+    expect(models).toContain("Define metrics on this");
+    expect(semantic).toContain("Where a model's table comes from");
+    // And the worked example runs the whole path rather than stopping at the
+    // table, so the join is demonstrated and not only asserted.
+    const e2e = rd("docs/END_TO_END_DATA_AND_AI.md");
+    expect(e2e).toContain("Step 4a");
+    expect(e2e).toContain("ref('stg_orders')");
+    expect(e2e).toContain("Define metrics on this");
+    // In-app too, where someone actually reads it.
+    expect(rd("src/routes/docs.sql-models.tsx")).toContain('to="/docs/semantics"');
+    expect(rd("src/routes/docs.semantics.tsx")).toContain('to="/docs/sql-models"');
+  });
+
   it("is on the rail, in both the app and the docs, and documented in each", () => {
     expect(rd("src/lib/appNav.ts")).toContain('{ title: "SQL Models", url: "/sql-models"');
     expect(rd("scripts/check-docs.mjs")).toContain('"SQL Models"');

@@ -142,6 +142,35 @@ one are named when you delete it, and will fail until you edit them.
 
 ---
 
+## After it builds: naming what the columns mean
+
+A model produces a **table**. It does not say that `net_usd` summed is
+"revenue", that only completed orders count, or that nobody outside Finance
+may see the margin. That is the [semantic layer](./SEMANTIC_LAYER.md), and the
+two are meant to be used together:
+
+1. Build the model. It writes `analytics.fct_orders`.
+2. Press **Define metrics on this** on the model, or on the table in the
+   Lakehouse page.
+3. The semantic editor opens on that table. Name the metrics and dimensions
+   once.
+4. Dashboards, the AI Analyst, agents through the `metric_query` tool and the
+   `/api/v1/metrics` HTTP API all compute them the same way.
+
+The lakehouse is reached as a **warehouse connection** whose provider is the
+built-in lakehouse, so this needs one connection row the first time. The
+button offers to create it; it asks only for a name, because the deployment
+already holds the credentials.
+
+Keep the division clean and both layers stay small. Shape belongs in the
+model: joins, filters, casts, deduplication, incremental history, done once at
+build time. Meaning belongs in the semantic layer: aggregations, ratios,
+fiscal calendars, row filters per role, resolved at query time. If you are
+writing the same `WHERE` clause into five dashboards, you wanted a dimension,
+not another model.
+
+---
+
 ## Governance
 
 Everything a model does, it does **as its owner**. A schedule has no session

@@ -2,6 +2,7 @@
 // query them (the same definitions the metric_query agent tool consumes).
 import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { createFileRoute } from "@tanstack/react-router";
+import { z } from "zod";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
@@ -9,22 +10,23 @@ import {
   BadgeCheck,
   Database,
   FileJson,
+  Gauge,
   History,
   Layers,
   LayoutDashboard,
   Link2,
+  Loader2,
   Network,
   Play,
   Plus,
   Save,
   ShieldCheck,
-  Gauge,
+  Sigma,
   SlidersHorizontal,
   Sparkles,
   SquarePen,
   Target,
   Trash2,
-  Sigma,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -99,9 +101,24 @@ import {
 import { diffSemanticDefinitions, type SemanticDefinitionDiff } from "@/lib/semanticDiff";
 import { DbtImportDialog } from "@/components/semantics/DbtImportDialog";
 import type { Json } from "@/integrations/supabase/types";
-import { listWarehouseConnections } from "@/utils/warehouse.functions";
+import { listWarehouseConnections, saveWarehouseConnection } from "@/utils/warehouse.functions";
+
+/**
+ * Arriving from a lakehouse table with "Define metrics on this".
+ *
+ * The SQL Models and Lakehouse pages produce tables; this page says what
+ * their columns mean. Nothing used to carry a reader from one to the other,
+ * so the two features composed on paper and never in anyone's hands.
+ */
+const searchSchema = z.object({
+  source: z.literal("lakehouse").optional(),
+  schema: z.string().optional(),
+  table: z.string().optional(),
+  create: z.boolean().optional(),
+});
 
 export const Route = createFileRoute("/_authenticated/semantics")({
+  validateSearch: (s) => searchSchema.parse(s),
   head: () => ({
     meta: [
       { title: "Semantic Layer — AgentSwarms" },
@@ -415,6 +432,22 @@ function SemanticsPage() {
   } | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [dbtOpen, setDbtOpen] = useState(false);
+  const search = Route.useSearch();
+  /**
+   * A prefill that arrived before the lakehouse was connectable.
+   *
+   * The built-in lakehouse is a warehouse connection like any other and is
+   * NOT provisioned for you, so the first person to follow "Define metrics on
+   * this" would otherwise land on an empty editor with no explanation. This
+   * holds the table they asked for until the connection exists.
+   */
+  const [pendingLakehouse, setPendingLakehouse] = useState<{
+    schema: string;
+    table: string;
+  } | null>(null);
+  const [connecting, setConnecting] = useState(false);
+  /** One prefill per arrival: re-running it would discard an edit in progress. */
+  const [prefillDone, setPrefillDone] = useState(false);
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -468,9 +501,81 @@ function SemanticsPage() {
     [token],
   );
 
+  /**
+   * Open a new model on a lakehouse table, as the owner of that table.
+   *
+   * `source_kind` is "warehouse" because that is how the platform reaches the
+   * lakehouse — it is a first-class provider, not a separate kind — and the
+   * connection id is the one thing the save refuses without.
+   */
+  const openOnLakehouseTable = useCallback(
+    (connId: string, schema: string, table: string) => {
+      ensureWhTables(connId);
+      setDraft({
+        ...emptyDraft(),
+        name: slug(table),
+        label: table,
+        source_kind: "warehouse",
+        connection_id: connId,
+        source_table: `${schema}.${table}`,
+      });
+      setDraftRow(null);
+      setResult(null);
+      // Straight to Fields: the source is already decided, and fields are the
+      // work this page exists for.
+      setEditorTab("fields");
+    },
+    [ensureWhTables],
+  );
+
   useEffect(() => {
     void load();
   }, [load]);
+
+  /**
+   * Consume a "Define metrics on this" arrival, once the connections are in.
+   *
+   * It waits for `loading` to finish because the answer depends on whether a
+   * lakehouse connection exists, and asking before the list arrives would
+   * always say no.
+   */
+  useEffect(() => {
+    if (prefillDone || loading) return;
+    if (search.create !== true || search.source !== "lakehouse") return;
+    if (!search.schema || !search.table) return;
+    setPrefillDone(true);
+    const lake = whConns.find((c) => c.provider === "lakehouse");
+    if (lake) openOnLakehouseTable(lake.id, search.schema, search.table);
+    else setPendingLakehouse({ schema: search.schema, table: search.table });
+  }, [prefillDone, loading, search, whConns, openOnLakehouseTable]);
+
+  /**
+   * Connect the built-in lakehouse and carry on where the reader was going.
+   *
+   * It takes no credentials — the deployment already has them — so the only
+   * honest thing to ask for is the click.
+   */
+  const connectLakehouse = useCallback(async () => {
+    if (!pendingLakehouse) return;
+    setConnecting(true);
+    try {
+      const res = await saveWarehouseConnection({
+        data: { access_token: token, name: "Lakehouse", config: { provider: "lakehouse" } },
+      });
+      if (!res.ok) return toast.error(res.error);
+      const conns = (await listWarehouseConnections({ data: { access_token: token } })) as
+        | { ok: true; connections: WhConn[] }
+        | { ok: false };
+      const lake = conns.ok ? conns.connections.find((c) => c.provider === "lakehouse") : undefined;
+      if (!lake) return toast.error("The lakehouse connected but did not come back in the list");
+      setWhConns(conns.ok ? conns.connections : []);
+      openOnLakehouseTable(lake.id, pendingLakehouse.schema, pendingLakehouse.table);
+      setPendingLakehouse(null);
+      toast.success("Lakehouse connected");
+    } finally {
+      setConnecting(false);
+    }
+  }, [pendingLakehouse, token, openOnLakehouseTable]);
 
   const editModel = (m: Record<string, unknown>) => {
     const kind = m.source_kind === "warehouse" ? "warehouse" : "data_table";
@@ -1058,6 +1163,30 @@ function SemanticsPage() {
         </p>
       </div>
 
+      {/* Someone followed "Define metrics on this" before the built-in
+          lakehouse was connected. Say so, and offer the one click that fixes
+          it, rather than dropping them on an empty editor. */}
+      {pendingLakehouse ? (
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-primary/40 bg-primary/5 p-3 text-sm">
+          <Layers className="h-4 w-4 shrink-0 text-primary" />
+          <span className="flex-1">
+            To define metrics on{" "}
+            <code className="font-mono text-xs">
+              {pendingLakehouse.schema}.{pendingLakehouse.table}
+            </code>
+            , the built-in lakehouse needs to be a connection here. It takes no credentials — this
+            deployment already has them.
+          </span>
+          <Button size="sm" disabled={connecting} onClick={() => void connectLakehouse()}>
+            {connecting ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+            Connect the lakehouse
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setPendingLakehouse(null)}>
+            Not now
+          </Button>
+        </div>
+      ) : null}
+
       <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
         {/* Model list */}
         <div className="space-y-2">
@@ -1496,7 +1625,7 @@ function SemanticsPage() {
                                 <SelectValue
                                   placeholder={
                                     whConns.length === 0
-                                      ? "No warehouses connected (Integrations → Data Sources)"
+                                      ? "Nothing connected — add one under Integrations → Data Sources, including this deployment's own lakehouse"
                                       : "Pick a connection…"
                                   }
                                 />

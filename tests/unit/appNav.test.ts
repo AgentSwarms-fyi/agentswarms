@@ -128,6 +128,44 @@ describe("the docs checker's copy of the rail", () => {
     return out;
   }
 
+  it("orders Data & BI as the journey a table takes, not alphabetically", () => {
+    // The order is the product's explanation of itself: a reader scanning the
+    // rail top to bottom should be reading a pipeline. Pinned because it is
+    // the kind of thing a later edit reorders without noticing.
+    const items = (NAV_GROUPS.find((g) => g.label === "Data & BI")?.items ?? []).map(
+      (i) => i.title,
+    );
+    expect(items).toEqual([
+      "Data Catalog",
+      "ETL Pipelines",
+      "Lakehouse",
+      "SQL Models",
+      "Semantic Layer",
+      "Metrics",
+      "AI Analyst",
+      "BI Workspace",
+      "ML Models",
+      "Data monitors",
+      "Developer workspace",
+    ]);
+    // The two that matter most for reading the product correctly: a model
+    // produces a table, so it sits with the Lakehouse; the Semantic Layer
+    // describes one, so it comes straight after.
+    expect(items.indexOf("SQL Models")).toBe(items.indexOf("Lakehouse") + 1);
+    expect(items.indexOf("Semantic Layer")).toBe(items.indexOf("SQL Models") + 1);
+  });
+
+  it("gives the docs rail the same reading order as the app rail", () => {
+    const shell = rd("src/components/docs/DocsShell.tsx");
+    const order = ["/docs/lakehouse", "/docs/sql-models", "/docs/semantics", "/docs/bi"];
+    const at = order.map((u) => shell.indexOf(`to: "${u}"`));
+    expect(
+      at.every((i) => i > 0),
+      "a docs rail entry is missing",
+    ).toBe(true);
+    expect(at.slice().sort((a, b) => a - b)).toEqual(at);
+  });
+
   it("lists exactly the groups and pages the app renders", () => {
     const checker = checkerNav();
     expect(Object.keys(checker).sort()).toEqual(ALL_GROUPS.map((g) => g.label).sort());
