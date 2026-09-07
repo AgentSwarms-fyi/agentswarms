@@ -111,6 +111,85 @@ The run sequence:
 **The runtime must be enabled** (Admin → Developer runtime; `--profile notebooks` on
 Compose). Without it, runs fail immediately with a message saying exactly that.
 
+## Engines: the sandbox, or a Spark cluster
+
+Every pipeline runs on the **pandas engine** unless it says otherwise: one
+batch kernel, an in-memory pandas program, the sizing table below. That is
+right for most pipelines, and nothing about it changed.
+
+A pipeline whose data does not fit one box can pick the **Spark engine**
+(Settings → Engine). The graph is the same, the canvas is the same, the run
+log and metrics are the same; what changes is where the program executes.
+The compiler emits a PySpark program instead of a pandas one, and the run's
+sandbox drives a Spark cluster over **Spark Connect** — the sandbox holds
+only the pure-Python client (no JVM), so every hardening decision made for it
+stands, and the cluster is a resource the run attaches to rather than a
+second place code runs. Node previews always sample in the sandbox, on
+either engine.
+
+**What runs where.** The split is by design and is the same for every
+pipeline:
+
+| On the cluster (distributed)                                                                             | In the sandbox, then lifted into Spark                                                                                           |
+| -------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Object-storage reads and writes (CSV, TSV, JSON, JSONL, Parquet; Delta including MERGE)                  | Spreadsheets (xlsx), HTTP API fetches, platform datasets                                                                         |
+| Database reads and writes over JDBC (PostgreSQL, MySQL and SQL Server families)                          | CDC, webhook ingest, stream drains (Kafka, Kinesis, Pub/Sub)                                                                     |
+| Every transform: filter, select, rename, derive, join, union, aggregate, sort, dedupe, nulls, limit, SQL | Custom Python (its contract is a whole pandas frame), the lakehouse (DuckLake has no Spark connector), HTTP API and SaaS targets |
+| Quality gates                                                                                            |                                                                                                                                  |
+
+The sandbox-side nodes are bounded by design — a CDC peek, a stream drain, a
+SaaS push — and none of them is where the size problem lives. Each reuses
+the pandas compiler's own emitter for that node, so the two engines cannot
+disagree about what it does.
+
+**Same answer on either engine.** Where pandas semantics differ from SQL's,
+the pandas behaviour is reproduced on purpose: a null group key forms a
+group (`dropna=False`), nulls sort last in either direction, a join suffixes
+shared columns `_x`/`_y` and collapses a same-named key to one column, a
+null fails a range, regex or allowed-values check. Filter conditions and
+derived columns keep their pandas `query`/`eval` spelling; the compiler
+translates them to Spark SQL at save time — `and`/`or`/`not`, `&`/`|`/`~`,
+`in [...]`, `.isnull()`, the everyday `.str` and `.dt` accessors — and a
+construct Spark has no equivalent for is refused at save, naming it and the
+fix (usually: a SQL step). A SQL step is Spark SQL on this engine, DuckDB SQL
+on the pandas engine; the overlap is large but not total.
+
+**What the Spark engine refuses**, at save time, in words: an Iceberg target
+(write Delta, or land in the lakehouse and publish from there), merge into
+plain files (merge needs a Delta table), merge into a database (append or
+replace, or merge on the pandas engine). Which duplicate `dedupe` keeps is
+not defined on a cluster; pandas keeps the first.
+
+**Setting up a cluster.** The engine needs one setting: a Spark Connect
+endpoint, in Admin → Developer runtime → Spark engine, or `SPARK_CONNECT_URL`
+in the environment (the setting wins). Until one is set the engine picker
+says so and the option is disabled. Locally the Compose `spark` profile runs
+a single-host Spark 4.2 Connect server with the S3A, Delta and JDBC
+connectors already on it:
+
+```bash
+docker compose --profile spark up -d
+```
+
+and `sc://spark-connect:15002` is the endpoint. The first start downloads
+the connector jars into a volume; later starts are fast. In production the
+endpoint is a cluster of your own — a Spark Connect server in front of a
+standalone or Kubernetes cluster, or a managed service that speaks Spark
+Connect — reachable from the kernel network **directly**: Spark Connect is
+gRPC and cannot go through the HTTP egress proxy, so the endpoint's host is
+added to the run's no-proxy list and must have a route from the sandbox. A
+token in the URL (`sc://host:15002;token=…`) is kept out of every run log.
+
+Credentials for object storage travel as per-call data-source options —
+scoped to the read or write, never set on the cluster's shared
+configuration where another session could read them. Warehouse credentials
+go to the JDBC driver the same way.
+
+**Versions.** The sandbox image carries `pyspark-client` (the Spark Connect
+client, 4.2) and the server must be the same major.minor — the protocol is
+versioned. The Compose service pins `apache/spark:4.2.0-python3`,
+`delta-spark 4.4`, `hadoop-aws 3.5`.
+
 ## Quality gates
 
 The **Quality gate** transform validates the frame flowing through it. Rules:
@@ -501,7 +580,9 @@ through a backend selected in Admin → Developer runtime:
 
 Whichever backend, the unit of parallelism is the RUN: ten pipelines can
 execute on ten nodes at once, but one run's dataframe still lives on one
-machine (see sizing above).
+machine (see sizing above) — unless the pipeline is on the Spark engine,
+where the run's data is spread across the cluster's executors and the
+sandbox is only the driver's client (see Engines above).
 
 **The app tier scales out behind a load balancer.** App replicas are
 stateless — all state lives in Postgres — and the ETL engine's scheduler

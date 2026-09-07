@@ -1,0 +1,828 @@
+// The Spark engine's compiler: the same graph the pandas compiler reads,
+// emitted as a Spark Connect program.
+//
+// Two things are pinned here. What runs on the cluster and what runs on the
+// driver is the engine's whole design, so each node kind is checked for the
+// side it lands on. And the pandas semantics the emitter reproduces on purpose
+// — null keys grouping, a null failing a range check — are asserted in the
+// generated code rather than trusted. Every script is fed to the local
+// Python's compile(), as the pandas compiler's tests do, because the quoting
+// edges are the same injection surface here.
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { describe, expect, it } from "vitest";
+
+import {
+  compileGraph,
+  pyStr,
+  requirementsFor,
+  sourceFn,
+  starterGraph,
+  type EtlGraph,
+  type EtlNode,
+} from "@/utils/etl/codegen";
+import { ETL_ENGINES, compilePipeline, engineOf, pipelineRequirements } from "@/utils/etl/compile";
+import { compileSparkGraph, sparkRefusal, sparkRequirementsFor } from "@/utils/etl/sparkCodegen";
+
+// ── Python syntax oracle (skips silently when no interpreter exists) ────────
+
+function pythonBin(): string | null {
+  for (const bin of ["python", "python3", "py"]) {
+    try {
+      execFileSync(bin, ["--version"], { stdio: "pipe" });
+      return bin;
+    } catch {
+      /* try next */
+    }
+  }
+  return null;
+}
+const PY = pythonBin();
+
+function assertParsesAsPython(code: string): void {
+  if (!PY) return;
+  const dir = mkdtempSync(join(tmpdir(), "etl-spark-codegen-"));
+  try {
+    const file = join(dir, "gen.py");
+    writeFileSync(file, code, "utf8");
+    execFileSync(
+      PY,
+      ["-c", `compile(open(${JSON.stringify(file)}, encoding='utf8').read(), 'gen.py', 'exec')`],
+      { stdio: "pipe" },
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+// ── Fixtures ────────────────────────────────────────────────────────────────
+
+const node = (
+  id: string,
+  kind: EtlNode["kind"],
+  config: Record<string, unknown>,
+  label?: string,
+): EtlNode => ({ id, kind, config: config as EtlNode["config"], ...(label ? { label } : {}) });
+
+const CSV_SRC = node("s1", "source", { type: "object_storage", path: "raw/*.csv", format: "csv" });
+const PARQUET_TGT = node("t1", "target", {
+  type: "object_storage",
+  dataset: "etl",
+  table: "items",
+  format: "parquet",
+  write_mode: "replace",
+});
+
+/** A straight line of nodes, each feeding the next. */
+function linear(...nodes: EtlNode[]): EtlGraph {
+  const edges = nodes
+    .slice(0, -1)
+    .map((n, i) => ({ id: `e${i}`, from: n.id, to: nodes[i + 1].id }));
+  return { nodes, edges };
+}
+
+/** Source → one transform → parquet target, the shape most checks need. */
+function through(transform: Record<string, unknown>): string {
+  const code = compileSparkGraph(linear(CSV_SRC, node("x", "transform", transform), PARQUET_TGT));
+  assertParsesAsPython(code);
+  return code;
+}
+
+// ── The dispatcher ──────────────────────────────────────────────────────────
+
+describe("compile — one graph, two compilers", () => {
+  it("reads any stored value but 'spark' as the pandas engine", () => {
+    expect(ETL_ENGINES).toEqual(["pandas", "spark"]);
+    expect(engineOf("spark")).toBe("spark");
+    expect(engineOf("pandas")).toBe("pandas");
+    expect(engineOf(undefined)).toBe("pandas");
+    expect(engineOf(null)).toBe("pandas");
+    expect(engineOf("SPARK")).toBe("pandas");
+  });
+
+  it("leaves the pandas engine's output byte-for-byte what it was", () => {
+    const g = starterGraph();
+    expect(compilePipeline(g, "pandas")).toBe(compileGraph(g));
+    expect(pipelineRequirements(g, "pandas")).toBe(requirementsFor(g));
+  });
+
+  it("emits a Spark program for the spark engine, over the same graph", () => {
+    const g = linear(CSV_SRC, PARQUET_TGT);
+    const code = compilePipeline(g, "spark");
+    expect(code).toBe(compileSparkGraph(g));
+    expect(code).toContain("for the SPARK engine");
+    expect(code).toContain("SparkSession.builder.remote(_url)");
+    expect(code).toContain("'engine': 'spark',");
+    assertParsesAsPython(code);
+  });
+
+  it("the sandbox half of a Spark run does not install dlt or ibis", () => {
+    const g = linear(
+      CSV_SRC,
+      node("q", "transform", { type: "sql", query: "select * from t" }),
+      PARQUET_TGT,
+    );
+    expect(requirementsFor(g)).toMatch(/^dlt/m);
+    expect(requirementsFor(g)).toMatch(/^ibis-framework/m);
+    const spark = sparkRequirementsFor(g);
+    expect(spark).not.toMatch(/^dlt/m);
+    expect(spark).not.toMatch(/^ibis-framework/m);
+    expect(pipelineRequirements(g, "spark")).toBe(spark);
+  });
+});
+
+// ── Sources: native where Spark has a reader, the driver elsewhere ──────────
+
+describe("compileSparkGraph — sources", () => {
+  it.each([
+    ["csv", ".option('header', 'true').option('inferSchema', 'true').csv(_p)"],
+    ["tsv", ".option('sep', '\\t').csv(_p)"],
+    ["json", ".option('multiLine', 'true').json(_p)"],
+    ["jsonl", "_r.json(_p)"],
+    ["parquet", "_r.parquet(_p)"],
+  ])("reads %s from object storage on the cluster", (format, reader) => {
+    const src = node("s1", "source", { type: "object_storage", path: "raw/x", format });
+    const code = compileSparkGraph(linear(src, PARQUET_TGT));
+    expect(code).toContain(reader);
+    expect(code).toContain("_p = 's3a://' + _base + '/' + 'raw/x'.lstrip('/')");
+    expect(code).toContain("_r = _sp.read.options(**_s3_options('ETL_S1'))");
+    expect(code).toContain("    f_s1 = _src_s1()");
+    expect(code).not.toContain("_lift(_src_s1())");
+    assertParsesAsPython(code);
+  });
+
+  it("reads a spreadsheet on the driver and lifts it, with the pandas engine's own reader", () => {
+    const src = node("s1", "source", {
+      type: "object_storage",
+      path: "raw/book.xlsx",
+      format: "xlsx",
+    });
+    const g = linear(src, PARQUET_TGT);
+    const code = compileSparkGraph(g);
+    expect(code).toContain("    f_s1 = _lift(_src_s1())");
+    // The very function the pandas compiler emits, so the engines cannot
+    // disagree about what reading this node means.
+    expect(code).toContain(sourceFn(src));
+    expect(compileGraph(g)).toContain(sourceFn(src));
+    assertParsesAsPython(code);
+  });
+
+  it("pushes an incremental cursor into the storage read", () => {
+    const src = node("s1", "source", {
+      type: "object_storage",
+      path: "raw/*.parquet",
+      format: "parquet",
+      incremental: { cursor_column: "updated_at" },
+    });
+    const code = compileSparkGraph(linear(src, PARQUET_TGT));
+    expect(code).toContain("_cur = os.environ.get('ETL_S1_CURSOR')");
+    expect(code).toContain("_sdf = _sdf.filter(F.col('updated_at').cast('string') > F.lit(_cur))");
+    expect(code).toContain("_wm_s1 = _max_of(f_s1, 'updated_at')");
+    expect(code).toContain("_watermarks['s1'] = str(_wm_s1)");
+    expect(code).toContain("'watermarks': _watermarks,");
+    assertParsesAsPython(code);
+  });
+
+  it("reads a database table over JDBC, the cursor pushed down as a WHERE", () => {
+    const src = node("s1", "source", {
+      type: "database",
+      mode: "table",
+      table: "public.orders",
+      provider: "postgres",
+      incremental: { cursor_column: "id" },
+    });
+    const code = compileSparkGraph(linear(src, PARQUET_TGT));
+    expect(code).toContain("_j = _jdbc(os.environ['ETL_S1_URL'])");
+    expect(code).toContain("_q = 'SELECT * FROM ' + 'public.orders'");
+    expect(code).toContain('WHERE id > \' + "\'" + _cur.replace("\'", "\'\'") + "\'"');
+    expect(code).toContain(".option('query', _q).load()");
+    expect(code).not.toContain("pandas_api");
+    assertParsesAsPython(code);
+  });
+
+  it("reads a database query over JDBC and refuses an empty one", () => {
+    const src = node("s1", "source", {
+      type: "database",
+      mode: "query",
+      query: "SELECT id, total FROM sales WHERE total > 0",
+      provider: "mysql",
+    });
+    const code = compileSparkGraph(linear(src, PARQUET_TGT));
+    expect(code).toContain("_q = 'SELECT id, total FROM sales WHERE total > 0'");
+    assertParsesAsPython(code);
+    const empty = node("s1", "source", {
+      type: "database",
+      mode: "query",
+      query: "  ",
+      provider: "mysql",
+    });
+    expect(() => compileSparkGraph(linear(empty, PARQUET_TGT))).toThrow(/has no query/);
+  });
+
+  it("maps every warehouse family to its JDBC driver, and names the gap", () => {
+    const code = compileSparkGraph(linear(CSV_SRC, PARQUET_TGT));
+    expect(code).toContain("'driver': 'org.postgresql.Driver'");
+    expect(code).toContain("'driver': 'com.mysql.cj.jdbc.Driver'");
+    expect(code).toContain("'driver': 'com.microsoft.sqlserver.jdbc.SQLServerDriver'");
+    expect(code).toContain(
+      "raise RuntimeError('The Spark engine has no JDBC driver for ' + scheme)",
+    );
+  });
+
+  it("keeps the pandas compiler's refusals: an unsupported source provider", () => {
+    const src = node("s1", "source", {
+      type: "database",
+      mode: "table",
+      table: "t",
+      provider: "bigquery",
+    });
+    const g = linear(src, PARQUET_TGT);
+    expect(() => compileGraph(g)).toThrow(/not supported as a pipeline source/);
+    expect(() => compileSparkGraph(g)).toThrow(/not supported as a pipeline source/);
+  });
+
+  it("runs an HTTP fetch, CDC and a lakehouse read on the driver, lifted", () => {
+    const http = node("h", "source", { type: "http_api", url: "https://api.example.com/items" });
+    const cdc = node("c", "source", {
+      type: "database",
+      mode: "cdc",
+      table: "public.orders",
+      provider: "postgres",
+    });
+    const lake = node("l", "source", {
+      type: "lakehouse",
+      schema: "main",
+      mode: "table",
+      table: "t",
+    });
+    const union = node("u", "transform", { type: "union" });
+    const g: EtlGraph = {
+      nodes: [http, cdc, lake, union, PARQUET_TGT],
+      edges: [
+        { id: "e1", from: "h", to: "u" },
+        { id: "e2", from: "c", to: "u" },
+        { id: "e3", from: "l", to: "u" },
+        { id: "e4", from: "u", to: "t1" },
+      ],
+    };
+    const code = compileSparkGraph(g);
+    for (const id of ["h", "c", "l"]) expect(code).toContain(`    f_${id} = _lift(_src_${id}())`);
+    expect(code).toContain("_cdc_last_c = None");
+    expect(code).toContain("_watermarks['c'] = _cdc_last_c");
+    expect(code).toContain("def _lakehouse_con():");
+    expect(code).toContain(
+      "f_u = f_h.unionByName(f_c, allowMissingColumns=True).unionByName(f_l, allowMissingColumns=True)",
+    );
+    assertParsesAsPython(code);
+  });
+});
+
+// ── Transforms: pandas-on-Spark, so the expressions people typed still work ─
+
+describe("compileSparkGraph — transforms", () => {
+  it("filter is the pandas condition translated to Spark SQL at compile time", () => {
+    expect(through({ type: "filter", expr: "amount > 10 and status == 'paid'" })).toContain(
+      "f_x = f_s1.filter('amount > 10 AND status == \\'paid\\'')",
+    );
+    expect(
+      through({ type: "filter", expr: "(qty > 0) & ~region.isnull() & status in ['a', 'b']" }),
+    ).toContain(
+      "f_x = f_s1.filter('(qty > 0) AND NOT (region IS NULL) AND status IN (\\'a\\', \\'b\\')')",
+    );
+    expect(() => through({ type: "filter", expr: "amount > @limit" })).toThrow(
+      /Filter "x": `@variable`/,
+    );
+  });
+
+  it("select, rename, derive", () => {
+    expect(through({ type: "select", columns: ["id", "amount"] })).toContain(
+      "f_x = f_s1.select('id', 'amount')",
+    );
+    expect(
+      through({ type: "rename", mapping: { amt: "amount", "Order Id": "order_id" } }),
+    ).toContain("f_x = f_s1.withColumnsRenamed({'amt': 'amount', 'Order Id': 'order_id'})");
+    expect(through({ type: "derive", column: "total", expr: "qty * price" })).toContain(
+      "f_x = f_s1.withColumn('total', F.expr('qty * price'))",
+    );
+  });
+
+  it("dedupe, limit, sort", () => {
+    expect(through({ type: "dedupe" })).toContain("f_x = f_s1.dropDuplicates()");
+    expect(through({ type: "dedupe", columns: ["id"] })).toContain(
+      "f_x = f_s1.dropDuplicates(['id'])",
+    );
+    expect(through({ type: "limit", n: 7.9 })).toContain("f_x = f_s1.limit(7)");
+    expect(through({ type: "limit", n: -3 })).toContain("f_x = f_s1.limit(0)");
+    const sorted = through({ type: "sort", by: ["region", "amount"], descending: true });
+    expect(sorted).toContain("f_x = _sort(f_s1, ['region', 'amount'], True)");
+    // Nulls last either way, as pandas sorts them.
+    expect(sorted).toContain(
+      "F.col(c).desc_nulls_last() if descending else F.col(c).asc_nulls_last()",
+    );
+  });
+
+  it("aggregate is native Spark with pandas' null semantics written out", () => {
+    const code = through({
+      type: "aggregate",
+      group_by: ["region"],
+      aggs: [
+        { column: "amount", fn: "sum", as: "total" },
+        { column: "id", fn: "nunique", as: "customers" },
+        { column: "amount", fn: "median", as: "median_amount" },
+        { column: "ts", fn: "first", as: "first_ts" },
+      ],
+    });
+    expect(code).toContain(
+      "f_x = _agg(f_s1, ['region'], [('total', 'amount', 'sum'), ('customers', 'id', 'nunique'), ('median_amount', 'amount', 'median'), ('first_ts', 'ts', 'first')])",
+    );
+    // dropna=False, count skips nulls, first/last skip nulls — each explicit.
+    expect(code).toContain("elif _fn == 'nunique': _e = F.count_distinct(_c)");
+    expect(code).toContain("elif _fn == 'first': _e = F.first(_c, ignorenulls=True)");
+    expect(code).toContain("return sdf.groupBy(*keys).agg(*_exprs)");
+  });
+
+  it("aggregate refuses an unknown function and a non-identifier output name", () => {
+    expect(() =>
+      through({ type: "aggregate", group_by: [], aggs: [{ column: "a", fn: "stddev", as: "s" }] }),
+    ).toThrow(/Unknown aggregate function/);
+    expect(() =>
+      through({
+        type: "aggregate",
+        group_by: [],
+        aggs: [{ column: "a", fn: "sum", as: "bad name; import os" }],
+      }),
+    ).toThrow(/Aggregate output name/);
+  });
+
+  it("fill and drop nulls, numeric fills kept numeric", () => {
+    const fill = through({ type: "fill_nulls", value: "0" });
+    expect(fill).toContain("f_x = _fill(f_s1, 0, [])");
+    // pandas' reach: the value is cast to each column's own type.
+    expect(fill).toContain("F.coalesce(F.col(f.name), F.lit(value).cast(f.dataType))");
+    expect(through({ type: "fill_nulls", value: "n/a", columns: ["name", "city"] })).toContain(
+      "f_x = _fill(f_s1, 'n/a', ['name', 'city'])",
+    );
+    expect(through({ type: "drop_nulls" })).toContain("f_x = f_s1.dropna()");
+    expect(through({ type: "drop_nulls", columns: ["id"] })).toContain(
+      "f_x = f_s1.dropna(subset=['id'])",
+    );
+  });
+
+  it("join honours the chosen left side and its key lists", () => {
+    const orders = node("o", "source", {
+      type: "object_storage",
+      path: "orders/*.parquet",
+      format: "parquet",
+    });
+    const customers = node("c", "source", {
+      type: "object_storage",
+      path: "customers/*.csv",
+      format: "csv",
+    });
+    const join = node("j", "transform", {
+      type: "join",
+      how: "left",
+      left_on: ["customer_id"],
+      right_on: ["id"],
+      left_node: "o",
+    });
+    const g: EtlGraph = {
+      nodes: [customers, orders, join, PARQUET_TGT],
+      edges: [
+        { id: "e1", from: "c", to: "j" },
+        { id: "e2", from: "o", to: "j" },
+        { id: "e3", from: "j", to: "t1" },
+      ],
+    };
+    const code = compileSparkGraph(g);
+    expect(code).toContain("f_j = _merge(f_o, f_c, 'left', ['customer_id'], ['id'])");
+    // pandas' merge, reproduced: suffixes, one column for a same-named key, null keys matching.
+    expect(code).toContain("l = l.withColumnRenamed(c, c + '_x')");
+    expect(code).toContain("e = l[a].eqNullSafe(r[b])");
+    expect(code).toContain(
+      "{'inner': 'inner', 'left': 'left', 'right': 'right', 'outer': 'full'}[how]",
+    );
+    assertParsesAsPython(code);
+  });
+
+  it("SQL is Spark SQL over a temp view of the frame", () => {
+    const code = through({
+      type: "sql",
+      query: "SELECT region, SUM(amount) AS total FROM t GROUP BY 1",
+    });
+    expect(code).toContain(
+      "f_x = _sql_over(f_s1, 'SELECT region, SUM(amount) AS total FROM t GROUP BY 1')",
+    );
+    expect(code).toContain("sdf.createOrReplaceTempView('t')");
+    expect(code).toContain("return _spark().sql(query)");
+    expect(code).not.toContain("import ibis");
+  });
+
+  it("Custom Python keeps its whole-frame contract: collected, run, lifted back", () => {
+    const code = through({
+      type: "python",
+      code: "df['flag'] = df['amount'] > 100\ndf = df.sort_values('amount')",
+    });
+    expect(code).toContain(
+      "def _fn_x(df):\n    df['flag'] = df['amount'] > 100\n    df = df.sort_values('amount')\n    return df",
+    );
+    expect(code).toContain("f_x = _lift(_fn_x(f_s1.toPandas()))");
+  });
+
+  it("quotes user text so a column name cannot become code", () => {
+    const evil = "id'); import os; os.system('x'); ('";
+    const code = through({ type: "select", columns: [evil] });
+    expect(code).toContain(`f_x = f_s1.select(${pyStr(evil)})`);
+    expect(code).not.toContain("f_s1.select('id'); import os");
+    // A filter is translated, so a second statement is a translation error,
+    // not a second statement.
+    expect(() => through({ type: "filter", expr: "a == 'x'\nimport os" })).toThrow(
+      /Filter "x": `import` follows a value/,
+    );
+    const code2 = through({ type: "filter", expr: "a == 'x\\'); import os; ('" });
+    expect(code2).toContain(`f_x = f_s1.filter(${pyStr("a == 'x\\'); import os; ('")})`);
+  });
+});
+
+// ── Quality gates: native, with nulls counted the way the pandas engine does ─
+
+describe("compileSparkGraph — quality gates", () => {
+  const gate = (rules: Record<string, unknown>[]) => through({ type: "quality_gate", rules });
+
+  it("emits one helper column per rule and drops them all at the end", () => {
+    const code = gate([
+      { check: "not_null", column: "id", severity: "fail" },
+      { check: "unique", column: "id", severity: "fail" },
+    ]);
+    expect(code).toContain("_sdf = _sdf.withColumn('__v0', F.col('id').isNull())");
+    expect(code).toContain(
+      "_sdf = _sdf.withColumn('__v1', (F.count(F.lit(1)).over(Window.partitionBy('id')) > 1))",
+    );
+    expect(code).toContain("def _gate_x(_sdf):");
+    expect(code).toContain("return _sdf.drop(*_helpers)");
+    expect(code).toContain("f_x = _gate_x(f_s1)");
+    expect(code).toContain("'quality': _quality,");
+  });
+
+  it("a null is a violation of range, regex and allowed-values — coalesced, not three-valued", () => {
+    const code = gate([
+      { check: "range", column: "amount", min: 0, max: 1000, severity: "warn" },
+      { check: "range", column: "qty", min: 1, severity: "warn" },
+      { check: "range", column: "pct", max: 100, severity: "warn" },
+      { check: "regex", column: "email", pattern: "[^@]+@[^@]+", severity: "drop" },
+      { check: "allowed_values", column: "status", values: ["new", "paid"], severity: "drop" },
+    ]);
+    expect(code).toContain("~F.coalesce(F.col('amount').between(0, 1000), F.lit(False))");
+    expect(code).toContain("~F.coalesce(F.col('qty') >= 1, F.lit(False))");
+    expect(code).toContain("~F.coalesce(F.col('pct') <= 100, F.lit(False))");
+    expect(code).toContain(
+      "~F.coalesce(F.col('email').cast('string').rlike('^(?:[^@]+@[^@]+)$'), F.lit(False))",
+    );
+    expect(code).toContain("~F.coalesce(F.col('status').isin(['new', 'paid']), F.lit(False))");
+  });
+
+  it("severity: fail raises, drop filters and recounts, warn prints", () => {
+    const code = gate([
+      { check: "not_null", column: "id", severity: "fail" },
+      { check: "not_null", column: "email", severity: "drop" },
+      { check: "not_null", column: "phone", severity: "warn" },
+    ]);
+    expect(code).toContain("raise RuntimeError('Quality gate ' + 'x' + ': ' + ");
+    expect(code).toContain("_sdf = _sdf.filter(~F.col('__v1'))\n        _rows = _sdf.count()");
+    expect(code).toContain("print('[quality] WARN ' + ");
+    expect(code).toContain("'severity': 'drop'");
+  });
+
+  it("row_count_min checks the count, without a column", () => {
+    const code = gate([{ check: "row_count_min", min: 10, severity: "fail" }]);
+    expect(code).toContain("_n0 = 10 - int(_rows) if _rows < 10 else 0");
+    expect(code).toContain("need 10')");
+  });
+
+  it("refuses a gate with no rules, a rule with no column, a range with no bound", () => {
+    expect(() => gate([])).toThrow(/has no rules/);
+    expect(() => gate([{ check: "not_null", severity: "fail" }])).toThrow(/needs a column/);
+    expect(() => gate([{ check: "range", column: "a", severity: "fail" }])).toThrow(
+      /min, a max, or both/,
+    );
+  });
+});
+
+// ── Targets ─────────────────────────────────────────────────────────────────
+
+describe("compileSparkGraph — targets", () => {
+  it.each([
+    ["parquet", "replace", ".format('parquet').mode('overwrite').save(_dest)"],
+    ["csv", "append", ".option('header', 'true').format('csv').mode('append').save(_dest)"],
+    ["jsonl", "append", ".format('json').mode('append').save(_dest)"],
+  ])("writes %s (%s) to object storage on the cluster", (format, write_mode, writer) => {
+    const tgt = node("t1", "target", {
+      type: "object_storage",
+      dataset: "etl",
+      table: "items",
+      format,
+      write_mode,
+    });
+    const code = compileSparkGraph(linear(CSV_SRC, tgt));
+    expect(code).toContain("_sdf = f_s1\n");
+    expect(code).toContain(
+      "_dest = os.environ['ETL_T1_BUCKET_URL'].replace('s3://', 's3a://', 1).rstrip('/') + '/etl/items'",
+    );
+    expect(code).toContain(`_sdf.write.options(**_o)${writer}`);
+    expect(code).toContain("_loads.append({'target': 'etl.items', 'fqn': ");
+    expect(code).not.toContain("import dlt");
+    assertParsesAsPython(code);
+  });
+
+  it("merge into Delta is Delta's own MERGE over the path, first write creating the table", () => {
+    const tgt = node("t1", "target", {
+      type: "object_storage",
+      dataset: "etl",
+      table: "customers",
+      format: "parquet",
+      table_format: "delta",
+      write_mode: "merge",
+      primary_key: ["id", "region"],
+    });
+    const code = compileSparkGraph(linear(CSV_SRC, tgt));
+    expect(code).toContain("_sp = _s3_session('ETL_T1')");
+    expect(code).toContain(
+      "_sdf.write.options(**_o).format('delta').mode('overwrite').save(_dest)",
+    );
+    expect(code).toContain(
+      'MERGE INTO delta.`" + _dest + "` AS t USING _src_t1 AS s ON t.id = s.id AND t.region = s.region WHEN MATCHED THEN UPDATE SET * WHEN NOT MATCHED THEN INSERT *',
+    );
+    expect(code).toContain("'fqn': 'etl/customers/*.parquet'");
+    assertParsesAsPython(code);
+  });
+
+  it("merge needs primary keys, and a Delta target may replace or append too", () => {
+    const noKeys = node("t1", "target", {
+      type: "object_storage",
+      dataset: "etl",
+      table: "c",
+      format: "parquet",
+      table_format: "delta",
+      write_mode: "merge",
+    });
+    expect(() => compileSparkGraph(linear(CSV_SRC, noKeys))).toThrow(/needs primary key columns/);
+    const appendDelta = node("t1", "target", {
+      type: "object_storage",
+      dataset: "etl",
+      table: "c",
+      format: "parquet",
+      table_format: "delta",
+      write_mode: "append",
+    });
+    expect(compileSparkGraph(linear(CSV_SRC, appendDelta))).toContain(
+      "_sdf.write.options(**_o).format('delta').mode('append').save(_dest)",
+    );
+  });
+
+  it("writes a database table over JDBC", () => {
+    const tgt = node("t1", "target", {
+      type: "database",
+      provider: "postgres",
+      dataset: "analytics",
+      table: "orders",
+      write_mode: "replace",
+    });
+    const code = compileSparkGraph(linear(CSV_SRC, tgt));
+    expect(code).toContain("_j = _jdbc(os.environ['ETL_T1_URL'])");
+    expect(code).toContain(
+      "_sdf.write.format('jdbc').option('url', _j['url']).option('dbtable', 'analytics.orders')",
+    );
+    expect(code).toContain(".mode('overwrite').save()");
+    expect(code).toContain("'target': 'analytics.orders', 'fqn': 'analytics.orders'");
+    assertParsesAsPython(code);
+  });
+
+  it("schema drift: recorded always, compared under warn and strict", () => {
+    const mk = (schema_policy?: string) =>
+      compileSparkGraph(
+        linear(
+          CSV_SRC,
+          node("t1", "target", {
+            type: "object_storage",
+            dataset: "etl",
+            table: "items",
+            format: "parquet",
+            write_mode: "append",
+            ...(schema_policy ? { schema_policy } : {}),
+          }),
+        ),
+      );
+    const evolve = mk();
+    expect(evolve).toContain("_schemas['t1'] = _schema_of(_sdf)");
+    expect(evolve).not.toContain("_prev_raw");
+    const warn = mk("warn");
+    expect(warn).toContain("_prev_raw = os.environ.get('ETL_T1_SCHEMA')");
+    expect(warn).toContain("print('[schema] WARN ' + _msg)");
+    const strict = mk("strict");
+    expect(strict).toContain("raise RuntimeError('[schema] ' + _msg)");
+    assertParsesAsPython(strict);
+    // Type names as the pandas engine would report them, so a baseline one
+    // engine recorded does not read as total drift to the other.
+    expect(strict).toContain("'bigint': 'int64'");
+    expect(strict).toContain("'double': 'float64'");
+  });
+
+  it("lakehouse, HTTP and SaaS targets take the collected result on the driver", () => {
+    const lake = node("t1", "target", {
+      type: "lakehouse",
+      schema: "main",
+      table: "items",
+      write_mode: "replace",
+    });
+    const http = node("t2", "target", { type: "http_api", url: "https://sink.example.com/rows" });
+    const g: EtlGraph = {
+      nodes: [CSV_SRC, lake, http],
+      edges: [
+        { id: "e1", from: "s1", to: "t1" },
+        { id: "e2", from: "s1", to: "t2" },
+      ],
+    };
+    const code = compileSparkGraph(g);
+    expect(code).toContain("_pd_t1 = f_s1.toPandas()");
+    expect(code).toContain("_pd_t2 = f_s1.toPandas()");
+    expect(code).toContain("def _lakehouse_con():");
+    expect(code).toContain("# target t1: lakehouse → main.items (replace)");
+    assertParsesAsPython(code);
+  });
+});
+
+// ── What the engine says no to, at save time ────────────────────────────────
+
+describe("sparkRefusal", () => {
+  const tgt = (extra: Record<string, unknown>, label?: string) =>
+    node(
+      "t1",
+      "target",
+      {
+        type: "object_storage",
+        dataset: "etl",
+        table: "x",
+        format: "parquet",
+        write_mode: "replace",
+        ...extra,
+      },
+      label,
+    );
+
+  it("accepts the ordinary graph", () => {
+    expect(sparkRefusal(linear(CSV_SRC, PARQUET_TGT))).toBeNull();
+    expect(sparkRefusal(starterGraph())).toBeNull();
+  });
+
+  it("Iceberg is not on the Spark engine yet", () => {
+    const g = linear(CSV_SRC, tgt({ table_format: "iceberg" }, "Gold"));
+    expect(sparkRefusal(g)).toMatch(/Target "Gold": Iceberg is not on the Spark engine yet/);
+    expect(() => compileSparkGraph(g)).toThrow(/Iceberg/);
+    // The pandas engine still takes it.
+    expect(() => compileGraph(g)).not.toThrow();
+  });
+
+  it("merge into plain files has nothing to merge on", () => {
+    const g = linear(CSV_SRC, tgt({ write_mode: "merge", primary_key: ["id"] }));
+    expect(sparkRefusal(g)).toMatch(/merge needs a Delta table/);
+  });
+
+  it("merge into a database is not there yet", () => {
+    const g = linear(
+      CSV_SRC,
+      node("t1", "target", {
+        type: "database",
+        provider: "postgres",
+        dataset: "public",
+        table: "x",
+        write_mode: "merge",
+        primary_key: ["id"],
+      }),
+    );
+    expect(sparkRefusal(g)).toMatch(/merge into a database is not supported yet/);
+    expect(() => compileGraph(g)).not.toThrow();
+  });
+});
+
+// ── The whole program ───────────────────────────────────────────────────────
+
+describe("compileSparkGraph — the program", () => {
+  it("a wide pipeline: two sources, join, derive, filter, aggregate, gate, sort, two targets", () => {
+    const orders = node("o", "source", {
+      type: "object_storage",
+      path: "orders/*.csv",
+      format: "csv",
+    });
+    const customers = node("c", "source", {
+      type: "database",
+      mode: "table",
+      table: "public.customers",
+      provider: "postgres",
+    });
+    const nodes: EtlNode[] = [
+      orders,
+      customers,
+      node("j", "transform", {
+        type: "join",
+        how: "inner",
+        left_on: ["customer_id"],
+        right_on: ["id"],
+        left_node: "o",
+      }),
+      node("d", "transform", { type: "derive", column: "total", expr: "qty * price" }),
+      node("f", "transform", { type: "filter", expr: "total > 0" }),
+      node(
+        "g",
+        "transform",
+        {
+          type: "quality_gate",
+          rules: [{ check: "not_null", column: "region", severity: "drop" }],
+        },
+        "Clean",
+      ),
+      node("a", "transform", {
+        type: "aggregate",
+        group_by: ["region"],
+        aggs: [{ column: "total", fn: "sum", as: "revenue" }],
+      }),
+      node("s", "transform", { type: "sort", by: ["revenue"], descending: true }),
+      node("t1", "target", {
+        type: "object_storage",
+        dataset: "gold",
+        table: "revenue",
+        format: "parquet",
+        table_format: "delta",
+        write_mode: "merge",
+        primary_key: ["region"],
+      }),
+      node("t2", "target", {
+        type: "database",
+        provider: "mysql",
+        dataset: "reports",
+        table: "revenue",
+        write_mode: "replace",
+      }),
+    ];
+    const g: EtlGraph = {
+      nodes,
+      edges: [
+        { id: "e1", from: "o", to: "j" },
+        { id: "e2", from: "c", to: "j" },
+        { id: "e3", from: "j", to: "d" },
+        { id: "e4", from: "d", to: "f" },
+        { id: "e5", from: "f", to: "g" },
+        { id: "e6", from: "g", to: "a" },
+        { id: "e7", from: "a", to: "s" },
+        { id: "e8", from: "s", to: "t1" },
+        { id: "e9", from: "s", to: "t2" },
+      ],
+    };
+    const code = compileSparkGraph(g);
+    assertParsesAsPython(code);
+    const entry = code.slice(code.indexOf("def entrypoint("));
+    const seq = [
+      "f_o = _src_o()",
+      "f_c = _src_c()",
+      "f_j = _merge(f_o, f_c, 'inner', ['customer_id'], ['id'])",
+      "f_d = f_j.withColumn('total', F.expr('qty * price'))",
+      "f_f = f_d.filter('total > 0')",
+      "f_g = _gate_g(f_f)",
+      "f_a = _agg(f_g, ['region'], [('revenue', 'total', 'sum')])",
+      "f_s = _sort(f_a, ['revenue'], True)",
+      "# target t1: object storage → gold.revenue (merge, delta)",
+      "# target t2: database → reports.revenue (replace, JDBC)",
+      "'engine': 'spark',",
+      "'quality': _quality,",
+    ];
+    let at = -1;
+    for (const s of seq) {
+      const i = entry.indexOf(s, at + 1);
+      expect(i, `expected "${s}" after position ${at}`).toBeGreaterThan(at);
+      at = i;
+    }
+    // Nothing collected to the driver on this path: every node is native.
+    expect(entry).not.toContain("toPandas()");
+    expect(entry).not.toContain("_lift(");
+    expect(code).toContain("'lineage_sources': ['orders/*.csv','public.customers'],");
+  });
+
+  it("never sets credentials on the cluster's shared configuration, only per call", () => {
+    const code = compileSparkGraph(linear(CSV_SRC, PARQUET_TGT));
+    expect(code).toContain("'fs.s3a.access.key': os.environ.get(stem + '_ACCESS_KEY_ID', '')");
+    expect(code).toContain("_sp.read.options(**_s3_options('ETL_S1'))");
+    expect(code).toContain("_sdf.write.options(**_o)");
+    expect(code).not.toContain("spark.hadoop.fs.s3a");
+  });
+
+  it("prints a metrics line the run parser already understands, plus the engine", () => {
+    const code = compileSparkGraph(linear(CSV_SRC, PARQUET_TGT));
+    expect(code).toContain("print('[etl] ' + json.dumps(metrics))");
+    expect(code).toContain("'rows_loaded': sum(l['rows'] for l in _loads),");
+    expect(code).toContain("'schemas': _schemas,");
+    expect(code).toContain("'engine': 'spark',");
+    expect(code).toContain("return metrics");
+  });
+});

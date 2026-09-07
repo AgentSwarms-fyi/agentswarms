@@ -165,6 +165,41 @@ services:
     networks: [default, nb-internal]
     restart: unless-stopped
 
+  # ── Spark Connect server (opt-in: --profile spark) ────────────────────────
+  # The Spark engine's STATIC-ENDPOINT provider for one host: driver and
+  # executors in one JVM (local[*]). Enough to run every Spark-engine pipeline
+  # against MinIO and the lakehouse on a laptop; production points
+  # SPARK_CONNECT_URL at a real cluster instead. Kernels reach it on
+  # nb-internal, the same way they reach the lakehouse catalog: gRPC cannot go
+  # through the HTTP egress proxy. The first start downloads the S3, Delta and
+  # JDBC jars (several hundred MB) into the spark-ivy volume; later starts are
+  # fast.
+  spark-connect:
+    image: apache/spark:4.2.0-python3
+    profiles: [spark, all]
+    user: root
+    environment:
+      SPARK_NO_DAEMONIZE: "true"
+      HOME: /tmp
+    command:
+      - /opt/spark/sbin/start-connect-server.sh
+      - --packages
+      - org.apache.hadoop:hadoop-aws:3.5.0,io.delta:delta-spark_2.13:4.4.0,org.postgresql:postgresql:42.7.13,com.mysql:mysql-connector-j:9.7.0
+      - --conf
+      - spark.jars.ivy=/tmp/ivy
+      - --conf
+      - spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension
+      - --conf
+      - spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog
+      - --conf
+      - spark.driver.memory=${SPARK_CONNECT_DRIVER_MEMORY:-2g}
+      - --conf
+      - spark.connect.grpc.binding.port=15002
+    volumes:
+      - spark-ivy:/tmp/ivy
+    networks: [default, nb-internal, nb-dev]
+    restart: unless-stopped
+
   # ── Server-side Office renderer (opt-in: --profile docgen) ───────────────────
   # python-pptx (native editable charts/tables + LibreOffice render-verify),
   # python-docx (multi-page Word) and openpyxl (Excel with LibreOffice formula
@@ -281,3 +316,4 @@ networks:
 
 volumes:
   lakehouse-catalog-data:
+  spark-ivy:

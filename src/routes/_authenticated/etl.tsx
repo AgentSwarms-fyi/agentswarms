@@ -160,6 +160,7 @@ import {
   type EtlVersionSummary,
   runEtlPipeline,
   saveEtlPipeline,
+  etlEngineStatus,
   type EtlRecentRun,
   type EtlRunSummary,
 } from "@/utils/etl.functions";
@@ -774,6 +775,8 @@ type EditorPipeline = {
   run_after: string | null;
   is_active: boolean;
   timeout_minutes: number;
+  /** pandas is what every pipeline was; spark is opt-in per pipeline. */
+  engine: "pandas" | "spark";
 };
 
 function PipelineEditor({ id, onBack }: { id: string; onBack: () => void }) {
@@ -821,6 +824,7 @@ function PipelineEditor({ id, onBack }: { id: string; onBack: () => void }) {
           run_after: row.run_after,
           is_active: row.is_active,
           timeout_minutes: row.timeout_minutes,
+          engine: row.engine === "spark" ? "spark" : "pandas",
         });
       } catch (e) {
         toast.error((e as Error).message);
@@ -867,6 +871,7 @@ function PipelineEditor({ id, onBack }: { id: string; onBack: () => void }) {
           run_after: p.run_after,
           is_active: p.is_active,
           timeout_minutes: p.timeout_minutes,
+          engine: p.engine,
         },
       });
       setP((prev) => (prev ? { ...prev, source_code: res.source_code } : prev));
@@ -3337,6 +3342,20 @@ function SettingsTab({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
+  // Whether the Spark engine can be chosen here at all, so the picker can say
+  // "no endpoint configured" rather than offer an option that fails at run
+  // time. Only whether one exists and its host; never the URL, which may
+  // carry a token.
+  const engineStatusFn = useServerFn(etlEngineStatus);
+  const [spark, setSpark] = useState<{ configured: boolean; host: string | null } | null>(null);
+  useEffect(() => {
+    if (!token) return;
+    engineStatusFn({ data: { access_token: token } })
+      .then((r) => setSpark(r.spark))
+      .catch(() => setSpark({ configured: false, host: null }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+
   return (
     <div className="grid max-w-6xl gap-4 lg:grid-cols-2">
       <Card>
@@ -3351,6 +3370,35 @@ function SettingsTab({
               onChange={(e) => onPatch({ description: e.target.value })}
               rows={2}
             />
+          </div>
+          {/* Which engine runs it. The graph is the same either way; what
+              changes is where the program executes. */}
+          <div>
+            <Label className="text-xs">Engine</Label>
+            <Select
+              value={p.engine ?? "pandas"}
+              onValueChange={(engine) => onPatch({ engine: engine as EditorPipeline["engine"] })}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="pandas">Sandbox (pandas) — the default</SelectItem>
+                <SelectItem value="spark" disabled={!spark?.configured}>
+                  Spark cluster
+                  {spark && !spark.configured
+                    ? " — no endpoint configured"
+                    : spark?.host
+                      ? ` — ${spark.host}`
+                      : ""}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              {p.engine === "spark"
+                ? "Transforms, object-storage and JDBC loads run on the cluster. Lakehouse, HTTP and SaaS targets and Custom Python run in the sandbox on the collected result; merge needs a Delta target. Preview always samples in the sandbox."
+                : "One sandbox container running an in-memory pandas program — right for most pipelines. Pick the Spark cluster when a run's data does not fit one box."}
+            </p>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>

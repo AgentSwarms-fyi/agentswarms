@@ -327,7 +327,7 @@ export function envKey(nodeId: string): string {
   return `ETL_${clean}`;
 }
 
-function indent(code: string, pad: string): string {
+export function indent(code: string, pad: string): string {
   return code
     .split("\n")
     .map((l) => (l.trim() ? pad + l : l))
@@ -428,7 +428,7 @@ function effectiveType(n: EtlNode): string | undefined {
   return isCatalogAsset(c) ? c.resolved?.type : c.type;
 }
 
-function sourceFn(node: EtlNode): string {
+export function sourceFn(node: EtlNode): string {
   const c = node.config as EtlSourceConfig;
   // A catalog asset is read as the source it resolved to when it was picked.
   if (isCatalogAsset(c)) {
@@ -646,7 +646,7 @@ const QUALITY_CHECKS: QualityCheck[] = [
 ];
 
 /** Human-readable rule name, embedded in logs, metrics and error messages. */
-function ruleDesc(r: QualityRule): string {
+export function ruleDesc(r: QualityRule): string {
   if (r.check === "row_count_min") return `row_count_min(${r.min ?? 0})`;
   return `${r.check}(${r.column ?? "?"})`;
 }
@@ -904,7 +904,7 @@ function saasFailureLines(cfg: SaasTargetConfig): string[] {
   ];
 }
 
-function targetBlock(node: EtlNode, input: string, cdcInput = false): string {
+export function targetBlock(node: EtlNode, input: string, cdcInput = false): string {
   const c = node.config as EtlTargetConfig;
   if (c.type === "lakehouse") {
     const schema = pyIdent(c.schema, "Lakehouse schema");
@@ -1164,6 +1164,47 @@ function targetBlock(node: EtlNode, input: string, cdcInput = false): string {
 
 // ── Compile ─────────────────────────────────────────────────────────────────
 
+/**
+ * What each source reads, the way lineage records it. Shared by both
+ * compilers, so a Spark run and a pandas run of one graph record the same
+ * upstream names.
+ */
+export function lineageSourcesOf(order: EtlNode[]): string[] {
+  return order
+    .filter((n) => n.kind === "source")
+    .map((n) => {
+      const c = n.config as {
+        type: string;
+        path?: string;
+        table?: string;
+        table_id?: string;
+        table_name?: string;
+        schema?: string;
+        mode?: string;
+        url?: string;
+      };
+      if (isCatalogAsset(c)) return catalogAssetLineage(c as CatalogAssetSourceConfig);
+      if (c.type === "object_storage") return c.path ?? "";
+      if (c.type === "database")
+        return c.mode === "table"
+          ? (c.table ?? "")
+          : c.mode === "cdc"
+            ? `cdc:${c.table ?? ""}`
+            : "sql-query";
+      if (c.type === "http_api") return c.url ?? "";
+      if (c.type === "platform_dataset") return `platform:${c.table_name ?? c.table_id ?? ""}`;
+      if (c.type === "ingest") return "webhook-ingest";
+      if (c.type === "kafka") return `kafka:${(c as { topic?: string }).topic ?? ""}`;
+      if (c.type === "kinesis") return `kinesis:${(c as { stream?: string }).stream ?? ""}`;
+      if (c.type === "pubsub")
+        return `pubsub:${(c as { subscription?: string }).subscription ?? ""}`;
+      if (c.type === "lakehouse")
+        return `lakehouse:${c.schema ?? ""}${c.table ? `.${c.table}` : ""}`;
+      return "python";
+    })
+    .filter(Boolean);
+}
+
 export function compileGraph(graph: EtlGraph): string {
   const { order, incoming } = analyzeGraph(graph);
 
@@ -1281,39 +1322,7 @@ export function compileGraph(graph: EtlGraph): string {
   // Upstream descriptors for catalog lineage: close enough to the crawler's
   // asset fqns that storage-to-storage flows connect end to end, and honest
   // labels (url, table, "python") where no asset exists to point at.
-  const lineageSources = order
-    .filter((n) => n.kind === "source")
-    .map((n) => {
-      const c = n.config as {
-        type: string;
-        path?: string;
-        table?: string;
-        table_id?: string;
-        table_name?: string;
-        schema?: string;
-        mode?: string;
-        url?: string;
-      };
-      if (isCatalogAsset(c)) return catalogAssetLineage(c as CatalogAssetSourceConfig);
-      if (c.type === "object_storage") return c.path ?? "";
-      if (c.type === "database")
-        return c.mode === "table"
-          ? (c.table ?? "")
-          : c.mode === "cdc"
-            ? `cdc:${c.table ?? ""}`
-            : "sql-query";
-      if (c.type === "http_api") return c.url ?? "";
-      if (c.type === "platform_dataset") return `platform:${c.table_name ?? c.table_id ?? ""}`;
-      if (c.type === "ingest") return "webhook-ingest";
-      if (c.type === "kafka") return `kafka:${(c as { topic?: string }).topic ?? ""}`;
-      if (c.type === "kinesis") return `kinesis:${(c as { stream?: string }).stream ?? ""}`;
-      if (c.type === "pubsub")
-        return `pubsub:${(c as { subscription?: string }).subscription ?? ""}`;
-      if (c.type === "lakehouse")
-        return `lakehouse:${c.schema ?? ""}${c.table ? `.${c.table}` : ""}`;
-      return "python";
-    })
-    .filter(Boolean);
+  const lineageSources = lineageSourcesOf(order);
 
   lines.push(``, `def entrypoint(inputs=None):`);
   if (incremental.length) lines.push(`    _watermarks = {}`);

@@ -778,6 +778,28 @@ export function RuntimeTab({ token }: { token: string }) {
         </label>
       </div>
 
+      {/* The Spark engine's endpoint — a static one for now: the compose
+          `spark` profile locally, or a cluster of the operator's own. */}
+      <div className="space-y-2 rounded-lg border border-border/60 p-3">
+        <p className="text-sm font-medium">Spark engine</p>
+        <p className="text-xs text-muted-foreground">
+          A pipeline that chooses the Spark engine drives a cluster over Spark Connect from its
+          sandbox. Leave this empty and the engine picker says Spark is unavailable.
+        </p>
+        <Input
+          className="font-mono text-xs"
+          value={form.spark_connect_url}
+          onChange={(e) => set("spark_connect_url", e.target.value)}
+          placeholder="sc://spark-connect:15002"
+        />
+        <p className="text-[11px] text-muted-foreground">
+          gRPC cannot go through the egress proxy, so the host must be reachable from the kernel
+          network directly — the compose <code>spark</code> profile is; a remote cluster needs a
+          route from the sandbox network to it. A token in the URL (<code>;token=…</code>) is kept
+          out of every run log.
+        </p>
+      </div>
+
       {/* Preflight — probes the selected backend instead of failing later. */}
       <div className="space-y-2 rounded-lg border border-border/60 p-3">
         <div className="flex flex-wrap items-center justify-between gap-2">

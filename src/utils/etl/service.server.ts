@@ -23,6 +23,8 @@ import {
   type EtlNode,
 } from "@/utils/etl/codegen";
 import { etlErrorMessage } from "@/utils/etl/explainError";
+import { engineOf } from "@/utils/etl/compile";
+import { internalAppUrl, noProxyList } from "@/utils/notebookRuntime/service.server";
 import { isCatalogAsset, unwrapSourceConfig } from "@/utils/etl/catalogAsset";
 import { loadWarehouseConnectionForUser } from "@/utils/warehouse/connections.server";
 import type { WarehouseConfig } from "@/utils/warehouse/types";
@@ -449,6 +451,31 @@ export async function resolveRunEnv(
     }
   }
 
+  // The Spark engine: where the sandbox's Spark Connect client dials. gRPC
+  // cannot go through the HTTP egress proxy, so the endpoint's host joins the
+  // no-proxy list — the prelude applies this env before the client connects.
+  if (engineOf(pipeline.engine) === "spark") {
+    const { getRuntimeSettings } = await import("@/utils/notebookRuntime/config.server");
+    const { sparkConnectUrl } = await getRuntimeSettings();
+    if (!sparkConnectUrl) {
+      throw new Error(
+        "This pipeline uses the Spark engine, but no Spark Connect endpoint is configured (Admin → Developer runtime → Spark engine).",
+      );
+    }
+    env.ETL_SPARK_CONNECT_URL = sparkConnectUrl;
+    let host = "";
+    try {
+      host = new URL(sparkConnectUrl.replace(/^sc:\/\//i, "http://")).hostname;
+    } catch {
+      /* an unparseable URL fails in the sandbox with Spark's own message */
+    }
+    const noProxy = noProxyList(internalAppUrl(), host ? [host] : []);
+    env.NO_PROXY = noProxy;
+    env.no_proxy = noProxy;
+    // A token riding in the URL must never reach the run's logs.
+    const token = /[;?&]token=([^;&\s]+)/i.exec(sparkConnectUrl);
+    if (token) secretValues.push(decodeURIComponent(token[1]));
+  }
   return { env, secretValues };
 }
 

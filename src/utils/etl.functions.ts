@@ -20,6 +20,7 @@ import {
   requirementsFor,
   type EtlGraph,
 } from "@/utils/etl/codegen";
+import { compilePipeline, engineOf, pipelineRequirements } from "@/utils/etl/compile";
 import {
   cancelEtlRun,
   startEtlRun,
@@ -67,6 +68,8 @@ const UpsertSchema = z.object({
   name: z.string().min(1).max(120),
   description: z.string().max(2000).optional(),
   mode: z.enum(["visual", "code"]),
+  /** Which engine runs it. Absent = pandas, which is what every pipeline was. */
+  engine: z.enum(["pandas", "spark"]).optional(),
   source_code: z.string().max(200_000).optional(),
   graph: GraphSchema.optional(),
   requirements: z.string().max(10_000).optional(),
@@ -345,6 +348,7 @@ export const saveEtlPipeline = createServerFn({ method: "POST" })
       // be saveable — losing work to "join needs two inputs" would be hostile —
       // so a compile failure saves the graph with empty source_code (which the
       // run path refuses) and reports the error for the UI to show.
+      const engine = engineOf(data.engine);
       let sourceCode = data.source_code ?? "";
       let requirements = data.requirements;
       let compileError: string | null = null;
@@ -352,12 +356,12 @@ export const saveEtlPipeline = createServerFn({ method: "POST" })
         if (!data.graph) throw new Error("Visual pipeline needs a graph");
         const graph: EtlGraph = normalizeGraph(data.graph) ?? (data.graph as unknown as EtlGraph);
         try {
-          sourceCode = compileGraph(graph);
+          sourceCode = compilePipeline(graph, engine);
         } catch (e) {
           sourceCode = "";
           compileError = (e as Error).message;
         }
-        if (requirements === undefined) requirements = requirementsFor(graph);
+        if (requirements === undefined) requirements = pipelineRequirements(graph, engine);
       }
 
       // Cron expressions and timezones are validated at save, not at sweep
@@ -399,6 +403,7 @@ export const saveEtlPipeline = createServerFn({ method: "POST" })
         name: data.name,
         description: data.description ?? null,
         mode: data.mode,
+        engine,
         source_code: sourceCode,
         graph: (data.mode === "visual" ? (data.graph ?? null) : null) as never,
         requirements: requirements ?? "",
@@ -861,6 +866,7 @@ export const duplicateEtlPipeline = createServerFn({ method: "POST" })
         name,
         description: src.description,
         mode: src.mode,
+        engine: engineOf(src.engine),
         graph: src.graph as never,
         source_code: src.source_code,
         requirements: src.requirements,
@@ -886,4 +892,26 @@ export const duplicateEtlPipeline = createServerFn({ method: "POST" })
       detail: { source_pipeline_id: data.id },
     });
     return { id: created.id, name };
+  });
+
+/**
+ * Whether the Spark engine can be chosen on this instance, for the picker.
+ * Only whether an endpoint exists and its host — never the URL itself, which
+ * may carry a token.
+ */
+export const etlEngineStatus = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .handler(async ({ data }): Promise<{ spark: { configured: boolean; host: string | null } }> => {
+    await resolveCaller(data.access_token);
+    const { getRuntimeSettings } = await import("@/utils/notebookRuntime/config.server");
+    const { sparkConnectUrl } = await getRuntimeSettings();
+    let host: string | null = null;
+    if (sparkConnectUrl) {
+      try {
+        host = new URL(sparkConnectUrl.replace(/^sc:\/\//i, "http://")).host;
+      } catch {
+        host = null;
+      }
+    }
+    return { spark: { configured: Boolean(sparkConnectUrl), host } };
   });

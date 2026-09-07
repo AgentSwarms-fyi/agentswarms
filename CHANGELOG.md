@@ -14,8 +14,36 @@ development branch and may be ahead of the latest tag.
 
 ## Unreleased
 
-Work on `main` since the 1.4.0 tag. Twelve migrations —
+Work on `main` since the 1.4.0 tag. Thirteen migrations —
 run `npx supabase db push` after pulling.
+
+### A Spark engine for pipelines
+
+- **Opt-in per pipeline, the default untouched.** Settings → Engine chooses
+  between the sandbox (pandas — what every pipeline was, byte-for-byte the
+  same program) and a Spark cluster. Same graph, same canvas, same run log
+  and metrics; what changes is where the program executes.
+- **Spark Connect from the sandbox.** The run's sandbox holds only the
+  pure-Python client — no JVM — and drives the cluster over gRPC, so every
+  hardening decision made for the sandbox stands. Storage credentials travel
+  as per-call options rather than on the cluster's shared configuration.
+- **Native where it matters, shared where it doesn't.** Object-storage and
+  JDBC reads and writes, every transform, quality gates and Delta (including
+  MERGE) run on the cluster. CDC, stream drains, webhook ingest, spreadsheets,
+  HTTP fetches, Custom Python, the lakehouse and HTTP/SaaS targets run in the
+  sandbox and are lifted into Spark — each through the pandas compiler's own
+  emitter, so the engines cannot disagree about what a node does.
+- **Same answer on either engine.** pandas' semantics are reproduced on
+  purpose where SQL's differ: null group keys, nulls sorting last, `_x`/`_y`
+  join suffixes, a null failing a range check. Filter and derive expressions
+  keep their pandas spelling and are translated to Spark SQL at save time;
+  what Spark cannot express is refused at save, in words.
+- **Refused at save, not on the cluster:** Iceberg targets, merge into plain
+  files, merge into a database.
+- **Locally,** `docker compose --profile spark up -d` runs a single-host
+  Spark 4.2 Connect server with the S3A, Delta and JDBC connectors. In
+  production, `SPARK_CONNECT_URL` (or Admin → Developer runtime) points at a
+  cluster of your own.
 
 ### A transformation layer over the lakehouse
 

@@ -56,6 +56,7 @@ export type NbRuntimeSettings = {
   batch_max_minutes: number;
   egress_allowlist: string[];
   pip_allowed: boolean;
+  spark_connect_url: string;
 };
 
 export type NbRuntimeGrant = {
@@ -147,6 +148,7 @@ const DEFAULTS: NbRuntimeSettings = {
   batch_max_minutes: 120,
   egress_allowlist: ["pypi.org", "files.pythonhosted.org", "openrouter.ai", "api.openai.com"],
   pip_allowed: true,
+  spark_connect_url: "",
 };
 
 export const nbRuntimeGetState = createServerFn({ method: "POST" })
@@ -213,6 +215,7 @@ export const nbRuntimeGetState = createServerFn({ method: "POST" })
           batch_max_minutes: row.batch_max_minutes,
           egress_allowlist: row.egress_allowlist,
           pip_allowed: row.pip_allowed,
+          spark_connect_url: row.spark_connect_url ?? "",
         }
       : DEFAULTS;
 
@@ -305,6 +308,7 @@ export const nbRuntimeUpdateSettings = createServerFn({ method: "POST" })
         sandbox_tmpfs_mb: z.number().int().min(64).optional(),
         egress_allowlist: z.array(z.string().min(1).max(255)).max(200).optional(),
         pip_allowed: z.boolean().optional(),
+        spark_connect_url: z.string().trim().max(500).optional(),
       })
       .parse(input),
   )

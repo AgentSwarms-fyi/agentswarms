@@ -28,7 +28,7 @@ export type ServiceMode = "mcp" | "score";
 //
 // Kernel → app callback URL: inside compose the app is a service on the kernel's
 // network; on a dev host it is only reachable through the Docker host gateway.
-function internalAppUrl(): string {
+export function internalAppUrl(): string {
   if (process.env.NOTEBOOK_APP_INTERNAL_URL) return process.env.NOTEBOOK_APP_INTERNAL_URL;
   if (process.env.APP_URL) return process.env.APP_URL;
   const port = process.env.PORT || "8080";
@@ -49,14 +49,16 @@ function egressProxy(): string {
 }
 
 /** Internal hosts that must bypass the egress proxy (callbacks to the app). */
-function noProxyList(appUrl: string): string {
+export function noProxyList(appUrl: string, extraHosts: string[] = []): string {
   let host = "app";
   try {
     host = new URL(appUrl).hostname;
   } catch {
     /* keep default */
   }
-  return [host, "localhost", "127.0.0.1", ".svc", ".cluster.local"].join(",");
+  // `extraHosts`: a Spark Connect endpoint. gRPC cannot go through the HTTP
+  // egress proxy, so the sandbox must dial it directly.
+  return [host, "localhost", "127.0.0.1", ".svc", ".cluster.local", ...extraHosts].join(",");
 }
 
 function buildKernelEnv(opts: {

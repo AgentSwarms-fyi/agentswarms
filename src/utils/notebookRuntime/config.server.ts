@@ -27,6 +27,12 @@ export type RuntimeSettings = {
   pipAllowed: boolean;
   /** Writable tmpfs per sandbox (~/.local and ~/work), in MB. */
   sandboxTmpfsMb: number;
+  /**
+   * Spark Connect endpoint (sc://host:15002, optionally ;token=…) for
+   * pipelines on the Spark engine. Null means the engine is unavailable on
+   * this instance, and the engine picker says so.
+   */
+  sparkConnectUrl: string | null;
 };
 
 /**
@@ -165,8 +171,7 @@ export async function getPlatformResources(): Promise<PlatformResourceSettings> 
     mlPredictMaxRows:
       positive(data?.ml_predict_max_rows) ?? envInt("ML_PREDICT_MAX_ROWS") ?? 5_000_000,
     mlTrainGpus: nonNegative(data?.ml_train_gpus) ?? envInt("ML_TRAIN_GPUS") ?? 0,
-    mlTrainWorkers:
-      positive(data?.ml_train_workers) ?? envInt("ML_TRAIN_WORKERS") ?? 1,
+    mlTrainWorkers: positive(data?.ml_train_workers) ?? envInt("ML_TRAIN_WORKERS") ?? 1,
     mlDriftAlertPsi: positiveNum(data?.ml_drift_alert_psi) ?? envNum("ML_DRIFT_ALERT_PSI") ?? 0.25,
     // A warm scorer costs its memory whether or not anyone is scoring, which
     // is why these are small by default and a per-endpoint idle timer takes
@@ -298,6 +303,8 @@ export async function getRuntimeSettings(): Promise<RuntimeSettings> {
       "api.openai.com",
     ],
     pipAllowed: data?.pip_allowed ?? true,
+    sparkConnectUrl:
+      data?.spark_connect_url?.trim() || process.env.SPARK_CONNECT_URL?.trim() || null,
   };
 }
 

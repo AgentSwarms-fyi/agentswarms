@@ -2138,6 +2138,7 @@ export type Database = {
           default_params: Json | null;
           description: string | null;
           dest_catalog_source_id: string | null;
+          engine: string;
           graph: Json | null;
           id: string;
           is_active: boolean;
@@ -2166,6 +2167,7 @@ export type Database = {
           default_params?: Json | null;
           description?: string | null;
           dest_catalog_source_id?: string | null;
+          engine?: string;
           graph?: Json | null;
           id?: string;
           is_active?: boolean;
@@ -2194,6 +2196,7 @@ export type Database = {
           default_params?: Json | null;
           description?: string | null;
           dest_catalog_source_id?: string | null;
+          engine?: string;
           graph?: Json | null;
           id?: string;
           is_active?: boolean;
@@ -5174,6 +5177,7 @@ export type Database = {
           sandbox_tmpfs_mb: number | null;
           server_runtime_enabled: boolean;
           session_max_minutes: number;
+          spark_connect_url: string | null;
           updated_at: string;
         };
         Insert: {
@@ -5222,6 +5226,7 @@ export type Database = {
           sandbox_tmpfs_mb?: number | null;
           server_runtime_enabled?: boolean;
           session_max_minutes?: number;
+          spark_connect_url?: string | null;
           updated_at?: string;
         };
         Update: {
@@ -5270,6 +5275,7 @@ export type Database = {
           sandbox_tmpfs_mb?: number | null;
           server_runtime_enabled?: boolean;
           session_max_minutes?: number;
+          spark_connect_url?: string | null;
           updated_at?: string;
         };
         Relationships: [];

@@ -251,6 +251,54 @@ function EtlDocsPage() {
         <DocLink to="/docs/lakehouse">Lakehouse</DocLink>.
       </Callout>
 
+      <H2 id="engines">Engines: the sandbox, or a Spark cluster</H2>
+      <P>
+        Every pipeline runs on the <strong>pandas engine</strong> unless it says otherwise: one
+        sandbox, an in-memory pandas program, the sizing table below. That is right for most
+        pipelines, and nothing about it changed. A pipeline whose data does not fit one box picks
+        the <strong>Spark engine</strong> in Settings → Engine. The graph, the canvas, the run log
+        and the metrics are the same; what changes is where the program executes: the compiler emits
+        PySpark instead of pandas, and the sandbox drives a cluster over{" "}
+        <strong>Spark Connect</strong> — it holds only the pure-Python client, no JVM, so every
+        hardening decision made for it stands. Previews always sample in the sandbox.
+      </P>
+      <Table
+        headers={["On the cluster", "In the sandbox, then lifted into Spark"]}
+        rows={[
+          [
+            "Object-storage reads and writes (CSV, TSV, JSON, JSONL, Parquet; Delta including merge)",
+            "Spreadsheets, HTTP API fetches, platform datasets",
+          ],
+          [
+            "Database reads and writes over JDBC (PostgreSQL, MySQL, SQL Server families)",
+            "CDC, webhook ingest, stream drains",
+          ],
+          [
+            "Every transform, SQL steps (as Spark SQL), quality gates",
+            "Custom Python, the lakehouse, HTTP API and SaaS targets",
+          ],
+        ]}
+      />
+      <P>
+        Where pandas differs from SQL the pandas behaviour is reproduced on purpose — a null group
+        key forms a group, nulls sort last either way, a join suffixes shared columns <C>_x</C>/
+        <C>_y</C>, a null fails a range or regex check — so a pipeline gives the same answer on
+        either engine. Filter and derive expressions keep their pandas spelling and are translated
+        to Spark SQL at save time; a construct Spark cannot express is refused at save, naming it
+        and the fix. The engine also refuses, at save: Iceberg targets (write Delta), merge into
+        plain files (merge needs a Delta table), and merge into a database.
+      </P>
+      <Callout kind="info" title="Setting up a cluster">
+        One setting: a Spark Connect endpoint in Admin → Developer runtime → Spark engine (or{" "}
+        <C>SPARK_CONNECT_URL</C>). Until it is set the engine picker says so. Locally,{" "}
+        <C>docker compose --profile spark up -d</C> runs a single-host Spark 4.2 Connect server with
+        the S3A, Delta and JDBC connectors, at <C>sc://spark-connect:15002</C>. In production point
+        it at a cluster of your own. Spark Connect is gRPC and cannot go through the HTTP egress
+        proxy, so the host must be reachable from the kernel network directly; a token in the URL is
+        kept out of every run log. Storage credentials travel as per-call options, never on the
+        cluster&apos;s shared configuration.
+      </Callout>
+
       <H2 id="credentials">Credentials and secrets</H2>
       <P>
         Storage nodes resolve their catalog source&apos;s credentials; database nodes resolve their
@@ -493,7 +541,9 @@ function EtlDocsPage() {
         runtime backend: <C>docker</C> runs kernels on one host (scale that host up), <C>k8s</C>{" "}
         schedules every run as its own pod across the cluster — the horizontal path — and <C>e2b</C>{" "}
         rents externally hosted sandboxes. The unit of parallelism is the run: ten pipelines can
-        execute on ten nodes, but one run&apos;s dataframe lives on one machine.
+        execute on ten nodes, but one run&apos;s dataframe lives on one machine — unless the
+        pipeline is on the Spark engine, where the data is spread across the cluster&apos;s
+        executors (see Engines above).
       </P>
       <P>
         <strong>The app tier is safe behind a load balancer.</strong> Replicas are stateless (all
