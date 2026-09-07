@@ -318,7 +318,7 @@ runtime** and takes effect on the next job, no redeploy.
 | `ML_PREDICT_MAX_ROWS`                  | 5,000,000 | Rows one batch prediction may score.                                                                              |
 | `ML_API_RATE_LIMIT_PER_MIN`            | 60        | Calls a minute one ML API key may make, across every `/api/ml/*` endpoint (global limiter).                       |
 | `ML_TRAIN_WORKERS`                     | 1         | Sandboxes one training job spreads its algorithm search across; the job keeps the best worker's model.            |
-| `SPARK_CONNECT_URL` | — | Spark Connect endpoint for pipelines on the Spark engine (Settings → Engine); unset = the engine is unavailable. |
+| `SPARK_CONNECT_URL`                    | —         | Spark Connect endpoint for pipelines on the Spark engine (Settings → Engine); unset = the engine is unavailable.  |
 | `ML_TRAIN_GPUS`                        | 0         | GPUs requested per training sandbox: a Docker device request, or `nvidia.com/gpu` on Kubernetes.                  |
 | `ML_DRIFT_ALERT_PSI`                   | 0.25      | Population stability index above which a batch prediction audits `ml.drift.alert` and notifies the owner.         |
 | `ML_MAX_DEPLOYMENTS_PER_USER`          | 2         | Warm inference endpoints one person may hold open; each is a container holding a model in memory.                 |
