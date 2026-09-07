@@ -47,20 +47,6 @@ export async function loadTeamsBot(appId: string): Promise<TeamsBotRow | null> {
   return row;
 }
 
-/**
- * Every registered app id, so the endpoint can find which bot an activity is
- * addressed to before it has verified anything.
- *
- * This is deliberately the ONLY thing done before verification, and it reveals
- * nothing: the id it matches on comes from the token's own audience claim,
- * which is then checked against Microsoft's signature. An unknown id is
- * refused exactly like a bad signature.
- */
-export async function teamsAppIds(): Promise<string[]> {
-  const { data } = await supabaseAdmin.from("teams_bots").select("app_id").eq("is_active", true);
-  return (data ?? []).map((r) => r.app_id as string);
-}
-
 export async function teamsAppPassword(bot: TeamsBotRow): Promise<string | null> {
   const enc = bot.app_password_enc;
   if (!enc?.ciphertext || !enc?.iv) return null;

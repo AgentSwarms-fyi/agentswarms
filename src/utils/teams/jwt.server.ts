@@ -95,11 +95,6 @@ async function signingKeys(): Promise<Jwk[]> {
   return keys;
 }
 
-/** Drop the cached key set — for a rotation that outran the TTL. */
-export function forgetTeamsKeys(): void {
-  keyCache = null;
-}
-
 /**
  * Verify a Bot Framework token.
  *
