@@ -294,12 +294,12 @@ export function validateModelSql(sql: string): string | null {
   return null;
 }
 
-export function validateTest(t: SqlModelTest): string | null {
-  if (t.kind === "row_count_min") {
-    if (!Number.isFinite(t.count) || (t.count ?? 0) < 0) return "Give the minimum row count";
-    return null;
-  }
-  if (!t.column?.trim()) return `${TEST_LABELS[t.kind]} needs a column`;
+/**
+ * The part of a test that decides whether it can be TURNED INTO SQL at all —
+ * as opposed to whether the editor should accept it. Shared by both, so the
+ * two can never disagree about which tests are runnable.
+ */
+function validateTestBounds(t: SqlModelTest): string | null {
   if (t.kind === "accepted_values" && (t.values ?? []).length === 0) {
     return "List at least one accepted value";
   }
@@ -307,6 +307,15 @@ export function validateTest(t: SqlModelTest): string | null {
     return "A range test needs a minimum, a maximum, or both";
   }
   return null;
+}
+
+export function validateTest(t: SqlModelTest): string | null {
+  if (t.kind === "row_count_min") {
+    if (!Number.isFinite(t.count) || (t.count ?? 0) < 0) return "Give the minimum row count";
+    return null;
+  }
+  if (!t.column?.trim()) return `${TEST_LABELS[t.kind]} needs a column`;
+  return validateTestBounds(t);
 }
 
 /**
@@ -317,6 +326,13 @@ export function validateTest(t: SqlModelTest): string | null {
  */
 export function testSql(test: SqlModelTest, target: string): string {
   const col = test.column ? qi(test.column) : null;
+  // validateTest refuses both of these at save, so this is about rows that got
+  // in some other way — an older schema, a future importer. Saying so is the
+  // point: an assertion with nothing to assert must not become
+  // `NOT IN ()` or `AND ()`, which the runner would report as a parser error
+  // on a model the author has no reason to suspect.
+  const unusable = validateTestBounds(test);
+  if (unusable) throw new Error(unusable);
   switch (test.kind) {
     case "not_null":
       return `SELECT count(*) FROM ${target} WHERE ${col} IS NULL`;

@@ -201,6 +201,28 @@ describe("what a test asserts", () => {
     );
   });
 
+  it("refuses to emit SQL for a test with nothing to assert", () => {
+    // An assertion with no bounds and one with no accepted values used to
+    // compile to `AND ()` and `NOT IN ()`. Both are parser errors, which the
+    // runner reports against a model whose author has no reason to suspect
+    // the test rather than the SQL. validateTest refuses them at save; this
+    // is the same rule where the SQL is actually made, so a row that arrives
+    // any other way fails with a sentence instead.
+    expect(() => testSql(t({ kind: "range", min: null, max: null }), "T")).toThrow(
+      /needs a minimum, a maximum, or both/,
+    );
+    expect(() => testSql(t({ kind: "range" }), "T")).toThrow(/minimum, a maximum, or both/);
+    expect(() => testSql(t({ kind: "accepted_values", values: [] }), "T")).toThrow(
+      /at least one accepted value/,
+    );
+    expect(() => testSql(t({ kind: "accepted_values" }), "T")).toThrow(
+      /at least one accepted value/,
+    );
+    // The editor and the generator agree about which tests are runnable.
+    expect(validateTest(t({ kind: "range", min: null, max: null }))).toMatch(/minimum, a maximum/);
+    expect(validateTest(t({ kind: "accepted_values", values: [] }))).toMatch(/accepted value/);
+  });
+
   it("counts duplicated ROWS, not repeated values", () => {
     // "3 rows are duplicated" is what someone fixing the model needs.
     expect(testSql(t({ kind: "unique" }), "T")).toContain("sum(n)");
