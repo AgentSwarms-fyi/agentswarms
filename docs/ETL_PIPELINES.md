@@ -160,25 +160,62 @@ plain files (merge needs a Delta table), merge into a database (append or
 replace, or merge on the pandas engine). Which duplicate `dedupe` keeps is
 not defined on a cluster; pandas keeps the first.
 
-**Setting up a cluster.** The engine needs one setting: a Spark Connect
-endpoint, in Admin → Developer runtime → Spark engine, or `SPARK_CONNECT_URL`
-in the environment (the setting wins). Until one is set the engine picker
-says so and the option is disabled. Locally the Compose `spark` profile runs
-a single-host Spark 4.2 Connect server with the S3A, Delta and JDBC
+### Where the cluster comes from
+
+Admin → Developer runtime → Spark engine picks one of two providers for the
+whole deployment.
+
+**An endpoint you run (`static`, the default).** One Spark Connect endpoint,
+shared by every run; the platform does not manage its lifecycle. Set it there
+or as `SPARK_CONNECT_URL` (the setting wins); until one is set the engine
+picker says so and the option is disabled. Locally the Compose `spark` profile
+runs a single-host Spark 4.2 Connect server with the S3A, Delta and JDBC
 connectors already on it:
 
 ```bash
 docker compose --profile spark up -d
 ```
 
-and `sc://spark-connect:15002` is the endpoint. The first start downloads
-the connector jars into a volume; later starts are fast. In production the
-endpoint is a cluster of your own — a Spark Connect server in front of a
-standalone or Kubernetes cluster, or a managed service that speaks Spark
-Connect — reachable from the kernel network **directly**: Spark Connect is
-gRPC and cannot go through the HTTP egress proxy, so the endpoint's host is
-added to the run's no-proxy list and must have a route from the sandbox. A
-token in the URL (`sc://host:15002;token=…`) is kept out of every run log.
+and `sc://spark-connect:15002` is the endpoint. The first start downloads the
+connector jars into a volume; later starts are fast. In production the endpoint
+can be a standalone cluster, a Spark Connect server in front of one, or a
+managed service that speaks Spark Connect. A token in the URL
+(`sc://host:15002;token=…`) is kept out of every run log.
+
+**One cluster per run, on Kubernetes (`k8s`).** Available when the app itself
+runs in a cluster. Each Spark-engine run gets its own driver pod — which is
+also its Spark Connect endpoint — plus the executor pods it asks for, sized in
+the admin form (executors per run, cores and memory each, driver memory). They
+are deleted when the run ends, so a run's size is the node pool rather than one
+box, and nothing is paid for between runs. Apply the reference manifest first:
+
+```bash
+kubectl apply -f deploy/k8s/spark/spark-runtime.yaml
+```
+
+It carries the `agentswarms-spark` namespace, the ServiceAccount the driver
+needs to ask for its executors, the ResourceQuota that bounds every Spark run
+at once, and the NetworkPolicy that lets a sandbox reach a driver. Spark pods
+live in their own namespace on purpose: a kernel is under a default-deny policy
+whose only way out is the HTTP egress proxy, and a driver has to reach object
+storage and databases directly.
+
+Three things keep a per-run cluster from outliving its run. Executors are
+_owned_ by the driver pod, so deleting the driver garbage-collects them. The
+driver carries `activeDeadlineSeconds` past the run's own timeout, so the
+kubelet ends it even if the app never comes back. And every object is labelled
+with the run id, so the ETL sweep can find and delete a cluster whose run is
+over even when nothing in the database points at it any more.
+
+Provisioning is not instant — resolving the connector jars on a stock image
+takes minutes — so the run stays **queued** while its cluster comes up, and the
+orphan reaper knows to wait for it. Build an image with the jars baked in and
+set `SPARK_PACKAGES=` (empty) to skip that entirely; it is the single biggest
+difference to how quickly a Spark run starts.
+
+Either way, Spark Connect is gRPC and cannot go through the HTTP egress proxy,
+so the endpoint's host is added to the run's no-proxy list and must be
+reachable from the sandbox network directly.
 
 Credentials for object storage travel as per-call data-source options —
 scoped to the read or write, never set on the cluster's shared
@@ -187,8 +224,32 @@ go to the JDBC driver the same way.
 
 **Versions.** The sandbox image carries `pyspark-client` (the Spark Connect
 client, 4.2) and the server must be the same major.minor — the protocol is
-versioned. The Compose service pins `apache/spark:4.2.0-python3`,
-`delta-spark 4.4`, `hadoop-aws 3.5`.
+versioned. The Compose service and the per-run default both pin
+`apache/spark:4.2.0-python3`, `delta-spark 4.4`, `hadoop-aws 3.5`.
+
+**Settings and environment.** Each is the settings row first, then the
+environment, then the default.
+
+| Setting              | Env                                                           | Default                      | What it does                                                             |
+| -------------------- | ------------------------------------------------------------- | ---------------------------- | ------------------------------------------------------------------------ |
+| Clusters come from   | `SPARK_PROVIDER`                                              | `static`                     | `static` (a shared endpoint) or `k8s` (one per run)                      |
+| Endpoint             | `SPARK_CONNECT_URL`                                           | —                            | `static` only: where every run dials                                     |
+| Spark image          | `SPARK_IMAGE`                                                 | `apache/spark:4.2.0-python3` | driver and executors                                                     |
+| Executors per run    | `SPARK_EXECUTORS`                                             | 2                            | executor pods one run asks for                                           |
+| Cores per executor   | `SPARK_EXECUTOR_CORES`                                        | 1                            |                                                                          |
+| Executor memory (MB) | `SPARK_EXECUTOR_MEM_MB`                                       | 2048                         |                                                                          |
+| Driver memory (MB)   | `SPARK_DRIVER_MEM_MB`                                         | 2048                         | collected results land here                                              |
+| —                    | `SPARK_PACKAGES`                                              | the four connectors          | set empty for an image that already has them                             |
+| —                    | `SPARK_K8S_NAMESPACE`                                         | `agentswarms-spark`          | where per-run pods live                                                  |
+| —                    | `SPARK_K8S_SERVICE_ACCOUNT`                                   | `spark-driver`               | the driver's identity                                                    |
+| —                    | `SPARK_K8S_STARTUP_TIMEOUT_SECONDS`                           | 420                          | how long a driver may take to answer                                     |
+| —                    | `SPARK_K8S_NODE_SELECTOR` / `SPARK_K8S_TOLERATIONS`           | —                            | JSON; place Spark on its own pool                                        |
+| —                    | `SPARK_K8S_EXTRA_CONF`                                        | —                            | comma-separated `spark.*=value` for anything else                        |
+| —                    | `SPARK_K8S_PULL_POLICY`                                       | `IfNotPresent`               | image pull policy for per-run pods                                       |
+| —                    | `SPARK_K8S_RUN_AS_USER`                                       | 185                          | the uid in your Spark image                                              |
+| —                    | `SPARK_K8S_DRIVER_CPU_REQUEST` / `SPARK_K8S_DRIVER_CPU_LIMIT` | `500m` / `2`                 | driver CPU                                                               |
+| —                    | `SPARK_K8S_DRIVER_SCRATCH`                                    | `8Gi`                        | the driver's writable scratch (shuffle spill, ivy cache)                 |
+| —                    | `SPARK_K8S_EXECUTOR_POD_TEMPLATE`                             | —                            | executor pod template, needed under a `restricted` Pod Security Standard |
 
 ## Quality gates
 

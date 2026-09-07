@@ -3347,12 +3347,16 @@ function SettingsTab({
   // time. Only whether one exists and its host; never the URL, which may
   // carry a token.
   const engineStatusFn = useServerFn(etlEngineStatus);
-  const [spark, setSpark] = useState<{ configured: boolean; host: string | null } | null>(null);
+  const [spark, setSpark] = useState<{
+    configured: boolean;
+    provider: "static" | "k8s";
+    host: string | null;
+  } | null>(null);
   useEffect(() => {
     if (!token) return;
     engineStatusFn({ data: { access_token: token } })
       .then((r) => setSpark(r.spark))
-      .catch(() => setSpark({ configured: false, host: null }));
+      .catch(() => setSpark({ configured: false, provider: "static", host: null }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
@@ -3387,10 +3391,14 @@ function SettingsTab({
                 <SelectItem value="spark" disabled={!spark?.configured}>
                   Spark cluster
                   {spark && !spark.configured
-                    ? " — no endpoint configured"
-                    : spark?.host
-                      ? ` — ${spark.host}`
-                      : ""}
+                    ? spark.provider === "k8s"
+                      ? " — this app is not running in Kubernetes"
+                      : " — no endpoint configured"
+                    : spark?.provider === "k8s"
+                      ? " — one per run, on Kubernetes"
+                      : spark?.host
+                        ? ` — ${spark.host}`
+                        : ""}
                 </SelectItem>
               </SelectContent>
             </Select>

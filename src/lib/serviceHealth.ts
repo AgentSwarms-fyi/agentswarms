@@ -13,7 +13,8 @@ export type ServiceId =
   | "notebook-gateway"
   | "notebook-egress"
   | "notebook-docker-proxy"
-  | "lakehouse-catalog";
+  | "lakehouse-catalog"
+  | "spark-connect";
 
 export type ServiceStatus =
   /** Answered, and answered correctly. */
@@ -141,6 +142,20 @@ export const SERVICE_CATALOGUE: {
     optional: true,
     // Postgres speaks no HTTP — an open TCP socket is the whole claim.
     candidates: ["tcp://lakehouse-catalog:5432", "tcp://127.0.0.1:5432"],
+    path: "",
+    expect: "tcp-open",
+  },
+  {
+    id: "spark-connect",
+    hostPublished: false,
+    label: "Spark Connect",
+    purpose:
+      "The shared Spark cluster for ETL pipelines on the Spark engine. Without it those runs fail to connect; pipelines on the default engine are unaffected.",
+    profile: "spark",
+    optional: true,
+    // gRPC over HTTP/2 with no unauthenticated health path — an open socket is
+    // the whole claim, as for the catalog's Postgres.
+    candidates: ["tcp://spark-connect:15002", "tcp://127.0.0.1:15002"],
     path: "",
     expect: "tcp-open",
   },

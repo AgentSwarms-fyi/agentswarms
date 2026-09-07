@@ -2242,6 +2242,8 @@ export type Database = {
           retry_at: string | null;
           session_id: string | null;
           source_code: string;
+          spark_cluster_ref: string | null;
+          spark_connect_url: string | null;
           started_at: string | null;
           status: string;
           trigger: string;
@@ -2261,6 +2263,8 @@ export type Database = {
           retry_at?: string | null;
           session_id?: string | null;
           source_code?: string;
+          spark_cluster_ref?: string | null;
+          spark_connect_url?: string | null;
           started_at?: string | null;
           status?: string;
           trigger?: string;
@@ -2280,6 +2284,8 @@ export type Database = {
           retry_at?: string | null;
           session_id?: string | null;
           source_code?: string;
+          spark_cluster_ref?: string | null;
+          spark_connect_url?: string | null;
           started_at?: string | null;
           status?: string;
           trigger?: string;
@@ -5178,6 +5184,12 @@ export type Database = {
           server_runtime_enabled: boolean;
           session_max_minutes: number;
           spark_connect_url: string | null;
+          spark_driver_mem_mb: number | null;
+          spark_executor_cores: number | null;
+          spark_executor_mem_mb: number | null;
+          spark_executors: number | null;
+          spark_image: string | null;
+          spark_provider: string;
           updated_at: string;
         };
         Insert: {
@@ -5227,6 +5239,12 @@ export type Database = {
           server_runtime_enabled?: boolean;
           session_max_minutes?: number;
           spark_connect_url?: string | null;
+          spark_driver_mem_mb?: number | null;
+          spark_executor_cores?: number | null;
+          spark_executor_mem_mb?: number | null;
+          spark_executors?: number | null;
+          spark_image?: string | null;
+          spark_provider?: string;
           updated_at?: string;
         };
         Update: {
@@ -5276,6 +5294,12 @@ export type Database = {
           server_runtime_enabled?: boolean;
           session_max_minutes?: number;
           spark_connect_url?: string | null;
+          spark_driver_mem_mb?: number | null;
+          spark_executor_cores?: number | null;
+          spark_executor_mem_mb?: number | null;
+          spark_executors?: number | null;
+          spark_image?: string | null;
+          spark_provider?: string;
           updated_at?: string;
         };
         Relationships: [];

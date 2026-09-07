@@ -262,6 +262,14 @@ spec:
     - to:
         - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: agentswarms } }
       ports: [{ protocol: TCP, port: 8080 }]
+    # ETL pipelines on the Spark engine: the sandbox drives its run's own
+    # driver over Spark Connect. gRPC cannot go through the egress proxy, so
+    # this is a direct route — to one port, in one namespace. Only needed when
+    # the Spark provider is `k8s` (deploy/k8s/spark/spark-runtime.yaml).
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: agentswarms-spark }
+      ports: [{ protocol: TCP, port: 15002 }]
   ingress:
     # Only the gateway may connect to kernels (Jupyter websocket).
     - from:

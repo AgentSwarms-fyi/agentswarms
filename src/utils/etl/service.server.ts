@@ -154,7 +154,13 @@ export function sqlalchemyUrlFor(cfg: WarehouseConfig): string {
  */
 export async function resolveRunEnv(
   pipeline: EtlPipelineRow,
-  opts?: { skipTargets?: boolean },
+  opts?: {
+    skipTargets?: boolean;
+    /** The endpoint THIS run got — a per-run cluster's, when there is one. */
+    sparkConnectUrl?: string | null;
+    /** The sandbox is about to run: an absent endpoint is now an error. */
+    requireSparkEndpoint?: boolean;
+  },
 ): Promise<{ env: Record<string, string>; secretValues: string[] }> {
   const env: Record<string, string> = {};
   const secretValues: string[] = [];
@@ -455,12 +461,22 @@ export async function resolveRunEnv(
   // cannot go through the HTTP egress proxy, so the endpoint's host joins the
   // no-proxy list — the prelude applies this env before the client connects.
   if (engineOf(pipeline.engine) === "spark") {
-    const { getRuntimeSettings } = await import("@/utils/notebookRuntime/config.server");
-    const { sparkConnectUrl } = await getRuntimeSettings();
+    const { sparkClusterSettings } = await import("@/utils/etl/sparkCluster.server");
+    const { provider, staticUrl } = await sparkClusterSettings();
+    // Under `k8s` the endpoint belongs to the run, not to the deployment, and
+    // it does not exist until the run's driver does — so a missing one is only
+    // an error once the sandbox is actually asking for its environment.
+    const sparkConnectUrl = provider === "k8s" ? (opts?.sparkConnectUrl ?? null) : staticUrl;
     if (!sparkConnectUrl) {
-      throw new Error(
-        "This pipeline uses the Spark engine, but no Spark Connect endpoint is configured (Admin → Developer runtime → Spark engine).",
-      );
+      if (provider === "static") {
+        throw new Error(
+          "This pipeline uses the Spark engine, but no Spark Connect endpoint is configured (Admin → Developer runtime → Spark engine).",
+        );
+      }
+      if (opts?.requireSparkEndpoint) {
+        throw new Error("This run's Spark cluster is not ready yet.");
+      }
+      return { env, secretValues };
     }
     env.ETL_SPARK_CONNECT_URL = sparkConnectUrl;
     let host = "";
@@ -777,7 +793,7 @@ export async function etlEnvFor(
 ): Promise<{ env: Record<string, string>; requirements: string[] } | { error: string }> {
   const { data: run } = await supabaseAdmin
     .from("etl_runs")
-    .select("id, pipeline_id, user_id")
+    .select("id, pipeline_id, user_id, spark_connect_url")
     .eq("id", etlRunId)
     .eq("user_id", userId)
     .maybeSingle();
@@ -788,7 +804,10 @@ export async function etlEnvFor(
     .eq("id", run.pipeline_id)
     .maybeSingle();
   if (!pipeline) return { error: "Pipeline no longer exists" };
-  const { env } = await resolveRunEnv(pipeline);
+  const { env } = await resolveRunEnv(pipeline, {
+    sparkConnectUrl: run.spark_connect_url,
+    requireSparkEndpoint: true,
+  });
   const requirements = (pipeline.requirements ?? "")
     .split("\n")
     .map((l) => l.trim())
@@ -914,6 +933,89 @@ async function launchAttempt(
   // against the ladder (and grow the backoff), which it silently did not when
   // the attempt number was only written on the success path.
   await supabaseAdmin.from("etl_runs").update({ attempt }).eq("id", runId);
+
+  if (engineOf(pipeline.engine) === "spark") {
+    const { sparkClusterSettings } = await import("@/utils/etl/sparkCluster.server");
+    if ((await sparkClusterSettings()).provider === "k8s") {
+      // A per-run cluster takes minutes to come up, which is far too long to
+      // hold a "Run now" request or a scheduler sweep open. The run stays
+      // queued while it does; the orphan reaper knows to wait, and the
+      // driver's own deadline ends it even if this process dies here.
+      // Detached, so an unhandled rejection here would take the process down
+      // rather than the run: every failure inside becomes a failed attempt.
+      void provisionThenLaunch(runId, pipeline, params, attempt).catch((e) =>
+        console.warn("[etl] spark provisioning failed:", (e as Error).message),
+      );
+      return { ok: true };
+    }
+  }
+  return startRunSandbox(runId, pipeline, params, attempt);
+}
+
+/**
+ * Create this run's own Spark cluster, wait for it to answer, then start the
+ * sandbox. The reference is recorded as soon as the objects exist — before the
+ * slow wait — because a cluster nobody has written down is the one that leaks.
+ */
+async function provisionThenLaunch(
+  runId: string,
+  pipeline: EtlPipelineRow,
+  params: Record<string, unknown>,
+  attempt: number,
+): Promise<void> {
+  const { acquireSparkCluster, awaitSparkClusterReady, releaseSparkCluster } =
+    await import("@/utils/etl/sparkCluster.server");
+  let ref: string | null = null;
+  try {
+    // A previous attempt's cluster is dead weight the moment this one starts.
+    const { data: prior } = await supabaseAdmin
+      .from("etl_runs")
+      .select("spark_cluster_ref")
+      .eq("id", runId)
+      .maybeSingle();
+    await releaseSparkCluster(prior?.spark_cluster_ref);
+
+    const cluster = await acquireSparkCluster({
+      runId,
+      userId: pipeline.user_id,
+      timeoutMinutes: pipeline.timeout_minutes ?? 30,
+    });
+    ref = cluster.ref;
+    await supabaseAdmin
+      .from("etl_runs")
+      .update({ spark_cluster_ref: cluster.ref, spark_connect_url: cluster.url })
+      .eq("id", runId);
+    await awaitSparkClusterReady(cluster.ref);
+  } catch (e) {
+    await releaseSparkCluster(ref).catch(() => {});
+    await failOrRetry(
+      runId,
+      pipeline,
+      `Attempt ${attempt} could not start: ${(e as Error).message}`,
+    );
+    return;
+  }
+  // The run may have been cancelled while its cluster was coming up.
+  const { data: still } = await supabaseAdmin
+    .from("etl_runs")
+    .select("status")
+    .eq("id", runId)
+    .maybeSingle();
+  if (!still || !["queued", "running", "retrying"].includes(still.status)) {
+    await releaseSparkCluster(ref).catch(() => {});
+    return;
+  }
+  const launched = await startRunSandbox(runId, pipeline, params, attempt);
+  if (!launched.ok) await releaseSparkCluster(ref).catch(() => {});
+}
+
+/** Start the sandbox for one attempt. */
+async function startRunSandbox(
+  runId: string,
+  pipeline: EtlPipelineRow,
+  params: Record<string, unknown>,
+  attempt: number,
+): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
     const { session } = await startSession({
       userId: pipeline.user_id,
@@ -981,6 +1083,9 @@ async function failOrRetry(
       .in("status", ["queued", "running", "retrying"])
       .select("id");
     if (!claimed?.length) return;
+    // The backoff is up to sixteen minutes, and a per-run Spark cluster does
+    // nothing during it but cost money. The next attempt creates a fresh one.
+    await releaseRunCluster(runId);
     auditEvent({
       userId: pipeline.user_id,
       action: "etl.run.retry_scheduled",
@@ -1004,6 +1109,7 @@ async function failOrRetry(
     .in("status", ["queued", "running", "retrying"])
     .select("id");
   if (!claimedFail?.length) return;
+  await releaseRunCluster(runId);
   await supabaseAdmin
     .from("etl_pipelines")
     .update({ last_run_at: stamp, last_run_status: "failed" })
@@ -1067,11 +1173,32 @@ export async function appendPartialLogs(etlRunId: string, logs: string): Promise
  * recovered from the session row (the batch runner stores them there too);
  * anything else goes through the ordinary retry ladder.
  */
+/**
+ * Release a run's own Spark cluster, if it had one.
+ *
+ * Called from every terminal path — success, exhausted retries, cancellation —
+ * because the replica that ends a run is rarely the one that started it, and
+ * the only durable pointer to the cluster is the run row.
+ */
+async function releaseRunCluster(runId: string): Promise<void> {
+  const { data } = await supabaseAdmin
+    .from("etl_runs")
+    .select("spark_cluster_ref")
+    .eq("id", runId)
+    .maybeSingle();
+  if (!data?.spark_cluster_ref) return;
+  const { releaseSparkCluster } = await import("@/utils/etl/sparkCluster.server");
+  await releaseSparkCluster(data.spark_cluster_ref).catch((e) =>
+    console.warn("[etl] could not release the run's Spark cluster:", (e as Error).message),
+  );
+  await supabaseAdmin.from("etl_runs").update({ spark_cluster_ref: null }).eq("id", runId);
+}
+
 export async function reconcileOrphanedEtlRuns(): Promise<number> {
   const graceAgo = new Date(Date.now() - 2 * 60_000).toISOString();
   const { data: liveRuns } = await supabaseAdmin
     .from("etl_runs")
-    .select("id, pipeline_id, session_id, status, created_at")
+    .select("id, pipeline_id, session_id, status, created_at, spark_cluster_ref")
     .in("status", ["queued", "running"])
     .lt("created_at", graceAgo)
     .limit(20);
@@ -1108,7 +1235,15 @@ export async function reconcileOrphanedEtlRuns(): Promise<number> {
         };
       } // starting/running/ready -> genuinely still going; leave it alone.
     } else if (run.status === "queued") {
-      outcome = { status: "error", error: "The run never acquired a sandbox session." };
+      // A run whose own Spark cluster is still coming up has no session yet,
+      // and that is not an orphan: provisioning one is minutes, not seconds.
+      const { sparkStartupSeconds } = await import("@/utils/etl/sparkCluster.server");
+      const provisioning =
+        run.spark_cluster_ref &&
+        Date.parse(run.created_at) > Date.now() - (sparkStartupSeconds() + 120) * 1000;
+      if (!provisioning) {
+        outcome = { status: "error", error: "The run never acquired a sandbox session." };
+      }
     }
     if (outcome) {
       await finalizeEtlRun(run.id, outcome);
@@ -1219,6 +1354,7 @@ export async function finalizeEtlRun(
     .in("status", ["queued", "running", "retrying"])
     .select("id");
   if (!claimed?.length) return;
+  await releaseRunCluster(etlRunId);
 
   if (pipeline) {
     // The row in hand still carries the PREVIOUS run's status — read the
@@ -1407,6 +1543,7 @@ export async function cancelEtlRun(runId: string, userId: string): Promise<boole
     .from("etl_runs")
     .update({ status: "cancelled", finished_at: new Date().toISOString() })
     .eq("id", runId);
+  await releaseRunCluster(runId);
   if (run.session_id) {
     const session = await getSession(userId, run.session_id);
     if (session) await stopSession(session).catch(() => {});

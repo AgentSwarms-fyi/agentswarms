@@ -778,26 +778,104 @@ export function RuntimeTab({ token }: { token: string }) {
         </label>
       </div>
 
-      {/* The Spark engine's endpoint — a static one for now: the compose
-          `spark` profile locally, or a cluster of the operator's own. */}
-      <div className="space-y-2 rounded-lg border border-border/60 p-3">
-        <p className="text-sm font-medium">Spark engine</p>
-        <p className="text-xs text-muted-foreground">
-          A pipeline that chooses the Spark engine drives a cluster over Spark Connect from its
-          sandbox. Leave this empty and the engine picker says Spark is unavailable.
-        </p>
-        <Input
-          className="font-mono text-xs"
-          value={form.spark_connect_url}
-          onChange={(e) => set("spark_connect_url", e.target.value)}
-          placeholder="sc://spark-connect:15002"
-        />
-        <p className="text-[11px] text-muted-foreground">
-          gRPC cannot go through the egress proxy, so the host must be reachable from the kernel
-          network directly — the compose <code>spark</code> profile is; a remote cluster needs a
-          route from the sandbox network to it. A token in the URL (<code>;token=…</code>) is kept
-          out of every run log.
-        </p>
+      {/* The Spark engine: where a run's cluster comes from, and how big it is. */}
+      <div className="space-y-3 rounded-lg border border-border/60 p-3">
+        <div>
+          <p className="text-sm font-medium">Spark engine</p>
+          <p className="text-xs text-muted-foreground">
+            A pipeline that chooses the Spark engine drives a cluster over Spark Connect from its
+            sandbox. Pipelines on the default engine are unaffected either way.
+          </p>
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Clusters come from</Label>
+          <Select
+            value={form.spark_provider}
+            onValueChange={(v) => set("spark_provider", v as NbRuntimeSettings["spark_provider"])}
+          >
+            <SelectTrigger className="h-8">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="static">An endpoint you run — shared by every run</SelectItem>
+              <SelectItem value="k8s">Kubernetes — one cluster per run</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {form.spark_provider === "static" ? (
+          <>
+            <Input
+              className="font-mono text-xs"
+              value={form.spark_connect_url}
+              onChange={(e) => set("spark_connect_url", e.target.value)}
+              placeholder="sc://spark-connect:15002"
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Leave it empty and the engine picker says Spark is unavailable. gRPC cannot go through
+              the egress proxy, so the host must be reachable from the kernel network directly — the
+              Compose <code>spark</code> profile is; a remote cluster needs a route to it. A token
+              in the URL (<code>;token=…</code>) is kept out of every run log.
+            </p>
+          </>
+        ) : (
+          <>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1 sm:col-span-2">
+                <Label className="text-xs">Spark image</Label>
+                <Input
+                  className="h-8 font-mono text-xs"
+                  value={form.spark_image}
+                  onChange={(e) => set("spark_image", e.target.value)}
+                  placeholder="apache/spark:4.2.0-python3"
+                />
+                <p className="text-[10px] text-muted-foreground">
+                  Driver and executors. Must be Spark 4.2 — the client in the sandbox image speaks
+                  that protocol version.
+                </p>
+              </div>
+              <NumberField
+                label="Executors per run"
+                value={form.spark_executors}
+                onChange={(n) => set("spark_executors", n)}
+                hint="pods asked for per run"
+              />
+              <NumberField
+                label="Cores per executor"
+                value={form.spark_executor_cores}
+                onChange={(n) => set("spark_executor_cores", n)}
+              />
+              <NumberField
+                label="Executor memory (MB)"
+                value={form.spark_executor_mem_mb}
+                onChange={(n) => set("spark_executor_mem_mb", n)}
+              />
+              <NumberField
+                label="Driver memory (MB)"
+                value={form.spark_driver_mem_mb}
+                onChange={(n) => set("spark_driver_mem_mb", n)}
+                hint="collected results land here"
+              />
+            </div>
+            {form.backend !== "k8s" ? (
+              <p className="text-[11px] text-amber-600 dark:text-amber-500">
+                The backend above is <code>{form.backend}</code>, so this app is probably not
+                running in a cluster — and per-run clusters need it to be. Until it is, the engine
+                picker shows Spark as unavailable rather than offering an engine every run would
+                fail on.
+              </p>
+            ) : null}
+            <p className="text-[11px] text-muted-foreground">
+              Each run gets its own driver and executors in the <code>agentswarms-spark</code>{" "}
+              namespace, and they are deleted when it ends — so a run's size is the node pool, not
+              one box. Apply <code>deploy/k8s/spark/spark-runtime.yaml</code> first: it carries the
+              namespace, the service account the driver needs to ask for executors, the quota that
+              bounds all of this, and the network policy that lets sandboxes reach a driver. The
+              first run on a new image resolves the connector jars, which is slow; bake them in and
+              set <code>SPARK_PACKAGES=</code> to skip it.
+            </p>
+          </>
+        )}
       </div>
 
       {/* Preflight — probes the selected backend instead of failing later. */}

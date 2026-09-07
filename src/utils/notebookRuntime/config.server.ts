@@ -27,13 +27,10 @@ export type RuntimeSettings = {
   pipAllowed: boolean;
   /** Writable tmpfs per sandbox (~/.local and ~/work), in MB. */
   sandboxTmpfsMb: number;
-  /**
-   * Spark Connect endpoint (sc://host:15002, optionally ;token=…) for
-   * pipelines on the Spark engine. Null means the engine is unavailable on
-   * this instance, and the engine picker says so.
-   */
-  sparkConnectUrl: string | null;
 };
+
+// The Spark engine's own settings — provider, endpoint and cluster sizing —
+// live in @/utils/etl/sparkCluster.server, next to the code that acts on them.
 
 /**
  * Compute limits that are NOT about the notebook sandbox — the in-process
@@ -303,8 +300,6 @@ export async function getRuntimeSettings(): Promise<RuntimeSettings> {
       "api.openai.com",
     ],
     pipAllowed: data?.pip_allowed ?? true,
-    sparkConnectUrl:
-      data?.spark_connect_url?.trim() || process.env.SPARK_CONNECT_URL?.trim() || null,
   };
 }
 

@@ -106,6 +106,11 @@ export async function processDueEtlPipelines(force = false): Promise<number> {
   await reconcileOrphanedEtlRuns().catch((e) =>
     console.warn("[etl-reaper] failed:", (e as Error).message),
   );
+  // …and per-run Spark clusters nothing points at any more: the run row is the
+  // normal path, this is for when there is no longer a run row to read.
+  await import("@/utils/etl/sparkCluster.server")
+    .then((m) => m.reapOrphanedSparkClusters())
+    .catch((e) => console.warn("[spark-reaper] failed:", (e as Error).message));
   // Training jobs share the sandbox and the failure modes; sweep them too.
   await import("@/utils/ml/train.server")
     .then((m) => m.reconcileOrphanedMlJobs())

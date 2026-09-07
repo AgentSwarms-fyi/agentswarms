@@ -46,7 +46,12 @@ function apiBase(): string {
   return `https://${host}:${port}`;
 }
 
-async function k8sFetch(path: string, init?: RequestInit): Promise<Response> {
+/**
+ * One definition of how this app talks to the API server: the in-pod
+ * ServiceAccount token and the in-cluster address. The Spark provider
+ * (src/utils/etl/sparkCluster.server.ts) creates its own objects through it.
+ */
+export async function k8sFetch(path: string, init?: RequestInit): Promise<Response> {
   return fetch(`${apiBase()}${path}`, {
     ...init,
     headers: {

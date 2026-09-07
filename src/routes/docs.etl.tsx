@@ -288,14 +288,31 @@ function EtlDocsPage() {
         and the fix. The engine also refuses, at save: Iceberg targets (write Delta), merge into
         plain files (merge needs a Delta table), and merge into a database.
       </P>
-      <Callout kind="info" title="Setting up a cluster">
-        One setting: a Spark Connect endpoint in Admin → Developer runtime → Spark engine (or{" "}
-        <C>SPARK_CONNECT_URL</C>). Until it is set the engine picker says so. Locally,{" "}
-        <C>docker compose --profile spark up -d</C> runs a single-host Spark 4.2 Connect server with
-        the S3A, Delta and JDBC connectors, at <C>sc://spark-connect:15002</C>. In production point
-        it at a cluster of your own. Spark Connect is gRPC and cannot go through the HTTP egress
-        proxy, so the host must be reachable from the kernel network directly; a token in the URL is
-        kept out of every run log. Storage credentials travel as per-call options, never on the
+      <P>
+        <strong>Where the cluster comes from</strong> is one choice for the deployment, in Admin →
+        Developer runtime → Spark engine. <strong>An endpoint you run</strong> is the default: one
+        Spark Connect endpoint shared by every run, set there or as <C>SPARK_CONNECT_URL</C> — and
+        until it is set the engine picker says so. Locally,{" "}
+        <C>docker compose --profile spark up -d</C> gives you one at <C>sc://spark-connect:15002</C>{" "}
+        with the S3A, Delta and JDBC connectors already on it.
+      </P>
+      <P>
+        <strong>One cluster per run, on Kubernetes</strong> is the other, available when the app
+        runs in a cluster. Each run gets its own driver — which is also its Spark Connect endpoint —
+        and the executors it asks for, sized in the admin form; both are deleted when the run ends,
+        so a run&apos;s size is the node pool rather than one box and nothing is paid for between
+        runs. Apply <C>deploy/k8s/spark/spark-runtime.yaml</C> first for the namespace, the service
+        account, the quota and the network policy. Because provisioning takes minutes on a stock
+        image, a run stays <em>queued</em> while its cluster comes up; bake the connector jars into
+        your own image and set <C>SPARK_PACKAGES=</C> to make that fast.
+      </P>
+      <Callout kind="info" title="What keeps a per-run cluster from outliving its run">
+        Executors are owned by the driver pod, so deleting the driver removes them. The driver
+        carries a deadline past the run&apos;s own timeout, so the kubelet ends it even if the app
+        never comes back. Every object is labelled with the run id, so the ETL sweep can delete a
+        cluster whose run is over even when nothing points at it any more. Spark Connect is gRPC and
+        cannot go through the egress proxy, so the endpoint is reached directly; a token in a URL is
+        kept out of every run log, and storage credentials travel as per-call options, never on the
         cluster&apos;s shared configuration.
       </Callout>
 

@@ -1,0 +1,164 @@
+# Per-run Spark clusters for the ETL Spark engine.
+#
+# With Admin → Developer runtime → Spark engine set to "Kubernetes — one cluster
+# per run", every Spark-engine pipeline run gets its own driver pod (which also
+# serves Spark Connect) and the executor pods it asks for. Both are deleted when
+# the run ends.
+#
+#   kubectl apply -f deploy/k8s/spark/spark-runtime.yaml
+#
+# Spark pods deliberately do NOT live in the kernels' namespace. A kernel is
+# under a default-deny NetworkPolicy whose only way out is the HTTP egress
+# proxy; a Spark driver has to reach object storage and databases directly, and
+# executors have to reach the driver. Separate namespaces let each have the
+# policy and the quota it actually needs.
+#
+# See docs/ETL_PIPELINES.md § Engines.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: agentswarms-spark
+  labels:
+    app.kubernetes.io/part-of: agentswarms
+    # Executor pods are created by the driver, not by this platform, so their
+    # pod spec is Spark's. Under a `restricted` Pod Security Standard they are
+    # refused unless you also supply an executor pod template (see the
+    # ConfigMap below); `baseline` is what the stock configuration needs.
+    pod-security.kubernetes.io/enforce: baseline
+---
+# The ceiling on everything the Spark engine may consume at once, across all
+# runs. A per-run cluster is spark_executors × (spark_executor_cores,
+# spark_executor_mem_mb) plus one driver — size this to the number of
+# concurrent Spark runs you want to allow, and runs beyond it stay queued
+# rather than starving the cluster.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: spark-quota
+  namespace: agentswarms-spark
+spec:
+  hard:
+    pods: "60"
+    requests.cpu: "40"
+    requests.memory: 120Gi
+    limits.cpu: "80"
+    limits.memory: 200Gi
+---
+# The driver asks the API server for its own executors, so unlike a kernel it
+# needs a token and the rights that go with it — in this namespace only.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: spark-driver
+  namespace: agentswarms-spark
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: spark-driver
+  namespace: agentswarms-spark
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "services", "configmaps", "persistentvolumeclaims"]
+    verbs: ["get", "list", "watch", "create", "delete", "deletecollection"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: spark-driver
+  namespace: agentswarms-spark
+subjects:
+  - kind: ServiceAccount
+    name: spark-driver
+    namespace: agentswarms-spark
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: spark-driver }
+---
+# The APP creates and deletes the drivers. Its ServiceAccount is the notebook
+# orchestrator's (deploy/k8s/notebooks/notebook-runtime.yaml); this grants it
+# the same two object kinds here. Adjust the subject if your app runs as a
+# different ServiceAccount.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: spark-orchestrator
+  namespace: agentswarms-spark
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "services"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: spark-orchestrator
+  namespace: agentswarms-spark
+subjects:
+  - kind: ServiceAccount
+    name: notebook-orchestrator
+    namespace: agentswarms-notebooks
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: spark-orchestrator }
+---
+# What a Spark pod may talk to.
+#
+# Ingress: a sandbox dialling Spark Connect, and executors dialling the driver
+# back on its RPC and block-manager ports.
+#
+# Egress: DNS, the API server (the driver creates executors), each other, and
+# the outside world — object storage and databases are the whole point, and
+# they are not reachable through the kernels' HTTP proxy. Narrow the last rule
+# to your storage and warehouse CIDRs if your policy calls for it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: spark-driver
+  namespace: agentswarms-spark
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/managed-by: agentswarms }
+  policyTypes: [Ingress, Egress]
+  ingress:
+    # Sandboxes: Spark Connect only.
+    - from:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: agentswarms-notebooks }
+      ports: [{ protocol: TCP, port: 15002 }]
+    # Executors ↔ driver.
+    - from:
+        - podSelector: {}
+  egress:
+    - to: []
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    - to:
+        - podSelector: {}
+    # The API server, object storage, warehouses. Tighten to your own CIDRs.
+    - to: []
+---
+# Optional: an executor pod template, for a namespace enforcing the
+# `restricted` Pod Security Standard. Mount it into the driver and point
+# SPARK_K8S_EXECUTOR_POD_TEMPLATE at the mounted path with
+# SPARK_K8S_EXTRA_CONF="spark.kubernetes.executor.podTemplateFile=/opt/spark/conf/executor.yaml"
+# — or set that conf directly. Without it, executors carry only the defaults
+# Spark gives them, which `baseline` accepts and `restricted` does not.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: spark-executor-template
+  namespace: agentswarms-spark
+data:
+  executor.yaml: |
+    apiVersion: v1
+    kind: Pod
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 185
+        runAsGroup: 185
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: spark-kubernetes-executor
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }

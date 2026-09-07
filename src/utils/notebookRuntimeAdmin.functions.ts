@@ -57,6 +57,13 @@ export type NbRuntimeSettings = {
   egress_allowlist: string[];
   pip_allowed: boolean;
   spark_connect_url: string;
+  /** Where a Spark-engine run's cluster comes from: shared, or one per run. */
+  spark_provider: "static" | "k8s";
+  spark_image: string;
+  spark_executors: number;
+  spark_executor_cores: number;
+  spark_executor_mem_mb: number;
+  spark_driver_mem_mb: number;
 };
 
 export type NbRuntimeGrant = {
@@ -149,6 +156,12 @@ const DEFAULTS: NbRuntimeSettings = {
   egress_allowlist: ["pypi.org", "files.pythonhosted.org", "openrouter.ai", "api.openai.com"],
   pip_allowed: true,
   spark_connect_url: "",
+  spark_provider: "static",
+  spark_image: "",
+  spark_executors: 2,
+  spark_executor_cores: 1,
+  spark_executor_mem_mb: 2048,
+  spark_driver_mem_mb: 2048,
 };
 
 export const nbRuntimeGetState = createServerFn({ method: "POST" })
@@ -216,6 +229,12 @@ export const nbRuntimeGetState = createServerFn({ method: "POST" })
           egress_allowlist: row.egress_allowlist,
           pip_allowed: row.pip_allowed,
           spark_connect_url: row.spark_connect_url ?? "",
+          spark_provider: row.spark_provider === "k8s" ? "k8s" : "static",
+          spark_image: row.spark_image ?? "",
+          spark_executors: row.spark_executors ?? 2,
+          spark_executor_cores: row.spark_executor_cores ?? 1,
+          spark_executor_mem_mb: row.spark_executor_mem_mb ?? 2048,
+          spark_driver_mem_mb: row.spark_driver_mem_mb ?? 2048,
         }
       : DEFAULTS;
 
@@ -309,6 +328,12 @@ export const nbRuntimeUpdateSettings = createServerFn({ method: "POST" })
         egress_allowlist: z.array(z.string().min(1).max(255)).max(200).optional(),
         pip_allowed: z.boolean().optional(),
         spark_connect_url: z.string().trim().max(500).optional(),
+        spark_provider: z.enum(["static", "k8s"]).optional(),
+        spark_image: z.string().trim().max(300).optional(),
+        spark_executors: z.number().int().min(1).max(1000).optional(),
+        spark_executor_cores: z.number().int().min(1).max(256).optional(),
+        spark_executor_mem_mb: z.number().int().min(512).max(2_000_000).optional(),
+        spark_driver_mem_mb: z.number().int().min(512).max(2_000_000).optional(),
       })
       .parse(input),
   )

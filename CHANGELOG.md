@@ -14,7 +14,7 @@ development branch and may be ahead of the latest tag.
 
 ## Unreleased
 
-Work on `main` since the 1.4.0 tag. Thirteen migrations —
+Work on `main` since the 1.4.0 tag. Fourteen migrations —
 run `npx supabase db push` after pulling.
 
 ### A Spark engine for pipelines
@@ -40,10 +40,21 @@ run `npx supabase db push` after pulling.
   what Spark cannot express is refused at save, in words.
 - **Refused at save, not on the cluster:** Iceberg targets, merge into plain
   files, merge into a database.
-- **Locally,** `docker compose --profile spark up -d` runs a single-host
-  Spark 4.2 Connect server with the S3A, Delta and JDBC connectors. In
-  production, `SPARK_CONNECT_URL` (or Admin → Developer runtime) points at a
-  cluster of your own.
+- **Two providers.** `static` points every run at one Spark Connect
+  endpoint — locally, `docker compose --profile spark up -d` gives you a
+  single-host Spark 4.2 server with the S3A, Delta and JDBC connectors on
+  it. `k8s` creates **one cluster per run**: a driver pod that is also that
+  run's Connect endpoint, plus the executors it asks for, sized in the admin
+  form and deleted when the run ends — so a run's size is the node pool
+  rather than one box, and nothing is paid for between runs.
+- **A per-run cluster cannot outlive its run.** Executors are owned by the
+  driver pod, so deleting it removes them; the driver carries a deadline the
+  kubelet enforces even if the app never comes back; and every object is
+  labelled with the run id, so the ETL sweep deletes clusters whose run is
+  over even when nothing points at them. Provisioning takes minutes on a
+  stock image, so the run stays queued while its cluster starts and the
+  orphan reaper waits for it. `deploy/k8s/spark/spark-runtime.yaml` carries
+  the namespace, service account, quota and network policy.
 
 ### A transformation layer over the lakehouse
 

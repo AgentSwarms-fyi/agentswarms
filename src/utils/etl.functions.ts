@@ -901,17 +901,14 @@ export const duplicateEtlPipeline = createServerFn({ method: "POST" })
  */
 export const etlEngineStatus = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
-  .handler(async ({ data }): Promise<{ spark: { configured: boolean; host: string | null } }> => {
-    await resolveCaller(data.access_token);
-    const { getRuntimeSettings } = await import("@/utils/notebookRuntime/config.server");
-    const { sparkConnectUrl } = await getRuntimeSettings();
-    let host: string | null = null;
-    if (sparkConnectUrl) {
-      try {
-        host = new URL(sparkConnectUrl.replace(/^sc:\/\//i, "http://")).host;
-      } catch {
-        host = null;
-      }
-    }
-    return { spark: { configured: Boolean(sparkConnectUrl), host } };
-  });
+  .handler(
+    async ({
+      data,
+    }): Promise<{
+      spark: { configured: boolean; provider: "static" | "k8s"; host: string | null };
+    }> => {
+      await resolveCaller(data.access_token);
+      const { sparkEngineAvailability } = await import("@/utils/etl/sparkCluster.server");
+      return { spark: await sparkEngineAvailability() };
+    },
+  );
