@@ -179,7 +179,16 @@ describe("compileSparkGraph — sources", () => {
     });
     const code = compileSparkGraph(linear(src, PARQUET_TGT));
     expect(code).toContain("_cur = os.environ.get('ETL_S1_CURSOR')");
-    expect(code).toContain("_sdf = _sdf.filter(F.col('updated_at').cast('string') > F.lit(_cur))");
+    // The column's own type, as on the pandas engine: comparing as text hides
+    // every row from 10 up behind a watermark of 9.
+    expect(code).toContain("_t = _sdf.schema['updated_at'].dataType");
+    // try_cast, not cast: under ANSI mode a bad cast raises rather than
+    // yielding the null the fallback tests for.
+    expect(code).toContain("_lit = F.lit(_cur).try_cast(_t)");
+    expect(code).toContain("_sdf = _sdf.filter(_c > _lit)");
+    // A watermark the type cannot hold falls back to text rather than casting
+    // to null, which would drop every row instead of none.
+    expect(code).toContain("_sp.range(1).select(_lit.alias('_v')).first()['_v'] is None");
     expect(code).toContain("_wm_s1 = _max_of(f_s1, 'updated_at')");
     expect(code).toContain("_watermarks['s1'] = str(_wm_s1)");
     expect(code).toContain("'watermarks': _watermarks,");

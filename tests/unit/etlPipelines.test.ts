@@ -345,7 +345,14 @@ describe("compileGraph — engine-managed incremental", () => {
     };
     const code = compileGraph(g);
     expect(code).toContain("ETL_N1_CURSOR");
-    expect(code).toContain(".astype(str) > cursor");
+    // Compared in the COLUMN's own type, not as text. Comparing as text
+    // silently skipped rows whenever lexicographic and natural order differ:
+    // a numeric watermark of 9 hid every row from 10 up, and the run reported
+    // success. The text comparison survives only as the fallback for a
+    // watermark the column's type cannot hold.
+    expect(code).toContain("_cur = pd.Series([cursor]).astype(_col.dtype).iloc[0]");
+    expect(code).toContain("out = out[_col > _cur]");
+    expect(code).toContain("_cur, _col = str(cursor), _col.astype(str)");
     // Empty read → no watermark entry → the engine keeps the previous cursor.
     expect(code).toContain("if len(f_n1):");
     assertParsesAsPython(code);
