@@ -194,6 +194,28 @@ async function handle(request: Request): Promise<Response> {
     }
   }
 
+  // A lakehouse query on Spark: the query id rides in the session's inputs;
+  // the program is compiled from the governed plan and the env resolved as
+  // the query's owner. Same two parts as ETL so the prelude is shared verbatim.
+  {
+    const sq = await import("@/utils/lakehouse/sparkQuery.server");
+    const stash = sq.sparkQueryStashOf(session?.inputs);
+    if (stash) {
+      let part = "";
+      try {
+        const body = (await request.json()) as { part?: string };
+        part = body?.part ?? "";
+      } catch {
+        /* empty body = default part */
+      }
+      const out =
+        part === "etl_env"
+          ? await sq.sparkQueryEnvFor(stash, claims.sub)
+          : await sq.sparkQueryBundleFor(stash, claims.sub);
+      return "error" in out ? json(404, out) : json(200, out);
+    }
+  }
+
   if (session?.mcp_app_id) return mcpAppBundle(session.mcp_app_id, claims.sub);
 
   if (!session?.notebook_id) return json(404, { error: "No notebook bound to this session" });

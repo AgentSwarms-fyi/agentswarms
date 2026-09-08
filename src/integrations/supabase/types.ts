@@ -3605,6 +3605,7 @@ export type Database = {
           cached: boolean;
           created_at: string;
           duration_ms: number | null;
+          engine: string;
           error: string | null;
           id: number;
           kind: string;
@@ -3619,6 +3620,7 @@ export type Database = {
           cached?: boolean;
           created_at?: string;
           duration_ms?: number | null;
+          engine?: string;
           error?: string | null;
           id?: number;
           kind: string;
@@ -3633,6 +3635,7 @@ export type Database = {
           cached?: boolean;
           created_at?: string;
           duration_ms?: number | null;
+          engine?: string;
           error?: string | null;
           id?: number;
           kind?: string;
@@ -3692,6 +3695,63 @@ export type Database = {
             referencedColumns: ["id"];
           },
         ];
+      };
+      lakehouse_spark_queries: {
+        Row: {
+          created_at: string;
+          error: string | null;
+          finished_at: string | null;
+          id: string;
+          logs: string | null;
+          result: Json | null;
+          row_cap: number;
+          session_id: string | null;
+          snapshot: number | null;
+          spark_cluster_ref: string | null;
+          spark_connect_url: string | null;
+          sql: string;
+          started_at: string | null;
+          status: string;
+          tables: Json;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          error?: string | null;
+          finished_at?: string | null;
+          id?: string;
+          logs?: string | null;
+          result?: Json | null;
+          row_cap?: number;
+          session_id?: string | null;
+          snapshot?: number | null;
+          spark_cluster_ref?: string | null;
+          spark_connect_url?: string | null;
+          sql: string;
+          started_at?: string | null;
+          status?: string;
+          tables?: Json;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          error?: string | null;
+          finished_at?: string | null;
+          id?: string;
+          logs?: string | null;
+          result?: Json | null;
+          row_cap?: number;
+          session_id?: string | null;
+          snapshot?: number | null;
+          spark_cluster_ref?: string | null;
+          spark_connect_url?: string | null;
+          sql?: string;
+          started_at?: string | null;
+          status?: string;
+          tables?: Json;
+          user_id?: string;
+        };
+        Relationships: [];
       };
       lakehouse_table_policies: {
         Row: {

@@ -516,12 +516,21 @@ export async function reapOrphanedSparkClusters(): Promise<number> {
   const runIds = items
     .map((i) => i.metadata?.labels?.["agentswarms.spark/run"])
     .filter((v): v is string => Boolean(v));
-  const { data: live } = await supabaseAdmin
-    .from("etl_runs")
-    .select("id")
-    .in("id", runIds)
-    .in("status", ["queued", "running", "retrying"]);
-  const liveIds = new Set((live ?? []).map((r) => r.id));
+  // A driver belongs to a pipeline run or to a lakehouse query on Spark; a
+  // reaper that knew only runs would delete every query's cluster mid-flight.
+  const [{ data: liveRuns }, { data: liveQueries }] = await Promise.all([
+    supabaseAdmin
+      .from("etl_runs")
+      .select("id")
+      .in("id", runIds)
+      .in("status", ["queued", "running", "retrying"]),
+    supabaseAdmin
+      .from("lakehouse_spark_queries")
+      .select("id")
+      .in("id", runIds)
+      .in("status", ["queued", "running"]),
+  ]);
+  const liveIds = new Set([...(liveRuns ?? []), ...(liveQueries ?? [])].map((r) => r.id));
 
   let reaped = 0;
   for (const item of items) {

@@ -13,6 +13,7 @@ import {
   Database as DatabaseIcon,
   Download,
   AlertTriangle,
+  Flame,
   HardDrive,
   Loader2,
   Play,
@@ -72,6 +73,10 @@ import {
   importDatasetToLakehouse,
   listLakeMountCandidates,
   listLakehouseHistory,
+  lakehouseSparkStatus,
+  startLakehouseSparkQuery,
+  getLakehouseSparkQuery,
+  cancelLakehouseSparkQuery,
   mountLakeSource,
   getLakehousePolicy,
   listLakehouseMatviews,
@@ -485,6 +490,50 @@ function QueryTab({
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<LakehouseResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Where the statement runs. Spark is offered only when the deployment has
+  // an endpoint or a per-job provider; a SELECT sent there is polled until
+  // its rows land, the same way a training job is.
+  // Remembered per browser: the Query tab unmounts when another tab is
+  // shown, and losing the choice on every tab switch was the first thing
+  // noticed when testing it.
+  const [engine, setEngineState] = useState<"duckdb" | "spark">(() => {
+    try {
+      return localStorage.getItem("lakehouse.engine") === "spark" ? "spark" : "duckdb";
+    } catch {
+      return "duckdb";
+    }
+  });
+  const setEngine = (v: "duckdb" | "spark") => {
+    setEngineState(v);
+    try {
+      localStorage.setItem("lakehouse.engine", v);
+    } catch {
+      /* private mode: the choice lasts for this tab */
+    }
+  };
+  const [spark, setSpark] = useState<{ configured: boolean; provider: string } | null>(null);
+  const sparkStatusFn = useServerFn(lakehouseSparkStatus);
+  const startSparkFn = useServerFn(startLakehouseSparkQuery);
+  const getSparkFn = useServerFn(getLakehouseSparkQuery);
+  const cancelSparkFn = useServerFn(cancelLakehouseSparkQuery);
+  const [sparkJob, setSparkJob] = useState<{
+    id: string;
+    startedAt: number;
+    status: string;
+  } | null>(null);
+  const [, bump] = useState(0);
+  useEffect(() => {
+    if (!token) return;
+    void sparkStatusFn({ data: { access_token: token } })
+      .then(setSpark)
+      .catch(() => setSpark(null));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+  useEffect(() => {
+    if (!sparkJob) return;
+    const t = setInterval(() => bump((x) => x + 1), 1000);
+    return () => clearInterval(t);
+  }, [sparkJob]);
   const [nl, setNl] = useState("");
   const profileFn = useServerFn(profileLakehouseQuery);
   const [profile, setProfile] = useState<LakehouseProfile | null>(null);
@@ -494,6 +543,30 @@ function QueryTab({
   const [explanation, setExplanation] = useState("");
   const areaRef = useRef<HTMLTextAreaElement>(null);
 
+  const runOnSpark = async (s: string): Promise<LakehouseResult | null> => {
+    const { id } = await startSparkFn({ data: { access_token: token, sql: s } });
+    const startedAt = Date.now();
+    setSparkJob({ id, startedAt, status: "queued" });
+    try {
+      // Two seconds between polls: a sandbox takes ~10 s to start and a
+      // query seconds to minutes, so anything tighter is noise.
+      for (;;) {
+        await new Promise((r) => setTimeout(r, 2000));
+        const q = await getSparkFn({ data: { access_token: token, id } });
+        if (!q) throw new Error("The query is gone — it may have been cancelled elsewhere.");
+        setSparkJob({ id, startedAt, status: q.status });
+        if (q.status === "succeeded") return q.result;
+        if (q.status === "cancelled") return null;
+        if (q.status === "failed") {
+          const tail = (q.logs ?? "").trim().split("\n").slice(-6).join("\n");
+          throw new Error((q.error ?? "The query failed on Spark.") + (tail ? `\n\n${tail}` : ""));
+        }
+      }
+    } finally {
+      setSparkJob(null);
+    }
+  };
+
   const run = async (statement?: string) => {
     const s = (statement ?? sql).trim();
     if (!s) return;
@@ -501,7 +574,10 @@ function QueryTab({
     setError(null);
     setProfile(null);
     try {
-      const res = await runFn({ data: { access_token: token, sql: s } });
+      const res =
+        engine === "spark"
+          ? await runOnSpark(s)
+          : await runFn({ data: { access_token: token, sql: s } });
       setResult(res);
     } catch (e) {
       setResult(null);
@@ -599,7 +675,21 @@ function QueryTab({
               "SELECT …\n\nOne statement per run. Tables are schema.table. Ctrl+Enter runs."
             }
           />
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {spark?.configured && (
+              <Select value={engine} onValueChange={(v) => setEngine(v as "duckdb" | "spark")}>
+                <SelectTrigger
+                  className="h-9 w-44"
+                  title="Where the statement runs: this worker's lakehouse engine, or the Spark cluster the ETL engine uses — one query spread across the cluster's executors, in Spark's SQL dialect"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="duckdb">Lakehouse engine</SelectItem>
+                  <SelectItem value="spark">Spark cluster</SelectItem>
+                </SelectContent>
+              </Select>
+            )}
             <Button onClick={() => void run()} disabled={running || !sql.trim()}>
               {running ? (
                 <Loader2 className="mr-1 h-4 w-4 animate-spin" />
@@ -634,6 +724,25 @@ function QueryTab({
             </Button>
             <SaveMatviewDialog sql={sql} onSaved={onDataChanged} />
             <AiFunctionsReference onInsert={(example) => setSql(example)} />
+            {sparkJob && (
+              <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <Flame className="h-3.5 w-3.5 text-orange-500" />
+                {sparkJob.status === "queued" ? "Starting on Spark" : "Running on Spark"} ·{" "}
+                {Math.round((Date.now() - sparkJob.startedAt) / 1000)} s
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-6 px-2 text-xs"
+                  onClick={() =>
+                    void cancelSparkFn({ data: { access_token: token, id: sparkJob.id } }).catch(
+                      (e) => toast.error((e as Error).message),
+                    )
+                  }
+                >
+                  Cancel
+                </Button>
+              </span>
+            )}
             {result && (
               <>
                 <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -646,6 +755,16 @@ function QueryTab({
                       title="Served from the result cache — invalidated automatically by any write"
                     >
                       cached
+                    </Badge>
+                  )}
+                  {result.engine === "spark" && (
+                    <Badge
+                      variant="secondary"
+                      className="text-[10px]"
+                      title={`Answered by the Spark cluster${result.spark_version ? ` (Spark ${result.spark_version})` : ""}: one query spread across its executors, reading the tables' snapshot files directly`}
+                    >
+                      <Flame className="mr-0.5 h-3 w-3 text-orange-500" />
+                      spark
                     </Badge>
                   )}
                   {result.ai && (result.ai.calls > 0 || result.ai.cached > 0) && (
@@ -1062,6 +1181,11 @@ function HistoryTab({ onPick }: { onPick: (sql: string) => void }) {
             >
               {h.status === "ok" ? h.kind : "error"}
             </Badge>
+            {h.engine === "spark" && (
+              <Badge variant="outline" className="text-[10px]" title="Ran on the Spark cluster">
+                spark
+              </Badge>
+            )}
             <span className="min-w-0 flex-1 truncate font-mono text-xs">{h.sql}</span>
             <span className="flex-none font-mono text-[10px] tabular-nums text-muted-foreground">
               {h.cached ? "cached · " : ""}

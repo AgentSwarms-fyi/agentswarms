@@ -14,8 +14,29 @@ development branch and may be ahead of the latest tag.
 
 ## Unreleased
 
-Work on `main` since the 1.4.0 tag. Fifteen migrations —
+Work on `main` since the 1.4.0 tag. Sixteen migrations —
 run `npx supabase db push` after pulling.
+
+### Distributed SQL: a lakehouse query on the Spark cluster
+
+- **A `SELECT` can run on the Spark engine.** Every lakehouse and BI query
+  ran on DuckDB inside one app worker — fast per core, spilling to disk, but
+  one query never spanned machines, and the Spark engine served pipelines
+  only. When a Spark endpoint or per-job provider is configured, the Query
+  tab offers **Spark cluster** beside the lakehouse engine. The statement
+  is governed exactly as on DuckDB; the catalog's inlined rows are flushed
+  and a snapshot pinned; every table it reads is resolved to that
+  snapshot's data and delete files; a sandbox builds one view per table on
+  the cluster straight from those files (deletes applied by row position,
+  the catalog's internal columns dropped), runs the statement in Spark SQL
+  and posts the rows back to the same grid, badged `spark`. The cluster
+  never opens a catalog session. Mounted schemas, tables under another
+  owner's security policy, encrypted files and every write stay on DuckDB,
+  and the page says why. A query holds its cluster for at most
+  `LAKEHOUSE_SPARK_QUERY_MINUTES` (default 30); the History tab marks Spark
+  answers. Verified live on the compose Spark 4.2 endpoint from the page: a
+  table written, flushed, then edited returned the same rows and aggregates
+  on Spark as on DuckDB, deleted rows absent. One migration.
 
 ### One graph from ingest to model
 

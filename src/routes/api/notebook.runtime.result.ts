@@ -65,6 +65,14 @@ export const Route = createFileRoute("/api/notebook/runtime/result")({
                   )
             ).catch(() => {});
           }
+          const sqStash = (await import("@/utils/lakehouse/sparkQuery.server")).sparkQueryStashOf(
+            session?.inputs,
+          );
+          if (sqStash && typeof body.logs === "string") {
+            await import("@/utils/lakehouse/sparkQuery.server")
+              .then((m) => m.appendSparkQueryLogs(sqStash.query_id, body.logs as string))
+              .catch(() => {});
+          }
           return json(200, { ok: true });
         }
 
@@ -124,6 +132,22 @@ export const Route = createFileRoute("/api/notebook/runtime/result")({
                   m.finalizeMlJob(mlStash.job_id, outcome, mlStash.shard),
                 )
           ).catch((e) => console.warn("[ml] finalize failed:", (e as Error).message));
+        }
+        // And a lakehouse query on Spark: its rows, or the reason there are none.
+        const sqStash = (await import("@/utils/lakehouse/sparkQuery.server")).sparkQueryStashOf(
+          updated?.inputs,
+        );
+        if (sqStash) {
+          await import("@/utils/lakehouse/sparkQuery.server")
+            .then((m) =>
+              m.finalizeSparkQuery(sqStash.query_id, {
+                status: body.status ?? "succeeded",
+                result: body.result,
+                logs: typeof body.logs === "string" ? body.logs : "",
+                error: typeof body.error === "string" ? body.error : null,
+              }),
+            )
+            .catch((e) => console.warn("[sparkq] finalize failed:", (e as Error).message));
         }
         return json(200, { ok: true });
       },

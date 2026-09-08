@@ -15,6 +15,12 @@ import {
   type LakehouseResult,
   type SchemaRow,
 } from "@/utils/lakehouse/core.server";
+import {
+  cancelSparkQuery,
+  getSparkQuery,
+  startSparkQuery,
+  type SparkQueryView,
+} from "@/utils/lakehouse/sparkQuery.server";
 
 async function resolveCaller(accessToken: string): Promise<string> {
   const { data, error } = await supabaseAdmin.auth.getUser(accessToken);
@@ -282,18 +288,74 @@ export const listLakehouseHistory = createServerFn({ method: "POST" })
         cached: boolean;
         retries: number;
         created_at: string;
+        /** duckdb — this worker's engine — or spark. */
+        engine: string;
       }[];
     }> => {
       const userId = await resolveCaller(data.access_token);
       const { data: rows } = await supabaseAdmin
         .from("lakehouse_query_history")
-        .select("id, sql, kind, status, row_count, duration_ms, cached, retries, created_at")
+        .select(
+          "id, sql, kind, status, row_count, duration_ms, cached, retries, created_at, engine",
+        )
         .eq("user_id", userId)
         .order("id", { ascending: false })
         .limit(50);
       return { history: rows ?? [] };
     },
   );
+
+// ── Spark ───────────────────────────────────────────────────────────────────
+// A SELECT can run on the Spark engine instead of this worker: governed the
+// same way, resolved to one snapshot's files, executed by a sandbox on the
+// cluster, polled here until the rows land.
+
+/** Whether the page should offer Spark at all, and where it would run. */
+export const lakehouseSparkStatus = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .handler(
+    async ({
+      data,
+    }): Promise<{ configured: boolean; provider: "static" | "k8s"; host: string | null }> => {
+      await resolveCaller(data.access_token);
+      if (!lakehouseEnabled()) return { configured: false, provider: "static", host: null };
+      const { sparkEngineAvailability } = await import("@/utils/etl/sparkCluster.server");
+      return sparkEngineAvailability();
+    },
+  );
+
+export const startLakehouseSparkQuery = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z
+      .object({
+        access_token: z.string().min(1),
+        sql: z.string().min(1).max(50_000),
+        row_cap: z.number().int().min(1).max(100_000).optional(),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data }): Promise<{ id: string }> => {
+    const userId = await resolveCaller(data.access_token);
+    return startSparkQuery(userId, data.sql, { rowCap: data.row_cap });
+  });
+
+export const getLakehouseSparkQuery = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z.object({ access_token: z.string().min(1), id: z.string().uuid() }).parse(input),
+  )
+  .handler(async ({ data }): Promise<SparkQueryView | null> => {
+    const userId = await resolveCaller(data.access_token);
+    return getSparkQuery(userId, data.id);
+  });
+
+export const cancelLakehouseSparkQuery = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z.object({ access_token: z.string().min(1), id: z.string().uuid() }).parse(input),
+  )
+  .handler(async ({ data }): Promise<{ cancelled: boolean }> => {
+    const userId = await resolveCaller(data.access_token);
+    return { cancelled: await cancelSparkQuery(userId, data.id) };
+  });
 
 // ── Schema lifecycle ────────────────────────────────────────────────────────
 

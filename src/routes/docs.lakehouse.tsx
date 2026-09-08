@@ -347,6 +347,26 @@ function LakehouseDocsPage() {
         </li>
       </UL>
 
+      <H2 id="spark">Running a query on Spark</H2>
+      <P>
+        Every query runs on DuckDB inside one app worker — fast per core, spilling to disk, but
+        never spanning machines. When the deployment has a Spark engine (the endpoint or per-job
+        Kubernetes provider ETL pipelines use, under Admin → Developer runtime), the Query tab
+        offers a second place to run a <C>SELECT</C>: <strong>Spark cluster</strong>. The statement
+        is governed exactly as on DuckDB, the catalog&apos;s inlined rows are flushed and a snapshot
+        pinned, and every table it reads is resolved to that snapshot&apos;s files. A sandbox then
+        builds one view per table on the cluster straight from those files — deletes applied by
+        position, the catalog&apos;s internal columns dropped — runs the statement in Spark&apos;s
+        SQL dialect, and the rows land in the same grid with a <C>spark</C> badge. The cluster never
+        opens a catalog session.
+      </P>
+      <Callout kind="warn" title="What stays on DuckDB">
+        A mounted schema (its views read raw files Spark cannot see), a table under another
+        owner&apos;s security policy (Spark cannot apply the filter, and an unfiltered read is never
+        the answer), an encrypted lakehouse, and every write. The page names the reason. A query
+        holds its cluster for at most <C>LAKEHOUSE_SPARK_QUERY_MINUTES</C> (default 30).
+      </Callout>
+
       <H2 id="scaling">Scaling and limits</H2>
       <P>
         Stateless by construction: replicas need no coordination, and writes serialise through the
@@ -354,9 +374,9 @@ function LakehouseDocsPage() {
         Concurrent writes). All replicas share the same <C>LAKEHOUSE_*</C> config and can reach the
         catalog Postgres and object store. The ceilings are the same single-node honesty as ETL —
         one query&apos;s working set lives on one replica (vectorised execution and file pruning are
-        the speed story, not a cluster), and cold reads pay object-storage latency. Small inserts
-        are held inlined in the catalog until flushed, so a fresh table can show real row counts
-        with little Parquet yet written.
+        the speed story, not a cluster) unless it is sent to Spark, and cold reads pay
+        object-storage latency. Small inserts are held inlined in the catalog until flushed, so a
+        fresh table can show real row counts with little Parquet yet written.
       </P>
       <Callout>
         Configure the engine with <C>LAKEHOUSE_CATALOG_URL</C> and the <C>LAKEHOUSE_*</C> storage

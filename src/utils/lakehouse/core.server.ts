@@ -868,6 +868,9 @@ export type LakehouseResult = {
   retries?: number;
   /** Present when the statement called ai_* functions: what it cost to answer them. */
   ai?: AiSqlStats;
+  /** Which engine answered; absent means the lakehouse engine on this worker. */
+  engine?: "duckdb" | "spark";
+  spark_version?: string;
 };
 
 /**

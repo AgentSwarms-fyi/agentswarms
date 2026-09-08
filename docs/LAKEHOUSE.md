@@ -417,6 +417,51 @@ without it the run fails with "Failed to download extension (HTTP 403)", which
 is squid refusing it, not DuckDB. A run that reports a download at all is on an
 old runtime image.
 
+## Running a query on Spark
+
+Every lakehouse query runs on DuckDB inside one app worker: fast per core,
+spilling to disk when a working set outgrows memory, but one query never
+spans machines. When the deployment has a Spark engine — the same endpoint or
+per-job Kubernetes provider ETL pipelines use (Admin → Developer runtime →
+Spark engine) — the Query tab offers a second place to run a `SELECT`:
+**Spark cluster**. The statement is spread across the cluster's executors and
+the rows come back to the same grid, with a `spark` badge and the Spark
+version.
+
+What happens, in order. The statement is governed exactly as it would be on
+DuckDB — classified, schema access checked, security policies looked up.
+The catalog's inlined rows are flushed to Parquet, the current snapshot is
+pinned, and every table the statement reads is resolved to that snapshot's
+data files and delete files through `ducklake_list_files`. A sandbox then
+connects to the cluster, builds one temporary view per table straight from
+those files (positional deletes applied by joining the delete file's
+`file_path` and `pos` against Spark's `_metadata.row_index`; the catalog's
+internal columns dropped), rewrites `schema.table` to the view names, runs the
+statement and posts the rows back. The cluster never opens a catalog session:
+the catalog Postgres is the lakehouse's narrow point, and a hundred executors
+against it would be the outage this exists to avoid.
+
+Three things run on DuckDB only, and the page says which. A **mounted**
+schema (data lake or Iceberg) — its views read raw files through
+server-authored bodies Spark cannot see. A table under **another owner's
+security policy** — Spark has no way to apply the filter, and an unfiltered
+read is never the answer. An **encrypted** lakehouse — the Spark reader does
+not decrypt DuckLake files yet. Writes never go to Spark.
+
+Two things to know. The dialect is **Spark SQL**, not DuckDB's: a statement
+that leans on DuckDB-only functions is rewritten before it runs, not
+translated. And the answer is the snapshot at the moment the query was
+planned: rows committed while it runs are not in it, which is the same
+guarantee a DuckDB query gives. Results are capped at the same row limit as
+the page's DuckDB path; a query holds its cluster for at most
+`LAKEHOUSE_SPARK_QUERY_MINUTES` (default 30). The History tab marks Spark
+answers, so a 40-second Spark query is not mistaken for a slow DuckDB one.
+
+Verified live on the compose Spark 4.2 endpoint: a table written, flushed,
+then edited (so it had both a data file and a delete file) returned the same
+rows and aggregates on Spark as on DuckDB, from the page, with the deleted
+rows absent.
+
 ## Scaling behind a load balancer
 
 The lakehouse is stateless by construction: each request opens an ephemeral
@@ -428,7 +473,8 @@ catalog Postgres and object store are reachable from every replica.
 
 The ceilings are the same single-node honesty as ETL: one query's working
 set lives on one replica (vectorised execution + file pruning is the speed
-story, not a cluster), and cold reads pay object-storage latency. Small
+story, not a cluster) unless it is sent to Spark (see above), and cold reads
+pay object-storage latency. Small
 inserts are held **inlined** in the catalog until flushed — that is why a
 fresh table can show real row counts with `0 B` of Parquet.
 
