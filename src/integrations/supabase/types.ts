@@ -3795,6 +3795,42 @@ export type Database = {
         };
         Relationships: [];
       };
+      lakehouse_tag_policies: {
+        Row: {
+          created_at: string;
+          description: string | null;
+          id: string;
+          mask_style: string;
+          row_filter: string | null;
+          scope: string;
+          tag: string;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          description?: string | null;
+          id?: string;
+          mask_style?: string;
+          row_filter?: string | null;
+          scope: string;
+          tag: string;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          description?: string | null;
+          id?: string;
+          mask_style?: string;
+          row_filter?: string | null;
+          scope?: string;
+          tag?: string;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
       mcp_app_keys: {
         Row: {
           app_id: string;

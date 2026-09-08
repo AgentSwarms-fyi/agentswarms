@@ -14,8 +14,24 @@ development branch and may be ahead of the latest tag.
 
 ## Unreleased
 
-Work on `main` since the 1.4.0 tag. Eighteen migrations —
+Work on `main` since the 1.4.0 tag. Nineteen migrations —
 run `npx supabase db push` after pulling.
+
+### Policies by tag
+
+- **One security rule, applied wherever a tag is.** A policy named one
+  table, so a `pii` column on ten tables meant ten policies and the
+  eleventh shipped unmasked. Columns now carry tags in the Data Catalog's
+  asset drawer (tables already did), both surviving re-crawls, and the
+  lakehouse page's **Tag policies** button holds owner-wide rules: mask
+  every column carrying a tag (blank or scramble), or filter every table
+  carrying one. At read time the rules a table and its columns trigger are
+  folded into the same per-table policy the parser-level rewrite enforces
+  — masks union, filters AND, a blank beats a scramble — so nothing about
+  enforcement changes and a table with no policy of its own still gets one
+  from its tags. A filter rule is checked against every table carrying the
+  tag when saved; the owner is never filtered; a Spark query on a
+  tag-policed table is refused like one on a policed table. One migration.
 
 ### Column-level lineage
 

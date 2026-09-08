@@ -14,6 +14,8 @@ export type CatalogColumn = {
   description?: string;
   /** Comment ingested from the external catalog (e.g. Unity Catalog). */
   comment?: string;
+  /** Owner-written tags; a lakehouse tag policy keys on them. Survive re-crawls. */
+  tags?: string[];
   /** Sample-based profile stats from the last crawl. */
   null_pct?: number;
   distinct_count?: number;
@@ -122,9 +124,15 @@ export async function updateCatalogAsset(
     tags?: string[];
     owner?: string | null;
     status?: CatalogAssetStatus;
+    /** The full column list, when a column's tags changed. */
+    columns?: CatalogColumn[];
   },
 ): Promise<void> {
-  const { error } = await supabase.from("catalog_assets").update(patch).eq("id", id);
+  const { columns, ...rest } = patch;
+  const { error } = await supabase
+    .from("catalog_assets")
+    .update(columns ? { ...rest, columns: columns as unknown as Json } : rest)
+    .eq("id", id);
   if (error) throw new Error(error.message);
 }
 

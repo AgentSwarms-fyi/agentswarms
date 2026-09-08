@@ -755,6 +755,10 @@ function DataPage() {
             'Define terms once ("active customer") and attach them to columns so the definition travels with the data.',
           ],
           [
+            "Column tags",
+            "Tag a column pii or a table restricted in the asset drawer, and a lakehouse tag policy masks or filters it everywhere the tag appears — one rule, not one per table.",
+          ],
+          [
             "Change detection",
             "Scheduled crawls report new, changed and removed columns, so an altered upstream schema surfaces as a change rather than a broken dashboard.",
           ],

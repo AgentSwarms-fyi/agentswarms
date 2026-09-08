@@ -85,6 +85,10 @@ import {
   saveLakehouseMatview,
   setLakehousePartitioning,
   setLakehousePolicy,
+  listLakehouseTagPolicies,
+  setLakehouseTagPolicy,
+  deleteLakehouseTagPolicy,
+  type LakehouseTagPolicy,
   type LakehousePolicy,
   type LakehouseMatview,
   type LakehouseProfile,
@@ -184,6 +188,7 @@ function LakehousePage() {
           {data?.enabled && <MountLakeDialog onMounted={reload} />}
           {data?.enabled && <IcebergCatalogsDialog onChanged={reload} />}
           {data?.enabled && <NewSchemaDialog onCreated={reload} />}
+          {data?.enabled && <TagPoliciesDialog />}
         </div>
       </div>
 
@@ -1692,6 +1697,186 @@ function MountLakeDialog({ onMounted }: { onMounted: () => void }) {
             {busy ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
             Mount
           </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * Policies by tag: one rule, written once, applied wherever the tag is. Only
+ * an owner's own rules are shown; readers never see them, as with a table's
+ * policy.
+ */
+function TagPoliciesDialog() {
+  const { session } = useAuth();
+  const token = session?.access_token ?? "";
+  const listFn = useServerFn(listLakehouseTagPolicies);
+  const setFn = useServerFn(setLakehouseTagPolicy);
+  const deleteFn = useServerFn(deleteLakehouseTagPolicy);
+  const [open, setOpen] = useState(false);
+  const [rules, setRules] = useState<LakehouseTagPolicy[] | null>(null);
+  const [tag, setTag] = useState("");
+  const [scope, setScope] = useState<"column" | "table">("column");
+  const [style, setStyle] = useState<"null" | "hash">("null");
+  const [filter, setFilter] = useState("");
+  const [busy, setBusy] = useState(false);
+  const load = async () => {
+    try {
+      setRules(await listFn({ data: { access_token: token } }));
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  };
+  useEffect(() => {
+    if (open) void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+  const save = async () => {
+    setBusy(true);
+    try {
+      await setFn({
+        data: {
+          access_token: token,
+          tag: tag.trim(),
+          scope,
+          mask_style: style,
+          row_filter: scope === "table" ? filter : null,
+        },
+      });
+      toast.success(`Rule saved for "${tag.trim().toLowerCase()}"`);
+      setTag("");
+      setFilter("");
+      await load();
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button
+          size="sm"
+          variant="outline"
+          title="Rules by tag: mask every column carrying a tag, or filter every table carrying one"
+        >
+          <ShieldCheck className="mr-1 h-4 w-4" /> Tag policies
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Policies by tag</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <p className="text-xs text-muted-foreground">
+            Tag columns and tables in the Data Catalog; a rule here applies wherever the tag is, for
+            everyone you share a schema with. You are never filtered. A table&apos;s own Security
+            policy still applies; the two are combined, the stricter mask winning.
+          </p>
+          <div className="space-y-1">
+            {rules === null ? (
+              <Skeleton className="h-8 w-full" />
+            ) : rules.length === 0 ? (
+              <p className="text-xs text-muted-foreground">No rules yet.</p>
+            ) : (
+              rules.map((r) => (
+                <div
+                  key={r.id}
+                  className="flex items-center gap-2 rounded-md border px-2 py-1.5 text-xs"
+                >
+                  <Badge variant="secondary" className="font-mono">
+                    {r.tag}
+                  </Badge>
+                  <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                    {r.scope === "column"
+                      ? `columns with this tag are ${r.mask_style === "hash" ? "scrambled" : "blanked"}`
+                      : `tables with this tag show only rows where ${r.row_filter}`}
+                  </span>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-6 w-6"
+                    title="Remove this rule"
+                    onClick={async () => {
+                      try {
+                        await deleteFn({ data: { access_token: token, id: r.id } });
+                        await load();
+                      } catch (e) {
+                        toast.error((e as Error).message);
+                      }
+                    }}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              ))
+            )}
+          </div>
+          <div className="space-y-2 rounded-md border p-3">
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <Label className="text-xs">Tag</Label>
+                <Input
+                  value={tag}
+                  onChange={(e) => setTag(e.target.value)}
+                  placeholder="pii"
+                  className="h-8 font-mono text-xs"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Applies to</Label>
+                <Select value={scope} onValueChange={(v) => setScope(v as "column" | "table")}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="column">Columns with the tag — mask them</SelectItem>
+                    <SelectItem value="table">Tables with the tag — filter rows</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            {scope === "column" ? (
+              <div className="space-y-1">
+                <Label className="text-xs">How</Label>
+                <Select value={style} onValueChange={(v) => setStyle(v as "null" | "hash")}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="null">Blank — empties the value, any type</SelectItem>
+                    <SelectItem value="hash">
+                      Scramble — hashes text so it stays groupable and joinable
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : (
+              <div className="space-y-1">
+                <Label className="text-xs">Rows they can see</Label>
+                <Input
+                  value={filter}
+                  onChange={(e) => setFilter(e.target.value)}
+                  placeholder="region = 'east'  or  owner_email = @me"
+                  className="h-8 font-mono text-xs"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Checked against every table carrying the tag when you save. @me is the
+                  reader&apos;s email, @user_id their id.
+                </p>
+              </div>
+            )}
+            <Button
+              size="sm"
+              onClick={() => void save()}
+              disabled={busy || !tag.trim() || (scope === "table" && !filter.trim())}
+            >
+              {busy ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
+              Save rule
+            </Button>
+          </div>
         </div>
       </DialogContent>
     </Dialog>

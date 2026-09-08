@@ -206,6 +206,18 @@ function LakehouseDocsPage() {
         blocking every reader at once.
       </P>
 
+      <H3 id="tag-policies">Policies by tag</H3>
+      <P>
+        A policy names one table; a <strong>tag policy</strong> is one rule written once, applied
+        wherever the tag is. Tag columns and tables in the Data Catalog (a column&apos;s tags sit in
+        the asset drawer&apos;s Columns table and survive re-crawls), then under the lakehouse
+        page&apos;s <em>Tag policies</em> button say that every column tagged <C>pii</C> is blanked
+        or scrambled, or that every table tagged <C>restricted</C> shows only rows where a condition
+        holds. At read time the rules are folded into the same per-table policy the rewrite enforces
+        — masks union, filters AND, a blank beats a scramble — so a table with no policy of its own
+        but a tagged column gets one. The owner is never filtered.
+      </P>
+
       <H2 id="concurrency">Concurrent writes</H2>
       <P>
         Two replicas writing at once is the case a shared catalog has to get right, so it was

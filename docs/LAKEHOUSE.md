@@ -241,6 +241,36 @@ The one failure this must never have is running unfiltered.
 A filter is validated against the real table when you save it, so a typo is
 caught at authoring time rather than by blocking every reader at once.
 
+### Policies by tag
+
+A policy names one table. Tag a column `pii` on ten tables and you have still
+written ten policies, and the eleventh table ships unmasked. **Tag policies**
+(the lakehouse page's _Tag policies_ button) are one rule, written once,
+applied wherever the tag is:
+
+| Rule                         | What it does                                                                              |
+| ---------------------------- | ----------------------------------------------------------------------------------------- |
+| Columns with the tag — mask  | Every column carrying the tag is blanked or scrambled, in every table, for every grantee  |
+| Tables with the tag — filter | Every table carrying the tag shows only the rows the condition allows (`@me`, `@user_id`) |
+
+Tags live in the **Data Catalog**: a table's tags on the asset, a column's tags
+in the asset drawer's Columns table. Both survive re-crawls. The rules read the
+_Lakehouse catalog_ source's assets, so a table created since its last crawl
+carries no tags until the source is re-crawled. At read time the
+rules a table and its columns trigger are folded into the same per-table
+policy the rewrite enforces — masks union, filters AND, and a blank beats a
+scramble, so a stricter rule anywhere is never weakened by a looser one
+elsewhere. A table with no policy of its own but a `pii` column under a mask
+rule gets one. The owner is never filtered; a rule's filter is checked against
+every table carrying the tag when it is saved; a tag nothing carries yet is
+accepted, and the rule waits for it. A Spark query on a tag-policed table is
+refused the way one on a policed table is.
+
+Verified live: a column tagged `pii` and its table tagged `restricted` in the
+catalog, one mask rule and one filter rule saved from the page, and a grantee's
+SELECT returned hashed emails and only the permitted rows while the owner's
+returned everything.
+
 ## Concurrent writes
 
 Two replicas writing at once is the case a shared catalog has to get right, so

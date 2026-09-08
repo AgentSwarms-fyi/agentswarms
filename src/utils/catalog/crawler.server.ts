@@ -68,6 +68,8 @@ export type CatalogColumn = {
   pii?: boolean;
   /** Curation/AI documentation — preserved across re-crawls. */
   description?: string;
+  /** Owner-written tags, merged forward from the previous crawl. */
+  tags?: string[];
   /** Source-of-truth comment ingested from the external catalog (e.g. Unity
    *  Catalog column comment). Crawler-owned; refreshed each crawl. */
   comment?: string;
@@ -619,9 +621,18 @@ export async function persistAssets(
       const prevDesc = new Map(
         prev.columns.filter((c) => c.description).map((c) => [c.name, c.description!]),
       );
+      // Column tags are curation too: a `pii` tag that a tag policy keys on
+      // must not vanish because the source was crawled again.
+      const prevTags = new Map(
+        (prev.columns as { name: string; tags?: string[] }[])
+          .filter((c) => c.tags?.length)
+          .map((c) => [c.name, c.tags!]),
+      );
       for (const col of a.columns) {
         const d = prevDesc.get(col.name);
         if (d && !col.description) col.description = d;
+        const t = prevTags.get(col.name);
+        if (t) col.tags = t;
       }
     }
     const hash = schemaHash(a.columns);

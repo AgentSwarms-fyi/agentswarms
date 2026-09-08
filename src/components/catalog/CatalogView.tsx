@@ -1221,6 +1221,8 @@ function AssetSheet({
   const [biModel] = useBiModelPref();
   const [description, setDescription] = useState("");
   const [tagsInput, setTagsInput] = useState("");
+  // Per-column tags, comma-separated as typed; a lakehouse tag policy keys on them.
+  const [columnTags, setColumnTags] = useState<Record<string, string>>({});
   const [owner, setOwner] = useState("");
   const [status, setStatus] = useState<CatalogAssetStatus>("draft");
   const [saving, setSaving] = useState(false);
@@ -1229,14 +1231,27 @@ function AssetSheet({
   useEffect(() => {
     setDescription(asset?.description ?? "");
     setTagsInput(asset?.tags.join(", ") ?? "");
+    setColumnTags(
+      Object.fromEntries((asset?.columns ?? []).map((c) => [c.name, (c.tags ?? []).join(", ")])),
+    );
     setOwner(asset?.owner ?? "");
     setStatus(asset?.status ?? "draft");
   }, [asset]);
 
   if (!asset) return null;
+  const parseTags = (raw: string) =>
+    raw
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean)
+      .slice(0, 12);
+  const columnTagsDirty = asset.columns.some(
+    (c) => parseTags(columnTags[c.name] ?? "").join(",") !== (c.tags ?? []).join(","),
+  );
   const dirty =
     description !== (asset.description ?? "") ||
     tagsInput !== asset.tags.join(", ") ||
+    columnTagsDirty ||
     owner !== (asset.owner ?? "") ||
     status !== asset.status;
   const hasStats = asset.columns.some((c) => c.null_pct !== undefined);
@@ -1277,6 +1292,15 @@ function AssetSheet({
         tags,
         owner: owner.trim() || null,
         status,
+        ...(columnTagsDirty
+          ? {
+              columns: asset.columns.map((c) => {
+                const next = parseTags(columnTags[c.name] ?? "");
+                const { tags: _old, ...rest } = c;
+                return next.length ? { ...rest, tags: next } : rest;
+              }),
+            }
+          : {}),
       };
       await updateCatalogAsset(asset.id, patch);
       onSaved(patch);
@@ -1547,6 +1571,14 @@ function AssetSheet({
                           <th className="px-2 py-1 text-[10px] font-medium text-muted-foreground">
                             Sample
                           </th>
+                          {!asset.local && (
+                            <th
+                              className="px-2 py-1 text-[10px] font-medium text-muted-foreground"
+                              title="Comma-separated. A lakehouse tag policy masks every column carrying its tag."
+                            >
+                              Tags
+                            </th>
+                          )}
                         </tr>
                       </thead>
                       <tbody>
@@ -1597,6 +1629,19 @@ function AssetSheet({
                             >
                               {c.sample ?? ""}
                             </td>
+                            {!asset.local && (
+                              <td className="px-2 py-1">
+                                <Input
+                                  value={columnTags[c.name] ?? ""}
+                                  onChange={(e) =>
+                                    setColumnTags((prev) => ({ ...prev, [c.name]: e.target.value }))
+                                  }
+                                  placeholder="pii"
+                                  aria-label={`Tags for column ${c.name}`}
+                                  className="h-6 w-28 font-mono text-[10px]"
+                                />
+                              </td>
+                            )}
                           </tr>
                         ))}
                       </tbody>

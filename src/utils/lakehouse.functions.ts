@@ -965,6 +965,176 @@ export const setLakehousePolicy = createServerFn({ method: "POST" })
     };
   });
 
+// ── Policies by tag ─────────────────────────────────────────────────────────
+// One rule an owner writes once: mask every column carrying a tag, or filter
+// every table carrying one. Tags live in the Data Catalog (on the asset and on
+// its columns); the rule is folded into the per-table policy at read time.
+
+export type LakehouseTagPolicy = {
+  id: string;
+  tag: string;
+  scope: "column" | "table";
+  mask_style: "null" | "hash";
+  row_filter: string | null;
+  description: string | null;
+  updated_at: string;
+};
+
+const TAG = /^[A-Za-z0-9][A-Za-z0-9_:.-]{0,63}$/;
+
+export const listLakehouseTagPolicies = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .handler(async ({ data }): Promise<LakehouseTagPolicy[]> => {
+    const userId = await resolveCaller(data.access_token);
+    const { data: rows } = await supabaseAdmin
+      .from("lakehouse_tag_policies")
+      .select("id, tag, scope, mask_style, row_filter, description, updated_at")
+      .eq("user_id", userId)
+      .order("tag");
+    return (rows ?? []).map((r) => ({
+      id: r.id,
+      tag: r.tag,
+      scope: r.scope as "column" | "table",
+      mask_style: (r.mask_style as "null" | "hash") ?? "null",
+      row_filter: r.row_filter ?? null,
+      description: r.description ?? null,
+      updated_at: r.updated_at,
+    }));
+  });
+
+/**
+ * Create or update a tag rule. A table rule's filter is validated against
+ * every table currently carrying the tag, the way a table policy's filter is
+ * validated against its table — so a typo bounces here, not off every reader
+ * of every tagged table at once. A tag nothing carries yet is accepted: the
+ * rule waits for the tag.
+ */
+export const setLakehouseTagPolicy = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z
+      .object({
+        access_token: z.string().min(1),
+        tag: z.string().trim().regex(TAG),
+        scope: z.enum(["column", "table"]),
+        mask_style: z.enum(["null", "hash"]).optional(),
+        row_filter: z.string().max(4000).nullable().optional(),
+        description: z.string().max(400).nullable().optional(),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data }): Promise<LakehouseTagPolicy> => {
+    const userId = await resolveCaller(data.access_token);
+    const tag = data.tag.trim().toLowerCase();
+    const filter = data.scope === "table" ? data.row_filter?.trim() || null : null;
+    if (data.scope === "table" && !filter) {
+      throw new Error(
+        "A table rule needs the rows they can see — a condition over the table's columns.",
+      );
+    }
+    if (filter) {
+      const { bindFilterPlaceholders, lakehouseAssetTags } =
+        await import("@/utils/lakehouse/policies.server");
+      const { normalizeTag } = await import("@/lib/tagPolicies");
+      // Every lakehouse table of this owner that carries the tag today —
+      // compared the way enforcement compares, so "Restricted" on the asset
+      // is checked by a rule on "restricted".
+      const owned = (await accessibleSchemas(userId)).filter((s) => s.user_id === userId);
+      const { data: assets } = await supabaseAdmin
+        .from("catalog_assets")
+        .select("schema_name, name, tags")
+        .eq("user_id", userId)
+        .eq("asset_type", "table");
+      const candidates = (assets ?? [])
+        .filter(
+          (a) =>
+            owned.some((s) => s.name === a.schema_name) &&
+            (a.tags ?? []).some((t) => normalizeTag(t) === tag),
+        )
+        .map((a) => ({ schema: String(a.schema_name), table: String(a.name) }));
+      const tagged = await lakehouseAssetTags([userId], candidates);
+      if (tagged.size) {
+        const bound = bindFilterPlaceholders(filter, { id: userId, email: "probe@example.com" });
+        const c = await lakehouseConnection();
+        try {
+          for (const t of tagged.values()) {
+            try {
+              await c.run(`SELECT 1 FROM ${qi(t.schema)}.${qi(t.table)} WHERE (${bound}) LIMIT 0`);
+            } catch (e) {
+              throw new Error(
+                `That row filter is not valid on ${t.schema}.${t.table}, which carries "${tag}": ${(e as Error).message}`,
+              );
+            }
+          }
+        } finally {
+          c.closeSync();
+        }
+      }
+    }
+    const { data: row, error } = await supabaseAdmin
+      .from("lakehouse_tag_policies")
+      .upsert(
+        {
+          user_id: userId,
+          tag,
+          scope: data.scope,
+          mask_style: data.scope === "column" ? (data.mask_style ?? "null") : "null",
+          row_filter: filter,
+          description: data.description?.trim() || null,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "user_id,tag,scope" },
+      )
+      .select("id, tag, scope, mask_style, row_filter, description, updated_at")
+      .single();
+    if (error || !row) throw new Error(error?.message ?? "Could not save the rule");
+    auditEvent({
+      userId,
+      action: "lakehouse.tag_policy",
+      resourceType: "lakehouse_tag_policy",
+      resourceId: row.id,
+      resourceName: `${data.scope}:${tag}`,
+      detail: {
+        scope: data.scope,
+        mask_style: data.scope === "column" ? row.mask_style : undefined,
+        row_filter: filter ?? undefined,
+      },
+    });
+    return {
+      id: row.id,
+      tag: row.tag,
+      scope: row.scope as "column" | "table",
+      mask_style: (row.mask_style as "null" | "hash") ?? "null",
+      row_filter: row.row_filter ?? null,
+      description: row.description ?? null,
+      updated_at: row.updated_at,
+    };
+  });
+
+export const deleteLakehouseTagPolicy = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z.object({ access_token: z.string().min(1), id: z.string().uuid() }).parse(input),
+  )
+  .handler(async ({ data }): Promise<{ deleted: boolean }> => {
+    const userId = await resolveCaller(data.access_token);
+    const { data: gone } = await supabaseAdmin
+      .from("lakehouse_tag_policies")
+      .delete()
+      .eq("id", data.id)
+      .eq("user_id", userId)
+      .select("id, tag, scope")
+      .maybeSingle();
+    if (gone) {
+      auditEvent({
+        userId,
+        action: "lakehouse.tag_policy.delete",
+        resourceType: "lakehouse_tag_policy",
+        resourceId: gone.id,
+        resourceName: `${gone.scope}:${gone.tag}`,
+      });
+    }
+    return { deleted: Boolean(gone) };
+  });
+
 // ── Materialized views ──────────────────────────────────────────────────────
 
 export type LakehouseMatview = {

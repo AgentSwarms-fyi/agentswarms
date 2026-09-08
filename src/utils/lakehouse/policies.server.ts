@@ -16,6 +16,7 @@
 import type { DuckDBConnection } from "@duckdb/node-api";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { effectivePolicy, type TagPolicy } from "@/lib/tagPolicies";
 
 export type TablePolicy = {
   id: string;
@@ -57,6 +58,115 @@ export async function loadPolicies(
       row_filter: (row.row_filter as string | null) ?? null,
       masked_columns: (row.masked_columns as string[] | null) ?? [],
       mask_style: (row.mask_style as "null" | "hash") ?? "null",
+    });
+  }
+  // Policies by tag: an owner's rules, applied to whatever the catalog says
+  // these tables and their columns are tagged with, folded into the same
+  // per-table policy the rewrite enforces. A table with no explicit policy
+  // but a `pii` column under a mask rule gets a policy here.
+  const rules = await loadTagPolicies(ownerIds);
+  if (rules.length) {
+    const tagged = await lakehouseAssetTags(ownerIds, tables);
+    for (const t of tables) {
+      const key = `${t.schema.toLowerCase()}.${t.table.toLowerCase()}`;
+      const asset = tagged.get(key);
+      if (!asset) continue;
+      const explicit = out.get(key) ?? null;
+      const eff = effectivePolicy({
+        explicit,
+        tableTags: asset.tableTags,
+        columns: asset.columns,
+        tagPolicies: rules,
+      });
+      if (!eff) continue;
+      out.set(key, {
+        id: explicit?.id ?? `tag:${key}`,
+        schema_name: explicit?.schema_name ?? asset.schema,
+        table_name: explicit?.table_name ?? asset.table,
+        row_filter: eff.row_filter,
+        masked_columns: eff.masked_columns,
+        mask_style: eff.mask_style,
+      });
+    }
+  }
+  return out;
+}
+
+/** Every tag rule these owners wrote. */
+export async function loadTagPolicies(ownerIds: string[]): Promise<TagPolicy[]> {
+  if (!ownerIds.length) return [];
+  const { data } = await supabaseAdmin
+    .from("lakehouse_tag_policies")
+    .select("id, tag, scope, mask_style, row_filter")
+    .in("user_id", ownerIds);
+  return (data ?? []).map((r) => ({
+    id: r.id,
+    tag: r.tag,
+    scope: r.scope as "column" | "table",
+    mask_style: (r.mask_style as "null" | "hash") ?? "null",
+    row_filter: r.row_filter ?? null,
+  }));
+}
+
+export type LakehouseAssetTags = {
+  schema: string;
+  table: string;
+  tableTags: string[];
+  columns: { name: string; tags?: string[] }[];
+};
+
+/**
+ * What the catalog says these lakehouse tables are tagged with: the asset's
+ * own tags and each column's tags, from the owners' lakehouse sources only —
+ * a warehouse connection that happens to hold a same-named table is not the
+ * lakehouse.
+ */
+export async function lakehouseAssetTags(
+  ownerIds: string[],
+  tables: { schema: string; table: string }[],
+): Promise<Map<string, LakehouseAssetTags>> {
+  const out = new Map<string, LakehouseAssetTags>();
+  if (!ownerIds.length || !tables.length) return out;
+  // A warehouse source's provider lives on its connection, not on the source.
+  // Seen live: the first check read the source's config and found nothing,
+  // so no table was ever tagged and the rules applied to no one.
+  const { data: conns } = await supabaseAdmin
+    .from("data_warehouse_connections")
+    .select("id")
+    .in("user_id", ownerIds)
+    .eq("provider", "lakehouse");
+  const connIds = (conns ?? []).map((c) => c.id);
+  if (!connIds.length) return out;
+  const { data: sources } = await supabaseAdmin
+    .from("catalog_sources")
+    .select("id")
+    .in("user_id", ownerIds)
+    .eq("kind", "warehouse")
+    .in("connection_id", connIds);
+  const lakeSources = (sources ?? []).map((src) => src.id);
+  if (!lakeSources.length) return out;
+  const { data: assets } = await supabaseAdmin
+    .from("catalog_assets")
+    .select("schema_name, name, tags, columns")
+    .in("source_id", lakeSources)
+    .in("schema_name", [...new Set(tables.map((t) => t.schema))])
+    .in("name", [...new Set(tables.map((t) => t.table))]);
+  for (const a of assets ?? []) {
+    const key = `${String(a.schema_name ?? "").toLowerCase()}.${String(a.name).toLowerCase()}`;
+    if (!tables.some((t) => `${t.schema.toLowerCase()}.${t.table.toLowerCase()}` === key)) continue;
+    const cols = Array.isArray(a.columns)
+      ? (a.columns as { name?: unknown; tags?: unknown }[])
+      : [];
+    out.set(key, {
+      schema: String(a.schema_name ?? ""),
+      table: String(a.name),
+      tableTags: Array.isArray(a.tags) ? a.tags.map(String) : [],
+      columns: cols
+        .filter((c) => typeof c.name === "string")
+        .map((c) => ({
+          name: c.name as string,
+          tags: Array.isArray(c.tags) ? (c.tags as unknown[]).map(String) : [],
+        })),
     });
   }
   return out;
