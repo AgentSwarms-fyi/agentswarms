@@ -2366,6 +2366,17 @@ bash deploy/notebooks/test/verify-runtime.sh
 Security model, scaling (Docker single-host vs. K8s pod-per-session), and the
 full test matrix: [DEVELOPER_WORKSPACE_RUNTIME.md](./DEVELOPER_WORKSPACE_RUNTIME.md).
 
+**If every run fails with "Cannot reach the Docker socket-proxy".** The
+proxy is HAProxy, and it can wedge: seen live, it logged `ha_stuck_warning`
+and answered nothing on either address while `docker ps` still said `Up`.
+The compose service now carries a health check, so the state shows as
+`unhealthy` in `docker compose ps` and on Observability → Monitoring; the
+fix is a restart:
+
+```bash
+docker compose --profile notebooks restart notebook-docker-proxy
+```
+
 ### Upgrades
 
 Docker: `git pull && docker compose up -d --build`. Apply any new migrations

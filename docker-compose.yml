@@ -116,6 +116,18 @@ services:
     # network. Inside compose the app uses the service name instead.
     ports:
       - "127.0.0.1:2375:2375"
+    # Seen live: the proxy's HAProxy wedged a thread ("ha_stuck_warning" in its
+    # own log) and answered nothing on either address, so every sandbox start
+    # failed with "Cannot reach the Docker socket-proxy" until it was
+    # recreated. A health check makes that state visible — `docker compose ps`
+    # and Observability → Monitoring — rather than discovered from a failed
+    # run; `docker compose restart notebook-docker-proxy` is the fix.
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:2375/_ping >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     networks: [default]
     restart: unless-stopped
 
