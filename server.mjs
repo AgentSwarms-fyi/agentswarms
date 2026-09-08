@@ -240,6 +240,29 @@ async function startWorker() {
   const who = cluster.isWorker ? `worker ${process.pid}` : `single process ${process.pid}`;
   console.log(`[agentswarms] ${who} listening on http://${HOSTNAME}:${PORT}`);
 
+  // With an external key provider, prove the data key unwraps BEFORE this
+  // process takes traffic. Serving without it would surface as hundreds of
+  // per-feature credential errors; failing once here, naming the provider,
+  // is the honest shape. The env provider has nothing to reach, so it is
+  // not checked — a missing PROVIDER_CREDS_SECRET fails at first use as before.
+  const kmsProvider = (process.env.KMS_PROVIDER ?? "env").trim().toLowerCase();
+  if (kmsProvider && kmsProvider !== "env") {
+    try {
+      const res = await app.fetch(new Request(`http://${HOSTNAME}:${PORT}/api/health/ready`));
+      const body = await res.json().catch(() => ({}));
+      if (body?.checks?.keys === false) {
+        console.error(
+          `[agentswarms] refusing to start: the credential keyring did not load under KMS_PROVIDER=${kmsProvider} — ${body.error ?? "no detail"}`,
+        );
+        process.exit(1);
+      }
+      console.log(`[agentswarms] ${who} credential keyring loaded from ${kmsProvider}`);
+    } catch (e) {
+      console.error(`[agentswarms] refusing to start: keyring check failed — ${e?.message ?? e}`);
+      process.exit(1);
+    }
+  }
+
   // SIGTERM is how a container runtime asks for a clean stop. Without a handler
   // Node exits immediately and in-flight requests are cut mid-response.
   let closing = false;

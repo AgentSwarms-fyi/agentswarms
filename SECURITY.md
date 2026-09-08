@@ -38,13 +38,20 @@ Provider API keys, warehouse and database passwords, SaaS connector
 credentials, MCP bearer tokens, Git tokens and everything stored in **Secrets**
 are encrypted at rest before they reach the database.
 
-| Property       | Value                                                                            |
-| -------------- | -------------------------------------------------------------------------------- |
-| Algorithm      | **AES-256-GCM** (authenticated — tampering fails, never silently)                |
-| Key derivation | `SHA-256(PROVIDER_CREDS_SECRET)`                                                 |
-| IV             | 12 random bytes, fresh per encryption                                            |
-| Stored shape   | `{ ciphertext, iv, kid }`, base64                                                |
-| Implementation | `src/utils/providers/crypto.server.ts` — server-only, never imported client-side |
+| Property       | Value                                                                                                                                                                          |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Algorithm      | **AES-256-GCM** (authenticated — tampering fails, never silently)                                                                                                              |
+| Key            | `KMS_PROVIDER=env` (default): `SHA-256(PROVIDER_CREDS_SECRET)`. `KMS_PROVIDER=vault`: a random 32-byte data key, stored wrapped by a Vault Transit key that never leaves Vault |
+| IV             | 12 random bytes, fresh per encryption                                                                                                                                          |
+| Stored shape   | `{ ciphertext, iv, kid }`, base64                                                                                                                                              |
+| Implementation | `src/utils/providers/crypto.server.ts` (the cipher), `src/utils/kms/` (the keyring and providers) — server-only, never imported client-side                                    |
+
+With an external provider the app holds a **permission to unwrap** the data
+key, not the key: the unwrap happens once per process start, a process that
+cannot unwrap refuses to start, and Vault logs every use. The stored ciphertext
+is the same either way, so switching is a rotation — the env secret stays
+accepted for reading until the sweep has moved every row. Setup and the
+failure modes are in [KEY_MANAGEMENT.md](./docs/KEY_MANAGEMENT.md).
 
 `PROVIDER_CREDS_SECRET` has **no default**. If it is missing the code throws
 rather than falling back to a built-in key, so a misconfigured deployment fails

@@ -189,8 +189,10 @@ the counts are pinned by tests so they cannot drift.
   security-definer functions, lakehouse policies rewritten into the parse tree
   per table or per tag, deny-by-default model access, SAML SSO with SCIM 2.0
   provisioning from Okta or Entra (a superadmin can never be deactivated by
-  the IdP), and a hash-chained audit log that survives user deletion
-  ([IAM.md](./docs/IAM.md), [LAKEHOUSE.md](./docs/LAKEHOUSE.md#policies-by-tag)).
+  the IdP), stored credentials envelope-encrypted under a key that can live
+  in Vault Transit, and a hash-chained audit log that survives user deletion
+  ([IAM.md](./docs/IAM.md), [LAKEHOUSE.md](./docs/LAKEHOUSE.md#policies-by-tag),
+  [KEY_MANAGEMENT.md](./docs/KEY_MANAGEMENT.md)).
 - **One graph from ingest to model** — a pipeline's success builds the SQL
   models and runs the ML schedules that depend on it, and lineage is recorded
   per column from what each run actually did

@@ -5,8 +5,14 @@
 // principally, can it reach its database. A pod that is up but cannot reach
 // Postgres should be pulled from the load-balancer rotation, not sent traffic.
 //
-//   200 { status: "ready",     checks: { db: true } }
-//   503 { status: "not_ready", checks: { db: false }, error?: string }
+//   200 { status: "ready",     checks: { db: true, keys: true } }
+//   503 { status: "not_ready", checks: { db: false, keys: true }, error?: string }
+//
+// `keys` is whether the credential keyring loaded: with an external key
+// provider that is the one unwrap of the data key, on the startup path and
+// cached, so a node whose KMS permission is missing is held out of rotation
+// (and server.mjs refuses to start it) instead of failing every credential
+// read one feature at a time.
 //
 // No auth (infra probe). The DB check is a tiny head-count with a hard timeout,
 // so a hung database makes the probe fail FAST (503) rather than hang the
@@ -14,6 +20,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { appRole } from "@/utils/appRole";
+import { keyringReady } from "@/utils/providers/crypto.server";
 
 const HEADERS = { "Content-Type": "application/json", "Cache-Control": "no-store" };
 const DB_TIMEOUT_MS = 3000;
@@ -62,18 +69,27 @@ export const Route = createFileRoute("/api/health/ready")({
         // pure load on the one component that is already the fleet's ceiling.
         if (appRole() === "analytics") return analyticsNotReady();
         const db = await dbReachable();
-        const body = db.ok
-          ? { status: "ready", checks: { db: true } }
-          : { status: "not_ready", checks: { db: false }, error: db.error };
-        return new Response(JSON.stringify(body), { status: db.ok ? 200 : 503, headers: HEADERS });
+        const keys = await keyringReady();
+        const ok = db.ok && keys.ok;
+        const body = ok
+          ? { status: "ready", checks: { db: true, keys: true } }
+          : {
+              status: "not_ready",
+              checks: { db: db.ok, keys: keys.ok },
+              error: [db.ok ? null : db.error, keys.ok ? null : keys.error]
+                .filter(Boolean)
+                .join("; "),
+            };
+        return new Response(JSON.stringify(body), { status: ok ? 200 : 503, headers: HEADERS });
       },
       HEAD: async () => {
         if (appRole() === "analytics") {
           return new Response(null, { status: 503, headers: { "Cache-Control": "no-store" } });
         }
         const db = await dbReachable();
+        const keys = await keyringReady();
         return new Response(null, {
-          status: db.ok ? 200 : 503,
+          status: db.ok && keys.ok ? 200 : 503,
           headers: { "Cache-Control": "no-store" },
         });
       },

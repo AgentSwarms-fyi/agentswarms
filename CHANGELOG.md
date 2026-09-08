@@ -14,8 +14,31 @@ development branch and may be ahead of the latest tag.
 
 ## Unreleased
 
-Work on `main` since the 1.4.0 tag. Twenty migrations —
+Work on `main` since the 1.4.0 tag. Twenty-one migrations —
 run `npx supabase db push` after pulling.
+
+### Envelope encryption: the credential key can live in Vault
+
+- **The key that encrypts every stored credential can come from a KMS.**
+  It was `PROVIDER_CREDS_SECRET`, an environment variable: anyone who could
+  read the process environment had it, nothing logged its use, and revoking
+  it meant editing every host. `KMS_PROVIDER=vault` keeps the key-encrypting
+  key in HashiCorp Vault Transit; a random data key is wrapped by it, stored
+  in a new `encryption_keys` table, and unwrapped once per process start —
+  the app holds a permission to decrypt, not the key, and Vault logs every
+  unwrap. The stored ciphertext does not change, so the switch is a
+  rotation: the env secret stays accepted for reading, everything new goes
+  under the data key, and the existing re-encrypt sweep moves the rows. The
+  default is unchanged — set nothing and it is `PROVIDER_CREDS_SECRET`,
+  byte for byte. The settings card shows the provider, its probe, the data
+  key's fingerprint, and the button that creates or rotates it (a key that
+  does not unwrap to the same bytes is refused before it is stored).
+  `/api/health/ready` reports whether the keyring loaded, and a process that
+  cannot unwrap its data key refuses to start, naming the provider and key.
+  Vault authenticates with a token, a mounted token file, or a Kubernetes
+  service-account login. AWS KMS, GCP KMS, Azure Key Vault and OCI Vault are
+  designed behind the same interface and refused by name until built. One
+  migration.
 
 ### SCIM provisioning: joiners and leavers from the directory
 

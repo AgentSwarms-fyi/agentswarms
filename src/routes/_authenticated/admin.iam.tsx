@@ -137,6 +137,7 @@ import {
   type IamUserRow,
 } from "@/utils/iam.functions";
 import {
+  createKmsDataKey,
   getKeyEncryptionStatus,
   reEncryptCredentials,
   type KeyStatusPayload,
@@ -1819,9 +1820,11 @@ function SettingsTab({
 function CredentialKeyCard({ token }: { token: string }) {
   const statusFn = useServerFn(getKeyEncryptionStatus);
   const rotateFn = useServerFn(reEncryptCredentials);
+  const createKeyFn = useServerFn(createKmsDataKey);
   const [status, setStatus] = useState<KeyStatusPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [creating, setCreating] = useState(false);
 
   const load = useCallback(async () => {
     const res = await statusFn({ data: { access_token: token } });
@@ -1840,18 +1843,41 @@ function CredentialKeyCard({ token }: { token: string }) {
 
   const totals = status?.totals;
   const pending = totals ? totals.onOther + totals.legacy : 0;
+  const kms = status?.kms ?? null;
+  const external = kms?.external ?? null;
+  const externalInUse = !!kms && kms.provider !== "env";
+  const externalName = (id: string) => (id === "vault" ? "Vault Transit" : id.toUpperCase());
+
+  const createKey = async () => {
+    setCreating(true);
+    const t = toast.loading("Creating a data key…");
+    try {
+      const res = await createKeyFn({ data: { access_token: token } });
+      if (!res.ok) return toast.error(res.error, { id: t });
+      toast.success(
+        externalInUse
+          ? `Data key ${res.kid} created and active after the next restart.`
+          : `Data key ${res.kid} wrapped by ${externalName(res.provider)}. Set KMS_PROVIDER="${res.provider}" and restart to switch.`,
+        { id: t, duration: 8000 },
+      );
+      await load();
+    } finally {
+      setCreating(false);
+    }
+  };
 
   return (
     <Card>
       <CardHeader>
         <CardTitle className="text-base">Credential encryption key</CardTitle>
         <CardDescription>
-          Provider keys, warehouse passwords and stored secrets are encrypted with AES-256-GCM under{" "}
-          <code className="text-xs">PROVIDER_CREDS_SECRET</code>. To rotate: put the new secret in{" "}
-          <code className="text-xs">PROVIDER_CREDS_SECRET</code>, move the old one to{" "}
-          <code className="text-xs">PROVIDER_CREDS_SECRET_OLD</code>, restart, then run the sweep
-          below. Both keys decrypt in the meantime, so nothing breaks mid-rotation. Remove the old
-          secret once nothing is left on it.
+          Provider keys, warehouse passwords and stored secrets are encrypted with AES-256-GCM. The
+          key comes from <code className="text-xs">PROVIDER_CREDS_SECRET</code> by default, or from
+          a data key wrapped by an external key provider (
+          <code className="text-xs">KMS_PROVIDER</code>) that never leaves it. To rotate an env
+          secret: put the new one in <code className="text-xs">PROVIDER_CREDS_SECRET</code>, move
+          the old one to <code className="text-xs">PROVIDER_CREDS_SECRET_OLD</code>, restart, then
+          run the sweep below. Both keys decrypt in the meantime, so nothing breaks mid-rotation.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -1861,6 +1887,80 @@ function CredentialKeyCard({ token }: { token: string }) {
           <p className="text-sm text-muted-foreground">Checking…</p>
         ) : (
           <>
+            {kms ? (
+              <div className="space-y-2 rounded-md border border-border/60 p-3 text-sm">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-muted-foreground">Key provider</span>
+                  <Badge variant={externalInUse ? "default" : "secondary"}>
+                    {externalInUse ? externalName(kms.provider) : "env (PROVIDER_CREDS_SECRET)"}
+                  </Badge>
+                  {kms.keyRef ? (
+                    <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
+                      {kms.keyRef}
+                    </code>
+                  ) : null}
+                  {kms.ready ? (
+                    <span className="text-xs text-emerald-600 dark:text-emerald-400">
+                      keyring loaded
+                    </span>
+                  ) : (
+                    <span className="text-xs text-destructive">{kms.error}</span>
+                  )}
+                </div>
+                {kms.activeDek ? (
+                  <p className="text-xs text-muted-foreground">
+                    Data key <code className="font-mono">{kms.activeDek.kid}</code> wrapped by{" "}
+                    {externalName(kms.activeDek.provider)} ({kms.activeDek.keyRef}),{" "}
+                    {formatDistanceToNow(new Date(kms.activeDek.createdAt), { addSuffix: true })}
+                    {kms.retiredDeks > 0
+                      ? `; ${kms.retiredDeks} retired data key${kms.retiredDeks === 1 ? "" : "s"} still accepted for reading`
+                      : ""}
+                    {!externalInUse
+                      ? ` — not in use until KMS_PROVIDER="${kms.activeDek.provider}" is set and the app restarts`
+                      : ""}
+                    .
+                  </p>
+                ) : null}
+                {external ? (
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                    <span className="text-muted-foreground">
+                      {externalName(external.id)} at {external.keyRef}:
+                    </span>
+                    <span
+                      className={
+                        external.probe.ok
+                          ? "text-emerald-600 dark:text-emerald-400"
+                          : "text-destructive"
+                      }
+                    >
+                      {external.probe.detail}
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={creating || !external.probe.ok}
+                      onClick={() => void createKey()}
+                    >
+                      {creating ? (
+                        <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <KeyRound className="mr-1.5 h-3.5 w-3.5" />
+                      )}
+                      {kms.activeDek
+                        ? `Rotate the data key in ${externalName(external.id)}`
+                        : `Create a data key in ${externalName(external.id)}`}
+                    </Button>
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    No external key provider configured. Set{" "}
+                    <code className="font-mono">KMS_KEY_REF</code> and the provider&apos;s variables
+                    (Vault: <code className="font-mono">VAULT_ADDR</code> and a token or Kubernetes
+                    role), restart, and the option to wrap a data key appears here.
+                  </p>
+                )}
+              </div>
+            ) : null}
             <div className="flex flex-wrap items-center gap-2 text-xs">
               <span className="text-muted-foreground">Current key</span>
               <code className="rounded bg-muted px-1.5 py-0.5 font-mono">{status.current}</code>

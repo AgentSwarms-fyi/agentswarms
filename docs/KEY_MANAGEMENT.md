@@ -1,13 +1,64 @@
 # Key management and external KMS
 
-**Status: design. Not implemented.** Today the master key is
-`PROVIDER_CREDS_SECRET`, an environment variable. This document is the plan for
-sourcing it from AWS KMS, GCP KMS, Azure Key Vault, OCI Vault or HashiCorp
-Vault, written so the work can be picked up and costed rather than
-re-litigated.
+**Status: envelope encryption is built, with two providers.** `env` (the
+default) derives the key from `PROVIDER_CREDS_SECRET` exactly as before, and
+`vault` keeps the key-encrypting key in HashiCorp Vault Transit. AWS KMS, GCP
+KMS, Azure Key Vault and OCI Vault are designed below behind the same
+interface and not yet built; `KMS_PROVIDER` refuses them by name rather than
+pretending.
 
 For what exists now — AES-256-GCM, key fingerprints, and the rotation sweep —
 see [SECURITY.md](../SECURITY.md#credential-encryption).
+
+## What exists
+
+| Variable                                                            | Meaning                                                                                                                                                |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `KMS_PROVIDER`                                                      | `env` (default) or `vault`                                                                                                                             |
+| `KMS_KEY_REF`                                                       | The provider's reference for the key-encrypting key. Vault: `transit/keys/<name>`                                                                      |
+| `VAULT_ADDR`, `VAULT_TOKEN` / `VAULT_TOKEN_FILE` / `VAULT_K8S_ROLE` | Where Vault is and how to authenticate: a token, a mounted token file, or a Kubernetes service-account login (`VAULT_K8S_MOUNT`, default `kubernetes`) |
+| `VAULT_NAMESPACE`                                                   | Vault Enterprise namespaces only                                                                                                                       |
+
+**Switching a running deployment to Vault**, which is a rotation and not a
+cutover:
+
+1. Create a transit key in Vault (`vault secrets enable transit`,
+   `vault write -f transit/keys/agentswarms`) and a policy that allows
+   `encrypt`, `decrypt` and `read` on it for the token or role the app will use.
+2. Set `KMS_KEY_REF=transit/keys/agentswarms` and the `VAULT_*` variables,
+   leave `KMS_PROVIDER` unset, restart. **Admin → IAM → Settings → Credential
+   encryption key** now shows Vault, its probe result, and **Create a data key
+   in Vault Transit**.
+3. Create the data key. Thirty-two random bytes are generated, wrapped by the
+   transit key, proven to unwrap to the same bytes, and only then stored in
+   `encryption_keys` with a fingerprint. Nothing is re-encrypted yet and the
+   current key does not change.
+4. Set `KMS_PROVIDER=vault` and restart. The process unwraps the data key
+   once, on the way up, and **refuses to start** if it cannot — with the
+   provider, key reference and fingerprint in the message. From now on
+   everything new is written under the data key; everything old still reads,
+   because `PROVIDER_CREDS_SECRET` stays in the keyring for decryption.
+5. Run **Re-encrypt to current key**. When nothing is left on the env key,
+   `PROVIDER_CREDS_SECRET` can be removed.
+
+Rotating the data key later is the same button, now labelled **Rotate**: the
+previous data key is retired, stays accepted for reading, and the sweep moves
+the rows. Vault Transit's own key rotation (`vault write -f
+transit/keys/<name>/rotate`) is transparent — Vault decrypts older versions of
+its key, and the stored material names the version it was wrapped with.
+
+What the readiness probe and the boot check do: `/api/health/ready` reports
+`checks.keys` — whether the keyring loaded — beside the database, so a pod
+without its KMS permission is held out of rotation; `server.mjs` calls it
+before taking traffic under an external provider and exits when it says no.
+No KMS call is on the request path: the unwrap happens once and is cached;
+Vault being unreachable while the process runs changes nothing until the next
+restart, exactly as the failure-mode table below asks.
+
+The open questions at the end are answered: the wrapped data key lives in a
+database row (replicas share it, it backs up with the data, and a dump without
+the provider's permission opens nothing); there is one data key per instance;
+`probe()` runs when the settings card is opened, not on a timer.
 
 ---
 
