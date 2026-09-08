@@ -590,7 +590,12 @@ describe("http api targets", () => {
     const code = compileGraph(g({ wrap_key: "", auth_env: undefined }));
     assertParsesAsPython(code);
     expect(code).toContain("_body = _chunk");
-    expect(code).not.toContain("Authorization");
+    // The target's own requests carry no auth. The continuous-run report
+    // appended after the body authenticates to the platform, which is a
+    // different thing — so look only at the body.
+    const body = code.slice(0, code.indexOf("def _post_progress"));
+    expect(body.length).toBeGreaterThan(0);
+    expect(body).not.toContain("Authorization");
   });
 
   it("refuses a target with no URL", () => {

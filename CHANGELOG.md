@@ -14,8 +14,26 @@ development branch and may be ahead of the latest tag.
 
 ## Unreleased
 
-Work on `main` since the 1.4.0 tag. Sixteen migrations —
+Work on `main` since the 1.4.0 tag. Seventeen migrations —
 run `npx supabase db push` after pulling.
+
+### Continuous pipelines: a stream drained by one long-running run
+
+- **A pipeline can run continuously.** Kafka, Kinesis, Pub/Sub, webhook
+  ingest and CDC were read in micro-batches on the scheduler's clock — one
+  run per sixty-second sweep, each paying a sandbox start. Settings →
+  Schedule → **Continuous** keeps one long-running run live: the same
+  compiled program told to loop, draining the source every _poll every_
+  seconds (straight away while a backlog lasts), persisting its positions
+  after every committed load, and reporting rows and ticks the card shows
+  live. The sweep starts a fresh run whenever none is live; a run ends on
+  its own at the rollover (`ETL_CONTINUOUS_ROLLOVER_MINUTES`, default 12 h)
+  and a run that fails outright is restarted after a backoff. Stop on the
+  card cancels the live run. The save refuses a code pipeline or one without
+  a drainable source, forces concurrency off, and chaining does not fire at
+  a rollover. Verified live against the compose Redpanda from the page: a
+  topic fed in bursts landed in a lakehouse table every three seconds, each
+  message once. One migration.
 
 ### Distributed SQL: a lakehouse query on the Spark cluster
 

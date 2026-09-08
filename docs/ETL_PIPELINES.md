@@ -314,8 +314,9 @@ column for text - plus `_stream_*` metadata (`_stream_topic`,
 `_stream_partition`, `_stream_offset`, `_stream_key`, `_stream_timestamp`
 for Kafka; shard, sequence, key and arrival time for Kinesis; message id,
 publish time and attributes for Pub/Sub). Schedule the pipeline every minute
-for a near-real-time feed into the lakehouse; the merge target with primary
-keys deduplicates a replayed batch.
+for a near-real-time feed into the lakehouse, or make it **continuous** (next
+section) for a feed measured in seconds; the merge target with primary keys
+deduplicates a replayed batch.
 
 Credentials are **secrets by name**: the node names the secrets (Settings →
 Secrets) holding the SASL username and password, the AWS access key pair, or
@@ -330,6 +331,52 @@ kernel network itself (the same Docker network, a VPC peering, or
 `NOTEBOOK_NETWORK`); Kinesis and Pub/Sub are HTTPS and go through the egress
 proxy like every other web call. The runtime image ships `confluent-kafka`,
 `boto3` and `google-cloud-pubsub`.
+
+## Continuous pipelines
+
+A scheduled stream pipeline reads in micro-batches on the scheduler's clock:
+one run per sixty-second sweep, each paying a sandbox start, so the feed is a
+minute or two behind at best. **Continuous** (Settings → Schedule) keeps one
+long-running run live instead. The compiled program is the same; a run told
+to loop drains the source, transforms, loads, reports its positions and
+counters to the platform, advances its own cursors, and goes again — after
+_poll every_ seconds only when a tick found nothing, straight away when it
+did, so a backlog drains at full speed and an idle stream costs one poll.
+
+What holds it together:
+
+- **Positions persist every tick, after the load.** The engine cursor
+  (`etl_pipeline_state`) is written when the tick's load has committed, the
+  same rule a scheduled run follows at its end. A crash between a commit and
+  its report replays at most one tick's batch: **at-least-once**, with a
+  replay window of seconds rather than a run. A merge target with primary keys
+  makes that replay invisible.
+- **The sweep keeps it alive.** Every sixty seconds the scheduler starts a
+  run for any active continuous pipeline that has none live. A run ends on its
+  own at the **rollover** (`ETL_CONTINUOUS_ROLLOVER_MINUTES`, default 720): a
+  bounded container lifetime, so memory and logs reset and an image upgrade
+  reaches a pipeline that never stops. A run that fails outright is restarted
+  after `ETL_CONTINUOUS_RESTART_BACKOFF_SECONDS` (default 300), not every
+  sweep. The sandbox's wall-clock limit sits past the rollover, so a run is
+  never cut off mid-tick.
+- **The card is live.** _streaming · rows · ticks_ updates as the run reports;
+  the Runs tab shows the same counters on the live run and the totals on a
+  finished one. **Stop** on the card cancels the live run; pause the pipeline
+  as well if it should stay stopped, because an active one is restarted by the
+  next sweep.
+- **What it needs.** A visual pipeline (the loop wraps the compiled graph; a
+  code pipeline owns its own entrypoint) with a source that can be drained
+  again and again — a Kafka, Kinesis or Pub/Sub stream, webhook ingest, change
+  data capture, or an incremental cursor. A plain batch source would re-read
+  everything on every tick, and the save refuses it. Concurrent runs are off
+  by construction: two live runs would drain the same stream twice. Chaining
+  does not fire at a rollover — a continuous run "succeeds" every time it rolls
+  over, which is not the event a chain means.
+
+Verified live against the compose Redpanda from the ETL page: a Kafka topic
+fed in bursts while a continuous pipeline loaded it into a lakehouse table
+every three seconds; every message arrived once, the card counted them as
+they landed, and Stop ended the sandbox.
 
 ## Reverse ETL (HTTP API targets)
 

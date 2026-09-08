@@ -791,7 +791,8 @@ describe("compileSparkGraph — the program", () => {
     };
     const code = compileSparkGraph(g);
     assertParsesAsPython(code);
-    const entry = code.slice(code.indexOf("def entrypoint("));
+    // The per-tick body; `entrypoint` is the dispatcher appended after it.
+    const entry = code.slice(code.indexOf("def _tick("));
     const seq = [
       "f_o = _src_o()",
       "f_c = _src_c()",

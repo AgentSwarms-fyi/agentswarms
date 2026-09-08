@@ -2149,6 +2149,7 @@ export type Database = {
           mode: string;
           name: string;
           next_run_at: string | null;
+          poll_seconds: number;
           requirements: string;
           retry_count: number;
           run_after: string | null;
@@ -2180,6 +2181,7 @@ export type Database = {
           mode?: string;
           name: string;
           next_run_at?: string | null;
+          poll_seconds?: number;
           requirements?: string;
           retry_count?: number;
           run_after?: string | null;
@@ -2211,6 +2213,7 @@ export type Database = {
           mode?: string;
           name?: string;
           next_run_at?: string | null;
+          poll_seconds?: number;
           requirements?: string;
           retry_count?: number;
           run_after?: string | null;

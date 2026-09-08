@@ -43,6 +43,7 @@ import {
   Shuffle,
   SlidersHorizontal,
   Sparkles,
+  Radio,
   Square,
   Trash2,
   Workflow,
@@ -456,6 +457,7 @@ function fmtRuntime(ms: number): string {
 }
 
 function scheduleLabel(p: OverviewPipeline): string {
+  if (p.schedule === "continuous") return `continuous · poll ${p.poll_seconds ?? 5} s`;
   if (p.schedule === "cron") {
     return `cron ${p.cron_expr ?? "?"}${p.timezone ? ` (${p.timezone})` : ""}`;
   }
@@ -507,11 +509,30 @@ function PipelineRow({
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
+  const cancelFn = useServerFn(cancelEtlRunFn);
+  // A continuous pipeline's Stop: cancel its live run. The sweep will not
+  // start another while the pipeline is paused; while it is active, it will.
+  const stopLive = async () => {
+    if (!p.live_run) return;
+    setBusy(true);
+    try {
+      await cancelFn({
+        data: { access_token: session?.access_token ?? "", run_id: p.live_run.id },
+      });
+      toast.success("Stopping — pause the pipeline too if it should stay stopped");
+      onChanged();
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const runNow = async () => {
     setBusy(true);
     try {
       const res = await runFn({ data: { access_token: session?.access_token ?? "", id: p.id } });
-      if (res.ok) toast.success("Run started");
+      if (res.ok) toast.success(p.schedule === "continuous" ? "Streaming started" : "Run started");
       else toast.error(res.error ?? "Run did not start");
       onChanged();
     } catch (e) {
@@ -553,7 +574,19 @@ function PipelineRow({
           <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
             <span>schedule: {scheduleLabel(p)}</span>
             <span>last run: {fmtWhen(p.last_run_at)}</span>
-            {p.schedule !== "manual" && p.is_active && <span>next: {fmtWhen(p.next_run_at)}</span>}
+            {p.schedule !== "manual" && p.schedule !== "continuous" && p.is_active && (
+              <span>next: {fmtWhen(p.next_run_at)}</span>
+            )}
+            {p.live_run && p.schedule === "continuous" && (
+              <span
+                className="flex items-center gap-1 text-emerald-600"
+                title={`Live since ${fmtWhen(p.live_run.started_at)} · last tick ${fmtWhen(p.live_run.last_tick_at)} loaded ${p.live_run.last_tick_rows} row(s)`}
+              >
+                <Radio className="h-3 w-3 animate-pulse" />
+                streaming · {p.live_run.rows_loaded.toLocaleString()} rows · {p.live_run.ticks} tick
+                {p.live_run.ticks === 1 ? "" : "s"}
+              </span>
+            )}
             {(p.retry_count ?? 0) > 0 && <span>retries: {p.retry_count}</span>}
             {pulse && pulse.runtime_ms_7d > 0 && (
               <span title="Sandbox runtime attributed to this pipeline, last 7 days">
@@ -568,10 +601,19 @@ function PipelineRow({
         </button>
         <StatusChip status={p.last_run_status} />
         <div className="flex items-center gap-1">
-          <Button size="sm" variant="outline" onClick={runNow} disabled={busy}>
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-            <span className="ml-1 hidden sm:inline">Run</span>
-          </Button>
+          {p.schedule === "continuous" && p.live_run ? (
+            <Button size="sm" variant="outline" onClick={stopLive} disabled={busy}>
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Square className="h-4 w-4" />}
+              <span className="ml-1 hidden sm:inline">Stop</span>
+            </Button>
+          ) : (
+            <Button size="sm" variant="outline" onClick={runNow} disabled={busy}>
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+              <span className="ml-1 hidden sm:inline">
+                {p.schedule === "continuous" ? "Start" : "Run"}
+              </span>
+            </Button>
+          )}
           <Button
             size="icon"
             variant="ghost"
@@ -776,7 +818,9 @@ type EditorPipeline = {
   requirements: string;
   secret_refs: string;
   dest_catalog_source_id: string | null;
-  schedule: "manual" | "hourly" | "daily" | "weekly" | "cron";
+  schedule: "manual" | "hourly" | "daily" | "weekly" | "cron" | "continuous";
+  /** Continuous only: seconds to wait after an empty tick before draining again. */
+  poll_seconds: number;
   cron_expr: string | null;
   timezone: string | null;
   retry_count: number;
@@ -840,6 +884,7 @@ function PipelineEditor({ id, onBack }: { id: string; onBack: () => void }) {
           chain_ml_schedules: row.chain_ml_schedules ?? [],
           is_active: row.is_active,
           timeout_minutes: row.timeout_minutes,
+          poll_seconds: row.poll_seconds ?? 5,
           engine: row.engine === "spark" ? "spark" : "pandas",
         });
       } catch (e) {
@@ -889,6 +934,7 @@ function PipelineEditor({ id, onBack }: { id: string; onBack: () => void }) {
           chain_ml_schedules: p.chain_ml_schedules,
           is_active: p.is_active,
           timeout_minutes: p.timeout_minutes,
+          poll_seconds: p.poll_seconds,
           engine: p.engine,
         },
       });
@@ -3136,6 +3182,7 @@ function RunsTab({ pipelineId }: { pipelineId: string }) {
             {runs.map((r) => {
               const metrics = (r.metrics ?? {}) as {
                 rows_loaded?: number;
+                ticks?: number;
                 targets?: { target: string; rows: number }[];
               };
               return (
@@ -3170,6 +3217,7 @@ function RunsTab({ pipelineId }: { pipelineId: string }) {
                   {typeof metrics.rows_loaded === "number" && (
                     <span className="text-xs text-muted-foreground">
                       {metrics.rows_loaded.toLocaleString()} rows
+                      {typeof metrics.ticks === "number" ? ` · ${metrics.ticks} tick(s)` : ""}
                       {metrics.targets?.length ? ` → ${metrics.targets.length} target(s)` : ""}
                     </span>
                   )}
@@ -3451,6 +3499,7 @@ function SettingsTab({
                   <SelectItem value="daily">Daily</SelectItem>
                   <SelectItem value="weekly">Weekly</SelectItem>
                   <SelectItem value="cron">Cron expression</SelectItem>
+                  <SelectItem value="continuous">Continuous (stream)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -3463,6 +3512,27 @@ function SettingsTab({
               />
             </div>
           </div>
+          {p.schedule === "continuous" && (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs">Poll every (seconds)</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  value={p.poll_seconds}
+                  onChange={(e) =>
+                    onPatch({ poll_seconds: Math.max(1, Number(e.target.value) || 5) })
+                  }
+                />
+              </div>
+              <p className="self-end text-xs text-muted-foreground">
+                One long-running sandbox drains the source, loads, persists its position, and goes
+                again — after this pause only when a tick found nothing. Needs a Kafka, Kinesis or
+                Pub/Sub stream, webhook ingest, CDC, or an incremental cursor. Stop it from the
+                card; the sweep restarts it if it dies.
+              </p>
+            </div>
+          )}
           {p.schedule === "cron" && (
             <div className="grid grid-cols-2 gap-3">
               <div>

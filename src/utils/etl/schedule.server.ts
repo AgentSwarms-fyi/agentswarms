@@ -5,6 +5,7 @@
 // cadence, not N of them.
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { nextCronOccurrence } from "@/lib/cron";
+import { CONTINUOUS_SCHEDULE, continuousRestartBackoffMs } from "./continuous";
 import {
   reconcileOrphanedEtlRuns,
   restartEtlAttempt,
@@ -54,7 +55,8 @@ export async function processDueEtlPipelines(force = false): Promise<number> {
     .from("etl_pipelines")
     .select("*")
     .eq("is_active", true)
-    .neq("schedule", "manual")
+    // Manual pipelines have no clock; continuous ones are kept alive below.
+    .not("schedule", "in", "(manual,continuous)")
     .order("next_run_at", { ascending: true })
     .limit(perSweep);
   if (!force) query = query.lte("next_run_at", nowIso);
@@ -88,6 +90,7 @@ export async function processDueEtlPipelines(force = false): Promise<number> {
     else console.warn(`[etl-schedule] "${pipeline.name}" did not start: ${res.error}`);
   }
 
+  started += await keepContinuousPipelinesAlive(perSweep);
   // Retry attempts. These are ordinary starts of an existing run row, so the
   // overlap guard, audit trail and logs all see one logical run.
   const { data: retries } = await supabaseAdmin
@@ -129,5 +132,41 @@ export async function processDueEtlPipelines(force = false): Promise<number> {
     .then((m) => m.reapIdleDeployments())
     .catch((e) => console.warn("[ml] orphan sweep failed:", (e as Error).message));
 
+  return started;
+}
+
+/**
+ * One live run per continuous pipeline. A run ends at its rollover or when
+ * its sandbox dies; either way the next sweep starts another, so the stream
+ * is never unattended for longer than a sweep. A pipeline that fails outright
+ * is restarted too — after a backoff, not every sixty seconds.
+ */
+export async function keepContinuousPipelinesAlive(limit: number): Promise<number> {
+  const { data: pipelines } = await supabaseAdmin
+    .from("etl_pipelines")
+    .select("*")
+    .eq("is_active", true)
+    .eq("schedule", CONTINUOUS_SCHEDULE)
+    .order("updated_at", { ascending: true })
+    .limit(Math.max(1, limit));
+  let started = 0;
+  for (const pipeline of (pipelines ?? []) as EtlPipelineRow[]) {
+    const { count } = await supabaseAdmin
+      .from("etl_runs")
+      .select("id", { count: "exact", head: true })
+      .eq("pipeline_id", pipeline.id)
+      .in("status", ["queued", "running", "retrying"]);
+    if ((count ?? 0) > 0) continue;
+    if (
+      pipeline.last_run_status === "failed" &&
+      pipeline.last_run_at &&
+      Date.now() - Date.parse(pipeline.last_run_at) < continuousRestartBackoffMs()
+    ) {
+      continue;
+    }
+    const res = await startEtlRun(pipeline, "schedule");
+    if (res.ok) started++;
+    else console.warn(`[etl-continuous] "${pipeline.name}" did not restart: ${res.error}`);
+  }
   return started;
 }

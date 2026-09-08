@@ -361,6 +361,13 @@ function EtlDocsPage() {
           are refused at save with the reason.
         </li>
         <li>
+          <strong>Continuous</strong> — one long-running run drains a stream source (Kafka, Kinesis,
+          Pub/Sub), webhook ingest, CDC or an incremental cursor every few seconds, persisting its
+          position after every committed load, and the sweep restarts it whenever none is live. Stop
+          it from the card. Rollover and restart backoff: <C>ETL_CONTINUOUS_ROLLOVER_MINUTES</C>,{" "}
+          <C>ETL_CONTINUOUS_RESTART_BACKOFF_SECONDS</C>.
+        </li>
+        <li>
           <strong>External trigger</strong> — mint a token under Settings and{" "}
           <C>POST /api/etl/run</C> with it as a bearer plus <C>{'{"pipeline_id": "…"}'}</C>{" "}
           (optionally <C>{'"params"'}</C>). This is how a swarm&apos;s http node, an n8n workflow or

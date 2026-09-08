@@ -25,6 +25,7 @@ import {
 import { etlErrorMessage } from "@/utils/etl/explainError";
 import { engineOf } from "@/utils/etl/compile";
 import { chainTargetsOf, hasChainTargets } from "@/lib/etlChain";
+import { CONTINUOUS_SCHEDULE, continuousRolloverMinutes } from "@/utils/etl/continuous";
 import { internalAppUrl, noProxyList } from "@/utils/notebookRuntime/service.server";
 import { isCatalogAsset, unwrapSourceConfig } from "@/utils/etl/catalogAsset";
 import { loadWarehouseConnectionForUser } from "@/utils/warehouse/connections.server";
@@ -359,6 +360,15 @@ export async function resolveRunEnv(
       const value = cursors.get(node.id);
       if (value) env[`${envKey(node.id)}_CURSOR`] = value;
     }
+  }
+
+  // A continuous pipeline is the same program told to loop. The poll
+  // interval and the rollover budget ride in env, so changing the schedule
+  // needs no recompile and a run never outlives its sandbox's own limit.
+  if (pipeline.schedule === CONTINUOUS_SCHEDULE) {
+    env.ETL_CONTINUOUS = "1";
+    env.ETL_POLL_SECONDS = String(Math.max(1, pipeline.poll_seconds ?? 5));
+    env.ETL_CONTINUOUS_MAX_SECONDS = String(continuousRolloverMinutes() * 60);
   }
 
   // Lakehouse nodes: the sandbox attaches the SAME DuckLake catalog the app
@@ -1024,6 +1034,10 @@ async function startRunSandbox(
       etlRunId: runId,
       entrypoint: "entrypoint",
       inputs: params,
+      // A continuous run ends itself at the rollover; the sandbox's own
+      // limit sits past it so the run is never cut off mid-tick.
+      maxMinutes:
+        pipeline.schedule === CONTINUOUS_SCHEDULE ? continuousRolloverMinutes() + 10 : undefined,
     });
     await supabaseAdmin
       .from("etl_runs")
@@ -1254,6 +1268,59 @@ export async function reconcileOrphanedEtlRuns(): Promise<number> {
   return reconciled;
 }
 
+/**
+ * Engine-managed positions, persisted AFTER a durable load: a crash between
+ * the two re-reads rows, never skips them. Shared by a run's end and by a
+ * continuous run's every tick.
+ */
+export async function persistEtlWatermarks(
+  pipeline: { id: string; user_id: string },
+  watermarks: Record<string, unknown>,
+  now = new Date().toISOString(),
+): Promise<void> {
+  for (const [nodeId, value] of Object.entries(watermarks)) {
+    if (value === null || value === undefined) continue;
+    await supabaseAdmin.from("etl_pipeline_state").upsert(
+      {
+        pipeline_id: pipeline.id,
+        node_id: nodeId.slice(0, 64),
+        user_id: pipeline.user_id,
+        cursor_value: String(value).slice(0, 512),
+        updated_at: now,
+      },
+      { onConflict: "pipeline_id,node_id" },
+    );
+  }
+}
+
+/**
+ * A continuous run reports after every tick: positions to persist, counters
+ * to show. Nothing here ends the run — the sandbox's final callback does.
+ */
+export async function recordEtlProgress(
+  runId: string,
+  progress: Record<string, unknown>,
+): Promise<void> {
+  const { data: run } = await supabaseAdmin
+    .from("etl_runs")
+    .select("id, status, pipeline_id, user_id")
+    .eq("id", runId)
+    .maybeSingle();
+  if (!run || run.status !== "running") return;
+  const watermarks = progress.watermarks;
+  if (watermarks && typeof watermarks === "object") {
+    await persistEtlWatermarks(
+      { id: run.pipeline_id, user_id: run.user_id },
+      watermarks as Record<string, unknown>,
+    );
+  }
+  await supabaseAdmin
+    .from("etl_runs")
+    .update({ metrics: progress as Json })
+    .eq("id", runId)
+    .eq("status", "running");
+}
+
 /** The retry sweep's entry: begin the next attempt of a retrying run. */
 export async function restartEtlAttempt(runId: string): Promise<boolean> {
   const { data: run } = await supabaseAdmin
@@ -1397,19 +1464,7 @@ export async function finalizeEtlRun(
     // never skipped).
     const watermarks = (metrics as { watermarks?: Record<string, unknown> } | null)?.watermarks;
     if (watermarks && typeof watermarks === "object") {
-      for (const [nodeId, value] of Object.entries(watermarks)) {
-        if (value === null || value === undefined) continue;
-        await supabaseAdmin.from("etl_pipeline_state").upsert(
-          {
-            pipeline_id: pipeline.id,
-            node_id: nodeId.slice(0, 64),
-            user_id: pipeline.user_id,
-            cursor_value: String(value).slice(0, 512),
-            updated_at: now,
-          },
-          { onConflict: "pipeline_id,node_id" },
-        );
-      }
+      await persistEtlWatermarks(pipeline, watermarks, now);
     }
 
     // Target schemas persist like watermarks: AFTER the durable load, keyed
@@ -1514,7 +1569,9 @@ export async function finalizeEtlRun(
     // with its own record, so a failure there is visible on its own page and
     // never rewrites this run's outcome — the pipeline did succeed.
     const targets = chainTargetsOf(pipeline);
-    if (hasChainTargets(targets)) {
+    // A continuous run "succeeds" at every rollover, which is not the event
+    // a chain means; models and schedules keep their own clocks.
+    if (hasChainTargets(targets) && pipeline.schedule !== CONTINUOUS_SCHEDULE) {
       void runChainTargets(pipeline, targets).catch((e) =>
         console.warn(`[etl-chain] after "${pipeline.name}":`, (e as Error).message),
       );

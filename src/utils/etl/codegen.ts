@@ -45,6 +45,7 @@ import {
   type SaasTargetConfig,
   type SaasTargetVendor,
 } from "@/lib/saasTargets";
+import { continuousWrapper } from "./continuous";
 
 export type EtlSourceConfig =
   | StreamSourceConfig
@@ -1337,7 +1338,9 @@ export function compileGraph(graph: EtlGraph): string {
   // labels (url, table, "python") where no asset exists to point at.
   const lineageSources = lineageSourcesOf(order);
 
-  lines.push(``, `def entrypoint(inputs=None):`);
+  // The per-tick body. The wrapper appended below defines `entrypoint`: once
+  // through for an ordinary run, a loop for a continuous one.
+  lines.push(``, `def _tick(inputs=None):`);
   if (incremental.length) lines.push(`    _watermarks = {}`);
   for (const n of order) {
     const ins = incoming.get(n.id)!;
@@ -1413,6 +1416,10 @@ export function compileGraph(graph: EtlGraph): string {
     `    }`,
     `    print('[etl] ' + json.dumps(metrics))`,
     `    return metrics`,
+  );
+  lines.push(
+    ``,
+    continuousWrapper(Object.fromEntries(incremental.map((n) => [n.id, envKey(n.id)]))),
   );
   return lines.join("\n") + "\n";
 }

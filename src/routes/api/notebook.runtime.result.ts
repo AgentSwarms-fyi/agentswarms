@@ -28,6 +28,8 @@ export const Route = createFileRoute("/api/notebook/runtime/result")({
           logs?: string;
           error?: string;
           partial?: boolean;
+          /** A continuous run's per-tick report: positions and counters. */
+          progress?: unknown;
         };
         try {
           body = await request.json();
@@ -51,6 +53,16 @@ export const Route = createFileRoute("/api/notebook/runtime/result")({
           if (session?.etl_run_id && typeof body.logs === "string") {
             await import("@/utils/etl/service.server")
               .then((m) => m.appendPartialLogs(session.etl_run_id as string, body.logs as string))
+              .catch(() => {});
+          }
+          if (session?.etl_run_id && body.progress && typeof body.progress === "object") {
+            await import("@/utils/etl/service.server")
+              .then((m) =>
+                m.recordEtlProgress(
+                  session.etl_run_id as string,
+                  body.progress as Record<string, unknown>,
+                ),
+              )
               .catch(() => {});
           }
           const mlStash = (await import("@/utils/ml/types")).mlJobStashOf(session?.inputs);

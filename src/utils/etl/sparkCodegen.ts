@@ -55,6 +55,7 @@ import {
   type QualityRule,
   type SourceFileFormat,
 } from "@/utils/etl/codegen";
+import { continuousWrapper } from "./continuous";
 import { isCatalogAsset, unwrapSourceConfig } from "@/utils/etl/catalogAsset";
 import { toSparkSql } from "@/utils/etl/sparkExpr";
 import { isStreamSource } from "@/utils/etl/streaming";
@@ -733,7 +734,9 @@ export function compileSparkGraph(graph: EtlGraph): string {
         isStreamSource(n.config)),
   );
 
-  lines.push(``, `def entrypoint(inputs=None):`);
+  // The per-tick body. The wrapper appended below defines `entrypoint`: once
+  // through for an ordinary run, a loop for a continuous one.
+  lines.push(``, `def _tick(inputs=None):`);
   if (incremental.length) lines.push(`    _watermarks = {}`);
   for (const n of order) {
     const ins = incoming.get(n.id)!;
@@ -816,6 +819,10 @@ export function compileSparkGraph(graph: EtlGraph): string {
     `    }`,
     `    print('[etl] ' + json.dumps(metrics))`,
     `    return metrics`,
+  );
+  lines.push(
+    ``,
+    continuousWrapper(Object.fromEntries(incremental.map((n) => [n.id, envKey(n.id)]))),
   );
   return lines.join("\n") + "\n";
 }

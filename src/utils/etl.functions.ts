@@ -22,6 +22,7 @@ import {
 } from "@/utils/etl/codegen";
 import { compilePipeline, engineOf, pipelineRequirements } from "@/utils/etl/compile";
 import { chainTargetsOf, validateChainTargets } from "@/lib/etlChain";
+import { CONTINUOUS_SCHEDULE, canRunContinuously } from "@/utils/etl/continuous";
 import {
   cancelEtlRun,
   startEtlRun,
@@ -76,7 +77,9 @@ const UpsertSchema = z.object({
   requirements: z.string().max(10_000).optional(),
   secret_refs: z.string().max(10_000).optional(),
   dest_catalog_source_id: z.string().uuid().nullable().optional(),
-  schedule: z.enum(["manual", "hourly", "daily", "weekly", "cron"]).optional(),
+  schedule: z.enum(["manual", "hourly", "daily", "weekly", "cron", "continuous"]).optional(),
+  /** Continuous only: seconds to wait after an empty tick before draining again. */
+  poll_seconds: z.number().int().min(1).max(3600).optional(),
   cron_expr: z.string().max(120).nullable().optional(),
   timezone: z.string().max(60).nullable().optional(),
   retry_count: z.number().int().min(0).max(5).optional(),
@@ -213,6 +216,17 @@ export const getEtlPipeline = createServerFn({ method: "POST" })
     return { pipeline: safe };
   });
 
+/** What a continuous pipeline's card shows while its run is live. */
+export type EtlLiveRun = {
+  id: string;
+  status: string;
+  started_at: string | null;
+  rows_loaded: number;
+  ticks: number;
+  last_tick_at: string | null;
+  last_tick_rows: number;
+};
+
 export type EtlRecentRun = {
   id: string;
   pipeline_id: string;
@@ -241,7 +255,7 @@ export const getEtlOverview = createServerFn({ method: "POST" })
       supabaseAdmin
         .from("etl_pipelines")
         .select(
-          "id, name, description, mode, schedule, cron_expr, timezone, is_active, next_run_at, last_run_at, last_run_status, dest_catalog_source_id, retry_count, run_after, chain_sql_models, chain_ml_schedules, created_at, updated_at",
+          "id, name, description, mode, schedule, poll_seconds, cron_expr, timezone, is_active, next_run_at, last_run_at, last_run_status, dest_catalog_source_id, retry_count, run_after, chain_sql_models, chain_ml_schedules, created_at, updated_at",
         )
         .eq("user_id", userId)
         .order("updated_at", { ascending: false }),
@@ -273,8 +287,30 @@ export const getEtlOverview = createServerFn({ method: "POST" })
       rows_loaded: rowsLoadedOf(r.metrics),
     }));
 
+    // A continuous pipeline's live run, with the counters its ticks report,
+    // so the card can say what the stream is doing right now.
+    const liveRun = new Map<string, EtlLiveRun>();
+    for (const r of runs ?? []) {
+      if (!["queued", "running"].includes(r.status) || liveRun.has(r.pipeline_id)) continue;
+      const m = (r.metrics ?? {}) as {
+        rows_loaded?: number;
+        ticks?: number;
+        last_tick_at?: string;
+        last_tick_rows?: number;
+      };
+      liveRun.set(r.pipeline_id, {
+        id: r.id,
+        status: r.status,
+        started_at: r.started_at,
+        rows_loaded: typeof m.rows_loaded === "number" ? m.rows_loaded : 0,
+        ticks: typeof m.ticks === "number" ? m.ticks : 0,
+        last_tick_at: typeof m.last_tick_at === "string" ? m.last_tick_at : null,
+        last_tick_rows: typeof m.last_tick_rows === "number" ? m.last_tick_rows : 0,
+      });
+    }
+
     return {
-      pipelines: pipelines ?? [],
+      pipelines: (pipelines ?? []).map((p) => ({ ...p, live_run: liveRun.get(p.id) ?? null })),
       stats: overview.stats,
       per_pipeline: overview.per_pipeline,
       recent_runs,
@@ -376,6 +412,13 @@ export const saveEtlPipeline = createServerFn({ method: "POST" })
         if (!data.cron_expr) throw new Error("A cron schedule needs an expression");
         validateCron(data.cron_expr, data.timezone ?? null);
       }
+      // Continuous needs a source that can be drained again and again, and a
+      // visual graph for the loop to wrap; both are checked here so the form
+      // bounces, not the first sweep.
+      if (data.schedule === CONTINUOUS_SCHEDULE) {
+        const why = canRunContinuously(data.mode, data.graph ?? null);
+        if (why) throw new Error(why);
+      }
 
       // Chaining: run_after must be the caller's own pipeline, not this one,
       // and must not close a cycle — a loop of "after each other" would
@@ -438,7 +481,10 @@ export const saveEtlPipeline = createServerFn({ method: "POST" })
         timezone: data.timezone ?? null,
         retry_count: data.retry_count ?? 0,
         ...(data.alerts ? { alerts: data.alerts as never } : {}),
-        allow_concurrent: data.allow_concurrent ?? false,
+        // Two live runs of one continuous pipeline would drain the same stream twice.
+        allow_concurrent:
+          data.schedule === CONTINUOUS_SCHEDULE ? false : (data.allow_concurrent ?? false),
+        poll_seconds: data.poll_seconds ?? 5,
         default_params: (data.default_params ?? null) as never,
         run_after: data.run_after ?? null,
         chain_sql_models: chain.sqlModels,
