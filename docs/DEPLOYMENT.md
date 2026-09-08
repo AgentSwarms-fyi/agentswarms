@@ -764,15 +764,19 @@ kubectl -n agentswarms rollout restart deploy/agentswarms
 ```
 
 **9. Managed Postgres for the lakehouse catalog.** The in-cluster
-StatefulSet is fine for a trial and wrong for production. Create an RDS
-instance in the cluster's VPC:
+StatefulSet is fine for a trial and wrong for production: it is one
+replica, and the catalog is the one part of the lakehouse that cannot be
+rebuilt from object storage. Create an RDS instance in the cluster's VPC —
+**Multi-AZ**, so a zone failure is a failover rather than an outage, with
+automated backups (point-in-time recovery comes with them) and deletion
+protection:
 
 ```bash
 export VPC=$(aws eks describe-cluster --name "$CLUSTER" --region "$AWS_REGION" --query 'cluster.resourcesVpcConfig.vpcId' --output text)
 ```
 
 ```bash
-aws rds create-db-instance --db-instance-identifier agentswarms-catalog --engine postgres --engine-version 16.4 --db-instance-class db.t4g.medium --allocated-storage 50 --storage-encrypted --master-username lakehouse --master-user-password '<strong-password>' --db-name lakehouse_catalog --no-publicly-accessible --vpc-security-group-ids <sg allowing 5432 from the node group> --region "$AWS_REGION"
+aws rds create-db-instance --db-instance-identifier agentswarms-catalog --engine postgres --engine-version 16.4 --db-instance-class db.t4g.medium --allocated-storage 50 --storage-encrypted --multi-az --backup-retention-period 7 --deletion-protection --master-username lakehouse --master-user-password '<strong-password>' --db-name lakehouse_catalog --no-publicly-accessible --vpc-security-group-ids <sg allowing 5432 from the node group> --region "$AWS_REGION"
 ```
 
 When it is `available`, put its endpoint in the Secret and restart:
@@ -985,7 +989,7 @@ Then set the hostname as in the AWS runbook's step 8.
 **6. Cloud SQL for the lakehouse catalog.**
 
 ```bash
-gcloud sql instances create agentswarms-catalog --database-version=POSTGRES_16 --tier=db-custom-2-7680 --region="$REGION" --storage-auto-increase
+gcloud sql instances create agentswarms-catalog --database-version=POSTGRES_16 --tier=db-custom-2-7680 --region="$REGION" --availability-type=REGIONAL --backup-start-time=02:00 --enable-point-in-time-recovery --deletion-protection --storage-auto-increase
 ```
 
 ```bash
@@ -1155,7 +1159,7 @@ and `tls:` block. Then set the hostname as in the AWS runbook's step 8.
 **6. Azure Database for PostgreSQL for the lakehouse catalog.**
 
 ```bash
-az postgres flexible-server create --resource-group "$RG" --name agentswarms-catalog --location "$LOCATION" --tier Burstable --sku-name Standard_B2s --version 16 --storage-size 64 --admin-user lakehouse --admin-password '<strong-password>' --public-access None --yes
+az postgres flexible-server create --resource-group "$RG" --name agentswarms-catalog --location "$LOCATION" --tier GeneralPurpose --sku-name Standard_D2ds_v5 --high-availability ZoneRedundant --backup-retention 7 --version 16 --storage-size 64 --admin-user lakehouse --admin-password '<strong-password>' --public-access None --yes
 ```
 
 ```bash

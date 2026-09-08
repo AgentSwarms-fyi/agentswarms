@@ -6,9 +6,14 @@ import { Server, ShieldAlert } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { useAuth } from "@/hooks/use-auth";
 import { useIsSuperadmin } from "@/hooks/use-iam";
-import { RuntimeTab } from "@/components/admin/RuntimeTab";
+import { RuntimeTab, isRuntimeTabId, type RuntimeTabId } from "@/components/admin/RuntimeTab";
 
 export const Route = createFileRoute("/_authenticated/admin/runtime")({
+  // The tab lives in the URL so a doc can link straight to Data platform or
+  // Access, and a reload lands where you were.
+  validateSearch: (search: Record<string, unknown>): { tab?: RuntimeTabId } => ({
+    tab: isRuntimeTabId(search.tab) ? search.tab : undefined,
+  }),
   head: () => ({
     meta: [
       { title: "Developer runtime — AgentSwarms" },
@@ -25,6 +30,8 @@ function AdminRuntimePage() {
   const { user, session } = useAuth();
   const isSuperadmin = useIsSuperadmin();
   const token = session?.access_token;
+  const { tab } = Route.useSearch();
+  const navigate = Route.useNavigate();
 
   if (!user) return null;
 
@@ -66,8 +73,12 @@ function AdminRuntimePage() {
           required&rdquo; prompt instead of running.
         </p>
       </div>
-      <div className="max-w-3xl">
-        <RuntimeTab token={token!} />
+      <div className="max-w-4xl">
+        <RuntimeTab
+          token={token!}
+          tab={tab ?? "runtime"}
+          onTabChange={(next) => void navigate({ search: { tab: next }, replace: true })}
+        />
       </div>
     </div>
   );
