@@ -122,18 +122,23 @@ describe("the README scorecard is honest about what is missing", () => {
 
   it("exists and states the known gaps by name", () => {
     expect(readme).toContain("## Where it stands");
-    expect(section).toContain("No SCIM");
+    expect(section).toContain("No multi-region");
     expect(section).toContain("One vector store");
     expect(section).toContain("High availability of the lakehouse catalog");
     expect(section).toContain("verified to validation");
+    // SCIM was a stated gap until it shipped; the line must not come back.
+    expect(section).not.toContain("No SCIM");
   });
 
   it("its gap claims are still true of the code", () => {
-    // No SCIM endpoint anywhere.
+    // SCIM exists now, and the scorecard says so on the strong side.
     const apiFiles = readdirSync(path.join(REPO, "src/routes/api"), {
       recursive: true,
     }) as string[];
-    expect(apiFiles.some((f) => /scim/i.test(String(f)))).toBe(false);
+    expect(apiFiles.some((f) => /scim\.v2\.Users/.test(String(f)))).toBe(true);
+    expect(section).toMatch(/SCIM 2\.0\s+provisioning/);
+    // No multi-region: the deployment guide still says so.
+    expect(rd("docs/DEPLOYMENT.md")).toContain("There is no multi-region story");
     // One vector store: the picker on the knowledge page offers pgvector only.
     const kb = rd("src/routes/_authenticated/knowledge.tsx");
     const stores = kb.slice(

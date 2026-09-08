@@ -7,7 +7,12 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { Json } from "@/integrations/supabase/types";
 
 export type AuditEmit = {
-  userId: string;
+  /**
+   * Who did it. Null for an actor that is not a user — the identity
+   * provider pushing users over SCIM signs with a token, and the row then
+   * carries the token's label in actor_email instead.
+   */
+  userId: string | null;
   action: string;
   resourceType?: string;
   resourceName?: string;
@@ -38,7 +43,8 @@ export type AuditEmit = {
 const emailCache = new Map<string, { at: number; email: string | null }>();
 const EMAIL_TTL_MS = 30 * 60 * 1000;
 
-async function actorEmailFor(userId: string): Promise<string | null> {
+async function actorEmailFor(userId: string | null): Promise<string | null> {
+  if (!userId) return null;
   const hit = emailCache.get(userId);
   if (hit && Date.now() - hit.at < EMAIL_TTL_MS) return hit.email;
   try {

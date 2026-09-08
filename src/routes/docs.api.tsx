@@ -454,6 +454,17 @@ function verify(rawBody, headers, secret) {
         is in <DocLink to="/docs/ml#api">the ML guide&apos;s API section</DocLink>.
       </P>
 
+      <H2 id="scim">Provisioning users from the identity provider</H2>
+      <P>
+        <C>/api/scim/v2</C> is a SCIM 2.0 server for Okta, Microsoft Entra ID and any IdP that
+        speaks it: <C>Users</C> and <C>Groups</C> with GET, POST, PUT, PATCH and DELETE, lookup
+        filters (<C>userName eq</C>, <C>externalId eq</C>, <C>displayName eq</C>), paging, and the
+        discovery endpoints. It is not called with an API key: a superadmin mints a provisioning
+        token on the IAM page&apos;s SSO tab and the IdP sends it as a bearer token. A superadmin
+        can never be deactivated or deleted over SCIM. The setup and the mapping are in{" "}
+        <DocLink to="/docs/iam#use-case-scim">access control</DocLink>.
+      </P>
+
       <NextPrev current="/docs/api" />
     </>
   );

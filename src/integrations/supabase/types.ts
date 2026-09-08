@@ -2860,6 +2860,7 @@ export type Database = {
           created_at: string;
           created_by: string | null;
           description: string | null;
+          external_id: string | null;
           id: string;
           name: string;
         };
@@ -2867,6 +2868,7 @@ export type Database = {
           created_at?: string;
           created_by?: string | null;
           description?: string | null;
+          external_id?: string | null;
           id?: string;
           name: string;
         };
@@ -2874,6 +2876,7 @@ export type Database = {
           created_at?: string;
           created_by?: string | null;
           description?: string | null;
+          external_id?: string | null;
           id?: string;
           name?: string;
         };
@@ -2942,6 +2945,42 @@ export type Database = {
           resource_id?: string;
           resource_type?: string;
           row_filter?: Json | null;
+        };
+        Relationships: [];
+      };
+      iam_scim_tokens: {
+        Row: {
+          created_at: string;
+          created_by: string | null;
+          id: string;
+          label: string;
+          last_used_at: string | null;
+          revoked_at: string | null;
+          token_hash: string;
+          token_prefix: string;
+          use_count: number;
+        };
+        Insert: {
+          created_at?: string;
+          created_by?: string | null;
+          id?: string;
+          label: string;
+          last_used_at?: string | null;
+          revoked_at?: string | null;
+          token_hash: string;
+          token_prefix: string;
+          use_count?: number;
+        };
+        Update: {
+          created_at?: string;
+          created_by?: string | null;
+          id?: string;
+          label?: string;
+          last_used_at?: string | null;
+          revoked_at?: string | null;
+          token_hash?: string;
+          token_prefix?: string;
+          use_count?: number;
         };
         Relationships: [];
       };

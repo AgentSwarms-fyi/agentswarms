@@ -501,6 +501,43 @@ function IamPage() {
           },
         ]}
       />
+      <H3 id="use-case-scim">Joiners and leavers from the directory (SCIM)</H3>
+      <P>
+        SSO lets people sign in; it does not create them before they do or deactivate them when they
+        leave. SCIM 2.0 provisioning does: the identity provider pushes users and groups to{" "}
+        <C>/api/scim/v2</C> as the directory changes, and an offboarded person is deactivated here
+        the same minute.
+      </P>
+      <Steps
+        items={[
+          {
+            title: "SSO → Provisioning (SCIM) → mint a token",
+            body: "One per IdP application, labelled. It is shown once; only its hash is kept, and the tab shows when the IdP last used it.",
+          },
+          {
+            title: "Give the IdP the base URL and the token",
+            body: (
+              <>
+                Okta: Provisioning → Integration → SCIM connector base URL, unique identifier{" "}
+                <C>userName</C>, authentication HTTP Header. Entra ID: Provisioning → Tenant URL +
+                Secret token. Both test the connection at once.
+              </>
+            ),
+          },
+          {
+            title: "Assign users and groups to the application",
+            body: (
+              <>
+                A pushed user is created and confirmed and passes the invite-only gate;{" "}
+                <C>active: false</C> bans the account the way the IAM page does; a pushed group is
+                an IAM group, so grants and model rules on it apply to whoever the IdP adds. A
+                superadmin can never be deactivated or deleted over SCIM — the request is refused
+                with a 403 — and every write is audited under the token&apos;s label.
+              </>
+            ),
+          },
+        ]}
+      />
 
       <NextPrev current="/docs/iam" />
     </>

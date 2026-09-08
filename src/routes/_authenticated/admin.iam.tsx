@@ -106,6 +106,10 @@ import {
   iamDeleteGrant,
   iamDeleteGroup,
   iamDeleteSsoProvider,
+  iamListScimTokens,
+  iamCreateScimToken,
+  iamRevokeScimToken,
+  type IamScimToken,
   iamDeleteUser,
   iamGetSettings,
   iamDeleteUserAttribute,
@@ -2124,6 +2128,8 @@ function SsoTab({
         </CardContent>
       </Card>
 
+      <ScimCard token={token} />
+
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
@@ -2467,6 +2473,178 @@ function AttributesTab({
           </div>
         )}
       </CardContent>
+    </Card>
+  );
+}
+
+// --- SCIM provisioning tokens ---------------------------------------------
+
+function ScimCard({ token }: { token: string }) {
+  const listTokens = useServerFn(iamListScimTokens);
+  const createToken = useServerFn(iamCreateScimToken);
+  const revokeToken = useServerFn(iamRevokeScimToken);
+  const [tokens, setTokens] = useState<IamScimToken[] | null>(null);
+  const [label, setLabel] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [minted, setMinted] = useState<{ label: string; token: string } | null>(null);
+  const [revokeTarget, setRevokeTarget] = useState<IamScimToken | null>(null);
+
+  const baseUrl =
+    typeof window === "undefined" ? "/api/scim/v2" : `${window.location.origin}/api/scim/v2`;
+
+  const load = useCallback(async () => {
+    const res = await listTokens({ data: { access_token: token } });
+    if (res.ok) setTokens(res.tokens);
+    else toast.error(res.error);
+  }, [listTokens, token]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const mint = async () => {
+    const name = label.trim();
+    if (!name) return toast.error("Give the token a label — the IdP application it is for");
+    setBusy(true);
+    try {
+      const res = await createToken({ data: { access_token: token, label: name } });
+      if (!res.ok) return toast.error(res.error);
+      setMinted({ label: name, token: res.token });
+      setLabel("");
+      void load();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const revoke = async (t: IamScimToken) => {
+    const res = await revokeToken({ data: { access_token: token, token_id: t.id } });
+    if (!res.ok) return toast.error(res.error);
+    toast.success(`Token "${t.label}" revoked`);
+    setRevokeTarget(null);
+    void load();
+  };
+
+  const live = (tokens ?? []).filter((t) => !t.revoked_at);
+  const revoked = (tokens ?? []).filter((t) => t.revoked_at);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Provisioning (SCIM)</CardTitle>
+        <CardDescription>
+          Let the identity provider create users before they sign in, deactivate them when they
+          leave, and keep groups in step. Okta and Microsoft Entra ID push changes to the base URL
+          below with a token from here. A superadmin can never be deactivated or deleted this way.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <CopyField label="SCIM base URL (Tenant URL / SCIM connector base URL)" value={baseUrl} />
+
+        {minted ? (
+          <div className="space-y-2 rounded-md border border-emerald-500/40 bg-emerald-500/5 p-3">
+            <p className="text-sm">
+              Token for <span className="font-medium">{minted.label}</span> — copy it now; it is not
+              shown again.
+            </p>
+            <CopyField label="Bearer token" value={minted.token} />
+            <Button type="button" variant="outline" size="sm" onClick={() => setMinted(null)}>
+              I have copied it
+            </Button>
+          </div>
+        ) : null}
+
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="min-w-56 flex-1 space-y-1">
+            <Label htmlFor="scim-label" className="text-xs text-muted-foreground">
+              New token label
+            </Label>
+            <Input
+              id="scim-label"
+              value={label}
+              placeholder="Okta production"
+              maxLength={80}
+              onChange={(e) => setLabel(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void mint();
+              }}
+            />
+          </div>
+          <Button size="sm" className="gap-1.5" disabled={busy} onClick={() => void mint()}>
+            <KeyRound className="h-3.5 w-3.5" /> Mint token
+          </Button>
+        </div>
+
+        {tokens === null ? (
+          <p className="text-sm text-muted-foreground">Loading tokens…</p>
+        ) : live.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No provisioning token yet. Mint one, then paste it into the IdP application&apos;s
+            provisioning settings.
+          </p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Label</TableHead>
+                <TableHead>Token</TableHead>
+                <TableHead>Last used by the IdP</TableHead>
+                <TableHead>Requests</TableHead>
+                <TableHead className="w-10" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {live.map((t) => (
+                <TableRow key={t.id}>
+                  <TableCell className="font-medium">{t.label}</TableCell>
+                  <TableCell className="font-mono text-xs">{t.token_prefix}…</TableCell>
+                  <TableCell className="text-xs text-muted-foreground">
+                    {t.last_used_at
+                      ? formatDistanceToNow(new Date(t.last_used_at), { addSuffix: true })
+                      : "never"}
+                  </TableCell>
+                  <TableCell className="text-xs text-muted-foreground">{t.use_count}</TableCell>
+                  <TableCell>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                      aria-label={`Revoke token ${t.label}`}
+                      onClick={() => setRevokeTarget(t)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+        {revoked.length > 0 ? (
+          <p className="text-xs text-muted-foreground">
+            {revoked.length} revoked token{revoked.length === 1 ? "" : "s"} — an IdP still using one
+            gets a 401, and the attempt is audited.
+          </p>
+        ) : null}
+      </CardContent>
+
+      <AlertDialog open={!!revokeTarget} onOpenChange={(o) => !o && setRevokeTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Revoke &quot;{revokeTarget?.label}&quot;?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The identity provider using it stops being able to push users and groups until it is
+              given a new token. Accounts it already created stay as they are.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep it</AlertDialogCancel>
+            <AlertDialogAction onClick={() => revokeTarget && void revoke(revokeTarget)}>
+              Revoke
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   );
 }

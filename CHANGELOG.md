@@ -14,8 +14,29 @@ development branch and may be ahead of the latest tag.
 
 ## Unreleased
 
-Work on `main` since the 1.4.0 tag. Nineteen migrations —
+Work on `main` since the 1.4.0 tag. Twenty migrations —
 run `npx supabase db push` after pulling.
+
+### SCIM provisioning: joiners and leavers from the directory
+
+- **The identity provider creates, deactivates and groups users.** SSO let
+  people sign in; nothing created them before they did, deactivated them
+  when they left, or kept groups in step, and the README said so under "No
+  SCIM". `/api/scim/v2` is a SCIM 2.0 server now: Users and Groups with
+  GET, POST, PUT, PATCH and DELETE, lookup filters (`userName eq`,
+  `externalId eq`, `displayName eq`), paging, and the discovery endpoints
+  an IdP reads first. A pushed user is created confirmed and passes the
+  invite-only gate; `active: false` applies the same ban the IAM page does,
+  so every session and key stops; a pushed group is an IAM group, so grants
+  and model rules on it apply to whoever the IdP adds. PATCH is honoured in
+  both dialects — Okta's path-less values and Entra's paths. The IdP
+  authenticates with a token minted on the SSO tab's new **Provisioning
+  (SCIM)** card, shown once and stored hashed, with when the IdP last used
+  it. Two rules hold whatever the IdP sends: a superadmin can never be
+  deactivated or deleted over SCIM (403, so a misconfigured push or a
+  leaked token cannot take the last way in), and every write is an audit
+  event under the token's label. Rate limited across tokens
+  (`SCIM_RATE_LIMIT_PER_MIN`). One migration.
 
 ### Policies by tag
 

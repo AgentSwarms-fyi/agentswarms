@@ -26,6 +26,9 @@ It manages:
   superadmin is protected.
 - **Groups** — organize users; model rules and resource shares can target a
   whole group at once.
+- **Provisioning** — with SCIM 2.0 the identity provider creates users before
+  they sign in, deactivates them when they leave, and keeps groups in step;
+  see [Users and groups pushed from the IdP](#users-and-groups-pushed-from-the-idp-scim).
 - **Model access** — allow rules on a user or group define what they may call
   (patterns: `*`, `openai/*`, or an exact model id; the allowed set is the
   union of all applicable rules). What **no rules** means is an instance
@@ -167,3 +170,47 @@ Security wants every login to go through the corporate identity provider.
 
 SSO-provisioned users get in even when the instance is **invite-only**
 (Settings), so you can close public signup at the same time.
+
+### Users and groups pushed from the IdP (SCIM)
+
+SSO lets people sign in; it does not create them before they do, deactivate
+them when they leave, or keep groups in step. **SCIM 2.0 provisioning** does:
+the identity provider pushes users and groups to the platform as they change
+in the directory, and an offboarded person is deactivated here the same
+minute.
+
+1. On **SSO → Provisioning (SCIM)**, mint a provisioning token with a label
+   (one per IdP application). The token is shown once; only its hash is kept.
+2. In the IdP, enable provisioning on the SAML application and give it the
+   base URL `https://<your host>/api/scim/v2` with the token as the bearer
+   token. Okta: _Provisioning → Integration → SCIM connector base URL_, unique
+   identifier `userName`, authentication _HTTP Header_. Microsoft Entra ID:
+   _Provisioning → Admin credentials → Tenant URL + Secret token_. Both test
+   the connection immediately.
+3. Assign users and groups to the application. What the IdP does from then
+   on and what happens here:
+
+| The IdP sends                                   | Here                                                                                                       |
+| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `POST /Users`                                   | An account is created, confirmed, and passes the invite-only gate; first and last name land on the profile |
+| `PATCH /Users/{id}` with `active: false`        | The account is banned (the same ban the IAM page applies) — every session and API key stops working        |
+| `PATCH /Users/{id}` with `active: true`         | The ban is lifted                                                                                          |
+| `PUT` / `PATCH` names, `userName`, `externalId` | The profile and the sign-in email follow                                                                   |
+| `DELETE /Users/{id}`                            | The account is deleted (Okta never sends this; Entra does for a hard delete)                               |
+| `POST /Groups`, `PATCH` members                 | An IAM group is created or its members changed — grants and model rules on the group apply at once         |
+| `GET /Users?filter=userName eq "…"`             | The lookup IdPs do before creating, so a user who already exists is matched, not duplicated                |
+
+Two rules hold whatever the IdP says. **A superadmin cannot be deactivated
+or deleted over SCIM** — the request is refused with a 403 the IdP shows its
+admin, so a misconfigured push or a leaked token cannot take the last way in;
+demote the account in IAM first. And every SCIM write is an audit event under
+the token's label (`scim:<label>`), so the trail says the IdP did it, not a
+person.
+
+The endpoint supports filtering by `userName`, `externalId`, `emails.value`,
+`displayName` and `id` with `eq`, PATCH in both the Okta (path-less) and
+Entra (path) dialects, and paging with `startIndex` and `count`. It declares
+bulk, sorting and ETags unsupported in `ServiceProviderConfig` rather than
+half-implementing them. Requests are rate limited across all tokens
+(`SCIM_RATE_LIMIT_PER_MIN`, default 300). Revoke a token on the same tab; the
+IdP's next request gets a 401 and the attempt is audited.
