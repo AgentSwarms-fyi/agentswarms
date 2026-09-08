@@ -1960,6 +1960,24 @@ users links to their own machine.
   than sent traffic. (Don't point liveness at this — a shared-DB blip would then
   restart every pod at once instead of just draining them.)
 
+### High availability: what survives the loss of one instance
+
+The web tier and the scheduler are built for it — any replica serves any
+request, and the scheduler holds a fleet-wide lease. The state-holding pieces
+are where a single instance still matters:
+
+| Component                     | Single point of failure?                                            | What to do                                                                                                             |
+| ----------------------------- | ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Lakehouse catalog             | Yes in Compose and in the in-cluster StatefulSet                    | Managed Postgres with a standby — the cloud runbooks provision Multi-AZ / regional / zone-redundant instances          |
+| Sandbox egress proxy          | Was: one replica, and every `pip install` failed while it restarted | The Kubernetes manifest now runs two, spread across nodes; it is stateless, so add more freely                         |
+| Self-hosted Supabase          | Yes — one Postgres, no failover                                     | Hosted Supabase, or your own replicated Postgres behind the stack                                                      |
+| Spark engine, static endpoint | Yes — every Spark-engine run fails while it is down                 | The per-run Kubernetes provider has no shared component; a lost driver fails one run, which retries with a new cluster |
+| Kernels and sandboxes         | Pinned to a host or node by nature                                  | ETL runs retry on a fresh sandbox; an interactive notebook session does not survive its node                           |
+| Object storage                | MinIO in development                                                | S3 / GCS / R2 in production                                                                                            |
+
+There is no multi-region story: recovery from the loss of a region is the
+restore runbook on a new host.
+
 ### Progressive Web App (PWA)
 
 The app ships an installable PWA: `public/manifest.webmanifest` plus a
@@ -2100,12 +2118,62 @@ the manifest, or run with a credential. `--dry-run` lists what would be
 captured; `--skip-lake`, `--skip-catalog`, `--skip-supabase` narrow a run;
 `--out <dir>` sends it to mounted storage.
 
+**Copy only what is new.** A lake of any size makes a daily full copy the
+wrong shape — hours of transfer and a second copy of every Parquet file per
+day. `--lake-mirror <dir>` keeps one standing mirror instead: each run copies
+only objects the mirror lacks (by key and size — DuckLake never rewrites a
+data file, so that is a sound identity) and writes `lake-objects.json` naming
+the objects **this** backup needs. Measured on a live lake: the first run
+copied every object, the second copied none and finished in seconds, and the
+restore drill read straight from the mirror.
+
+```bash
+npm run backup -- --lake-mirror /mnt/backups/agentswarms/lake-mirror --out /mnt/backups/agentswarms/$(date +\%F)
+```
+
+The mirror only grows. Prune it by deleting keys that no backup you still keep
+lists in its `lake-objects.json` — a file referenced by any retained backup
+must stay. If your bucket offers **versioning with a lifecycle rule** (S3, GCS,
+R2), turn it on as well: it protects every object continuously, between
+backups, at the cost of the versions' storage, and an object-lock retention
+period makes the last N days immutable against deletion by anyone, including
+a compromised key.
+
+**The dump and the copy must describe the same lakehouse.** After the catalog
+dump, every data file the catalog still references is looked for in the
+bucket listing; a file that is missing makes the backup **fail** with the
+file named, because a catalog that points at Parquet nobody can restore is not
+a backup. The catalog is dumped first and the Parquet copied second on
+purpose — the copy is then a superset of what the dump references — but
+compaction between the two steps can still delete a file, which is exactly
+what this check exists to catch.
+
 Schedule it. A nightly cron on the host, output on a volume that is itself
 backed up off-machine:
 
 ```bash
 0 2 * * * cd /opt/agentswarms && npm run backup -- --out /mnt/backups/agentswarms/$(date +\%F) >> /var/log/agentswarms-backup.log 2>&1
 ```
+
+#### What you can lose: RPO and RTO
+
+Nobody should have to discover these on the day. The recovery point is the
+interval since the last successful backup — for the nightly cron above, up to
+24 hours of lakehouse commits and application changes. The recovery time is
+the restore runbook below plus copying the Parquet back: minutes for the
+catalog, and for the lake, however long your bandwidth takes for the objects
+`lake-objects.json` lists.
+
+| Deployment                              | Recovery point                                                                           | What changes it                                                                |
+| --------------------------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| Compose, catalog in the container       | last backup                                                                              | run the backup more often; bucket versioning makes the Parquet side continuous |
+| Kubernetes, catalog on managed Postgres | seconds — automated backups with point-in-time recovery (the cloud runbooks enable them) | the Parquet side is still the last mirror run unless the bucket is versioned   |
+| Hosted Supabase                         | per plan (daily backups; point-in-time recovery on paid tiers)                           | —                                                                              |
+| Self-hosted Supabase                    | last `npm run backup` with a database credential                                         | continuous WAL archiving in front of the `db` container is yours to add        |
+
+Backups land where `--out` says; **nothing replicates them off the host.**
+Put `--out` on storage that is itself replicated or synced elsewhere, and
+keep at least one copy where a compromise of the host cannot reach it.
 
 #### Rehearse the restore
 

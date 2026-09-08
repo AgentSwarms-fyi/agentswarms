@@ -14,8 +14,45 @@ development branch and may be ahead of the latest tag.
 
 ## Unreleased
 
-Work on `main` since the 1.4.0 tag. Fourteen migrations —
+Work on `main` since the 1.4.0 tag. Fifteen migrations —
 run `npx supabase db push` after pulling.
+
+### One graph from ingest to model
+
+- **A pipeline's success can build SQL models and run ML schedules.**
+  "Run after" chained a pipeline only to another pipeline; SQL models and ML
+  schedules ran on their own clocks beside it. A pipeline now names, in
+  Settings → "After it succeeds, also…", the models to build (every active
+  one, or named ones with their ancestors) and the retrain / batch-predict
+  schedules to run. Both run as the pipeline's owner, are recorded on their
+  own pages with the trigger `chain`, and never rewrite the pipeline's
+  outcome. The save path refuses a model or schedule that is not the
+  owner's, by name. One migration.
+
+### Resilience: a bounded catalog pool, incremental backups, an honest RPO
+
+- **The lakehouse catalog's connection budget is bounded.** The Postgres
+  pool behind the DuckLake attachment held sessions per app worker with an
+  acquire mode that ignored any limit. The engine now sets
+  `LAKEHOUSE_CATALOG_CONNECTIONS` (default 8) and makes the pool wait rather
+  than open more, so the catalog's `max_connections` has a sizing rule:
+  the limit × workers × replicas, plus one per worker. Measured on the
+  Compose catalog: 32 concurrent queries held 3 sessions unbounded, and
+  stayed at the limit once set.
+- **Backups copy only what is new.** `npm run backup -- --lake-mirror <dir>`
+  keeps one standing mirror of the lake's Parquet and copies only objects it
+  lacks; each backup still names the objects it needs, and the restore drill
+  reads from the mirror. Measured live: the second run copied nothing.
+- **A backup whose catalog points at missing files fails, and says which.**
+  Every data file the catalog still references is looked for in the bucket
+  after the dump.
+- **The docs now state the recovery point and time** per deployment shape,
+  what changes them, and that nothing replicates backups off the host.
+- **The sandbox egress proxy runs two replicas** in the Kubernetes manifest,
+  spread across nodes — it was every sandbox's only way out, and one replica.
+- **The cloud runbooks provision highly-available catalogs** — Multi-AZ RDS,
+  regional Cloud SQL, zone-redundant Azure — where they had provisioned
+  single-instance ones on the production path.
 
 ### A Spark engine for pipelines
 

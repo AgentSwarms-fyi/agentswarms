@@ -4,6 +4,8 @@
 //   npm run backup                       # -> backups/<timestamp>/
 //   npm run backup -- --out /mnt/nas/as  # elsewhere
 //   npm run backup -- --dry-run          # show what would be captured
+//   npm run backup -- --lake-mirror /mnt/nas/lake-mirror
+//                                        # copy only NEW Parquet into one mirror
 //
 // Four things are stateful (see scripts/lib/backup-core.mjs for why each one
 // matters): the Supabase database, the lakehouse catalog Postgres, the Parquet
@@ -12,7 +14,18 @@
 //
 //   catalog   docker compose exec lakehouse-catalog pg_dump  (custom format)
 //             or a local pg_dump when the catalog is an external Postgres
-//   lake      every object under LAKEHOUSE_DATA_URL, mirrored byte-for-byte
+//   lake      every object under LAKEHOUSE_DATA_URL, mirrored byte-for-byte —
+//             into the backup directory, or with --lake-mirror into one
+//             standing mirror where only objects not already there (by key
+//             and size) are copied. DuckLake never rewrites a data file, so
+//             that identity is sound; the backup's lake-objects.json names
+//             the objects THIS backup needs, and restore reads them from
+//             wherever they were put. The mirror only grows: prune keys no
+//             retained backup lists (see docs/DEPLOYMENT.md).
+//   check     after the dump, every data file the catalog still references
+//             must appear in the bucket listing — a catalog pointing at
+//             files nobody can restore is a failed backup, not a surprise
+//             on restore day
 //   supabase  pg_dump against --db-url / SUPABASE_DB_URL (self-hosted), or
 //             `supabase db dump` for a linked hosted project when
 //             SUPABASE_DB_PASSWORD is set; otherwise skipped with the exact
@@ -75,6 +88,10 @@ const manifest = {
   secrets: secretsManifest(env),
 };
 let failed = false;
+// Data-file names the catalog still references, filled by the catalog step
+// and checked against the bucket by the lake step.
+let referencedFiles = null;
+const lakeMirror = opt("--lake-mirror") ? path.resolve(opt("--lake-mirror")) : null;
 
 if (!dryRun) mkdirSync(out, { recursive: true });
 log(`${dryRun ? "[dry-run] " : ""}backup -> ${out}`);
@@ -130,6 +147,36 @@ if (flag("--skip-catalog")) {
           database: pg.database,
         };
         log(`catalog: ${dump.length} bytes, ${entries} objects, via ${runner.via}`);
+        // The live paths the catalog references, for the cross-check below.
+        // Relative paths are resolved against the table's own path; matching
+        // on the file NAME is enough because DuckLake names every data file
+        // with a UUID.
+        try {
+          const sql =
+            "SELECT path FROM ducklake_data_file WHERE end_snapshot IS NULL " +
+            "UNION ALL SELECT path FROM ducklake_delete_file WHERE end_snapshot IS NULL";
+          const listing =
+            runner.kind === "local"
+              ? execFileSync("psql", ["--dbname", env.LAKEHOUSE_CATALOG_URL, "-tAc", sql], {
+                  encoding: "utf8",
+                  maxBuffer: 1 << 28,
+                })
+              : execFileSync(
+                  runner.bin,
+                  [...runner.prefix, "psql", "-U", pg.user, "-d", pg.database, "-tAc", sql],
+                  { encoding: "utf8", maxBuffer: 1 << 28 },
+                );
+          referencedFiles = listing
+            .split("\n")
+            .map((l) => l.trim())
+            .filter(Boolean)
+            .map((p) => p.split("/").pop());
+          manifest.catalog.referencedFiles = referencedFiles.length;
+        } catch (e) {
+          log(
+            `catalog: could not list referenced files -- ${String(e.message ?? e).slice(0, 200)}`,
+          );
+        }
       } catch (e) {
         failed = true;
         manifest.catalog = { error: String(e.message ?? e).slice(0, 500), via: runner.via };
@@ -162,30 +209,75 @@ if (flag("--skip-lake")) {
           source: `s3://${cfg.bucket}/${cfg.prefix}`,
         };
       } else {
-        const lakeDir = path.join(out, "lake");
-        let done = 0;
+        // Where the bytes go: this backup's own directory, or the standing
+        // mirror, where anything already present at the same size is reused.
+        const lakeDir = lakeMirror ?? path.join(out, "lake");
+        let copied = 0;
+        let reused = 0;
+        let bytesCopied = 0;
         const queue = [...objects];
         const worker = async () => {
           for (let o = queue.shift(); o; o = queue.shift()) {
-            const body = await s3Get(cfg, o.key);
             const target = path.join(lakeDir, o.key);
+            if (lakeMirror && existsSync(target) && statSync(target).size === o.size) {
+              reused += 1;
+              continue;
+            }
+            const body = await s3Get(cfg, o.key);
             mkdirSync(path.dirname(target), { recursive: true });
             writeFileSync(target, body);
-            done += 1;
+            copied += 1;
+            bytesCopied += body.length;
           }
         };
         await Promise.all(Array.from({ length: 4 }, worker));
         writeFileSync(
           path.join(out, "lake-objects.json"),
-          JSON.stringify({ bucket: cfg.bucket, prefix: cfg.prefix, objects }, null, 2),
+          JSON.stringify(
+            {
+              bucket: cfg.bucket,
+              prefix: cfg.prefix,
+              ...(lakeMirror ? { mirror: lakeMirror } : {}),
+              objects,
+            },
+            null,
+            2,
+          ),
         );
         manifest.lake = {
-          dir: "lake",
-          objects: done,
+          dir: lakeMirror ?? "lake",
+          objects: copied + reused,
+          copied,
+          reused,
           bytes,
+          bytesCopied,
           source: `s3://${cfg.bucket}/${cfg.prefix}`,
         };
-        log(`lake: mirrored ${done} objects`);
+        log(
+          lakeMirror
+            ? `lake: mirror has ${copied + reused} objects -- ${copied} copied (${bytesCopied} bytes), ${reused} already there`
+            : `lake: mirrored ${copied} objects`,
+        );
+      }
+      // The dump and the listing must describe the same lakehouse. A file
+      // the catalog references that is not in the bucket cannot be restored
+      // by anyone, and that is a failed backup — said now, not on the day.
+      if (referencedFiles) {
+        const names = new Set(objects.map((o) => o.key.split("/").pop()));
+        const missing = referencedFiles.filter((f) => !names.has(f));
+        manifest.lake.referenced = referencedFiles.length;
+        manifest.lake.missingFromBucket = missing.length;
+        if (missing.length) {
+          failed = true;
+          manifest.lake.missingSample = missing.slice(0, 10);
+          log(
+            `lake: FAILED -- the catalog references ${missing.length} data file(s) not in the bucket (e.g. ${missing[0]})`,
+          );
+        } else {
+          log(
+            `lake: every one of the ${referencedFiles.length} data files the catalog references is in the bucket`,
+          );
+        }
       }
     } catch (e) {
       failed = true;

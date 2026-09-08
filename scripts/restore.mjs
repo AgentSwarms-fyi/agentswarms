@@ -188,7 +188,11 @@ if (drill || flag("--lake")) {
       `lake: nothing to restore (${cfg ? "no lake-objects.json in backup" : "lake S3 settings not set"})`,
     );
   } else {
-    const { objects, prefix: backedPrefix } = JSON.parse(readFileSync(listing, "utf8"));
+    const { objects, prefix: backedPrefix, mirror } = JSON.parse(readFileSync(listing, "utf8"));
+    // A backup taken with --lake-mirror holds its bytes in the mirror, not
+    // beside its manifest; --lake-mirror here overrides a moved one.
+    const lakeDir = opt("--lake-mirror") ?? mirror ?? path.join(dir, "lake");
+    if (mirror || opt("--lake-mirror")) log(`lake: reading Parquet from the mirror at ${lakeDir}`);
     const targetPrefix = drill
       ? `${cfg.prefix || "lake"}-restore-drill-${Date.now()}`
       : (opt("--lake-prefix") ?? cfg.prefix);
@@ -203,7 +207,7 @@ if (drill || flag("--lake")) {
     const uploaded = [];
     try {
       for (const o of sample) {
-        const body = readFileSync(path.join(dir, "lake", o.key));
+        const body = readFileSync(path.join(lakeDir, o.key));
         const key = rekey(o.key);
         await s3Put(cfg, key, body);
         uploaded.push({ key, size: body.length });

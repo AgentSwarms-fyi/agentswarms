@@ -252,3 +252,30 @@ describe("backup & restore: scripts and docs agree", () => {
     expect(backup).not.toMatch(/readline|prompt\(/);
   });
 });
+
+describe("backup: the incremental mirror and the dump/listing cross-check", () => {
+  const backup = rd("scripts/backup.mjs");
+  const restore = rd("scripts/restore.mjs");
+
+  it("copies only what the mirror lacks, by key and size", () => {
+    // DuckLake never rewrites a data file, so key + size is a sound identity
+    // and a standing mirror turns a daily full copy into a daily delta.
+    expect(backup).toContain('opt("--lake-mirror")');
+    expect(backup).toContain("statSync(target).size === o.size");
+    expect(backup).toContain("reused += 1");
+  });
+
+  it("records where the bytes went, so restore reads from the mirror", () => {
+    expect(backup).toContain("{ mirror: lakeMirror }");
+    expect(restore).toContain('opt("--lake-mirror") ?? mirror ?? path.join(dir, "lake")');
+  });
+
+  it("fails the backup when the catalog references a file the bucket does not have", () => {
+    // A catalog that points at files nobody can restore is not a backup;
+    // saying so at backup time is the whole point of the check.
+    expect(backup).toContain("SELECT path FROM ducklake_data_file WHERE end_snapshot IS NULL");
+    expect(backup).toContain("ducklake_delete_file");
+    expect(backup).toContain("missingFromBucket");
+    expect(backup).toMatch(/if \(missing\.length\) \{\s*failed = true;/);
+  });
+});

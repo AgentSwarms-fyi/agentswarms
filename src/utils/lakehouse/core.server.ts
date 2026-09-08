@@ -180,6 +180,19 @@ async function createEngine(cfg: LakehouseConfig): Promise<DuckDBInstance> {
     if (process.env.LAKEHOUSE_METADATA_CACHE !== "false") {
       await c.run("SET parquet_metadata_cache=true;");
     }
+    // CATALOG CONNECTIONS. The Postgres pool behind the DuckLake attachment
+    // holds sessions per WORKER PROCESS, and its default acquire mode is
+    // 'force' — "always connect, ignore the limit" — so without both of these
+    // nothing bounds workers × replicas against the catalog's
+    // max_connections. Measured on the compose catalog: 32 concurrent queries
+    // over a 300-file table held 3 pool sessions unbounded, and stayed at the
+    // limit once one was set (at the cost of queueing when it is tight). 8 is
+    // above what a worker uses, and it is a ceiling an operator can size
+    // against: LAKEHOUSE_CATALOG_CONNECTIONS × workers × replicas, plus one
+    // session per worker for the attachment itself.
+    const catalogConns = Number(process.env.LAKEHOUSE_CATALOG_CONNECTIONS ?? "") || 8;
+    await c.run(`SET pg_pool_max_connections=${Math.max(1, Math.min(256, catalogConns))};`);
+    await c.run("SET pg_pool_acquire_mode='wait';");
     await c.run(`CREATE OR REPLACE SECRET lakehouse_s3 (${s3parts.join(", ")});`);
     await c.run(
       // The postgres: prefix is LOAD-BEARING: without it DuckLake treats the

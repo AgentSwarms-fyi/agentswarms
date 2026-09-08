@@ -17,14 +17,15 @@ stateless compute on every app replica.
 
 Two pieces of shared infrastructure, both named in `.env`:
 
-| Variable                                      | What it is                                                   |
-| --------------------------------------------- | ------------------------------------------------------------ |
-| `LAKEHOUSE_CATALOG_URL`                       | Postgres every replica can reach (`postgres://u:p@host/db`)  |
-| `LAKEHOUSE_DATA_URL`                          | Object-storage prefix for table data (`s3://lakehouse/main`) |
-| `LAKEHOUSE_S3_ENDPOINT`                       | `host:port` for MinIO/R2/etc.; omit for AWS S3               |
-| `LAKEHOUSE_S3_KEY_ID` / `LAKEHOUSE_S3_SECRET` | Credentials for that prefix                                  |
-| `LAKEHOUSE_S3_URL_STYLE`                      | `path` for MinIO, `vhost` for AWS                            |
-| `LAKEHOUSE_S3_USE_SSL`                        | `false` for plain-HTTP local MinIO                           |
+| Variable                                      | What it is                                                        |
+| --------------------------------------------- | ----------------------------------------------------------------- |
+| `LAKEHOUSE_CATALOG_URL`                       | Postgres every replica can reach (`postgres://u:p@host/db`)       |
+| `LAKEHOUSE_DATA_URL`                          | Object-storage prefix for table data (`s3://lakehouse/main`)      |
+| `LAKEHOUSE_S3_ENDPOINT`                       | `host:port` for MinIO/R2/etc.; omit for AWS S3                    |
+| `LAKEHOUSE_S3_KEY_ID` / `LAKEHOUSE_S3_SECRET` | Credentials for that prefix                                       |
+| `LAKEHOUSE_S3_URL_STYLE`                      | `path` for MinIO, `vhost` for AWS                                 |
+| `LAKEHOUSE_S3_USE_SSL`                        | `false` for plain-HTTP local MinIO                                |
+| `LAKEHOUSE_CATALOG_CONNECTIONS`               | Catalog sessions one app worker may hold (default 8); see Scaling |
 
 The compose `lakehouse` profile ships a catalog Postgres
 (`lakehouse-catalog`); any Postgres 12+ works, including a self-hosted
@@ -448,6 +449,18 @@ and a miss on the next — true across replicas behind a load balancer and equal
 true across workers inside one replica. Correctness is unaffected (the snapshot
 id is in the key), only the timing varies. And spill files are local disk: give
 each replica real scratch space, not a tmpfs sized for a container's RAM.
+
+**The catalog's connection budget is bounded per worker.** The Postgres pool
+behind the DuckLake attachment holds sessions per app process, and its
+default acquire mode ignores any limit ("always connect"). The engine now sets
+`pg_pool_max_connections` from `LAKEHOUSE_CATALOG_CONNECTIONS` (default 8)
+and switches the pool to wait for a free session, so the rule for the
+catalog's `max_connections` is simply
+**`LAKEHOUSE_CATALOG_CONNECTIONS` × workers × replicas, plus one per worker**
+for the attachment itself. Measured on the Compose catalog: a worker under 32
+concurrent queries over a 300-file table held 3 pool sessions unbounded, and
+stayed at the limit once one was set — queueing rather than opening more. Idle
+sessions are kept, so size for the ceiling, not the average.
 
 ## Use cases
 

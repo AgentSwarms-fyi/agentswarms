@@ -202,6 +202,15 @@ describe("lakehouse wiring", () => {
   it("the attach carries the postgres: prefix — a file catalog is the bug, not a mode", () => {
     const core = read("src/utils/lakehouse/core.server.ts");
     expect(core).toContain("'ducklake:postgres:${catalogUrlToLibpq");
+    // The catalog pool is bounded BEFORE the attach, and the acquire mode is
+    // switched off 'force' — under which the limit is documented as ignored —
+    // so workers × replicas has a ceiling an operator can size against.
+    const limitAt = core.indexOf("SET pg_pool_max_connections=");
+    const attachAt = core.indexOf("'ducklake:postgres:${catalogUrlToLibpq");
+    expect(limitAt).toBeGreaterThan(0);
+    expect(limitAt).toBeLessThan(attachAt);
+    expect(core).toContain("SET pg_pool_acquire_mode='wait'");
+    expect(core).toContain("LAKEHOUSE_CATALOG_CONNECTIONS");
   });
 
   it("compression is zstd and the engine refuses to boot half-configured", () => {

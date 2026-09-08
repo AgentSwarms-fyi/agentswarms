@@ -170,13 +170,25 @@ metadata:
   name: notebook-egress
   namespace: agentswarms-notebooks
 spec:
-  replicas: 1
+  # Two, because this is every sandbox's only way out: while a single replica
+  # restarts, every `pip install` at run start and every HTTP fetch in every
+  # pipeline fails. It is stateless (the allow-list is the ConfigMap), so a
+  # second replica costs a few MB and removes the outage.
+  replicas: 2
   selector:
     matchLabels: { app: notebook-egress }
   template:
     metadata:
       labels: { app: notebook-egress }
     spec:
+      # Spread across nodes when there is more than one, so a node loss is not
+      # both replicas at once.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels: { app: notebook-egress }
       containers:
         - name: squid
           image: ubuntu/squid:latest # pin a digest in production
