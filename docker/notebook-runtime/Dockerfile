@@ -23,6 +23,14 @@ WORKDIR /opt/agentswarms
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# DuckDB extensions for lakehouse pipeline nodes, installed at build time into
+# a read-only directory the generated code prefers. Without this every run
+# with a lakehouse node downloaded them through the egress proxy first — slow,
+# and impossible without .duckdb.org on the allow-list. The directory is
+# world-readable; LOAD needs nothing more.
+RUN python -c "import duckdb; c = duckdb.connect(config={'extension_directory': '/opt/agentswarms/duckdb-ext'}); c.execute('INSTALL ducklake; INSTALL postgres; INSTALL httpfs;'); print('baked', [r[0] for r in c.execute(\"SELECT extension_name FROM duckdb_extensions() WHERE installed\").fetchall()])" \
+    && chmod -R a+rX /opt/agentswarms/duckdb-ext
+
 COPY agentswarms_helper.py /opt/agentswarms/agentswarms.py
 COPY batch_runner.py /opt/agentswarms/batch_runner.py
 COPY mcp_runner.py /opt/agentswarms/mcp_runner.py

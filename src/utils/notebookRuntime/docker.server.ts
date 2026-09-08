@@ -18,6 +18,17 @@ import { sandboxName, sandboxServing } from "./orchestrator";
 // The first candidate that answers /_ping wins and is cached.
 let resolvedBase: string | null = null;
 
+// How long one /_ping may take. A name that does not resolve fails at once,
+// so this budget is spent only on a proxy that accepted the connection and
+// is waiting on the Docker daemon — and a daemon busy with a build or a pull
+// answers slowly. Seen live: a ping took 13 s while an image was being built
+// on the same host, and the old 2.5 s budget turned that into "start the
+// runtime services" for services that were running. The answer is cached,
+// so only the first call after an app start pays the wait.
+export function dockerPingTimeoutMs(): number {
+  return Number(process.env.DOCKER_PROXY_PING_TIMEOUT_MS ?? "") || 10_000;
+}
+
 function candidates(): string[] {
   return [
     process.env.DOCKER_PROXY_URL,
@@ -29,22 +40,39 @@ function candidates(): string[] {
 export async function dockerBase(): Promise<string> {
   if (resolvedBase) return resolvedBase;
   const tried: string[] = [];
+  const timeoutMs = dockerPingTimeoutMs();
+  let stalled = false;
   for (const candidate of candidates()) {
     const base = candidate.replace(/\/$/, "");
     try {
-      const res = await fetch(`${base}/_ping`, { signal: AbortSignal.timeout(2500) });
+      const res = await fetch(`${base}/_ping`, { signal: AbortSignal.timeout(timeoutMs) });
       if (res.ok) {
         resolvedBase = base;
         return base;
       }
       tried.push(`${base} → HTTP ${res.status}`);
     } catch (e) {
-      tried.push(`${base} → ${e instanceof Error ? e.message : String(e)}`);
+      if (e instanceof Error && e.name === "TimeoutError") {
+        stalled = true;
+        tried.push(`${base} → no answer within ${timeoutMs / 1000} s`);
+      } else {
+        tried.push(`${base} → ${e instanceof Error ? e.message : String(e)}`);
+      }
     }
   }
+  // Two different failures, two different fixes. A stall is a proxy that
+  // accepted the connection and never answered: the daemon behind it is busy
+  // (a build or pull on the same host) or its HAProxy has wedged. Telling the
+  // operator to start services that are running sends them the wrong way.
+  const advice = stalled
+    ? "The proxy accepted the connection but did not answer: the Docker daemon is busy " +
+      "(a build or pull in progress?) or the proxy has wedged. Try again in a minute; if it " +
+      "persists:  docker compose --profile notebooks restart notebook-docker-proxy  "
+    : "Start the runtime services with:  docker compose --profile notebooks up -d --build  ";
   throw new Error(
-    "Cannot reach the Docker socket-proxy, so no kernel can be started. Start the runtime " +
-      "services with:  docker compose --profile notebooks up -d --build  (tried " +
+    "Cannot reach the Docker socket-proxy, so no kernel can be started. " +
+      advice +
+      "(tried " +
       tried.join("; ") +
       ")",
   );

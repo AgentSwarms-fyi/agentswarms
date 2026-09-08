@@ -43,6 +43,16 @@ RUN npm run build
 
 EXPOSE 8080
 
+# A CA certificate bundle. node:22-slim ships none — Node carries its own
+# root store, so every fetch() the app makes worked and nothing noticed — but
+# DuckDB's httpfs is native OpenSSL and needs the system bundle. Without it
+# every HTTPS request from the lakehouse engine fails with "Problem with the
+# SSL CA cert (path? access rights?)": reading any cloud bucket (S3, GCS,
+# Azure over https — the local MinIO is plain http, which is how this hid),
+# and installing an extension once httpfs is loaded. Verified in the image:
+# read_csv over https failed before, works after.
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
+
 # Drop root. `npm ci` and the build above need to write node_modules and dist,
 # so this comes after them; from here the app only reads /app.
 #
@@ -53,6 +63,15 @@ EXPOSE 8080
 # rather than a silent one. Verified running non-root with a read-only root
 # filesystem and a tmpfs /tmp: SSR and every API route work unchanged.
 USER node
+
+# DuckDB extensions, installed NOW rather than on the first lakehouse request.
+# Measured on a fresh container: that first request spent 3.5 minutes fetching
+# ~145 MB of extensions before running a query, and every restart, redeploy
+# and new replica paid it again — an air-gapped install could not pay it at
+# all. The engine's own INSTALL is a no-op once they are here. Runs as `node`
+# because the cache lives under that user's home, which is where the engine
+# looks at run time.
+RUN node scripts/bake-duckdb-extensions.mjs
 
 # server.mjs serves the built TanStack Start bundle: client assets, SSR and
 # every /api route, forking one worker per CPU.

@@ -1614,6 +1614,13 @@ docker compose up -d --build
 
 ### Air-gapped (no outbound internet)
 
+Both images ship their DuckDB extensions **baked in** (the app's lakehouse
+engine: ducklake, postgres, httpfs, azure, avro, iceberg; the sandbox:
+ducklake, postgres, httpfs), so no container fetches anything from
+`extensions.duckdb.org` at run time. Before this, the first lakehouse request
+on every fresh container downloaded ~145 MB and took minutes — and offline
+it simply failed.
+
 Self-hosted Supabase removes the data dependency; three things still reach out
 by default, and each has a local answer:
 
@@ -2367,11 +2374,17 @@ Security model, scaling (Docker single-host vs. K8s pod-per-session), and the
 full test matrix: [DEVELOPER_WORKSPACE_RUNTIME.md](./DEVELOPER_WORKSPACE_RUNTIME.md).
 
 **If every run fails with "Cannot reach the Docker socket-proxy".** The
-proxy is HAProxy, and it can wedge: seen live, it logged `ha_stuck_warning`
-and answered nothing on either address while `docker ps` still said `Up`.
-The compose service now carries a health check, so the state shows as
-`unhealthy` in `docker compose ps` and on Observability → Monitoring; the
-fix is a restart:
+message says which of two things happened. "Start the runtime services"
+means nothing answered at all — the proxy is not running. "Accepted the
+connection but did not answer" means the proxy is up and the Docker daemon
+behind it is slow or stuck. Two causes of that, both seen live: a daemon
+busy with an image build or pull on the same host, where `/_ping` took 13 s
+(the app now waits 10 s, `DOCKER_PROXY_PING_TIMEOUT_MS`, and a retry a
+minute later succeeds); and the proxy's HAProxy wedging, where it logged
+`ha_stuck_warning` and answered nothing on either address while `docker ps`
+still said `Up`. The compose service carries a health check, so a wedge
+shows as `unhealthy` in `docker compose ps` and on Observability →
+Monitoring; the fix is a restart:
 
 ```bash
 docker compose --profile notebooks restart notebook-docker-proxy

@@ -151,10 +151,11 @@ data:
     # here it is a ConfigMap, so add it (a raw IP goes in allowed_ips) and
     # restart the proxy. A missing entry shows up as DuckDB "Authentication
     # Failure" on the first training job, and the app logs the host to add.
-    # DuckDB extension registry — lakehouse ETL nodes load the
-    # ducklake/postgres/httpfs extensions at run time. Without this the run
-    # fails with "Failed to download extension (HTTP 403)": squid refused it,
-    # not DuckDB.
+    # DuckDB extension registry. The runtime image ships the ducklake,
+    # postgres and httpfs extensions baked in, so a lakehouse ETL node no
+    # longer downloads anything; this entry is only needed for an image built
+    # without them, where the symptom is "Failed to download extension
+    # (HTTP 403)": squid refused it, not DuckDB.
     .duckdb.org
     .openrouter.ai
     .openai.com

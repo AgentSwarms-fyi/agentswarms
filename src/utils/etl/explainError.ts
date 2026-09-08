@@ -131,7 +131,8 @@ export function explainEtlError(raw: string | null | undefined): EtlErrorExplana
       kind: "egress_blocked_extension",
       summary:
         "The DuckDB extension registry was blocked by the egress proxy, not by DuckDB. " +
-        "Add .duckdb.org to the allow-list under Admin → Developer runtime.",
+        "Add .duckdb.org to the allow-list under Admin → Developer runtime — or rebuild the " +
+        "runtime image, which ships these extensions and downloads nothing.",
     };
   }
 

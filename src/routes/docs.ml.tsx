@@ -895,7 +895,7 @@ curl -X POST https://your-instance/api/ml/predict/batch \\
         rows={[
           [
             "Cannot reach the Docker socket-proxy",
-            "The runtime services are down: docker compose --profile notebooks up -d.",
+            'Read the rest of the message: "start the runtime services" means the proxy is down (docker compose --profile notebooks up -d); "did not answer" means the Docker daemon is busy or the proxy wedged — retry, then restart notebook-docker-proxy.',
           ],
           [
             "egress proxy refused the lake endpoint (HTTP 403)",

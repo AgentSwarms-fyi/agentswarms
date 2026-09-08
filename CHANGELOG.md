@@ -31,6 +31,34 @@ run `npx supabase db push` after pulling.
 
 ### Resilience: a bounded catalog pool, incremental backups, an honest RPO
 
+- **DuckDB extensions are baked into both images.** The first lakehouse
+  request on a fresh container downloaded ~145 MB of extensions and took
+  3.5 minutes before running a query — measured as a chained SQL-model
+  build that took 214 s where the same build takes 7 s warm — and every
+  restart, redeploy and new replica paid it again; offline it failed. The
+  app image installs them at build time under the app user's home, the
+  sandbox image under a read-only directory the generated lakehouse code
+  prefers, so the engine's own INSTALL is instant and `.duckdb.org` is no
+  longer needed on the sandbox egress allow-list.
+- **The app image has a CA certificate bundle.** Found by the bake above:
+  `node:22-slim` ships none, and nothing had noticed because Node carries
+  its own root store, so every `fetch()` the app makes worked. DuckDB's
+  httpfs is native OpenSSL and needs the system bundle — without it every
+  HTTPS request from the lakehouse engine failed with "Problem with the
+  SSL CA cert", which is every cloud bucket (S3, GCS, Azure) and every
+  `read_csv('https://…')`. The local MinIO is plain HTTP, which is how it
+  hid. Verified in the image: an HTTPS read failed before, works after.
+- **The Docker socket proxy has a health check.** Seen live: its HAProxy
+  wedged and every sandbox start failed with "Cannot reach the Docker
+  socket-proxy" while `docker ps` said Up; the state now reads as unhealthy
+  and the runbook names the one-line fix.
+- **A busy Docker daemon no longer reads as stopped services.** Seen live
+  the same day: a run failed with "Cannot reach the Docker socket-proxy …
+  Start the runtime services" while they were running — the proxy's log
+  showed `/_ping` taking 13 s because an image was being built on the same
+  host, and discovery gave up at 2.5 s. The budget is 10 s
+  (`DOCKER_PROXY_PING_TIMEOUT_MS`), and a proxy that accepts and stalls is
+  reported as exactly that, with the fix for a stall.
 - **The lakehouse catalog's connection budget is bounded.** The Postgres
   pool behind the DuckLake attachment held sessions per app worker with an
   acquire mode that ignored any limit. The engine now sets

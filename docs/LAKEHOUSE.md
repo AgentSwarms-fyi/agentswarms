@@ -32,6 +32,13 @@ The compose `lakehouse` profile ships a catalog Postgres
 Supabase's own database. Unset variables leave the feature off — the page
 says so instead of half-working.
 
+If a query against an HTTPS object store fails with **"Problem with the SSL
+CA cert (path? access rights?)"**, the container running the engine has no
+CA certificate bundle. The published app image ships one (`node:22-slim`
+does not, and Node's own root store hides the gap from everything but
+DuckDB's native httpfs); a custom base image needs `ca-certificates`
+installed, or `LAKEHOUSE_S3_USE_SSL=false` for a plain-HTTP endpoint.
+
 One implementation detail that is LOAD-BEARING: the engine attaches with
 `ducklake:postgres:<libpq>`. Without the `postgres:` prefix DuckLake treats
 the string as a file path and silently creates a single-writer duckdb-file
@@ -398,14 +405,17 @@ delete-then-insert in one transaction). Schema access is checked server-side as
 the **pipeline's owner** before the run starts, so naming a schema in a graph
 grants nothing.
 
-Two sandbox facts the implementation had to respect, both found by running it:
+The runtime image ships the ducklake, postgres and httpfs extensions under
+`/opt/agentswarms/duckdb-ext`, read-only, and the generated code loads them
+from there — so a lakehouse node downloads nothing and works with no egress at
+all. Two sandbox facts shaped the fallback for an image built without them:
 the kernel's HOME is read-only (so DuckDB's default `~/.duckdb` extension
 directory fails) and `/tmp` is mounted `noexec` (so an extension downloaded
 there cannot be mapped) — `~/.local` is the one path that is both writable and
-executable. The kernels also need `.duckdb.org` on the egress allow-list to
-fetch the ducklake/postgres/httpfs extensions; without it a run fails with
-"Failed to download extension (HTTP 403)", which is squid refusing it, not
-DuckDB.
+executable, and that download needs `.duckdb.org` on the egress allow-list;
+without it the run fails with "Failed to download extension (HTTP 403)", which
+is squid refusing it, not DuckDB. A run that reports a download at all is on an
+old runtime image.
 
 ## Scaling behind a load balancer
 
