@@ -13,6 +13,20 @@ credentials — it is safe to run anywhere and safe for a fork to run in CI.
 npm run test:watch
 ```
 
+## Before you push
+
+CI runs, in order: route generation, `tsc --noEmit`, ESLint, Vitest, and the
+Vite build. ESLint runs **Prettier as a rule**, so an unformatted file — a
+test, a doc, anything the config does not ignore — is a lint _error_, not a
+warning. One command runs the same four steps locally:
+
+```bash
+npm run check
+```
+
+It takes a few minutes because the build is real. Run it before every push;
+`npm run format` fixes the formatting half in place.
+
 ## What is covered
 
 | Area                    | File                                        | Why it matters                                        |

@@ -29,6 +29,7 @@
     "check:doc-commands": "node scripts/check-doc-commands.mjs",
     "docs:index": "node scripts/build-docs-index.mjs",
     "format": "prettier --write .",
+    "check": "npm run typecheck && npm run lint && npm run test && npm run build",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:integration": "vitest run --config vitest.integration.config.ts",

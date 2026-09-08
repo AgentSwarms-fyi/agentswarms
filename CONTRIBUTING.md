@@ -15,8 +15,10 @@ environment variables).
 2. Make your changes. Keep pull requests focused — one logical change per
    PR is easier to review than a bundle of unrelated fixes.
 3. Run the checks CI runs, before opening a PR:
+
    ```bash
    npm run lint
+   npm run check     # what CI runs: typecheck, lint, tests, build
    npm run format
    npm run typecheck
    npm run test
@@ -31,6 +33,7 @@ environment variables).
    cascading errors naming route files that are perfectly fine. Run
    `npm run generate:routes` (or the dev server, or a build) and they all go
    away.
+
 4. If your change touches the database schema, add a new migration under
    `supabase/migrations/` rather than editing an existing one — migrations
    are append-only and already applied to running instances.

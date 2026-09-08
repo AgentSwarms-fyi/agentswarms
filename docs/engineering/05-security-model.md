@@ -61,14 +61,14 @@ JWT, so a filter would have been redundant. On the headless path the same code
 ran under the service-role client, and each returned rows belonging to any
 tenant:
 
-| Read                                  | Reachable headlessly via     | What leaked                          |
-| ------------------------------------- | ---------------------------- | ------------------------------------ |
-| `mcp_servers` by name                 | `mcp_call_tool`              | the row, **including `auth_token`**   |
-| `mcp_servers` connected list          | `mcp_call_tool` description  | other tenants' server names/endpoints |
-| `integrations` (firecrawl)            | `web_search`, `web_browse`   | another tenant's Firecrawl key        |
-| `integrations` (n8n) ×2               | tool offer + handler         | n8n endpoint and API token            |
-| `data_warehouse_connections`          | `warehouse_query` description | connection names and providers       |
-| `user_data_tables`                    | `sql_query` description      | table names and column schemas        |
+| Read                         | Reachable headlessly via      | What leaked                           |
+| ---------------------------- | ----------------------------- | ------------------------------------- |
+| `mcp_servers` by name        | `mcp_call_tool`               | the row, **including `auth_token`**   |
+| `mcp_servers` connected list | `mcp_call_tool` description   | other tenants' server names/endpoints |
+| `integrations` (firecrawl)   | `web_search`, `web_browse`    | another tenant's Firecrawl key        |
+| `integrations` (n8n) ×2      | tool offer + handler          | n8n endpoint and API token            |
+| `data_warehouse_connections` | `warehouse_query` description | connection names and providers        |
+| `user_data_tables`           | `sql_query` description       | table names and column schemas        |
 
 The MCP pair is the serious one, because it composes: the listing supplied
 another tenant's server names, and the by-name lookup then returned that
@@ -90,7 +90,7 @@ Two things follow, and both are now enforced by tests:
   removes a feature is still a regression.
 
 The lesson generalises: these queries were not wrong for the path they were
-written on. They were wrong for the *other* one, and nothing in the type system
+written on. They were wrong for the _other_ one, and nothing in the type system
 distinguishes the two clients.
 
 ---

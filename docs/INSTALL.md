@@ -18,8 +18,8 @@ storage), configuring environment variables, and running the app.
 
 Optional, but needed for a fully working app:
 
-| Optional                                                                  | Why                                                                                                                                                       |
-| ------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Optional                                                                  | Why                                                                                                                                                                                                         |
+| ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **OpenRouter API key** ([openrouter.ai/keys](https://openrouter.ai/keys)) | Without it, nobody can chat with an agent or embed a document until they connect their own provider under `/integrations`. With it, chat **and** Knowledge Base embeddings work zero-config for every user. |
 
 #### macOS

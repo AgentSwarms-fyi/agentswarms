@@ -142,7 +142,13 @@ describe("saying what the search missed", () => {
   it("names workers that never reported", () => {
     // Three of four finishing still produces a model; refusing it would waste
     // the work and the wait. But the leaderboard is then missing rows.
-    const w = shardWarnings([{ shard: 0, ok: true }, { shard: 1, ok: true }], 4);
+    const w = shardWarnings(
+      [
+        { shard: 0, ok: true },
+        { shard: 1, ok: true },
+      ],
+      4,
+    );
     expect(w[0]).toMatch(/2 of 4 search workers did not report back/);
   });
 
