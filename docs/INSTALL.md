@@ -8,13 +8,13 @@ storage), configuring environment variables, and running the app.
 
 ## 1. Prerequisites
 
-| Requirement                                   | Version              | Why                                                                                                               |
-| --------------------------------------------- | -------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| **Node.js**                                   | `20.19+` or `22.12+` | Required by Vite 7. Older Node 18 will fail to start the dev server.                                              |
-| **npm** (bundled with Node) or **Bun** `1.1+` | —                    | Either works — both `package-lock.json` and `bun.lock` are committed. Use one consistently.                       |
-| **Git**                                       | any recent           | to clone the repo                                                                                                 |
-| **A Supabase account**                        | free tier is enough  | [supabase.com](https://supabase.com) — this is your database, auth, and file storage                              |
-| **Supabase CLI**                              | `2.x`                | _(recommended, not strictly required)_ — the fastest way to apply the project's ~60 SQL migrations in one command |
+| Requirement                                   | Version              | Why                                                                                                                              |
+| --------------------------------------------- | -------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| **Node.js**                                   | `20.19+` or `22.12+` | Required by Vite 7. Older Node 18 will fail to start the dev server.                                                             |
+| **npm** (bundled with Node) or **Bun** `1.1+` | —                    | Either works — both `package-lock.json` and `bun.lock` are committed. Use one consistently.                                      |
+| **Git**                                       | any recent           | to clone the repo                                                                                                                |
+| **A Supabase account**                        | free tier is enough  | [supabase.com](https://supabase.com) — this is your database, auth, and file storage                                             |
+| **Supabase CLI**                              | `2.x`                | _(recommended, not strictly required)_ — the fastest way to apply the project's SQL migrations (over two hundred) in one command |
 
 Optional, but needed for a fully working app:
 
@@ -222,7 +222,7 @@ continue at [§5](#5-run-the-app).
 
 #### 3.2 Apply the database schema (migrations)
 
-The repo ships ~60 SQL migrations under `supabase/migrations/` that create
+The repo ships over two hundred SQL migrations under `supabase/migrations/` that create
 every table, RLS policy, Postgres function/trigger, index, and the
 `avatars` storage bucket. They also enable the Postgres extensions the app
 needs: `vector` (pgvector, for Knowledge Base embeddings), `pg_cron`,
@@ -456,15 +456,16 @@ Product documentation for every feature ships inside the app at `/docs`.
 
 ## 7. Optional services (and how to start all of them)
 
-The core stack is one container: the app. Three more services are optional
-profiles, off unless you ask for them — and until now this guide only mentioned
-one of the three.
+The core stack is one container: the app. Five more services are optional
+profiles, off unless you ask for them.
 
-| Service                     | Profile     | What you lose without it                                                                           |
-| --------------------------- | ----------- | -------------------------------------------------------------------------------------------------- |
-| Document renderer           | `docgen`    | Deep-mode exports fall back to the in-browser builder (no native charts/tables)                    |
-| JS sandbox                  | `sandbox`   | Function and custom-component nodes work on the canvas but fail in deployed / scheduled swarm runs |
-| Developer-workspace runtime | `notebooks` | Notebooks run in the browser (Lite) only — no real CPython, no `pip install`                       |
+| Service                     | Profile     | What you lose without it                                                                                                                                  |
+| --------------------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Document renderer           | `docgen`    | Deep-mode exports fall back to the in-browser builder (no native charts/tables)                                                                           |
+| JS sandbox                  | `sandbox`   | Function and custom-component nodes work on the canvas but fail in deployed / scheduled swarm runs                                                        |
+| Developer-workspace runtime | `notebooks` | Notebooks run in the browser (Lite) only — no real CPython, no `pip install`; ETL runs, ML training and MCP servers need it too                           |
+| Lakehouse catalog           | `lakehouse` | A Postgres for the lakehouse's catalog; without one (this, or your own in `LAKEHOUSE_CATALOG_URL`) the lakehouse, SQL models and ML stay off              |
+| Spark cluster               | `spark`     | A Spark Connect endpoint for the ETL Spark engine and lakehouse queries on Spark; idle until `SPARK_CONNECT_URL` names it, ~1 GB image, jars on first use |
 
 **Start everything:**
 

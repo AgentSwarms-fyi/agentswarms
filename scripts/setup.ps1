@@ -7,6 +7,8 @@
     powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -Docgen    # + server-side PPTX/Word/Excel renderer
     powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -Notebooks # + Developer-workspace runtime
     powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -Sandbox   # + JS sandbox (custom code in deployed runs)
+    powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -Lakehouse # + a catalog Postgres for the lakehouse
+    powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -Spark     # + a Spark Connect cluster for the ETL engine
     powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -SkipMigrations
 
   Scaffolds .env, generates the encryption secrets, installs deps (dev mode),
@@ -15,16 +17,19 @@
 #>
 param(
   [switch]$Dev,
-  # -All is the whole product; the individual switches exist because each
-  # optional profile costs something (LibreOffice image size, Docker socket
-  # access for notebook kernels). See docs/DEPLOYMENT.md.
+  # -All is the whole product - the same five profiles `docker compose --profile
+  # all` starts; the individual switches exist because each optional profile
+  # costs something (LibreOffice image size, Docker socket access for notebook
+  # kernels, a Postgres of its own, a ~1 GB Spark image). See docs/DEPLOYMENT.md.
   [switch]$All,
   [switch]$Docgen,
   [switch]$Notebooks,
   [switch]$Sandbox,
+  [switch]$Lakehouse,
+  [switch]$Spark,
   [switch]$SkipMigrations
 )
-if ($All) { $Docgen = $true; $Notebooks = $true; $Sandbox = $true }
+if ($All) { $Docgen = $true; $Notebooks = $true; $Sandbox = $true; $Lakehouse = $true; $Spark = $true }
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
@@ -123,6 +128,8 @@ if ($Dev) {
   if ($Docgen)    { $profiles += @("--profile","docgen") }
   if ($Notebooks) { $profiles += @("--profile","notebooks") }
   if ($Sandbox)   { $profiles += @("--profile","sandbox") }
+  if ($Lakehouse) { $profiles += @("--profile","lakehouse") }
+  if ($Spark)     { $profiles += @("--profile","spark") }
   Say "Starting Docker stack"
   docker compose @profiles up -d --build
   Say "Up. Open http://localhost:8080"
@@ -130,6 +137,16 @@ if ($Dev) {
   if ($Notebooks) {
     Write-Host "  Developer-workspace runtime: containers are up, but the feature stays OFF until"
     Write-Host "    an admin flips it on in Admin -> Developer runtime (then 'Run preflight')."
+  }
+  if ($Lakehouse -and -not (Get-EnvVar "LAKEHOUSE_CATALOG_URL")) {
+    Write-Host "  Lakehouse catalog: a Postgres is up, but the lakehouse stays OFF until .env names"
+    Write-Host "    it - uncomment LAKEHOUSE_CATALOG_URL and the LAKEHOUSE_DATA_URL / S3 lines, then"
+    Write-Host "    'docker compose up -d agentswarms'. See docs/LAKEHOUSE.md."
+  }
+  if ($Spark -and -not (Get-EnvVar "SPARK_CONNECT_URL")) {
+    Write-Host "  Spark cluster: up, but no pipeline uses it until .env sets"
+    Write-Host "    SPARK_CONNECT_URL=""sc://spark-connect:15002"" (then 'docker compose up -d agentswarms')."
+    Write-Host "    Its first run downloads the connector jars. See docs/ETL_PIPELINES.md."
   }
   if ($Sandbox) {
     Write-Host "  JS sandbox: custom-code nodes now run in DEPLOYED and SCHEDULED swarm runs too."

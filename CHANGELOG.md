@@ -513,6 +513,18 @@ off`, a hit reports zero usage because it spends nothing at the provider,
 
 ### Getting it running
 
+- **`setup.sh --all` and `setup.ps1 -All` start what `--profile all` starts.**
+  The README called both "everything", and they were not the same: the
+  scripts started three profiles (renderer, JS sandbox, notebook runtime)
+  while Compose's `all` started five, so a scripted install had no lakehouse
+  catalog and no Spark cluster. Both scripts now take `--lakehouse` /
+  `-Lakehouse` and `--spark` / `-Spark`, `--all` includes them, and each says
+  what `.env` still has to name for the service to be used. A test pins the
+  parity. The README, INSTALL and DEPLOYMENT guides describe the five, and
+  the README's feature table and scorecard now carry what landed since 1.4.0:
+  column-level lineage, continuous pipelines, chaining to SQL models and ML,
+  Spark queries, policies by tag, incremental backups; two stale migration
+  counts were corrected.
 - **The sidebar is the whole product in eight groups**, collapsible and
   remembered per browser, with the group holding the current page opened for
   you.

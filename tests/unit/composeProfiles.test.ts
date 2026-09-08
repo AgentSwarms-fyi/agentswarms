@@ -52,8 +52,32 @@ describe("docker compose profiles", () => {
     // `all` is additive; it must not have replaced the per-service profiles the
     // docs and setup scripts still pass.
     const named = new Set(profiled.flatMap(([, s]) => s.profiles!).filter((p) => p !== "all"));
-    for (const profile of ["docgen", "notebooks", "sandbox"]) {
+    for (const profile of ["docgen", "notebooks", "sandbox", "lakehouse", "spark"]) {
       expect(named).toContain(profile);
+    }
+  });
+
+  it("the setup scripts' --all starts the same profiles `--profile all` does", () => {
+    // The README calls both "everything". They were not the same: the scripts
+    // started three profiles while compose's `all` started five, so a
+    // `setup.sh --all` install had no lakehouse catalog and no Spark cluster.
+    const named = [
+      ...new Set(profiled.flatMap(([, s]) => s.profiles!).filter((p) => p !== "all")),
+    ].sort();
+    const sh = readFileSync(resolve(process.cwd(), "scripts/setup.sh"), "utf8");
+    const ps = readFileSync(resolve(process.cwd(), "scripts/setup.ps1"), "utf8");
+    for (const profile of named) {
+      expect(sh, `setup.sh has no --${profile}`).toContain(`add_profile ${profile}`);
+      expect(ps, `setup.ps1 has no -${profile}`).toContain(`@("--profile","${profile}")`);
+    }
+    // Both --all branches name every one of them.
+    const allCase = sh.indexOf("--all)");
+    const shAll = sh.slice(allCase, sh.indexOf("--docgen)", allCase));
+    for (const profile of named) expect(shAll).toContain(`add_profile ${profile}`);
+    const psAll = ps.slice(ps.indexOf("if ($All)"), ps.indexOf("\n", ps.indexOf("if ($All)")));
+    for (const profile of named) {
+      const sw = `$${profile[0].toUpperCase()}${profile.slice(1)} = $true`;
+      expect(psAll, `setup.ps1 -All does not set ${sw}`).toContain(sw);
     }
   });
 

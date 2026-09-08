@@ -114,10 +114,15 @@ It cannot create your Supabase project or guess its keys: it writes the `.env`
 and tells you which values to fill in, then you re-run it. Open
 **http://localhost:8080** when it finishes.
 
-`--all` turns on the three optional profiles described below; the Compose
-equivalent is `docker compose --profile all up -d --build`. Plain
+`--all` turns on the five optional profiles — the document renderer, the JS
+sandbox, the notebook runtime, a catalog Postgres for the lakehouse and a Spark
+Connect cluster — exactly what the Compose equivalent,
+`docker compose --profile all up -d --build`, starts. Plain
 `docker compose up --build` starts the app alone — enough to try it, but
-notebooks, Deep-mode documents and headless custom code stay unavailable.
+notebooks, Deep-mode documents, headless custom code and the lakehouse stay
+unavailable. The catalog and Spark stay idle until `.env` points at them
+(`LAKEHOUSE_CATALOG_URL`, `SPARK_CONNECT_URL`); each script says so when it
+starts one that nothing names yet.
 
 - Set the Supabase **Auth → URL Configuration** Site URL to
   `http://localhost:8080` so email links resolve (INSTALL.md §3.3).
@@ -1566,7 +1571,7 @@ is nothing to click in Studio afterwards.
 tables with RLS enabled on all 98, the pgvector HNSW index, 2 `pg_cron` jobs
 and 3 storage buckets. All five required extensions were present in that image.
 
-The set has grown since that run (**154 migrations, 100 tables** as of this
+The set has grown since that run (**over two hundred migrations** as of this
 writing) and the bare-container test has not been repeated, so treat the
 numbers above as the last full verification rather than a current guarantee.
 Run the extension preflight regardless — it is what actually protects you, and
