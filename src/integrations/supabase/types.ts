@@ -2133,6 +2133,8 @@ export type Database = {
         Row: {
           alerts: Json;
           allow_concurrent: boolean;
+          chain_ml_schedules: string[];
+          chain_sql_models: string[] | null;
           created_at: string;
           cron_expr: string | null;
           default_params: Json | null;
@@ -2162,6 +2164,8 @@ export type Database = {
         Insert: {
           alerts?: Json;
           allow_concurrent?: boolean;
+          chain_ml_schedules?: string[];
+          chain_sql_models?: string[] | null;
           created_at?: string;
           cron_expr?: string | null;
           default_params?: Json | null;
@@ -2191,6 +2195,8 @@ export type Database = {
         Update: {
           alerts?: Json;
           allow_concurrent?: boolean;
+          chain_ml_schedules?: string[];
+          chain_sql_models?: string[] | null;
           created_at?: string;
           cron_expr?: string | null;
           default_params?: Json | null;

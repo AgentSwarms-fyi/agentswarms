@@ -21,6 +21,7 @@ import {
   type EtlGraph,
 } from "@/utils/etl/codegen";
 import { compilePipeline, engineOf, pipelineRequirements } from "@/utils/etl/compile";
+import { chainTargetsOf, validateChainTargets } from "@/lib/etlChain";
 import {
   cancelEtlRun,
   startEtlRun,
@@ -89,6 +90,10 @@ const UpsertSchema = z.object({
   allow_concurrent: z.boolean().optional(),
   default_params: z.record(z.string(), z.unknown()).nullable().optional(),
   run_after: z.string().uuid().nullable().optional(),
+  /** SQL models to build when a run succeeds: null none, [] every active model, else these. */
+  chain_sql_models: z.array(z.string().trim().min(1).max(63)).max(200).nullable().optional(),
+  /** ML schedules to run when a run succeeds. */
+  chain_ml_schedules: z.array(z.string().uuid()).max(50).optional(),
   is_active: z.boolean().optional(),
   timeout_minutes: z.number().int().min(1).max(240).optional(),
 });
@@ -236,7 +241,7 @@ export const getEtlOverview = createServerFn({ method: "POST" })
       supabaseAdmin
         .from("etl_pipelines")
         .select(
-          "id, name, description, mode, schedule, cron_expr, timezone, is_active, next_run_at, last_run_at, last_run_status, dest_catalog_source_id, retry_count, run_after, created_at, updated_at",
+          "id, name, description, mode, schedule, cron_expr, timezone, is_active, next_run_at, last_run_at, last_run_status, dest_catalog_source_id, retry_count, run_after, chain_sql_models, chain_ml_schedules, created_at, updated_at",
         )
         .eq("user_id", userId)
         .order("updated_at", { ascending: false }),
@@ -398,6 +403,25 @@ export const saveEtlPipeline = createServerFn({ method: "POST" })
         }
       }
 
+      // What the run starts beyond other pipelines must be the caller's own
+      // models and schedules, refused here by name rather than failing on a
+      // build nobody is watching.
+      const chain = chainTargetsOf({
+        chain_sql_models: data.chain_sql_models ?? null,
+        chain_ml_schedules: data.chain_ml_schedules ?? [],
+      });
+      if (chain.sqlModels !== null || chain.mlSchedules.length) {
+        const [{ data: models }, { data: schedules }] = await Promise.all([
+          supabaseAdmin.from("sql_models").select("name").eq("user_id", userId),
+          supabaseAdmin.from("ml_schedules").select("id").eq("user_id", userId),
+        ]);
+        const bad = validateChainTargets(chain, {
+          modelNames: (models ?? []).map((m) => m.name),
+          scheduleIds: (schedules ?? []).map((s) => s.id),
+        });
+        if (bad) throw new Error(bad);
+      }
+
       const payload = {
         user_id: userId,
         name: data.name,
@@ -417,6 +441,8 @@ export const saveEtlPipeline = createServerFn({ method: "POST" })
         allow_concurrent: data.allow_concurrent ?? false,
         default_params: (data.default_params ?? null) as never,
         run_after: data.run_after ?? null,
+        chain_sql_models: chain.sqlModels,
+        chain_ml_schedules: chain.mlSchedules,
         is_active: data.is_active ?? true,
         timeout_minutes: data.timeout_minutes ?? 30,
       };
@@ -910,5 +936,47 @@ export const etlEngineStatus = createServerFn({ method: "POST" })
       await resolveCaller(data.access_token);
       const { sparkEngineAvailability } = await import("@/utils/etl/sparkCluster.server");
       return { spark: await sparkEngineAvailability() };
+    },
+  );
+
+/**
+ * What a pipeline may chain to besides other pipelines: the caller's SQL
+ * models and ML schedules, for the editor's pickers.
+ */
+export const etlChainCandidates = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .handler(
+    async ({
+      data,
+    }): Promise<{
+      sqlModels: { name: string; schema_name: string; is_active: boolean }[];
+      mlSchedules: { id: string; name: string; kind: string; model_name: string }[];
+    }> => {
+      const userId = await resolveCaller(data.access_token);
+      const [{ data: models }, { data: schedules }] = await Promise.all([
+        supabaseAdmin
+          .from("sql_models")
+          .select("name, schema_name, is_active")
+          .eq("user_id", userId)
+          .order("name"),
+        supabaseAdmin
+          .from("ml_schedules")
+          .select("id, name, kind, ml_models(name)")
+          .eq("user_id", userId)
+          .order("name"),
+      ]);
+      return {
+        sqlModels: (models ?? []).map((m) => ({
+          name: m.name,
+          schema_name: m.schema_name,
+          is_active: m.is_active,
+        })),
+        mlSchedules: (schedules ?? []).map((s) => ({
+          id: s.id,
+          name: s.name,
+          kind: s.kind,
+          model_name: (s.ml_models as unknown as { name?: string } | null)?.name ?? "",
+        })),
+      };
     },
   );

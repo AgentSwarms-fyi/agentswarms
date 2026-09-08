@@ -117,7 +117,7 @@ export async function buildSqlModels(args: {
   userId: string;
   /** Model names to build with their ancestors; empty builds everything active. */
   selected?: string[];
-  trigger: "manual" | "schedule" | "api";
+  trigger: "manual" | "schedule" | "api" | "chain";
 }): Promise<{ runId: string; status: string; models: ModelResult[]; error?: string }> {
   const started = Date.now();
   const { data: runRow, error: runErr } = await supabaseAdmin

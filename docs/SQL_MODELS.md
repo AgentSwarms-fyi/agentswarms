@@ -205,6 +205,15 @@ behind it, so the owner's grants are the only correct authority.
 
 ---
 
+## Built by a pipeline
+
+A pipeline can build models when one of its runs succeeds — every active
+model, or named ones with their ancestors — from the pipeline's Settings
+("After it succeeds, also…"). The build is the one this page runs, as the
+pipeline's owner, and appears in the run list with the trigger `chain`; a
+failing model skips its downstream exactly as a scheduled build would. See
+[ETL pipelines → Beyond pipelines](./ETL_PIPELINES.md#beyond-pipelines-one-graph-from-ingest-to-model).
+
 ## Troubleshooting
 
 | Symptom                                           | Cause and fix                                                                                                           |

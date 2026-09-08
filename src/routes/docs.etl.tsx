@@ -374,6 +374,17 @@ function EtlDocsPage() {
         </li>
       </UL>
 
+      <H3 id="chain-beyond">Beyond pipelines: SQL models and ML schedules</H3>
+      <P>
+        <strong>Run after</strong> chains a pipeline to another pipeline. A pipeline can also say
+        what to start <em>when a run succeeds</em>, in Settings → &ldquo;After it succeeds,
+        also…&rdquo;: <strong>build SQL models</strong> — every active model you own in dependency
+        order, or the ones you pick with everything they depend on built first — and{" "}
+        <strong>run ML schedules</strong>, any retrain or batch-predict schedule you own. Both run
+        as the pipeline&apos;s owner, and both are their own runs on their own pages (the build
+        carries the trigger <C>chain</C>), so a failure there never changes the pipeline&apos;s
+        outcome. The save path refuses a model or schedule that is not yours, by name.
+      </P>
       <H3 id="retries">Retries and overlap</H3>
       <P>
         A pipeline can retry up to five times with exponential backoff (1, 2, 4, 8, 16 minutes).

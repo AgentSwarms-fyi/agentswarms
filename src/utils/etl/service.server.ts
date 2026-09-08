@@ -24,6 +24,7 @@ import {
 } from "@/utils/etl/codegen";
 import { etlErrorMessage } from "@/utils/etl/explainError";
 import { engineOf } from "@/utils/etl/compile";
+import { chainTargetsOf, hasChainTargets } from "@/lib/etlChain";
 import { internalAppUrl, noProxyList } from "@/utils/notebookRuntime/service.server";
 import { isCatalogAsset, unwrapSourceConfig } from "@/utils/etl/catalogAsset";
 import { loadWarehouseConnectionForUser } from "@/utils/warehouse/connections.server";
@@ -1506,6 +1507,51 @@ export async function finalizeEtlRun(
       if (!res.ok) {
         console.warn(`[etl-chain] "${child.name}" did not start: ${res.error}`);
       }
+    }
+
+    // Beyond pipelines: the SQL models to build and the ML schedules to run,
+    // as the owner, the way their own schedules would. Each is its own run
+    // with its own record, so a failure there is visible on its own page and
+    // never rewrites this run's outcome — the pipeline did succeed.
+    const targets = chainTargetsOf(pipeline);
+    if (hasChainTargets(targets)) {
+      void runChainTargets(pipeline, targets).catch((e) =>
+        console.warn(`[etl-chain] after "${pipeline.name}":`, (e as Error).message),
+      );
+    }
+  }
+}
+
+/** Start what a succeeded pipeline chains to besides other pipelines. */
+async function runChainTargets(
+  pipeline: EtlPipelineRow,
+  targets: ReturnType<typeof chainTargetsOf>,
+): Promise<void> {
+  if (targets.sqlModels !== null) {
+    const { buildSqlModels } = await import("@/utils/sqlModels/run.server");
+    const res = await buildSqlModels({
+      userId: pipeline.user_id,
+      selected: targets.sqlModels,
+      trigger: "chain",
+    });
+    if (res.status !== "success") {
+      console.warn(
+        `[etl-chain] SQL models after "${pipeline.name}": ${res.status}`,
+        res.error ?? "",
+      );
+    }
+  }
+  if (targets.mlSchedules.length) {
+    const { runMlSchedule } = await import("@/utils/ml/schedule.server");
+    const { data: schedules } = await supabaseAdmin
+      .from("ml_schedules")
+      .select("*")
+      .in("id", targets.mlSchedules)
+      .eq("user_id", pipeline.user_id)
+      .eq("is_active", true);
+    for (const s of schedules ?? []) {
+      const res = await runMlSchedule(s, "chain");
+      if (!res.ok) console.warn(`[etl-chain] ML schedule "${s.name}" did not start: ${res.error}`);
     }
   }
 }

@@ -723,6 +723,16 @@ is shipped and tested.
    periods below target → notification. It re-evaluates against the model's
    current projection at every scheduled refresh.
 
+## Started by a pipeline
+
+A retrain or batch-predict schedule can be started by an ETL pipeline when
+one of its runs succeeds, from the pipeline's Settings ("After it succeeds,
+also…"). The schedule runs exactly as its own clock would start it — the
+same version choice, the same promotion rule — and records the run on the
+model's Operations tab with the trigger `chain`. The pipeline's owner must
+own the schedule. See
+[ETL pipelines → Beyond pipelines](./ETL_PIPELINES.md#beyond-pipelines-one-graph-from-ingest-to-model).
+
 ## Troubleshooting
 
 | Symptom                                             | Cause and fix                                                                                                                                                       |

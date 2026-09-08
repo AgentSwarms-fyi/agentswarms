@@ -730,6 +730,32 @@ backoff, chain fired on success, and the full incremental circle ran against
 MinIO — 308 rows, watermark persisted, cursor re-injected by `resolveRunEnv`,
 second run loaded 0.
 
+## Beyond pipelines: one graph from ingest to model
+
+A pipeline chains to another pipeline with **Run after**; that was the whole
+of orchestration, and SQL models and ML schedules ran on their own clocks
+beside it. A pipeline can now also say what to start **when a run succeeds**,
+in Settings → "After it succeeds, also…":
+
+- **Build SQL models** — every active model you own, rebuilt in dependency
+  order, or only the models you pick, with everything they depend on built
+  first. The build is the same one the SQL Models page runs, recorded there
+  with the trigger `chain`, and a failing model still skips its downstream.
+- **Run ML schedules** — any retrain or batch-predict schedule you own,
+  started exactly as its own clock would start it, recorded on the model's
+  Operations tab.
+
+Both run **as the pipeline's owner**, so the grants are the owner's, and both
+are their own runs with their own records: a model that fails to build or a
+retrain that is refused shows on its own page and never rewrites the
+pipeline's outcome — the pipeline did succeed. The save path refuses a model
+name that is not yours and a schedule that is not yours, by name.
+
+The typical shape is ingest → transform → train: a pipeline that lands raw
+rows in the lakehouse, chained to the staging and fact models, chained to the
+retrain schedule whose features those facts are. Each step is visible where
+it always was; the graph is the new part.
+
 ## Governance
 
 - **RLS on both tables** (`etl_pipelines`, `etl_runs`); runs are readable by their

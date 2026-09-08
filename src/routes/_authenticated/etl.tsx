@@ -8,6 +8,8 @@
 // provider+model picker, so IAM model rules apply here exactly as in BI.
 import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
+
+import { chainTargetsOf, describeChain } from "@/lib/etlChain";
 import CodeMirror from "@uiw/react-codemirror";
 import { python } from "@codemirror/lang-python";
 import { vscodeDark, vscodeLight } from "@uiw/codemirror-theme-vscode";
@@ -161,6 +163,7 @@ import {
   runEtlPipeline,
   saveEtlPipeline,
   etlEngineStatus,
+  etlChainCandidates,
   type EtlRecentRun,
   type EtlRunSummary,
 } from "@/utils/etl.functions";
@@ -538,6 +541,14 @@ function PipelineRow({
                 chained
               </Badge>
             )}
+            {describeChain(chainTargetsOf(p)) && (
+              <Badge
+                variant="outline"
+                title="When a run succeeds, SQL models are built and ML schedules run as this pipeline's owner"
+              >
+                {describeChain(chainTargetsOf(p))}
+              </Badge>
+            )}
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
             <span>schedule: {scheduleLabel(p)}</span>
@@ -773,6 +784,9 @@ type EditorPipeline = {
   allow_concurrent: boolean;
   default_params: Record<string, unknown> | null;
   run_after: string | null;
+  /** null: none; []: every active model; names: these with their ancestors. */
+  chain_sql_models: string[] | null;
+  chain_ml_schedules: string[];
   is_active: boolean;
   timeout_minutes: number;
   /** pandas is what every pipeline was; spark is opt-in per pipeline. */
@@ -822,6 +836,8 @@ function PipelineEditor({ id, onBack }: { id: string; onBack: () => void }) {
           allow_concurrent: row.allow_concurrent ?? false,
           default_params: (row.default_params as Record<string, unknown> | null) ?? null,
           run_after: row.run_after,
+          chain_sql_models: row.chain_sql_models ?? null,
+          chain_ml_schedules: row.chain_ml_schedules ?? [],
           is_active: row.is_active,
           timeout_minutes: row.timeout_minutes,
           engine: row.engine === "spark" ? "spark" : "pandas",
@@ -869,6 +885,8 @@ function PipelineEditor({ id, onBack }: { id: string; onBack: () => void }) {
           allow_concurrent: p.allow_concurrent,
           default_params: p.default_params,
           run_after: p.run_after,
+          chain_sql_models: p.chain_sql_models,
+          chain_ml_schedules: p.chain_ml_schedules,
           is_active: p.is_active,
           timeout_minutes: p.timeout_minutes,
           engine: p.engine,
@@ -3321,6 +3339,10 @@ function SettingsTab({
   const [triggerToken, setTriggerToken] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [chainCandidates, setChainCandidates] = useState<{ id: string; name: string }[]>([]);
+  const chainTargetsFn = useServerFn(etlChainCandidates);
+  const [chainTargets, setChainTargets] = useState<Awaited<
+    ReturnType<typeof chainTargetsFn>
+  > | null>(null);
   const [paramsText, setParamsText] = useState(() =>
     p.default_params ? JSON.stringify(p.default_params, null, 2) : "",
   );
@@ -3331,6 +3353,9 @@ function SettingsTab({
       .then((all) => setSources(all.filter((s) => s.kind === "object_storage")))
       .catch(() => {});
     if (token) {
+      chainTargetsFn({ data: { access_token: token } })
+        .then(setChainTargets)
+        .catch(() => setChainTargets({ sqlModels: [], mlSchedules: [] }));
       listPipelinesFn({ data: { access_token: token } })
         .then((res) =>
           setChainCandidates(
@@ -3503,6 +3528,120 @@ function SettingsTab({
               <p className="mt-1 text-[11px] text-muted-foreground">
                 Starts this pipeline when the selected one succeeds. Cycles are refused at save.
               </p>
+            </div>
+          </div>
+          {/* Beyond pipelines: ingest → transform → train on one graph. */}
+          <div className="space-y-3 rounded-md border p-2">
+            <div>
+              <p className="text-sm">After it succeeds, also…</p>
+              <p className="text-xs text-muted-foreground">
+                Build SQL models and run ML schedules as this pipeline&apos;s owner, the way their
+                own schedules would. Each is its own run on its own page; a failure there never
+                changes this run&apos;s outcome.
+              </p>
+            </div>
+            <div>
+              <Label className="text-xs">Build SQL models</Label>
+              <Select
+                value={
+                  p.chain_sql_models === null
+                    ? "none"
+                    : p.chain_sql_models.length === 0
+                      ? "all"
+                      : "some"
+                }
+                onValueChange={(v) =>
+                  onPatch({
+                    chain_sql_models:
+                      v === "none"
+                        ? null
+                        : v === "all"
+                          ? []
+                          : p.chain_sql_models?.length
+                            ? p.chain_sql_models
+                            : (chainTargets?.sqlModels.slice(0, 1).map((m) => m.name) ?? []),
+                  })
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">— none —</SelectItem>
+                  <SelectItem value="all">Every active model</SelectItem>
+                  <SelectItem value="some">Only these models (with their ancestors)</SelectItem>
+                </SelectContent>
+              </Select>
+              {p.chain_sql_models !== null && p.chain_sql_models.length >= 0 && (
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  {p.chain_sql_models.length === 0
+                    ? `Every active model you own is rebuilt in dependency order${chainTargets ? ` (${chainTargets.sqlModels.filter((m) => m.is_active).length} today)` : ""}.`
+                    : "Pick the models below; everything they depend on is built first."}
+                </p>
+              )}
+              {p.chain_sql_models !== null && p.chain_sql_models.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {(chainTargets?.sqlModels ?? []).map((m) => {
+                    const on = p.chain_sql_models?.includes(m.name) ?? false;
+                    return (
+                      <button
+                        key={m.name}
+                        type="button"
+                        onClick={() =>
+                          onPatch({
+                            chain_sql_models: on
+                              ? (p.chain_sql_models ?? []).filter((n) => n !== m.name)
+                              : [...(p.chain_sql_models ?? []), m.name],
+                          })
+                        }
+                        className={`rounded-full border px-2 py-0.5 font-mono text-[11px] ${on ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:text-foreground"}`}
+                        aria-pressed={on}
+                      >
+                        {m.schema_name}.{m.name}
+                      </button>
+                    );
+                  })}
+                  {chainTargets && chainTargets.sqlModels.length === 0 && (
+                    <span className="text-[11px] text-muted-foreground">
+                      You have no SQL models yet.
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+            <div>
+              <Label className="text-xs">Run ML schedules</Label>
+              <div className="mt-1 flex flex-wrap gap-1.5">
+                {(chainTargets?.mlSchedules ?? []).map((s) => {
+                  const on = p.chain_ml_schedules.includes(s.id);
+                  return (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onClick={() =>
+                        onPatch({
+                          chain_ml_schedules: on
+                            ? p.chain_ml_schedules.filter((id) => id !== s.id)
+                            : [...p.chain_ml_schedules, s.id],
+                        })
+                      }
+                      className={`rounded-full border px-2 py-0.5 text-[11px] ${on ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:text-foreground"}`}
+                      aria-pressed={on}
+                      title={`${s.kind === "retrain" ? "Retrain" : "Batch predict"} · ${s.model_name}`}
+                    >
+                      {s.name}
+                      <span className="ml-1 opacity-70">
+                        · {s.kind === "retrain" ? "retrain" : "predict"} · {s.model_name}
+                      </span>
+                    </button>
+                  );
+                })}
+                {chainTargets && chainTargets.mlSchedules.length === 0 && (
+                  <span className="text-[11px] text-muted-foreground">
+                    No ML schedules yet — create one on a model&apos;s Operations tab.
+                  </span>
+                )}
+              </div>
             </div>
           </div>
           <div className="flex items-center justify-between rounded-md border p-2">
