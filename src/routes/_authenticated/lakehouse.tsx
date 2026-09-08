@@ -3,6 +3,7 @@
 // platform datasets — all through the server chokepoint that enforces
 // schema access, audits every statement, and writes query history.
 import { confirmAsk } from "@/components/ui/confirm-dialog";
+import { SharesDialog } from "@/components/lakehouse/SharesDialog";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
@@ -189,6 +190,12 @@ function LakehousePage() {
           {data?.enabled && <IcebergCatalogsDialog onChanged={reload} />}
           {data?.enabled && <NewSchemaDialog onCreated={reload} />}
           {data?.enabled && <TagPoliciesDialog />}
+          {data?.enabled && (
+            <SharesDialog
+              tables={data.tables.map((t) => ({ schema: t.schema, name: t.name }))}
+              ownedSchemas={data.schemas.filter((s) => s.owned).map((s) => s.name)}
+            />
+          )}
         </div>
       </div>
 

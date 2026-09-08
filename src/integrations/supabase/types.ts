@@ -3774,6 +3774,177 @@ export type Database = {
           },
         ];
       };
+      lakehouse_share_snapshots: {
+        Row: {
+          columns: Json;
+          created_at: string;
+          files: Json;
+          fingerprint: string;
+          id: string;
+          policy_hash: string;
+          prefix: string;
+          row_count: number;
+          share_table_id: string;
+          snapshot_id: string;
+        };
+        Insert: {
+          columns?: Json;
+          created_at?: string;
+          files?: Json;
+          fingerprint: string;
+          id?: string;
+          policy_hash: string;
+          prefix: string;
+          row_count?: number;
+          share_table_id: string;
+          snapshot_id: string;
+        };
+        Update: {
+          columns?: Json;
+          created_at?: string;
+          files?: Json;
+          fingerprint?: string;
+          id?: string;
+          policy_hash?: string;
+          prefix?: string;
+          row_count?: number;
+          share_table_id?: string;
+          snapshot_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "lakehouse_share_snapshots_share_table_id_fkey";
+            columns: ["share_table_id"];
+            isOneToOne: false;
+            referencedRelation: "lakehouse_share_tables";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      lakehouse_share_tables: {
+        Row: {
+          created_at: string;
+          id: string;
+          mask_style: string;
+          masked_columns: string[];
+          row_filter: string | null;
+          schema_name: string;
+          share_id: string;
+          shared_as: string;
+          table_name: string;
+        };
+        Insert: {
+          created_at?: string;
+          id?: string;
+          mask_style?: string;
+          masked_columns?: string[];
+          row_filter?: string | null;
+          schema_name: string;
+          share_id: string;
+          shared_as: string;
+          table_name: string;
+        };
+        Update: {
+          created_at?: string;
+          id?: string;
+          mask_style?: string;
+          masked_columns?: string[];
+          row_filter?: string | null;
+          schema_name?: string;
+          share_id?: string;
+          shared_as?: string;
+          table_name?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "lakehouse_share_tables_share_id_fkey";
+            columns: ["share_id"];
+            isOneToOne: false;
+            referencedRelation: "lakehouse_shares";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      lakehouse_share_tokens: {
+        Row: {
+          created_at: string;
+          created_by: string | null;
+          expires_at: string | null;
+          id: string;
+          label: string;
+          last_used_at: string | null;
+          recipient_email: string | null;
+          revoked_at: string | null;
+          share_id: string;
+          token_hash: string;
+          token_prefix: string;
+          use_count: number;
+        };
+        Insert: {
+          created_at?: string;
+          created_by?: string | null;
+          expires_at?: string | null;
+          id?: string;
+          label: string;
+          last_used_at?: string | null;
+          recipient_email?: string | null;
+          revoked_at?: string | null;
+          share_id: string;
+          token_hash: string;
+          token_prefix: string;
+          use_count?: number;
+        };
+        Update: {
+          created_at?: string;
+          created_by?: string | null;
+          expires_at?: string | null;
+          id?: string;
+          label?: string;
+          last_used_at?: string | null;
+          recipient_email?: string | null;
+          revoked_at?: string | null;
+          share_id?: string;
+          token_hash?: string;
+          token_prefix?: string;
+          use_count?: number;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "lakehouse_share_tokens_share_id_fkey";
+            columns: ["share_id"];
+            isOneToOne: false;
+            referencedRelation: "lakehouse_shares";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      lakehouse_shares: {
+        Row: {
+          created_at: string;
+          description: string | null;
+          id: string;
+          name: string;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          description?: string | null;
+          id?: string;
+          name: string;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          description?: string | null;
+          id?: string;
+          name?: string;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
       lakehouse_spark_queries: {
         Row: {
           created_at: string;

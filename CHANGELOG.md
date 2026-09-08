@@ -14,8 +14,28 @@ development branch and may be ahead of the latest tag.
 
 ## Unreleased
 
-Work on `main` since the 1.4.0 tag. Twenty-one migrations —
+Work on `main` since the 1.4.0 tag. Twenty-two migrations —
 run `npx supabase db push` after pulling.
+
+### Delta Sharing: tables for people who are not users
+
+- **Lakehouse tables can be shared outside the platform.** A grant shared a
+  schema with an account; nothing reached an auditor, a partner or a
+  customer's data team who had none. The lakehouse page's new **Shares**
+  dialog bundles tables under a name, with an optional row filter and masked
+  columns per table on top of the table's own policy, and mints a token per
+  recipient — shown once as the profile file their client loads, revocable,
+  optionally bound to an email and expiring. `/api/delta-sharing` serves the
+  read side of the Delta Sharing 1.x protocol, which the `delta-sharing`
+  Python package, Spark and Power BI speak. What a recipient receives is a
+  governed snapshot, never the lake's own Parquet: DuckLake keeps deleted rows
+  in its data files, and a presigned URL bypasses every policy, so each read
+  serves a SELECT through the same rewrite as any reader here, written by the
+  engine to Parquet beside the lake with deletes applied, keyed by the table's
+  file set and the policy so an unchanged table is written once. Files travel
+  as presigned URLs signed for the endpoint recipients reach
+  (`LAKEHOUSE_S3_PUBLIC_ENDPOINT`), valid for `SHARE_URL_EXPIRY_SECONDS`.
+  Every read is audited under the token's label. One migration.
 
 ### Envelope encryption: the credential key can live in Vault
 

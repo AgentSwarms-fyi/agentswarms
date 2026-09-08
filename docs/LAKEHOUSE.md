@@ -380,6 +380,67 @@ Every statement — refusals included — lands in the user's **query history**
 and in the platform **audit trail** (`lakehouse.select|dml|ddl`,
 `lakehouse.schema.create|drop`, `lakehouse.import`, `lakehouse.nl2sql`).
 
+## Sharing tables outside the platform (Delta Sharing)
+
+A grant shares a schema with someone who has an account here. **Shares** hand
+tables to people who do not — an auditor, a partner, a customer's data team —
+over the [Delta Sharing](https://delta.io/sharing/) protocol, which the
+`delta-sharing` Python package, Spark, Power BI and others speak. The
+lakehouse page's **Shares** button:
+
+1. **Create a share** — a name that appears in the recipient's URL
+   (`finance-q3`), and a description.
+2. **Add tables you own**, each optionally under a different name in the
+   share, with a row filter and masked columns of its own. These apply on
+   top of the table's policy the way tag rules do — filters AND, masks
+   union, a blank beats a scramble — so a share can never widen what the
+   table's policy allows.
+3. **Mint a recipient token**, labelled, optionally bound to an email
+   (which binds `@me` in a row filter) and expiring. The dialog shows the
+   **profile** once — the small JSON file a client loads — and offers to copy
+   or download it as `<share>.share`. Revoke from the same list; the next
+   request gets a 401 and the attempt is audited.
+
+The recipient's side, with the Python client:
+
+```python
+import delta_sharing
+client = delta_sharing.SharingClient("finance-q3.share")
+client.list_all_tables()
+df = delta_sharing.load_as_pandas("finance-q3.share#finance-q3.analytics.revenue")
+```
+
+**What a recipient actually receives** is the question that decides whether
+this is safe. The lakehouse's own Parquet files are never handed out: DuckLake
+keeps deleted rows in its data files and marks them in delete files, and a
+presigned URL bypasses every policy, since nothing runs between the recipient
+and the bucket. So each read serves a **governed snapshot**: a `SELECT` through
+the same policy rewrite every reader inside the platform goes through, written
+by the engine to Parquet under `SHARE_DATA_URL` (default `s3://<bucket>/shares`,
+beside the lake's data path and never inside it, because DuckLake's orphan
+cleanup deletes what it does not track under its own prefix) with deletes
+already applied. The snapshot is keyed by the table's current set of data and
+delete files and by the policy, so an unchanged table is written once and
+served many times; a change to the table or the policy writes a new one and
+bumps the version the client sees, and older snapshots are pruned. A filter
+that names the reader (`@me`, `@user_id`) makes the snapshot per token.
+
+The recipient fetches the files through **presigned URLs** signed for
+`LAKEHOUSE_S3_PUBLIC_ENDPOINT` when set (Compose's MinIO is reachable inside
+the network as `minio:9000` and from outside as whatever you publish), valid
+for `SHARE_URL_EXPIRY_SECONDS` (default 3600). The endpoint is
+`https://<your host>/api/delta-sharing`; requests are rate limited across
+tokens (`SHARE_RATE_LIMIT_PER_MIN`, default 600) and a snapshot write is
+bounded by `SHARE_MATERIALIZE_TIMEOUT_MS` (default 600000). Every read is an
+audit event under `share:<label>` with the table, version and file count;
+every owner action (`lakehouse.share.*`) is one too.
+
+The protocol surface is the read side of Delta Sharing 1.x: shares, schemas,
+tables, `all-tables`, `version`, `metadata` and `query` (`limitHint` and
+`predicateHints` are accepted and advisory, as the protocol allows). Change
+data feed and Delta-format responses are not offered; the files are plain
+Parquet, which is what the clients read.
+
 ## Iceberg interop
 
 The lakehouse speaks Apache Iceberg in both directions through the engine's

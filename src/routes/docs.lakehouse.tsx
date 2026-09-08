@@ -322,6 +322,36 @@ function LakehouseDocsPage() {
         the platform&apos;s connections follow.
       </P>
 
+      <H2 id="sharing">Sharing tables outside the platform</H2>
+      <P>
+        A grant shares a schema with someone who has an account here. <strong>Shares</strong> hand
+        tables to people who do not, over the Delta Sharing protocol — the delta-sharing Python
+        package, Spark, Power BI. On the lakehouse page, <strong>Shares</strong>: create a share,
+        add the tables you own (each with an optional row filter and masked columns on top of the
+        table&apos;s own policy), mint a recipient token and give them the profile it shows once.
+      </P>
+      <Steps
+        items={[
+          {
+            title: "What a recipient receives is a governed snapshot, never your files",
+            body: "The lakehouse's Parquet keeps deleted rows and a presigned URL bypasses every policy, so each read serves a SELECT through the same policy rewrite as any reader here, written to Parquet beside the lake with deletes applied. An unchanged table is written once; a change bumps the version the client sees.",
+          },
+          {
+            title: "The recipient's side",
+            body: (
+              <>
+                <C>
+                  delta_sharing.load_as_pandas(&quot;finance.share#finance.analytics.revenue&quot;)
+                </C>{" "}
+                — files arrive through presigned URLs signed for <C>LAKEHOUSE_S3_PUBLIC_ENDPOINT</C>
+                , valid for <C>SHARE_URL_EXPIRY_SECONDS</C>. Revoking a token stops the next
+                request; every read is audited under the token&apos;s label.
+              </>
+            ),
+          },
+        ]}
+      />
+
       <H2 id="iceberg">Iceberg interop</H2>
       <P>
         The lakehouse speaks Apache Iceberg in both directions through the engine&apos;s iceberg

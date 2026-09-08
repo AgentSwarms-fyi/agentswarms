@@ -254,10 +254,13 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     "description": "Run a swarm, a notebook or an ML model from your own code. POST /api/swarm/run in full: scoped keys, idempotent retries, and signed callbacks for anything slower than a request; the notebook and ML endpoints are summarised at the end.",
     "terms": [
       "/api/notebook/run/status",
+      "/api/scim/v2",
+      "Groups",
       "Idempotency-Key",
       "SWARM_RUN_MAX_CONCURRENT",
       "SWARM_RUN_RATE_LIMIT_PER_MIN",
       "SWARM_RUN_TIMEOUT_MS",
+      "Users",
       "X-AgentSwarms-Event",
       "X-AgentSwarms-Signature",
       "X-AgentSwarms-Timestamp",
@@ -376,6 +379,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       {
         "id": "ml",
         "text": "Calling an ML model",
+        "level": 2
+      },
+      {
+        "id": "scim",
+        "text": "Provisioning users from the identity provider",
         "level": 2
       }
     ]
@@ -1353,14 +1361,22 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "*/15",
       "/etl-samples/",
       "200",
+      "ETL_CONTINUOUS_RESTART_BACKOFF_SECONDS",
+      "ETL_CONTINUOUS_ROLLOVER_MINUTES",
       "ETL_DEST_ACCESS_KEY_ID",
       "ETL_DEST_BUCKET_URL",
       "ETL_DEST_ENDPOINT_URL",
       "ETL_DEST_SECRET_ACCESS_KEY",
       "ETL_TRIGGER_PER_MIN",
       "Europe/Berlin",
+      "SPARK_CONNECT_URL",
+      "SPARK_PACKAGES=",
+      "_x",
+      "_y",
       "api.hubapi.com",
       "append",
+      "chain",
+      "deploy/k8s/spark/spark-runtime.yaml",
       "docker",
       "e2b",
       "email",
@@ -1374,6 +1390,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "numErrors",
       "raw/orders/*.csv",
       "replace",
+      "sc://spark-connect:15002",
       "success"
     ],
     "headings": [
@@ -1418,6 +1435,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "level": 2
       },
       {
+        "id": "engines",
+        "text": "Engines: the sandbox, or a Spark cluster",
+        "level": 2
+      },
+      {
         "id": "credentials",
         "text": "Credentials and secrets",
         "level": 2
@@ -1426,6 +1448,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "id": "scheduling",
         "text": "Schedules, triggers and chaining",
         "level": 2
+      },
+      {
+        "id": "chain-beyond",
+        "text": "Beyond pipelines: SQL models and ML schedules",
+        "level": 3
       },
       {
         "id": "retries",
@@ -1683,6 +1710,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     "title": "Access control",
     "description": "Provision people, put them in groups, control which models they may run, and share data read-only — enforced in the database, not just hidden in the interface.",
     "terms": [
+      "/api/scim/v2",
       "/login?native=1",
       "ADMIN_EMAIL",
       "analytics",
@@ -1694,7 +1722,8 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "openrouter",
       "region",
       "revenue",
-      "salary"
+      "salary",
+      "userName"
     ],
     "headings": [
       {
@@ -1780,6 +1809,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       {
         "id": "use-case-sso",
         "text": "Work accounts only",
+        "level": 3
+      },
+      {
+        "id": "use-case-scim",
+        "text": "Joiners and leavers from the directory (SCIM)",
         "level": 3
       }
     ]
@@ -2113,10 +2147,14 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "LAKEHOUSE_*",
       "LAKEHOUSE_CATALOG_URL",
       "LAKEHOUSE_MEMORY_LIMIT",
+      "LAKEHOUSE_S3_PUBLIC_ENDPOINT",
+      "LAKEHOUSE_SPARK_QUERY_MINUTES",
       "LAKEHOUSE_SPILL_LIMIT",
       "MERGE",
       "NOTEBOOK_NETWORK",
+      "SELECT",
       "SET",
+      "SHARE_URL_EXPIRY_SECONDS",
       "SUMMARIZE",
       "UPDATE",
       "cached",
@@ -2131,7 +2169,10 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "lakehouse.iceberg.publish",
       "lakehouse.iceberg.refresh",
       "orders",
-      "record_count"
+      "pii",
+      "record_count",
+      "restricted",
+      "spark"
     ],
     "headings": [
       {
@@ -2165,6 +2206,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "level": 2
       },
       {
+        "id": "tag-policies",
+        "text": "Policies by tag",
+        "level": 3
+      },
+      {
         "id": "concurrency",
         "text": "Concurrent writes",
         "level": 2
@@ -2190,8 +2236,18 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "level": 2
       },
       {
+        "id": "sharing",
+        "text": "Sharing tables outside the platform",
+        "level": 2
+      },
+      {
         "id": "iceberg",
         "text": "Iceberg interop",
+        "level": 2
+      },
+      {
+        "id": "spark",
+        "text": "Running a query on Spark",
         "level": 2
       },
       {
@@ -3008,6 +3064,8 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "JS_SANDBOX_MAX_TIMEOUT_MS",
       "JS_SANDBOX_MEM_MB",
       "JS_SANDBOX_URL",
+      "KMS_KEY_REF",
+      "KMS_PROVIDER=vault",
       "LAKEHOUSE_CATALOG_PASSWORD",
       "LAKEHOUSE_MEMORY_LIMIT=16GB",
       "LAKEHOUSE_S3_ENDPOINT",
@@ -3066,6 +3124,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "StorageClass",
       "TRUSTED_PROXY_HOPS",
       "UPLOAD_PER_MINUTE",
+      "VAULT_*",
       "VITE_ADMIN_EMAIL",
       "VITE_SUPABASE_PUBLISHABLE_KEY",
       "VITE_SUPABASE_URL",
@@ -3095,6 +3154,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "docker-compose.yml",
       "docs/DEPLOYMENT.md",
       "docs/INSTALL.md",
+      "docs/KEY_MANAGEMENT.md",
       "eksctl",
       "email_send_log",
       "emptyDir",
