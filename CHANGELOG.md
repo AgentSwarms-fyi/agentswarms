@@ -14,8 +14,30 @@ development branch and may be ahead of the latest tag.
 
 ## Unreleased
 
-Work on `main` since the 1.4.0 tag. Seventeen migrations —
+Work on `main` since the 1.4.0 tag. Eighteen migrations —
 run `npx supabase db push` after pulling.
+
+### Column-level lineage
+
+- **Pipelines and SQL models record which columns fed which.** Lineage
+  was table-level: a run wrote one edge per (source, target) pair, a build
+  one per model ref. A run now reports the columns every node's frame
+  actually had, and the engine traces each target column back to the
+  source columns it came from by what each transform does — renames,
+  derives, aggregates, joins (pandas' `_x`/`_y` read as left and right),
+  unions, selects — while a Python or SQL step is recorded as opaque, every
+  output depending on every input, and the edge says so. A model's build
+  traces each output column of its SELECT through DuckDB's own parse
+  (aliases, functions, CTEs, subqueries, joins, `SELECT *`) to the lakehouse
+  columns it reads, which joins a pipeline's column lineage to the model
+  built on its target. The Data Catalog's asset drawer lists them under
+  Column lineage, per column, upstream and downstream, opaque ones marked
+  `≈`. The first live run found that the table-level rows omitted the new
+  flag, a bulk insert sent null for it beside the column rows that had it,
+  and every edge was refused — silently, because the insert's error was
+  never read. Both writers set it explicitly now, and a refused lineage
+  insert is logged with the pipeline's name. One migration (`exact` on
+  `catalog_lineage`).
 
 ### Continuous pipelines: a stream drained by one long-running run
 

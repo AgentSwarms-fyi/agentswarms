@@ -1240,6 +1240,28 @@ function AssetSheet({
     owner !== (asset.owner ?? "") ||
     status !== asset.status;
   const hasStats = asset.columns.some((c) => c.null_pct !== undefined);
+  // Table-level edges make the chips; column-level edges make the per-column
+  // list, grouped by this asset's column.
+  const tableUp = sourceLineage.upstream.filter((e) => !e.downstream_column);
+  const tableDown = sourceLineage.downstream.filter((e) => !e.upstream_column);
+  const groupBy = (edges: CatalogLineageEdge[], key: (e: CatalogLineageEdge) => string | null) => {
+    const m = new Map<string, CatalogLineageEdge[]>();
+    for (const e of edges) {
+      const k = key(e);
+      if (k) m.set(k, [...(m.get(k) ?? []), e]);
+    }
+    return m;
+  };
+  const upByColumn = groupBy(
+    sourceLineage.upstream.filter((e) => e.downstream_column),
+    (e) => e.downstream_column,
+  );
+  const downByColumn = groupBy(
+    sourceLineage.downstream.filter((e) => e.upstream_column),
+    (e) => e.upstream_column,
+  );
+  const lineageColumns = [...new Set([...upByColumn.keys(), ...downByColumn.keys()])].sort();
+  const shortFqn = (fqn: string) => fqn.split(".").slice(-2).join(".");
 
   async function save() {
     if (!asset || asset.local) return;
@@ -1390,18 +1412,18 @@ function AssetSheet({
               </div>
             )}
 
-            {(sourceLineage.upstream.length > 0 || sourceLineage.downstream.length > 0) && (
+            {(tableUp.length > 0 || tableDown.length > 0) && (
               <div>
                 <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                   Data lineage <span className="font-normal normal-case">· from source</span>
                 </p>
-                {sourceLineage.upstream.length > 0 && (
+                {tableUp.length > 0 && (
                   <div className="mb-2">
                     <span className="text-[11px] text-muted-foreground">
-                      Upstream ({sourceLineage.upstream.length}):
+                      Upstream ({tableUp.length}):
                     </span>
                     <div className="mt-1 flex flex-wrap gap-1">
-                      {sourceLineage.upstream.slice(0, 40).map((e, i) => (
+                      {tableUp.slice(0, 40).map((e, i) => (
                         <span
                           key={i}
                           className="rounded-full border border-border bg-muted/40 px-2 py-0.5 font-mono text-[10px]"
@@ -1414,13 +1436,13 @@ function AssetSheet({
                     </div>
                   </div>
                 )}
-                {sourceLineage.downstream.length > 0 && (
+                {tableDown.length > 0 && (
                   <div>
                     <span className="text-[11px] text-muted-foreground">
-                      Downstream ({sourceLineage.downstream.length}):
+                      Downstream ({tableDown.length}):
                     </span>
                     <div className="mt-1 flex flex-wrap gap-1">
-                      {sourceLineage.downstream.slice(0, 40).map((e, i) => (
+                      {tableDown.slice(0, 40).map((e, i) => (
                         <span
                           key={i}
                           className="rounded-full border border-border bg-muted/40 px-2 py-0.5 font-mono text-[10px]"
@@ -1433,6 +1455,47 @@ function AssetSheet({
                     </div>
                   </div>
                 )}
+              </div>
+            )}
+
+            {lineageColumns.length > 0 && (
+              <div>
+                <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Column lineage{" "}
+                  <span className="font-normal normal-case">
+                    · traced through pipelines and models
+                  </span>
+                </p>
+                <div className="space-y-1">
+                  {lineageColumns.slice(0, 80).map((col) => (
+                    <div key={col} className="flex flex-wrap items-center gap-1 text-[10px]">
+                      <span className="font-mono font-medium">{col}</span>
+                      {(upByColumn.get(col) ?? []).slice(0, 12).map((e, i) => (
+                        <span
+                          key={`u${i}`}
+                          className="rounded-full border border-border bg-muted/40 px-2 py-0.5 font-mono"
+                          title={
+                            e.exact
+                              ? `from ${e.upstream_fqn}.${e.upstream_column}`
+                              : `through a Python or SQL step the tracer cannot read: one of every input column, including ${e.upstream_fqn}.${e.upstream_column}`
+                          }
+                        >
+                          ← {e.exact ? "" : "≈ "}
+                          {shortFqn(e.upstream_fqn)}.{e.upstream_column}
+                        </span>
+                      ))}
+                      {(downByColumn.get(col) ?? []).slice(0, 12).map((e, i) => (
+                        <span
+                          key={`d${i}`}
+                          className="rounded-full border border-border bg-muted/40 px-2 py-0.5 font-mono"
+                          title={`feeds ${e.downstream_fqn}.${e.downstream_column}`}
+                        >
+                          → {shortFqn(e.downstream_fqn)}.{e.downstream_column}
+                        </span>
+                      ))}
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 

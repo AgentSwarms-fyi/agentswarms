@@ -626,7 +626,7 @@ function storageTarget(
   }
   lines.push(
     `    print('[etl] spark: wrote ' + str(_n) + ' row(s) to ' + _dest)`,
-    `    _loads.append({'target': '${dataset}.${table}', 'fqn': ${fqn}, 'rows': int(_n), 'load_id': None})`,
+    `    _loads.append({'node': '${node.id}', 'target': '${dataset}.${table}', 'fqn': ${fqn}, 'rows': int(_n), 'load_id': None})`,
   );
   return lines.join("\n");
 }
@@ -647,7 +647,7 @@ function jdbcTarget(
     `    _j = _jdbc(os.environ['${key}_URL'])`,
     `    _sdf.write.format('jdbc').option('url', _j['url']).option('dbtable', '${dataset}.${table}').option('user', _j['user']).option('password', _j['password']).option('driver', _j['driver']).mode('${c.write_mode === "replace" ? "overwrite" : "append"}').save()`,
     `    print('[etl] spark: wrote ' + str(_n) + ' row(s) to ${dataset}.${table}')`,
-    `    _loads.append({'target': '${dataset}.${table}', 'fqn': '${dataset}.${table}', 'rows': int(_n), 'load_id': None})`,
+    `    _loads.append({'node': '${node.id}', 'target': '${dataset}.${table}', 'fqn': '${dataset}.${table}', 'rows': int(_n), 'load_id': None})`,
   ].join("\n");
 }
 
@@ -738,6 +738,7 @@ export function compileSparkGraph(graph: EtlGraph): string {
   // through for an ordinary run, a loop for a continuous one.
   lines.push(``, `def _tick(inputs=None):`);
   if (incremental.length) lines.push(`    _watermarks = {}`);
+  lines.push(`    _cols = {}`);
   for (const n of order) {
     const ins = incoming.get(n.id)!;
     if (n.kind === "source") {
@@ -779,6 +780,11 @@ export function compileSparkGraph(graph: EtlGraph): string {
     }
   }
 
+  // Every frame's columns, for column-level lineage: what each node actually
+  // produced, so the tracer works from observed shapes, not the graph's hopes.
+  for (const n of order.filter((x) => x.kind !== "target")) {
+    lines.push(`    _cols['${n.id}'] = [str(_c) for _c in f_${n.id}.columns]`);
+  }
   lines.push(`    _loads = []`, `    _schemas = {}`);
   for (const n of order.filter((x) => x.kind === "target")) {
     const inputId = incoming.get(n.id)![0];
@@ -812,6 +818,7 @@ export function compileSparkGraph(graph: EtlGraph): string {
     `        'rows_loaded': sum(l['rows'] for l in _loads),`,
     `        'targets': _loads,`,
     `        'schemas': _schemas,`,
+    `        'columns': _cols,`,
     `        'engine': 'spark',`,
     `        'lineage_sources': ${JSON.stringify(lineageSourcesOf(order))},`.replace(/"/g, "'"),
     ...(gates.length ? [`        'quality': _quality,`] : []),

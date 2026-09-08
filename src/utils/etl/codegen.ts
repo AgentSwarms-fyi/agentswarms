@@ -965,7 +965,7 @@ export function targetBlock(node: EtlNode, input: string, cdcInput = false): str
       ...load,
       `    finally:`,
       `        con.close()`,
-      `    _loads.append({'target': '${schema}.${table}', 'fqn': '${schema}.${table}', 'rows': int(len(${input})), 'load_id': None})`,
+      `    _loads.append({'node': '${node.id}', 'target': '${schema}.${table}', 'fqn': '${schema}.${table}', 'rows': int(len(${input})), 'load_id': None})`,
     ].join("\n");
   }
   if (c.type === "saas") {
@@ -1018,7 +1018,7 @@ export function targetBlock(node: EtlNode, input: string, cdcInput = false): str
       // The whole point: a 200 that rejected records is a failed run.
       `    if _failed:`,
       `        raise RuntimeError(${pyStr(`${spec.label} rejected `)} + str(_failed) + ' of ' + str(len(_records)) + ' record(s): ' + '; '.join(_why[:3]))`,
-      `    _loads.append({'target': ${pyStr(`${spec.label}:${cfg.object}`)}, 'fqn': ${pyStr(`saas:${cfg.vendor}:${cfg.object}`)}, 'rows': int(len(${input})), 'load_id': None})`,
+      `    _loads.append({'node': '${node.id}', 'target': ${pyStr(`${spec.label}:${cfg.object}`)}, 'fqn': ${pyStr(`saas:${cfg.vendor}:${cfg.object}`)}, 'rows': int(len(${input})), 'load_id': None})`,
     ].join("\n");
   }
   if (c.type === "http_api") {
@@ -1052,7 +1052,7 @@ export function targetBlock(node: EtlNode, input: string, cdcInput = false): str
       `        _resp.raise_for_status()`,
       `        _sent += len(_chunk)`,
       `        print('[etl] http target: ' + str(_sent) + '/' + str(len(_records)) + ' row(s) sent')`,
-      `    _loads.append({'target': ${pyStr(c.url)}, 'fqn': ${pyStr(`http:${c.url}`)}, 'rows': int(len(${input})), 'load_id': None})`,
+      `    _loads.append({'node': '${node.id}', 'target': ${pyStr(c.url)}, 'fqn': ${pyStr(`http:${c.url}`)}, 'rows': int(len(${input})), 'load_id': None})`,
     ].join("\n");
   }
   const key = envKey(node.id);
@@ -1164,7 +1164,7 @@ export function targetBlock(node: EtlNode, input: string, cdcInput = false): str
     `    )`,
     run,
     ...(cdcDeltaApply ? [cdcDeltaApply] : []),
-    `    _loads.append({'target': '${dataset}.${table}', 'fqn': ${
+    `    _loads.append({'node': '${node.id}', 'target': '${dataset}.${table}', 'fqn': ${
       c.type === "object_storage"
         ? tableFormat === "iceberg"
           ? `'${dataset}/${table}/data/*.parquet'`
@@ -1183,39 +1183,40 @@ export function targetBlock(node: EtlNode, input: string, cdcInput = false): str
  * compilers, so a Spark run and a pandas run of one graph record the same
  * upstream names.
  */
+/** The label a source node gets in catalog lineage: what it actually is. */
+export function lineageSourceOf(n: EtlNode): string {
+  const c = n.config as {
+    type: string;
+    path?: string;
+    table?: string;
+    table_id?: string;
+    table_name?: string;
+    schema?: string;
+    mode?: string;
+    url?: string;
+  };
+  if (isCatalogAsset(c)) return catalogAssetLineage(c as CatalogAssetSourceConfig);
+  if (c.type === "object_storage") return c.path ?? "";
+  if (c.type === "database")
+    return c.mode === "table"
+      ? (c.table ?? "")
+      : c.mode === "cdc"
+        ? `cdc:${c.table ?? ""}`
+        : "sql-query";
+  if (c.type === "http_api") return c.url ?? "";
+  if (c.type === "platform_dataset") return `platform:${c.table_name ?? c.table_id ?? ""}`;
+  if (c.type === "ingest") return "webhook-ingest";
+  if (c.type === "kafka") return `kafka:${(c as { topic?: string }).topic ?? ""}`;
+  if (c.type === "kinesis") return `kinesis:${(c as { stream?: string }).stream ?? ""}`;
+  if (c.type === "pubsub") return `pubsub:${(c as { subscription?: string }).subscription ?? ""}`;
+  if (c.type === "lakehouse") return `lakehouse:${c.schema ?? ""}${c.table ? `.${c.table}` : ""}`;
+  return "python";
+}
+
 export function lineageSourcesOf(order: EtlNode[]): string[] {
   return order
     .filter((n) => n.kind === "source")
-    .map((n) => {
-      const c = n.config as {
-        type: string;
-        path?: string;
-        table?: string;
-        table_id?: string;
-        table_name?: string;
-        schema?: string;
-        mode?: string;
-        url?: string;
-      };
-      if (isCatalogAsset(c)) return catalogAssetLineage(c as CatalogAssetSourceConfig);
-      if (c.type === "object_storage") return c.path ?? "";
-      if (c.type === "database")
-        return c.mode === "table"
-          ? (c.table ?? "")
-          : c.mode === "cdc"
-            ? `cdc:${c.table ?? ""}`
-            : "sql-query";
-      if (c.type === "http_api") return c.url ?? "";
-      if (c.type === "platform_dataset") return `platform:${c.table_name ?? c.table_id ?? ""}`;
-      if (c.type === "ingest") return "webhook-ingest";
-      if (c.type === "kafka") return `kafka:${(c as { topic?: string }).topic ?? ""}`;
-      if (c.type === "kinesis") return `kinesis:${(c as { stream?: string }).stream ?? ""}`;
-      if (c.type === "pubsub")
-        return `pubsub:${(c as { subscription?: string }).subscription ?? ""}`;
-      if (c.type === "lakehouse")
-        return `lakehouse:${c.schema ?? ""}${c.table ? `.${c.table}` : ""}`;
-      return "python";
-    })
+    .map(lineageSourceOf)
     .filter(Boolean);
 }
 
@@ -1342,6 +1343,7 @@ export function compileGraph(graph: EtlGraph): string {
   // through for an ordinary run, a loop for a continuous one.
   lines.push(``, `def _tick(inputs=None):`);
   if (incremental.length) lines.push(`    _watermarks = {}`);
+  lines.push(`    _cols = {}`);
   for (const n of order) {
     const ins = incoming.get(n.id)!;
     if (n.kind === "source") {
@@ -1388,6 +1390,11 @@ export function compileGraph(graph: EtlGraph): string {
 
   // dlt is imported only when a target actually loads through it — a
   // lakehouse- or HTTP-only pipeline neither installs nor imports it.
+  // Every frame's columns, for column-level lineage: what each node actually
+  // produced, so the tracer works from observed shapes, not the graph's hopes.
+  for (const n of order.filter((x) => x.kind !== "target")) {
+    lines.push(`    _cols['${n.id}'] = [str(_c) for _c in f_${n.id}.columns]`);
+  }
   if (hasStorageTarget || hasDbTarget) lines.push(``, `    import dlt`);
   if (hasStorageTarget) lines.push(`    from dlt.destinations import filesystem`);
   if (hasDbTarget) lines.push(`    from dlt.destinations import sqlalchemy as sqlalchemy_dest`);
@@ -1406,6 +1413,7 @@ export function compileGraph(graph: EtlGraph): string {
     `        'rows_loaded': sum(l['rows'] for l in _loads),`,
     `        'targets': _loads,`,
     `        'schemas': _schemas,`,
+    `        'columns': _cols,`,
     `        'lineage_sources': ${JSON.stringify(lineageSources)},`.replace(/"/g, "'"),
     ...(order.some(
       (n) => n.kind === "transform" && (n.config as { type?: string }).type === "quality_gate",

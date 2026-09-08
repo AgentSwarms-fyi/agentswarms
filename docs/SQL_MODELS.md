@@ -190,7 +190,12 @@ behind it, so the owner's grants are the only correct authority.
 - **Lineage.** Model-to-model edges are written to the catalog on every build
   and appear in the Data Catalog's lineage panel alongside crawled and ETL
   edges. They are replaced wholesale each build: a stale edge is worse than a
-  missing one, because a stale graph is believed.
+  missing one, because a stale graph is believed. Column edges come with
+  them: every output column of the model's SELECT, traced through DuckDB's own
+  parse to the lakehouse columns it reads — aliases, functions, CTEs,
+  subqueries, joins and `SELECT *` — so the drawer can say which columns of
+  which tables a model's column was computed from, and a pipeline's column
+  lineage continues into the model built on its target.
 - **RLS.** Models and build logs are owner-only.
 
 ---

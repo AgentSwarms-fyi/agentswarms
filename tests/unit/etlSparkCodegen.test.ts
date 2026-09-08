@@ -541,7 +541,7 @@ describe("compileSparkGraph — targets", () => {
       "_dest = os.environ['ETL_T1_BUCKET_URL'].replace('s3://', 's3a://', 1).rstrip('/') + '/etl/items'",
     );
     expect(code).toContain(`_sdf.write.options(**_o)${writer}`);
-    expect(code).toContain("_loads.append({'target': 'etl.items', 'fqn': ");
+    expect(code).toContain("'target': 'etl.items', 'fqn': ");
     expect(code).not.toContain("import dlt");
     assertParsesAsPython(code);
   });

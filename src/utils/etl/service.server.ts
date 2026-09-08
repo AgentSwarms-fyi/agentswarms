@@ -21,6 +21,7 @@ import {
   envKey,
   normalizeGraph,
   type EtlNode,
+  lineageSourceOf,
 } from "@/utils/etl/codegen";
 import { etlErrorMessage } from "@/utils/etl/explainError";
 import { engineOf } from "@/utils/etl/compile";
@@ -1515,7 +1516,8 @@ export async function finalizeEtlRun(
       ];
       // source_id is NOT NULL, so an edge needs a catalog source to belong to:
       // the destination's when there is one, otherwise the first source node's.
-      const graphNodes = (normalizeGraph(pipeline.graph)?.nodes ?? []) as EtlNode[];
+      const graph = normalizeGraph(pipeline.graph);
+      const graphNodes = (graph?.nodes ?? []) as EtlNode[];
       const upstreamSourceId = graphNodes
         .filter((n) => n.kind === "source")
         .map((n) => {
@@ -1535,17 +1537,67 @@ export async function finalizeEtlRun(
           .delete()
           .eq("pipeline_id", pipeline.id)
           .eq("source_system", "etl");
-        const edges = (sources.length ? sources : [`etl:${pipeline.name}`]).flatMap((up) =>
-          targets.map((down) => ({
-            user_id: pipeline.user_id,
-            source_id: lineageSourceId,
-            pipeline_id: pipeline.id,
-            upstream_fqn: up.slice(0, 512),
-            downstream_fqn: down,
-            source_system: "etl",
-          })),
+        type LineageRow = Database["public"]["Tables"]["catalog_lineage"]["Insert"];
+        const edges: LineageRow[] = (sources.length ? sources : [`etl:${pipeline.name}`]).flatMap(
+          (up) =>
+            targets.map((down) => ({
+              user_id: pipeline.user_id,
+              source_id: lineageSourceId,
+              pipeline_id: pipeline.id,
+              upstream_fqn: up.slice(0, 512),
+              downstream_fqn: down,
+              source_system: "etl",
+              // Explicit, not defaulted: a bulk insert sends null for a key
+              // some rows carry and others omit, and null is not the default.
+              exact: true,
+            })),
         );
-        await supabaseAdmin.from("catalog_lineage").insert(edges);
+        // Column edges: the columns the run saw per node, traced through the
+        // graph by what each transform does. Written beside the table edges so
+        // the same wholesale replace keeps both honest; capped so one opaque
+        // wide step cannot flood the table.
+        const targetsByNode = new Map(
+          ((metrics as { targets?: { node?: string; fqn?: string }[] } | null)?.targets ?? [])
+            .filter((t) => t.node && t.fqn)
+            .map((t) => [t.node as string, t.fqn as string]),
+        );
+        const columnsSeen = (metrics as { columns?: Record<string, string[]> } | null)?.columns;
+        if (graph && columnsSeen && targetsByNode.size) {
+          try {
+            const { traceColumnLineage } = await import("@/lib/columnLineage");
+            const labelOf = new Map(
+              graphNodes.filter((n) => n.kind === "source").map((n) => [n.id, lineageSourceOf(n)]),
+            );
+            for (const e of traceColumnLineage(graph, columnsSeen).slice(0, 4000)) {
+              const up = labelOf.get(e.sourceNode);
+              const down = targetsByNode.get(e.targetNode);
+              if (!up || !down) continue;
+              edges.push({
+                user_id: pipeline.user_id,
+                source_id: lineageSourceId,
+                pipeline_id: pipeline.id,
+                upstream_fqn: up.slice(0, 512),
+                downstream_fqn: down,
+                upstream_column: e.sourceColumn.slice(0, 255),
+                downstream_column: e.targetColumn.slice(0, 255),
+                source_system: "etl",
+                exact: e.exact,
+              });
+            }
+          } catch (e) {
+            console.warn("[etl] column lineage not recorded:", (e as Error).message);
+          }
+        }
+        // A failed insert used to vanish: the run succeeded, the graph stayed
+        // empty, and nothing said why. Lineage is a view of the run, never
+        // part of it, but a silent gap is not the same as an honest one.
+        const { error: lineageError } = await supabaseAdmin.from("catalog_lineage").insert(edges);
+        if (lineageError) {
+          console.warn(
+            `[etl] lineage not recorded for "${pipeline.name}" (${edges.length} edge(s)):`,
+            lineageError.message,
+          );
+        }
       }
     }
 

@@ -1253,6 +1253,7 @@ export type Database = {
           created_at: string;
           downstream_column: string | null;
           downstream_fqn: string;
+          exact: boolean;
           id: string;
           pipeline_id: string | null;
           source_id: string | null;
@@ -1265,6 +1266,7 @@ export type Database = {
           created_at?: string;
           downstream_column?: string | null;
           downstream_fqn: string;
+          exact?: boolean;
           id?: string;
           pipeline_id?: string | null;
           source_id?: string | null;
@@ -1277,6 +1279,7 @@ export type Database = {
           created_at?: string;
           downstream_column?: string | null;
           downstream_fqn?: string;
+          exact?: boolean;
           id?: string;
           pipeline_id?: string | null;
           source_id?: string | null;

@@ -748,7 +748,7 @@ function DataPage() {
           ],
           [
             "Lineage",
-            "What a dataset came from and what depends on it — prep flows, dashboards, metrics. Check before changing or deleting anything.",
+            "What a dataset came from and what depends on it — prep flows, dashboards, metrics — down to the column: which source columns fed each column of a pipeline's target or a SQL model, with steps the tracer cannot read marked. Check before changing or deleting anything.",
           ],
           [
             "Business glossary",

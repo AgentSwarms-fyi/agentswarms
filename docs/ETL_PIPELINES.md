@@ -617,6 +617,23 @@ object-storage path (`raw/orders/*.csv`), a database table, an HTTP URL, or
 edge lands on the same fqn the crawl gives the asset and the Data Catalog's
 asset drawer shows it under "Data lineage · from source".
 
+**Column lineage** rides beside it. A run reports the columns every node's
+frame actually had, and the engine traces each target column back to the
+source columns it came from by what each transform is known to do: a rename
+maps names, a derive reads the columns its expression names, an aggregate
+maps each output to the column it summarises, a join keeps both sides (with
+pandas' `_x` / `_y` suffixes read as left and right), a union merges, a filter
+keeps everything. A Python or SQL step is opaque: every output column is
+recorded as depending on every input column of that step, and the edge says
+so — the drawer shows those with a `≈`, so a guess is never presented as a
+fact. Edges are written beside the table edges, replaced wholesale with them,
+and capped so one wide opaque step cannot flood the table. The asset drawer
+lists them under **Column lineage**, per column, upstream and downstream. A
+SQL model's build adds its own edges the same way: each output column of the
+model's SELECT, traced through DuckDB's parse to the lakehouse columns it
+reads (aliases, functions, CTEs, subqueries, joins and `SELECT *`), which is
+what joins a pipeline's column lineage to a model's.
+
 Two systems share the table without clobbering each other: crawler-derived
 lineage (Databricks system tables) refreshes only rows with
 `source_system = 'databricks'`, ETL runs replace only their own pipeline's

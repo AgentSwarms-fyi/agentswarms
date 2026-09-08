@@ -14,7 +14,7 @@
  * exists to prevent.
  */
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import type { Json } from "@/integrations/supabase/types";
+import type { Database, Json } from "@/integrations/supabase/types";
 import { auditEvent } from "@/utils/audit.server";
 import {
   accessibleSchemas,
@@ -23,6 +23,7 @@ import {
   lakehouseConnection,
   lakehouseEnabled,
   selectReferencedSchemas,
+  selectReferencedTables,
   stripSqlComments,
 } from "@/utils/lakehouse/core.server";
 import { nextEtlRunAt } from "@/utils/etl/schedule.server";
@@ -364,7 +365,8 @@ async function stampModel(
  */
 async function writeLineage(userId: string, built: SqlModel[], all: SqlModelRow[]): Promise<void> {
   const byName = new Map(all.map((m) => [m.name, m]));
-  const rows = built.flatMap((m) =>
+  type LineageRow = Database["public"]["Tables"]["catalog_lineage"]["Insert"];
+  const rows: LineageRow[] = built.flatMap((m) =>
     refNames(m.sql)
       .map((r) => byName.get(r))
       .filter((up): up is SqlModelRow => Boolean(up))
@@ -374,8 +376,12 @@ async function writeLineage(userId: string, built: SqlModel[], all: SqlModelRow[
         upstream_fqn: modelTarget(up),
         downstream_fqn: modelTarget(m),
         source_system: "sql_model",
+        // Explicit: a bulk insert with the column rows below sends null for
+        // a key these omit, and null is not the column's default.
+        exact: true,
       })),
   );
+  rows.push(...(await columnLineageRows(userId, built, byName)));
   try {
     await supabaseAdmin
       .from("catalog_lineage")
@@ -450,4 +456,87 @@ export async function processDueSqlModels(force = false): Promise<number> {
     }
   }
   return builds;
+}
+
+/**
+ * Column edges for each built model: every output column of its SELECT,
+ * traced through DuckDB's own parse to the lakehouse columns it reads —
+ * aliases, functions, CTEs, subqueries, joins and `SELECT *` included. The
+ * upstream may be another model or any lakehouse table, which is what joins
+ * a pipeline's column lineage to a model's. A view of the build, never part
+ * of it: any failure here is logged and the build's outcome stands.
+ */
+async function columnLineageRows(
+  userId: string,
+  built: SqlModel[],
+  byName: Map<string, SqlModelRow>,
+): Promise<Database["public"]["Tables"]["catalog_lineage"]["Insert"][]> {
+  if (!built.length) return [];
+  const out: Database["public"]["Tables"]["catalog_lineage"]["Insert"][] = [];
+  let c: Awaited<ReturnType<typeof lakehouseConnection>> | null = null;
+  try {
+    c = await lakehouseConnection();
+    const { traceSelectColumns } = await import("@/lib/sqlColumnLineage");
+    const columnsCache = new Map<string, string[] | null>();
+    const columnsOf = async (schema: string, table: string): Promise<string[] | null> => {
+      const k = `${schema}.${table}`.toLowerCase();
+      if (!columnsCache.has(k)) {
+        const rows = await (
+          await c!.run(
+            `SELECT column_name FROM duckdb_columns() WHERE database_name = 'lake' AND lower(schema_name) = '${schema.toLowerCase().replace(/'/g, "''")}' AND lower(table_name) = '${table.toLowerCase().replace(/'/g, "''")}' ORDER BY column_index`,
+          )
+        ).getRows();
+        columnsCache.set(k, rows.length ? rows.map((r) => String(r[0])) : null);
+      }
+      return columnsCache.get(k) ?? null;
+    };
+    for (const m of built) {
+      try {
+        const rendered = stripSqlComments(
+          renderSql(m.sql, (n) => {
+            const up = byName.get(n);
+            return up ? quotedTarget(up) : null;
+          }),
+        ).replace(/;\s*$/, "");
+        // The parse needs each base table's columns for `*`; fetch them first,
+        // then trace synchronously over the tree.
+        for (const t of await selectReferencedTables(c, rendered))
+          await columnsOf(t.schema, t.table);
+        const ast = JSON.parse(
+          String(
+            (
+              await (
+                await c.run(`SELECT json_serialize_sql('${rendered.replace(/'/g, "''")}')`)
+              ).getRows()
+            )[0][0],
+          ),
+        );
+        const outputs = traceSelectColumns(
+          ast,
+          (schema, table) => columnsCache.get(`${schema}.${table}`.toLowerCase()) ?? null,
+        );
+        for (const col of outputs ?? []) {
+          for (const src of col.sources) {
+            out.push({
+              user_id: userId,
+              source_id: null,
+              upstream_fqn: `${src.schema}.${src.table}`.slice(0, 512),
+              downstream_fqn: modelTarget(m),
+              upstream_column: src.column.slice(0, 255),
+              downstream_column: col.name.slice(0, 255),
+              source_system: "sql_model",
+              exact: true,
+            });
+          }
+        }
+      } catch (e) {
+        console.warn(`[sql-models] column lineage skipped for ${m.name}:`, (e as Error).message);
+      }
+    }
+  } catch (e) {
+    console.warn("[sql-models] column lineage not recorded:", (e as Error).message);
+  } finally {
+    c?.closeSync();
+  }
+  return out.slice(0, 4000);
 }

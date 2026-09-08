@@ -135,6 +135,8 @@ export type CatalogLineageEdge = {
   downstream_fqn: string;
   upstream_column: string | null;
   downstream_column: string | null;
+  /** false: through an opaque step — one of every input column, not a traced dependency. */
+  exact: boolean;
 };
 
 /** Match lineage FQNs (often catalog.schema.table) to catalog assets
@@ -146,7 +148,7 @@ export function lineageKey(fqn: string): string {
 export async function loadCatalogLineage(): Promise<CatalogLineageEdge[]> {
   const { data, error } = await supabase
     .from("catalog_lineage")
-    .select("upstream_fqn, downstream_fqn, upstream_column, downstream_column")
+    .select("upstream_fqn, downstream_fqn, upstream_column, downstream_column, exact")
     .limit(20000);
   if (error) return [];
   return (data ?? []).map((r) => ({
@@ -154,6 +156,7 @@ export async function loadCatalogLineage(): Promise<CatalogLineageEdge[]> {
     downstream_fqn: r.downstream_fqn,
     upstream_column: r.upstream_column,
     downstream_column: r.downstream_column,
+    exact: r.exact ?? true,
   }));
 }
 
