@@ -1974,21 +1974,130 @@ users links to their own machine.
 
 ### High availability: what survives the loss of one instance
 
-The web tier and the scheduler are built for it — any replica serves any
-request, and the scheduler holds a fleet-wide lease. The state-holding pieces
-are where a single instance still matters:
+Two different promises are worth separating, because they need different
+things and only one of them is free:
 
-| Component                     | Single point of failure?                                            | What to do                                                                                                             |
-| ----------------------------- | ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| Lakehouse catalog             | Yes in Compose and in the in-cluster StatefulSet                    | Managed Postgres with a standby — the cloud runbooks provision Multi-AZ / regional / zone-redundant instances          |
-| Sandbox egress proxy          | Was: one replica, and every `pip install` failed while it restarted | The Kubernetes manifest now runs two, spread across nodes; it is stateless, so add more freely                         |
-| Self-hosted Supabase          | Yes — one Postgres, no failover                                     | Hosted Supabase, or your own replicated Postgres behind the stack                                                      |
-| Spark engine, static endpoint | Yes — every Spark-engine run fails while it is down                 | The per-run Kubernetes provider has no shared component; a lost driver fails one run, which retries with a new cluster |
-| Kernels and sandboxes         | Pinned to a host or node by nature                                  | ETL runs retry on a fresh sandbox; an interactive notebook session does not survive its node                           |
-| Object storage                | MinIO in development                                                | S3 / GCS / R2 in production                                                                                            |
+- **Availability** — the service keeps answering while one instance is lost.
+  It comes from running more than one of something, spreading them, and
+  telling the orchestrator not to take them all at once.
+- **Durability** — the data is still there afterwards. It comes from where
+  state lives and from backups, and no number of replicas provides it.
 
-There is no multi-region story: recovery from the loss of a region is the
-restore runbook on a new host.
+A single host gives you neither. Restart policies and health checks (both
+shipped, see below) recover a crashed or wedged container automatically, which
+covers the common failures; losing the host itself is a restore, not a
+failover. That is the honest position for options A and B, and it is a
+perfectly reasonable one for most teams — just know which promise you have.
+
+#### Every service, and what it takes to make it highly available
+
+| Service               | Stateful?                    | Ships as                          | If you lose it                                                     | To make it HA                                                                     |
+| --------------------- | ---------------------------- | --------------------------------- | ------------------------------------------------------------------ | --------------------------------------------------------------------------------- |
+| Web tier              | No                           | 2 replicas, spread, PDB, HPA      | Nothing, while one remains                                         | Already is. Raise `replicas`/HPA for load, not for availability                   |
+| Analytics tier        | No (holds the scheduler)     | 2 replicas, spread, PDB           | Scheduled refreshes, ETL schedules and view rebuilds stop          | Already is. The `cron_locks` lease means only one replica runs each pass          |
+| Office renderer       | No                           | 2 replicas, spread, PDB           | Deep-mode Office exports fail; the browser build takes over        | Already is                                                                        |
+| JS sandbox            | No                           | 2 replicas, spread, PDB           | Custom-code nodes in headless/scheduled swarm runs fail            | Already is                                                                        |
+| Notebook gateway      | No, but sessions are pinned  | 2 replicas, spread, PDB           | Open notebooks drop; a reconnect lands on the survivor             | Already is. A kernel does not migrate — that is inherent                          |
+| Sandbox egress proxy  | No                           | 2 replicas, spread, PDB           | Every `pip install` inside a kernel fails                          | Already is                                                                        |
+| Lakehouse catalog     | **Yes — irreplaceable**      | 1 StatefulSet pod + 10 Gi PVC     | The whole lakehouse is unreadable; Parquet alone cannot rebuild it | **Managed Postgres with a standby.** See below                                    |
+| Supabase              | **Yes — irreplaceable**      | Hosted, or self-hosted single pod | Everything: agents, IAM, audit, schedules                          | Hosted Supabase, or your own replicated Postgres                                  |
+| Object storage        | **Yes — the table data**     | Bring your own                    | Tables read as missing files                                       | S3, GCS, R2 or MinIO in distributed mode. Never single-node MinIO in prod         |
+| Spark engine (static) | No                           | 1 endpoint                        | Spark-engine ETL runs fail                                         | Use the per-run Kubernetes provider: a lost driver fails one run, which retries   |
+| Kernels and sandboxes | No, but pinned to their node | Per run                           | That run                                                           | Inherent. ETL retries on a fresh sandbox; an interactive session does not survive |
+
+The pattern: **everything stateless already runs two or more**, spread across
+nodes with a `topologySpreadConstraint` and protected by a
+`PodDisruptionBudget` so a node drain or cluster upgrade cannot evict every
+replica at once. The three stateful rows are the ones that need a decision
+from you, and all three have the same answer — use the managed service.
+
+#### The two databases are the whole game
+
+Neither can be rebuilt from anything else, and replicas of the app do not help.
+
+**The lakehouse catalog** holds schemas, table manifests and snapshots. The
+Parquet in your bucket is meaningless without it: the files are there, and
+nothing knows which of them are the current version of which table. Shipping
+it as an in-cluster StatefulSet is a convenience for getting started.
+
+> **In production, point `LAKEHOUSE_CATALOG_URL` at managed Postgres and delete
+> the StatefulSet from `deploy/k8s/app/services.yaml`.** RDS Multi-AZ, Cloud SQL
+> with a standby, or Azure Database with zone redundancy each give you
+> automatic failover and point-in-time recovery, which the single pod cannot.
+> The cloud runbooks in [D3](#d3-managed-clusters-aws-gcp-azure-oci) provision
+> exactly this.
+
+**Supabase** holds everything else. Hosted Supabase is replicated and backed up
+for you. A self-hosted Supabase is one Postgres with no failover, so treat it
+the same way: put it on managed Postgres, or accept that it is a restore.
+
+Running your own database is a backup and upgrade commitment. Both of these are
+small; the managed option costs little and removes a class of outage you would
+otherwise have to be on call for.
+
+#### Object storage
+
+Table data lives here, so it needs durability rather than replicas. S3, GCS,
+R2 and Azure Blob (as an S3 endpoint) are all durable by design.
+
+**MinIO in single-node mode is not** — it is one disk on one host, and it is
+what the local Compose setup uses. It is right for development and wrong for
+production. Either run MinIO in distributed mode across four or more drives, or
+point `LAKEHOUSE_S3_ENDPOINT` at a cloud object store.
+
+#### Per deployment model
+
+**A (local desktop) and B (single cloud VM).** Not highly available, by
+construction: one host. What you do get, and should verify:
+
+- every service carries `restart: unless-stopped`, so a crash comes back;
+- the app, the catalog, the renderer and the JS sandbox carry **health
+  checks**, so `docker ps` tells you when one is up but wedged — the failure a
+  restart policy cannot see;
+- the catalog's data is a **named volume** (`lakehouse-catalog-data`), not an
+  anonymous one, so it survives `docker compose down` and is not swept by
+  `docker volume prune`.
+
+Check the last one if your stack predates this, or if any service was ever
+started with a bare `docker run` outside Compose:
+
+```bash
+docker inspect -f '{{range .Mounts}}{{.Type}} {{.Name}}{{end}}' <catalog container>
+```
+
+A random 64-character hex name means an anonymous volume holding your catalog.
+Move it to a named one before you rely on it.
+
+Recovery from losing the VM is the [restore runbook](#backups-and-restore) on a
+new host. Take the backups, and rehearse one.
+
+**C (autoscaled VMs).** The web tier becomes highly available: instances are
+interchangeable and the scheduler holds a fleet-wide lease, so any number can
+run. The two databases and object storage must be managed services, because
+nothing in the autoscaling group is allowed to hold state.
+
+**D (Kubernetes).** Apply the manifests and the stateless tiers are already
+spread and budgeted. Then do the one thing the manifests cannot do for you:
+move the catalog to managed Postgres. Verify with:
+
+```bash
+kubectl -n agentswarms get deploy,statefulset,pdb
+kubectl -n agentswarms-notebooks get deploy,pdb
+```
+
+Every Deployment should report at least 2 ready, and every one of them should
+have a budget beside it.
+
+#### What is still not covered
+
+- **No multi-region.** There is no multi-region story: recovery from the loss
+  of a region is the restore runbook on a new cluster.
+- **A running notebook kernel or sandbox does not migrate.** ETL retries on a
+  fresh sandbox; an interactive session reconnects and re-runs.
+- **Health checks are not covered by monitoring yet.** Readiness reports the
+  Supabase connection and the key ring only, so a lakehouse catalog that is
+  down does not show there. Watch it yourself with the metrics endpoint and the
+  alert rules in `deploy/prometheus/alerts.yml`.
 
 ### Progressive Web App (PWA)
 

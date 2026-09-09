@@ -17,6 +17,32 @@ development branch and may be ahead of the latest tag.
 Work on `main` since the 1.4.0 tag. Twenty-four migrations —
 run `npx supabase db push` after pulling.
 
+### Every service survives losing one instance
+
+- **The stateless tiers now ship with two replicas, spread and budgeted.** The
+  web tier already did. The analytics tier (which carries the scheduler), the
+  Office renderer, the JS sandbox and the notebook gateway ran one replica, or
+  two on possibly the same node, and none but the web tier had a
+  `PodDisruptionBudget` — so a node drain or a cluster upgrade could take a
+  whole tier at once. The analytics case was the quiet one: nothing serves
+  traffic there, so scheduled refreshes, ETL schedules and view rebuilds just
+  stopped. Running the sweep on both replicas is safe because each pass is
+  claimed through the `cron_locks` lease with an atomic conditional update.
+- **Compose services are health-checked, not just restarted.** A restart policy
+  sees a process that exits; it cannot see one that is running and wedged,
+  which is the failure an operator actually meets. The app, the lakehouse
+  catalog, the Office renderer and the JS sandbox now each answer for
+  themselves, using the client already in their image rather than a curl they
+  do not ship. The catalog's window is long on purpose: an unclean stop makes
+  Postgres replay its WAL before it accepts connections.
+- **`docs/DEPLOYMENT.md` separates availability from durability** and gives a
+  per-service table: what each service is, what breaks when it is lost, and
+  what to do about it. It is explicit that one host is not highly available,
+  and that three things need a decision you cannot delegate to a manifest —
+  the lakehouse catalog and Supabase belong on managed Postgres, and
+  single-node MinIO is not production object storage. The in-app self-hosting
+  page carries the same guidance. No migration.
+
 ### A notebook's model reaches the registry
 
 - **`run.save_model(...)` and `run.register(...)`.** A run could record an

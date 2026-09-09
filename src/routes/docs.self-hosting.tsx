@@ -1263,6 +1263,37 @@ kubectl apply -f deploy/k8s/app/agentswarms.yaml`}</Code>
         ]}
       />
 
+      <H3 id="high-availability">Keeping every service available</H3>
+      <P>
+        Two promises worth separating: <strong>availability</strong> is the service still answering
+        when one instance is lost, and <strong>durability</strong> is the data still being there
+        afterwards. Replicas buy the first and never the second. A single host has neither — what it
+        does have is a restart policy and a health check on every service that can answer for
+        itself, so a crashed <em>or wedged</em> container comes back on its own. Losing the host is
+        a restore, not a failover.
+      </P>
+      <P>
+        On Kubernetes every stateless tier already ships with <strong>two replicas</strong>, a
+        topology spread so they do not share a node, and a <strong>PodDisruptionBudget</strong> so a
+        drain or cluster upgrade cannot evict them all at once: the web tier, the analytics tier
+        that carries the scheduler, the Office renderer, the JS sandbox, the notebook gateway and
+        the sandbox egress proxy. Running the scheduler on more than one is safe because each pass
+        is claimed through a lease with an atomic conditional update.
+      </P>
+      <Callout kind="warn" title="Three things need a decision from you">
+        The <strong>lakehouse catalog</strong> and <strong>Supabase</strong> are Postgres databases
+        that nothing else can rebuild — without the catalog, the Parquet in your bucket is files
+        nobody can name. Point both at managed Postgres with a standby and delete the in-cluster
+        StatefulSet. <strong>Object storage</strong> needs durability rather than replicas: S3, GCS
+        or R2 in production, never the single-node MinIO the local setup uses.
+      </Callout>
+      <P>
+        Verify with <C>kubectl -n agentswarms get deploy,statefulset,pdb</C>: every Deployment
+        should report at least two ready, each with a budget beside it. The full per-service table,
+        including what breaks when each one is lost, is in <C>docs/DEPLOYMENT.md</C> under High
+        availability.
+      </P>
+
       <H3 id="hardening">Before you expose it</H3>
       <UL>
         <li>

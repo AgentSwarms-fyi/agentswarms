@@ -197,7 +197,13 @@ metadata:
     app.kubernetes.io/name: agentswarms
     app.kubernetes.io/component: analytics
 spec:
-  replicas: 1
+  # Two, not one. These pods carry the in-process scheduler, so a single
+  # replica means scheduled refreshes, ETL schedules and materialized-view
+  # rebuilds stop for as long as one pod is down or being replaced — silently,
+  # because nothing is serving traffic to notice. Running the sweep on both is
+  # safe: it is claimed through the `cron_locks` lease with an atomic
+  # conditional UPDATE, so exactly one replica does the work each pass.
+  replicas: 2
   selector:
     matchLabels:
       app.kubernetes.io/name: agentswarms
@@ -209,6 +215,14 @@ spec:
         app.kubernetes.io/component: analytics
     spec:
       automountServiceAccountToken: false
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: agentswarms
+              app.kubernetes.io/component: analytics
       # Longer than the web tier: a heavy analytical query in flight is what
       # this pod exists to run, and killing it mid-scan wastes the whole scan.
       terminationGracePeriodSeconds: 120
@@ -275,6 +289,22 @@ spec:
         # LAKEHOUSE_SPILL_LIMIT turns "slower query" back into "failed query".
         - name: tmp
           emptyDir: { sizeLimit: 20Gi }
+---
+# Keep one analytics pod alive through a drain. These pods are out of the
+# Service by design, so nothing external notices when they all go: what stops
+# is scheduled work, and it stops quietly. A budget is the only thing that
+# makes a rolling node upgrade keep the scheduler running.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: agentswarms-analytics
+  namespace: agentswarms
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agentswarms
+      app.kubernetes.io/component: analytics
 ---
 # Selects the web component only. The analytics pods carry a different
 # component label AND fail readiness, so they stay out of Endpoints twice over.

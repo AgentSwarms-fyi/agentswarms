@@ -48,7 +48,10 @@ metadata:
     app.kubernetes.io/name: agentswarms
     app.kubernetes.io/component: docgen
 spec:
-  replicas: 1
+  # Stateless, so two costs little and removes a whole class of outage: with
+  # one replica every Office export fails for as long as the pod is restarting
+  # or its node is draining.
+  replicas: 2
   selector:
     matchLabels:
       app.kubernetes.io/name: agentswarms
@@ -60,6 +63,14 @@ spec:
         app.kubernetes.io/component: docgen
     spec:
       automountServiceAccountToken: false
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: agentswarms
+              app.kubernetes.io/component: docgen
       securityContext:
         # Meets the `baseline` Pod Security Standard. It cannot meet
         # `restricted`, which also demands runAsNonRoot — see the note on the
@@ -117,6 +128,18 @@ spec:
       port: 8099
       targetPort: http
 ---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: agentswarms-docgen
+  namespace: agentswarms
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agentswarms
+      app.kubernetes.io/component: docgen
+---
 # ── JS sandbox ──────────────────────────────────────────────────────────────
 # This one runs USER-SUPPLIED JavaScript, so it gets the strictest posture in
 # the file: non-root (which its image already is), read-only root filesystem,
@@ -131,7 +154,9 @@ metadata:
     app.kubernetes.io/name: agentswarms
     app.kubernetes.io/component: js-sandbox
 spec:
-  replicas: 1
+  # Stateless per call — it runs a snippet and forgets it — so two replicas
+  # keep every JavaScript tool call working through a restart or a drain.
+  replicas: 2
   selector:
     matchLabels:
       app.kubernetes.io/name: agentswarms
@@ -143,6 +168,14 @@ spec:
         app.kubernetes.io/component: js-sandbox
     spec:
       automountServiceAccountToken: false
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: agentswarms
+              app.kubernetes.io/component: js-sandbox
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
@@ -190,6 +223,18 @@ spec:
     - name: http
       port: 8091
       targetPort: http
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: agentswarms-js-sandbox
+  namespace: agentswarms
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agentswarms
+      app.kubernetes.io/component: js-sandbox
 ---
 # Untrusted code should not be able to reach anything. Ingress from the app
 # only; egress denied outright — the sandbox has no legitimate reason to open a

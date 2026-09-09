@@ -59,6 +59,25 @@ services:
     # js-internal lets the app reach the (optional) JS sandbox by service name.
     networks: [default, nb-internal, js-internal]
     restart: unless-stopped
+    # `restart` covers a process that EXITS. It does nothing for one that is
+    # running and wedged, which is the failure an operator actually meets — so
+    # every service that can answer for itself does. `node -e` rather than curl
+    # or wget: the runtime image ships neither, and a health check that depends
+    # on a tool the image lacks reports unhealthy for ever.
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:8080/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      # The first boot runs migrations and warms the engine; failing it during
+      # that would only make `docker ps` lie about a healthy start.
+      start_period: 90s
 
   # ── Developer-workspace server runtime (opt-in: --profile notebooks) ─────────
 
@@ -176,6 +195,19 @@ services:
     # than under `npm run dev` (dev kernels get the routable nb-dev network).
     networks: [default, nb-internal]
     restart: unless-stopped
+    # An unclean stop makes Postgres replay its WAL on the next start, which on
+    # a large catalog is minutes of "the database system is starting up". This
+    # is what tells you the difference between still recovering and broken.
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U $${POSTGRES_USER:-lakehouse} -d $${POSTGRES_DB:-lakehouse_catalog}",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 300s
 
   # ── Spark Connect server (opt-in: --profile spark) ────────────────────────
   # The Spark engine's STATIC-ENDPOINT provider for one host: driver and
@@ -241,6 +273,20 @@ services:
     ports:
       - "127.0.0.1:8099:8099"
     restart: unless-stopped
+    # LibreOffice can wedge on a bad render; the process stays up and stops
+    # answering, which is exactly what `restart` cannot see.
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8099/health', timeout=5).status == 200 else 1)",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
 
   # ── JS sandbox for headless custom code (opt-in: --profile sandbox) ─────────
   # Runs Function and custom-component snippets for DEPLOYED (API-key) and
@@ -302,6 +348,20 @@ services:
     tmpfs:
       - /tmp:size=16m,mode=1777
     restart: unless-stopped
+    # A snippet that pins the event loop leaves the process up and deaf. The
+    # image is node:22-slim, so node itself is the only client available.
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:8091/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
 
 # Network topology for the runtime (egress control):
 #   nb-internal — internal:true, so kernels have NO direct internet. Members:

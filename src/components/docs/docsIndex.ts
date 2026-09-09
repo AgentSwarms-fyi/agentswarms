@@ -3357,6 +3357,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "level": 2
       },
       {
+        "id": "high-availability",
+        "text": "Keeping every service available",
+        "level": 3
+      },
+      {
         "id": "hardening",
         "text": "Before you expose it",
         "level": 3

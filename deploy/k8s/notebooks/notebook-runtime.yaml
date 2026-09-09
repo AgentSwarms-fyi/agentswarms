@@ -225,6 +225,14 @@ spec:
     metadata:
       labels: { app: notebook-gateway }
     spec:
+      # Two replicas on one node survive exactly as much as one. ScheduleAnyway
+      # so a single-node cluster still schedules both.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels: { app: notebook-gateway }
       containers:
         - name: gateway
           image: agentswarms/notebook-gateway:latest
@@ -250,6 +258,29 @@ spec:
   ports: [{ port: 8090, targetPort: 8090 }]
 # Expose the gateway to browsers via your Ingress (websocket-capable). Point
 # NOTEBOOK_GATEWAY_URL at the public wss:// URL.
+---
+# Budgets for both notebook tiers. Without them a node drain can evict every
+# replica at once: the gateway takes every open notebook with it, and while
+# the egress proxy is gone every `pip install` inside a kernel fails.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: notebook-gateway
+  namespace: agentswarms-notebooks
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: { app: notebook-gateway }
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: notebook-egress
+  namespace: agentswarms-notebooks
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: { app: notebook-egress }
 ---
 # ── Egress control: default-deny, then narrow allows ─────────────────────────
 apiVersion: networking.k8s.io/v1

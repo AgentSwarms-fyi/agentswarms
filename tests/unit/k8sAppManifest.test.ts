@@ -58,6 +58,10 @@ describe("the manifest declares what it must", () => {
         "Deployment",
         "HorizontalPodAutoscaler",
         "Namespace",
+        // One budget per app tier. The analytics tier needs its own: it is
+        // held out of the Service, so nothing returns an error when a drain
+        // takes every replica — scheduled work just stops.
+        "PodDisruptionBudget",
         "PodDisruptionBudget",
         "Service",
       ].sort(),
