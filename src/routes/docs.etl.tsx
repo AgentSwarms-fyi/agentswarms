@@ -364,8 +364,11 @@ function EtlDocsPage() {
           <strong>Continuous</strong> — one long-running run drains a stream source (Kafka, Kinesis,
           Pub/Sub), webhook ingest, CDC or an incremental cursor every few seconds, persisting its
           position after every committed load, and the sweep restarts it whenever none is live. Stop
-          it from the card. Rollover and restart backoff: <C>ETL_CONTINUOUS_ROLLOVER_MINUTES</C>,{" "}
-          <C>ETL_CONTINUOUS_RESTART_BACKOFF_SECONDS</C>.
+          it from the card. When every target is a lakehouse table the card says{" "}
+          <strong>exactly-once</strong>: a tick&apos;s loads and its positions commit in one
+          lakehouse transaction and the next run resumes from what committed with the rows, so a
+          crash cannot replay a batch. Rollover and restart backoff:{" "}
+          <C>ETL_CONTINUOUS_ROLLOVER_MINUTES</C>, <C>ETL_CONTINUOUS_RESTART_BACKOFF_SECONDS</C>.
         </li>
         <li>
           <strong>External trigger</strong> — mint a token under Settings and{" "}

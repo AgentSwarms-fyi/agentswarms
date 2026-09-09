@@ -26,7 +26,11 @@ import {
 import { etlErrorMessage } from "@/utils/etl/explainError";
 import { engineOf } from "@/utils/etl/compile";
 import { chainTargetsOf, hasChainTargets } from "@/lib/etlChain";
-import { CONTINUOUS_SCHEDULE, continuousRolloverMinutes } from "@/utils/etl/continuous";
+import {
+  CONTINUOUS_SCHEDULE,
+  continuousRolloverMinutes,
+  exactlyOnceEligible,
+} from "@/utils/etl/continuous";
 import { internalAppUrl, noProxyList } from "@/utils/notebookRuntime/service.server";
 import { isCatalogAsset, unwrapSourceConfig } from "@/utils/etl/catalogAsset";
 import { loadWarehouseConnectionForUser } from "@/utils/warehouse/connections.server";
@@ -370,6 +374,10 @@ export async function resolveRunEnv(
     env.ETL_CONTINUOUS = "1";
     env.ETL_POLL_SECONDS = String(Math.max(1, pipeline.poll_seconds ?? 5));
     env.ETL_CONTINUOUS_MAX_SECONDS = String(continuousRolloverMinutes() * 60);
+    // Every target a lakehouse table: the tick's loads and its positions
+    // commit in one transaction, and a crash after the commit cannot replay.
+    env.ETL_PIPELINE_ID = pipeline.id;
+    if (exactlyOnceEligible(graph)) env.ETL_EXACTLY_ONCE = "1";
   }
 
   // Lakehouse nodes: the sandbox attaches the SAME DuckLake catalog the app

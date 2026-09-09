@@ -457,7 +457,12 @@ function fmtRuntime(ms: number): string {
 }
 
 function scheduleLabel(p: OverviewPipeline): string {
-  if (p.schedule === "continuous") return `continuous · poll ${p.poll_seconds ?? 5} s`;
+  if (p.schedule === "continuous") {
+    // Every target a lakehouse table: a tick's loads and positions commit
+    // together, so a crash cannot replay. Anything else stays at-least-once.
+    const once = p.exactly_once ? " · exactly-once" : "";
+    return `continuous · poll ${p.poll_seconds ?? 5} s${once}`;
+  }
   if (p.schedule === "cron") {
     return `cron ${p.cron_expr ?? "?"}${p.timezone ? ` (${p.timezone})` : ""}`;
   }

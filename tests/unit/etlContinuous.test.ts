@@ -12,6 +12,7 @@ import {
   continuousRestartBackoffMs,
   continuousRolloverMinutes,
   continuousWrapper,
+  exactlyOnceEligible,
 } from "@/utils/etl/continuous";
 import { nextEtlRunAt } from "@/utils/etl/schedule.server";
 import { compileSparkGraph } from "@/utils/etl/sparkCodegen";
@@ -129,6 +130,108 @@ describe("the loop", () => {
 
   it("a progress report that cannot be delivered never ends the run", () => {
     expect(w).toContain("except Exception as e:\n        print('[etl] progress not recorded: '");
+  });
+});
+
+describe("exactly-once into the lakehouse", () => {
+  const w = continuousWrapper({ n1: "ETL_N1" });
+  const lake = { kind: "target", config: { type: "lakehouse" } };
+  const bucket = { kind: "target", config: { type: "storage" } };
+  const src = { kind: "source", config: { type: "kafka" } };
+
+  it("qualifies only when every target is a lakehouse table", () => {
+    expect(exactlyOnceEligible({ nodes: [src, lake] })).toBe(true);
+    expect(exactlyOnceEligible({ nodes: [src, lake, lake] })).toBe(true);
+    expect(exactlyOnceEligible({ nodes: [src, lake, bucket] })).toBe(false);
+    expect(exactlyOnceEligible({ nodes: [src] })).toBe(false);
+    expect(exactlyOnceEligible(null)).toBe(false);
+  });
+
+  it("the tick's loads and its positions commit in ONE transaction, or roll back together", () => {
+    // Order is the property: BEGIN before the tick, cursors written after it
+    // on the same connection, COMMIT last; an exception rolls everything back.
+    const begin = w.indexOf("_tick_con.execute('BEGIN TRANSACTION')");
+    const tick = w.indexOf("m = _tick(inputs) or {}");
+    const cursors = w.indexOf("_commit_cursors(_tick_con, m.get('watermarks') or {})");
+    const commit = w.indexOf("_tick_con.execute('COMMIT')");
+    const rollback = w.indexOf("_tick_con.execute('ROLLBACK')");
+    expect(begin).toBeGreaterThan(-1);
+    expect(begin).toBeLessThan(tick);
+    expect(tick).toBeLessThan(cursors);
+    expect(cursors).toBeLessThan(commit);
+    expect(commit).toBeLessThan(rollback);
+    expect(w).toContain("if _EXACTLY_ONCE:\n                _commit_cursors(");
+    // The next run starts from what committed with the rows, before its first tick.
+    const resume = w.indexOf("_load_committed_cursors()");
+    const loop = w.indexOf("while _time.monotonic() - started < budget:");
+    expect(resume).toBeGreaterThan(-1);
+    expect(resume).toBeLessThan(loop);
+    expect(w).toContain('"_agentswarms"."etl_cursors"');
+    // Off unless the platform says so; nothing changes for at-least-once pipelines.
+    expect(w).toContain("_EXACTLY_ONCE = os.environ.get('ETL_EXACTLY_ONCE') == '1'");
+    expect(w).toContain("_tick_con = None");
+  });
+
+  it("a commit conflict retries the tick instead of failing the run", () => {
+    // Seen live: a run being stopped was still ticking when the sweep started
+    // its successor, and both wrote the same cursor row. DuckLake refused one
+    // commit — nothing doubled — but the run failed and paid the backoff.
+    // Nothing was committed and env has not moved, so the tick is safe to redo.
+    expect(w).toContain("if _EXACTLY_ONCE and 'conflict' in str(e).lower() and conflicts < 20:");
+    expect(w).toContain("commit conflict, retrying the tick");
+    const retry = w.indexOf("if retry:\n            _time.sleep(poll)\n            continue");
+    const advance = w.indexOf("os.environ[_stem + '_CURSOR'] = str(v)");
+    expect(retry).toBeGreaterThan(-1);
+    // The retry decision comes before the cursors in env advance, so a redone
+    // tick reads the batch it failed to commit, not the one after it.
+    expect(retry).toBeLessThan(advance);
+    // Persistent conflicts still end the run: an unbounded retry would hide
+    // two runs draining the same stream forever.
+    expect(w).toContain("conflicts += 1");
+    expect(w).toContain("else:\n                raise");
+  });
+
+  it("a lakehouse target loads through the tick's connection and never commits on its own inside it", () => {
+    // Checked on the generated program, for a merge target — the one mode
+    // that used to open a transaction of its own.
+    const g = kafkaGraph();
+    g.nodes[1].config = {
+      type: "lakehouse",
+      schema: "analytics",
+      table: "orders_stream",
+      write_mode: "merge",
+      primary_key: ["id"],
+    } as EtlGraph["nodes"][number]["config"];
+    const program = compileGraph(g);
+    const block = program.slice(
+      program.indexOf("# target n2: lakehouse"),
+      program.indexOf("_loads.append({'node': 'n2'"),
+    );
+    expect(block).toContain("_own = globals().get('_tick_con') is None");
+    expect(block).toContain("con = _lakehouse_con() if _own else _tick_con");
+    expect(block).toContain("if _own:\n                con.execute('BEGIN TRANSACTION')");
+    expect(block).toContain("if _own:\n                con.execute('COMMIT')");
+    expect(block).toContain("if _own:\n            con.close()");
+    // The mutation this guards: a target that commits inside the shared
+    // transaction would commit the rows without the positions. Every COMMIT
+    // in the block must sit under the _own guard.
+    const commits = (block.match(/con\.execute\('COMMIT'\)/g) ?? []).length;
+    const guarded = (block.match(/if _own:\n\s+con\.execute\('COMMIT'\)/g) ?? []).length;
+    expect(commits).toBeGreaterThan(0);
+    expect(guarded).toBe(commits);
+  });
+
+  it("the platform switches it on only for qualifying graphs, and the page says so", () => {
+    const svc = readFileSync("src/utils/etl/service.server.ts", "utf8");
+    expect(svc).toContain('if (exactlyOnceEligible(graph)) env.ETL_EXACTLY_ONCE = "1";');
+    expect(svc).toContain("env.ETL_PIPELINE_ID = pipeline.id;");
+    expect(readFileSync("src/utils/etl.functions.ts", "utf8")).toContain("exactlyOnceEligible(");
+    expect(readFileSync("src/routes/_authenticated/etl.tsx", "utf8")).toContain(
+      'p.exactly_once ? " · exactly-once" : ""',
+    );
+    expect(readFileSync("docs/ETL_PIPELINES.md", "utf8")).toContain(
+      "Exactly-once into the lakehouse",
+    );
   });
 });
 

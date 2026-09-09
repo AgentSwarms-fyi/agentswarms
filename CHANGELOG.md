@@ -17,6 +17,20 @@ development branch and may be ahead of the latest tag.
 Work on `main` since the 1.4.0 tag. Twenty-two migrations —
 run `npx supabase db push` after pulling.
 
+### Exactly-once into the lakehouse
+
+- **A continuous pipeline whose targets are all lakehouse tables cannot
+  replay.** Positions were persisted after each tick's load, so a crash in
+  the seconds between the commit and its report replayed one tick's batch —
+  at-least-once, invisible only behind a merge target. Now each tick is one
+  DuckLake transaction: every target's load and the tick's source positions
+  (a hidden `_agentswarms.etl_cursors` table in the same catalog) commit
+  together or not at all, and the next run resumes from the positions that
+  committed with the rows, not from the report. The card says
+  _exactly-once_ beside _continuous_ when a pipeline qualifies; one with a
+  storage, database, HTTP or SaaS target stays at-least-once, since those
+  have no part in the transaction. No migration.
+
 ### Delta Sharing: tables for people who are not users
 
 - **Lakehouse tables can be shared outside the platform.** A grant shared a

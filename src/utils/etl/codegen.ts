@@ -942,10 +942,12 @@ export function targetBlock(node: EtlNode, input: string, cdcInput = false): str
             ]
           : [
               // Upsert: delete the incoming keys, then insert — one transaction,
-              // so a reader never sees the gap between the two.
+              // so a reader never sees the gap between the two. Inside an
+              // exactly-once tick the shared transaction already covers both.
               `        if len(_src):`,
               `            con.execute('CREATE TABLE IF NOT EXISTS ${fq} AS SELECT * FROM _src WHERE false')`,
-              `            con.execute('BEGIN TRANSACTION')`,
+              `            if _own:`,
+              `                con.execute('BEGIN TRANSACTION')`,
               `            con.execute(${pyStr(
                 `DELETE FROM ${fq} WHERE (${(c.primary_key ?? [])
                   .map((k) => `"${pyIdent(k, "Primary key column")}"`)
@@ -954,17 +956,23 @@ export function targetBlock(node: EtlNode, input: string, cdcInput = false): str
                   .join(", ")} FROM _src)`,
               )})`,
               `            con.execute('INSERT INTO ${fq} BY NAME SELECT * FROM _src')`,
-              `            con.execute('COMMIT')`,
+              `            if _own:`,
+              `                con.execute('COMMIT')`,
             ];
     return [
       `    # target ${node.id}: lakehouse → ${schema}.${table} (${c.write_mode})`,
       `    _src = ${input}`,
-      `    con = _lakehouse_con()`,
+      // An exactly-once tick holds one open transaction on `_tick_con` and
+      // every lakehouse target loads through it; otherwise the target opens
+      // and closes a connection of its own, as it always did.
+      `    _own = globals().get('_tick_con') is None`,
+      `    con = _lakehouse_con() if _own else _tick_con`,
       `    try:`,
       `        con.register('_src', _src)`,
       ...load,
       `    finally:`,
-      `        con.close()`,
+      `        if _own:`,
+      `            con.close()`,
       `    _loads.append({'node': '${node.id}', 'target': '${schema}.${table}', 'fqn': '${schema}.${table}', 'rows': int(len(${input})), 'load_id': None})`,
     ].join("\n");
   }

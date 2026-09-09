@@ -61,11 +61,34 @@ export function canRunContinuously(
 }
 
 /**
+ * Whether a continuous pipeline can be exactly-once: every target is a
+ * lakehouse table, so a tick's loads and its source positions can commit in
+ * ONE DuckLake transaction. A storage, database, HTTP or SaaS target has no
+ * part in that transaction, and a pipeline with one stays at-least-once.
+ */
+export function exactlyOnceEligible(
+  graph: { nodes?: { kind?: string; config?: unknown }[] } | null | undefined,
+): boolean {
+  const targets = (graph?.nodes ?? []).filter((n) => n.kind === "target");
+  if (!targets.length) return false;
+  return targets.every((n) => (n.config as { type?: string } | undefined)?.type === "lakehouse");
+}
+
+/**
  * The loop, as Python appended to a compiled program whose per-tick body is
  * `_tick`. `cursorEnv` maps each incremental node to its env stem, so the
  * position a tick reports becomes the position the next tick starts from
  * without a round trip. Off (`ETL_CONTINUOUS` unset) the program runs once,
  * exactly as before.
+ *
+ * Exactly-once (`ETL_EXACTLY_ONCE=1`, set by the platform when every target
+ * is a lakehouse table): each tick opens one lakehouse connection, begins a
+ * transaction, lets every target load through it, writes the tick's source
+ * positions to `_agentswarms.etl_cursors` in the same transaction, and
+ * commits. A crash anywhere before the commit loses nothing and replays the
+ * tick; a crash after it cannot replay, because the next run resumes from
+ * the positions that committed WITH the rows, not from the report the
+ * platform may never have received.
  */
 export function continuousWrapper(cursorEnv: Record<string, string>): string {
   const map =
@@ -76,6 +99,38 @@ export function continuousWrapper(cursorEnv: Record<string, string>): string {
     "}";
   return [
     `_CURSOR_ENV = ${map}`,
+    `_tick_con = None`,
+    `_EXACTLY_ONCE = os.environ.get('ETL_EXACTLY_ONCE') == '1'`,
+    `_PIPELINE_ID = os.environ.get('ETL_PIPELINE_ID', '')`,
+    ``,
+    `def _cursor_table(con):`,
+    `    # Hidden from the platform's schema list, so no user can query or drop it.`,
+    `    con.execute('CREATE SCHEMA IF NOT EXISTS "_agentswarms"')`,
+    `    con.execute('CREATE TABLE IF NOT EXISTS "_agentswarms"."etl_cursors" (pipeline_id VARCHAR, node_id VARCHAR, cursor VARCHAR, updated_at TIMESTAMP)')`,
+    ``,
+    `def _load_committed_cursors():`,
+    `    # The positions that committed with the last load win over the ones the`,
+    `    # platform recorded: the report is what a crash can lose, the commit is not.`,
+    `    con = _lakehouse_con()`,
+    `    try:`,
+    `        _cursor_table(con)`,
+    `        rows = con.execute('SELECT node_id, cursor FROM "_agentswarms"."etl_cursors" WHERE pipeline_id = ?', [_PIPELINE_ID]).fetchall()`,
+    `    finally:`,
+    `        con.close()`,
+    `    n = 0`,
+    `    for node_id, cur in rows:`,
+    `        stem = _CURSOR_ENV.get(node_id)`,
+    `        if stem and cur is not None:`,
+    `            os.environ[stem + '_CURSOR'] = str(cur)`,
+    `            n += 1`,
+    `    print('[etl] exactly-once: resumed ' + str(n) + ' cursor(s) committed with the last load')`,
+    ``,
+    `def _commit_cursors(con, watermarks):`,
+    `    for k, v in watermarks.items():`,
+    `        if v is None or k not in _CURSOR_ENV:`,
+    `            continue`,
+    `        con.execute('DELETE FROM "_agentswarms"."etl_cursors" WHERE pipeline_id = ? AND node_id = ?', [_PIPELINE_ID, k])`,
+    `        con.execute('INSERT INTO "_agentswarms"."etl_cursors" VALUES (?, ?, ?, now())', [_PIPELINE_ID, k, str(v)])`,
     ``,
     `def _post_progress(progress):`,
     `    # Best effort, every tick: the platform persists the positions (so a`,
@@ -94,15 +149,58 @@ export function continuousWrapper(cursorEnv: Record<string, string>): string {
     `        return False`,
     ``,
     `def _run_continuous(inputs):`,
+    `    global _tick_con`,
     `    import time as _time`,
     `    poll = max(1.0, float(os.environ.get('ETL_POLL_SECONDS') or ${CONTINUOUS_DEFAULT_POLL_SECONDS}))`,
     `    budget = max(60.0, float(os.environ.get('ETL_CONTINUOUS_MAX_SECONDS') or 43200))`,
     `    started = _time.monotonic()`,
-    `    total = {'continuous': True, 'rows_loaded': 0, 'ticks': 0, 'targets': {}, 'watermarks': {},`,
+    `    total = {'continuous': True, 'exactly_once': _EXACTLY_ONCE, 'rows_loaded': 0, 'ticks': 0, 'targets': {}, 'watermarks': {},`,
     `             'started_at': _time.strftime('%Y-%m-%dT%H:%M:%SZ', _time.gmtime())}`,
-    `    print('[etl] continuous: polling every ' + str(poll) + ' s, rolling over after ' + str(int(budget)) + ' s')`,
+    `    print('[etl] continuous: polling every ' + str(poll) + ' s, rolling over after ' + str(int(budget)) + ' s' + (', exactly-once into the lakehouse' if _EXACTLY_ONCE else ''))`,
+    `    if _EXACTLY_ONCE:`,
+    `        _load_committed_cursors()`,
+    `    conflicts = 0`,
     `    while _time.monotonic() - started < budget:`,
-    `        m = _tick(inputs) or {}`,
+    `        if _EXACTLY_ONCE:`,
+    `            # One connection, one transaction: every target's load and the`,
+    `            # tick's positions commit together, or not at all.`,
+    `            _tick_con = _lakehouse_con()`,
+    `            _cursor_table(_tick_con)`,
+    `            _tick_con.execute('BEGIN TRANSACTION')`,
+    `        retry = False`,
+    `        try:`,
+    `            m = _tick(inputs) or {}`,
+    `            if _EXACTLY_ONCE:`,
+    `                _commit_cursors(_tick_con, m.get('watermarks') or {})`,
+    `                _tick_con.execute('COMMIT')`,
+    `        except Exception as e:`,
+    `            if _tick_con is not None:`,
+    `                try:`,
+    `                    _tick_con.execute('ROLLBACK')`,
+    `                except Exception:`,
+    `                    pass`,
+    `            # A commit conflict means another writer touched the same rows`,
+    `            # meanwhile — a run being stopped that is still winding down, a`,
+    `            # user's DML on the target. Nothing was committed and the cursors`,
+    `            # in env have not moved, so the tick re-reads the same batch: retry`,
+    `            # it rather than fail the run and pay the restart backoff.`,
+    `            if _EXACTLY_ONCE and 'conflict' in str(e).lower() and conflicts < 20:`,
+    `                conflicts += 1`,
+    `                print('[etl] exactly-once: commit conflict, retrying the tick (' + str(conflicts) + ')')`,
+    `                retry = True`,
+    `            else:`,
+    `                raise`,
+    `        finally:`,
+    `            if _tick_con is not None:`,
+    `                try:`,
+    `                    _tick_con.close()`,
+    `                except Exception:`,
+    `                    pass`,
+    `                _tick_con = None`,
+    `        if retry:`,
+    `            _time.sleep(poll)`,
+    `            continue`,
+    `        conflicts = 0`,
     `        rows = int(m.get('rows_loaded') or 0)`,
     `        total['ticks'] += 1`,
     `        total['rows_loaded'] += rows`,

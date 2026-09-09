@@ -351,6 +351,16 @@ What holds it together:
   its report replays at most one tick's batch: **at-least-once**, with a
   replay window of seconds rather than a run. A merge target with primary keys
   makes that replay invisible.
+- **Exactly-once into the lakehouse.** When every target is a lakehouse
+  table, the tick is one DuckLake transaction: every target's load and the
+  tick's source positions — written to a hidden `_agentswarms.etl_cursors`
+  table in the same catalog — commit together, or not at all. The next run
+  resumes from the positions that committed _with the rows_, not from the
+  report, so the crash window above closes: a crash before the commit loses
+  nothing and replays the tick; a crash after it cannot replay. The card says
+  _exactly-once_ beside _continuous_ when a pipeline qualifies; a pipeline
+  with a storage, database, HTTP or SaaS target stays at-least-once, because
+  those targets have no part in the lakehouse's transaction.
 - **The sweep keeps it alive.** Every sixty seconds the scheduler starts a
   run for any active continuous pipeline that has none live. A run ends on its
   own at the **rollover** (`ETL_CONTINUOUS_ROLLOVER_MINUTES`, default 720): a

@@ -309,8 +309,33 @@ export const getEtlOverview = createServerFn({ method: "POST" })
       });
     }
 
+    // Which continuous pipelines are exactly-once — every target a lakehouse
+    // table. Their graphs are read for this alone, so the list stays light.
+    const { exactlyOnceEligible } = await import("@/utils/etl/continuous");
+    const continuousIds = (pipelines ?? [])
+      .filter((p) => p.schedule === "continuous")
+      .map((p) => p.id);
+    const exactlyOnce = new Set<string>();
+    if (continuousIds.length) {
+      const { data: graphs } = await supabaseAdmin
+        .from("etl_pipelines")
+        .select("id, graph")
+        .in("id", continuousIds);
+      for (const g of graphs ?? []) {
+        if (
+          exactlyOnceEligible(g.graph as { nodes?: { kind?: string; config?: unknown }[] } | null)
+        ) {
+          exactlyOnce.add(g.id);
+        }
+      }
+    }
+
     return {
-      pipelines: (pipelines ?? []).map((p) => ({ ...p, live_run: liveRun.get(p.id) ?? null })),
+      pipelines: (pipelines ?? []).map((p) => ({
+        ...p,
+        live_run: liveRun.get(p.id) ?? null,
+        exactly_once: exactlyOnce.has(p.id),
+      })),
       stats: overview.stats,
       per_pipeline: overview.per_pipeline,
       recent_runs,
