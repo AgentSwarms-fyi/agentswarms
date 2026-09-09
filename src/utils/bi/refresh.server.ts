@@ -1212,6 +1212,10 @@ export type CronPassResult = {
   /** Materialized views refreshed this pass. */
   matview_refreshes: number;
   sql_model_builds: number;
+  /** Scheduled workflow graphs started this pass. */
+  workflow_runs: number;
+  /** Live workflow runs advanced a step this pass. */
+  workflow_steps: number;
   swarm_schedules: number;
   kernels_reaped: number;
 };
@@ -1239,6 +1243,8 @@ export async function runCronPass(opts: { force?: boolean } = {}): Promise<CronP
     etl_runs: 0,
     matview_refreshes: 0,
     sql_model_builds: 0,
+    workflow_runs: 0,
+    workflow_steps: 0,
     swarm_schedules: 0,
     kernels_reaped: 0,
   };
@@ -1371,6 +1377,22 @@ export async function runCronPass(opts: { force?: boolean } = {}): Promise<CronP
     await import("@/utils/observability/reprice.server")
       .then((m) => m.repriceUnpricedTraces(force))
       .catch((e) => console.warn("[trace-reprice] failed:", (e as Error).message));
+    // Workflow graphs ride the same sweep, in two halves. Due workflows
+    // start; runs already in flight take a step. The second half is what makes
+    // a graph move at all — a step only begins once the step before it has
+    // been seen to finish, and this is where that is noticed.
+    const workflow_runs = await import("@/utils/workflows/run.server")
+      .then((m) => m.processDueWorkflows(force))
+      .catch((e) => {
+        console.warn("[workflow] sweep failed:", (e as Error).message);
+        return 0;
+      });
+    const workflow_steps = await import("@/utils/workflows/run.server")
+      .then((m) => m.advanceLiveWorkflowRuns())
+      .catch((e) => {
+        console.warn("[workflow] advance failed:", (e as Error).message);
+        return 0;
+      });
     const swarm_schedules = await import("@/utils/swarmSchedules.server")
       .then((m) => m.processDueSwarmSchedules(force))
       .catch((e) => {
@@ -1394,6 +1416,8 @@ export async function runCronPass(opts: { force?: boolean } = {}): Promise<CronP
       etl_runs,
       matview_refreshes,
       sql_model_builds,
+      workflow_runs,
+      workflow_steps,
       analyses,
       swarm_schedules,
       kernels_reaped,

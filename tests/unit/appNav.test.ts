@@ -145,6 +145,9 @@ describe("the docs checker's copy of the rail", () => {
       "AI Analyst",
       "BI Workspace",
       "ML Models",
+      // Orchestration comes after the things it orchestrates: a graph is what
+      // you draw once the pieces exist.
+      "Workflows",
       "Data monitors",
       "Developer workspace",
     ]);

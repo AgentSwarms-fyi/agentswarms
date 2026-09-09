@@ -90,6 +90,7 @@ export const DOCS_GROUPS: DocGroup[] = [
       { to: "/docs/semantics", label: "Semantic Layer", icon: Layers },
       { to: "/docs/bi", label: "BI Workspace", icon: PieChart },
       { to: "/docs/ml", label: "ML Models", icon: Brain },
+      { to: "/docs/workflows", label: "Workflows", icon: Workflow },
       { to: "/docs/data-monitors", label: "Data monitors", icon: HeartPulse },
       { to: "/docs/ai-sql", label: "AI in SQL", icon: Sparkles },
       { to: "/docs/knowledge", label: "Knowledge Base", icon: BookOpen },

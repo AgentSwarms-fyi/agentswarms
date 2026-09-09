@@ -720,6 +720,132 @@ export type Database = {
         };
         Relationships: [];
       };
+      workflows: {
+        Row: {
+          id: string;
+          user_id: string;
+          name: string;
+          description: string | null;
+          graph: Json;
+          schedule: string;
+          next_run_at: string | null;
+          is_active: boolean;
+          last_run_at: string | null;
+          last_run_status: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          name: string;
+          description?: string | null;
+          graph?: Json;
+          schedule?: string;
+          next_run_at?: string | null;
+          is_active?: boolean;
+          last_run_at?: string | null;
+          last_run_status?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          name?: string;
+          description?: string | null;
+          graph?: Json;
+          schedule?: string;
+          next_run_at?: string | null;
+          is_active?: boolean;
+          last_run_at?: string | null;
+          last_run_status?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      workflow_runs: {
+        Row: {
+          id: string;
+          workflow_id: string;
+          user_id: string;
+          state: string;
+          trigger: string;
+          graph: Json;
+          error: string | null;
+          started_at: string;
+          finished_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          workflow_id: string;
+          user_id: string;
+          state?: string;
+          trigger?: string;
+          graph?: Json;
+          error?: string | null;
+          started_at?: string;
+          finished_at?: string | null;
+        };
+        Update: {
+          id?: string;
+          workflow_id?: string;
+          user_id?: string;
+          state?: string;
+          trigger?: string;
+          graph?: Json;
+          error?: string | null;
+          started_at?: string;
+          finished_at?: string | null;
+        };
+        Relationships: [];
+      };
+      workflow_node_runs: {
+        Row: {
+          id: string;
+          run_id: string;
+          user_id: string;
+          node_id: string;
+          kind: string;
+          label: string;
+          state: string;
+          target_run_id: string | null;
+          error: string | null;
+          started_at: string | null;
+          finished_at: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          run_id: string;
+          user_id: string;
+          node_id: string;
+          kind: string;
+          label?: string;
+          state?: string;
+          target_run_id?: string | null;
+          error?: string | null;
+          started_at?: string | null;
+          finished_at?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          run_id?: string;
+          user_id?: string;
+          node_id?: string;
+          kind?: string;
+          label?: string;
+          state?: string;
+          target_run_id?: string | null;
+          error?: string | null;
+          started_at?: string | null;
+          finished_at?: string | null;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
       bi_dashboards: {
         Row: {
           ai_model: string | null;

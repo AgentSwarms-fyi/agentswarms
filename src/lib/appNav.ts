@@ -48,6 +48,7 @@ import {
   Wand2,
   Warehouse,
   Waypoints,
+  Workflow,
   Wrench,
 } from "lucide-react";
 
@@ -103,7 +104,10 @@ export const NAV_GROUPS: NavGroup[] = [
       { title: "AI Analyst", url: "/ai-analyst", icon: BrainCircuit },
       { title: "BI Workspace", url: "/bi", icon: PieChart },
       { title: "ML Models", url: "/ml", icon: Brain },
-      // 10. Watch it, once it is all running.
+      // 10. Run it all on one clock. After the things it orchestrates,
+      // because a graph is what you draw once the pieces exist.
+      { title: "Workflows", url: "/workflows", icon: Workflow },
+      // 11. Watch it, once it is all running.
       { title: "Data monitors", url: "/data-monitors", icon: HeartPulse },
       // 11. The escape hatch, last, for when none of the above fits.
       { title: "Developer workspace", url: "/notebooks", icon: NotebookPen },

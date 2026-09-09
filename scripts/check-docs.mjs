@@ -110,6 +110,7 @@ const APP_NAV = {
     "Lakehouse",
     "SQL Models",
     "ML Models",
+    "Workflows",
     "Data monitors",
     "Developer workspace",
   ],

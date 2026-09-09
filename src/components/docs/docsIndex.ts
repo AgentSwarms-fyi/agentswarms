@@ -4028,5 +4028,40 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "level": 2
       }
     ]
+  },
+  {
+    "route": "/docs/workflows",
+    "title": "Workflows",
+    "description": "One graph over the pipelines, model builds, retrains and notebooks you already have — so ingest, transform and train stop keeping four separate clocks.",
+    "terms": [
+      "partial"
+    ],
+    "headings": [
+      {
+        "id": "steps",
+        "text": "The four kinds of step",
+        "level": 2
+      },
+      {
+        "id": "building",
+        "text": "Building a graph",
+        "level": 2
+      },
+      {
+        "id": "failure",
+        "text": "What happens when a step fails",
+        "level": 2
+      },
+      {
+        "id": "runs",
+        "text": "Runs",
+        "level": 2
+      },
+      {
+        "id": "limits",
+        "text": "Knobs",
+        "level": 3
+      }
+    ]
   }
 ];

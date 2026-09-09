@@ -113,6 +113,11 @@ everything else: IAM shares, trigger audit, decision ids.
 
 ![An ML model page: a clustering model trained on the sample revenue table, showing its silhouette score, the groups it found with their typical rows, the leaderboard of every k tried, and the lineage with snapshot, decision id and artifact digest](docs/screenshots/ml-model-training.png)
 
+**Workflows** — one graph over the pipelines, model builds, retrains and
+notebooks you already have. A step starts when everything it waits for has
+succeeded, independent steps run at once, and a step whose dependency failed is
+marked skipped rather than left pending forever.
+
 **BI Workspace** — multi-page dashboards over your connected tables and
 warehouses, with KPIs, cross-filtering, scheduled refresh, PDF export and
 publish-and-share links. Alongside them, **paginated reports**: a fixed page,
@@ -350,7 +355,8 @@ One focused guide per topic in [`docs/`](./docs):
   [Adversarial log](./docs/ADVERSARIAL_LOG.md), the running record of passes
   that check what the screen says against what the data says
 - **Data** — [Data sources & connectors](./docs/DATA_SOURCES.md) ·
-  [ETL pipelines](./docs/ETL_PIPELINES.md) · [Lakehouse](./docs/LAKEHOUSE.md) ·
+  [ETL pipelines](./docs/ETL_PIPELINES.md) · [Workflows](./docs/WORKFLOWS.md) ·
+  [Lakehouse](./docs/LAKEHOUSE.md) ·
   [SQL models](./docs/SQL_MODELS.md) ·
   [Semantic layer](./docs/SEMANTIC_LAYER.md) ·
   [Business intelligence](./docs/BUSINESS_INTELLIGENCE.md) ·

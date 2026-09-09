@@ -14,8 +14,36 @@ development branch and may be ahead of the latest tag.
 
 ## Unreleased
 
-Work on `main` since the 1.4.0 tag. Twenty-five migrations —
+Work on `main` since the 1.4.0 tag. Twenty-six migrations —
 run `npx supabase db push` after pulling.
+
+### Workflows: one graph over four separate clocks
+
+- **Data & BI → Workflows orchestrates work that already exists.** A step is an
+  ETL pipeline, a SQL model build, an ML schedule or a notebook; an arrow means
+  _after_. Nothing new executes — the workflow decides **when**, and records
+  what happened as one run instead of four unrelated ones.
+- **Fan-out and fan-in, which a chain could not do.** A pipeline could already
+  name models and schedules to start on success, but a chain is a _line_:
+  "retrain only after BOTH the orders pipeline and the customers model have
+  finished" was not expressible, and the workaround was to stagger cron times
+  and hope. Independent steps now run at once, and a step with two arrows into
+  it waits for both.
+- **A failure skips its whole branch, and skipped is not a failure.** A step
+  that never ran tells you nothing about itself, and folding the two together
+  makes a run report say four things broke when one did. The skip is
+  transitive, because leaving the rest pending would be a run that never ends.
+  **Carry on if this step fails** reverses it for one step — for the one that
+  refreshes a dashboard, not the one that loads the data.
+- **A partial SQL model build counts as a failure**, because it means some
+  models failed and the tables the next step is about to train on are stale.
+- **The graph is pinned onto the run**, so editing a workflow never rewrites
+  the history of what ran, and every step start is claimed with a conditional
+  update so app replicas cannot double-start one.
+- The canvas is the ETL builder's, so the gesture is the one operators know,
+  and the run paints its state onto the same graph. Owner-only and audited. One
+  migration, 32 unit tests. Knobs: `WORKFLOW_STEP_TIMEOUT_MINUTES`,
+  `WORKFLOW_RUNS_PER_SWEEP`.
 
 ### Paginated reports in the BI Workspace
 
