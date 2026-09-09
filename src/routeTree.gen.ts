@@ -49,6 +49,7 @@ import { Route as AuthenticatedPromptCompareRouteImport } from './routes/_authen
 import { Route as AuthenticatedPromptsRouteImport } from './routes/_authenticated/prompts'
 import { Route as AuthenticatedSecretsRouteImport } from './routes/_authenticated/secrets'
 import { Route as AuthenticatedSemanticsRouteImport } from './routes/_authenticated/semantics'
+import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
 import { Route as AuthenticatedSkillsRouteImport } from './routes/_authenticated/skills'
 import { Route as AuthenticatedSwarmsRouteImport } from './routes/_authenticated/swarms'
 import { Route as AuthenticatedTracesRouteImport } from './routes/_authenticated/traces'
@@ -339,6 +340,11 @@ const AuthenticatedSecretsRoute = AuthenticatedSecretsRouteImport.update({
 const AuthenticatedSemanticsRoute = AuthenticatedSemanticsRouteImport.update({
   id: '/semantics',
   path: '/semantics',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
 const AuthenticatedSkillsRoute = AuthenticatedSkillsRouteImport.update({
@@ -827,6 +833,7 @@ export interface FileRoutesByFullPath {
   '/prompts': typeof AuthenticatedPromptsRoute
   '/secrets': typeof AuthenticatedSecretsRoute
   '/semantics': typeof AuthenticatedSemanticsRoute
+  '/settings': typeof AuthenticatedSettingsRoute
   '/skills': typeof AuthenticatedSkillsRoute
   '/swarms': typeof AuthenticatedSwarmsRoute
   '/traces': typeof AuthenticatedTracesRoute
@@ -954,6 +961,7 @@ export interface FileRoutesByTo {
   '/prompts': typeof AuthenticatedPromptsRoute
   '/secrets': typeof AuthenticatedSecretsRoute
   '/semantics': typeof AuthenticatedSemanticsRoute
+  '/settings': typeof AuthenticatedSettingsRoute
   '/skills': typeof AuthenticatedSkillsRoute
   '/swarms': typeof AuthenticatedSwarmsRoute
   '/traces': typeof AuthenticatedTracesRoute
@@ -1084,6 +1092,7 @@ export interface FileRoutesById {
   '/_authenticated/prompts': typeof AuthenticatedPromptsRoute
   '/_authenticated/secrets': typeof AuthenticatedSecretsRoute
   '/_authenticated/semantics': typeof AuthenticatedSemanticsRoute
+  '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/_authenticated/skills': typeof AuthenticatedSkillsRoute
   '/_authenticated/swarms': typeof AuthenticatedSwarmsRoute
   '/_authenticated/traces': typeof AuthenticatedTracesRoute
@@ -1214,6 +1223,7 @@ export interface FileRouteTypes {
     | '/prompts'
     | '/secrets'
     | '/semantics'
+    | '/settings'
     | '/skills'
     | '/swarms'
     | '/traces'
@@ -1341,6 +1351,7 @@ export interface FileRouteTypes {
     | '/prompts'
     | '/secrets'
     | '/semantics'
+    | '/settings'
     | '/skills'
     | '/swarms'
     | '/traces'
@@ -1470,6 +1481,7 @@ export interface FileRouteTypes {
     | '/_authenticated/prompts'
     | '/_authenticated/secrets'
     | '/_authenticated/semantics'
+    | '/_authenticated/settings'
     | '/_authenticated/skills'
     | '/_authenticated/swarms'
     | '/_authenticated/traces'
@@ -1896,6 +1908,13 @@ declare module '@tanstack/react-router' {
       path: '/semantics'
       fullPath: '/semantics'
       preLoaderRoute: typeof AuthenticatedSemanticsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/settings': {
+      id: '/_authenticated/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof AuthenticatedSettingsRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/skills': {
@@ -2569,6 +2588,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedPromptsRoute: typeof AuthenticatedPromptsRoute
   AuthenticatedSecretsRoute: typeof AuthenticatedSecretsRoute
   AuthenticatedSemanticsRoute: typeof AuthenticatedSemanticsRoute
+  AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
   AuthenticatedSkillsRoute: typeof AuthenticatedSkillsRoute
   AuthenticatedSwarmsRoute: typeof AuthenticatedSwarmsRoute
   AuthenticatedTracesRoute: typeof AuthenticatedTracesRoute
@@ -2605,6 +2625,7 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedPromptsRoute: AuthenticatedPromptsRoute,
   AuthenticatedSecretsRoute: AuthenticatedSecretsRoute,
   AuthenticatedSemanticsRoute: AuthenticatedSemanticsRoute,
+  AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
   AuthenticatedSkillsRoute: AuthenticatedSkillsRoute,
   AuthenticatedSwarmsRoute: AuthenticatedSwarmsRoute,
   AuthenticatedTracesRoute: AuthenticatedTracesRoute,
