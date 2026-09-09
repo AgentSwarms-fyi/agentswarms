@@ -115,7 +115,10 @@ everything else: IAM shares, trigger audit, decision ids.
 
 **BI Workspace** — multi-page dashboards over your connected tables and
 warehouses, with KPIs, cross-filtering, scheduled refresh, PDF export and
-publish-and-share links.
+publish-and-share links. Alongside them, **paginated reports**: a fixed page,
+a running header and footer, and tables that continue onto the next page with
+their header redrawn — generated from a table by AI, exported as vector-text
+PDF.
 
 ![A published "Formula 1 Analytics" dashboard showing KPI cards and bar and doughnut charts across multiple pages](docs/screenshots/bi-dashboard.png)
 

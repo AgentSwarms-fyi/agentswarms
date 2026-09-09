@@ -11,6 +11,7 @@ import {
   BarChart3,
   Building2,
   Check,
+  FileText,
   Folder,
   FolderInput,
   FolderPlus,
@@ -50,6 +51,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { DataPrepTab } from "@/components/bi/DataPrepTab";
+import { ReportsTab } from "@/components/bi/ReportsTab";
 import { BiThumbnail } from "@/components/bi/BiThumbnail";
 import { BiMoveDialog } from "@/components/bi/BiMoveDialog";
 import { BiPromoteDialog } from "@/components/bi/BiPromoteDialog";
@@ -91,7 +93,7 @@ function BiWorkspacePage() {
   const { user } = useAuth();
   const isAdmin = useIsSuperadmin();
   const navigate = useNavigate();
-  const [tab, setTab] = useState<"projects" | "prep">("projects");
+  const [tab, setTab] = useState<"projects" | "reports" | "prep">("projects");
   const [dashboards, setDashboards] = useState<BiDashboardRow[] | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [name, setName] = useState("");
@@ -250,7 +252,7 @@ function BiWorkspacePage() {
         </div>
       </div>
 
-      <Tabs value={tab} onValueChange={(v) => setTab(v as "projects" | "prep")}>
+      <Tabs value={tab} onValueChange={(v) => setTab(v as "projects" | "reports" | "prep")}>
         <TabsList className="h-auto w-full justify-start gap-6 rounded-none border-b border-border bg-transparent p-0">
           <TabsTrigger
             value="projects"
@@ -259,12 +261,22 @@ function BiWorkspacePage() {
             <LayoutDashboard className="h-3.5 w-3.5" /> Projects
           </TabsTrigger>
           <TabsTrigger
+            value="reports"
+            className="gap-1.5 rounded-none border-0 border-b-2 border-transparent bg-transparent px-1 pb-2.5 text-sm font-medium text-muted-foreground shadow-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
+          >
+            <FileText className="h-3.5 w-3.5" /> Reports
+          </TabsTrigger>
+          <TabsTrigger
             value="prep"
             className="gap-1.5 rounded-none border-0 border-b-2 border-transparent bg-transparent px-1 pb-2.5 text-sm font-medium text-muted-foreground shadow-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
           >
             <Wand2 className="h-3.5 w-3.5" /> Data preparation
           </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="reports" className="mt-4">
+          {tab === "reports" && <ReportsTab />}
+        </TabsContent>
 
         <TabsContent value="prep" className="mt-4">
           {tab === "prep" && <DataPrepTab />}

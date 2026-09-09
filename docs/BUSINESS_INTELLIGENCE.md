@@ -304,6 +304,118 @@ month`, since the rows underneath have no `month` column to filter on.
   as one commit for review/versioning. Only definitions are exported — widget
   **data rows are stripped**, never the snapshots.
 
+## Paginated reports
+
+A dashboard is a grid you scroll and resize. A **paginated report** is the
+other shape: a fixed page, a flow of blocks down it, and content that
+continues onto the next page when the room runs out. It is what a month-end
+pack, an invoice or a regulatory return has to be, because somebody prints it
+and the page count matters.
+
+Open **BI Workspace → Reports** (`/bi`, the Reports tab). A report opens in
+its own designer at `/bi/report/:id`.
+
+### The two halves are shared on purpose
+
+Everything below the layout is the dashboard's. A report's chart block **is**
+a `BiWidget` — the same query, the same cached rows, the same `ChartSpec` and
+the same renderer — so nothing about a number changes when it moves from a
+tile to a page. What is new is the geometry: page size, margins, a running
+header and footer, explicit breaks, and a table that repeats its header row
+every time it crosses a page.
+
+| File                                                 | What it holds                                                                                                     |
+| ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `src/lib/biReports.ts`                               | The pure model: page geometry, token substitution, `sliceTable`, `paginateBlocks`, validation. No React, no PDF.  |
+| `src/lib/biReportAgent.ts`                           | The AI planner: `suggestReportOutline` on top of the dashboard generator's `describeSchema` and governed catalog. |
+| `src/lib/biReportPdf.ts`                             | `buildReportPdfBytes` — vector-text PDF via pdf-lib, charts embedded as PNG.                                      |
+| `src/components/bi/ReportPagePreview.tsx`            | The paged preview, driven by `paginateBlocks`.                                                                    |
+| `src/components/bi/GenerateReportDialog.tsx`         | Plan → review → build, reusing `runBiTurn` and `widgetFromBiTurn`.                                                |
+| `src/components/bi/AddFromDashboardDialog.tsx`       | Lift an existing dashboard widget onto a page.                                                                    |
+| `src/routes/_authenticated/bi_.report.$reportId.tsx` | The designer.                                                                                                     |
+| `src/utils/biReports.functions.ts`                   | Owner-scoped server functions over `bi_reports`.                                                                  |
+
+### Blocks
+
+| Kind        | Behaviour                                                                                                    |
+| ----------- | ------------------------------------------------------------------------------------------------------------ |
+| `heading`   | Level 1/2/3. Levels 1 and 2 rule off underneath.                                                             |
+| `text`      | A paragraph, wrapped to the content width.                                                                   |
+| `spacer`    | Vertical room in points (72pt = 1 inch).                                                                     |
+| `pagebreak` | Starts the next page. Ignored when the page is still empty, so a leading break does not print a blank sheet. |
+| `chart`     | A widget's chart at a set height. Rasterised at export.                                                      |
+| `table`     | A widget's rows, **flowing** across pages with the header redrawn on each.                                   |
+
+### One pagination function, two consumers
+
+The designer's preview and the PDF renderer call the **same**
+`paginateBlocks`, in the same units (points), with the same `TABLE_ROW_H` and
+`TABLE_HEADER_H`. A preview that flowed differently would be a picture of a
+document nobody receives. `tests/unit/biReports.test.ts` builds real PDFs with
+`pdf-lib` and asserts the preview and the renderer agree on the page count for
+tables of 5, 60 and 200 rows — the drift this design exists to prevent would
+otherwise be invisible until somebody printed it.
+
+`sliceTable` carries the rule: a table needs its header plus at least one row
+to be worth starting, so one that cannot fit both begins on the next page
+rather than stranding a header at the bottom of this one.
+
+### Reusing a dashboard's widgets
+
+**Add from a dashboard** in the designer lists every chart widget with saved
+rows across every page of a chosen dashboard, and drops the chosen one in as a
+chart block or as a table block. The `BiWidget` is carried across by reference,
+not rebuilt, which is what makes the two surfaces incapable of disagreeing. A
+widget with no snapshot is not offered — it would print an empty box.
+
+### Page setup, header and footer
+
+A4, Letter, Legal or A3; portrait or landscape; one uniform margin, clamped so
+it cannot swallow the page. The header and footer each have a left, centre and
+right slot accepting `{{page}}`, `{{pages}}`, `{{title}}`, `{{date}}` and
+`{{time}}`. A new report opens with `Page {{page}} of {{pages}}` in the footer.
+
+The bands are stamped in a **second pass** over the finished pages, not during
+layout: `{{pages}}` is not knowable until the last block has been placed, and a
+footer that says "of 3" on a four-page report is worse than no footer at all.
+The date and time are fixed once per export so every page of one file agrees.
+
+### Generating a report with AI
+
+**Generate with AI** runs the dashboard generator's machinery with one
+difference of shape. `suggestReportOutline` asks for an ordered narrative of
+**sections** rather than a set of tiles, and each section declares whether its
+answer belongs in a chart or in a table somebody will check a row of, plus
+whether it should start a new page. Each chosen section then runs the ordinary
+`runBiTurn` → `widgetFromBiTurn` path, so a generated block is
+indistinguishable from one lifted off a dashboard.
+
+The planner goes through the same IAM-gated `POST /api/bi` route as every other
+BI generation and is traced as **BI Agent: Report outline** (`stage: "report"`).
+
+A section whose query fails or returns no rows is reported with its reason and
+skipped; the rest of the report is still built. If nothing could be built the
+dialog stays open with the reasons rather than handing back an empty document.
+
+### Export
+
+**Export PDF** builds a real vector-text PDF: headings, paragraphs and table
+cells are selectable text, not a screenshot. Only charts are images, rasterised
+by `html2canvas-pro` from the very nodes the preview is showing (tagged
+`data-chart-block`), so the exported chart is the chart you were looking at. A
+chart with no rows prints a visible `[chart unavailable]` marker rather than a
+silent gap.
+
+### Access
+
+A report is **owner-only**. `bi_reports` carries RLS on `auth.uid() = user_id`
+and every server function re-resolves the caller and scopes by `user_id`.
+There is deliberately no `has_resource_access('bi_report', …)` policy: the
+`iam_resource_grants.resource_type` CHECK does not admit `'bi_report'`, so such
+a policy would be dead code that reads like a working share. Send the exported
+PDF instead. Name, page setup and band changes are written to the audit log via
+`audit_row_change('bi_report')`.
+
 ## AI Analyst — your analytical partner
 
 **AI Analyst** (`/ai-analyst`, first under Data &amp; BI) is the dedicated

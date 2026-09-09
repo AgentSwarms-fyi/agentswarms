@@ -681,6 +681,45 @@ export type Database = {
           },
         ];
       };
+      bi_reports: {
+        Row: {
+          blocks: Json;
+          created_at: string;
+          description: string | null;
+          footer: Json;
+          header: Json;
+          id: string;
+          name: string;
+          page: Json;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          blocks?: Json;
+          created_at?: string;
+          description?: string | null;
+          footer?: Json;
+          header?: Json;
+          id?: string;
+          name: string;
+          page?: Json;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          blocks?: Json;
+          created_at?: string;
+          description?: string | null;
+          footer?: Json;
+          header?: Json;
+          id?: string;
+          name?: string;
+          page?: Json;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
       bi_dashboards: {
         Row: {
           ai_model: string | null;

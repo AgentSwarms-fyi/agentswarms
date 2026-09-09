@@ -260,7 +260,7 @@ function enc(s: string): string {
 }
 
 /** enc() for a single drawText call, which cannot contain line breaks. */
-function encLine(s: string): string {
+export function encLine(s: string): string {
   return enc(s).replace(/\n/g, " ");
 }
 
@@ -286,7 +286,7 @@ function wrapPre(text: string, font: PDFFont, size: number, width: number): stri
   return out;
 }
 
-function wrapText(text: string, font: PDFFont, size: number, width: number): string[] {
+export function wrapText(text: string, font: PDFFont, size: number, width: number): string[] {
   const out: string[] = [];
   for (const para of enc(text).split("\n")) {
     const words = para.split(/\s+/).filter(Boolean);

@@ -190,6 +190,14 @@ export type LlmJsonOpts = {
   temperature?: number;
   /** Completion-token cap; raise it for large structured outputs (deck plans). */
   maxTokens?: number;
+  /**
+   * Which step of the BI agent this is, so the trace says so.
+   *
+   * The server has always mapped this to a surface name; nothing sent it,
+   * which left every BI call recorded as "BI Agent: Generic" and made plan,
+   * SQL, chart and narrative spend indistinguishable in Traces.
+   */
+  stage?: "plan" | "sql" | "chart" | "narrative" | "suggestions" | "report";
 };
 
 /**
@@ -236,6 +244,7 @@ export async function llmJson<T>(opts: LlmJsonOpts): Promise<T> {
         model: choice?.model,
         temperature: opts.temperature,
         maxTokens: opts.maxTokens,
+        stage: opts.stage,
       }),
       signal: ctrl.signal,
     });

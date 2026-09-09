@@ -791,6 +791,143 @@ GROUP BY region`}</Code>
         visible, and a column is hidden only when <em>every</em> applicable grant hides it.
       </P>
 
+      <H2 id="paginated">Paginated reports</H2>
+      <P>
+        A dashboard is a grid you scroll and resize. A <strong>paginated report</strong> is the
+        other shape: a fixed page, a flow of blocks down it, and content that continues onto the
+        next page when the room runs out — the thing a month-end pack, an invoice or a regulatory
+        return has to be, because somebody prints it and the page count matters. Open{" "}
+        <strong>Data &amp; BI → BI Workspace → Reports</strong>.
+      </P>
+      <P>
+        Reports and dashboards share everything below the layout. A report&apos;s chart block{" "}
+        <em>is</em> a dashboard widget — the same query, the same cached rows, the same chart spec
+        and the same renderer — so nothing about a number changes when it moves from a tile to a
+        page.
+      </P>
+
+      <H3 id="report-blocks">Blocks</H3>
+      <FieldList
+        items={[
+          {
+            name: "Heading",
+            body: "Title, section or sub-section. The first two rule off underneath.",
+          },
+          { name: "Text", body: "A paragraph. Wraps to the content width and flows across pages." },
+          { name: "Spacer", body: "Vertical room, in points. 72 points is an inch." },
+          {
+            name: "Page break",
+            body: "Starts the next page. Ignored when the current page is still empty, so a break at the top does not print a blank sheet.",
+          },
+          {
+            name: "Chart",
+            body: "A widget's chart at a height you set. Exported as an image drawn from the same rows the preview shows.",
+          },
+          {
+            name: "Table",
+            body: "A widget's rows, printed. This is the block that continues onto the next page and redraws its header row when it does.",
+          },
+        ]}
+      />
+
+      <Callout kind="why" title="Why the preview is the layout, not a picture of one">
+        The designer&apos;s preview and the PDF renderer call the <em>same</em> pagination function,
+        in the same units, from the same row and header heights. A preview that flowed differently
+        would be a picture of a document nobody receives. A test builds a real PDF and asserts the
+        two agree on the page count for tables of 5, 60 and 200 rows.
+      </Callout>
+
+      <H3 id="report-reuse">Reusing a dashboard&apos;s widgets</H3>
+      <P>
+        <strong>Add from a dashboard</strong> puts a widget you already built onto a page. It comes
+        across whole — its query, its saved rows and its chart spec — so the page cannot disagree
+        with the tile it came from, and you choose whether the page shows the visual or the rows
+        behind it. Widgets from <em>every</em> page of a multi-page dashboard are offered. A widget
+        with no saved snapshot is not offered at all, because it would print an empty box; refresh
+        the dashboard first.
+      </P>
+
+      <H3 id="report-page">Page setup, header and footer</H3>
+      <P>
+        Choose A4, Letter, Legal or A3, portrait or landscape, and a uniform margin. The running{" "}
+        <strong>header</strong> and <strong>footer</strong> each have a left, centre and right slot
+        that accept tokens: <C>{"{{page}}"}</C>, <C>{"{{pages}}"}</C>, <C>{"{{title}}"}</C>,{" "}
+        <C>{"{{date}}"}</C> and <C>{"{{time}}"}</C>. A new report opens with{" "}
+        <C>
+          Page {"{{page}}"} of {"{{pages}}"}
+        </C>{" "}
+        in the footer, because the first thing anybody misses on a printed report is which page they
+        are holding.
+      </P>
+      <P>
+        <strong>The bands are stamped after the layout, not during it.</strong> The total page count
+        is not knowable until the last block has been placed, and a footer that says &ldquo;of
+        3&rdquo; on a four-page report is worse than no footer at all. The date and time are fixed
+        once per export so every page of one file agrees.
+      </P>
+
+      <H3 id="report-tables">How a long table breaks</H3>
+      <P>
+        A table taller than the space left is not clipped and not shunted whole onto the next page.
+        It fills what is there, breaks, and <strong>continues</strong> — with its header row drawn
+        again on every page, because a column of numbers with no heading on page four is unreadable.
+        A table that cannot fit its header plus at least one row starts on the next page instead of
+        stranding a header at the bottom of this one. <strong>Max rows</strong> caps what the block
+        prints; leave it blank to print every row the query returned.
+      </P>
+
+      <H3 id="report-ai">Generating a report with AI</H3>
+      <P>
+        <strong>Generate with AI</strong> runs the dashboard generator&apos;s machinery with one
+        difference of shape. Pick a table, optionally say what the report is for, and the planner
+        returns an ordered <strong>outline</strong> of sections rather than a set of tiles: each
+        section is a heading, the question behind it, whether the answer belongs in a chart or in a
+        table somebody will check a row of, and whether it should start a new page.
+      </P>
+      <Steps
+        items={[
+          {
+            title: "Pick the table",
+            body: "Optionally say what the report is for — the planner writes a different outline for a board pack than for an operations check.",
+          },
+          {
+            title: "Review the planned sections",
+            body: "Each shows its question, whether it will be a chart or a table, and whether it starts a new page. Untick any you don't want.",
+          },
+          {
+            title: "Build",
+            body: "Every section runs the same BI turn a dashboard widget does, and becomes a heading plus a chart or table block.",
+          },
+          {
+            title: "Edit and save",
+            body: "Reorder, retitle, change the page setup and the bands in the designer.",
+          },
+          { title: "Export PDF" },
+        ]}
+      />
+      <P>
+        A section whose query fails or returns no rows is reported with its reason and skipped; the
+        rest of the report is still built. If nothing could be built the dialog stays open with the
+        reasons, rather than handing back an empty document. The planner runs through the same
+        IAM-gated server route as every other BI generation and is traced as{" "}
+        <C>BI Agent: Report outline</C>.
+      </P>
+
+      <H3 id="report-export">Export</H3>
+      <P>
+        <strong>Export PDF</strong> builds a real vector-text PDF: headings, paragraphs and table
+        cells are selectable text, not a screenshot. Only charts are images, rasterised from the
+        nodes the preview is already showing, so the exported chart is the chart you were looking
+        at. A chart with no rows prints a visible <C>[chart unavailable]</C> marker rather than a
+        silent gap.
+      </P>
+
+      <Callout kind="info" title="Reports are owner-only">
+        A report belongs to the account that created it. Unlike dashboards, there is no group share,
+        public link or embed key — send the exported PDF. Name and page setup changes are written to
+        the audit log.
+      </Callout>
+
       <H2 id="lifecycle">Versioning and promotion</H2>
       <UL>
         <li>

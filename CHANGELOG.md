@@ -14,8 +14,42 @@ development branch and may be ahead of the latest tag.
 
 ## Unreleased
 
-Work on `main` since the 1.4.0 tag. Twenty-four migrations —
+Work on `main` since the 1.4.0 tag. Twenty-five migrations —
 run `npx supabase db push` after pulling.
+
+### Paginated reports in the BI Workspace
+
+- **BI → Reports builds documents with pages, not a grid that scrolls.** A
+  dashboard has no pages, so exporting one is a screenshot of a grid; a
+  month-end pack, an invoice or a regulatory return needs the other shape. A
+  report is a fixed page, a flow of blocks down it, and a **table that
+  continues onto the next page with its header row redrawn** — the one thing a
+  screenshot of a scrolling grid can never do. Page size (A4/Letter/Legal/A3),
+  orientation, margin, and a running header and footer taking `{{page}}`,
+  `{{pages}}`, `{{title}}`, `{{date}}` and `{{time}}`. The bands are stamped in
+  a second pass, because the total page count is not knowable until the last
+  block is placed and a footer that says "of 3" on a four-page report is worse
+  than no footer.
+- **A chart block is a dashboard widget.** The same query, the same cached
+  rows, the same chart spec and the same renderer, so a number does not change
+  when it moves from a tile to a page. **Add from a dashboard** puts one you
+  already built onto a page — as the visual, or as the rows behind it — and
+  carries the widget across by reference rather than rebuilding it, which is
+  what makes the two surfaces incapable of disagreeing.
+- **Generate the whole report with AI**, on the dashboard generator's own
+  stack. The planner returns an ordered narrative of sections rather than a set
+  of tiles, and says which belong in a table somebody will check a row of; each
+  chosen section then runs the ordinary BI turn. A section that fails or
+  returns no rows is reported with its reason and skipped, never faked.
+- **The preview is the layout.** The designer and the PDF renderer call the
+  same pagination function in the same units; a test builds real PDFs and
+  asserts they agree on the page count for tables of 5, 60 and 200 rows.
+- **Export is vector text**, not an image of a page — headings, paragraphs and
+  table cells stay selectable; only charts are rasterised, from the very nodes
+  the preview shows. Reports are owner-only. One migration.
+- **Fixed: every BI generation traced as "Generic".** `llmJson` never sent the
+  `stage` it was given, so the surface label on `execution_traces` was the
+  fallback for the plan, SQL, chart, narrative and suggestion calls alike.
 
 ### Point-in-time training sets
 

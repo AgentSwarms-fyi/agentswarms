@@ -584,6 +584,41 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "level": 3
       },
       {
+        "id": "paginated",
+        "text": "Paginated reports",
+        "level": 2
+      },
+      {
+        "id": "report-blocks",
+        "text": "Blocks",
+        "level": 3
+      },
+      {
+        "id": "report-reuse",
+        "text": "Reusing a dashboard&apos;s widgets",
+        "level": 3
+      },
+      {
+        "id": "report-page",
+        "text": "Page setup, header and footer",
+        "level": 3
+      },
+      {
+        "id": "report-tables",
+        "text": "How a long table breaks",
+        "level": 3
+      },
+      {
+        "id": "report-ai",
+        "text": "Generating a report with AI",
+        "level": 3
+      },
+      {
+        "id": "report-export",
+        "text": "Export",
+        "level": 3
+      },
+      {
         "id": "lifecycle",
         "text": "Versioning and promotion",
         "level": 2
