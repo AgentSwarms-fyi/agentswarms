@@ -51,6 +51,17 @@ html {
     "cv10" 1;
 }
 
+/* Workspace density (Settings → Layout). Tailwind v4's spacing utilities
+   (p-*, m-*, gap-*, size-*, ...) all resolve through the single `--spacing`
+   variable its preset defines (default 0.25rem) — overriding it here is a
+   genuinely app-wide density change from one rule, not a per-component
+   retrofit that would only affect pages someone remembered to touch.
+   Deliberately leaves font sizes and line-heights alone: "compact" means
+   less air around things, not smaller text. */
+[data-density="compact"] {
+  --spacing: 0.2rem;
+}
+
 .dot-matrix-bg {
   background-color: var(--background);
   background-image: radial-gradient(
