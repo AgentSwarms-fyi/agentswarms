@@ -154,6 +154,24 @@ export function checkRegistrable(
   return { ok: true, artifactUri: run.artifact_uri, artifactSha256: run.artifact_sha256 };
 }
 
+/** Tasks a version trained elsewhere can serve; forecast and recommendation are the trainer's own. */
+export const EXTERNAL_TASKS = ["classification", "regression", "clustering", "anomaly"] as const;
+export type ExternalTask = (typeof EXTERNAL_TASKS)[number];
+
+/**
+ * The name an uploaded artifact is stored under: one path segment, the
+ * characters a key can carry anywhere, and a joblib file unless the caller
+ * said otherwise. A name that would climb out of the run's prefix cannot.
+ */
+export function artifactFileName(raw: string | null | undefined): string {
+  const base = (raw ?? "").split(/[\\/]/).pop() ?? "";
+  const clean = base
+    .replace(/[^A-Za-z0-9._-]+/g, "_")
+    .replace(/^[._]+/, "")
+    .slice(0, 120);
+  return clean || "model.joblib";
+}
+
 /** The algorithm label a promoted run carries, when the run logged one. */
 export function algorithmOf(params: unknown): string {
   const p = asScalarMap(params).algorithm;

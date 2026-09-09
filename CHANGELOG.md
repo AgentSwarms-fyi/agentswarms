@@ -14,8 +14,26 @@ development branch and may be ahead of the latest tag.
 
 ## Unreleased
 
-Work on `main` since the 1.4.0 tag. Twenty-three migrations —
+Work on `main` since the 1.4.0 tag. Twenty-four migrations —
 run `npx supabase db push` after pulling.
+
+### A notebook's model reaches the registry
+
+- **`run.save_model(...)` and `run.register(...)`.** A run could record an
+  artifact's URI and digest, but producing that artifact was the author's
+  problem: write a joblib file in the registry's contract, get it into the
+  lake bucket without the bucket's credentials (a kernel holds none, on
+  purpose), hash it, and only then call `finish`. Nobody did, so
+  notebook-authored models stayed in notebooks. The kernel now sends the
+  bytes to the platform, which writes them beside its own trainer's artifacts
+  and records **the digest it computed from what arrived** — the value
+  inference verifies before loading. `register` then turns the run into a
+  model version by id or by name, creating the model when the name is new,
+  through the same external-registration path: same contract, same audit
+  rows, still a candidate until somebody promotes it. Both work from outside
+  the platform with a user token. One upload is bounded by
+  `ML_ARTIFACT_MAX_MB` (512 MB), editable under Admin → Developer runtime.
+  One migration: `artifact_bytes` and the new setting.
 
 ### Clustering and a layout advisor
 

@@ -107,7 +107,12 @@ export function presignS3Get(args: {
 
 const EMPTY_SHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 
-async function signedCall(t: S3Target, method: "HEAD" | "DELETE", key: string): Promise<Response> {
+async function signedCall(
+  t: S3Target,
+  method: "HEAD" | "DELETE" | "PUT",
+  key: string,
+  body?: Buffer,
+): Promise<Response> {
   const loc = s3Location(t, "app");
   const canonicalUri = awsUriEncode(`${loc.basePath}/${key}`.replace(/\/+/g, "/"), false);
   const amzDate = new Date()
@@ -116,7 +121,9 @@ async function signedCall(t: S3Target, method: "HEAD" | "DELETE", key: string): 
     .replace(/\.\d{3}Z$/, "Z");
   const headers: Record<string, string> = {
     host: loc.host,
-    "x-amz-content-sha256": EMPTY_SHA256,
+    // A PUT signs its payload's digest, so the bytes that land are the bytes
+    // that were signed for — S3 refuses a body that hashes differently.
+    "x-amz-content-sha256": body ? createHash("sha256").update(body).digest("hex") : EMPTY_SHA256,
     "x-amz-date": amzDate,
     ...(t.sessionToken ? { "x-amz-security-token": t.sessionToken } : {}),
   };
@@ -133,8 +140,28 @@ async function signedCall(t: S3Target, method: "HEAD" | "DELETE", key: string): 
   void _host;
   return fetch(`${loc.origin}${canonicalUri}`, {
     method,
-    headers: { ...sendHeaders, Authorization: authorization },
+    headers: {
+      ...sendHeaders,
+      Authorization: authorization,
+      ...(body ? { "Content-Type": "application/octet-stream" } : {}),
+    },
+    ...(body ? { body: new Uint8Array(body) } : {}),
   });
+}
+
+/**
+ * Write one object. The app writes on a caller's behalf when the caller must
+ * not hold the bucket's credentials — a notebook kernel saving a model — and
+ * reports the digest it computed itself, never one it was told.
+ */
+export async function s3PutObject(
+  t: S3Target,
+  key: string,
+  body: Buffer,
+): Promise<{ sha256: string; bytes: number }> {
+  const res = await signedCall(t, "PUT", key, body);
+  if (!res.ok) throw new Error(`PUT ${key} failed (${res.status})`);
+  return { sha256: createHash("sha256").update(body).digest("hex"), bytes: body.length };
 }
 
 /** The size of an object, or null when it is not there. */

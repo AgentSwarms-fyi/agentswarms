@@ -287,6 +287,54 @@ It arrives as a **candidate**, never as production. Promoting it is a separate,
 deliberate step on the model's Versions tab — the seam between trying things
 and shipping one should be something a person crosses on purpose.
 
+### Saving the model from the notebook
+
+Producing that artifact used to be the author's problem: write a joblib file in
+the registry's contract, get it into the lake bucket **without the bucket's
+credentials** (a kernel does not hold them, on purpose), hash it, and only then
+call `finish`. So notebook-authored models stayed in notebooks. Two calls now
+close that gap:
+
+```python
+with agentswarms.start_run("churn-v2", params={"lr": 0.01}) as run:
+    pipe.fit(X, y)
+    run.log_metrics({"auc": 0.91, "accuracy": 0.88})
+    run.save_model(pipe, features=list(X.columns), task="classification",
+                   classes=list(pipe.classes_))
+    run.register("churn", task="classification",
+                 source={"schema": "analytics", "table": "customers"},
+                 target_column="churned")
+```
+
+`save_model` dumps the pipeline in the [external
+contract](#bring-your-own-model), sends the bytes to the platform, and the app
+writes them beside the artifacts its own trainer produces. **The digest
+recorded is the one the app computes from the bytes that arrived** — a digest
+the caller reported would be a digest nobody verified, and this one is what
+inference checks before loading the file. A `sha256` the client sends is
+compared against it and a mismatch is refused as a corrupted upload.
+
+Unlike the logging calls, `save_model` **raises**: a save you believe happened
+and did not is the same lie as a run that never started, and the caller still
+holds the fitted model to retry with. `features` is the input columns **in
+order**, because that is what the pipeline is handed at serving time.
+
+`register` turns the run into a version of a model — by id, or by name. A name
+nothing owns yet **creates the model**, which then needs `task` and
+`source` (the lakehouse table the training data came from, checked as you);
+`target_column` too, for classification and regression.
+
+The version arrives as a **candidate**, with one exception that is the
+registry's existing rule everywhere: when the model has no production version
+at all — which is always true of a model this call just created — the first
+version is promoted, because a model with nothing serving is no use. Pass
+`promote=True` to promote deliberately on a model that already serves
+something.
+
+Both work from outside the platform with a user token, on the same two
+endpoints: `POST /api/ml/experiments/artifact?run_id=…&name=…&sha256=…` with
+the bytes as the body, then `POST /api/ml/experiments/register`.
+
 ### What is recorded, and what is audited
 
 Runs are data, not configuration. Creating or renaming an **experiment** writes
@@ -634,6 +682,7 @@ them. A large VM or a Kubernetes node pool is allowed to use itself.
 | `ML_API_RATE_LIMIT_PER_MIN`            | 60        | Calls a minute one ML API key may make                 |
 | `ML_TRAIN_GPUS`                        | 0         | GPUs requested per training sandbox                    |
 | `ML_DRIFT_ALERT_PSI`                   | 0.25      | PSI above which a prediction run raises a drift alert  |
+| `ML_ARTIFACT_MAX_MB`                   | 512       | Largest model a notebook run may save through the app  |
 | `ML_MAX_DEPLOYMENTS_PER_USER`          | 2         | Warm endpoints one person may hold open                |
 | `ML_MAX_DEPLOYMENTS_TOTAL`             | 10        | Warm endpoints this instance may hold open             |
 

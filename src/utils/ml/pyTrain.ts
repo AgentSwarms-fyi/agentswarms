@@ -1350,7 +1350,17 @@ def _predict(cfg, warnings_):
         out['prediction'] = (np.asarray(pred) == -1).astype('int64')
         out['anomaly_score'] = -pipe.decision_function(X)
     elif classes:
-        out['prediction'] = [classes[int(i)] if 0 <= int(i) < len(classes) else str(i) for i in pred]
+        # The platform's own trainer predicts a class INDEX; a pipeline
+        # registered from outside predicts the LABEL itself, because that is
+        # what sklearn's predict() returns. Accept both rather than making the
+        # author encode indices nothing else in their notebook uses.
+        def _label(i):
+            try:
+                k = int(i)
+            except (TypeError, ValueError):
+                return str(i)
+            return classes[k] if 0 <= k < len(classes) else str(i)
+        out['prediction'] = [_label(i) for i in pred]
         if hasattr(pipe, 'predict_proba'):
             proba = pipe.predict_proba(X)
             out['probability'] = np.max(proba, axis=1)

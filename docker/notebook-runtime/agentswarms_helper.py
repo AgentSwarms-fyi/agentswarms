@@ -38,7 +38,7 @@ async def _post(path, payload):
         data = resp.json()
     except Exception:
         data = {}
-    if resp.status_code != 200:
+    if resp.status_code // 100 != 2:
         raise RuntimeError(data.get("message") or data.get("error") or f"HTTP {resp.status_code}")
     return data
 
@@ -267,7 +267,7 @@ def chat_model(model="openai/gpt-4o-mini", provider="openrouter", temperature=0.
                     headers={"Authorization": "Bearer " + _TOKEN},
                 )
             data = resp.json() if resp.content else {}
-            if resp.status_code != 200:
+            if resp.status_code // 100 != 2:
                 raise RuntimeError(data.get("message") or data.get("error") or f"HTTP {resp.status_code}")
             return self._result(data.get("content"), data.get("tool_calls"))
 
@@ -312,7 +312,7 @@ def llama_llm(model="openai/gpt-4o-mini", provider="openrouter", temperature=0.7
                     headers={"Authorization": "Bearer " + _TOKEN},
                 )
             data = resp.json() if resp.content else {}
-            if resp.status_code != 200:
+            if resp.status_code // 100 != 2:
                 raise RuntimeError(data.get("message") or data.get("error") or f"HTTP {resp.status_code}")
             return data["content"]
 
@@ -388,6 +388,8 @@ __all__ += ["chat_model", "llama_llm", "kb_retriever"]
 # through an event loop to do it.
 
 _RUN_TIMEOUT = 30
+# An artifact is megabytes over a local hop, not a chat turn: its own budget.
+_ARTIFACT_TIMEOUT = 300
 
 
 def _post_sync(path, payload):
@@ -403,7 +405,9 @@ def _post_sync(path, payload):
         data = resp.json() if resp.content else {}
     except Exception:
         data = {}
-    if resp.status_code != 200:
+    # Any 2xx, not only 200: registering a version answers 201 Created, which
+    # is the right status for it and was never a failure.
+    if resp.status_code // 100 != 2:
         raise RuntimeError(data.get("message") or data.get("error") or f"HTTP {resp.status_code}")
     return data
 
@@ -439,6 +443,8 @@ class Run:
         self.run_id = run_id
         self.experiment_id = experiment_id
         self.experiment = experiment
+        self.artifact_uri = None
+        self.artifact_sha256 = None
         self._finished = False
 
     def __repr__(self):
@@ -498,6 +504,102 @@ class Run:
         ok = self._send(payload, "finish the run")
         self._finished = True
         return ok
+
+    def save_model(self, model, features, task="classification", classes=None,
+                   name="model.joblib"):
+        """Save a fitted pipeline as this run's artifact, and return its digest.
+
+        The kernel holds no bucket credentials, so the bytes go to the platform
+        and it writes them beside the models its own trainer produces. The
+        digest recorded is the one the app computes from what arrived — the one
+        inference verifies before ever loading the file.
+
+        `features` is the input columns IN ORDER, because that is what a
+        pipeline is handed at serving time and a list that drifts from the
+        training order fails quietly rather than loudly.
+
+        This one RAISES on failure, unlike the logging calls: a save you
+        believe happened and did not is the same lie as a run that never
+        started, and the caller still has the fitted model in memory to retry
+        with.
+        """
+        import hashlib
+        import io
+        import joblib
+
+        payload = {"task": str(task), "pipeline": model,
+                   "features": [str(c) for c in features], "external": True}
+        if classes is not None:
+            payload["classes"] = [str(c) for c in classes]
+        buf = io.BytesIO()
+        joblib.dump(payload, buf, compress=3)
+        blob = buf.getvalue()
+        digest = hashlib.sha256(blob).hexdigest()
+        if not _ORIGIN or not _TOKEN:
+            raise RuntimeError(
+                "AgentSwarms runtime is not configured (AGENTSWARMS_ORIGIN / AGENTSWARMS_TOKEN)."
+            )
+        params = {"run_id": self.run_id, "name": str(name), "sha256": digest}
+        with httpx.Client(timeout=_ARTIFACT_TIMEOUT, trust_env=True) as client:
+            resp = client.post(
+                _ORIGIN + "/api/ml/experiments/artifact",
+                params=params,
+                content=blob,
+                headers={"Authorization": "Bearer " + _TOKEN,
+                         "Content-Type": "application/octet-stream"},
+            )
+        try:
+            data = resp.json() if resp.content else {}
+        except Exception:
+            data = {}
+        if resp.status_code // 100 != 2:
+            raise RuntimeError(data.get("error") or f"HTTP {resp.status_code}")
+        self.artifact_uri = data.get("artifact_uri")
+        self.artifact_sha256 = data.get("artifact_sha256")
+        print(f"[agentswarms] saved {data.get('bytes', len(blob))} bytes to {self.artifact_uri}")
+        return self.artifact_uri, self.artifact_sha256
+
+    def register(self, model, task=None, source=None, target_column=None,
+                 features=None, classes=None, algorithm=None, metrics=None,
+                 promote=False, description=None):
+        """Register this run's artifact as a version of `model`.
+
+        `model` is a name or a model id. A name nothing owns yet creates the
+        model, which needs `task` and `source={"schema": …, "table": …}` — the
+        lakehouse table the training data came from, checked as you.
+
+        The version arrives as a CANDIDATE. Promoting it is a separate,
+        deliberate step, on purpose: that is the moment something starts
+        serving, and a person should cross it knowing they did.
+        """
+        body = {"run_id": self.run_id, "model": str(model)}
+        if task:
+            body["task"] = str(task)
+        if source:
+            body["source"] = {"schema": str(source["schema"]), "table": str(source["table"])}
+        if target_column:
+            body["target_column"] = str(target_column)
+        if description:
+            body["description"] = str(description)[:2000]
+        if algorithm:
+            body["algorithm"] = str(algorithm)
+        if features:
+            body["feature_schema"] = [
+                {"name": str(c), "dtype": "numeric", "role": "feature"} for c in features
+            ] if not isinstance(features[0], dict) else list(features)
+        if classes is not None:
+            body["classes"] = [str(c) for c in classes]
+        if metrics:
+            body["metrics"] = {k: (None if v is None else float(v)) for k, v in dict(metrics).items()}
+        if promote:
+            body["promote"] = True
+        data = _post_sync("/api/ml/experiments/register", body)
+        self._finished = True
+        print(
+            f"[agentswarms] registered as {data['model_name']} v{data['version']}"
+            + (" (new model)" if data.get("created_model") else "")
+        )
+        return data
 
     def __enter__(self):
         return self

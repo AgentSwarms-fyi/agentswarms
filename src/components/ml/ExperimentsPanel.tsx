@@ -269,7 +269,10 @@ with agentswarms.start_run("churn-v2", params={"lr": 0.01}) as run:
     for epoch in range(10):
         run.log_metric("loss", loss, step=epoch)
     run.log_metric("auc", 0.91)
-    run.finish(artifact_uri=uri, artifact_sha256=digest)`}
+    run.save_model(pipe, features=list(X.columns), task="classification")
+    run.register("churn", task="classification",
+                 source={"schema": "analytics", "table": "customers"},
+                 target_column="churned")`}
           </pre>
         </CardContent>
       </Card>

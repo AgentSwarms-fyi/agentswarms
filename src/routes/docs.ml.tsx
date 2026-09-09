@@ -396,6 +396,36 @@ with agentswarms.start_run("churn-v2", params={"lr": 0.01, "depth": 6}) as run:
         contract. It arrives as a <strong>candidate</strong>: promoting it is a separate, deliberate
         step on the Versions tab.
       </P>
+      <H3 id="experiment-save">Saving the model from the notebook</H3>
+      <P>
+        Producing that artifact used to be the author&apos;s problem: write a joblib file in the
+        registry&apos;s contract, get it into the lake bucket{" "}
+        <strong>without the bucket&apos;s credentials</strong> (a kernel does not hold them, on
+        purpose), hash it, and only then call <C>finish</C>. So notebook-authored models stayed in
+        notebooks. Two calls close that gap:{" "}
+        <C>run.save_model(pipe, features=list(X.columns), task=&quot;classification&quot;)</C> dumps
+        the pipeline in the{" "}
+        <DocLink to="/docs/ml" hash="external-models">
+          external contract
+        </DocLink>
+        , sends the bytes to the platform, and the app writes them beside the artifacts its own
+        trainer produces.{" "}
+        <strong>The digest recorded is the one the app computes from the bytes that arrived</strong>{" "}
+        — a digest the caller reported would be a digest nobody verified, and this one is what
+        inference checks before loading. Unlike the logging calls this one raises: a save you
+        believe happened and did not is the same lie as a run that never started.
+      </P>
+      <P>
+        <C>run.register(&quot;churn&quot;, task=…, source=…, target_column=…)</C> then turns the run
+        into a version — of a model by id or by name, and a name nothing owns yet{" "}
+        <strong>creates the model</strong> from the lakehouse table the training data came from,
+        checked as you. It arrives as a <strong>candidate</strong>, except on a model with nothing
+        in production yet — always true of one this call just created — where the registry promotes
+        the first version, as it does everywhere else. Both work from outside the platform with a
+        user token, on <C>/api/ml/experiments/artifact</C> and <C>/api/ml/experiments/register</C>.
+        One upload is bounded by <C>ML_ARTIFACT_MAX_MB</C> (512 MB), editable under{" "}
+        <strong>Admin → Developer runtime → Compute resources</strong>.
+      </P>
       <Callout title="Runs are data, not configuration">
         Creating an experiment writes an audit row; a metric does not, or a training loop logging
         per epoch would write more audit rows than the audit log is for. Promoting a run into the

@@ -2414,6 +2414,8 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     "title": "ML Models",
     "description": "Train a model on a lakehouse table without writing code, keep every version with its metrics and the snapshot it learned from, score rows back into the lakehouse, let agents predict with it, and draw its forecasts on a dashboard — all on your own infrastructure.",
     "terms": [
+      "/api/ml/experiments/artifact",
+      "/api/ml/experiments/register",
       "/api/ml/predict/status",
       "401",
       "403",
@@ -2422,6 +2424,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "429",
       "LimitRange",
       "ML_API_RATE_LIMIT_PER_MIN",
+      "ML_ARTIFACT_MAX_MB",
       "ML_DRIFT_ALERT_PSI",
       "ML_MAX_CONCURRENT_TRAININGS_PER_USER",
       "ML_PREDICT_MAX_ROWS",
@@ -2526,6 +2529,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       {
         "id": "experiment-promote",
         "text": "From a run to a version",
+        "level": 3
+      },
+      {
+        "id": "experiment-save",
+        "text": "Saving the model from the notebook",
         "level": 3
       },
       {

@@ -4613,6 +4613,7 @@ export type Database = {
       };
       ml_experiment_runs: {
         Row: {
+          artifact_bytes: number | null;
           artifact_sha256: string | null;
           artifact_uri: string | null;
           duration_ms: number | null;
@@ -4633,6 +4634,7 @@ export type Database = {
           user_id: string;
         };
         Insert: {
+          artifact_bytes?: number | null;
           artifact_sha256?: string | null;
           artifact_uri?: string | null;
           duration_ms?: number | null;
@@ -4653,6 +4655,7 @@ export type Database = {
           user_id: string;
         };
         Update: {
+          artifact_bytes?: number | null;
           artifact_sha256?: string | null;
           artifact_uri?: string | null;
           duration_ms?: number | null;
@@ -5576,6 +5579,7 @@ export type Database = {
           max_sessions_per_user: number;
           max_sessions_total: number;
           mem_limit_mb: number;
+          ml_artifact_max_mb: number | null;
           ml_drift_alert_psi: number | null;
           ml_max_concurrent_trainings_per_user: number | null;
           ml_max_deployments_per_user: number | null;
@@ -5631,6 +5635,7 @@ export type Database = {
           max_sessions_per_user?: number;
           max_sessions_total?: number;
           mem_limit_mb?: number;
+          ml_artifact_max_mb?: number | null;
           ml_drift_alert_psi?: number | null;
           ml_max_concurrent_trainings_per_user?: number | null;
           ml_max_deployments_per_user?: number | null;
@@ -5686,6 +5691,7 @@ export type Database = {
           max_sessions_per_user?: number;
           max_sessions_total?: number;
           mem_limit_mb?: number;
+          ml_artifact_max_mb?: number | null;
           ml_drift_alert_psi?: number | null;
           ml_max_concurrent_trainings_per_user?: number | null;
           ml_max_deployments_per_user?: number | null;

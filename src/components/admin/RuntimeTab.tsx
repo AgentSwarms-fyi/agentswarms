@@ -899,6 +899,12 @@ export function RuntimeTab({
                 hint="Requested per training sandbox: a Docker device request, or nvidia.com/gpu on Kubernetes. Needs a CUDA-capable runtime image."
               />
               <NumberField
+                label="Notebook artifact size (MB)"
+                value={form.ml_artifact_max_mb}
+                onChange={(n) => set("ml_artifact_max_mb", n)}
+                hint="Largest model a notebook run may save into the lake bucket through the platform. The kernel holds no bucket credentials, so the bytes travel through the app."
+              />
+              <NumberField
                 label="Drift alert threshold (PSI)"
                 value={form.ml_drift_alert_psi}
                 onChange={(n) => set("ml_drift_alert_psi", n)}
