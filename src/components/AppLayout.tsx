@@ -7,7 +7,10 @@ import { OnboardingDialog } from "@/components/OnboardingDialog";
 import { MobileLabNotice } from "@/components/MobileLabNotice";
 import { GlobalCreateMenu } from "@/components/GlobalCreateMenu";
 import { CommandPalette, useCommandPalette } from "@/components/CommandPalette";
-import { Search } from "lucide-react";
+import { ShortcutsHelpDialog } from "@/components/ShortcutsHelpDialog";
+import { useGlobalShortcuts } from "@/hooks/use-global-shortcuts";
+import { Button } from "@/components/ui/button";
+import { Search, Keyboard } from "lucide-react";
 import { Outlet } from "@tanstack/react-router";
 
 export function AppLayout() {
@@ -15,6 +18,7 @@ export function AppLayout() {
   // router.tsx) — a browser-level cross-fade with no blank frame. The keyed
   // CSS enter-animation that used to live here flashed and jumped.
   const palette = useCommandPalette();
+  const shortcuts = useGlobalShortcuts();
   const isMac =
     typeof navigator !== "undefined" && /Mac|iP(hone|ad|od)/.test(navigator.platform || "");
   return (
@@ -46,6 +50,17 @@ export function AppLayout() {
                 </kbd>
               </button>
               <GlobalCreateMenu />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label="Keyboard shortcuts"
+                title="Keyboard shortcuts (?)"
+                className="h-8 w-8"
+                onClick={() => shortcuts.setHelpOpen(true)}
+              >
+                <Keyboard className="h-4 w-4" />
+              </Button>
               <ApprovalInbox />
               <NotificationBell />
               <UserMenu />
@@ -57,6 +72,11 @@ export function AppLayout() {
         </div>
       </div>
       <CommandPalette open={palette.open} onOpenChange={palette.setOpen} />
+      <ShortcutsHelpDialog
+        open={shortcuts.helpOpen}
+        onOpenChange={shortcuts.setHelpOpen}
+        onNeverShowAgain={shortcuts.dismissForever}
+      />
       <OnboardingDialog />
       <MobileLabNotice />
     </SidebarProvider>
