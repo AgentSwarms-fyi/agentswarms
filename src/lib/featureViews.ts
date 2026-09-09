@@ -224,3 +224,141 @@ export function resolutionError(view: FeatureView, r: Resolution): string | null
   }
   return null;
 }
+
+// ── Point-in-time training sets ─────────────────────────────────────────────
+//
+// Serving asks "what are this entity's features NOW". Training has to ask a
+// harder question: "what were they at the moment this label was true?" — and
+// the difference between the two is the most expensive mistake in applied ML.
+//
+// Join a label from February to the feature table's latest row and the model
+// learns from June's numbers. It scores beautifully in the notebook, because
+// the answer was in the features, and then it fails in production where June
+// has not happened yet. Nothing about that failure looks like a bug: the code
+// ran, the metric was high, and the leak is invisible unless somebody thought
+// about time.
+//
+// An ASOF join asks the right question directly. For each spine row it takes
+// the feature row with the greatest timestamp AT OR BEFORE that row's own
+// timestamp, per key — so a label can only ever see its own past.
+
+/** The spine: the labels a training set is built around, and when each was true. */
+export type TrainingSpine = {
+  schema_name: string;
+  table_name: string;
+  /** The moment each label was true. Features after it are the future. */
+  timestamp_column: string;
+  /** Spine column per view key column, in the view's key order. */
+  key_columns: string[];
+  /** Optional SQL filter on the spine, e.g. `label_at >= DATE '2024-01-01'`. */
+  where?: string | null;
+};
+
+export type TrainingSetPlan = {
+  /** How stale a feature row may be and still be joined. Null = no bound. */
+  maxAgeDays?: number | null;
+  /** Keep spine rows whose features were not found yet. */
+  keepUnmatched?: boolean;
+};
+
+/**
+ * Why this view cannot build a training set, or null.
+ *
+ * A view with no timestamp has no "as of" to join on — every row is simply
+ * current — so the honest answer is to say so rather than to join the latest
+ * row and call the result a training set.
+ */
+export function trainingSetError(
+  view: FeatureView,
+  spine: TrainingSpine,
+  featureColumns: string[],
+): string | null {
+  if (!view.timestamp_column) {
+    return `${view.name} has no timestamp column, so there is no "as of" to join on. Set one on the view — it is the column that says when each feature row became true.`;
+  }
+  if (spine.key_columns.length !== view.key_columns.length) {
+    return `${view.name} is keyed by ${view.key_columns.length} column(s); map one spine column to each`;
+  }
+  for (const c of [...spine.key_columns, spine.timestamp_column]) {
+    if (!c || !IDENT_RE.test(c)) return `"${c}" is not a column name`;
+  }
+  if (!IDENT_RE.test(spine.schema_name) || !IDENT_RE.test(spine.table_name)) {
+    return "The label table's schema and name must be plain identifiers";
+  }
+  // Every spine column travels into the training set, so a feature that shares
+  // a name with one of them would produce two columns called the same thing —
+  // and the trainer would read whichever the engine handed it.
+  const clash = featureColumns.filter(
+    (f) => spine.key_columns.includes(f) || f === spine.timestamp_column,
+  );
+  if (clash.length) {
+    return `The label table already has a column named ${clash[0]}. Rename it, or drop it from the view's features, so the training set has one column of that name.`;
+  }
+  return null;
+}
+
+/**
+ * The point-in-time training set: every spine row, with the features that
+ * were true for its key at its own timestamp.
+ *
+ * `featureColumns` is resolved by the caller (a view with none means "every
+ * column that is not a key"), because only the server knows the table.
+ */
+export function trainingSetSql(
+  view: FeatureView,
+  spine: TrainingSpine,
+  featureColumns: string[],
+  plan: TrainingSetPlan = {},
+): string {
+  const ts = qi(view.timestamp_column as string);
+  const on = view.key_columns
+    .map((k, i) => `s.${qi(spine.key_columns[i])} = f.${qi(k)}`)
+    // The inequality goes last: it is the one ASOF resolves, and everything
+    // before it is an ordinary equality on the key.
+    .concat(`s.${qi(spine.timestamp_column)} >= f.${ts}`)
+    .join(" AND ");
+  const selected = ["s.*", ...featureColumns.map((c) => `f.${qi(c)}`)].join(", ");
+  // LEFT by default: a spine row whose key has no feature yet is a real part
+  // of the training set, and silently dropping it changes what the model is
+  // trained on without saying so.
+  const kind = plan.keepUnmatched === false ? "ASOF JOIN" : "ASOF LEFT JOIN";
+  let sql =
+    `SELECT ${selected} FROM ${qi(spine.schema_name)}.${qi(spine.table_name)} s ` +
+    `${kind} ${viewTable(view)} f ON ${on}`;
+  const bounds: string[] = [];
+  if (spine.where?.trim()) bounds.push(`(${spine.where.trim()})`);
+  if (plan.maxAgeDays && plan.maxAgeDays > 0) {
+    // A feature from two years before the label is not a feature, it is
+    // history. Unmatched rows keep their NULLs rather than disappearing.
+    const age = Math.floor(plan.maxAgeDays);
+    bounds.push(
+      `(f.${ts} IS NULL OR f.${ts} >= s.${qi(spine.timestamp_column)} - INTERVAL ${age} DAY)`,
+    );
+  }
+  if (bounds.length) sql += ` WHERE ${bounds.join(" AND ")}`;
+  return sql;
+}
+
+/**
+ * The same question asked the wrong way — the latest row per key, regardless
+ * of when the label was true. Kept so the UI can show both answers side by
+ * side: seeing a February label carry a June feature is what makes the
+ * problem land, and it is the join most people write by hand.
+ */
+export function leakyJoinSql(
+  view: FeatureView,
+  spine: TrainingSpine,
+  featureColumns: string[],
+): string {
+  const partition = view.key_columns.map(qi).join(", ");
+  const ts = qi(view.timestamp_column as string);
+  const on = view.key_columns
+    .map((k, i) => `s.${qi(spine.key_columns[i])} = f.${qi(k)}`)
+    .join(" AND ");
+  const selected = ["s.*", ...featureColumns.map((c) => `f.${qi(c)}`)].join(", ");
+  return (
+    `SELECT ${selected} FROM ${qi(spine.schema_name)}.${qi(spine.table_name)} s ` +
+    `LEFT JOIN (SELECT *, row_number() OVER (PARTITION BY ${partition} ORDER BY ${ts} DESC) AS _fv_rn ` +
+    `FROM ${viewTable(view)}) f ON ${on} AND f._fv_rn = 1`
+  );
+}

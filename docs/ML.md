@@ -516,6 +516,54 @@ Find them under **ML Models → Feature views**, and attach one to a model under
 **Automation → Input** on the model page. Without one, nothing changes: the
 caller keeps sending whole rows and keeps owning them.
 
+### Point-in-time training sets
+
+Serving asks what an entity's features are **now**. Training has to ask a
+harder question — what were they **at the moment this label was true** — and
+the difference between the two is the most expensive mistake in applied ML.
+
+Join a label from February to the feature table's latest row and the model
+learns from June's numbers. It scores beautifully in the notebook, because the
+answer was in the features, and then it fails in production, where June has not
+happened yet. Nothing about that failure looks like a bug: the code ran, the
+metric was high, and the leak is invisible unless somebody thought about time.
+
+**Training set** on a feature view builds the honest version. Give it the table
+holding your labels, the column that says when each label was true, and which
+of its columns maps to each key column of the view:
+
+| You give it     | What it means                                                          |
+| --------------- | ---------------------------------------------------------------------- |
+| Label table     | One row per thing you want to predict, in a schema you own             |
+| As of           | The column saying when that label was true                             |
+| Key mapping     | The label column matching each of the view's key columns               |
+| Max feature age | Optional. A feature older than this is not joined; the row keeps nulls |
+| Write to        | A new lakehouse table, yours, replaced whole on each build             |
+
+Each label row then keeps the feature values with the greatest feature
+timestamp **at or before its own** — an `ASOF LEFT JOIN`, which is exactly this
+question and is resolved by the engine rather than by a window function you
+have to get right. `LEFT` on purpose: a key whose features start later is a
+real part of the training set, and dropping it silently changes what the model
+trained on.
+
+The build reports **how many rows would have differed** under the join people
+write by hand. That number is the whole feature expressed as a measurement: on
+the sample data below it is two of five, and those two rows carry a feature
+from four months after the label.
+
+The view's timestamp column is never joined in as a feature. A model that
+trains on the feature clock learns the shape of your ETL schedule, not
+anything about the entity.
+
+A view with **no** timestamp column cannot build one at all, and says so rather
+than joining the latest row and calling the result a training set.
+
+The table is written with one `CREATE OR REPLACE TABLE … AS`, so a reader sees
+the old rows or the new ones and never a half-built set. Nothing schedules it:
+a training set is a snapshot of what was true, and one that changes under a
+model is not a record of anything.
+
 ### What it does not do
 
 **It materialises nothing.** The table is whatever built it, and a

@@ -17,6 +17,25 @@ development branch and may be ahead of the latest tag.
 Work on `main` since the 1.4.0 tag. Twenty-four migrations —
 run `npx supabase db push` after pulling.
 
+### Point-in-time training sets
+
+- **A feature view can build a training set that cannot see the future.**
+  Serving asks what an entity's features are now; training has to ask what
+  they were when the label was true, and joining the latest feature row
+  instead is the most expensive mistake in applied ML — the model learns from
+  numbers that did not exist yet, scores beautifully, and fails in production.
+  **Training set** on a view takes a table of labels, the column saying when
+  each was true, and the label column matching each key column, then joins
+  with an `ASOF LEFT JOIN` so every row keeps the features with the greatest
+  feature timestamp at or before its own. Left, because a key whose features
+  start later is still part of the training set. An optional **max feature
+  age** refuses a stale join without dropping the row, and the view's
+  timestamp is never joined in as a feature — a model that trains on the
+  feature clock learns the shape of your ETL schedule. The build reports **how
+  many rows would have differed** under the join written by hand: the leak, as
+  a number, on your own data. A view with no timestamp column cannot build one
+  and says so. No migration.
+
 ### Every service survives losing one instance
 
 - **The stateless tiers now ship with two replicas, spread and budgeted.** The

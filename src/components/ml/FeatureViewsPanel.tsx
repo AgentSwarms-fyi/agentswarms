@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
-import { KeyRound, Loader2, Plus, Trash2 } from "lucide-react";
+import { History, KeyRound, Loader2, Plus, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -17,6 +17,7 @@ import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { cn } from "@/lib/utils";
 import { validateView } from "@/lib/featureViews";
 import {
+  featureViewBuildTrainingSet,
   featureViewDelete,
   featureViewPreview,
   featureViewSave,
@@ -24,8 +25,21 @@ import {
   mlModelSetFeatureView,
 } from "@/utils/featureViews.functions";
 import type { FeatureViewRow } from "@/utils/featureViews/lookup.server";
+import type { TrainingSetResult } from "@/utils/featureViews/trainingSet.server";
 
 type SourceTable = { schema: string; table: string; columns: { name: string; type: string }[] };
+
+/** The label table a training set is built around, while the author fills it in. */
+type SpineDraft = {
+  viewId: string;
+  schema_name: string;
+  table_name: string;
+  timestamp_column: string;
+  /** One spine column per view key column, in the view's key order. */
+  key_columns: string[];
+  output_table: string;
+  max_age_days: string;
+};
 
 type Draft = {
   id: string | null;
@@ -54,6 +68,7 @@ export function FeatureViewsPanel({ token }: { token: string }) {
   const saveFn = useServerFn(featureViewSave);
   const deleteFn = useServerFn(featureViewDelete);
   const previewFn = useServerFn(featureViewPreview);
+  const buildFn = useServerFn(featureViewBuildTrainingSet);
 
   const [views, setViews] = useState<FeatureViewRow[]>([]);
   const [tables, setTables] = useState<SourceTable[]>([]);
@@ -63,6 +78,8 @@ export function FeatureViewsPanel({ token }: { token: string }) {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [probe, setProbe] = useState<Record<string, string>>({});
   const [probed, setProbed] = useState<Record<string, unknown> | null>(null);
+  const [spine, setSpine] = useState<SpineDraft | null>(null);
+  const [built, setBuilt] = useState<TrainingSetResult | null>(null);
 
   const load = useCallback(async () => {
     const res = await listFn({ data: { accessToken: token } });
@@ -156,6 +173,44 @@ export function FeatureViewsPanel({ token }: { token: string }) {
       if (!res.ok) return toast.error(res.error);
       if (!res.row) return toast.error("No row for that key");
       setProbed(res.row);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function buildTrainingSet(v: FeatureViewRow) {
+    if (!spine) return;
+    if (!spine.table_name.trim() || !spine.timestamp_column.trim()) {
+      return toast.error("Name the label table and the column that says when each label was true");
+    }
+    if (spine.key_columns.some((c) => !c.trim())) {
+      return toast.error("Map a label column to each of the view's key columns");
+    }
+    setBusy(true);
+    setBuilt(null);
+    try {
+      const age = Number(spine.max_age_days);
+      const res = await buildFn({
+        data: {
+          accessToken: token,
+          id: v.id,
+          spine: {
+            schema_name: spine.schema_name,
+            table_name: spine.table_name.trim(),
+            timestamp_column: spine.timestamp_column.trim(),
+            key_columns: spine.key_columns.map((c) => c.trim()),
+            where: null,
+          },
+          output: { schema: spine.schema_name, table: spine.output_table.trim() },
+          max_age_days: Number.isFinite(age) && age > 0 ? Math.floor(age) : null,
+        },
+      });
+      if (!res.ok) return toast.error(res.error);
+      setBuilt(res.result);
+      toast.success(
+        `Built ${res.result.schema}.${res.result.table} — ${res.result.rows.toLocaleString()} row(s)`,
+      );
+      await load();
     } finally {
       setBusy(false);
     }
@@ -365,6 +420,34 @@ export function FeatureViewsPanel({ token }: { token: string }) {
                     </Button>
                     <Button
                       size="sm"
+                      variant="outline"
+                      title={
+                        v.timestamp_column
+                          ? "Join labels to the features that were true when each label was true"
+                          : "Needs a timestamp column: without one there is no “as of” to join on"
+                      }
+                      disabled={!v.timestamp_column}
+                      onClick={() => {
+                        setBuilt(null);
+                        setSpine(
+                          spine?.viewId === v.id
+                            ? null
+                            : {
+                                viewId: v.id,
+                                schema_name: v.schema_name,
+                                table_name: "",
+                                timestamp_column: "",
+                                key_columns: v.key_columns.map(() => ""),
+                                output_table: `${v.name}_training_set`,
+                                max_age_days: "",
+                              },
+                        );
+                      }}
+                    >
+                      <History className="mr-1 h-3.5 w-3.5" /> Training set
+                    </Button>
+                    <Button
+                      size="sm"
                       variant="ghost"
                       className="text-destructive"
                       disabled={busy}
@@ -374,6 +457,104 @@ export function FeatureViewsPanel({ token }: { token: string }) {
                     </Button>
                   </div>
                 </div>
+
+                {/* A training set, joined as of each label's own moment. The
+                    form asks for the label table rather than guessing it: only
+                    the author knows which table holds the answers. */}
+                {spine?.viewId === v.id ? (
+                  <div className="space-y-2 rounded-md border bg-muted/30 p-3">
+                    <p className="text-xs text-muted-foreground">
+                      Every label row keeps the feature values that were true for its key{" "}
+                      <strong>at its own timestamp</strong>. Joining the latest row instead would
+                      teach a model what happened after the thing it is predicting.
+                    </p>
+                    <div className="flex flex-wrap items-end gap-2">
+                      <div className="space-y-1">
+                        <Label className="text-[11px]">Label table (in {spine.schema_name})</Label>
+                        <Input
+                          className="h-7 w-48 font-mono text-xs"
+                          placeholder="churn_labels"
+                          value={spine.table_name}
+                          onChange={(e) => setSpine({ ...spine, table_name: e.target.value })}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-[11px]">As of (its time column)</Label>
+                        <Input
+                          className="h-7 w-40 font-mono text-xs"
+                          placeholder="label_at"
+                          value={spine.timestamp_column}
+                          onChange={(e) => setSpine({ ...spine, timestamp_column: e.target.value })}
+                        />
+                      </div>
+                      {v.key_columns.map((k, i) => (
+                        <div key={k} className="space-y-1">
+                          <Label className="text-[11px]">Its column for {k}</Label>
+                          <Input
+                            className="h-7 w-36 font-mono text-xs"
+                            placeholder={k}
+                            value={spine.key_columns[i] ?? ""}
+                            onChange={(e) => {
+                              const next = [...spine.key_columns];
+                              next[i] = e.target.value;
+                              setSpine({ ...spine, key_columns: next });
+                            }}
+                          />
+                        </div>
+                      ))}
+                      <div className="space-y-1">
+                        <Label className="text-[11px]" title="Blank = no bound">
+                          Max feature age (days)
+                        </Label>
+                        <Input
+                          className="h-7 w-28 font-mono text-xs"
+                          type="number"
+                          min={1}
+                          placeholder="none"
+                          value={spine.max_age_days}
+                          onChange={(e) => setSpine({ ...spine, max_age_days: e.target.value })}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-[11px]">Write to</Label>
+                        <Input
+                          className="h-7 w-52 font-mono text-xs"
+                          value={spine.output_table}
+                          onChange={(e) => setSpine({ ...spine, output_table: e.target.value })}
+                        />
+                      </div>
+                      <Button size="sm" disabled={busy} onClick={() => void buildTrainingSet(v)}>
+                        {busy ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+                        Build
+                      </Button>
+                    </div>
+                    {built ? (
+                      <div className="space-y-1 border-t pt-2 text-xs">
+                        <p>
+                          <span className="font-mono">
+                            {built.schema}.{built.table}
+                          </span>{" "}
+                          — {built.rows.toLocaleString()} row(s), {built.unmatched.toLocaleString()}{" "}
+                          with no feature yet at their own moment.
+                        </p>
+                        {built.leaked !== null ? (
+                          <p
+                            className={cn(
+                              built.leaked > 0 ? "text-amber-600 dark:text-amber-500" : "",
+                            )}
+                          >
+                            {built.leaked > 0
+                              ? `${built.leaked.toLocaleString()} row(s) would have carried a feature from their own future had this been joined the usual way.`
+                              : "No row would have differed under a latest-row join — this data has no leak to avoid."}
+                          </p>
+                        ) : null}
+                        <pre className="overflow-x-auto rounded border bg-background p-2 text-[10px] leading-relaxed">
+                          {built.sql}
+                        </pre>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
 
                 {/* Look one key up, so an author can see exactly what serving
                     will see rather than trusting that it matches. */}

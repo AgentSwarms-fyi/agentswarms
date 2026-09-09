@@ -638,11 +638,40 @@ curl -X POST https://your-instance/api/ml/predict/batch \\
           <strong>Nothing changes without one.</strong> Callers keep sending whole rows, and keep
           owning them.
         </li>
+        <li>
+          <strong>It builds point-in-time training sets.</strong> See below.
+        </li>
       </UL>
       <Callout title="A key may not also be a feature">
         A key is what you look a row up by. Fed back in as a feature it teaches the model to
         memorise identifiers, which scores beautifully in training and predicts nothing.
       </Callout>
+
+      <H3 id="point-in-time">Point-in-time training sets</H3>
+      <P>
+        Serving asks what an entity&apos;s features are <strong>now</strong>. Training has to ask
+        what they were <strong>at the moment the label was true</strong>, and the difference is the
+        most expensive mistake in applied ML. Join a February label to the feature table&apos;s
+        latest row and the model learns from June&apos;s numbers: it scores beautifully in the
+        notebook, because the answer was in the features, then fails in production where June has
+        not happened yet.
+      </P>
+      <P>
+        <strong>Training set</strong> on a view builds the honest version. Give it the table of
+        labels, the column saying when each was true, and the label column matching each key column;
+        every row then keeps the features with the greatest feature timestamp{" "}
+        <strong>at or before its own</strong> — an <C>ASOF LEFT JOIN</C>, resolved by the engine
+        rather than by a window function you have to get right. Left, because a key whose features
+        start later is still part of the training set. An optional <strong>max feature age</strong>{" "}
+        refuses to join something stale without dropping the row.
+      </P>
+      <P>
+        The build reports <strong>how many rows would have differed</strong> under the join written
+        by hand — the leak, as a number, on your own data. The view&apos;s timestamp is never joined
+        in as a feature: a model that trains on the feature clock learns the shape of your ETL
+        schedule. A view with no timestamp column cannot build a training set and says so, rather
+        than joining the latest row and calling the result one.
+      </P>
 
       <H2 id="warm">Warm endpoints</H2>
       <P>

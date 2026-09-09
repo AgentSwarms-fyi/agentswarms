@@ -18,6 +18,7 @@ import {
   lookupFeatures,
   type FeatureViewRow,
 } from "@/utils/featureViews/lookup.server";
+import type { TrainingSetResult } from "@/utils/featureViews/trainingSet.server";
 
 type Fail = { ok: false; error: string };
 
@@ -209,4 +210,56 @@ export const featureViewPreview = createServerFn({ method: "POST" })
     });
     if (!res.ok) return { ok: false, error: res.error };
     return { ok: true, row: (res.resolution.rows[0] ?? null) as Record<string, Json> | null };
+  });
+
+const NAME = z.string().regex(/^[a-z][a-z0-9_]{0,62}$/);
+
+/**
+ * Build a point-in-time training set from a view and a table of labels.
+ *
+ * The one thing this must never do is join the latest feature row: that is
+ * the answer people write by hand, and it teaches a model facts from after
+ * the label it is predicting.
+ */
+export const featureViewBuildTrainingSet = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z
+      .object({
+        accessToken: z.string().min(1),
+        id: z.string().uuid(),
+        spine: z.object({
+          schema_name: NAME,
+          table_name: NAME,
+          timestamp_column: COLUMN,
+          key_columns: z.array(COLUMN).min(1).max(8),
+          where: z.string().max(2000).optional().nullable(),
+        }),
+        output: z.object({ schema: NAME, table: NAME }),
+        // Uncapped on purpose: how stale a feature may be is a property of the
+        // data, not something the platform can guess.
+        max_age_days: z.number().int().positive().optional().nullable(),
+        keep_unmatched: z.boolean().optional(),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data }): Promise<Fail | { ok: true; result: TrainingSetResult }> => {
+    const userId = await resolveCaller(data.accessToken);
+    const view = await loadFeatureView(data.id, userId);
+    if (!view) return { ok: false, error: "Feature view not found" };
+    const { buildTrainingSet } = await import("@/utils/featureViews/trainingSet.server");
+    const built = await buildTrainingSet({
+      userId,
+      view: view as FeatureView,
+      spine: {
+        schema_name: data.spine.schema_name,
+        table_name: data.spine.table_name,
+        timestamp_column: data.spine.timestamp_column,
+        key_columns: data.spine.key_columns,
+        where: data.spine.where ?? null,
+      },
+      output: data.output,
+      plan: { maxAgeDays: data.max_age_days ?? null, keepUnmatched: data.keep_unmatched },
+    });
+    if (!built.ok) return { ok: false, error: built.error };
+    return { ok: true, result: built.result };
   });

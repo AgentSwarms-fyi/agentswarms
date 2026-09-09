@@ -2587,6 +2587,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "level": 2
       },
       {
+        "id": "point-in-time",
+        "text": "Point-in-time training sets",
+        "level": 3
+      },
+      {
         "id": "warm",
         "text": "Warm endpoints",
         "level": 2
