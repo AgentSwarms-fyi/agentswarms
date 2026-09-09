@@ -206,7 +206,8 @@ describe("the wiring", () => {
           /schemaRow\.lake_source_id \|\| schemaRow\.iceberg_catalog_id/g,
         ) ?? []
       ).length,
-    ).toBe(2);
+      // Partitioning, the clustered rewrite, and the security policy.
+    ).toBe(3);
     expect(rd("src/utils/lakehouse/matviews.server.ts")).toContain(
       "schemaRow.lake_source_id || schemaRow.iceberg_catalog_id",
     );

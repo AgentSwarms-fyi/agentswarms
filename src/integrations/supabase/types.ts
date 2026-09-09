@@ -3774,6 +3774,63 @@ export type Database = {
           },
         ];
       };
+      lakehouse_table_layouts: {
+        Row: {
+          cluster_columns: string[];
+          created_at: string;
+          id: string;
+          keep_clustered: boolean;
+          last_error: string | null;
+          last_rewrite_at: string | null;
+          last_rewrite_files_after: number | null;
+          last_rewrite_files_before: number | null;
+          last_rewrite_ms: number | null;
+          last_rewrite_rows: number | null;
+          last_rewrite_snapshot: number | null;
+          schema_name: string;
+          table_name: string;
+          target_file_bytes: number | null;
+          updated_at: string;
+          updated_by: string | null;
+        };
+        Insert: {
+          cluster_columns?: string[];
+          created_at?: string;
+          id?: string;
+          keep_clustered?: boolean;
+          last_error?: string | null;
+          last_rewrite_at?: string | null;
+          last_rewrite_files_after?: number | null;
+          last_rewrite_files_before?: number | null;
+          last_rewrite_ms?: number | null;
+          last_rewrite_rows?: number | null;
+          last_rewrite_snapshot?: number | null;
+          schema_name: string;
+          table_name: string;
+          target_file_bytes?: number | null;
+          updated_at?: string;
+          updated_by?: string | null;
+        };
+        Update: {
+          cluster_columns?: string[];
+          created_at?: string;
+          id?: string;
+          keep_clustered?: boolean;
+          last_error?: string | null;
+          last_rewrite_at?: string | null;
+          last_rewrite_files_after?: number | null;
+          last_rewrite_files_before?: number | null;
+          last_rewrite_ms?: number | null;
+          last_rewrite_rows?: number | null;
+          last_rewrite_snapshot?: number | null;
+          schema_name?: string;
+          table_name?: string;
+          target_file_bytes?: number | null;
+          updated_at?: string;
+          updated_by?: string | null;
+        };
+        Relationships: [];
+      };
       lakehouse_share_snapshots: {
         Row: {
           columns: Json;

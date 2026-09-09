@@ -115,6 +115,22 @@ function LakehouseDocsPage() {
         applied from the SQL editor shows up here too.
       </P>
       <P>
+        Partitioning decides which file a new row goes to; <strong>clustering</strong> decides the
+        order of what is already there. <strong>Layout</strong> on a table&apos;s toolbar shows what
+        DuckLake&apos;s own per-file statistics say — for every column, how many of the table&apos;s
+        files a lookup on it opens — beside which columns this week&apos;s queries filtered on, and
+        advises: cluster by the column people filter on whose files overlap, compact when files are
+        small, rewrite again when files landed since the last rewrite. <strong>Rewrite now</strong>{" "}
+        puts the files in key order — rows ranged on the first key at row-count quantiles, one range
+        per target-sized file, each range sorted by all keys — in one transaction that rolls back
+        whole on any failure, with time travel to the previous snapshot intact. A filter on the key
+        then opens only the files whose range matches, and the toast says how many it opened before
+        and after. The target file size is per table (default <C>LAKEHOUSE_CLUSTER_FILE_BYTES</C>,
+        else 128 MiB, never capped). <strong>Keep clustered</strong> hands the table to the hourly
+        maintenance pass, which rewrites it again when files were written since and leaves it out of
+        file merging, since merging would fold the ranges back together.
+      </P>
+      <P>
         A repeated SELECT is served from memory and marked <C>cached</C> in the toolbar and in
         history. The cache key includes the catalog snapshot id, so{" "}
         <strong>any write invalidates it automatically</strong> — no TTL to tune, and no way to read

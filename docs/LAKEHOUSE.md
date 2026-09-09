@@ -112,7 +112,7 @@ datasets become views; anything else is skipped and counted in the result.
 
 ## Making queries fast
 
-Four levers, in the order they usually matter.
+Five levers, in the order they usually matter.
 
 **Partitioning.** `Partition` on a table's toolbar picks up to four columns;
 DuckLake then writes one file set per partition value, and a query filtering
@@ -123,6 +123,35 @@ written from then on, so run maintenance (or rewrite the table) to re-lay what
 already exists. The setting is read back from DuckLake's own catalog rather
 than from anything the app recorded, so a partition applied from the SQL
 editor shows up in the UI too.
+
+**Clustering.** Partitioning decides which file a new row goes to; clustering
+decides the order of what is already there. **Layout** on a table's toolbar
+shows what DuckLake's own per-file statistics say — for every column, how many
+of the table's files a lookup on it opens — beside which columns this week's
+queries actually filtered on, and advises: cluster by the column people filter
+on whose files overlap, compact when files are small, rewrite again when files
+landed since the last rewrite. **Rewrite now** puts the files in key order: the
+rows are ranged on the first key at row-count quantiles, one range per
+target-sized file, and every range is copied aside sorted by all keys, deleted
+and inserted back — one transaction, rolled back whole on any failure, with the
+old files dropped at commit and time travel to the previous snapshot intact. A
+filter on the key then opens only the files whose range matches; the toast
+says how many it opened before and after. Up to four keys; the first one
+ranges the files, the rest order rows inside them. The target file size is per
+table (default `LAKEHOUSE_CLUSTER_FILE_BYTES`, else 128 MiB, never capped) —
+small on purpose for a demo table, so the effect shows on a few files.
+**Keep clustered** hands the table to the hourly maintenance pass, which
+rewrites it again whenever files were written since the last rewrite and
+leaves it out of file merging (merging concatenates neighbours and would fold
+the ranges back together). DuckLake keeps no sort order of its own, so the keys
+live in `lakehouse_table_layouts`; a table clustered from elsewhere would not
+be known here. Verified live on the compose lakehouse: four files each spanning
+the whole key range became five ranged ones and a point lookup went from
+opening all four to one; after one more unsorted load the advisor asked for a
+rewrite, and the top-of-the-hour maintenance pass rewrote the table on its own
+(six files to eight ranged ones, the lookup back to one file) while the
+per-table merge folded a clean two-file neighbour into one. A table whose
+files carry delete files is not merged, since DuckLake cannot fold those.
 
 **The result cache.** A repeated SELECT is served from memory and marked
 `cached` in the toolbar and in history. The cache key includes the catalog
@@ -308,18 +337,19 @@ transaction`.
 An hourly pass (riding the same scheduler sweep as BI refreshes and ETL
 schedules) keeps the lakehouse fast and small, in the only safe order:
 
-| Step               | What it does                                                  |
-| ------------------ | ------------------------------------------------------------- |
-| `flush_inlined`    | Writes rows still held in the catalog out as zstd Parquet     |
-| `merge_files`      | Merges adjacent small files — the biggest lever on scan speed |
-| `expire_snapshots` | Retires snapshots older than 7 days                           |
-| `cleanup_files`    | Deletes files only those expired snapshots referenced         |
+| Step               | What it does                                                                                    |
+| ------------------ | ----------------------------------------------------------------------------------------------- |
+| `flush_inlined`    | Writes rows still held in the catalog out as zstd Parquet                                       |
+| `merge_files`      | Merges adjacent small files, table by table, skipping clustered tables — the biggest scan lever |
+| `recluster`        | Rewrites tables kept clustered that gained files since their last rewrite (see Clustering)      |
+| `expire_snapshots` | Retires snapshots older than 7 days                                                             |
+| `cleanup_files`    | Deletes files only those expired snapshots referenced                                           |
 
 Each step is independent: one failing is logged and the rest still run, because
 a half-maintained lakehouse still answers queries correctly. Any replica may
 run the pass — the steps are idempotent and DuckLake serialises them through
-the catalog. Verified live: all four steps ran clean and inlined rows became
-real Parquet files, with row counts unchanged.
+the catalog. Verified live: every step ran clean and inlined rows became real
+Parquet files, with row counts unchanged.
 
 ## When the catalog and the object store disagree
 

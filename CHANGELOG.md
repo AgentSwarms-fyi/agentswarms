@@ -14,8 +14,26 @@ development branch and may be ahead of the latest tag.
 
 ## Unreleased
 
-Work on `main` since the 1.4.0 tag. Twenty-two migrations —
+Work on `main` since the 1.4.0 tag. Twenty-three migrations —
 run `npx supabase db push` after pulling.
+
+### Clustering and a layout advisor
+
+- **A lakehouse table's files can be rewritten in key order.** Partitioning
+  decides which file a new row goes to; clustering decides the order of what
+  is already there. **Layout** on a table's toolbar shows, from DuckLake's own
+  per-file statistics, how many of the table's files a lookup on each column
+  opens, beside which columns this week's queries filtered on, and advises —
+  cluster by the filtered column whose files overlap, compact small files,
+  rewrite again after new loads. **Rewrite now** ranges rows on the first key
+  at row-count quantiles, one range per target-sized file, sorted by all keys,
+  in one transaction that rolls back whole on failure; a filter on the key
+  then opens only the matching files. **Keep clustered** hands the table to
+  the hourly maintenance pass, which rewrites it when files land and leaves
+  it out of file merging (merging would fold the ranges back together). Up to
+  four keys; the target file size is per table, default
+  `LAKEHOUSE_CLUSTER_FILE_BYTES` (128 MiB), never capped. One migration:
+  `lakehouse_table_layouts`.
 
 ### Auto-ingest from object storage
 

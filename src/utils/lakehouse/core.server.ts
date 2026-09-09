@@ -395,33 +395,60 @@ export type LakehouseMaintenanceResult = {
 const SNAPSHOT_RETENTION_DAYS = 7;
 
 /**
- * Keep the lakehouse fast and small. Four steps, in the only order that is
+ * Keep the lakehouse fast and small. Five steps, in the only order that is
  * safe: flush rows still inlined in the catalog into Parquet, merge the small
  * files that incremental loads produce (the single biggest lever on scan
- * speed), expire snapshots past the retention window, then delete the files
- * only those snapshots referenced. Each step is independent — one failing
- * never blocks the rest, because a half-maintained lakehouse still serves
- * queries correctly.
+ * speed) on every table that is not clustered, rewrite the clustered tables
+ * that grew since their last rewrite (their own compaction, in key order),
+ * expire snapshots past the retention window, then delete the files only
+ * those snapshots referenced. Each step is independent — one failing never
+ * blocks the rest, because a half-maintained lakehouse still serves queries
+ * correctly.
  */
 export async function runLakehouseMaintenance(): Promise<LakehouseMaintenanceResult> {
   if (!lakehouseEnabled()) return { ran: false, steps: [] };
   const steps: LakehouseMaintenanceResult["steps"] = [];
   const c = await lakehouseConnection();
   try {
-    const calls: [string, string][] = [
-      ["flush_inlined", "CALL ducklake_flush_inlined_data('lake')"],
-      ["merge_files", "CALL ducklake_merge_adjacent_files('lake')"],
+    const layout = await import("@/utils/lakehouse/layout.server");
+    const calls: [string, () => Promise<LakehouseMaintenanceResult["steps"] | void>][] = [
+      ["flush_inlined", () => c.run("CALL ducklake_flush_inlined_data('lake')").then(() => {})],
+      // Table by table: DuckLake's merge concatenates adjacent files up to a
+      // size, which would fold a clustered table's ranged files back into
+      // overlapping ones. Those tables compact through their own rewrite.
+      ["merge_files", () => layout.mergeUnclusteredTables(c)],
+      ["recluster", () => layout.reclusterDueTables(c)],
       [
         "expire_snapshots",
-        `CALL ducklake_expire_snapshots('lake', older_than => now() - INTERVAL ${SNAPSHOT_RETENTION_DAYS} DAY)`,
+        () =>
+          c
+            .run(
+              `CALL ducklake_expire_snapshots('lake', older_than => now() - INTERVAL ${SNAPSHOT_RETENTION_DAYS} DAY)`,
+            )
+            .then(() => {}),
       ],
-      ["cleanup_files", "CALL ducklake_cleanup_old_files('lake', cleanup_all => true)"],
+      [
+        "cleanup_files",
+        () => c.run("CALL ducklake_cleanup_old_files('lake', cleanup_all => true)").then(() => {}),
+      ],
     ];
-    for (const [step, sql] of calls) {
+    for (const [step, run] of calls) {
       const started = Date.now();
       try {
-        await c.run(sql);
-        steps.push({ step, ok: true, ms: Date.now() - started });
+        const sub = await run();
+        if (Array.isArray(sub)) {
+          const failed = sub.filter((s) => !s.ok);
+          steps.push({
+            step,
+            ok: failed.length === 0,
+            ms: Date.now() - started,
+            ...(failed.length
+              ? { error: failed.map((f) => `${f.step}: ${f.error ?? ""}`).join("; ") }
+              : {}),
+          });
+        } else {
+          steps.push({ step, ok: true, ms: Date.now() - started });
+        }
       } catch (e) {
         steps.push({ step, ok: false, ms: Date.now() - started, error: (e as Error).message });
       }

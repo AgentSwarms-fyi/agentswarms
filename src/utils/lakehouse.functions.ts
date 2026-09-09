@@ -151,6 +151,8 @@ export type LakehouseTableDetail = {
   snapshots: { id: number; time: string | null; changes: string }[];
   /** Partition key columns, in key order. Empty = unpartitioned. */
   partitioned_by: string[];
+  /** Cluster key columns from the table's layout row. Empty = never clustered. */
+  clustered_by: string[];
 };
 
 /**
@@ -249,6 +251,9 @@ export const getLakehouseTable = createServerFn({ method: "POST" })
         row_count: rowCount,
         snapshots,
         partitioned_by: await readPartitionColumns(c, data.schema, data.table),
+        clustered_by: await import("@/utils/lakehouse/layout.server").then((m) =>
+          m.clusteredBy(data.schema, data.table),
+        ),
       };
     } finally {
       c.closeSync();
@@ -759,6 +764,130 @@ export const setLakehousePartitioning = createServerFn({ method: "POST" })
     } finally {
       c.closeSync();
     }
+  });
+
+// ── Layout: clustering and the advisor ──────────────────────────────────────
+
+const layoutInput = z.object({
+  access_token: z.string().min(1),
+  schema: z.string().regex(SCHEMA_NAME),
+  table: z.string().regex(TABLE_NAME),
+});
+
+/**
+ * What the table's files look like and what to do about it: files and
+ * sizes, how many files a lookup on each column opens (from DuckLake's own
+ * per-file statistics), which columns this week's queries filtered on, and
+ * the advice those two signals add up to.
+ */
+export const getLakehouseLayout = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) => layoutInput.parse(input))
+  .handler(async ({ data }) => {
+    const userId = await resolveCaller(data.access_token);
+    const allowed = await accessibleSchemas(userId);
+    if (!allowed.some((s) => s.name === data.schema)) throw new Error("No access to this schema");
+    const { readTableLayout } = await import("@/utils/lakehouse/layout.server");
+    const c = await lakehouseConnection();
+    try {
+      return await readTableLayout(c, data.schema, data.table);
+    } finally {
+      c.closeSync();
+    }
+  });
+
+/**
+ * Rewrite a table's files in key order — one transaction, rolled back whole
+ * on any failure — and remember the keys so the badge, the advisor and the
+ * maintenance pass know the table is clustered. Where partitioning decides
+ * which file a new row goes to, this decides the order of what is there.
+ */
+export const rewriteLakehouseLayout = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    layoutInput
+      .extend({
+        columns: z.array(z.string().regex(TABLE_NAME)).min(1).max(4),
+        /** Per-file target; omitted = the platform default. Not capped. */
+        target_file_mb: z.number().positive().optional(),
+        keep_clustered: z.boolean().default(false),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data }) => {
+    const userId = await resolveCaller(data.access_token);
+    const allowed = await accessibleSchemas(userId);
+    const schemaRow = allowed.find((sch) => sch.name === data.schema);
+    if (!schemaRow) throw new Error("No access to this schema");
+    if (schemaRow.lake_source_id || schemaRow.iceberg_catalog_id) {
+      throw new Error("Data-lake mounts are read-only — their layout belongs to the source");
+    }
+    const layout = await import("@/utils/lakehouse/layout.server");
+    const targetBytes = data.target_file_mb
+      ? Math.round(data.target_file_mb * 1024 * 1024)
+      : layout.defaultTargetFileBytes();
+    const c = await lakehouseConnection();
+    try {
+      const result = await layout.rewriteClustered(c, {
+        schema: data.schema,
+        table: data.table,
+        keys: data.columns,
+        targetBytes,
+      });
+      await layout.saveLayoutRow({
+        schema: data.schema,
+        table: data.table,
+        keys: data.columns,
+        targetBytes: data.target_file_mb ? targetBytes : null,
+        keepClustered: data.keep_clustered,
+        userId,
+        result,
+        error: null,
+      });
+      auditEvent({
+        userId,
+        action: "lakehouse.layout.rewrite",
+        resourceType: "lakehouse_schema",
+        resourceId: schemaRow.id,
+        resourceName: `${data.schema}.${data.table}`,
+        detail: {
+          clustered_by: data.columns,
+          keep_clustered: data.keep_clustered,
+          target_file_bytes: targetBytes,
+          files_before: result.files_before,
+          files_after: result.files_after,
+          rows: result.rows,
+          ms: result.ms,
+          touched_before: result.touched_before,
+          touched_after: result.touched_after,
+        },
+      });
+      return { ...result, clustered_by: data.columns };
+    } finally {
+      c.closeSync();
+    }
+  });
+
+/** Forget a table's cluster keys: the files stay as they are, maintenance merges them again. */
+export const clearLakehouseLayout = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) => layoutInput.parse(input))
+  .handler(async ({ data }): Promise<{ clustered_by: string[] }> => {
+    const userId = await resolveCaller(data.access_token);
+    const allowed = await accessibleSchemas(userId);
+    const schemaRow = allowed.find((sch) => sch.name === data.schema);
+    if (!schemaRow) throw new Error("No access to this schema");
+    await supabaseAdmin
+      .from("lakehouse_table_layouts")
+      .delete()
+      .eq("schema_name", data.schema)
+      .eq("table_name", data.table);
+    auditEvent({
+      userId,
+      action: "lakehouse.layout.clear",
+      resourceType: "lakehouse_schema",
+      resourceId: schemaRow.id,
+      resourceName: `${data.schema}.${data.table}`,
+      detail: {},
+    });
+    return { clustered_by: [] };
   });
 
 export type LakehouseProfile = {

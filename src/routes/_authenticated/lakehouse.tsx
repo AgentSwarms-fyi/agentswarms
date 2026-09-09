@@ -14,6 +14,7 @@ import {
   Database as DatabaseIcon,
   Download,
   AlertTriangle,
+  Boxes,
   Flame,
   HardDrive,
   Loader2,
@@ -52,6 +53,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
+import { formatBytes } from "@/utils/lakehouse/layout";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { BiModelSelect } from "@/components/bi/BiModelSelect";
@@ -85,6 +88,9 @@ import {
   refreshLakehouseMatview,
   saveLakehouseMatview,
   setLakehousePartitioning,
+  getLakehouseLayout,
+  rewriteLakehouseLayout,
+  clearLakehouseLayout,
   setLakehousePolicy,
   listLakehouseTagPolicies,
   setLakehouseTagPolicy,
@@ -955,6 +961,15 @@ function TableTab({
             partitioned by {detail.partitioned_by.join(", ")}
           </Badge>
         )}
+        {detail.clustered_by.length > 0 && (
+          <Badge
+            variant="outline"
+            className="font-mono text-[10px]"
+            title="Files are in key order, so a filter on these columns opens only the files whose range matches"
+          >
+            clustered by {detail.clustered_by.join(", ")}
+          </Badge>
+        )}
         <Link
           to="/data-monitors"
           search={{ source: "lakehouse", schema, table, create: true }}
@@ -1054,6 +1069,12 @@ function TableTab({
             columns={detail.columns.map((c) => c.name)}
             current={detail.partitioned_by}
             onChanged={(cols) => setDetail({ ...detail, partitioned_by: cols })}
+          />
+          <LayoutDialog
+            schema={schema}
+            table={table}
+            current={detail.clustered_by}
+            onChanged={(cols) => setDetail({ ...detail, clustered_by: cols })}
           />
           <Button
             size="sm"
@@ -1599,6 +1620,268 @@ function PartitionDialog({
             {picked.length ? "Apply partitioning" : "Clear partitioning"}
           </Button>
         </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+const ADVICE_LABEL: Record<string, string> = {
+  cluster: "Cluster",
+  recluster: "Rewrite",
+  compact: "Compact",
+  ok: "OK",
+};
+
+/**
+ * Files in key order: what the catalog says about this table's files, what
+ * queries filtered on, the advice, and the rewrite that acts on it. The
+ * numbers come from DuckLake's own per-file statistics, so "a lookup opens 4
+ * of 4 files" is what the engine would actually do.
+ */
+function LayoutDialog({
+  schema,
+  table,
+  current,
+  onChanged,
+}: {
+  schema: string;
+  table: string;
+  current: string[];
+  onChanged: (cols: string[]) => void;
+}) {
+  const { session } = useAuth();
+  const token = session?.access_token ?? "";
+  const readFn = useServerFn(getLakehouseLayout);
+  const rewriteFn = useServerFn(rewriteLakehouseLayout);
+  const clearFn = useServerFn(clearLakehouseLayout);
+  const [open, setOpen] = useState(false);
+  const [info, setInfo] = useState<Awaited<ReturnType<typeof getLakehouseLayout>> | null>(null);
+  const [picked, setPicked] = useState<string[]>(current);
+  const [targetMb, setTargetMb] = useState("");
+  const [keep, setKeep] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const r = await readFn({ data: { access_token: token, schema, table } });
+      setInfo(r);
+      setPicked(r.layout?.cluster_columns.length ? r.layout.cluster_columns : current);
+      // Shown in MB with up to two decimals: a demo table's 100 KB target
+      // must read 0.1, not round up to 1 and rewrite into one file.
+      setTargetMb(String(Math.max(0.01, Math.round((r.target_file_bytes / 1048576) * 100) / 100)));
+      setKeep(r.layout?.keep_clustered ?? false);
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, schema, table]);
+  useEffect(() => {
+    if (open) {
+      setInfo(null);
+      void load();
+    }
+  }, [open, load]);
+
+  const columns = info?.columns ?? [];
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button size="sm" variant="outline" title="Clustering and the layout advisor">
+          <Boxes className="mr-1 h-3.5 w-3.5" /> Layout
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>
+            Layout of {schema}.{table}
+          </DialogTitle>
+        </DialogHeader>
+        {!info ? (
+          <Skeleton className="h-48 w-full" />
+        ) : (
+          <div className="space-y-3">
+            <p className="text-xs text-muted-foreground" data-testid="layout-summary">
+              {info.files} file(s) · {formatBytes(info.bytes)} · {info.rows.toLocaleString()} row(s)
+              · target {formatBytes(info.target_file_bytes)} per file
+              {info.layout?.cluster_columns.length ? (
+                <>
+                  {" "}
+                  · clustered by{" "}
+                  <span className="font-mono">{info.layout.cluster_columns.join(", ")}</span>
+                  {info.layout.last_rewrite_at
+                    ? ` · rewritten ${new Date(info.layout.last_rewrite_at).toLocaleString()} in ${info.layout.last_rewrite_ms ?? 0} ms (${info.layout.last_rewrite_files_before ?? "?"} → ${info.layout.last_rewrite_files_after ?? "?"} files)`
+                    : ""}
+                  {info.files_since_rewrite > 0
+                    ? ` · ${info.files_since_rewrite} file(s) written since`
+                    : ""}
+                  {info.layout.last_error
+                    ? ` · last maintenance rewrite failed: ${info.layout.last_error}`
+                    : ""}
+                </>
+              ) : null}
+            </p>
+            <div className="space-y-1" data-testid="layout-advice">
+              {info.advice.map((a) => (
+                <div
+                  key={a.title}
+                  className="flex items-start gap-2 rounded-md border px-2 py-1.5 text-xs"
+                >
+                  <Badge
+                    variant={a.kind === "ok" ? "secondary" : "outline"}
+                    className="mt-0.5 flex-none text-[10px]"
+                  >
+                    {ADVICE_LABEL[a.kind] ?? a.kind}
+                  </Badge>
+                  <div className="min-w-0 flex-1">
+                    <div className="font-medium">{a.title}</div>
+                    <div className="text-muted-foreground">{a.detail}</div>
+                  </div>
+                  {a.columns && a.columns.length > 0 && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-6 flex-none px-2 text-[11px]"
+                      onClick={() => setPicked(a.columns ?? [])}
+                    >
+                      Use
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
+            <div className="overflow-hidden rounded-lg border">
+              <div className="grid grid-cols-[1fr_auto_auto] gap-x-3 border-b bg-muted/40 px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                <span>Column · click to pick a key, in order</span>
+                <span title="Files a lookup on this column opens, on average, out of the table's files">
+                  lookup opens
+                </span>
+                <span title="SELECTs that filtered on this column in the last 7 days">
+                  filtered · 7d
+                </span>
+              </div>
+              <div className="max-h-44 overflow-y-auto">
+                {columns.length === 0 && (
+                  <p className="px-2 py-2 text-xs text-muted-foreground">
+                    No file statistics yet — the table has no Parquet files (empty, still inlined in
+                    the catalog, or a mount).
+                  </p>
+                )}
+                {columns.map((col) => {
+                  const on = picked.includes(col.name);
+                  return (
+                    <button
+                      key={col.name}
+                      className={`grid w-full grid-cols-[1fr_auto_auto] items-center gap-x-3 px-2 py-1 text-left text-xs ${on ? "bg-primary/5" : "hover:bg-muted"}`}
+                      onClick={() =>
+                        setPicked(
+                          on
+                            ? picked.filter((x) => x !== col.name)
+                            : [...picked, col.name].slice(0, 4),
+                        )
+                      }
+                    >
+                      <span className="truncate">
+                        <span className="font-mono">{col.name}</span>
+                        <span className="ml-1 text-muted-foreground">{col.type.toLowerCase()}</span>
+                        {on && (
+                          <span className="ml-1 text-[10px] text-primary">
+                            key {picked.indexOf(col.name) + 1}
+                          </span>
+                        )}
+                      </span>
+                      <span className="font-mono text-muted-foreground">
+                        {col.files >= 2 ? `${col.touched} of ${col.files}` : "—"}
+                      </span>
+                      <span className="font-mono text-muted-foreground">
+                        {info.filtered[col.name] ?? 0}×
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs">Target file size (MB)</Label>
+                <Input
+                  className="h-8"
+                  type="number"
+                  min={1}
+                  value={targetMb}
+                  onChange={(e) => setTargetMb(e.target.value)}
+                />
+              </div>
+              <div className="flex items-end gap-2 pb-1">
+                <Switch id="layout-keep" checked={keep} onCheckedChange={setKeep} />
+                <Label htmlFor="layout-keep" className="text-xs">
+                  Keep clustered
+                </Label>
+              </div>
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              The rewrite ranges rows on the first key and sorts every range by all keys, one
+              transaction, one file per target size — so a filter on a key opens only the files
+              whose range matches. Keep clustered lets the hourly maintenance pass rewrite the table
+              again when new files land; clustered tables are left out of file merging either way.
+            </p>
+            <div className="flex gap-2">
+              <Button
+                className="flex-1"
+                disabled={busy || picked.length === 0}
+                onClick={async () => {
+                  setBusy(true);
+                  try {
+                    const mb = Number(targetMb);
+                    const res = await rewriteFn({
+                      data: {
+                        access_token: token,
+                        schema,
+                        table,
+                        columns: picked,
+                        target_file_mb: Number.isFinite(mb) && mb > 0 ? mb : undefined,
+                        keep_clustered: keep,
+                      },
+                    });
+                    onChanged(res.clustered_by);
+                    toast.success(
+                      `Rewritten in ${res.ms} ms: ${res.files_before} → ${res.files_after} file(s); a lookup on ${picked[0]} opens ${res.touched_after} file(s), was ${res.touched_before}`,
+                    );
+                    await load();
+                  } catch (e) {
+                    toast.error((e as Error).message);
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
+                {busy ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
+                Rewrite now
+              </Button>
+              {info.layout && (
+                <Button
+                  variant="ghost"
+                  disabled={busy}
+                  title="Forget the cluster keys; files stay as they are and maintenance merges them again"
+                  onClick={async () => {
+                    setBusy(true);
+                    try {
+                      const res = await clearFn({ data: { access_token: token, schema, table } });
+                      onChanged(res.clustered_by);
+                      toast.success("Layout forgotten");
+                      await load();
+                    } catch (e) {
+                      toast.error((e as Error).message);
+                    } finally {
+                      setBusy(false);
+                    }
+                  }}
+                >
+                  Forget layout
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );
