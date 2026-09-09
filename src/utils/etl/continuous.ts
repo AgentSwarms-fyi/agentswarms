@@ -30,6 +30,16 @@ export function continuousRestartBackoffMs(): number {
 const DRAINABLE = new Set(["kafka", "kinesis", "pubsub", "ingest"]);
 
 /**
+ * An object-storage source that reads only files not loaded before. Its
+ * ledger rides the engine cursor like a stream's positions, which is what
+ * makes it drainable: every tick lists the prefix and loads what is new.
+ */
+export function isAutoIngest(config: unknown): boolean {
+  const c = config as { type?: string; new_files_only?: boolean } | null | undefined;
+  return c?.type === "object_storage" && c.new_files_only === true;
+}
+
+/**
  * Why a pipeline cannot run continuously, or null when it can. The loop
  * wraps the compiled graph, so a code pipeline (which owns its entrypoint)
  * is out; and a source that re-reads everything on every tick would turn
@@ -51,7 +61,10 @@ export function canRunContinuously(
         incremental?: { cursor_column?: string };
       };
       return (
-        DRAINABLE.has(c.type ?? "") || c.mode === "cdc" || Boolean(c.incremental?.cursor_column)
+        DRAINABLE.has(c.type ?? "") ||
+        c.mode === "cdc" ||
+        Boolean(c.incremental?.cursor_column) ||
+        isAutoIngest(c)
       );
     });
   if (!drains) {

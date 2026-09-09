@@ -2206,6 +2206,41 @@ function NodePanel({
           )}
         </>
       )}
+      {c.type === "object_storage" && node.kind === "source" && (
+        <>
+          <div className="flex items-center gap-2">
+            <Switch
+              id={`${node.id}-new-files`}
+              checked={Boolean(c.new_files_only)}
+              onCheckedChange={(v) =>
+                set({ new_files_only: v ? true : undefined, max_files_per_run: undefined })
+              }
+            />
+            <Label htmlFor={`${node.id}-new-files`} className="text-xs">
+              Only files not loaded before (auto-ingest)
+            </Label>
+          </div>
+          {c.new_files_only ? (
+            <Field label="Files per run">
+              <Input
+                className="h-8 w-28 text-xs"
+                type="number"
+                min={1}
+                value={String((c.max_files_per_run as number | undefined) ?? 500)}
+                onChange={(e) =>
+                  set({ max_files_per_run: Math.max(1, Number(e.target.value) || 500) })
+                }
+              />
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                The prefix is listed every run and only new files are read; the engine keeps a
+                ledger of what it loaded. A file uploaded again loads again as a new version — a
+                merge target with keys makes that idempotent. Makes the source continuous-eligible;
+                sandbox engine only.
+              </p>
+            </Field>
+          ) : null}
+        </>
+      )}
       {(c.type === "database" ||
         c.type === "object_storage" ||
         (c.type === "catalog_asset" &&
@@ -3533,8 +3568,8 @@ function SettingsTab({
               <p className="self-end text-xs text-muted-foreground">
                 One long-running sandbox drains the source, loads, persists its position, and goes
                 again — after this pause only when a tick found nothing. Needs a Kafka, Kinesis or
-                Pub/Sub stream, webhook ingest, CDC, or an incremental cursor. Stop it from the
-                card; the sweep restarts it if it dies.
+                Pub/Sub stream, webhook ingest, CDC, a storage prefix watched for new files, or an
+                incremental cursor. Stop it from the card; the sweep restarts it if it dies.
               </p>
             </div>
           )}

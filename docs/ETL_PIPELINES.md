@@ -332,6 +332,46 @@ kernel network itself (the same Docker network, a VPC peering, or
 proxy like every other web call. The runtime image ships `confluent-kafka`,
 `boto3` and `google-cloud-pubsub`.
 
+## Auto-ingest from object storage
+
+An object-storage source reads its whole prefix on every run. That is right
+for a file that is replaced, and wrong for a landing zone where files arrive
+and stay: every run re-reads everything, and an append target doubles it.
+**Only files not loaded before** (on the source node) turns the prefix into a
+feed:
+
+- Every run lists the prefix and reads only the files it has not loaded. The
+  engine keeps a **ledger** on the source's cursor: the newest modification
+  time it loaded and the keys stamped with that exact time, so two files
+  landing in the same second are told apart without a growing manifest. The
+  ledger is written only after the run's load committed, like every other
+  cursor, so a failed run re-reads the same files.
+- **Files per run** (default 500) bounds one run; the rest wait for the next,
+  so a backlog of ten thousand files drains in order rather than in one
+  frame.
+- A file uploaded again later carries a newer time and **loads again as a
+  new version** — the honest reading of an object store, where a re-upload is
+  a new object. A merge target with primary keys makes that idempotent; an
+  append target keeps both versions.
+- An idle run hands downstream an empty frame with the columns of the last
+  load, so transforms after the source keep working between arrivals.
+- The source is now **drainable**, so the pipeline can run **continuous**: one
+  long-running run watches the prefix every few seconds, and with a lakehouse
+  target it is exactly-once. The row-level incremental cursor still applies on
+  top when set.
+- **Sandbox engine only.** The Spark engine reads a prefix whole; a pipeline
+  with this setting is refused at save on that engine, by name.
+
+There is no notification-driven discovery (bucket events): the listing is the
+discovery, which works on every S3-compatible store, MinIO included, and costs
+one LIST per run, taken fresh each time (the listing is never served from
+a cache, so a file that lands mid-run is seen on the next tick). Verified live
+against the compose MinIO: a continuous, exactly-once pipeline watching
+`landing/*.csv` loaded each dropped file once within a tick, a run restarted
+after a stop resumed from the committed ledger and read only the file that
+had arrived meanwhile, a re-dropped file loaded again as a new version, and
+an idle prefix cost nothing but the listing.
+
 ## Continuous pipelines
 
 A scheduled stream pipeline reads in micro-batches on the scheduler's clock:

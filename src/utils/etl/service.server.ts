@@ -30,6 +30,7 @@ import {
   CONTINUOUS_SCHEDULE,
   continuousRolloverMinutes,
   exactlyOnceEligible,
+  isAutoIngest,
 } from "@/utils/etl/continuous";
 import { internalAppUrl, noProxyList } from "@/utils/notebookRuntime/service.server";
 import { isCatalogAsset, unwrapSourceConfig } from "@/utils/etl/catalogAsset";
@@ -352,6 +353,7 @@ export async function resolveRunEnv(
       Boolean(c.incremental?.cursor_column) ||
       c.mode === "cdc" ||
       c.type === "ingest" ||
+      isAutoIngest(c) ||
       isStreamSource(c)
     );
   });

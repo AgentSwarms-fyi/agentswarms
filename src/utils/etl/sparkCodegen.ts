@@ -318,6 +318,13 @@ function sqlOverFn(): string[] {
 
 function storageSource(node: EtlNode, c: Extract<EtlSourceConfig, { type: "object_storage" }>) {
   const key = envKey(node.id);
+  if (c.new_files_only) {
+    // The ledger of loaded files is kept by the sandbox program's listing;
+    // Spark reads a prefix whole. Refused at compile, so the save says so.
+    throw new Error(
+      `Source "${node.label || node.id}" reads only new files, which the sandbox engine does; the Spark engine reads the whole prefix. Turn it off, or run this pipeline on the sandbox engine.`,
+    );
+  }
   return [
     `def _src_${node.id}():`,
     `    _sp = _spark()`,

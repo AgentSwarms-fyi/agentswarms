@@ -45,7 +45,7 @@ import {
   type SaasTargetConfig,
   type SaasTargetVendor,
 } from "@/lib/saasTargets";
-import { continuousWrapper } from "./continuous";
+import { continuousWrapper, isAutoIngest } from "./continuous";
 
 export type EtlSourceConfig =
   | StreamSourceConfig
@@ -61,6 +61,13 @@ export type EtlSourceConfig =
        *  stored watermark survive; the engine persists the new maximum after
        *  each durable load. */
       incremental?: { cursor_column: string };
+      /** Auto-ingest: read only files not loaded before. A ledger of the
+       *  newest modification time loaded, and the keys at that time, rides
+       *  the engine cursor, so the prefix is listed but only new files are
+       *  read. Makes the source drainable, and so continuous-eligible. */
+      new_files_only?: boolean;
+      /** The most files one run (one tick) reads; the rest wait for the next. */
+      max_files_per_run?: number;
     }
   | {
       type: "database";
@@ -516,12 +523,62 @@ export function sourceFn(node: EtlNode): string {
       `    )`,
       `    base = os.environ['${key}_BUCKET'].rstrip('/')`,
       `    path = ${pyStr(c.path)}.lstrip('/')`,
-      `    keys = [p for p in fs.glob(f"{base}/{path}")] or [f"{base}/{path}"]`,
-      `    frames = []`,
-      `    for k in keys:`,
-      `        with fs.open(k, 'rb') as f:`,
-      `            frames.append(${READERS[c.format]})`,
-      `    out = pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]`,
+      ...(c.new_files_only
+        ? [
+            // Auto-ingest. The ledger is small on purpose: the newest
+            // modification time loaded plus the keys stamped with that exact
+            // time, so a listing decides "new" without a growing manifest. A
+            // file uploaded again later carries a newer time and loads again
+            // as a new version — a merge target with keys makes that
+            // idempotent. The columns ride along so an idle tick can hand
+            // downstream an empty frame of the right shape.
+            `    global _files_last_${node.id}`,
+            `    import json as _json`,
+            `    _cur = _json.loads(os.environ.get('${key}_CURSOR') or '{}')`,
+            `    _mark = str(_cur.get('mtime') or '')`,
+            `    _seen = set(_cur.get('keys') or [])`,
+            // fsspec keeps a directory cache per filesystem instance, and the
+            // instance itself is cached by its arguments — in a continuous
+            // run every tick would see the first tick's listing and a file
+            // that landed later would never be new. List fresh each time.
+            `    fs.invalidate_cache()`,
+            `    _listing = fs.glob(f"{base}/{path}", detail=True)`,
+            `    if not isinstance(_listing, dict):`,
+            `        _listing = {k: fs.info(k) for k in (_listing or [])}`,
+            `    _entries = []`,
+            `    for _k, _info in _listing.items():`,
+            `        if (_info or {}).get('type') == 'directory':`,
+            `            continue`,
+            `        _lm = (_info or {}).get('LastModified') or (_info or {}).get('mtime')`,
+            `        _mt = _lm.isoformat() if hasattr(_lm, 'isoformat') else str(_lm or '')`,
+            `        _entries.append((_mt, _k))`,
+            `    _entries.sort()`,
+            `    _new = [(m, k) for (m, k) in _entries if m > _mark or (m == _mark and k not in _seen)]`,
+            `    _max = max(1, int(${Math.max(1, Math.floor(c.max_files_per_run ?? 500))}))`,
+            `    _new = _new[:_max]`,
+            `    print('[etl] auto-ingest: ' + str(len(_entries)) + ' file(s) listed, ' + str(len(_new)) + ' new')`,
+            `    keys = [k for (m, k) in _new]`,
+            `    frames = []`,
+            `    for k in keys:`,
+            `        with fs.open(k, 'rb') as f:`,
+            `            frames.append(${READERS[c.format]})`,
+            `    if frames:`,
+            `        out = pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]`,
+            `        _top = max(m for (m, k) in _new)`,
+            `        _keys = sorted([k for (m, k) in _new if m == _top] + (sorted(_seen) if _top == _mark else []))`,
+            `        _files_last_${node.id} = _json.dumps({'mtime': _top, 'keys': _keys, 'columns': [str(c) for c in out.columns]})`,
+            `    else:`,
+            `        out = pd.DataFrame(columns=[str(c) for c in (_cur.get('columns') or [])])`,
+            `        _files_last_${node.id} = None`,
+          ]
+        : [
+            `    keys = [p for p in fs.glob(f"{base}/{path}")] or [f"{base}/{path}"]`,
+            `    frames = []`,
+            `    for k in keys:`,
+            `        with fs.open(k, 'rb') as f:`,
+            `            frames.append(${READERS[c.format]})`,
+            `    out = pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]`,
+          ]),
       ...(c.incremental?.cursor_column
         ? [
             `    # Engine-managed incremental: rows at or below the stored`,
@@ -1328,6 +1385,9 @@ export function compileGraph(graph: EtlGraph): string {
   for (const n of order.filter((x) => x.kind === "source" && isStreamSource(x.config))) {
     lines.push(`_stream_last_${n.id} = None`);
   }
+  for (const n of order.filter((x) => x.kind === "source" && isAutoIngest(x.config))) {
+    lines.push(`_files_last_${n.id} = None`);
+  }
 
   const incremental = order.filter(
     (n) =>
@@ -1335,6 +1395,8 @@ export function compileGraph(graph: EtlGraph): string {
       ((n.config as { incremental?: { cursor_column?: string } }).incremental?.cursor_column ||
         (n.config as { mode?: string }).mode === "cdc" ||
         (n.config as { type?: string }).type === "ingest" ||
+        // A storage prefix watched for new files keeps its ledger the same way.
+        isAutoIngest(n.config) ||
         // A stream node reports its positions the same way.
         isStreamSource(n.config)),
   );
@@ -1380,6 +1442,14 @@ export function compileGraph(graph: EtlGraph): string {
         lines.push(
           `    if _stream_last_${n.id}:`,
           `        _watermarks['${n.id}'] = _stream_last_${n.id}`,
+        );
+      }
+      if (isAutoIngest(n.config)) {
+        // The file ledger: reported only when files were read, so an idle
+        // tick keeps the previous position.
+        lines.push(
+          `    if _files_last_${n.id}:`,
+          `        _watermarks['${n.id}'] = _files_last_${n.id}`,
         );
       }
       const inc = (n.config as { incremental?: { cursor_column?: string } }).incremental;

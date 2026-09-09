@@ -428,6 +428,16 @@ function EtlDocsPage() {
         bookkeeping re-reads rows rather than skipping them — and an empty read keeps the previous
         cursor. State is server-held per node and never client-writable.
       </P>
+      <P>
+        An object-storage source can also be a <strong>landing zone</strong>: turn on{" "}
+        <em>Only files not loaded before</em> and every run lists the prefix and reads only the
+        files the engine has not loaded, keeping a small ledger on the cursor (the newest
+        modification time loaded and the keys at that time). <em>Files per run</em> bounds a
+        backlog; a re-uploaded file loads again as a new version, so pair it with a merge target
+        when that matters. The source becomes drainable, which is what lets the pipeline run
+        continuous — exactly-once into the lakehouse. Sandbox engine only; the Spark engine reads a
+        prefix whole and refuses the setting at save.
+      </P>
 
       <H2 id="reverse-etl-saas">Reverse ETL into a SaaS tool</H2>
       <P>

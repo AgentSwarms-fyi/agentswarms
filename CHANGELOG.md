@@ -17,6 +17,21 @@ development branch and may be ahead of the latest tag.
 Work on `main` since the 1.4.0 tag. Twenty-two migrations —
 run `npx supabase db push` after pulling.
 
+### Auto-ingest from object storage
+
+- **A storage prefix can be watched for new files.** An object-storage
+  source read its whole prefix every run, which is right for a file that is
+  replaced and wrong for a landing zone, where every run re-read everything
+  and an append target doubled it. **Only files not loaded before** on the
+  source node lists the prefix and reads only what the engine has not
+  loaded, keeping a small ledger on the cursor (the newest modification time
+  loaded and the keys at that time) that is written only after the load
+  committed. **Files per run** bounds a backlog. The source is drainable, so
+  the pipeline can run continuous — and exactly-once into the lakehouse. A
+  re-uploaded file loads again as a new version; an idle run hands downstream
+  an empty frame of the right shape. Sandbox engine only; the Spark engine
+  refuses it at save, by name. No migration.
+
 ### Exactly-once into the lakehouse
 
 - **A continuous pipeline whose targets are all lakehouse tables cannot
