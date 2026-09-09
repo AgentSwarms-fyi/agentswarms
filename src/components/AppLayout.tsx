@@ -3,7 +3,6 @@ import { AppSidebar } from "@/components/AppSidebar";
 import { ApprovalInbox } from "@/components/ApprovalInbox";
 import { NotificationBell } from "@/components/NotificationBell";
 import { UserMenu } from "@/components/UserMenu";
-import { ThemeToggle } from "@/components/ThemeToggle";
 import { OnboardingDialog } from "@/components/OnboardingDialog";
 import { MobileLabNotice } from "@/components/MobileLabNotice";
 import { GlobalCreateMenu } from "@/components/GlobalCreateMenu";
@@ -47,7 +46,6 @@ export function AppLayout() {
                 </kbd>
               </button>
               <GlobalCreateMenu />
-              <ThemeToggle />
               <ApprovalInbox />
               <NotificationBell />
               <UserMenu />
