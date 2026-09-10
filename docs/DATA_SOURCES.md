@@ -126,6 +126,9 @@ version history, same use in BI, prep flows and the semantic layer.
 | **ServiceNow**    | Basic auth (integration user)                  | Incidents, change requests, problems, catalog requests, requested items, tasks, users, CMDB                            |
 | **Intercom**      | Access token (app in your own workspace)       | Contacts, conversations, admins                                                                                        |
 | **GitHub**        | Personal access token                          | Issues and pull requests, one dataset per repository                                                                   |
+| **Linear**        | Personal API key (sent bare, no `Bearer`)      | Issues, projects, teams, users, cycles                                                                                 |
+| **Asana**         | Personal access token                          | Tasks, one dataset per project                                                                                         |
+| **Freshdesk**     | API key (used as the basic-auth username)      | Tickets, contacts, companies, agents                                                                                   |
 
 **Auth is a pasted credential, never OAuth.** A redirect flow needs a public
 callback URL that a self-hosted deployment behind a firewall may not have, so
@@ -164,13 +167,17 @@ eventually takes longer than the interval it runs on.
 | **ServiceNow** | every table                                                                | `sys_updated_on`            | `sys_id` |
 | **Intercom**   | contacts, conversations                                                    | `updated_at` (Unix seconds) | `id`     |
 | **GitHub**     | every repository                                                           | `updated_at`                | `id`     |
+| **Linear**     | every stream                                                               | `updatedAt`                 | `id`     |
+| **Asana**      | every project                                                              | `modified_at`               | `gid`    |
+| **Freshdesk**  | tickets, contacts                                                          | `updated_at`                | `id`     |
 
 Everything else is a full refresh, and each of those is a decision rather than
 something pending. Stripe's `customers`, `subscriptions`, `products` and
 `prices` are edited in place while their `created` never moves, so following it
 would miss every edit; they are few enough that re-reading costs little.
-Zendesk offers no incremental export for **organizations**, and Intercom has
-no search endpoint for **admins** — a workspace has tens of them, so a full
+Zendesk offers no incremental export for **organizations**, Intercom has
+no search endpoint for **admins**, and Freshdesk offers no changed-since filter
+for **companies** or **agents** — a workspace has tens of them, so a full
 read is one request. Google Sheets has
 nothing to follow at all — a worksheet's rows are edited and deleted in place
 with no timestamp — which is the case full refresh exists for.
@@ -203,6 +210,22 @@ naming:
   difference would make "how many issues" wrong, so `is_pull_request` is a
   column of its own. Issues are asked for with `state=all`: the default is
   open-only, which is a minority of any real repository's history.
+- **Freshdesk's two filters are spelt differently**: tickets take
+  `updated_since` and contacts take `_updated_since`, with a leading
+  underscore. Getting it wrong is silent — Freshdesk ignores an unknown
+  parameter and returns everything, so the sync appears to work and simply
+  never follows. It also stops paginating a list at 300 pages, so a window
+  holding more than 30,000 records raises rather than returning a dataset
+  quietly short.
+- **Linear has no REST API**, so it is the one connector that posts a GraphQL
+  query. Its personal API key goes in as a bare `Authorization` header with no
+  `Bearer` prefix, and GraphQL answers a failed query with HTTP 200 and an
+  `errors` array — so the status alone would report a failure as a success.
+- **Asana's `modified_since` is exclusive**, unlike most of the APIs here. That
+  is safe rather than lossy: the task that set the mark has already been
+  synced. Its task endpoint also returns only a gid and a name unless
+  `opt_fields` names everything wanted, which would otherwise produce a
+  two-column dataset that looks like it worked.
 - **Zendesk's incremental export walks a time-ordered log**, where an empty
   page is a quiet hour rather than the end. Only `end_of_stream` terminates it;
   stopping on an empty page would truncate the sync at the first quiet hour.

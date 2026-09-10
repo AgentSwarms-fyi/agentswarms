@@ -694,10 +694,11 @@ function DataPage() {
       <P>
         <strong>Incremental</strong> asks the API for records changed since the last sync and folds
         them into the dataset by key. Salesforce, Shopify, HubSpot, Jira, ServiceNow and GitHub
-        follow every stream they offer; Stripe follows its six immutable object types; Zendesk
-        follows tickets and users; Intercom follows contacts and conversations. Everything else is a
-        full refresh — Zendesk has no incremental export for organizations, Intercom none for
-        admins, and a Google Sheets worksheet has no timestamp to follow at all.
+        follow every stream they offer, as do Linear and Asana; Stripe follows its six immutable
+        object types; Zendesk follows tickets and users; Intercom follows contacts and
+        conversations; Freshdesk follows tickets and contacts. Everything else is a full refresh —
+        Zendesk has no incremental export for organizations, Intercom none for admins, Freshdesk
+        none for companies or agents, and a Google Sheets worksheet has no timestamp at all.
       </P>
       <Callout kind="warn" title="Each API is asked in its own dialect">
         Jira and ServiceNow page by offset, so both are ordered oldest-first: newest-first meant a

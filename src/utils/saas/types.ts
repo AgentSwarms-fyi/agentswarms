@@ -17,7 +17,10 @@ export type SaasProvider =
   | "zendesk"
   | "servicenow"
   | "intercom"
-  | "github";
+  | "github"
+  | "linear"
+  | "asana"
+  | "freshdesk";
 
 export const SAAS_PROVIDERS: SaasProvider[] = [
   "google_sheets",
@@ -30,6 +33,9 @@ export const SAAS_PROVIDERS: SaasProvider[] = [
   "servicenow",
   "intercom",
   "github",
+  "linear",
+  "asana",
+  "freshdesk",
 ];
 
 export const SAAS_LABELS: Record<SaasProvider, string> = {
@@ -43,6 +49,9 @@ export const SAAS_LABELS: Record<SaasProvider, string> = {
   servicenow: "ServiceNow",
   intercom: "Intercom",
   github: "GitHub",
+  linear: "Linear",
+  asana: "Asana",
+  freshdesk: "Freshdesk",
 };
 
 /**
@@ -134,6 +143,27 @@ export type SaasConfig =
       owner: string;
       /** Classic or fine-grained PAT with read access to issues. */
       access_token: string;
+    }
+  | {
+      provider: "linear";
+      /**
+       * Personal API key. Sent as a BARE Authorization header — Linear does
+       * not use a Bearer prefix, which is the usual setup mistake.
+       */
+      api_key: string;
+    }
+  | {
+      provider: "asana";
+      access_token: string;
+      /** Optional: an agency with a workspace per client needs to choose. */
+      workspace_gid?: string;
+    }
+  | {
+      provider: "freshdesk";
+      /** The <domain> in https://<domain>.freshdesk.com. */
+      domain: string;
+      /** API key from Profile settings; used as the basic-auth username. */
+      api_key: string;
     }
   | {
       provider: "zendesk";

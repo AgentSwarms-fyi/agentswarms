@@ -31,6 +31,9 @@ import {
 } from "./servicenow.server";
 import { fetchIntercomRows, intercomIncremental, listIntercomStreams } from "./intercom.server";
 import { fetchGithubRows, githubIncremental, listGithubStreams } from "./github.server";
+import { fetchLinearRows, linearIncremental, listLinearStreams } from "./linear.server";
+import { asanaIncremental, fetchAsanaRows, listAsanaStreams } from "./asana.server";
+import { fetchFreshdeskRows, freshdeskIncremental, listFreshdeskStreams } from "./freshdesk.server";
 import type {
   IncrementalSpec,
   SaasConfig,
@@ -119,6 +122,21 @@ const CONNECTORS: Record<SaasProvider, SaasConnector> = {
     listStreams: listGithubStreams,
     fetchRows: fetchGithubRows,
     incremental: githubIncremental,
+  },
+  linear: {
+    listStreams: listLinearStreams,
+    fetchRows: fetchLinearRows,
+    incremental: linearIncremental,
+  },
+  asana: {
+    listStreams: listAsanaStreams,
+    fetchRows: fetchAsanaRows,
+    incremental: asanaIncremental,
+  },
+  freshdesk: {
+    listStreams: listFreshdeskStreams,
+    fetchRows: fetchFreshdeskRows,
+    incremental: freshdeskIncremental,
   },
 };
 

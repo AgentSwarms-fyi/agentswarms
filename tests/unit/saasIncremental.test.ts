@@ -186,6 +186,9 @@ const STREAM_IDS: Record<string, string[]> = {
   ],
   intercom: ["contacts", "conversations", "admins"],
   github: ["issues:acme/web"],
+  linear: ["issues", "projects", "teams", "users", "cycles"],
+  asana: ["tasks:1234567890"],
+  freshdesk: ["tickets", "contacts", "companies", "agents"],
   // Google Sheets is the one source with genuinely nothing to follow: a
   // worksheet's rows are edited and deleted in place with no timestamp.
   google_sheets: ["Sheet1"],
@@ -449,7 +452,7 @@ describe("adding a provider means wiring every place that knows about one", () =
   };
 
   it("the database CHECK admits exactly the providers the code offers", () => {
-    const sql = rd("supabase/migrations/20260898000000_saas_servicenow_intercom_github.sql");
+    const sql = rd("supabase/migrations/20260899000000_saas_linear_asana_freshdesk.sql");
     const inCheck = [...sql.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
     expect([...inCheck].sort()).toEqual([...providersInCode()].sort());
   });

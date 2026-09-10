@@ -123,6 +123,46 @@ const PROVIDER_HELP: Record<
   SaasProvider,
   { description: string; setup: string; unit: string; units: string; fields: Field[] }
 > = {
+  linear: {
+    description: "Sync issues, projects, teams, users and cycles into datasets.",
+    setup:
+      "Create a personal API key in Linear under Settings → Security & access → API keys, " +
+      "and paste it exactly as issued — it goes in without a Bearer prefix. The datasets " +
+      "contain what that account can see.",
+    unit: "object",
+    units: "objects",
+    fields: [{ key: "api_key", label: "API key", placeholder: "lin_api_…" }],
+  },
+  asana: {
+    description: "Sync tasks from your Asana projects into datasets — one per project.",
+    setup:
+      "Create a personal access token under Settings → Apps → Developer apps. The token " +
+      "sees exactly what its owner sees. Leave the workspace blank unless you belong to " +
+      "several and want only one of them.",
+    unit: "project",
+    units: "projects",
+    fields: [
+      { key: "access_token", label: "Personal access token", placeholder: "2/1234…" },
+      {
+        key: "workspace_gid",
+        label: "Workspace id (optional)",
+        placeholder: "blank for every workspace you can see",
+      },
+    ],
+  },
+  freshdesk: {
+    description: "Sync tickets, contacts, companies and agents into datasets.",
+    setup:
+      "Copy your API key from Freshdesk under Profile settings. It is used as the username " +
+      "with any password, which is Freshdesk's own scheme. Agents and companies need a key " +
+      "belonging to an agent with admin rights.",
+    unit: "object",
+    units: "objects",
+    fields: [
+      { key: "domain", label: "Domain", placeholder: "acme (from https://acme.freshdesk.com)" },
+      { key: "api_key", label: "API key", placeholder: "paste the key as issued" },
+    ],
+  },
   servicenow: {
     description: "Sync incidents, changes, problems and the CMDB into datasets.",
     setup:

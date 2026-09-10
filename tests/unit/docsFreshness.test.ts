@@ -274,7 +274,7 @@ describe("connector counts in prose match the code", () => {
     // inbox and the repositories. Hardcoded ON PURPOSE: adding a connector
     // should make somebody look at every number the docs quote, which is what
     // this failing did.
-    expect(SAAS_PROVIDERS.length).toBe(10);
+    expect(SAAS_PROVIDERS.length).toBe(13);
     const readme = readFileSync("README.md", "utf8");
     expect(readme).toContain(`${EXTERNAL_WAREHOUSE_PROVIDERS.length} databases and warehouses`);
     expect(readme).toContain(
