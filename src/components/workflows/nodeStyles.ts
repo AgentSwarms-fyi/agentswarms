@@ -171,4 +171,42 @@ export const KIND_GROUPS: { label: string; hint: string; kinds: WorkflowNodeKind
   },
 ];
 
+/**
+ * Where the work a step started keeps its own logs.
+ *
+ * A workflow step is a remote control, not the machine: when `SQL models`
+ * fails, the reason is in the model build's log, not in the orchestrator. The
+ * run view records the id it started, and this turns that id into somewhere to
+ * go — without it, a failed step is a dead end with a UUID on it.
+ *
+ * Only two subsystems have a per-run page today, so the rest link to the page
+ * that owns the run and the id is shown beside it to correlate against. That
+ * is honest about the platform rather than inventing routes that 404.
+ */
+export function stepRunLink(
+  kind: WorkflowNodeKind,
+  targetRunId: string | null | undefined,
+): { href: string; label: string } | null {
+  // "detached" is the sentinel for work that settles its own step and never
+  // had a run row to point at.
+  if (!targetRunId || targetRunId === "detached") return null;
+  switch (kind) {
+    case "swarm":
+      // The one true deep link: a swarm run has its own observability page.
+      return { href: `/analytics/observability/${targetRunId}`, label: "Trace" };
+    case "pipeline":
+      return { href: "/etl", label: "Logs" };
+    case "sql_models":
+      return { href: "/sql-models", label: "Logs" };
+    case "ml_schedule":
+      return { href: "/ml", label: "Logs" };
+    case "notebook":
+      return { href: "/notebooks", label: "Logs" };
+    case "sub_workflow":
+      return { href: "/workflows", label: "Run" };
+    default:
+      return null;
+  }
+}
+
 export { Braces };

@@ -39,6 +39,7 @@ import {
   type WorkflowNode,
   type WorkflowNodeState,
 } from "@/lib/workflows";
+import { auditEvent } from "@/utils/audit.server";
 import { DETACHED, pollNode, startNode, type Settled } from "./adapters.server";
 
 export type WorkflowRow = {
@@ -155,6 +156,26 @@ export async function startWorkflowRun(
     .select("id")
     .single();
   if (error || !run) return { ok: false, error: error?.message ?? "Could not start the run" };
+
+  // Every run is audited HERE rather than at each caller, so a run started by
+  // the scheduler, by the API or by a parent workflow is recorded on exactly
+  // the same terms as one somebody clicked. `trigger` is the interesting
+  // column: "api" means a bearer token was accepted for this workflow.
+  auditEvent({
+    userId: workflow.user_id,
+    action: "workflow.run",
+    resourceType: "workflow",
+    resourceId: workflow.id,
+    resourceName: workflow.name,
+    detail: {
+      run_id: String(run.id),
+      trigger,
+      steps: graph.nodes.length,
+      params: Object.keys(params).sort(),
+      ...(opts.parentRunId ? { parent_run_id: opts.parentRunId } : {}),
+      ...(opts.rerunOf ? { rerun_of: opts.rerunOf } : {}),
+    },
+  });
 
   const now = new Date().toISOString();
   const { error: nodesErr } = await supabaseAdmin.from("workflow_node_runs").insert(
@@ -470,6 +491,17 @@ async function closeRun(
     .eq("id", workflowId)
     .select("name, notify_on")
     .maybeSingle();
+  // Paired with `workflow.run`: the start says a run was authorised, this
+  // says what it did. Written inside the conditional close, so exactly one
+  // replica records the outcome however many took the pass.
+  auditEvent({
+    userId: String(won[0].user_id),
+    action: "workflow.run.finished",
+    resourceType: "workflow",
+    resourceId: workflowId,
+    resourceName: workflow?.name ?? undefined,
+    detail: { run_id: runId, outcome, ...(error ? { error } : {}) },
+  });
   const notifyOn = workflow?.notify_on ?? "failure";
   const wanted = notifyOn === "always" || (notifyOn === "failure" && outcome !== "succeeded");
   if (!wanted) return;
@@ -495,6 +527,13 @@ export async function cancelWorkflowRun(
     .eq("state", "running")
     .select("id, workflow_id");
   if (!won?.length) return { ok: false, error: "That run is not running" };
+  auditEvent({
+    userId,
+    action: "workflow.run.cancel",
+    resourceType: "workflow",
+    resourceId: String(won[0].workflow_id),
+    detail: { run_id: runId },
+  });
   // Steps that never started are skipped, which is the truth: they did not
   // run and they did not fail. A step already in flight is left alone — the
   // pipeline or training job it started keeps its own life.

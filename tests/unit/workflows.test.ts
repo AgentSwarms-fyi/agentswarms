@@ -6,9 +6,11 @@
 // the wrong thing quietly — it either hangs forever waiting on a node that
 // will never run, or calls the whole run green because the last step it
 // happened to reach was fine.
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
+
+import { stepRunLink } from "@/components/workflows/nodeStyles";
 
 import {
   EMPTY_GRAPH,
@@ -642,6 +644,117 @@ describe("nothing in the inspector asks for a notation", () => {
   });
 });
 
+describe("audit, IAM and logs", () => {
+  // An orchestrator starts work across several subsystems, on a clock or from
+  // an API call. "Who set this running, and how" is the first question an
+  // auditor asks, and until this milestone the answer was not recorded at all.
+  it("leaves row changes to the database trigger, and does not double-log them", () => {
+    // `audit_workflows` fires on INSERT, DELETE and the governance columns, so
+    // a direct write to the table cannot dodge it — and it writes exactly the
+    // action names below. Emitting them from the handlers as well produced TWO
+    // rows per save with the same action and different detail, which is worse
+    // than either alone.
+    const src = rd("src/utils/workflows.functions.ts");
+    for (const action of ["workflow.create", "workflow.update", "workflow.delete"]) {
+      expect(src, `${action} duplicates the database trigger`).not.toContain(`action: "${action}"`);
+    }
+    // What the trigger cannot see stays in the handlers: it does not watch
+    // `trigger_token_hash`.
+    for (const action of ["workflow.trigger_token.rotate", "workflow.trigger_token.revoke"]) {
+      expect(src, `${action} is not audited`).toContain(`action: "${action}"`);
+    }
+  });
+
+  it("watches the columns that decide WHEN work runs", () => {
+    // FOUND while wiring the events: the trigger watched `schedule` but not
+    // `cron_expr` or `timezone`, so moving a workflow from "07:00 on weekdays"
+    // to "every minute" left no audit row — `schedule` read 'cron' either side.
+    const sql = rd("supabase/migrations/20260896000000_workflow_audit_columns.sql");
+    expect(sql).toContain("UPDATE OF name, graph, schedule, is_active, cron_expr, timezone");
+    expect(sql).toContain("audit_row_change('workflow')");
+  });
+
+  it("audits a run once, wherever it was started from", () => {
+    // In startWorkflowRun rather than at each caller, so a run started by the
+    // scheduler, the API or a parent workflow is recorded on the same terms.
+    const src = rd("src/utils/workflows/run.server.ts");
+    expect(src.match(/action: "workflow\.run"/g)?.length).toBe(1);
+    // And `trigger` travels with it, which is the interesting column.
+    expect(src).toMatch(/action: "workflow\.run"[\s\S]{0,400}?trigger,/);
+    expect(src).toContain('action: "workflow.run.finished"');
+    expect(src).toContain('action: "workflow.run.cancel"');
+  });
+
+  it("records a refused trigger against the workflow that exists, and no other", () => {
+    const src = rd("src/routes/api/workflows.run.ts");
+    expect(src).toContain('action: "workflow.trigger.denied"');
+    // Guarded on the workflow existing: there is no owner to tell otherwise,
+    // and the caller learns nothing either way — the 404 is the same.
+    expect(src).toMatch(/if \(workflow\) \{[\s\S]{0,400}?workflow\.trigger\.denied/);
+    // The presented token is never written down. Quoted strings are
+    // stripped first, because the REASON legitimately says "wrong token" —
+    // it is the identifier reaching an audit row that would be the leak.
+    // Sliced from `auditEvent(` so the stripping starts on a quote boundary.
+    const from = src.lastIndexOf("auditEvent({", src.indexOf("workflow.trigger.denied"));
+    const call = src.slice(from, src.indexOf("});", from) + 3).replace(/"[^"]*"/g, '""');
+    expect(call).toContain("auditEvent");
+    expect(call).not.toMatch(/\btoken\b/);
+  });
+
+  it("keeps a workflow owner-only, and its steps pointed at what the owner owns", () => {
+    const fns = rd("src/utils/workflows.functions.ts");
+    // Every handler scopes by the caller.
+    expect((fns.match(/resolveCaller\(data\.accessToken\)/g) ?? []).length).toBeGreaterThan(8);
+    // And a step cannot point at somebody else's pipeline, model or notebook.
+    expect(fns).toContain("is not yours.");
+    expect(fns).toContain('.eq("user_id", userId)');
+    // The adapters check ownership again at run time, not only at save.
+    expect(rd("src/utils/workflows/adapters.server.ts")).toContain("async function owned(");
+  });
+
+  it("gives the audit log names for the workflow actions, not raw slugs", () => {
+    const ui = rd("src/components/observability/AuditLog.tsx");
+    for (const action of [
+      "workflow.run",
+      "workflow.run.finished",
+      "workflow.trigger.denied",
+      "workflow.create",
+      "workflow.delete",
+    ]) {
+      expect(ui, `${action} has no label`).toContain(`"${action}"`);
+    }
+    // A denial is a security signal and is styled like the other two.
+    expect(ui).toMatch(/workflow\.trigger\.denied[\s\S]{0,120}?bg-destructive/);
+  });
+
+  it("turns a step's target run into somewhere to go", () => {
+    // A failed step used to be a dead end with a UUID on it.
+    expect(stepRunLink("swarm", "abc")).toEqual({
+      href: "/analytics/observability/abc",
+      label: "Trace",
+    });
+    expect(stepRunLink("pipeline", "abc")?.href).toBe("/etl");
+    expect(stepRunLink("sql_models", "abc")?.href).toBe("/sql-models");
+    expect(stepRunLink("ml_schedule", "retrain:abc")?.href).toBe("/ml");
+    // Detached work never had a run row, so there is nothing to link.
+    expect(stepRunLink("sql", "detached")).toBeNull();
+    expect(stepRunLink("dashboard_refresh", "detached")).toBeNull();
+    expect(stepRunLink("condition", null)).toBeNull();
+  });
+
+  it("only links to routes that exist", () => {
+    // A link to a 404 is worse than no link.
+    const styles = rd("src/components/workflows/nodeStyles.ts");
+    const hrefs = [...styles.matchAll(/href: [`"](\/[a-z-]+)/g)].map((m) => m[1]);
+    expect(hrefs.length).toBeGreaterThan(3);
+    for (const href of new Set(hrefs)) {
+      expect(existsSync(`src/routes/_authenticated${href}.tsx`), `${href} has no route file`).toBe(
+        true,
+      );
+    }
+  });
+});
+
 describe("retries", () => {
   it("backs off exponentially and stops doubling at an hour", () => {
     const n = node("a", { retryBackoffSeconds: 60 });
@@ -908,7 +1021,9 @@ describe("the wiring", () => {
     expect(route).toContain("timingSafeEqual");
     expect(route).toContain('token.startsWith("wfk_")');
     // ONE undifferentiated 404, so a valid token for A cannot enumerate B.
-    expect(route).toMatch(/!workflow \|\|[\s\S]{0,200}?"Not found" \}, 404\)/);
+    expect(route).toMatch(/!workflow \|\|[\s\S]{0,1400}?"Not found" \}, 404\)/);
+    // Still exactly ONE 404, so the three failure modes cannot drift apart.
+    expect(route.match(/"Not found" \}, 404\)/g)?.length).toBe(1);
     expect(route).toContain("rateLimitedGlobal");
     expect(route).toContain("202");
     // The plaintext is never stored.

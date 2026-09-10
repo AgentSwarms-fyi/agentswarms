@@ -10,6 +10,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { auditEvent } from "@/utils/audit.server";
 import type { Json } from "@/integrations/supabase/types";
 import { validateCron } from "@/lib/cron";
 import {
@@ -436,6 +437,13 @@ export const workflowRotateToken = createServerFn({ method: "POST" })
       .select("id");
     if (error) return { ok: false, error: error.message };
     if (!won?.length) return { ok: false, error: "Workflow not found" };
+    // The token itself is never audited, only the fact that one was minted.
+    auditEvent({
+      userId,
+      action: "workflow.trigger_token.rotate",
+      resourceType: "workflow",
+      resourceId: data.id,
+    });
     return { ok: true, token };
   });
 
@@ -445,12 +453,21 @@ export const workflowRevokeToken = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }): Promise<Fail | { ok: true }> => {
     const userId = await resolveCaller(data.accessToken);
-    const { error } = await supabaseAdmin
+    const { data: won, error } = await supabaseAdmin
       .from("workflows")
       .update({ trigger_token_hash: null })
       .eq("id", data.id)
-      .eq("user_id", userId);
+      .eq("user_id", userId)
+      .select("id");
     if (error) return { ok: false, error: error.message };
+    if (won?.length) {
+      auditEvent({
+        userId,
+        action: "workflow.trigger_token.revoke",
+        resourceType: "workflow",
+        resourceId: data.id,
+      });
+    }
     return { ok: true };
   });
 

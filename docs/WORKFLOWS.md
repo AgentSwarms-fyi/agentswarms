@@ -219,6 +219,97 @@ valid token for one workflow cannot enumerate the ids of the others. Rate
 limited by `WORKFLOW_TRIGGER_PER_MIN` (default 6), globally rather than per
 process so the ceiling holds across replicas.
 
+## Who may run it, and what gets recorded
+
+### Ownership
+
+A workflow belongs to one person. Every server function resolves the caller
+from their access token and scopes the query by `user_id`, and there is no
+`workflow` grant type in `iam_resource_grants` — orchestration is not shared,
+the same way an ETL pipeline is not.
+
+**A step can only point at something you own.** `missingTargets` re-checks
+every `targetId` in the graph against the owning table on save, and the
+adapters check ownership _again_ at run time through `owned()`. Two checks
+rather than one, because a pipeline can be deleted or transferred between
+saving a workflow and running it, and a graph that keeps executing against
+something that is no longer yours is the failure worth preventing.
+
+The named SQL models get the same treatment: `a workflow can only build models
+you own`.
+
+### The audit trail
+
+Two writers, and the split is deliberate.
+
+**The database writes the row changes.** `audit_workflows` is a trigger on the
+`workflows` table, so a create, a delete or a change to the shape of a workflow
+is recorded even by a write that never went through the app:
+
+| Action            | Written when                                                                |
+| ----------------- | --------------------------------------------------------------------------- |
+| `workflow.create` | A workflow row is inserted                                                  |
+| `workflow.update` | `name`, `graph`, `schedule`, `is_active`, `cron_expr` or `timezone` changes |
+| `workflow.delete` | The row is deleted                                                          |
+
+`cron_expr` and `timezone` were added to that list in
+`20260896000000_workflow_audit_columns.sql`. Without them, moving a workflow
+from "07:00 on weekdays" to "every minute" — or from `Europe/London` to `UTC`,
+which shifts every run by an hour — changed when work ran across the platform
+and left no audit row at all, because `schedule` read `cron` on both sides.
+
+**The app writes what the database cannot see.** A run is not a row change on
+`workflows`, and neither is a refused bearer token:
+
+| Action                          | Written when                                                                                                                                       |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `workflow.run`                  | A run **starts**, with `trigger` (`manual`, `schedule`, `api`, `rerun`, `workflow`), the parameter names, and the parent run or the run it re-runs |
+| `workflow.run.finished`         | A run closes, with its outcome and error                                                                                                           |
+| `workflow.run.cancel`           | Somebody cancels a live run                                                                                                                        |
+| `workflow.trigger_token.rotate` | A bearer token is minted — the trigger does not watch `trigger_token_hash`                                                                         |
+| `workflow.trigger_token.revoke` | One is revoked                                                                                                                                     |
+| `workflow.trigger.denied`       | A bearer token was **refused** against a workflow that exists                                                                                      |
+
+Two decisions worth knowing:
+
+- **The run event is written inside `startWorkflowRun`, not at each caller.**
+  A run started by the scheduler, by the API, or by a parent workflow is
+  recorded on exactly the same terms as one somebody clicked. `trigger` is the
+  column that tells them apart, and `trigger: "api"` means a bearer token was
+  accepted.
+- **A refused trigger is audited to the workflow's owner**, the same class of
+  signal as an embed or swarm API-key denial, and styled as such in the audit
+  log. Nothing is written when the workflow does not exist — there is no owner
+  to tell, and the caller learns nothing either way because the answer is the
+  same undifferentiated 404. The presented token is never recorded; only the
+  reason (`wrong token` / `no token minted`). The write does not block the
+  refusal, so both paths take the same time.
+
+**The handlers do not re-emit the three trigger actions.** Doing so produced
+two rows per save with the same action name and different detail shapes, which
+is worse for an auditor than either alone.
+
+### Logs
+
+A workflow step is a remote control, not the machine. When a model build
+fails, the reason is in the build's own log — so each step in the run view
+carries a link to where its work keeps its logs, plus the first eight
+characters of the run id to correlate against.
+
+| Step           | Goes to                                                    |
+| -------------- | ---------------------------------------------------------- |
+| `swarm`        | `/analytics/observability/<run id>` — a real per-run trace |
+| `pipeline`     | `/etl`                                                     |
+| `sql_models`   | `/sql-models`                                              |
+| `ml_schedule`  | `/ml`                                                      |
+| `notebook`     | `/notebooks`                                               |
+| `sub_workflow` | `/workflows`                                               |
+
+Only a swarm run has a page of its own today; the rest link to the page that
+owns the run rather than to a route that would 404. Detached work (a SQL
+statement, a prep flow, a dashboard refresh, a data monitor) never had a run
+row to point at, so those steps show their output inline instead.
+
 ## Files
 
 | File                                           | What it holds                                                                                                                                 |

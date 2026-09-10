@@ -13,6 +13,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { createHash, timingSafeEqual } from "node:crypto";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { auditEvent } from "@/utils/audit.server";
 import { envInt, rateLimitedGlobal } from "@/utils/rateLimit.server";
 
 const json = (body: unknown, status: number) =>
@@ -65,6 +66,24 @@ export const Route = createFileRoute("/api/workflows/run")({
           !workflow.trigger_token_hash ||
           !hashMatches(token, workflow.trigger_token_hash)
         ) {
+          // A bad token presented against a workflow that EXISTS is a security
+          // signal its owner should see, so it is audited to them — the same
+          // class of event as an embed or swarm API key denial. The presented
+          // token is never recorded, only that one was refused. Nothing is
+          // written when the workflow does not exist: there is no owner to
+          // tell, and the caller learns nothing either way because the answer
+          // is the same undifferentiated 404. `auditEvent` does not await, so
+          // the refusal path stays the same length whichever branch it took.
+          if (workflow) {
+            auditEvent({
+              userId: String(workflow.user_id),
+              action: "workflow.trigger.denied",
+              resourceType: "workflow",
+              resourceId: String(workflow.id),
+              resourceName: String(workflow.name),
+              detail: { reason: workflow.trigger_token_hash ? "wrong token" : "no token minted" },
+            });
+          }
           return json({ error: "Not found" }, 404);
         }
         if (!workflow.is_active) return json({ error: "This workflow is paused" }, 409);

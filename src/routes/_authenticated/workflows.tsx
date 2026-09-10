@@ -36,6 +36,7 @@ import "@xyflow/react/dist/style.css";
 import {
   CheckCircle2,
   CircleDashed,
+  ExternalLink,
   KeyRound,
   Loader2,
   MinusCircle,
@@ -77,7 +78,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { StepInspector } from "@/components/workflows/StepInspector";
 import { WorkflowPalette } from "@/components/workflows/WorkflowPalette";
-import { KIND_STYLE } from "@/components/workflows/nodeStyles";
+import { KIND_STYLE, stepRunLink } from "@/components/workflows/nodeStyles";
 import { useAuth } from "@/hooks/use-auth";
 import { useTheme } from "@/hooks/use-theme";
 import { cn } from "@/lib/utils";
@@ -1342,6 +1343,7 @@ function RunDetail({
         const kind = KIND_STYLE[n.kind as WorkflowNodeKind];
         const KindIcon = kind?.icon;
         const output = n.output as Record<string, unknown> | null;
+        const link = stepRunLink(n.kind as WorkflowNodeKind, n.target_run_id);
         return (
           <div key={n.id} className="rounded-md border px-2 py-1 text-[11px]">
             <div className="flex items-center gap-1.5">
@@ -1371,6 +1373,21 @@ function RunDetail({
               </p>
             ) : null}
             {n.error ? <p className="mt-0.5 text-destructive">{n.error}</p> : null}
+            {link ? (
+              <a
+                href={link.href}
+                className="mt-0.5 inline-flex items-center gap-1 text-[10px] text-primary hover:underline"
+                title={`Run ${n.target_run_id}`}
+              >
+                <ExternalLink className="h-2.5 w-2.5" />
+                {link.label}
+                <span className="font-mono opacity-60">
+                  {String(n.target_run_id)
+                    .replace(/^(retrain|batch_predict):/, "")
+                    .slice(0, 8)}
+                </span>
+              </a>
+            ) : null}
           </div>
         );
       })}

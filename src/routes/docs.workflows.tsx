@@ -387,12 +387,83 @@ function WorkflowsDocs() {
         ]}
       />
 
-      <Callout kind="info" title="Workflows are owner-only">
-        A workflow belongs to the account that created it, matching the pipelines and models it
-        orchestrates. A graph that could start work its viewer cannot see would be a way around
-        every grant the platform has, so sharing one is a larger change than adding a policy. Name,
-        graph, schedule and active changes are written to the audit log.
+      <H2 id="governance">Who may run it, and what gets recorded</H2>
+      <P>
+        A workflow belongs to the account that created it. Every server function resolves the caller
+        from their access token and scopes the query by owner, and there is no workflow grant type
+        in IAM — orchestration is not shared, the same way an ETL pipeline is not.
+      </P>
+      <Callout kind="why" title="Why a step is checked twice">
+        A step can only point at something you own, and that is verified when the workflow is
+        <strong> saved</strong> and again when it <strong>runs</strong>. A pipeline can be deleted
+        or transferred in between, and a graph that keeps executing against something no longer
+        yours is exactly the failure worth preventing. A graph that could start work its viewer
+        cannot see would be a way around every grant the platform has.
       </Callout>
+
+      <H3 id="audit">The audit trail</H3>
+      <P>
+        Two writers, and the split is deliberate. The <strong>database</strong> records the row
+        changes through a trigger, so creating, deleting or reshaping a workflow is recorded even by
+        a write that never went through the app. The <strong>app</strong> records what a row change
+        cannot show: that a run started, how it was triggered, and that somebody was refused.
+      </P>
+      <Table
+        headers={["Action", "Written by", "Written when"]}
+        rows={[
+          ["workflow.create", "trigger", "A workflow row is inserted"],
+          [
+            "workflow.update",
+            "trigger",
+            "Its name, graph, schedule, active flag, cron expression or timezone changes",
+          ],
+          ["workflow.delete", "trigger", "The row is deleted"],
+          [
+            "workflow.run",
+            "app",
+            "A run starts — with how it was triggered, its parameter names and its parent run",
+          ],
+          ["workflow.run.finished", "app", "A run closes, with its outcome"],
+          ["workflow.run.cancel", "app", "Somebody cancels a live run"],
+          ["workflow.trigger_token.rotate", "app", "A bearer token is minted"],
+          ["workflow.trigger_token.revoke", "app", "One is revoked"],
+          [
+            "workflow.trigger.denied",
+            "app",
+            "A bearer token was refused against a workflow that exists",
+          ],
+        ]}
+      />
+      <Callout kind="why" title="Why the cron expression is on that list">
+        The trigger used to watch <C>schedule</C> but not <C>cron_expr</C>, so moving a workflow
+        from &ldquo;07:00 on weekdays&rdquo; to &ldquo;every minute&rdquo; left no audit row at all
+        — <C>schedule</C> read <C>cron</C> on both sides. Changing when work runs is exactly the
+        kind of change a review asks about.
+      </Callout>
+      <P>
+        The run event is written in one place inside the runner rather than at each caller, so a run
+        started by the scheduler, by the API or by a parent workflow is recorded on exactly the same
+        terms as one somebody clicked. <C>trigger</C> is the column that tells them apart, and{" "}
+        <C>api</C> means a bearer token was accepted.
+      </P>
+      <Callout kind="warn" title="A refused trigger reaches the owner, not the caller">
+        A bad token presented against a workflow that exists is audited to that workflow&apos;s
+        owner — the same class of signal as an embed or swarm API-key denial. Nothing is written
+        when the workflow does not exist: there is nobody to tell, and the caller learns nothing
+        either way because the answer is the same undifferentiated <C>404</C>. The token itself is
+        never recorded, only whether it was wrong or never minted.
+      </Callout>
+
+      <H3 id="step-logs">Getting from a step to its logs</H3>
+      <P>
+        A step is a remote control, not the machine: when a model build fails, the reason is in the
+        build&apos;s own log. Each step in the run view carries a link to where its work keeps its
+        logs, with the first characters of the run id beside it to correlate against. A swarm step
+        links to its own trace; the rest link to the page that owns the run, because only a swarm
+        run has a page of its own today and a link to a <C>404</C> is worse than no link. Detached
+        work — a SQL statement, a prep flow, a dashboard refresh, a monitor — never had a run row to
+        point at, so those steps show their output inline instead.
+      </P>
 
       <P>
         The one-hop chain a pipeline can carry is still there and still works — see{" "}

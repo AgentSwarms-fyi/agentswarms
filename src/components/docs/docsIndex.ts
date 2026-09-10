@@ -4037,9 +4037,14 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "409",
       "WORKFLOW_TRIGGER_PER_MIN",
       "all_done",
+      "api",
+      "cron",
+      "cron_expr",
       "false",
       "one_success",
       "partial",
+      "schedule",
+      "trigger",
       "true"
     ],
     "headings": [
@@ -4106,6 +4111,21 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       {
         "id": "limits",
         "text": "Knobs",
+        "level": 3
+      },
+      {
+        "id": "governance",
+        "text": "Who may run it, and what gets recorded",
+        "level": 2
+      },
+      {
+        "id": "audit",
+        "text": "The audit trail",
+        "level": 3
+      },
+      {
+        "id": "step-logs",
+        "text": "Getting from a step to its logs",
         "level": 3
       }
     ]

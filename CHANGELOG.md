@@ -14,7 +14,7 @@ development branch and may be ahead of the latest tag.
 
 ## Unreleased
 
-Work on `main` since the 1.4.0 tag. Twenty-eight migrations —
+Work on `main` since the 1.4.0 tag. Twenty-nine migrations —
 run `npx supabase db push` after pulling.
 
 ### Workflows: one graph over four separate clocks
@@ -76,6 +76,44 @@ run `npx supabase db push` after pulling.
 - **Cron with a timezone**, alongside the coarse four. An expression that stops
   parsing takes that one workflow out of the schedule rather than wedging the
   sweep for everybody.
+
+### Workflows: an audit trail, and a way out of a failed step
+
+- **Six audit actions where there were none.** A database trigger already
+  recorded the row changes — create, update, delete — but nothing recorded that
+  a workflow had actually **run**, which is the whole point of an orchestrator.
+  Now: run (with how it was triggered), run finished, run cancelled, token
+  minted, token revoked, and **trigger denied**. The handlers deliberately do
+  not re-emit the three the trigger owns; doing so wrote two rows per save with
+  the same action name and different detail, which is worse for an auditor than
+  either alone.
+- **The audit trigger now watches the cron expression and the timezone.**
+  It watched `schedule` but not `cron_expr`, so moving a workflow from "07:00 on
+  weekdays" to "every minute" — or from `Europe/London` to `UTC`, which shifts
+  every run by an hour — changed when work ran across the platform and left no
+  audit row at all, because `schedule` read `cron` on both sides.
+- **A run is audited in one place, not at each caller.** The event is written
+  inside `startWorkflowRun`, so a run started by the scheduler, by the API or by
+  a parent workflow is recorded on exactly the same terms as one somebody
+  clicked. `trigger` is the column that tells them apart, and `api` means a
+  bearer token was accepted for that workflow.
+- **A refused bearer token reaches the workflow's owner.** The same class of
+  signal as an embed or swarm API-key denial, and styled that way in the audit
+  log. Nothing is written when the workflow does not exist — there is nobody to
+  tell, and the caller learns nothing either way because the answer is the same
+  undifferentiated 404. The presented token is never recorded, only whether it
+  was wrong or never minted. The audit write does not block the refusal, so the
+  two paths stay the same length.
+- **A failed step is no longer a dead end with a UUID on it.** Each step in the
+  run view links to where its work keeps its logs — a swarm step to its own
+  trace, the rest to the page that owns the run, because only a swarm run has a
+  page of its own and a link to a 404 is worse than no link. `target_run_id`
+  had been carried in the DTO since the first version and never shown.
+- **Ownership is checked twice, and now says so.** A step can only point at
+  something you own; that is verified when the workflow is saved and again when
+  it runs, because a pipeline can be deleted or transferred in between. The
+  in-app documentation claimed changes were "written to the audit log" before
+  any of them were — that sentence is now true rather than removed.
 
 ### Workflows: the editor asks for choices, not notation
 
