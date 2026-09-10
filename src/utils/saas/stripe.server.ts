@@ -5,7 +5,7 @@
 // type and adding a stream is a table entry rather than code.
 
 import { flattenRecord, isoifyTimestamps } from "./flatten";
-import type { SaasConfig, SaasStream } from "./types";
+import type { IncrementalSpec, SaasConfig, SaasStream } from "./types";
 import { connectorFetch } from "@/utils/http/connectorFetch.server";
 
 const API = "https://api.stripe.com/v1";
@@ -119,18 +119,55 @@ export async function listStripeStreams(cfg: SaasConfig): Promise<SaasStream[]> 
  * offset. That matters: an offset would skip or repeat rows as the underlying
  * list changes during a long sync, and a Stripe account is changing constantly.
  */
+/**
+ * Which object types can be followed rather than re-read.
+ *
+ * Stripe objects are IMMUTABLE once created for the types listed here — a
+ * charge's amount never changes — so `created` is a safe cursor and the
+ * primary key only ever de-duplicates a boundary row.
+ *
+ * `customers`, `subscriptions`, `products` and `prices` are deliberately
+ * absent: they are edited in place and their `created` never moves, so
+ * following it would miss every edit. They are few enough that a full read
+ * costs little, and correctness is worth more than the saving.
+ */
+const INCREMENTAL: Record<string, IncrementalSpec> = {
+  charges: { cursorField: "created", primaryKey: "id", compare: "iso" },
+  invoices: { cursorField: "created", primaryKey: "id", compare: "iso" },
+  payment_intents: { cursorField: "created", primaryKey: "id", compare: "iso" },
+  refunds: { cursorField: "created", primaryKey: "id", compare: "iso" },
+  payouts: { cursorField: "created", primaryKey: "id", compare: "iso" },
+  balance_transactions: { cursorField: "created", primaryKey: "id", compare: "iso" },
+};
+
+export function stripeIncremental(streamId: string): IncrementalSpec | null {
+  return INCREMENTAL[streamId] ?? null;
+}
+
 export async function* fetchStripeRows(
   cfg: SaasConfig,
   streamId: string,
+  since?: string,
 ): AsyncGenerator<Record<string, unknown>> {
   const stream = STREAMS[streamId];
   if (!stream) throw new Error(`Stripe: unknown object type "${streamId}"`);
   const c = cfg as StripeCfg;
 
+  // The cursor is stored as the ISO string the row carries, because that is
+  // what `isoifyTimestamps` leaves behind — but Stripe filters on Unix
+  // seconds, so it converts back here. `gte` rather than `gt`: a boundary row
+  // arriving twice is folded away by the primary key, whereas `gt` would drop
+  // any record sharing the exact second of the last one seen.
+  const createdGte = since ? Math.floor(Date.parse(since) / 1000) : NaN;
+  const filter: Record<string, string> = Number.isFinite(createdGte)
+    ? { "created[gte]": String(createdGte) }
+    : {};
+
   let startingAfter: string | undefined;
   for (;;) {
     const page = await stripeFetch(c, stream.path, {
       limit: String(PAGE_SIZE),
+      ...filter,
       ...(startingAfter ? { starting_after: startingAfter } : {}),
     });
     const rows = page.data ?? [];

@@ -15,13 +15,24 @@ import type { Database } from "@/integrations/supabase/types";
 import { ingestRows } from "@/utils/data/ingest.server";
 import { fetchSheetRows, listSheetStreams } from "./googleSheets.server";
 import { fetchHubspotRows, listHubspotStreams } from "./hubspot.server";
-import { fetchSalesforceRows, listSalesforceStreams } from "./salesforce.server";
+import {
+  fetchSalesforceRows,
+  listSalesforceStreams,
+  salesforceIncremental,
+} from "./salesforce.server";
 import { fetchShopifyRows, listShopifyStreams } from "./shopify.server";
 import { fetchJiraRows, listJiraStreams } from "./jira.server";
-import { fetchStripeRows, listStripeStreams } from "./stripe.server";
+import { fetchStripeRows, listStripeStreams, stripeIncremental } from "./stripe.server";
 import { fetchZendeskRows, listZendeskStreams } from "./zendesk.server";
-import type { SaasConfig, SaasProvider, SaasStream, SaasSyncResult } from "./types";
-import { SAAS_LABELS } from "./types";
+import type {
+  IncrementalSpec,
+  SaasConfig,
+  SaasProvider,
+  SaasStream,
+  SaasSyncResult,
+} from "./types";
+import { advanceCursor, SAAS_LABELS } from "./types";
+import { supabaseAdmin } from "@/integrations/supabase/client.server";
 
 /**
  * What a connector must provide.
@@ -32,15 +43,43 @@ import { SAAS_LABELS } from "./types";
  */
 export type SaasConnector = {
   listStreams: (cfg: SaasConfig) => Promise<SaasStream[]>;
-  fetchRows: (cfg: SaasConfig, streamId: string) => AsyncGenerator<Record<string, unknown>>;
+  /**
+   * Rows for one stream.
+   *
+   * `since` is the high-water mark from the last successful incremental sync,
+   * or undefined for a full read. A connector that declares no incremental
+   * support for the stream will never be given one.
+   */
+  fetchRows: (
+    cfg: SaasConfig,
+    streamId: string,
+    since?: string,
+  ) => AsyncGenerator<Record<string, unknown>>;
+  /**
+   * How this stream syncs incrementally, or null if it cannot.
+   *
+   * Per stream rather than per connector: a Stripe account's `events` are
+   * append-only and cheap to follow, while its `prices` are few and change
+   * shape, so re-reading them is simpler and no more expensive. Returning null
+   * is a legitimate answer and keeps the full-refresh behaviour.
+   */
+  incremental?: (streamId: string) => IncrementalSpec | null;
 };
 
 const CONNECTORS: Record<SaasProvider, SaasConnector> = {
   google_sheets: { listStreams: listSheetStreams, fetchRows: fetchSheetRows },
-  stripe: { listStreams: listStripeStreams, fetchRows: fetchStripeRows },
+  stripe: {
+    listStreams: listStripeStreams,
+    fetchRows: fetchStripeRows,
+    incremental: stripeIncremental,
+  },
   shopify: { listStreams: listShopifyStreams, fetchRows: fetchShopifyRows },
   hubspot: { listStreams: listHubspotStreams, fetchRows: fetchHubspotRows },
-  salesforce: { listStreams: listSalesforceStreams, fetchRows: fetchSalesforceRows },
+  salesforce: {
+    listStreams: listSalesforceStreams,
+    fetchRows: fetchSalesforceRows,
+    incremental: salesforceIncremental,
+  },
   jira: { listStreams: listJiraStreams, fetchRows: fetchJiraRows },
   zendesk: { listStreams: listZendeskStreams, fetchRows: fetchZendeskRows },
 };
@@ -93,10 +132,33 @@ export async function syncSaasStream(args: {
   connectionName: string;
   config: SaasConfig;
   streamId: string;
+  /** Ignore the stored cursor and read the source from the beginning. */
+  fullRefresh?: boolean;
 }): Promise<SaasSyncResult> {
   const connector = connectorFor(args.config.provider);
   const tableName = datasetNameFor(args.connectionName, args.streamId);
   const label = `${SAAS_LABELS[args.config.provider]} · ${args.streamId}`;
+
+  const spec = args.fullRefresh ? null : (connector.incremental?.(args.streamId) ?? null);
+  const state = spec ? await readStreamState(args.connectionId, args.streamId) : null;
+  // The FIRST incremental pass has no cursor, so it reads everything — and it
+  // must therefore replace rather than merge. Merging into a dataset that does
+  // not exist yet is the same thing, but merging into a STALE one would leave
+  // rows the source has since deleted, for ever.
+  const since = state?.cursor ?? undefined;
+  const merging = Boolean(spec && since);
+
+  // The highest cursor seen, tracked as rows stream past rather than after the
+  // fact: the generator is consumed once by ingestRows and cannot be replayed.
+  let cursor: string | null = since ?? null;
+  const watched = spec
+    ? (async function* () {
+        for await (const row of connector.fetchRows(args.config, args.streamId, since)) {
+          cursor = advanceCursor(cursor, [row], spec);
+          yield row;
+        }
+      })()
+    : connector.fetchRows(args.config, args.streamId);
 
   const result = await ingestRows({
     userId: args.userId,
@@ -105,15 +167,89 @@ export async function syncSaasStream(args: {
     // The fact the Data Catalog groups by. sourceLabel above is the same
     // provenance for a human to read; this is the one a query can filter on.
     saas: { connectionId: args.connectionId, stream: args.streamId },
-    rows: connector.fetchRows(args.config, args.streamId),
+    rows: watched,
+    ...(merging && spec ? { mergeKey: spec.primaryKey } : {}),
   });
+
+  // Written only after the rows are committed. A cursor advanced first and
+  // then lost to a failed ingest would skip everything in that window on the
+  // next run, and nothing would ever say so.
+  if (spec) {
+    await writeStreamState({
+      connectionId: args.connectionId,
+      userId: args.userId,
+      stream: args.streamId,
+      cursor,
+      cursorField: spec.cursorField,
+      rowsSeen: result.rowCount,
+    });
+  }
 
   return {
     stream: args.streamId,
     tableName: result.tableName,
     rowCount: result.rowCount,
     skipped: result.skipped,
+    mode: spec ? "incremental" : "full_refresh",
+    ...(result.merged ? { merged: result.merged } : {}),
   };
+}
+
+/** The high-water mark for one stream, or null before the first pass. */
+export async function readStreamState(
+  connectionId: string,
+  stream: string,
+): Promise<{ cursor: string | null } | null> {
+  const { data } = await supabaseAdmin
+    .from("saas_stream_state")
+    .select("cursor_value")
+    .eq("connection_id", connectionId)
+    .eq("stream", stream)
+    .maybeSingle();
+  return data ? { cursor: data.cursor_value } : null;
+}
+
+async function writeStreamState(args: {
+  connectionId: string;
+  userId: string;
+  stream: string;
+  cursor: string | null;
+  cursorField: string;
+  rowsSeen: number;
+}): Promise<void> {
+  await supabaseAdmin.from("saas_stream_state").upsert(
+    {
+      connection_id: args.connectionId,
+      user_id: args.userId,
+      stream: args.stream,
+      cursor_value: args.cursor,
+      cursor_field: args.cursorField,
+      last_rows_seen: args.rowsSeen,
+      last_synced_at: new Date().toISOString(),
+    },
+    { onConflict: "connection_id,stream" },
+  );
+}
+
+/**
+ * Forget where a stream got to, so the next sync reads it from the beginning.
+ *
+ * The escape hatch for the case incremental sync cannot see: records the API
+ * changed without moving their cursor field, or a backfill that predates the
+ * connection. It costs a full re-read of somebody's rate limit, which is why
+ * it is a deliberate action rather than something the runner decides.
+ */
+export async function resetStreamCursor(
+  userId: string,
+  connectionId: string,
+  stream: string,
+): Promise<void> {
+  await supabaseAdmin
+    .from("saas_stream_state")
+    .delete()
+    .eq("connection_id", connectionId)
+    .eq("stream", stream)
+    .eq("user_id", userId);
 }
 
 /** When a schedule is next due, or null for a source that only syncs on demand. */

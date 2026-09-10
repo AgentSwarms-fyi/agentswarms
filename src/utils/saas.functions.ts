@@ -13,7 +13,12 @@ import { decryptJson, encryptJson } from "@/utils/providers/crypto.server";
 import { auditEvent } from "@/utils/audit.server";
 import { listSaasStreams, nextSyncAt, runConnectionSync } from "@/utils/saas/sync.server";
 import { SYNC_SCHEDULES } from "@/utils/saas/types";
-import type { SaasConfig, SaasConnectionSummary, SaasStream } from "@/utils/saas/types";
+import type {
+  SaasConfig,
+  SaasConnectionSummary,
+  SaasStream,
+  StreamState,
+} from "@/utils/saas/types";
 
 function userClient(accessToken: string) {
   const url = process.env.SUPABASE_URL;
@@ -400,4 +405,93 @@ export const syncSaasConnection = createServerFn({ method: "POST" })
       },
     });
     return result;
+  });
+
+/**
+ * How each stream of a connection is being kept up to date.
+ *
+ * Read-only and owner-or-grantee, matching the health fields beside it: a
+ * grantee may see that a source is following rather than re-reading, which is
+ * the difference between "this synced 40 rows because nothing changed" and
+ * "this synced 40 rows because it is broken".
+ */
+export const saasStreamStates = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z.object({ access_token: z.string().min(1), id: z.string().uuid() }).parse(input),
+  )
+  .handler(async ({ data }): Promise<{ states: StreamState[] }> => {
+    const { sb, userId } = await requireUser(data.access_token);
+    const conn = await loadConnection(sb, userId, data.id, { allowShared: true });
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: rows } = await supabaseAdmin
+      .from("saas_stream_state")
+      .select("stream, cursor_value, cursor_field, last_rows_seen, last_synced_at")
+      .eq("connection_id", data.id)
+      .eq("user_id", conn.ownerUserId);
+    const byStream = new Map((rows ?? []).map((r) => [String(r.stream), r]));
+
+    // One entry per SELECTED stream, not per stream that happens to have a
+    // cursor. A stream on full refresh has no state row and is exactly the one
+    // somebody is looking for when they ask why a sync takes an hour.
+    const { connectorFor } = await import("@/utils/saas/sync.server");
+    const connector = connectorFor(conn.config.provider);
+    return {
+      states: conn.streams.map((stream) => {
+        const spec = connector.incremental?.(stream) ?? null;
+        const row = byStream.get(stream);
+        return {
+          stream,
+          mode: spec ? ("incremental" as const) : ("full_refresh" as const),
+          cursor: row?.cursor_value ?? null,
+          cursorField: spec?.cursorField ?? row?.cursor_field ?? null,
+          lastRowsSeen: Number(row?.last_rows_seen ?? 0),
+          lastSyncedAt: row?.last_synced_at ?? null,
+        };
+      }),
+    };
+  });
+
+/**
+ * Forget where a stream got to, so the next sync reads the source in full.
+ *
+ * OWNER ONLY, unlike triggering a sync. A full re-read is charged to the
+ * owner's API quota and can take hours on a large account; a grantee who may
+ * ask for a refresh should not be able to spend that on their behalf.
+ */
+export const resetSaasCursor = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z
+      .object({
+        access_token: z.string().min(1),
+        id: z.string().uuid(),
+        /** Omit to reset every stream on the connection. */
+        stream: z.string().min(1).optional(),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data }): Promise<{ reset: number }> => {
+    const { sb, userId } = await requireUser(data.access_token);
+    const conn = await loadConnection(sb, userId, data.id, { allowShared: false });
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    let q = supabaseAdmin
+      .from("saas_stream_state")
+      .delete()
+      .eq("connection_id", data.id)
+      .eq("user_id", userId);
+    if (data.stream) q = q.eq("stream", data.stream);
+    const { data: gone, error } = await q.select("stream");
+    if (error) throw new Error(error.message);
+
+    // Audited because it SPENDS something: the next sync re-reads the whole
+    // source against the owner's rate limit. "Why did we hit Salesforce's API
+    // ceiling on Tuesday" is a question this answers.
+    auditEvent({
+      userId,
+      action: "saas_connection.cursor_reset",
+      resourceType: "saas_connection",
+      resourceId: data.id,
+      resourceName: conn.name,
+      detail: { streams: (gone ?? []).map((r) => String(r.stream)) },
+    });
+    return { reset: gone?.length ?? 0 };
   });

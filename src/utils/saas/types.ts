@@ -113,6 +113,114 @@ export type SaasConfig =
       api_token: string;
     };
 
+/**
+ * How a stream is kept up to date.
+ *
+ * `full_refresh` re-reads the source and REPLACES the dataset. It is the only
+ * correct answer for a source with no cursor — a spreadsheet whose rows are
+ * edited and deleted in place — and it stays the default.
+ *
+ * `incremental` asks the source for records changed since the last high-water
+ * mark and folds them into the dataset by key. It exists because re-reading a
+ * Salesforce org or a Stripe account every hour burns the customer's rate
+ * limit for no new information, and eventually takes longer than the interval
+ * it runs on.
+ */
+export const SYNC_MODES = ["full_refresh", "incremental"] as const;
+export type SyncMode = (typeof SYNC_MODES)[number];
+
+/**
+ * What a connector needs to sync one stream incrementally.
+ *
+ * Both fields are required together and neither can be guessed. Without a
+ * `primaryKey` an incremental pass can only append, so an edited record
+ * arrives as a SECOND row and the dataset quietly grows duplicates. Without a
+ * `cursorField` there is nothing to ask the API for.
+ */
+export type IncrementalSpec = {
+  /**
+   * The field the API filters and orders by — `SystemModstamp`, `updated_at`,
+   * `created`. Named as it appears in the ROW after flattening, because that
+   * is where the new high-water mark is read from.
+   */
+  cursorField: string;
+  /** The field that identifies a record across syncs, so an edit replaces it. */
+  primaryKey: string;
+  /**
+   * How the cursor compares, which decides what "the highest one seen" means.
+   *
+   * `iso` for a timestamp string, `number` for a Unix second or a sequence.
+   * Comparing an ISO string numerically yields NaN and would pin the cursor at
+   * its first value for ever; comparing a Unix second as a string makes
+   * "9" > "10" and would walk the cursor BACKWARDS.
+   */
+  compare: "iso" | "number";
+};
+
+/**
+ * The state a stream carries between syncs.
+ *
+ * `cursor` is null before the first incremental pass, which is what makes that
+ * pass a full read — there is no "changed since" to ask about yet.
+ */
+export type StreamState = {
+  stream: string;
+  /** Whether this stream is followed or re-read each time. */
+  mode: SyncMode;
+  cursor: string | null;
+  cursorField: string | null;
+  lastRowsSeen: number;
+  lastSyncedAt: string | null;
+};
+
+/**
+ * Is `next` further along than `current`?
+ *
+ * Pure, and the single place the comparison lives. A cursor that moves
+ * backwards re-reads rows already synced; one that moves when it should not
+ * SKIPS rows for ever, which is the failure nobody notices until a month of
+ * data is missing. Ties do not advance: an API that returns records with the
+ * same timestamp across a page boundary would otherwise lose the ones after
+ * the first.
+ */
+export function cursorAdvances(
+  current: string | null | undefined,
+  next: string | null | undefined,
+  compare: IncrementalSpec["compare"],
+): boolean {
+  if (next === null || next === undefined || next === "") return false;
+  if (current === null || current === undefined || current === "") return true;
+  if (compare === "number") {
+    const a = Number(current);
+    const b = Number(next);
+    // A non-numeric value on either side means the stored cursor and the row
+    // disagree about what this field is; refusing to advance is the safe half
+    // of that mistake, because it re-reads rather than skips.
+    if (!Number.isFinite(a) || !Number.isFinite(b)) return false;
+    return b > a;
+  }
+  const a = Date.parse(current);
+  const b = Date.parse(next);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return false;
+  return b > a;
+}
+
+/** The highest cursor in a batch, or the one we started with. */
+export function advanceCursor(
+  current: string | null,
+  rows: Record<string, unknown>[],
+  spec: IncrementalSpec,
+): string | null {
+  let best = current;
+  for (const row of rows) {
+    const raw = row[spec.cursorField];
+    if (raw === null || raw === undefined) continue;
+    const next = String(raw);
+    if (cursorAdvances(best, next, spec.compare)) best = next;
+  }
+  return best;
+}
+
 /** Cadences a connection can be synced on. Client-safe: the picker needs these. */
 export const SYNC_SCHEDULES = ["manual", "hourly", "daily", "weekly"] as const;
 export type SyncSchedule = (typeof SYNC_SCHEDULES)[number];
@@ -172,4 +280,8 @@ export type SaasSyncResult = {
   tableName: string;
   rowCount: number;
   skipped: number;
+  /** How this stream was read. Reported so a small row count is explicable. */
+  mode?: SyncMode;
+  /** Present when the rows were folded into an existing dataset. */
+  merged?: { updated: number; inserted: number };
 };

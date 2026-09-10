@@ -130,11 +130,69 @@ every connector uses the vendor's server-to-server credential instead. That is
 a deliberate constraint, and it is why sources offering no such credential are
 not here yet.
 
-A sync **replaces** its dataset — the correct semantic for a source where rows
-are edited and deleted in place. The previous contents are snapshotted as a
-restorable version first. Syncs run on demand or hourly / daily / weekly, and
-the owner is notified if one fails or comes back partial. Nested API objects
-are flattened into columns; arrays are stored as JSON with a count alongside.
+Syncs run on demand or hourly / daily / weekly, and the owner is notified if
+one fails or comes back partial. Nested API objects are flattened into
+columns; arrays are stored as JSON with a count alongside.
+
+### Following a source instead of re-reading it
+
+A sync does one of two things, and the **Streams** button on a connection says
+which for every stream it syncs.
+
+**Full refresh** re-reads the source and replaces the dataset. It is the right
+semantic where rows are edited and deleted in place with nothing to filter on
+— a spreadsheet, a small reference list — and it is what every source did
+until now. The previous contents are snapshotted as a restorable version
+first, so a sync that pulls a truncated source is recoverable.
+
+**Incremental** asks the API for records changed since the last sync and folds
+them into the dataset by key. Re-reading a Salesforce org or a Stripe account
+every hour burns the customer's rate limit for no new information and
+eventually takes longer than the interval it runs on.
+
+| Source         | Follows                                                                    | On               | Keyed by |
+| -------------- | -------------------------------------------------------------------------- | ---------------- | -------- |
+| **Salesforce** | every object                                                               | `SystemModstamp` | `Id`     |
+| **Stripe**     | charges, invoices, payment intents, refunds, payouts, balance transactions | `created`        | `id`     |
+
+Everything else is a full refresh, and two of those are deliberate rather than
+pending. Stripe's `customers`, `subscriptions`, `products` and `prices` are
+edited in place while their `created` never moves, so following it would miss
+every edit; they are few enough that re-reading costs little, and correctness
+is worth more than the saving.
+
+Salesforce follows `SystemModstamp` rather than `LastModifiedDate` on purpose.
+LastModifiedDate reflects user edits only, while SystemModstamp also moves when
+the platform touches a record — a merge, a cascade from a parent, a bulk
+update. Following the wrong one silently misses those, and "the row changed but
+we never saw it" is the failure that takes a quarter to notice.
+
+Four properties the implementation guarantees, each because getting it wrong
+fails quietly:
+
+- **The first pass reads everything and REPLACES.** With no high-water mark
+  the connector returns the whole source, and merging that into a stale dataset
+  would leave rows the source has since deleted, for ever.
+- **The mark is written only after the rows are committed.** Advanced first and
+  then lost to a failed ingest, the next run would skip the whole window and
+  nothing would say so.
+- **It never moves backwards, and never on a tie.** A record sharing the exact
+  timestamp of the last one seen is re-read and folded away by its key, rather
+  than dropped.
+- **A record without the cursor field does not reset the mark.** It is ignored,
+  not treated as "start again".
+
+### Starting a stream over
+
+**Streams → Start over** forgets the high-water mark, so the next sync reads
+that stream in full. It is the escape hatch for what a cursor cannot see:
+records the API changed without moving their cursor field, or a backfill that
+predates the connection.
+
+It is **owner-only**, unlike triggering a sync, and it is audited as
+`saas_connection.cursor_reset`. A full re-read is charged to the owner's API
+quota and can take hours on a large account, so a grantee who may ask for a
+refresh cannot spend that on their behalf.
 
 ## Providers
 

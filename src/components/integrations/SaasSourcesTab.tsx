@@ -9,7 +9,9 @@ import { useCallback, useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import { format } from "date-fns";
-import { Check, Loader2, Plug2, RefreshCw, Trash2, Unplug, X } from "lucide-react";
+
+import { StreamStateDialog } from "./StreamStateDialog";
+import { Check, ListTree, Loader2, Plug2, RefreshCw, Trash2, Unplug, X } from "lucide-react";
 
 import {
   AlertDialog,
@@ -266,6 +268,11 @@ export function SaasSourcesTab() {
   const [values, setValues] = useState<Record<string, string>>({});
   const [schedule, setSchedule] = useState<SyncSchedule>("daily");
   const [streams, setStreams] = useState<SaasStream[] | null>(null);
+  const [streamsFor, setStreamsFor] = useState<{
+    id: string;
+    name: string;
+    shared?: boolean;
+  } | null>(null);
   const [picked, setPicked] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [syncingId, setSyncingId] = useState<string | null>(null);
@@ -479,8 +486,10 @@ export function SaasSourcesTab() {
         <CardHeader>
           <CardTitle className="text-base">Connected sources</CardTitle>
           <CardDescription>
-            Each synced stream becomes a dataset. A sync REPLACES that dataset — the previous
-            contents are kept as a restorable version.
+            Each synced stream becomes a dataset. A stream that can be followed is read from where
+            it got to last time; one that cannot is re-read in full, replacing the dataset. Either
+            way the previous contents are kept as a restorable version — open{" "}
+            <strong>Streams</strong> to see which is which.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -597,6 +606,15 @@ export function SaasSourcesTab() {
                           <RefreshCw className="h-3.5 w-3.5" />
                         )}
                         {syncingId === c.id ? "Syncing…" : "Sync now"}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="gap-1.5"
+                        onClick={() => setStreamsFor({ id: c.id, name: c.name, shared: c.shared })}
+                        title="What each stream is doing, and how far it has got"
+                      >
+                        <ListTree className="h-3.5 w-3.5" /> Streams
                       </Button>
                       {/* Shared sources belong to someone else. The server
                           refuses regardless; a button that always errors is
@@ -800,6 +818,16 @@ export function SaasSourcesTab() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <StreamStateDialog
+        connectionId={streamsFor?.id ?? null}
+        connectionName={streamsFor?.name ?? ""}
+        shared={streamsFor?.shared}
+        open={streamsFor !== null}
+        onOpenChange={(o) => {
+          if (!o) setStreamsFor(null);
+        }}
+      />
     </div>
   );
 }

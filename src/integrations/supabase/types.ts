@@ -6099,6 +6099,36 @@ export type Database = {
         };
         Relationships: [];
       };
+      saas_stream_state: {
+        Row: {
+          connection_id: string;
+          cursor_field: string | null;
+          cursor_value: string | null;
+          last_rows_seen: number;
+          last_synced_at: string | null;
+          stream: string;
+          user_id: string;
+        };
+        Insert: {
+          connection_id: string;
+          cursor_field?: string | null;
+          cursor_value?: string | null;
+          last_rows_seen?: number;
+          last_synced_at?: string | null;
+          stream: string;
+          user_id: string;
+        };
+        Update: {
+          connection_id?: string;
+          cursor_field?: string | null;
+          cursor_value?: string | null;
+          last_rows_seen?: number;
+          last_synced_at?: string | null;
+          stream?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
       saas_connections: {
         Row: {
           config: Json;
@@ -7799,6 +7829,10 @@ export type Database = {
       rate_limit_take: {
         Args: { _bucket: string; _max: number; _window_seconds?: number };
         Returns: boolean;
+      };
+      merge_dataset_rows: {
+        Args: { p_key: string; p_staging: string; p_target: string };
+        Returns: { updated: number; inserted: number }[];
       };
       seed_bi_sample_dashboards: { Args: { _uid: string }; Returns: undefined };
       seed_bi_sample_extras: { Args: { _uid: string }; Returns: undefined };

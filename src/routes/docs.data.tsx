@@ -675,12 +675,53 @@ function DataPage() {
         self-hosted deployment behind a firewall may not have, so each connector uses the vendor's
         server-to-server credential instead.
       </P>
-      <Callout kind="warn" title="A sync replaces its dataset">
-        That is the right semantic for a source whose rows are edited and deleted in place — an
+      <P>
+        Syncs run on demand or hourly / daily / weekly, and you are notified if one fails or comes
+        back partial.
+      </P>
+
+      <H3 id="apps-incremental">Following a source instead of re-reading it</H3>
+      <P>
+        A sync does one of two things, and the <strong>Streams</strong> button on a connection says
+        which for every stream it syncs.
+      </P>
+      <P>
+        <strong>Full refresh</strong> re-reads the source and replaces the dataset — the right
+        semantic where rows are edited and deleted in place with nothing to filter on, because an
         append would resurrect deleted rows for ever. The previous contents are snapshotted as a
-        restorable version first, so a sync that pulls a truncated source is recoverable. Syncs run
-        on demand or hourly / daily / weekly, and you are notified if one fails or comes back
-        partial.
+        restorable version first, so a sync that pulls a truncated source is recoverable.
+      </P>
+      <P>
+        <strong>Incremental</strong> asks the API for records changed since the last sync and folds
+        them into the dataset by key. Salesforce follows every object on <C>SystemModstamp</C>;
+        Stripe follows charges, invoices, payment intents, refunds, payouts and balance transactions
+        on <C>created</C>. Everything else is a full refresh.
+      </P>
+      <Callout kind="why" title="Why some Stripe objects are deliberately not followed">
+        <C>customers</C>, <C>subscriptions</C>, <C>products</C> and <C>prices</C> are edited in
+        place while their <C>created</C> never moves, so following it would miss every edit. They
+        are few enough that re-reading costs little, and correctness is worth more than the saving.
+        Salesforce follows <C>SystemModstamp</C> rather than <C>LastModifiedDate</C> for the same
+        reason: LastModifiedDate reflects user edits only, while SystemModstamp also moves on a
+        merge, a cascade or a bulk update.
+      </Callout>
+      <P>
+        The first pass has no high-water mark, so it reads everything and <strong>replaces</strong>:
+        merging a full read into a stale dataset would leave rows the source has since deleted, for
+        ever. The mark is written only after the rows are committed — advanced first and then lost
+        to a failed sync, the next run would skip that whole window and nothing would say so.
+      </P>
+
+      <H3 id="apps-start-over">Starting a stream over</H3>
+      <P>
+        <strong>Streams → Start over</strong> forgets the high-water mark, so the next sync reads
+        that stream in full. It is the escape hatch for what a cursor cannot see: records the API
+        changed without moving their cursor field, or a backfill predating the connection.
+      </P>
+      <Callout kind="warn" title="Starting over is the owner's to decide">
+        Unlike triggering a sync, it is owner-only and written to the audit log. A full re-read is
+        charged to the owner&apos;s API quota and can take hours on a large account, so somebody the
+        source is shared with cannot spend that on their behalf.
       </Callout>
 
       {/* ── RELIABILITY ── */}

@@ -997,6 +997,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "AwsDataCatalog",
       "HTTPS_PROXY",
       "LIST",
+      "LastModifiedDate",
       "MAP",
       "NO_PROXY",
       "ORC_MAX_DOWNLOAD_BYTES",
@@ -1005,6 +1006,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "SELECT",
       "SQLEXPRESS",
       "STRUCT",
+      "SystemModstamp",
       "UPLOAD_MAX_ROWS",
       "access_key_id",
       "access_token",
@@ -1013,6 +1015,8 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "calculator",
       "catalog",
       "cluster_identifier",
+      "created",
+      "customers",
       "data/orders.parquet",
       "database",
       "dataset",
@@ -1030,7 +1034,9 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "output_location",
       "password",
       "port",
+      "prices",
       "primary",
+      "products",
       "project_id",
       "read_orc",
       "read_orc(&apos;s3://…&apos;)",
@@ -1050,6 +1056,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "sheet1",
       "sql_query",
       "ssl",
+      "subscriptions",
       "tedious",
       "token",
       "true",
@@ -1098,6 +1105,16 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "id": "apps",
         "text": "Apps — SaaS sources",
         "level": 2
+      },
+      {
+        "id": "apps-incremental",
+        "text": "Following a source instead of re-reading it",
+        "level": 3
+      },
+      {
+        "id": "apps-start-over",
+        "text": "Starting a stream over",
+        "level": 3
       },
       {
         "id": "reliability",

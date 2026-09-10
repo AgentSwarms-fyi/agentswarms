@@ -12,7 +12,7 @@
 // revoked on its own.
 
 import { flattenRecord } from "./flatten";
-import type { SaasConfig, SaasStream } from "./types";
+import type { IncrementalSpec, SaasConfig, SaasStream } from "./types";
 import { connectorFetch } from "@/utils/http/connectorFetch.server";
 
 /** Pinned so a Salesforce release cannot reshape a dataset under a dashboard. */
@@ -165,16 +165,41 @@ type QueryResult = {
   nextRecordsUrl?: string;
 };
 
+/**
+ * Every standard object carries `SystemModstamp`, and it is the RIGHT cursor.
+ *
+ * Not `LastModifiedDate`: that reflects user edits only, while SystemModstamp
+ * also moves when the platform touches a record — a merge, a cascade from a
+ * parent, a bulk update. Following LastModifiedDate silently misses those, and
+ * "the row changed but we never saw it" is the failure that takes a quarter to
+ * notice.
+ */
+export function salesforceIncremental(streamId: string): IncrementalSpec | null {
+  if (!STREAMS[streamId]) return null;
+  return { cursorField: "SystemModstamp", primaryKey: "Id", compare: "iso" };
+}
+
 export async function* fetchSalesforceRows(
   cfg: SaasConfig,
   streamId: string,
+  since?: string,
 ): AsyncGenerator<Record<string, unknown>> {
   const stream = STREAMS[streamId];
   if (!stream) throw new Error(`Salesforce: unknown object "${streamId}"`);
   const { token, instance } = await salesforceAuth(cfg as SalesforceCfg);
 
   const fields = await queryableFields(instance, token, stream.object);
-  const soql = `SELECT ${fields.join(",")} FROM ${stream.object} LIMIT ${PAGE_SIZE}`;
+  // SOQL wants an unquoted ISO-8601 literal. `since` is one already — it came
+  // out of a SystemModstamp — but it is re-parsed rather than interpolated so
+  // a malformed stored cursor cannot become part of the query text.
+  const at = since ? new Date(since) : null;
+  const where =
+    at && !Number.isNaN(at.getTime())
+      ? ` WHERE SystemModstamp >= ${at.toISOString().replace(/\.\d{3}Z$/, "Z")}`
+      : "";
+  const soql =
+    `SELECT ${fields.join(",")} FROM ${stream.object}${where}` +
+    ` ORDER BY SystemModstamp ASC LIMIT ${PAGE_SIZE}`;
   let path: string | undefined =
     `/services/data/${API_VERSION}/query?q=${encodeURIComponent(soql)}`;
 
