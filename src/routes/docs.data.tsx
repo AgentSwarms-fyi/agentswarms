@@ -693,10 +693,19 @@ function DataPage() {
       </P>
       <P>
         <strong>Incremental</strong> asks the API for records changed since the last sync and folds
-        them into the dataset by key. Salesforce follows every object on <C>SystemModstamp</C>;
-        Stripe follows charges, invoices, payment intents, refunds, payouts and balance transactions
-        on <C>created</C>. Everything else is a full refresh.
+        them into the dataset by key. Salesforce, Shopify, HubSpot and Jira follow every stream they
+        offer; Stripe follows its six immutable object types; Zendesk follows tickets and users.
+        Everything else is a full refresh — Zendesk has no incremental export for organizations, and
+        a Google Sheets worksheet has no timestamp to follow at all.
       </P>
+      <Callout kind="warn" title="Each API is asked in its own dialect">
+        Jira pages by offset, so it is ordered oldest-first: newest-first meant a record edited
+        mid-sync shifted every later page down one and a row was skipped per edit. HubSpot&apos;s
+        list endpoint cannot filter by date at all, so following it means searching — and search
+        stops paging at 10,000 results, so the query is reissued from the last timestamp rather than
+        paged further. Zendesk&apos;s export walks a time-ordered log where an empty page is a quiet
+        hour, not the end.
+      </Callout>
       <Callout kind="why" title="Why some Stripe objects are deliberately not followed">
         <C>customers</C>, <C>subscriptions</C>, <C>products</C> and <C>prices</C> are edited in
         place while their <C>created</C> never moves, so following it would miss every edit. They

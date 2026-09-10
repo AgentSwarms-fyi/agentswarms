@@ -14,16 +14,16 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 import { ingestRows } from "@/utils/data/ingest.server";
 import { fetchSheetRows, listSheetStreams } from "./googleSheets.server";
-import { fetchHubspotRows, listHubspotStreams } from "./hubspot.server";
+import { fetchHubspotRows, hubspotIncremental, listHubspotStreams } from "./hubspot.server";
 import {
   fetchSalesforceRows,
   listSalesforceStreams,
   salesforceIncremental,
 } from "./salesforce.server";
-import { fetchShopifyRows, listShopifyStreams } from "./shopify.server";
-import { fetchJiraRows, listJiraStreams } from "./jira.server";
+import { fetchShopifyRows, listShopifyStreams, shopifyIncremental } from "./shopify.server";
+import { fetchJiraRows, jiraIncremental, listJiraStreams } from "./jira.server";
 import { fetchStripeRows, listStripeStreams, stripeIncremental } from "./stripe.server";
-import { fetchZendeskRows, listZendeskStreams } from "./zendesk.server";
+import { fetchZendeskRows, listZendeskStreams, zendeskIncremental } from "./zendesk.server";
 import type {
   IncrementalSpec,
   SaasConfig,
@@ -73,15 +73,31 @@ const CONNECTORS: Record<SaasProvider, SaasConnector> = {
     fetchRows: fetchStripeRows,
     incremental: stripeIncremental,
   },
-  shopify: { listStreams: listShopifyStreams, fetchRows: fetchShopifyRows },
-  hubspot: { listStreams: listHubspotStreams, fetchRows: fetchHubspotRows },
+  shopify: {
+    listStreams: listShopifyStreams,
+    fetchRows: fetchShopifyRows,
+    incremental: shopifyIncremental,
+  },
+  hubspot: {
+    listStreams: listHubspotStreams,
+    fetchRows: fetchHubspotRows,
+    incremental: hubspotIncremental,
+  },
   salesforce: {
     listStreams: listSalesforceStreams,
     fetchRows: fetchSalesforceRows,
     incremental: salesforceIncremental,
   },
-  jira: { listStreams: listJiraStreams, fetchRows: fetchJiraRows },
-  zendesk: { listStreams: listZendeskStreams, fetchRows: fetchZendeskRows },
+  jira: {
+    listStreams: listJiraStreams,
+    fetchRows: fetchJiraRows,
+    incremental: jiraIncremental,
+  },
+  zendesk: {
+    listStreams: listZendeskStreams,
+    fetchRows: fetchZendeskRows,
+    incremental: zendeskIncremental,
+  },
 };
 
 export function connectorFor(provider: SaasProvider): SaasConnector {

@@ -45,16 +45,24 @@ export function StreamStateDialog({
   const resetFn = useServerFn(resetSaasCursor);
 
   const [states, setStates] = useState<StreamState[] | null>(null);
+  // FOUND FROM THE UI. A failure used to land in `states = []`, which renders
+  // as "no streams are selected" — a calm, wrong answer. "This source has
+  // nothing selected" and "we could not read this source" are different
+  // facts, and only one of them needs acting on.
+  const [failed, setFailed] = useState<string | null>(null);
   const [resetting, setResetting] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!token || !connectionId) return;
     setStates(null);
+    setFailed(null);
     try {
       const res = await statesFn({ data: { access_token: token, id: connectionId } });
       setStates(res.states);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not read the sync state");
+      const message = e instanceof Error ? e.message : "Could not read the sync state";
+      toast.error(message);
+      setFailed(message);
       setStates([]);
     }
   }, [statesFn, token, connectionId]);
@@ -101,6 +109,8 @@ export function StreamStateDialog({
             <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
             Reading sync state…
           </p>
+        ) : failed ? (
+          <p className="py-6 text-center text-sm text-destructive">{failed}</p>
         ) : states.length === 0 ? (
           <p className="py-6 text-center text-sm text-muted-foreground">
             No streams are selected for this source yet.

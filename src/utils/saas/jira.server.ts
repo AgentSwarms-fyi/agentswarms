@@ -12,7 +12,7 @@
 // at, so a token that cannot see a project fails on that stream alone rather
 // than poisoning the whole sync.
 import { flattenRecord } from "./flatten";
-import type { SaasConfig, SaasStream } from "./types";
+import type { IncrementalSpec, SaasConfig, SaasStream } from "./types";
 import { connectorFetch } from "@/utils/http/connectorFetch.server";
 
 /** Jira's maximum for a search page. */
@@ -127,9 +127,53 @@ function nameOf(v: unknown): unknown {
   return v;
 }
 
+/**
+ * How far back of the stored mark to ask for, in hours.
+ *
+ * JQL compares a bare timestamp against the SITE's timezone, which this code
+ * cannot know without another API call — and guessing wrong in the wrong
+ * direction SKIPS edits silently. UTC offsets run to +14/-12, so asking for a
+ * day earlier than the mark is wider than any offset can be. The extra issues
+ * are folded away by their id; the alternative is a window that is short by
+ * the site's offset and loses that many hours of edits on every sync.
+ */
+const JQL_SAFETY_HOURS = 24;
+
+/**
+ * The JQL for one project, optionally only what changed since a mark.
+ *
+ * ASCENDING, and that is not cosmetic. Jira pages by OFFSET, so with the old
+ * `updated DESC` a record edited while the sync was running was prepended and
+ * shifted every later page down one — silently skipping a row per edit on a
+ * busy project. Ascending appends instead, so rows already read keep their
+ * positions.
+ *
+ * JQL takes `yyyy-MM-dd HH:mm` and no finer, so the window is minute-granular
+ * as well as being widened above.
+ */
+export function jqlFor(projectKey: string, since?: string): string {
+  const at = since ? new Date(since) : null;
+  if (!at || Number.isNaN(at.getTime())) {
+    return `project = "${projectKey}" ORDER BY updated ASC`;
+  }
+  const from = new Date(at.getTime() - JQL_SAFETY_HOURS * 3600_000);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const stamp =
+    `${from.getUTCFullYear()}-${pad(from.getUTCMonth() + 1)}-${pad(from.getUTCDate())}` +
+    ` ${pad(from.getUTCHours())}:${pad(from.getUTCMinutes())}`;
+  return `project = "${projectKey}" AND updated >= "${stamp}" ORDER BY updated ASC`;
+}
+
+/** Every issue carries `updated`, so every project stream can be followed. */
+export function jiraIncremental(streamId: string): IncrementalSpec | null {
+  if (!/^issues:[A-Za-z0-9_]+$/.test(streamId)) return null;
+  return { cursorField: "updated", primaryKey: "id", compare: "iso" };
+}
+
 export async function* fetchJiraRows(
   cfg: SaasConfig,
   streamId: string,
+  since?: string,
 ): AsyncGenerator<Record<string, unknown>> {
   const c = cfg as JiraCfg;
   const m = /^issues:([A-Za-z0-9_]+)$/.exec(streamId);
@@ -141,7 +185,7 @@ export async function* fetchJiraRows(
       c,
       "/rest/api/3/search",
       new URLSearchParams({
-        jql: `project = "${key}" ORDER BY updated DESC`,
+        jql: jqlFor(key, since),
         startAt: String(startAt),
         maxResults: String(PAGE_SIZE),
         fields: FIELDS.join(","),

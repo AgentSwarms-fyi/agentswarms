@@ -150,16 +150,40 @@ them into the dataset by key. Re-reading a Salesforce org or a Stripe account
 every hour burns the customer's rate limit for no new information and
 eventually takes longer than the interval it runs on.
 
-| Source         | Follows                                                                    | On               | Keyed by |
-| -------------- | -------------------------------------------------------------------------- | ---------------- | -------- |
-| **Salesforce** | every object                                                               | `SystemModstamp` | `Id`     |
-| **Stripe**     | charges, invoices, payment intents, refunds, payouts, balance transactions | `created`        | `id`     |
+| Source         | Follows                                                                    | On                    | Keyed by |
+| -------------- | -------------------------------------------------------------------------- | --------------------- | -------- |
+| **Salesforce** | every object                                                               | `SystemModstamp`      | `Id`     |
+| **Stripe**     | charges, invoices, payment intents, refunds, payouts, balance transactions | `created`             | `id`     |
+| **Shopify**    | every resource                                                             | `updated_at`          | `id`     |
+| **HubSpot**    | every object                                                               | `hs_lastmodifieddate` | `id`     |
+| **Jira**       | every project                                                              | `updated`             | `id`     |
+| **Zendesk**    | tickets, users                                                             | `updated_at`          | `id`     |
 
-Everything else is a full refresh, and two of those are deliberate rather than
-pending. Stripe's `customers`, `subscriptions`, `products` and `prices` are
-edited in place while their `created` never moves, so following it would miss
-every edit; they are few enough that re-reading costs little, and correctness
-is worth more than the saving.
+Everything else is a full refresh, and each of those is a decision rather than
+something pending. Stripe's `customers`, `subscriptions`, `products` and
+`prices` are edited in place while their `created` never moves, so following it
+would miss every edit; they are few enough that re-reading costs little.
+Zendesk offers no incremental export for **organizations**. Google Sheets has
+nothing to follow at all — a worksheet's rows are edited and deleted in place
+with no timestamp — which is the case full refresh exists for.
+
+Each API is asked in its own dialect, and three of them have a trap worth
+naming:
+
+- **Jira pages by OFFSET**, so it is now ordered `updated ASC`. Under the old
+  `updated DESC` a record edited while the sync was running was prepended and
+  shifted every later page down one, skipping a row per edit on a busy project.
+  JQL also compares a bare timestamp against the **site's** timezone, which the
+  connector cannot know without another call, so the window is widened by 24
+  hours — wider than any UTC offset can be. Guessing the offset wrong in the
+  wrong direction skips edits silently.
+- **HubSpot's list endpoint cannot filter by date at all**, so following means
+  searching. Search stops returning a cursor past **10,000 results**, so the
+  query is reissued from the last timestamp seen rather than paged further —
+  otherwise a large object silently stops at ten thousand records.
+- **Zendesk's incremental export walks a time-ordered log**, where an empty
+  page is a quiet hour rather than the end. Only `end_of_stream` terminates it;
+  stopping on an empty page would truncate the sync at the first quiet hour.
 
 Salesforce follows `SystemModstamp` rather than `LastModifiedDate` on purpose.
 LastModifiedDate reflects user edits only, while SystemModstamp also moves when

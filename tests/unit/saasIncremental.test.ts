@@ -170,6 +170,13 @@ const STREAM_IDS: Record<string, string[]> = {
     "balance_transactions",
   ],
   salesforce: ["accounts", "contacts", "leads", "opportunities", "cases", "campaigns", "users"],
+  shopify: ["orders", "customers", "products", "draft_orders", "price_rules"],
+  hubspot: ["contacts", "companies", "deals", "tickets", "line_items", "products"],
+  zendesk: ["tickets", "users", "organizations"],
+  jira: ["issues:ACME"],
+  // Google Sheets is the one source with genuinely nothing to follow: a
+  // worksheet's rows are edited and deleted in place with no timestamp.
+  google_sheets: ["Sheet1"],
 };
 
 describe("the runner cannot lose or skip a window", () => {
@@ -321,10 +328,95 @@ describe("it is operable, and the costly half is the owner's", () => {
     expect(tab).toContain("is re-read in full, replacing the dataset");
   });
 
+  it("does not report a failure as an empty source", () => {
+    // FOUND FROM THE UI. A failed read landed in `states = []`, which renders
+    // as "no streams are selected" — a calm, wrong answer. "Nothing selected"
+    // and "we could not read this" are different facts and only one of them
+    // needs acting on.
+    const ui = rd("src/components/integrations/StreamStateDialog.tsx");
+    expect(ui).toContain("const [failed, setFailed]");
+    // The error branch is checked BEFORE the empty branch, or it never shows.
+    const failedAt = ui.indexOf(") : failed ? (");
+    const emptyAt = ui.indexOf("No streams are selected for this source yet.");
+    expect(failedAt).toBeGreaterThan(0);
+    expect(failedAt).toBeLessThan(emptyAt);
+    expect(ui).toContain("{failed}");
+  });
+
   it("distinguishes 'nothing changed' from 'never followed'", () => {
     // The two look identical from outside and mean opposite things.
     const ui = rd("src/components/integrations/StreamStateDialog.tsx");
     expect(ui).toContain("Not followed yet");
     expect(ui).toContain("Caught up to");
+  });
+});
+
+describe("each connector asks its own API the right question", () => {
+  it("Shopify filters on updated_at_min, inclusive", () => {
+    const src = rd("src/utils/saas/shopify.server.ts");
+    expect(src).toContain('first.searchParams.set("updated_at_min"');
+    // Re-parsed rather than interpolated, so a bad stored cursor cannot
+    // become part of the query string.
+    expect(src).toContain("const at = since ? new Date(since) : null;");
+  });
+
+  it("Jira orders ASCENDING, because it pages by offset", () => {
+    // With `updated DESC` a record edited mid-sync was prepended and shifted
+    // every later page down one, skipping a row per edit on a busy project.
+    const src = rd("src/utils/saas/jira.server.ts");
+    expect(src).toContain("ORDER BY updated ASC");
+    expect(src).not.toContain("ORDER BY updated DESC");
+  });
+
+  it("Jira widens the window past any timezone offset", () => {
+    // JQL compares a bare timestamp against the SITE's timezone, which this
+    // code cannot know. Guessing wrong in the wrong direction skips edits.
+    const src = rd("src/utils/saas/jira.server.ts");
+    expect(src).toContain("const JQL_SAFETY_HOURS = 24;");
+    expect(src).toContain("JQL_SAFETY_HOURS * 3600_000");
+  });
+
+  it("HubSpot searches rather than lists, and survives the 10k ceiling", () => {
+    // The list endpoint cannot filter by date at all. Search can, but stops
+    // returning a cursor past 10,000 — a naive follower stops there silently.
+    const src = rd("src/utils/saas/hubspot.server.ts");
+    expect(src).toContain("/search");
+    expect(src).toContain("const SEARCH_WINDOW = 10_000;");
+    expect(src).toContain('direction: "ASCENDING"');
+    // And it cannot loop for ever when a whole window shares one timestamp.
+    expect(src).toContain("if (newest <= windowStart) return;");
+  });
+
+  it("Zendesk uses the incremental export, and does not stop on a quiet page", () => {
+    // The export walks a time-ordered log: an empty page is a quiet hour, not
+    // the end. `end_of_stream` is the only authoritative terminator.
+    const src = rd("src/utils/saas/zendesk.server.ts");
+    expect(src).toContain("/api/v2/incremental/tickets/cursor.json");
+    expect(src).toContain("if (page.end_of_stream || !page.after_cursor) return;");
+    // Zendesk rejects a start_time inside the last minute.
+    expect(src).toContain("Date.now() - 60_000");
+  });
+
+  it("says which streams have nothing to follow, rather than leaving a gap", () => {
+    // Zendesk organizations have no incremental export; Google Sheets has no
+    // cursor at all. Both are full refresh ON PURPOSE.
+    const zendesk = rd("src/utils/saas/zendesk.server.ts");
+    expect(zendesk).toContain("Zendesk offers no incremental export for organizations");
+    const sheets = rd("src/utils/saas/googleSheets.server.ts");
+    expect(sheets).not.toContain("IncrementalSpec");
+  });
+
+  it("every incremental connector accepts a `since` it can ignore", async () => {
+    // The runner only passes one where the connector declared support, but a
+    // connector that took a third argument it did not use would be a trap for
+    // the next person to add a stream.
+    const { connectorFor } = await import("@/utils/saas/sync.server");
+    const { SAAS_PROVIDERS } = await import("@/utils/saas/types");
+    for (const provider of SAAS_PROVIDERS) {
+      const c = connectorFor(provider);
+      const declaresAny = (STREAM_IDS[provider] ?? []).some((s) => c.incremental?.(s));
+      // fetchRows(cfg, streamId, since?) — three parameters where followed.
+      expect(c.fetchRows.length, `${provider} fetchRows arity`).toBe(declaresAny ? 3 : 2);
+    }
   });
 });

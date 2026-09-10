@@ -11,7 +11,7 @@
 // Zendesk, which is exactly the size of support desk that needs this
 // connector most.
 import { flattenRecord } from "./flatten";
-import type { SaasConfig, SaasStream } from "./types";
+import type { IncrementalSpec, SaasConfig, SaasStream } from "./types";
 import { connectorFetch } from "@/utils/http/connectorFetch.server";
 
 /** Zendesk's maximum cursor page. */
@@ -19,13 +19,28 @@ const PAGE_SIZE = 100;
 
 type ZendeskCfg = Extract<SaasConfig, { provider: "zendesk" }>;
 
-const STREAMS: Record<string, { label: string; path: string; key: string }> = {
-  tickets: { label: "Tickets", path: "/api/v2/tickets.json", key: "tickets" },
-  users: { label: "Users", path: "/api/v2/users.json", key: "users" },
+const STREAMS: Record<
+  string,
+  { label: string; path: string; key: string; incrementalPath?: string }
+> = {
+  tickets: {
+    label: "Tickets",
+    path: "/api/v2/tickets.json",
+    key: "tickets",
+    incrementalPath: "/api/v2/incremental/tickets/cursor.json",
+  },
+  users: {
+    label: "Users",
+    path: "/api/v2/users.json",
+    key: "users",
+    incrementalPath: "/api/v2/incremental/users/cursor.json",
+  },
   organizations: {
     label: "Organizations",
     path: "/api/v2/organizations.json",
     key: "organizations",
+    // Zendesk offers no incremental export for organizations, so this stream
+    // is re-read in full. Stated here rather than left as an absence.
   },
 };
 
@@ -86,13 +101,35 @@ type Page = {
   meta?: { has_more?: boolean; after_cursor?: string | null };
 } & Record<string, unknown>;
 
+/**
+ * Tickets and users have an incremental export; organizations do not.
+ *
+ * `updated_at` is the flattened column the runner reads the mark back from.
+ * The export endpoint itself is driven by `start_time` in Unix seconds, which
+ * is converted at the call rather than stored, so one cursor format serves
+ * every connector.
+ */
+export function zendeskIncremental(streamId: string): IncrementalSpec | null {
+  const stream = STREAMS[streamId];
+  if (!stream?.incrementalPath) return null;
+  return { cursorField: "updated_at", primaryKey: "id", compare: "iso" };
+}
+
 export async function* fetchZendeskRows(
   cfg: SaasConfig,
   streamId: string,
+  since?: string,
 ): AsyncGenerator<Record<string, unknown>> {
   const stream = STREAMS[streamId];
   if (!stream) throw new Error(`Zendesk: unknown stream "${streamId}"`);
   const c = cfg as ZendeskCfg;
+
+  const at = since ? new Date(since) : null;
+  if (stream.incrementalPath && at && !Number.isNaN(at.getTime())) {
+    yield* exportZendeskRows(c, stream.incrementalPath, stream.key, at);
+    return;
+  }
+
   let cursor: string | null | undefined;
   for (;;) {
     const params = new URLSearchParams({ "page[size]": String(PAGE_SIZE) });
@@ -103,5 +140,45 @@ export async function* fetchZendeskRows(
     for (const r of rows) yield flattenRecord(r);
     if (!page.meta?.has_more || !page.meta.after_cursor) return;
     cursor = page.meta.after_cursor;
+  }
+}
+
+/**
+ * Follow a stream through Zendesk's incremental export.
+ *
+ * A different endpoint, a different envelope and a different end condition
+ * from the cursor list above: `end_of_stream` is authoritative, and the
+ * `after_cursor` must be followed even across pages that come back empty —
+ * the export walks a time-ordered log and a quiet hour is a legitimate empty
+ * page, not the end. Stopping on an empty page, which the list path does, is
+ * exactly the bug this comment exists to prevent.
+ *
+ * `start_time` is INCLUSIVE and Zendesk requires it to be at least one minute
+ * in the past, so the boundary record is re-read and folded away by its id.
+ */
+async function* exportZendeskRows(
+  cfg: ZendeskCfg,
+  path: string,
+  key: string,
+  from: Date,
+): AsyncGenerator<Record<string, unknown>> {
+  type ExportPage = {
+    end_of_stream?: boolean;
+    after_cursor?: string | null;
+  } & Record<string, unknown>;
+
+  // Zendesk rejects a start_time within the last minute.
+  const startSeconds = Math.min(
+    Math.floor(from.getTime() / 1000),
+    Math.floor((Date.now() - 60_000) / 1000),
+  );
+  let params = new URLSearchParams({ start_time: String(startSeconds) });
+  for (;;) {
+    const page = await zendeskFetch<ExportPage>(cfg, path, params);
+    const rows = (page[key] as Record<string, unknown>[] | undefined) ?? [];
+    for (const r of rows) yield flattenRecord(r);
+
+    if (page.end_of_stream || !page.after_cursor) return;
+    params = new URLSearchParams({ cursor: page.after_cursor });
   }
 }
