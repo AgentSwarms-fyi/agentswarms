@@ -56,6 +56,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
 import { providerInitials } from "@/components/integrations/WarehousesTab";
 import { SAAS_LABELS, SAAS_PROVIDERS } from "@/utils/saas/types";
+import { SAAS_CARDS } from "@/utils/saas/catalog";
 import type {
   SaasConfig,
   SaasConnectionSummary,
@@ -72,14 +73,6 @@ import {
   syncSaasConnection,
 } from "@/utils/saas.functions";
 import { SCHEDULE_LABELS, scheduleSummary } from "@/lib/saasSchedule";
-
-type Field = {
-  key: string;
-  label: string;
-  placeholder?: string;
-  type?: "password" | "textarea";
-  hint?: string;
-};
 
 /**
  * App logos, discovered from the assets directory.
@@ -111,263 +104,6 @@ function ProviderMark({ provider }: { provider: SaasProvider }) {
     </span>
   );
 }
-
-/**
- * Per-provider copy and form fields.
- *
- * Field-driven rather than a hand-written form per provider: the dialog below
- * renders whatever is listed here, so a new connector is an entry in this
- * table and its config type — not another branch in the JSX.
- */
-const PROVIDER_HELP: Record<
-  SaasProvider,
-  { description: string; setup: string; unit: string; units: string; fields: Field[] }
-> = {
-  klaviyo: {
-    description: "Sync profiles, events, lists, metrics and email campaigns into datasets.",
-    setup:
-      "Create a PRIVATE API key in Klaviyo under Settings → API keys — not the public site " +
-      "id — and give it read scopes for the objects you want to sync.",
-    unit: "object",
-    units: "objects",
-    fields: [{ key: "api_key", label: "Private API key", placeholder: "pk_…" }],
-  },
-  notion: {
-    description: "Sync Notion databases into datasets — one per database.",
-    setup:
-      "Create an internal integration at notion.so/my-integrations and copy its secret. " +
-      "Then SHARE each database with it from Notion: open the database, ••• → Connections → " +
-      "add the integration. A token on its own sees nothing.",
-    unit: "database",
-    units: "databases",
-    fields: [
-      { key: "access_token", label: "Integration secret", placeholder: "ntn_… or secret_…" },
-    ],
-  },
-  airtable: {
-    description: "Sync Airtable tables into datasets — one per table.",
-    setup:
-      "Create a personal access token at airtable.com/create/tokens with the " +
-      "data.records:read and schema.bases:read scopes, and add each base you want to its " +
-      "access list. Airtable has no modified timestamp, so these are re-read in full.",
-    unit: "table",
-    units: "tables",
-    fields: [{ key: "access_token", label: "Personal access token", placeholder: "pat…" }],
-  },
-  linear: {
-    description: "Sync issues, projects, teams, users and cycles into datasets.",
-    setup:
-      "Create a personal API key in Linear under Settings → Security & access → API keys, " +
-      "and paste it exactly as issued — it goes in without a Bearer prefix. The datasets " +
-      "contain what that account can see.",
-    unit: "object",
-    units: "objects",
-    fields: [{ key: "api_key", label: "API key", placeholder: "lin_api_…" }],
-  },
-  asana: {
-    description: "Sync tasks from your Asana projects into datasets — one per project.",
-    setup:
-      "Create a personal access token under Settings → Apps → Developer apps. The token " +
-      "sees exactly what its owner sees. Leave the workspace blank unless you belong to " +
-      "several and want only one of them.",
-    unit: "project",
-    units: "projects",
-    fields: [
-      { key: "access_token", label: "Personal access token", placeholder: "2/1234…" },
-      {
-        key: "workspace_gid",
-        label: "Workspace id (optional)",
-        placeholder: "blank for every workspace you can see",
-      },
-    ],
-  },
-  freshdesk: {
-    description: "Sync tickets, contacts, companies and agents into datasets.",
-    setup:
-      "Copy your API key from Freshdesk under Profile settings. It is used as the username " +
-      "with any password, which is Freshdesk's own scheme. Agents and companies need a key " +
-      "belonging to an agent with admin rights.",
-    unit: "object",
-    units: "objects",
-    fields: [
-      { key: "domain", label: "Domain", placeholder: "acme (from https://acme.freshdesk.com)" },
-      { key: "api_key", label: "API key", placeholder: "paste the key as issued" },
-    ],
-  },
-  servicenow: {
-    description: "Sync incidents, changes, problems and the CMDB into datasets.",
-    setup:
-      "Create an INTEGRATION USER on your instance and give it a read-only role for the " +
-      "tables you want (snc_read_only is often enough). The datasets contain exactly what " +
-      "that user can read — ServiceNow enforces its ACLs on the Table API, so a narrow role " +
-      "gives a narrow dataset.",
-    unit: "table",
-    units: "tables",
-    fields: [
-      {
-        key: "instance",
-        label: "Instance",
-        placeholder: "acme (from https://acme.service-now.com)",
-      },
-      { key: "username", label: "Integration user", placeholder: "svc_agentswarms" },
-      { key: "password", label: "Password", placeholder: "the integration user's password" },
-    ],
-  },
-  intercom: {
-    description: "Sync contacts, conversations and admins into datasets.",
-    setup:
-      "In Intercom go to Settings → Integrations → Developer Hub, create an app in your own " +
-      "workspace, and copy its access token. Grant it read access to contacts and " +
-      "conversations. No OAuth redirect is needed for an app in your own workspace.",
-    unit: "object",
-    units: "objects",
-    fields: [{ key: "access_token", label: "Access token", placeholder: "dG9r…" }],
-  },
-  github: {
-    description: "Sync issues and pull requests from your repositories into datasets.",
-    setup:
-      "Create a personal access token at github.com → Settings → Developer settings. A " +
-      "fine-grained token needs Read access to Issues and Metadata on the repositories you " +
-      "want; a classic token needs the repo scope. One dataset is created per repository.",
-    unit: "repository",
-    units: "repositories",
-    fields: [
-      { key: "owner", label: "Organisation or user", placeholder: "acme-inc" },
-      { key: "access_token", label: "Access token", placeholder: "github_pat_… or ghp_…" },
-    ],
-  },
-  jira: {
-    description: "Sync every issue in your Jira projects into datasets — one per project.",
-    setup:
-      "Create an API token at id.atlassian.com → Security → API tokens, and enter the email " +
-      "of the Atlassian account it belongs to. The datasets contain exactly what that account " +
-      "can browse; a read-only account gives read-only datasets.",
-    unit: "project",
-    units: "projects",
-    fields: [
-      { key: "site_url", label: "Site URL", placeholder: "https://acme.atlassian.net" },
-      { key: "email", label: "Account email", placeholder: "you@company.com" },
-      { key: "api_token", label: "API token", placeholder: "ATATT3x…" },
-      {
-        key: "project_keys",
-        label: "Project keys (optional, comma-separated)",
-        placeholder: "ENG, OPS — empty for every visible project",
-      },
-    ],
-  },
-  zendesk: {
-    description: "Sync tickets, users and organizations into datasets.",
-    setup:
-      "Create an API token in Admin Center → Apps and integrations → APIs → Zendesk API, and " +
-      "enter the email of the agent account it belongs to. The token is sent as " +
-      "email/token — the platform adds the suffix, so paste the token as issued.",
-    unit: "object",
-    units: "objects",
-    fields: [
-      { key: "subdomain", label: "Subdomain", placeholder: "acme (from https://acme.zendesk.com)" },
-      { key: "email", label: "Agent email", placeholder: "you@company.com" },
-      { key: "api_token", label: "API token", placeholder: "paste the token as issued" },
-    ],
-  },
-  google_sheets: {
-    description: "Sync worksheets from a Google spreadsheet into datasets.",
-    setup:
-      "Create a service account in Google Cloud, download its JSON key, then SHARE the " +
-      "spreadsheet with the key's client_email address (Share → paste it → Viewer). " +
-      "Without that share step Google returns 403 no matter how valid the key is.",
-    unit: "worksheet",
-    units: "worksheets",
-    fields: [
-      {
-        key: "spreadsheet_id",
-        label: "Spreadsheet URL or id",
-        placeholder: "https://docs.google.com/spreadsheets/d/…",
-      },
-      {
-        key: "service_account_json",
-        label: "Service account key JSON",
-        type: "textarea",
-        placeholder: '{ "type": "service_account", … }',
-      },
-    ],
-  },
-  stripe: {
-    description: "Sync charges, invoices, subscriptions and more into datasets.",
-    setup:
-      "Use a RESTRICTED key with read-only permissions (Developers → API keys → Create " +
-      "restricted key). A full secret key works but grants far more than this needs — " +
-      "nothing here ever writes to Stripe.",
-    unit: "object type",
-    units: "object types",
-    fields: [
-      {
-        key: "api_key",
-        label: "Secret or restricted key",
-        type: "password",
-        placeholder: "rk_live_… or sk_live_…",
-        hint: "Not the publishable key (pk_…) — that cannot read these endpoints.",
-      },
-    ],
-  },
-  hubspot: {
-    description: "Sync contacts, companies, deals and tickets into datasets.",
-    setup:
-      "Settings → Integrations → Private Apps → create an app, grant it the read scopes for " +
-      "the objects you want (crm.objects.contacts.read and so on), then copy its access token. " +
-      "A private app is used rather than OAuth because that needs a public redirect URL.",
-    unit: "object type",
-    units: "object types",
-    fields: [
-      {
-        key: "access_token",
-        label: "Private app access token",
-        type: "password",
-        placeholder: "pat-na1-…",
-      },
-    ],
-  },
-  salesforce: {
-    description: "Sync accounts, contacts, leads, opportunities and cases into datasets.",
-    setup:
-      "Create a connected app with the Client Credentials flow enabled and a 'run as' user set " +
-      "(Setup → App Manager → New Connected App → OAuth Settings). Copy its consumer key and " +
-      "secret. No redirect URL is needed — this is a server-to-server flow.",
-    unit: "object",
-    units: "objects",
-    fields: [
-      {
-        key: "instance_url",
-        label: "Instance URL",
-        placeholder: "https://acme.my.salesforce.com",
-        hint: "Your My Domain address. A sandbox uses its own domain.",
-      },
-      { key: "client_id", label: "Consumer key", type: "password", placeholder: "3MVG9…" },
-      { key: "client_secret", label: "Consumer secret", type: "password" },
-    ],
-  },
-  shopify: {
-    description: "Sync orders, customers and products into datasets.",
-    setup:
-      "In your Shopify admin: Settings → Apps and sales channels → Develop apps → create an " +
-      "app, grant it read_orders, read_customers and read_products, then install it and copy " +
-      "the Admin API access token.",
-    unit: "resource",
-    units: "resources",
-    fields: [
-      {
-        key: "shop_domain",
-        label: "Shop domain",
-        placeholder: "acme.myshopify.com",
-      },
-      {
-        key: "access_token",
-        label: "Admin API access token",
-        type: "password",
-        placeholder: "shpat_…",
-      },
-    ],
-  },
-};
 
 export function SaasSourcesTab() {
   const { session } = useAuth();
@@ -432,9 +168,16 @@ export function SaasSourcesTab() {
    */
   const configFor = () => ({ provider: dialogProvider, ...values }) as unknown as SaasConfig;
 
-  /** Every field for the chosen provider has a value. */
+  /**
+   * Every field the provider INSISTS on has a value.
+   *
+   * Optional ones are skipped, because they were not: Jira's project keys and
+   * Asana's workspace both say "optional" on the label and both kept the
+   * Connect button disabled until somebody typed into them.
+   */
   const fieldsComplete = () =>
-    !!dialogProvider && PROVIDER_HELP[dialogProvider].fields.every((f) => values[f.key]?.trim());
+    !!dialogProvider &&
+    SAAS_CARDS[dialogProvider].fields.every((f) => f.optional || values[f.key]?.trim());
 
   const onDiscover = async () => {
     setBusy(true);
@@ -444,8 +187,10 @@ export function SaasSourcesTab() {
       // Pre-select everything: the common case is "sync this spreadsheet", and
       // an empty selection saves a source that does nothing.
       setPicked(found.map((s) => s.id));
-      const unit = dialogProvider ? PROVIDER_HELP[dialogProvider].unit : "item";
-      toast.success(`Found ${found.length} ${unit}${found.length === 1 ? "" : "s"}`);
+      const card = dialogProvider ? SAAS_CARDS[dialogProvider] : null;
+      // The stated plural, not `${unit}s` — that is how "repositorys" shipped.
+      const noun = found.length === 1 ? (card?.unit ?? "item") : (card?.units ?? "items");
+      toast.success(`Found ${found.length} ${noun}`);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not read that source");
     } finally {
@@ -455,7 +200,7 @@ export function SaasSourcesTab() {
 
   const onSave = async () => {
     if (!name.trim()) return toast.error("Give this source a name");
-    const unit = dialogProvider ? PROVIDER_HELP[dialogProvider].unit : "item";
+    const unit = dialogProvider ? SAAS_CARDS[dialogProvider].unit : "item";
     if (picked.length === 0) return toast.error(`Choose at least one ${unit} to sync`);
     setBusy(true);
     try {
@@ -538,7 +283,7 @@ export function SaasSourcesTab() {
     }
   };
 
-  const help = dialogProvider ? PROVIDER_HELP[dialogProvider] : null;
+  const help = dialogProvider ? SAAS_CARDS[dialogProvider] : null;
   /**
    * One instant for every row, so two rows a second apart do not disagree
    * about what "due now" means.
@@ -560,7 +305,7 @@ export function SaasSourcesTab() {
                 </div>
                 <CardTitle className="text-base">{SAAS_LABELS[p]}</CardTitle>
               </div>
-              <p className="text-xs text-muted-foreground">{PROVIDER_HELP[p].description}</p>
+              <p className="text-xs text-muted-foreground">{SAAS_CARDS[p].description}</p>
               {/* CONNECTED MEANS A CONNECTION EXISTS. This was keyed off
                   `last_sync_status === "ok"`, so a source that was connected
                   but had never synced — or whose last run failed — showed no
@@ -780,12 +525,12 @@ export function SaasSourcesTab() {
                   not have. The unit each provider syncs is already declared. */}
               <p className="text-[11px] text-muted-foreground">
                 Prefixes the dataset names, so two sources with a same-named{" "}
-                {dialogProvider ? PROVIDER_HELP[dialogProvider].unit : "stream"} cannot overwrite
-                each other.
+                {dialogProvider ? SAAS_CARDS[dialogProvider].unit : "stream"} cannot overwrite each
+                other.
               </p>
             </div>
             {dialogProvider &&
-              PROVIDER_HELP[dialogProvider].fields.map((f) => (
+              SAAS_CARDS[dialogProvider].fields.map((f) => (
                 <div key={f.key} className="space-y-1">
                   <Label className="text-xs">{f.label}</Label>
                   {f.type === "textarea" ? (
@@ -814,13 +559,13 @@ export function SaasSourcesTab() {
               onClick={onDiscover}
             >
               {busy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
-              Connect and list {dialogProvider ? PROVIDER_HELP[dialogProvider].units : ""}
+              Connect and list {dialogProvider ? SAAS_CARDS[dialogProvider].units : ""}
             </Button>
 
             {streams && (
               <div className="space-y-1">
                 <Label className="text-xs">
-                  Sync these {dialogProvider ? PROVIDER_HELP[dialogProvider].units : "items"}
+                  Sync these {dialogProvider ? SAAS_CARDS[dialogProvider].units : "items"}
                 </Label>
                 <div className="max-h-40 space-y-1 overflow-y-auto rounded-md border border-border/50 bg-background/40 p-2">
                   {streams.map((s) => (

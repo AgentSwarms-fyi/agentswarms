@@ -697,10 +697,19 @@ function DataPage() {
         follow every stream they offer, as do Linear and Asana; Stripe follows its six immutable
         object types; Zendesk follows tickets and users; Intercom follows contacts and
         conversations; Freshdesk follows tickets and contacts; Klaviyo and Notion follow everything
-        they offer. Everything else is a full refresh — Zendesk has no incremental export for
-        organizations, Intercom none for admins, Freshdesk none for companies or agents, and neither
-        a Google Sheets worksheet nor an Airtable table has a timestamp to follow at all.
+        they offer, and GA4 follows every report on its date. Everything else is a full refresh —
+        Zendesk has no incremental export for organizations, Intercom none for admins, Freshdesk
+        none for companies or agents, and neither a Google Sheets worksheet nor an Airtable table
+        has a timestamp to follow at all.
       </P>
+      <Callout kind="why" title="GA4 is measured, not fetched">
+        Every other app source syncs records. GA4 has none: you ask for dimensions and metrics over
+        a date range and get aggregated rows back. So a stream is a report, the cursor is a date,
+        and the key is the dimension tuple. GA4 also <strong>restates recent days</strong> as late
+        data arrives, so each run re-reads the previous fortnight and replaces those days — trusting
+        the first figure would leave a dashboard permanently understated with nothing to show for
+        it.
+      </Callout>
       <Callout kind="warn" title="Each API is asked in its own dialect">
         Jira and ServiceNow page by offset, so both are ordered oldest-first: newest-first meant a
         record edited mid-sync shifted every later page down one and a row was skipped per edit.

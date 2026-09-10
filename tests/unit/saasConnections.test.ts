@@ -8,6 +8,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
+import { SAAS_CARDS } from "@/utils/saas/catalog";
 import { SAAS_LABELS, SAAS_PROVIDERS } from "@/utils/saas/types";
 
 const MIGRATIONS = "supabase/migrations";
@@ -30,7 +31,10 @@ function providersInCheck(): string[] {
     );
     if (anchor < 0) continue;
     const m = sql.slice(anchor).match(/provider\s+IN\s*\(([\s\S]*?)\)/i);
-    if (m) latest = [...m[1].matchAll(/'([a-z_]+)'/g)].map((x) => x[1]);
+    // The character class allows DIGITS. `[a-z_]+` skipped 'ga4' in the
+    // CHECK, so this reported the provider as REJECTED by a constraint that
+    // permits it — a guard failing for a reason that was not true.
+    if (m) latest = [...m[1].matchAll(/'([a-z0-9_]+)'/g)].map((x) => x[1]);
   }
   if (!latest) throw new Error("No saas_connections provider CHECK found");
   return latest;
@@ -141,13 +145,22 @@ describe("every provider is presentable", () => {
   it("has a label and setup help", () => {
     for (const p of SAAS_PROVIDERS) {
       expect(SAAS_LABELS[p]?.length, `${p} has no label`).toBeGreaterThan(0);
-      expect(tabSrc.includes(`${p}:`), `${p} has no PROVIDER_HELP entry`).toBe(true);
+      expect(SAAS_CARDS[p]?.description.length, `${p} has no description`).toBeGreaterThan(0);
+      expect(SAAS_CARDS[p]?.setup.length, `${p} has no setup help`).toBeGreaterThan(0);
     }
   });
 
-  it("tells the user about the share step, which is the usual 403", () => {
-    // The single most common Google Sheets setup mistake. The connector catches
-    // the 403 too, but saying it up front is cheaper than a failed attempt.
-    expect(tabSrc).toMatch(/client_email/);
+  it("tells the user about the grant step, which is the usual 403", () => {
+    // A Google service-account key reads NOTHING until the resource is shared
+    // with its client_email: the sheet, or the GA4 property. It is the single
+    // most common setup mistake for both, the connectors catch the 403, and
+    // saying it up front is cheaper than a failed attempt.
+    const keyed = SAAS_PROVIDERS.filter((p) =>
+      SAAS_CARDS[p].fields.some((f) => f.key === "service_account_json"),
+    );
+    expect(keyed.length, "no service-account providers found").toBeGreaterThan(1);
+    for (const p of keyed) {
+      expect(SAAS_CARDS[p].setup, `${p} does not mention the grant step`).toMatch(/client_email/);
+    }
   });
 });

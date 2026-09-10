@@ -114,24 +114,25 @@ what is in there, choose what to sync. Each stream becomes its own dataset and
 is then indistinguishable from an uploaded CSV — same type inference, same
 version history, same use in BI, prep flows and the semantic layer.
 
-| App               | Auth                                             | Streams                                                                                                                |
-| ----------------- | ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
-| **Google Sheets** | Service-account JSON (share the sheet with it)   | One per worksheet                                                                                                      |
-| **Stripe**        | Secret or restricted key                         | Charges, customers, invoices, subscriptions, payment intents, products, prices, refunds, payouts, balance transactions |
-| **Shopify**       | Admin API access token                           | Orders, customers, products, draft orders, price rules                                                                 |
-| **HubSpot**       | Private app token                                | Contacts, companies, deals, tickets, line items, products                                                              |
-| **Jira**          | Email + API token (Jira Cloud)                   | Issues, one dataset per project — summary, status, type, priority, assignee, reporter, dates, labels                   |
-| **Zendesk**       | Email + API token (sent as `email/token`)        | Tickets, users, organizations                                                                                          |
-| **Salesforce**    | Connected app (client credentials)               | Accounts, contacts, leads, opportunities, cases, campaigns, users                                                      |
-| **ServiceNow**    | Basic auth (integration user)                    | Incidents, change requests, problems, catalog requests, requested items, tasks, users, CMDB                            |
-| **Intercom**      | Access token (app in your own workspace)         | Contacts, conversations, admins                                                                                        |
-| **GitHub**        | Personal access token                            | Issues and pull requests, one dataset per repository                                                                   |
-| **Linear**        | Personal API key (sent bare, no `Bearer`)        | Issues, projects, teams, users, cycles                                                                                 |
-| **Asana**         | Personal access token                            | Tasks, one dataset per project                                                                                         |
-| **Freshdesk**     | API key (used as the basic-auth username)        | Tickets, contacts, companies, agents                                                                                   |
-| **Klaviyo**       | Private API key (`Klaviyo-API-Key`)              | Profiles, events, lists, metrics, email campaigns                                                                      |
-| **Notion**        | Internal integration secret, shared per database | One dataset per database                                                                                               |
-| **Airtable**      | Personal access token, scoped per base           | One dataset per table                                                                                                  |
+| App                    | Auth                                             | Streams                                                                                                                |
+| ---------------------- | ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
+| **Google Sheets**      | Service-account JSON (share the sheet with it)   | One per worksheet                                                                                                      |
+| **Stripe**             | Secret or restricted key                         | Charges, customers, invoices, subscriptions, payment intents, products, prices, refunds, payouts, balance transactions |
+| **Shopify**            | Admin API access token                           | Orders, customers, products, draft orders, price rules                                                                 |
+| **HubSpot**            | Private app token                                | Contacts, companies, deals, tickets, line items, products                                                              |
+| **Jira**               | Email + API token (Jira Cloud)                   | Issues, one dataset per project — summary, status, type, priority, assignee, reporter, dates, labels                   |
+| **Zendesk**            | Email + API token (sent as `email/token`)        | Tickets, users, organizations                                                                                          |
+| **Salesforce**         | Connected app (client credentials)               | Accounts, contacts, leads, opportunities, cases, campaigns, users                                                      |
+| **ServiceNow**         | Basic auth (integration user)                    | Incidents, change requests, problems, catalog requests, requested items, tasks, users, CMDB                            |
+| **Intercom**           | Access token (app in your own workspace)         | Contacts, conversations, admins                                                                                        |
+| **GitHub**             | Personal access token                            | Issues and pull requests, one dataset per repository                                                                   |
+| **Linear**             | Personal API key (sent bare, no `Bearer`)        | Issues, projects, teams, users, cycles                                                                                 |
+| **Asana**              | Personal access token                            | Tasks, one dataset per project                                                                                         |
+| **Freshdesk**          | API key (used as the basic-auth username)        | Tickets, contacts, companies, agents                                                                                   |
+| **Klaviyo**            | Private API key (`Klaviyo-API-Key`)              | Profiles, events, lists, metrics, email campaigns                                                                      |
+| **Notion**             | Internal integration secret, shared per database | One dataset per database                                                                                               |
+| **Airtable**           | Personal access token, scoped per base           | One dataset per table                                                                                                  |
+| **Google Analytics 4** | Service-account JSON + property id               | One dataset per report — traffic, pages, events, countries, devices, key events                                        |
 
 **Auth is a pasted credential, never OAuth.** A redirect flow needs a public
 callback URL that a self-hosted deployment behind a firewall may not have, so
@@ -159,22 +160,23 @@ them into the dataset by key. Re-reading a Salesforce org or a Stripe account
 every hour burns the customer's rate limit for no new information and
 eventually takes longer than the interval it runs on.
 
-| Source         | Follows                                                                    | On                                 | Keyed by |
-| -------------- | -------------------------------------------------------------------------- | ---------------------------------- | -------- |
-| **Salesforce** | every object                                                               | `SystemModstamp`                   | `Id`     |
-| **Stripe**     | charges, invoices, payment intents, refunds, payouts, balance transactions | `created`                          | `id`     |
-| **Shopify**    | every resource                                                             | `updated_at`                       | `id`     |
-| **HubSpot**    | every object                                                               | `hs_lastmodifieddate`              | `id`     |
-| **Jira**       | every project                                                              | `updated`                          | `id`     |
-| **Zendesk**    | tickets, users                                                             | `updated_at`                       | `id`     |
-| **ServiceNow** | every table                                                                | `sys_updated_on`                   | `sys_id` |
-| **Intercom**   | contacts, conversations                                                    | `updated_at` (Unix seconds)        | `id`     |
-| **GitHub**     | every repository                                                           | `updated_at`                       | `id`     |
-| **Linear**     | every stream                                                               | `updatedAt`                        | `id`     |
-| **Asana**      | every project                                                              | `modified_at`                      | `gid`    |
-| **Freshdesk**  | tickets, contacts                                                          | `updated_at`                       | `id`     |
-| **Klaviyo**    | every stream                                                               | `updated`, or `datetime` on events | `id`     |
-| **Notion**     | every database                                                             | `last_edited_time`                 | `id`     |
+| Source                 | Follows                                                                    | On                                 | Keyed by                        |
+| ---------------------- | -------------------------------------------------------------------------- | ---------------------------------- | ------------------------------- |
+| **Salesforce**         | every object                                                               | `SystemModstamp`                   | `Id`                            |
+| **Stripe**             | charges, invoices, payment intents, refunds, payouts, balance transactions | `created`                          | `id`                            |
+| **Shopify**            | every resource                                                             | `updated_at`                       | `id`                            |
+| **HubSpot**            | every object                                                               | `hs_lastmodifieddate`              | `id`                            |
+| **Jira**               | every project                                                              | `updated`                          | `id`                            |
+| **Zendesk**            | tickets, users                                                             | `updated_at`                       | `id`                            |
+| **ServiceNow**         | every table                                                                | `sys_updated_on`                   | `sys_id`                        |
+| **Intercom**           | contacts, conversations                                                    | `updated_at` (Unix seconds)        | `id`                            |
+| **GitHub**             | every repository                                                           | `updated_at`                       | `id`                            |
+| **Linear**             | every stream                                                               | `updatedAt`                        | `id`                            |
+| **Asana**              | every project                                                              | `modified_at`                      | `gid`                           |
+| **Freshdesk**          | tickets, contacts                                                          | `updated_at`                       | `id`                            |
+| **Klaviyo**            | every stream                                                               | `updated`, or `datetime` on events | `id`                            |
+| **Notion**             | every database                                                             | `last_edited_time`                 | `id`                            |
+| **Google Analytics 4** | every report                                                               | `date`, with a 14-day re-read      | `row_key` (the dimension tuple) |
 
 Everything else is a full refresh, and each of those is a decision rather than
 something pending. Stripe's `customers`, `subscriptions`, `products` and
@@ -249,6 +251,18 @@ naming:
   unwrapped to the value a person expects; a date range keeps its end, because
   collapsing one to its start is a silently wrong answer to "how long did this
   take".
+- **GA4 is not a record source at all**, and it is the only one here that is
+  not. Its Data API answers a question — these dimensions, these metrics, this
+  date range — and returns aggregated rows that exist only because you asked
+  for them. So a stream is a report definition, the cursor is a date, and the
+  key is composed from the dimension tuple because an aggregate has no id.
+  Two consequences worth knowing: GA4 **restates recent days** as late hits and
+  modelled conversions arrive, so every incremental run re-reads the previous
+  fortnight and the merge replaces those days by key — following the mark
+  naively would write each day's first, incomplete figure and never look at it
+  again, leaving a dashboard permanently understated with nothing to indicate
+  it. And every metric arrives as a **string**, so each is converted to a
+  number: left alone, a column of sessions is text and cannot be summed.
 - **Zendesk's incremental export walks a time-ordered log**, where an empty
   page is a quiet hour rather than the end. Only `end_of_stream` terminates it;
   stopping on an empty page would truncate the sync at the first quiet hour.

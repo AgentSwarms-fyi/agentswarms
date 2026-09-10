@@ -35,6 +35,7 @@ import { fetchLinearRows, linearIncremental, listLinearStreams } from "./linear.
 import { fetchKlaviyoRows, klaviyoIncremental, listKlaviyoStreams } from "./klaviyo.server";
 import { fetchNotionRows, listNotionStreams, notionIncremental } from "./notion.server";
 import { airtableIncremental, fetchAirtableRows, listAirtableStreams } from "./airtable.server";
+import { fetchGa4Rows, ga4Incremental, listGa4Streams } from "./ga4.server";
 import { asanaIncremental, fetchAsanaRows, listAsanaStreams } from "./asana.server";
 import { fetchFreshdeskRows, freshdeskIncremental, listFreshdeskStreams } from "./freshdesk.server";
 import type {
@@ -155,6 +156,11 @@ const CONNECTORS: Record<SaasProvider, SaasConnector> = {
     listStreams: listAirtableStreams,
     fetchRows: fetchAirtableRows,
     incremental: airtableIncremental,
+  },
+  ga4: {
+    listStreams: listGa4Streams,
+    fetchRows: fetchGa4Rows,
+    incremental: ga4Incremental,
   },
 };
 

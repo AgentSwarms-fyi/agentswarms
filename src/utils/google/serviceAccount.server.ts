@@ -110,4 +110,5 @@ export const GOOGLE_SCOPES = {
   bigquery: "https://www.googleapis.com/auth/bigquery",
   sheetsReadonly: "https://www.googleapis.com/auth/spreadsheets.readonly",
   driveReadonly: "https://www.googleapis.com/auth/drive.readonly",
+  analyticsReadonly: "https://www.googleapis.com/auth/analytics.readonly",
 } as const;

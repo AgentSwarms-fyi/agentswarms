@@ -192,6 +192,15 @@ const STREAM_IDS: Record<string, string[]> = {
   klaviyo: ["profiles", "events", "lists", "metrics", "campaigns"],
   notion: ["database:11111111-2222-3333-4444-555555555555"],
   airtable: ["records:appAbCdEf123456:tblAbCdEf123456"],
+  ga4: [
+    "traffic_by_channel",
+    "traffic_by_source",
+    "pages",
+    "events",
+    "countries",
+    "devices",
+    "conversions",
+  ],
   // Google Sheets is the one source with genuinely nothing to follow: a
   // worksheet's rows are edited and deleted in place with no timestamp.
   google_sheets: ["Sheet1"],
@@ -445,28 +454,33 @@ describe("adding a provider means wiring every place that knows about one", () =
   // anybody ran it, with a raw Postgres constraint name where a reason should
   // be. A list in the database that lags a list in the code is invisible
   // until the worst moment, so it is pinned.
+  // The character class allows DIGITS. `[a-z_]+` silently skipped "ga4",
+  // so every check built on this list — the CHECK-drift guard, the
+  // has-a-card guard, the count — under-counted by one and passed.
   const providersInCode = () => {
     const src = rd("src/utils/saas/types.ts");
     const block = src.slice(
       src.indexOf("export const SAAS_PROVIDERS"),
       src.indexOf("export const SAAS_LABELS"),
     );
-    return [...block.matchAll(/"([a-z_]+)"/g)].map((m) => m[1]);
+    return [...block.matchAll(/"([a-z0-9_]+)"/g)].map((m) => m[1]);
   };
 
   it("the database CHECK admits exactly the providers the code offers", () => {
-    const sql = rd("supabase/migrations/20260900000000_saas_klaviyo_notion_airtable.sql");
-    const inCheck = [...sql.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
+    const sql = rd("supabase/migrations/20260901000000_saas_ga4.sql");
+    const inCheck = [...sql.matchAll(/'([a-z0-9_]+)'/g)].map((m) => m[1]);
     expect([...inCheck].sort()).toEqual([...providersInCode()].sort());
   });
 
   it("every provider has a label, a card and a connector", async () => {
     const { connectorFor } = await import("@/utils/saas/sync.server");
+    const { SAAS_CARDS } = await import("@/utils/saas/catalog");
     const types = rd("src/utils/saas/types.ts");
-    const tab = rd("src/components/integrations/SaasSourcesTab.tsx");
     for (const p of providersInCode()) {
       expect(types, `${p} has no label`).toMatch(new RegExp(`${p}: "`));
-      expect(tab, `${p} has no card`).toContain(`  ${p}: {`);
+      const card = SAAS_CARDS[p as keyof typeof SAAS_CARDS];
+      expect(card, `${p} has no card`).toBeTruthy();
+      expect(card.fields.length, `${p} asks for no credentials`).toBeGreaterThan(0);
       // Throws for an unregistered provider, which is the assertion.
       expect(connectorFor(p as never)).toBeTruthy();
     }
@@ -491,16 +505,40 @@ describe("adding a provider means wiring every place that knows about one", () =
     }
   });
 
-  it("does not invent plurals", () => {
+  it("does not invent plurals", async () => {
     // FOUND FROM THE UI. `${unit}s` rendered "Connect and list repositorys".
     // English plurals are not derivable, so each provider states its own.
+    const { SAAS_CARDS } = await import("@/utils/saas/catalog");
+    for (const [provider, card] of Object.entries(SAAS_CARDS)) {
+      expect(card.unit.trim(), `${provider} has no unit`).not.toBe("");
+      expect(card.units.trim(), `${provider} has no plural`).not.toBe("");
+    }
+    expect(SAAS_CARDS.github.units).toBe("repositories");
     const tab = rd("src/components/integrations/SaasSourcesTab.tsx");
     expect(tab).not.toContain("].unit}s`");
-    expect(tab).toContain('units: "repositories"');
-    // One plural per provider, and the type makes it non-optional.
-    const units = tab.match(/units: "/g)?.length ?? 0;
-    expect(units).toBe(providersInCode().length);
-    expect(tab).toContain("unit: string; units: string;");
+    // The second spelling of it, which shipped anyway: a ternary that appends
+    // the "s" instead — `${unit}${n === 1 ? "" : "s"}` said "5 repositorys"
+    // in the discover toast while the button beside it said "repositories".
+    expect(tab, "a plural is being built by appending an s").not.toMatch(
+      /\$\{[^}]*unit[^}]*\}\$\{[^}]*"s"/,
+    );
+  });
+
+  it("asks for a key file in a box that can hold one", async () => {
+    // FOUND FROM THE UI. GA4's service-account key was declared without
+    // `type: "textarea"`, so a several-hundred-character JSON key was asked
+    // for in a one-line input — where a browser flattens the pasted newlines
+    // and the person can see about six words of what they pasted. Google
+    // Sheets had it right; the second connector to want a key file did not,
+    // because nothing said so.
+    const { SAAS_CARDS } = await import("@/utils/saas/catalog");
+    const keyFiles = Object.entries(SAAS_CARDS).flatMap(([provider, card]) =>
+      card.fields.filter((f) => f.key.endsWith("_json")).map((f) => ({ provider, field: f })),
+    );
+    expect(keyFiles.length, "no key-file fields found — has the shape changed?").toBeGreaterThan(1);
+    for (const { provider, field } of keyFiles) {
+      expect(field.type, `${provider} asks for a key file in a one-line input`).toBe("textarea");
+    }
   });
 
   it("does not describe every source as a spreadsheet", () => {
@@ -511,7 +549,7 @@ describe("adding a provider means wiring every place that knows about one", () =
     expect(tab).not.toContain('placeholder="Finance spreadsheet"');
     expect(tab).not.toContain("a “Sheet1” cannot overwrite");
     // It uses the unit each provider already declares.
-    expect(tab).toContain("PROVIDER_HELP[dialogProvider].unit");
+    expect(tab).toContain("SAAS_CARDS[dialogProvider].unit");
   });
 
   it("every provider the sweep covers has its streams listed", () => {
@@ -660,5 +698,180 @@ describe("the marketing, wiki and spreadsheet sources", () => {
     const src = rd("src/utils/saas/airtable.server.ts");
     expect(src).toContain("...(r.fields ?? {})");
     expect(src).toContain("varies row to row");
+  });
+});
+
+describe("a form the UI renders is a form the server accepts", () => {
+  // FOUND FROM THE UI, four milestones late. The connect dialog rendered a
+  // form for all seventeen providers, took the key, and posted it — and the
+  // server's validation union named five. Twelve connectors answered
+  // "Invalid discriminator value. Expected 'google_sheets' | 'stripe' |
+  // 'shopify' | 'hubspot' | 'salesforce'" to somebody who had chosen none of
+  // them. It type-checked, it built, and every test passed, because both
+  // lists were hand-written and only one of them was being read.
+  //
+  // The union is generated from the card table now. These check the property
+  // that matters rather than the mechanism: what the dialog can post, the
+  // server takes.
+  const filledForm = async (provider: string) => {
+    const { SAAS_CARDS } = await import("@/utils/saas/catalog");
+    const card = SAAS_CARDS[provider as keyof typeof SAAS_CARDS];
+    const out: Record<string, string> = { provider };
+    for (const f of card.fields) out[f.key] = `value-for-${f.key}`;
+    return out;
+  };
+
+  it("accepts a completed form for every provider offered", async () => {
+    const { SaasConfigSchema } = await import("@/utils/saas/configSchema");
+    const { SAAS_PROVIDERS } = await import("@/utils/saas/types");
+    for (const provider of SAAS_PROVIDERS) {
+      const parsed = SaasConfigSchema.safeParse(await filledForm(provider));
+      expect(parsed.success, `${provider} cannot be connected at all`).toBe(true);
+    }
+  });
+
+  it("asks for everything its connector needs, and nothing it does not", async () => {
+    // The other half of the same failure. A field missing from a card is a
+    // field the form never renders, the schema never requires and the
+    // connector reads as undefined — a source that connects and then cannot
+    // fetch. So the card is checked against the config type it fills in.
+    const { SAAS_CARDS } = await import("@/utils/saas/catalog");
+    const types = rd("src/utils/saas/types.ts");
+    const union = types.slice(
+      types.indexOf("export type SaasConfig ="),
+      types.indexOf("export const SYNC_MODES"),
+    );
+    let checked = 0;
+    for (const variant of union.split("| {").slice(1)) {
+      const provider = variant.match(/provider: "([a-z0-9_]+)"/)?.[1];
+      if (!provider) continue;
+      checked += 1;
+      // `name?: string` is optional, `name: string` is not.
+      const declared = [...variant.matchAll(/^ {6}([a-z0-9_]+)(\??): string;$/gm)];
+      const card = SAAS_CARDS[provider as keyof typeof SAAS_CARDS];
+      const asked = new Set(card.fields.map((f) => f.key));
+      for (const [, key, optional] of declared) {
+        expect(asked.has(key), `${provider}.${key} is in the config but no form asks for it`).toBe(
+          true,
+        );
+        const field = card.fields.find((f) => f.key === key);
+        expect(!!field?.optional, `${provider}.${key}: form and config disagree`).toBe(
+          optional === "?",
+        );
+      }
+    }
+    expect(checked, "no config variants parsed — has the shape changed?").toBe(
+      Object.keys(SAAS_CARDS).length,
+    );
+  });
+
+  it("refuses a provider it has never heard of", async () => {
+    // The discriminated union is what makes an unknown provider a validation
+    // error rather than a row that saves and fails at sync time.
+    const { SaasConfigSchema } = await import("@/utils/saas/configSchema");
+    expect(SaasConfigSchema.safeParse({ provider: "myspace", api_key: "x" }).success).toBe(false);
+  });
+
+  it("refuses a form with a required field left blank", async () => {
+    const { SaasConfigSchema } = await import("@/utils/saas/configSchema");
+    const { SAAS_CARDS } = await import("@/utils/saas/catalog");
+    const { SAAS_PROVIDERS } = await import("@/utils/saas/types");
+    for (const provider of SAAS_PROVIDERS) {
+      const card = SAAS_CARDS[provider];
+      for (const f of card.fields) {
+        if (f.optional) continue;
+        const form = { ...(await filledForm(provider)), [f.key]: "" };
+        expect(SaasConfigSchema.safeParse(form).success, `${provider}.${f.key} may be blank`).toBe(
+          false,
+        );
+      }
+    }
+  });
+
+  it("lets an optional field be blank, or absent entirely", async () => {
+    const { SaasConfigSchema } = await import("@/utils/saas/configSchema");
+    const { SAAS_CARDS } = await import("@/utils/saas/catalog");
+    const { SAAS_PROVIDERS } = await import("@/utils/saas/types");
+    let checked = 0;
+    for (const provider of SAAS_PROVIDERS) {
+      for (const f of SAAS_CARDS[provider].fields) {
+        if (!f.optional) continue;
+        checked += 1;
+        const blank = { ...(await filledForm(provider)), [f.key]: "" };
+        expect(SaasConfigSchema.safeParse(blank).success, `${provider}.${f.key} blank`).toBe(true);
+        const absent = await filledForm(provider);
+        delete absent[f.key];
+        expect(SaasConfigSchema.safeParse(absent).success, `${provider}.${f.key} absent`).toBe(
+          true,
+        );
+      }
+    }
+    // Jira's project keys and Asana's workspace, at least.
+    expect(checked, "no optional fields found — has the shape changed?").toBeGreaterThan(1);
+  });
+
+  it("agrees with itself about which fields are optional", async () => {
+    // The label said "optional" and the Connect button stayed disabled until
+    // the field was filled, so Jira and Asana could not be connected without
+    // answering a question the form said was not being asked.
+    const { SAAS_CARDS } = await import("@/utils/saas/catalog");
+    const { SAAS_PROVIDERS } = await import("@/utils/saas/types");
+    for (const provider of SAAS_PROVIDERS) {
+      for (const f of SAAS_CARDS[provider].fields) {
+        const saysSo = /optional/i.test(f.label);
+        expect(!!f.optional, `${provider}.${f.key}: label and flag disagree`).toBe(saysSo);
+      }
+    }
+    // And the button reads the flag rather than insisting on every field.
+    const tab = rd("src/components/integrations/SaasSourcesTab.tsx");
+    expect(tab).toContain("f.optional || values[f.key]");
+  });
+});
+
+describe("GA4 is an aggregate source, not a record source", () => {
+  it("keys on the dimension tuple, because an aggregate has no id", () => {
+    // Without it a merge could not tell yesterday's "organic search" row from
+    // today's, and re-reading a day would double it.
+    const src = rd("src/utils/saas/ga4.server.ts");
+    expect(src).toContain('primaryKey: "row_key"');
+    expect(src).toContain("out.row_key = dimValues.join(");
+  });
+
+  it("re-reads the restatement window rather than trusting the mark", () => {
+    // GA4 restates recent days as late hits and modelled conversions arrive.
+    // Following the cursor naively writes the first, incomplete figure for
+    // each day and never looks again — a dashboard permanently understated
+    // with nothing to indicate it.
+    const src = rd("src/utils/saas/ga4.server.ts");
+    expect(src).toContain("const RESTATEMENT_DAYS = 14;");
+    expect(src).toContain("RESTATEMENT_DAYS * 86_400_000");
+  });
+
+  it("turns metrics into numbers", async () => {
+    // Every GA4 metric arrives as a STRING. Left alone the dataset types the
+    // column as text and a dashboard cannot sum sessions.
+    const src = rd("src/utils/saas/ga4.server.ts");
+    expect(src).toContain("Number.isFinite(n) ? n :");
+    const { dashDate, isoDay, propertyId } = await import("@/utils/saas/ga4.server");
+    expect(dashDate("20260910")).toBe("2026-09-10");
+    expect(dashDate("nonsense")).toBeNull();
+    expect(isoDay(new Date("2026-09-10T23:59:00Z"))).toBe("2026-09-10");
+    // A pasted `properties/123` works; a measurement id is refused with a
+    // message that says which number is wanted.
+    expect(propertyId("properties/123456789")).toBe("123456789");
+    expect(() => propertyId("G-ABC123")).toThrow(/Property settings/);
+  });
+
+  it("every report carries the date it is followed on", () => {
+    // A report without `date` could not be followed and could not be joined
+    // to a calendar.
+    const src = rd("src/utils/saas/ga4.server.ts");
+    const table = src.slice(
+      src.indexOf("const STREAMS"),
+      src.indexOf("export function propertyId"),
+    );
+    const reports = [...table.matchAll(/dimensions: \[([^\]]+)\]/g)].map((m) => m[1]);
+    expect(reports.length).toBeGreaterThan(4);
+    for (const dims of reports) expect(dims).toContain('"date"');
   });
 });

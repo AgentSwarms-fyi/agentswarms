@@ -18,7 +18,7 @@ import { zendeskAuthHeader, zendeskOrigin } from "@/utils/saas/zendesk.server";
 
 const JIRA = readFileSync("src/utils/saas/jira.server.ts", "utf8");
 const ZENDESK = readFileSync("src/utils/saas/zendesk.server.ts", "utf8");
-const TAB = readFileSync("src/components/integrations/SaasSourcesTab.tsx", "utf8");
+const CARDS = readFileSync("src/utils/saas/catalog.ts", "utf8");
 const MIGRATION = readFileSync("supabase/migrations/20260853000000_saas_jira_zendesk.sql", "utf8");
 const DOCS = readFileSync("docs/DATA_SOURCES.md", "utf8");
 
@@ -34,8 +34,8 @@ describe("registered everywhere a provider is checked", () => {
   });
 
   it("the wizard, the database and the docs agree", () => {
-    expect(TAB).toMatch(/\n {2}jira: \{/);
-    expect(TAB).toMatch(/\n {2}zendesk: \{/);
+    expect(CARDS).toMatch(/\n {2}jira: \{/);
+    expect(CARDS).toMatch(/\n {2}zendesk: \{/);
     expect(MIGRATION).toContain("'jira'");
     expect(MIGRATION).toContain("'zendesk'");
     expect(DOCS).toMatch(/\*\*Jira\*\*/);

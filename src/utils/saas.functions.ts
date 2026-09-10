@@ -13,6 +13,7 @@ import { decryptJson, encryptJson } from "@/utils/providers/crypto.server";
 import { auditEvent } from "@/utils/audit.server";
 import { listSaasStreams, nextSyncAt, runConnectionSync } from "@/utils/saas/sync.server";
 import { SYNC_SCHEDULES } from "@/utils/saas/types";
+import { SaasConfigSchema as ConfigSchema } from "@/utils/saas/configSchema";
 import type {
   SaasConfig,
   SaasConnectionSummary,
@@ -36,33 +37,6 @@ async function requireUser(accessToken: string) {
   if (error || !data.user) throw new Error("Unauthorized");
   return { sb, userId: data.user.id };
 }
-
-const ConfigSchema = z.discriminatedUnion("provider", [
-  z.object({
-    provider: z.literal("google_sheets"),
-    service_account_json: z.string().min(2),
-    spreadsheet_id: z.string().min(1),
-  }),
-  z.object({
-    provider: z.literal("stripe"),
-    api_key: z.string().min(1),
-  }),
-  z.object({
-    provider: z.literal("shopify"),
-    shop_domain: z.string().min(1),
-    access_token: z.string().min(1),
-  }),
-  z.object({
-    provider: z.literal("hubspot"),
-    access_token: z.string().min(1),
-  }),
-  z.object({
-    provider: z.literal("salesforce"),
-    instance_url: z.string().min(1),
-    client_id: z.string().min(1),
-    client_secret: z.string().min(1),
-  }),
-]);
 
 /**
  * Load and decrypt a connection the caller owns.

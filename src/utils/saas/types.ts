@@ -23,7 +23,8 @@ export type SaasProvider =
   | "freshdesk"
   | "klaviyo"
   | "notion"
-  | "airtable";
+  | "airtable"
+  | "ga4";
 
 export const SAAS_PROVIDERS: SaasProvider[] = [
   "google_sheets",
@@ -42,6 +43,7 @@ export const SAAS_PROVIDERS: SaasProvider[] = [
   "klaviyo",
   "notion",
   "airtable",
+  "ga4",
 ];
 
 export const SAAS_LABELS: Record<SaasProvider, string> = {
@@ -61,6 +63,7 @@ export const SAAS_LABELS: Record<SaasProvider, string> = {
   klaviyo: "Klaviyo",
   notion: "Notion",
   airtable: "Airtable",
+  ga4: "Google Analytics 4",
 };
 
 /**
@@ -191,6 +194,16 @@ export type SaasConfig =
       provider: "airtable";
       /** PAT with data.records:read and schema.bases:read. */
       access_token: string;
+    }
+  | {
+      provider: "ga4";
+      /**
+       * Service-account key JSON. The account's client_email must be added to
+       * the PROPERTY as a Viewer — a key alone reads nothing.
+       */
+      service_account_json: string;
+      /** The numeric property id from Admin → Property settings. */
+      property_id: string;
     }
   | {
       provider: "zendesk";
