@@ -123,6 +123,9 @@ version history, same use in BI, prep flows and the semantic layer.
 | **Jira**          | Email + API token (Jira Cloud)                 | Issues, one dataset per project — summary, status, type, priority, assignee, reporter, dates, labels                   |
 | **Zendesk**       | Email + API token (sent as `email/token`)      | Tickets, users, organizations                                                                                          |
 | **Salesforce**    | Connected app (client credentials)             | Accounts, contacts, leads, opportunities, cases, campaigns, users                                                      |
+| **ServiceNow**    | Basic auth (integration user)                  | Incidents, change requests, problems, catalog requests, requested items, tasks, users, CMDB                            |
+| **Intercom**      | Access token (app in your own workspace)       | Contacts, conversations, admins                                                                                        |
+| **GitHub**        | Personal access token                          | Issues and pull requests, one dataset per repository                                                                   |
 
 **Auth is a pasted credential, never OAuth.** A redirect flow needs a public
 callback URL that a self-hosted deployment behind a firewall may not have, so
@@ -150,20 +153,25 @@ them into the dataset by key. Re-reading a Salesforce org or a Stripe account
 every hour burns the customer's rate limit for no new information and
 eventually takes longer than the interval it runs on.
 
-| Source         | Follows                                                                    | On                    | Keyed by |
-| -------------- | -------------------------------------------------------------------------- | --------------------- | -------- |
-| **Salesforce** | every object                                                               | `SystemModstamp`      | `Id`     |
-| **Stripe**     | charges, invoices, payment intents, refunds, payouts, balance transactions | `created`             | `id`     |
-| **Shopify**    | every resource                                                             | `updated_at`          | `id`     |
-| **HubSpot**    | every object                                                               | `hs_lastmodifieddate` | `id`     |
-| **Jira**       | every project                                                              | `updated`             | `id`     |
-| **Zendesk**    | tickets, users                                                             | `updated_at`          | `id`     |
+| Source         | Follows                                                                    | On                          | Keyed by |
+| -------------- | -------------------------------------------------------------------------- | --------------------------- | -------- |
+| **Salesforce** | every object                                                               | `SystemModstamp`            | `Id`     |
+| **Stripe**     | charges, invoices, payment intents, refunds, payouts, balance transactions | `created`                   | `id`     |
+| **Shopify**    | every resource                                                             | `updated_at`                | `id`     |
+| **HubSpot**    | every object                                                               | `hs_lastmodifieddate`       | `id`     |
+| **Jira**       | every project                                                              | `updated`                   | `id`     |
+| **Zendesk**    | tickets, users                                                             | `updated_at`                | `id`     |
+| **ServiceNow** | every table                                                                | `sys_updated_on`            | `sys_id` |
+| **Intercom**   | contacts, conversations                                                    | `updated_at` (Unix seconds) | `id`     |
+| **GitHub**     | every repository                                                           | `updated_at`                | `id`     |
 
 Everything else is a full refresh, and each of those is a decision rather than
 something pending. Stripe's `customers`, `subscriptions`, `products` and
 `prices` are edited in place while their `created` never moves, so following it
 would miss every edit; they are few enough that re-reading costs little.
-Zendesk offers no incremental export for **organizations**. Google Sheets has
+Zendesk offers no incremental export for **organizations**, and Intercom has
+no search endpoint for **admins** — a workspace has tens of them, so a full
+read is one request. Google Sheets has
 nothing to follow at all — a worksheet's rows are edited and deleted in place
 with no timestamp — which is the case full refresh exists for.
 
@@ -181,6 +189,20 @@ naming:
   searching. Search stops returning a cursor past **10,000 results**, so the
   query is reissued from the last timestamp seen rather than paged further —
   otherwise a large object silently stops at ten thousand records.
+- **ServiceNow pages by OFFSET** and promises no stable order without one, so
+  every query carries `ORDERBYsys_updated_on`. It is also asked for RAW values
+  rather than display values: `sysparm_display_value=true` renders dates in the
+  instance's own format and timezone, which would make the cursor unparseable
+  and shift the window by the instance's offset. The key is `sys_id`, a GUID,
+  rather than the `number` an admin can reformat.
+- **Intercom's cursor is Unix seconds**, so it compares numerically. Compared
+  as text, "9…" beats "10…" and the mark walks backwards at every digit
+  boundary.
+- **GitHub returns pull requests from the issues endpoint** — they are issues
+  underneath. Dropping them would lose data somebody asked for, and hiding the
+  difference would make "how many issues" wrong, so `is_pull_request` is a
+  column of its own. Issues are asked for with `state=all`: the default is
+  open-only, which is a minority of any real repository's history.
 - **Zendesk's incremental export walks a time-ordered log**, where an empty
   page is a quiet hour rather than the end. Only `end_of_stream` terminates it;
   stopping on an empty page would truncate the sync at the first quiet hour.

@@ -905,11 +905,18 @@ describe("the wiring", () => {
     // condition saved happily, drew on the canvas, and failed the instant
     // anybody ran it — with a Postgres constraint name where a reason should
     // have been. The two lists are pinned against each other now.
+    // Anchored on the statement that DEFINES the constraint, not on the name
+    // appearing anywhere: a later migration mentioned it in a comment, as
+    // precedent for its own guard, and was selected as "the latest" — so this
+    // test parsed a file that has no kind list in it at all.
     const migrations = readdirSync("supabase/migrations")
       .sort()
       .filter((f) =>
-        readFileSync(`supabase/migrations/${f}`, "utf8").includes("workflow_node_runs_kind_check"),
+        readFileSync(`supabase/migrations/${f}`, "utf8").includes(
+          "ADD CONSTRAINT workflow_node_runs_kind_check",
+        ),
       );
+    expect(migrations.length, "no migration defines the kind CHECK").toBeGreaterThan(0);
     const sql = readFileSync(`supabase/migrations/${migrations[migrations.length - 1]}`, "utf8");
     const block = sql.slice(sql.lastIndexOf("kind IN ("));
     const admitted = new Set(

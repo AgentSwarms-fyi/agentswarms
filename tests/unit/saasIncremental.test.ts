@@ -174,6 +174,18 @@ const STREAM_IDS: Record<string, string[]> = {
   hubspot: ["contacts", "companies", "deals", "tickets", "line_items", "products"],
   zendesk: ["tickets", "users", "organizations"],
   jira: ["issues:ACME"],
+  servicenow: [
+    "incident",
+    "change_request",
+    "problem",
+    "sc_request",
+    "sc_req_item",
+    "task",
+    "sys_user",
+    "cmdb_ci",
+  ],
+  intercom: ["contacts", "conversations", "admins"],
+  github: ["issues:acme/web"],
   // Google Sheets is the one source with genuinely nothing to follow: a
   // worksheet's rows are edited and deleted in place with no timestamp.
   google_sheets: ["Sheet1"],
@@ -417,6 +429,162 @@ describe("each connector asks its own API the right question", () => {
       const declaresAny = (STREAM_IDS[provider] ?? []).some((s) => c.incremental?.(s));
       // fetchRows(cfg, streamId, since?) — three parameters where followed.
       expect(c.fetchRows.length, `${provider} fetchRows arity`).toBe(declaresAny ? 3 : 2);
+    }
+  });
+});
+
+describe("adding a provider means wiring every place that knows about one", () => {
+  // FOUND FROM A PREVIOUS MILESTONE. `workflow_node_runs_kind_check` admitted
+  // four of fifteen kinds: a graph saved and drew fine, then failed the moment
+  // anybody ran it, with a raw Postgres constraint name where a reason should
+  // be. A list in the database that lags a list in the code is invisible
+  // until the worst moment, so it is pinned.
+  const providersInCode = () => {
+    const src = rd("src/utils/saas/types.ts");
+    const block = src.slice(
+      src.indexOf("export const SAAS_PROVIDERS"),
+      src.indexOf("export const SAAS_LABELS"),
+    );
+    return [...block.matchAll(/"([a-z_]+)"/g)].map((m) => m[1]);
+  };
+
+  it("the database CHECK admits exactly the providers the code offers", () => {
+    const sql = rd("supabase/migrations/20260898000000_saas_servicenow_intercom_github.sql");
+    const inCheck = [...sql.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
+    expect([...inCheck].sort()).toEqual([...providersInCode()].sort());
+  });
+
+  it("every provider has a label, a card and a connector", async () => {
+    const { connectorFor } = await import("@/utils/saas/sync.server");
+    const types = rd("src/utils/saas/types.ts");
+    const tab = rd("src/components/integrations/SaasSourcesTab.tsx");
+    for (const p of providersInCode()) {
+      expect(types, `${p} has no label`).toMatch(new RegExp(`${p}: "`));
+      expect(tab, `${p} has no card`).toContain(`  ${p}: {`);
+      // Throws for an unregistered provider, which is the assertion.
+      expect(connectorFor(p as never)).toBeTruthy();
+    }
+  });
+
+  it("the counts the README and the docs quote are the real ones", () => {
+    // These drifted silently once already: adding three connectors left the
+    // README saying 29 and "7 apps". A number a reader trusts is worse wrong
+    // than absent, and nothing was checking it.
+    const apps = providersInCode().length;
+    const readme = rd("README.md");
+    expect(readme, "README app count").toContain(`${apps} apps (`);
+    // 22 warehouse connectors + the apps. If either half moves, this fails.
+    expect(readme, "README total").toContain(`**${22 + apps} connectors**`);
+    expect(readme).toContain(`- **Coverage** — ${22 + apps} connectors`);
+    expect(rd("src/routes/docs.integrations.tsx")).toContain(`${apps} apps synced into datasets`);
+    // And every provider is actually named in the connector reference.
+    const sources = rd("docs/DATA_SOURCES.md");
+    for (const p of providersInCode()) {
+      const label = p === "google_sheets" ? "Google Sheets" : p;
+      expect(sources.toLowerCase(), `${p} is undocumented`).toContain(label.toLowerCase());
+    }
+  });
+
+  it("does not invent plurals", () => {
+    // FOUND FROM THE UI. `${unit}s` rendered "Connect and list repositorys".
+    // English plurals are not derivable, so each provider states its own.
+    const tab = rd("src/components/integrations/SaasSourcesTab.tsx");
+    expect(tab).not.toContain("].unit}s`");
+    expect(tab).toContain('units: "repositories"');
+    // One plural per provider, and the type makes it non-optional.
+    const units = tab.match(/units: "/g)?.length ?? 0;
+    expect(units).toBe(providersInCode().length);
+    expect(tab).toContain("unit: string; units: string;");
+  });
+
+  it("does not describe every source as a spreadsheet", () => {
+    // FOUND FROM THE UI. The connect dialog's Name field was written for
+    // Google Sheets and shown for all ten providers, so somebody connecting
+    // ServiceNow was told about spreadsheets and a "Sheet1" they do not have.
+    const tab = rd("src/components/integrations/SaasSourcesTab.tsx");
+    expect(tab).not.toContain('placeholder="Finance spreadsheet"');
+    expect(tab).not.toContain("a “Sheet1” cannot overwrite");
+    // It uses the unit each provider already declares.
+    expect(tab).toContain("PROVIDER_HELP[dialogProvider].unit");
+  });
+
+  it("every provider the sweep covers has its streams listed", () => {
+    // A provider added without stream ids would slip through the conformance
+    // sweep above without failing it — passing by being invisible.
+    for (const p of providersInCode()) {
+      expect(STREAM_IDS[p], `${p} is missing from STREAM_IDS`).toBeDefined();
+    }
+  });
+});
+
+describe("the three native connectors ask their own APIs correctly", () => {
+  it("ServiceNow orders its query, because it pages by offset", () => {
+    // Without ORDERBY, ServiceNow promises no stable order and an offset into
+    // an unordered set repeats or skips rows as records change mid-sync.
+    const src = rd("src/utils/saas/servicenow.server.ts");
+    expect(src).toContain("^ORDERBYsys_updated_on");
+    expect(src).toContain("sys_updated_on>=");
+  });
+
+  it("ServiceNow asks for RAW values, not display values", () => {
+    // `sysparm_display_value=true` renders dates in the instance's own format
+    // and timezone, which makes the cursor unparseable and shifts the window.
+    const src = rd("src/utils/saas/servicenow.server.ts");
+    expect(src).toContain('sysparm_display_value: "false"');
+  });
+
+  it("ServiceNow keys on sys_id, not the display number", () => {
+    // INC0012345 is display text an admin can reformat; sys_id is a GUID.
+    const src = rd("src/utils/saas/servicenow.server.ts");
+    expect(src).toContain('primaryKey: "sys_id"');
+    expect(src).not.toContain('primaryKey: "number"');
+  });
+
+  it("Intercom compares its cursor as a NUMBER", () => {
+    // `updated_at` is Unix seconds. Compared as text, "9…" beats "10…" and the
+    // cursor walks backwards at every digit boundary.
+    const src = rd("src/utils/saas/intercom.server.ts");
+    expect(src).toContain('compare: "number"');
+    expect(src).toContain('sort_order: "ascending"');
+  });
+
+  it("Intercom leaves admins on full refresh, and says so", () => {
+    const src = rd("src/utils/saas/intercom.server.ts");
+    expect(src).toContain("searchable: false");
+    expect(src).toContain("Stated rather than left as an absence.");
+  });
+
+  it("GitHub asks for every state, or it silently omits closed issues", () => {
+    // The default is open-only, which is a minority of any real repo.
+    const src = rd("src/utils/saas/github.server.ts");
+    expect(src).toContain('first.searchParams.set("state", "all")');
+    expect(src).toContain('first.searchParams.set("direction", "asc")');
+  });
+
+  it("GitHub records that an issue is a pull request rather than hiding it", () => {
+    // The issues endpoint returns PRs too. Dropping them loses data; hiding
+    // the difference makes "how many issues" wrong.
+    const src = rd("src/utils/saas/github.server.ts");
+    expect(src).toContain("is_pull_request: isPr");
+  });
+
+  it("GitHub tries the org endpoint before the user one", () => {
+    // /users/<org>/repos returns only PUBLIC repositories for an org, silently
+    // omitting the private ones somebody is most likely to want.
+    const src = rd("src/utils/saas/github.server.ts");
+    // The URLs themselves, not the comment that explains them.
+    const orgAt = src.indexOf("${API}/orgs/");
+    const userAt = src.indexOf("${API}/users/");
+    expect(orgAt).toBeGreaterThan(0);
+    expect(orgAt).toBeLessThan(userAt);
+  });
+
+  it("every new connector explains a 401 and a 403 differently", () => {
+    // "Rejected" and "lacks permission" send somebody to different places.
+    for (const f of ["servicenow", "intercom", "github"]) {
+      const src = rd(`src/utils/saas/${f}.server.ts`);
+      expect(src, `${f} 401`).toMatch(/res\.status === 401/);
+      expect(src, `${f} 403`).toMatch(/res\.status === 403/);
     }
   });
 });

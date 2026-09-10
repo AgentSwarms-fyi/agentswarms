@@ -14,7 +14,10 @@ export type SaasProvider =
   | "hubspot"
   | "salesforce"
   | "jira"
-  | "zendesk";
+  | "zendesk"
+  | "servicenow"
+  | "intercom"
+  | "github";
 
 export const SAAS_PROVIDERS: SaasProvider[] = [
   "google_sheets",
@@ -24,6 +27,9 @@ export const SAAS_PROVIDERS: SaasProvider[] = [
   "salesforce",
   "jira",
   "zendesk",
+  "servicenow",
+  "intercom",
+  "github",
 ];
 
 export const SAAS_LABELS: Record<SaasProvider, string> = {
@@ -34,6 +40,9 @@ export const SAAS_LABELS: Record<SaasProvider, string> = {
   salesforce: "Salesforce",
   jira: "Jira",
   zendesk: "Zendesk",
+  servicenow: "ServiceNow",
+  intercom: "Intercom",
+  github: "GitHub",
 };
 
 /**
@@ -102,6 +111,29 @@ export type SaasConfig =
       api_token: string;
       /** Optional comma-separated project keys; empty = every visible project. */
       project_keys?: string;
+    }
+  | {
+      provider: "servicenow";
+      /** Instance name, e.g. `acme` — a full URL is accepted and reduced. */
+      instance: string;
+      /** An INTEGRATION user, not a person: its roles decide what syncs. */
+      username: string;
+      password: string;
+    }
+  | {
+      provider: "intercom";
+      /**
+       * Access token from an app in your own workspace. Not OAuth: a
+       * self-hosted deployment cannot be assumed to have a public redirect.
+       */
+      access_token: string;
+    }
+  | {
+      provider: "github";
+      /** Organisation or user that owns the repositories. */
+      owner: string;
+      /** Classic or fine-grained PAT with read access to issues. */
+      access_token: string;
     }
   | {
       provider: "zendesk";

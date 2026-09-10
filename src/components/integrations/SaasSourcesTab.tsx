@@ -121,8 +121,50 @@ function ProviderMark({ provider }: { provider: SaasProvider }) {
  */
 const PROVIDER_HELP: Record<
   SaasProvider,
-  { description: string; setup: string; unit: string; fields: Field[] }
+  { description: string; setup: string; unit: string; units: string; fields: Field[] }
 > = {
+  servicenow: {
+    description: "Sync incidents, changes, problems and the CMDB into datasets.",
+    setup:
+      "Create an INTEGRATION USER on your instance and give it a read-only role for the " +
+      "tables you want (snc_read_only is often enough). The datasets contain exactly what " +
+      "that user can read — ServiceNow enforces its ACLs on the Table API, so a narrow role " +
+      "gives a narrow dataset.",
+    unit: "table",
+    units: "tables",
+    fields: [
+      {
+        key: "instance",
+        label: "Instance",
+        placeholder: "acme (from https://acme.service-now.com)",
+      },
+      { key: "username", label: "Integration user", placeholder: "svc_agentswarms" },
+      { key: "password", label: "Password", placeholder: "the integration user's password" },
+    ],
+  },
+  intercom: {
+    description: "Sync contacts, conversations and admins into datasets.",
+    setup:
+      "In Intercom go to Settings → Integrations → Developer Hub, create an app in your own " +
+      "workspace, and copy its access token. Grant it read access to contacts and " +
+      "conversations. No OAuth redirect is needed for an app in your own workspace.",
+    unit: "object",
+    units: "objects",
+    fields: [{ key: "access_token", label: "Access token", placeholder: "dG9r…" }],
+  },
+  github: {
+    description: "Sync issues and pull requests from your repositories into datasets.",
+    setup:
+      "Create a personal access token at github.com → Settings → Developer settings. A " +
+      "fine-grained token needs Read access to Issues and Metadata on the repositories you " +
+      "want; a classic token needs the repo scope. One dataset is created per repository.",
+    unit: "repository",
+    units: "repositories",
+    fields: [
+      { key: "owner", label: "Organisation or user", placeholder: "acme-inc" },
+      { key: "access_token", label: "Access token", placeholder: "github_pat_… or ghp_…" },
+    ],
+  },
   jira: {
     description: "Sync every issue in your Jira projects into datasets — one per project.",
     setup:
@@ -130,6 +172,7 @@ const PROVIDER_HELP: Record<
       "of the Atlassian account it belongs to. The datasets contain exactly what that account " +
       "can browse; a read-only account gives read-only datasets.",
     unit: "project",
+    units: "projects",
     fields: [
       { key: "site_url", label: "Site URL", placeholder: "https://acme.atlassian.net" },
       { key: "email", label: "Account email", placeholder: "you@company.com" },
@@ -148,6 +191,7 @@ const PROVIDER_HELP: Record<
       "enter the email of the agent account it belongs to. The token is sent as " +
       "email/token — the platform adds the suffix, so paste the token as issued.",
     unit: "object",
+    units: "objects",
     fields: [
       { key: "subdomain", label: "Subdomain", placeholder: "acme (from https://acme.zendesk.com)" },
       { key: "email", label: "Agent email", placeholder: "you@company.com" },
@@ -161,6 +205,7 @@ const PROVIDER_HELP: Record<
       "spreadsheet with the key's client_email address (Share → paste it → Viewer). " +
       "Without that share step Google returns 403 no matter how valid the key is.",
     unit: "worksheet",
+    units: "worksheets",
     fields: [
       {
         key: "spreadsheet_id",
@@ -182,6 +227,7 @@ const PROVIDER_HELP: Record<
       "restricted key). A full secret key works but grants far more than this needs — " +
       "nothing here ever writes to Stripe.",
     unit: "object type",
+    units: "object types",
     fields: [
       {
         key: "api_key",
@@ -199,6 +245,7 @@ const PROVIDER_HELP: Record<
       "the objects you want (crm.objects.contacts.read and so on), then copy its access token. " +
       "A private app is used rather than OAuth because that needs a public redirect URL.",
     unit: "object type",
+    units: "object types",
     fields: [
       {
         key: "access_token",
@@ -215,6 +262,7 @@ const PROVIDER_HELP: Record<
       "(Setup → App Manager → New Connected App → OAuth Settings). Copy its consumer key and " +
       "secret. No redirect URL is needed — this is a server-to-server flow.",
     unit: "object",
+    units: "objects",
     fields: [
       {
         key: "instance_url",
@@ -233,6 +281,7 @@ const PROVIDER_HELP: Record<
       "app, grant it read_orders, read_customers and read_products, then install it and copy " +
       "the Admin API access token.",
     unit: "resource",
+    units: "resources",
     fields: [
       {
         key: "shop_domain",
@@ -652,11 +701,16 @@ export function SaasSourcesTab() {
               <Input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="Finance spreadsheet"
+                placeholder={dialogProvider ? `My ${SAAS_LABELS[dialogProvider]}` : "My source"}
               />
+              {/* FOUND FROM THE UI. Both of these were written for Google
+                  Sheets and shown for every provider, so somebody connecting
+                  ServiceNow was told about spreadsheets and a “Sheet1” they do
+                  not have. The unit each provider syncs is already declared. */}
               <p className="text-[11px] text-muted-foreground">
-                Prefixes the dataset names, so two sources with a “Sheet1” cannot overwrite each
-                other.
+                Prefixes the dataset names, so two sources with a same-named{" "}
+                {dialogProvider ? PROVIDER_HELP[dialogProvider].unit : "stream"} cannot overwrite
+                each other.
               </p>
             </div>
             {dialogProvider &&
@@ -689,13 +743,13 @@ export function SaasSourcesTab() {
               onClick={onDiscover}
             >
               {busy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
-              Connect and list {dialogProvider ? `${PROVIDER_HELP[dialogProvider].unit}s` : ""}
+              Connect and list {dialogProvider ? PROVIDER_HELP[dialogProvider].units : ""}
             </Button>
 
             {streams && (
               <div className="space-y-1">
                 <Label className="text-xs">
-                  Sync these {dialogProvider ? `${PROVIDER_HELP[dialogProvider].unit}s` : "items"}
+                  Sync these {dialogProvider ? PROVIDER_HELP[dialogProvider].units : "items"}
                 </Label>
                 <div className="max-h-40 space-y-1 overflow-y-auto rounded-md border border-border/50 bg-background/40 p-2">
                   {streams.map((s) => (

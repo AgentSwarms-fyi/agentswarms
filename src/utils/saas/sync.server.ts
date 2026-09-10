@@ -24,6 +24,13 @@ import { fetchShopifyRows, listShopifyStreams, shopifyIncremental } from "./shop
 import { fetchJiraRows, jiraIncremental, listJiraStreams } from "./jira.server";
 import { fetchStripeRows, listStripeStreams, stripeIncremental } from "./stripe.server";
 import { fetchZendeskRows, listZendeskStreams, zendeskIncremental } from "./zendesk.server";
+import {
+  fetchServiceNowRows,
+  listServiceNowStreams,
+  serviceNowIncremental,
+} from "./servicenow.server";
+import { fetchIntercomRows, intercomIncremental, listIntercomStreams } from "./intercom.server";
+import { fetchGithubRows, githubIncremental, listGithubStreams } from "./github.server";
 import type {
   IncrementalSpec,
   SaasConfig,
@@ -97,6 +104,21 @@ const CONNECTORS: Record<SaasProvider, SaasConnector> = {
     listStreams: listZendeskStreams,
     fetchRows: fetchZendeskRows,
     incremental: zendeskIncremental,
+  },
+  servicenow: {
+    listStreams: listServiceNowStreams,
+    fetchRows: fetchServiceNowRows,
+    incremental: serviceNowIncremental,
+  },
+  intercom: {
+    listStreams: listIntercomStreams,
+    fetchRows: fetchIntercomRows,
+    incremental: intercomIncremental,
+  },
+  github: {
+    listStreams: listGithubStreams,
+    fetchRows: fetchGithubRows,
+    incremental: githubIncremental,
   },
 };
 

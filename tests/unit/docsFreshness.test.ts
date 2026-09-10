@@ -269,8 +269,12 @@ describe("connector counts in prose match the code", () => {
 
   it("the numbers the docs do state are the real ones", () => {
     expect(EXTERNAL_WAREHOUSE_PROVIDERS.length).toBe(22);
-    // Jira and Zendesk joined the five that covered finance, commerce and CRM.
-    expect(SAAS_PROVIDERS.length).toBe(7);
+    // Jira and Zendesk joined the five that covered finance, commerce and CRM;
+    // ServiceNow, Intercom and GitHub added the ITSM instance, the customer
+    // inbox and the repositories. Hardcoded ON PURPOSE: adding a connector
+    // should make somebody look at every number the docs quote, which is what
+    // this failing did.
+    expect(SAAS_PROVIDERS.length).toBe(10);
     const readme = readFileSync("README.md", "utf8");
     expect(readme).toContain(`${EXTERNAL_WAREHOUSE_PROVIDERS.length} databases and warehouses`);
     expect(readme).toContain(

@@ -693,18 +693,20 @@ function DataPage() {
       </P>
       <P>
         <strong>Incremental</strong> asks the API for records changed since the last sync and folds
-        them into the dataset by key. Salesforce, Shopify, HubSpot and Jira follow every stream they
-        offer; Stripe follows its six immutable object types; Zendesk follows tickets and users.
-        Everything else is a full refresh — Zendesk has no incremental export for organizations, and
-        a Google Sheets worksheet has no timestamp to follow at all.
+        them into the dataset by key. Salesforce, Shopify, HubSpot, Jira, ServiceNow and GitHub
+        follow every stream they offer; Stripe follows its six immutable object types; Zendesk
+        follows tickets and users; Intercom follows contacts and conversations. Everything else is a
+        full refresh — Zendesk has no incremental export for organizations, Intercom none for
+        admins, and a Google Sheets worksheet has no timestamp to follow at all.
       </P>
       <Callout kind="warn" title="Each API is asked in its own dialect">
-        Jira pages by offset, so it is ordered oldest-first: newest-first meant a record edited
-        mid-sync shifted every later page down one and a row was skipped per edit. HubSpot&apos;s
-        list endpoint cannot filter by date at all, so following it means searching — and search
-        stops paging at 10,000 results, so the query is reissued from the last timestamp rather than
-        paged further. Zendesk&apos;s export walks a time-ordered log where an empty page is a quiet
-        hour, not the end.
+        Jira and ServiceNow page by offset, so both are ordered oldest-first: newest-first meant a
+        record edited mid-sync shifted every later page down one and a row was skipped per edit.
+        HubSpot&apos;s list endpoint cannot filter by date at all, so following it means searching —
+        and search stops paging at 10,000 results, so the query is reissued from the last timestamp
+        rather than paged further. Zendesk&apos;s export walks a time-ordered log where an empty
+        page is a quiet hour, not the end. Intercom&apos;s cursor is Unix seconds and compares
+        numerically, because as text &ldquo;9…&rdquo; beats &ldquo;10…&rdquo;.
       </Callout>
       <Callout kind="why" title="Why some Stripe objects are deliberately not followed">
         <C>customers</C>, <C>subscriptions</C>, <C>products</C> and <C>prices</C> are edited in
