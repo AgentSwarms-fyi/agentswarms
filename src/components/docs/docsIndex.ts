@@ -4031,15 +4031,37 @@ export const DOCS_INDEX: DocsIndexPage[] = [
   {
     "route": "/docs/workflows",
     "title": "Workflows",
-    "description": "One graph over the pipelines, model builds, retrains and notebooks you already have — so ingest, transform and train stop keeping four separate clocks.",
+    "description": "One graph over the pipelines, model builds, retrains, notebooks and swarms you already have — with the branching, retries, approvals and API trigger an orchestrator is expected to have.",
     "terms": [
-      "partial"
+      "404",
+      "409",
+      "WORKFLOW_TRIGGER_PER_MIN",
+      "all_done",
+      "false",
+      "one_success",
+      "partial",
+      "true"
     ],
     "headings": [
       {
         "id": "steps",
-        "text": "The four kinds of step",
+        "text": "The fifteen kinds of step",
         "level": 2
+      },
+      {
+        "id": "work-steps",
+        "text": "Work",
+        "level": 3
+      },
+      {
+        "id": "outside-steps",
+        "text": "Reaching outside",
+        "level": 3
+      },
+      {
+        "id": "control-steps",
+        "text": "Control flow",
+        "level": 3
       },
       {
         "id": "building",
@@ -4047,13 +4069,38 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "level": 2
       },
       {
-        "id": "failure",
-        "text": "What happens when a step fails",
+        "id": "trigger-rules",
+        "text": "Trigger rules",
+        "level": 2
+      },
+      {
+        "id": "branching",
+        "text": "Branching",
+        "level": 2
+      },
+      {
+        "id": "no-notation",
+        "text": "Nothing in the editor asks for a notation",
+        "level": 2
+      },
+      {
+        "id": "parameters",
+        "text": "Parameters",
+        "level": 2
+      },
+      {
+        "id": "retries",
+        "text": "Retries, timeouts and failure",
         "level": 2
       },
       {
         "id": "runs",
         "text": "Runs",
+        "level": 2
+      },
+      {
+        "id": "api",
+        "text": "Starting a run from outside",
         "level": 2
       },
       {

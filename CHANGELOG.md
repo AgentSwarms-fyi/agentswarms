@@ -14,7 +14,7 @@ development branch and may be ahead of the latest tag.
 
 ## Unreleased
 
-Work on `main` since the 1.4.0 tag. Twenty-six migrations —
+Work on `main` since the 1.4.0 tag. Twenty-eight migrations —
 run `npx supabase db push` after pulling.
 
 ### Workflows: one graph over four separate clocks
@@ -41,9 +41,83 @@ run `npx supabase db push` after pulling.
   the history of what ran, and every step start is claimed with a conditional
   update so app replicas cannot double-start one.
 - The canvas is the ETL builder's, so the gesture is the one operators know,
-  and the run paints its state onto the same graph. Owner-only and audited. One
-  migration, 32 unit tests. Knobs: `WORKFLOW_STEP_TIMEOUT_MINUTES`,
-  `WORKFLOW_RUNS_PER_SWEEP`.
+  and the run paints its state onto the same graph. Owner-only and audited.
+
+### Workflows: fifteen kinds of step, and nothing left to type
+
+- **Four kinds of step became fifteen.** Four is a demo. Alongside the ETL
+  pipeline, model build, ML schedule and notebook there is now a **SQL
+  statement**, a **data-prep flow**, a **swarm** (its published graph, not the
+  draft), a **dashboard refresh** and a **data monitor** — plus an **HTTP
+  request** and a **notification** for reaching outside, and four kinds of
+  control flow the orchestrator owns itself: **condition**, **wait**,
+  **approval** and **sub-workflow**.
+- **Trigger rules, under Airflow's names.** `all_success`, `all_done`,
+  `one_success` — an operator who knows one orchestrator should not have to
+  learn a second vocabulary for the same three ideas. An `all_done` step is
+  never skipped for an upstream failure, which is what makes a cleanup step
+  possible.
+- **Branching.** A condition takes the `true` or the `false` arrow; the canvas
+  colours and labels them, and everything on the branch not taken is marked
+  skipped, transitively.
+- **Parameters, pinned onto the run.** A workflow declares them with defaults,
+  a run may override any of them, and what it used stays readable after the
+  defaults change. An unknown name is left **as written** rather than replaced
+  with an empty string — a SQL statement that silently loses its date filter
+  and scans all history is worse than one that fails visibly.
+- **Retries in place.** A step keeps ONE row however many times it is tried, so
+  it stays one line in the run view; the wait doubles and stops at an hour.
+  Three ceilings, each for a different failure: the step's own, the workflow's,
+  and the subsystem's.
+- **`POST /api/workflows/run`**, with a bearer token minted per workflow, the
+  plaintext shown once and a SHA-256 hash stored. "No such workflow", "no token
+  minted" and "wrong token" all answer one undifferentiated 404, so a valid
+  token for one workflow cannot enumerate the others. Rate limited globally.
+- **Cron with a timezone**, alongside the coarse four. An expression that stops
+  parsing takes that one workflow out of the schedule rather than wedging the
+  sweep for everybody.
+
+### Workflows: the editor asks for choices, not notation
+
+- **A condition is assembled, not written.** It used to be a text box wanting
+  `{{ params.full_refresh }} == true`. It is now two side pickers and a test
+  said in words — _is_, _is not_, _is more than_, _is at least_. The stored
+  string is unchanged, so a run record still reads as one small expression;
+  what changed is that nobody has to produce it.
+- **A parameter's value can no longer rewrite the comparison it sits in.** The
+  expression used to be split into `left op right` _after_ the parameters were
+  filled in, so a value containing `>` or `==` silently became part of the
+  comparison. The split now happens on the expression as written, and respects
+  quotes.
+- **HTTP headers are rows, and a secret is picked by name** rather than typed
+  as `{{secret:CI_TOKEN}}` from memory. Only names reach the browser; the value
+  is resolved server-side at run time.
+- **SQL models are ticked from the ones that exist**, not typed as a
+  comma-separated list where a rename produced a step that built nothing and
+  called it success. A model that has since been deleted stays in the list,
+  ticked and flagged.
+- **Every free-text field that takes a parameter has a Parameter button** that
+  inserts `{{ params.name }}` at the cursor.
+- **The step palette moved off the top of the canvas** and down the side, in
+  four named groups. Fifteen buttons wrapped over three rows pushed the canvas
+  down the screen and said nothing about which of them belonged together. Each
+  family has its own colour, shared by the palette, the canvas and the run list.
+- **The saved-workflow list is capped and searchable** instead of growing until
+  it pushed the palette off the bottom of the card.
+
+Five bugs found by testing this from the UI rather than from the tests: a step
+that failed _inside_ its own start call was never retried (which was every HTTP
+and SQL step); a graph containing any of the eleven new kinds saved and drew
+fine and then failed at run against a `CHECK` that still listed four; picking a
+workflow while another was loading left whichever response landed last in the
+editor; a header row vanished if you chose its secret before typing its name;
+and deleting workflows below the search threshold took the box away while
+leaving its text still filtering. Each has a test that fails without its fix.
+
+Two migrations (the orchestration tables, and the widened `CHECK`), 94 unit
+tests. Knobs:
+`WORKFLOW_STEP_TIMEOUT_MINUTES`, `WORKFLOW_RUNS_PER_SWEEP`,
+`WORKFLOW_TRIGGER_PER_MIN`.
 
 ### Paginated reports in the BI Workspace
 

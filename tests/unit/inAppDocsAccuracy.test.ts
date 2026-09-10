@@ -136,7 +136,15 @@ describe("limits are described with the scope they actually have", () => {
     // otherwise tells an operator to divide their intended ceiling by the
     // instance count.
     const offenders = DOC_PAGES.filter((f) => {
-      const src = readFileSync(f, "utf8");
+      // Saying a limit is NOT per process is the correct thing to say, and the
+      // phrase this guard looks for appears in it. Strip the explicit
+      // negations first so a page that gets it right is not reported for
+      // getting it wrong; anything still claiming per-process is a real
+      // offender.
+      const src = readFileSync(f, "utf8").replace(
+        /(?:globally |global,? )?rather than per[- ]process|not per[- ]process/gi,
+        "",
+      );
       // WAREHOUSE_* concurrency genuinely is per-instance, so a page may say so
       // as long as it is talking about that.
       const claims = /per process|per-process|per application process|N times the/i.test(src);

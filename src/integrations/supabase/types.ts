@@ -734,6 +734,13 @@ export type Database = {
           last_run_status: string | null;
           created_at: string;
           updated_at: string;
+          cron_expr: string | null;
+          timezone: string | null;
+          params: Json;
+          overlap: string;
+          notify_on: string;
+          trigger_token_hash: string | null;
+          timeout_minutes: number;
         };
         Insert: {
           id?: string;
@@ -748,6 +755,13 @@ export type Database = {
           last_run_status?: string | null;
           created_at?: string;
           updated_at?: string;
+          cron_expr?: string | null;
+          timezone?: string | null;
+          params?: Json;
+          overlap?: string;
+          notify_on?: string;
+          trigger_token_hash?: string | null;
+          timeout_minutes?: number;
         };
         Update: {
           id?: string;
@@ -762,6 +776,13 @@ export type Database = {
           last_run_status?: string | null;
           created_at?: string;
           updated_at?: string;
+          cron_expr?: string | null;
+          timezone?: string | null;
+          params?: Json;
+          overlap?: string;
+          notify_on?: string;
+          trigger_token_hash?: string | null;
+          timeout_minutes?: number;
         };
         Relationships: [];
       };
@@ -776,6 +797,10 @@ export type Database = {
           error: string | null;
           started_at: string;
           finished_at: string | null;
+          params: Json;
+          branches: Json;
+          parent_run_id: string | null;
+          rerun_of: string | null;
         };
         Insert: {
           id?: string;
@@ -787,6 +812,10 @@ export type Database = {
           error?: string | null;
           started_at?: string;
           finished_at?: string | null;
+          params?: Json;
+          branches?: Json;
+          parent_run_id?: string | null;
+          rerun_of?: string | null;
         };
         Update: {
           id?: string;
@@ -798,6 +827,10 @@ export type Database = {
           error?: string | null;
           started_at?: string;
           finished_at?: string | null;
+          params?: Json;
+          branches?: Json;
+          parent_run_id?: string | null;
+          rerun_of?: string | null;
         };
         Relationships: [];
       };
@@ -815,6 +848,12 @@ export type Database = {
           started_at: string | null;
           finished_at: string | null;
           created_at: string;
+          attempt: number;
+          retry_at: string | null;
+          wait_until: string | null;
+          approval_id: string | null;
+          branch: string | null;
+          output: Json | null;
         };
         Insert: {
           id?: string;
@@ -829,6 +868,12 @@ export type Database = {
           started_at?: string | null;
           finished_at?: string | null;
           created_at?: string;
+          attempt?: number;
+          retry_at?: string | null;
+          wait_until?: string | null;
+          approval_id?: string | null;
+          branch?: string | null;
+          output?: Json | null;
         };
         Update: {
           id?: string;
@@ -843,6 +888,12 @@ export type Database = {
           started_at?: string | null;
           finished_at?: string | null;
           created_at?: string;
+          attempt?: number;
+          retry_at?: string | null;
+          wait_until?: string | null;
+          approval_id?: string | null;
+          branch?: string | null;
+          output?: Json | null;
         };
         Relationships: [];
       };
