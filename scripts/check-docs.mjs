@@ -343,6 +343,13 @@ for (const f of DOCS) {
     const ep = m[0].replace(/[.,)]+$/, "");
     if (apiRoutes.has(ep)) continue;
     if (ep.endsWith("/") && [...apiRoutes].some((r) => r.startsWith(ep))) continue;
+    // A BASE url, which is a real thing to document: SCIM is configured in an
+    // IdP by pasting /api/scim/v2, and the IdP appends /Users and /Groups
+    // itself. Accepted only when routes sit DIRECTLY under it, one segment
+    // down — so a genuine base passes and a truncated path like /api/scim,
+    // whose routes are two levels below, still fails.
+    if ([...apiRoutes].some((r) => r.startsWith(ep + "/") && !r.slice(ep.length + 1).includes("/")))
+      continue;
     const matches = [...apiRoutes].some((r) =>
       new RegExp("^" + r.replace(/\$[a-z]+/gi, "[^/]+") + "$", "i").test(ep),
     );

@@ -125,7 +125,7 @@ One interface, five or six implementations. The whole point is that
 `crypto.server.ts` should not know which one is in use.
 
 ```ts
-// src/utils/providers/kms/types.ts   (proposed)
+// src/utils/kms/types.ts   (shipped)
 export interface KeyProvider {
   readonly id: "env" | "aws" | "gcp" | "azure" | "oci" | "vault";
 

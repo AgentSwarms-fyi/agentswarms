@@ -291,10 +291,11 @@ Stated plainly because you will ask:
 
 - **No third-party certification.** Not SOC 2, ISO 27001 or HIPAA certified,
   and there is no penetration-test report to share.
-- **No external KMS integration yet.** The master key is an environment
-  variable. Sourcing it from AWS KMS, GCP KMS, Azure Key Vault, OCI Vault or
-  HashiCorp Vault is designed in
-  [`docs/KEY_MANAGEMENT.md`](./docs/KEY_MANAGEMENT.md) and not yet built.
+- **Only one external KMS provider.** HashiCorp Vault is built: with
+  `KMS_PROVIDER=vault` the data key is wrapped by a Vault Transit key that
+  never leaves Vault. AWS KMS, GCP KMS, Azure Key Vault and OCI Vault are
+  designed in [`docs/KEY_MANAGEMENT.md`](./docs/KEY_MANAGEMENT.md) and not yet
+  built; without Vault the master key is an environment variable.
 - **No hardware-backed key storage**, and no automatic re-encryption on a
   schedule — rotation is operator-initiated.
 - **Encryption at rest is not end-to-end.** The server decrypts credentials in

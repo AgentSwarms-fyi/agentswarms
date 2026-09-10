@@ -243,9 +243,9 @@ Otherwise approve it unchanged.`}</Code>
           ],
           [
             "Entity types",
-            "all (empty = default set)",
+            "empty = email, API key, SSN, credit card, phone",
             "any subset of the eight below",
-            "Which detectors run. Selecting none means the full default set.",
+            "Which detectors run. Leaving it empty runs five of the eight — IBAN, IP address and date of birth are off unless you select them.",
           ],
         ]}
       />

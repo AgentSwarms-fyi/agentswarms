@@ -211,10 +211,10 @@ function IamPage() {
 
       <H3 id="row-column-security">Narrowing a grant: row filters and column masks</H3>
       <P>
-        Sharing a dataset or dashboard does not have to mean sharing all of it. Two optional
-        restrictions can be attached to a grant on a <strong>SQL data table</strong> or a{" "}
-        <strong>BI dashboard</strong> — the two types that serve rows. Neither applies to the other
-        eight, and the platform refuses to save them there.
+        Sharing a dataset, dashboard or model does not have to mean sharing all of it. Two optional
+        restrictions can be attached to a grant on a <strong>SQL data table</strong>, a{" "}
+        <strong>BI dashboard</strong> or a <strong>semantic model</strong> — the three types that
+        serve rows. Neither applies to the other ten, and the platform refuses to save them there.
       </P>
       <Table
         headers={["Restriction", "Shape", "Effect on the grantee"]}

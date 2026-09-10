@@ -237,7 +237,7 @@ function DataPage() {
         ]}
       />
 
-      <Callout kind="info" title="Nine more databases use exactly the fields above">
+      <Callout kind="info" title="Ten more databases use exactly the fields above">
         Most &ldquo;new databases&rdquo; are not new protocols. Each of these is a first-class entry
         in the picker with its own name, logo and default port, but it speaks a wire protocol we
         already support, so it takes the same fields and shares the same proven driver:

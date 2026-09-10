@@ -156,9 +156,9 @@ function LakehouseDocsPage() {
       </P>
       <P>
         Memory and threads are editable under{" "}
-        <strong>Admin → Developer runtime → Compute resources</strong>, which wins over the
-        environment variables below — so a running deployment can be retuned without a redeploy, and
-        neither is capped by the app.
+        <strong>Admin → Developer runtime → Data platform</strong>, which wins over the environment
+        variables below — so a running deployment can be retuned without a redeploy, and neither is
+        capped by the app.
       </P>
       <P>
         Each engine gets <C>LAKEHOUSE_MEMORY_LIMIT</C> (default 2GB) and spills past it to disk
@@ -378,11 +378,11 @@ function LakehouseDocsPage() {
         <li>
           <strong>Register a catalog.</strong> Under Lakehouse → <strong>Iceberg</strong>, add an
           Iceberg REST catalog: its endpoint, the warehouse it serves, and how to authenticate
-          (none, a bearer token, or OAuth2 client credentials) given as secret names from Settings →
-          Secrets. Lakekeeper, Apache Polaris, Nessie, Glue, Unity Catalog and Snowflake Open
-          Catalog speak this protocol. The catalog is attached and asked for its namespaces before
-          it is saved; registered catalogs attach when the engine boots, and one that fails is
-          marked on its row and skipped, then tried again every five minutes.
+          (none, a bearer token, or OAuth2 client credentials) given as secret names from{" "}
+          <strong>Integrations → Secrets</strong>. Lakekeeper, Apache Polaris, Nessie, Glue, Unity
+          Catalog and Snowflake Open Catalog speak this protocol. The catalog is attached and asked
+          for its namespaces before it is saved; registered catalogs attach when the engine boots,
+          and one that fails is marked on its row and skipped, then tried again every five minutes.
         </li>
         <li>
           <strong>Mount a namespace.</strong> A namespace becomes a lakehouse schema: one read-only

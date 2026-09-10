@@ -15,7 +15,7 @@ IAM, audited by trigger, with a decision id and a passport.
 - **Registry** — `ML Models` under **Data & BI**: every model you own or were
   granted, its production version's headline metric, what it predicts from,
   and whether something is training right now.
-- **Training** — a four-step wizard (data, target, options, review) drives a
+- **Training** — a four-step wizard (data, goal, options, review) drives a
   batch sandbox that profiles the table, tries several algorithms under a
   time budget and keeps the best one with its metrics, leaderboard and
   feature importance.

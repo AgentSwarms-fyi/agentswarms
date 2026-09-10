@@ -196,11 +196,13 @@ connected, those collections need a re-embed under a provider you do have —
 answering them from a different vector space would return confident nonsense
 rather than an error.
 
-### The real constraint is 1536 dimensions
+### The real constraint is at most 1536 dimensions
 
 `kb_chunks.embedding` is `vector(1536)`, and ingest hard-validates the width, so
-a provider is usable here only if it returns 1536 dimensions — natively, or by
-honouring the OpenAI `dimensions` parameter. That is a stronger condition than
+a provider is usable here only if it returns **1536 dimensions or fewer** —
+natively, or by honouring the OpenAI `dimensions` parameter. A narrower vector
+is zero-padded to the store's width; a wider one is refused, because it cannot
+be truncated without changing what it means. That is a stronger condition than
 "has an embeddings API", and it is measured rather than assumed: every model
 below was probed against the live endpoint.
 
@@ -214,9 +216,9 @@ Native widths vary a lot, and the parameter is what makes them fit:
 | `qwen/qwen3-embedding-8b`       | 4096   | 1536                    |
 | `qwen/qwen3-embedding-4b`       | 2560   | 1536                    |
 
-A model that _ignores_ the parameter returns its native width and fails at
-ingest — after the documents are saved, leaving the collection answering from
-keyword search alone. Since that cannot be predicted from a model id, don't:
+A model that _ignores_ the parameter returns its native width. If that width
+is over 1536 it fails at ingest — after the documents are saved, leaving the
+collection answering from keyword search alone. Since that cannot be predicted from a model id, don't:
 **RAG settings → Test embedding** calls the provider once and reports the width
 it actually returned. Use it before committing a collection to a model,
 especially for a self-hosted Ollama or vLLM where the served model is your
@@ -282,8 +284,12 @@ text. The rules err toward deny:
   browser**: the management route returns explicit columns, the UI selects
   explicit columns, and editing a source with empty credential fields keeps
   what is stored.
-- All connector traffic goes to fixed provider hosts over HTTPS with a 30s
-  timeout; the only variable URLs are provider-returned download redirects.
+- Token-based connector traffic goes to fixed provider hosts over HTTPS with a
+  30s timeout; the only variable URLs there are provider-returned download
+  redirects. Two connectors are different by design and take a host you supply:
+  Confluence (your own site URL, Cloud or Data Center) and the website
+  connector, which fetches your start URLs and same-site links on a 20s
+  timeout.
 - Deleting a source deletes its documents by default (their visibility may
   have depended on the source's scope). Keeping them is an explicit choice
   that converts them to plain collection documents.
@@ -340,4 +346,4 @@ Air-gapped deployments can embed with Ollama or vLLM instead of a hosted
 model. The only hard constraint is width: the store is 1536-dimensional, so a
 model that emits narrower vectors is zero-padded (exact for cosine similarity)
 and a wider one is refused with a clear error — see
-[The real constraint is 1536 dimensions](#the-real-constraint-is-1536-dimensions).
+[The real constraint is at most 1536 dimensions](#the-real-constraint-is-at-most-1536-dimensions).

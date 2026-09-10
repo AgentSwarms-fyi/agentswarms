@@ -24,7 +24,8 @@ catalog and the platform compiles the exact, consistent SQL.
 - **Dimension** — a column or SQL expression you group by (e.g. `region`,
   `DATE_TRUNC('month', created_at)`).
 - **Metric** — an aggregation over a column: `sum`, `avg`, `count`,
-  `count_distinct`, `min`, `max`, or a `custom` expression. Metrics can carry
+  `count_distinct`, `min`, `max`, a `custom` expression, or a `derived` metric
+  computed from other metrics. Metrics can carry
   filters (a _filtered measure_, e.g. revenue where `status = 'paid'`) and a
   display format.
 - **Join** — up to 8 LEFT/INNER joins from the source across a star schema,

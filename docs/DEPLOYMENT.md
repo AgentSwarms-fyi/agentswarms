@@ -365,12 +365,12 @@ the Deployments.
 name no StorageClass, so each `PersistentVolumeClaim` takes the cluster's
 default. Four things still need a decision:
 
-| Concern                    | What to know                                                                                                                                                                                                                                                                                                     |
-| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Ingress and TLS**        | `port-forward` is for checking the install. Put an Ingress or a `LoadBalancer` Service in front of `svc/agentswarms` and the chart's Kong service, and set `PUBLIC_APP_URL` to the resulting hostname.                                                                                                           |
-| **NetworkPolicy**          | The `NetworkPolicy` that denies the JS sandbox all egress needs a CNI that enforces policy — Calico, Cilium, GKE Dataplane V2, AKS with Azure or Calico policy, EKS with VPC CNI policy enabled. Without one it applies and does nothing.                                                                        |
-| **Pod Security Standards** | Everything meets `restricted` except the Office renderer, whose image runs as root. See below.                                                                                                                                                                                                                   |
-| **Node capacity**          | Requests total roughly 3 CPU and 6 GiB for our pods (web ×2, analytics), plus the Supabase chart's own. A single 2-vCPU node will not schedule it. ML training and ETL runs add one batch pod each (default 8 GiB for a training) in the notebook namespace — size that pool for the trainings you want at once. |
+| Concern                    | What to know                                                                                                                                                                                                                                                                                                                                                                                                 |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Ingress and TLS**        | `port-forward` is for checking the install. Put an Ingress or a `LoadBalancer` Service in front of `svc/agentswarms` and the chart's Kong service, and set `PUBLIC_APP_URL` to the resulting hostname.                                                                                                                                                                                                       |
+| **NetworkPolicy**          | The `NetworkPolicy` that denies the JS sandbox all egress needs a CNI that enforces policy — Calico, Cilium, GKE Dataplane V2, AKS with Azure or Calico policy, EKS with VPC CNI policy enabled. Without one it applies and does nothing.                                                                                                                                                                    |
+| **Pod Security Standards** | Everything meets `restricted` except the Office renderer, whose image runs as root. See below.                                                                                                                                                                                                                                                                                                               |
+| **Node capacity**          | Requests total roughly 4.5 CPU and 11 GiB for our pods (web ×2 at 1 CPU / 1 GiB, analytics ×2 at 1 CPU / 4 GiB, plus docgen ×2, js-sandbox ×2 and the catalog), on top of the Supabase chart's own. A single 2-vCPU node will not schedule it. ML training and ETL runs add one batch pod each (default 8 GiB for a training) in the notebook namespace — size that pool for the trainings you want at once. |
 
 **The Office renderer and `restricted`.** On a cluster that enforces the
 `restricted` Pod Security Standard namespace-wide, `agentswarms-docgen` is
@@ -574,8 +574,8 @@ export REGISTRY="$ACCOUNT.dkr.ecr.$AWS_REGION.amazonaws.com"
 export TAG=1.4.0
 ```
 
-**1. Create the cluster.** Three 4-vCPU nodes clear the roughly 3 CPU and
-6 GiB our own pods request, with room for the Supabase chart. `--with-oidc`
+**1. Create the cluster.** Three 4-vCPU nodes clear the roughly 4.5 CPU and
+11 GiB our own pods request, with room for the Supabase chart. `--with-oidc`
 is not optional here: every add-on below authenticates with IRSA, which
 needs the OIDC provider that flag creates.
 
@@ -765,7 +765,7 @@ kubectl -n agentswarms patch secret agentswarms-env --type merge -p "{\"stringDa
 ```
 
 ```bash
-kubectl -n agentswarms rollout restart deploy/agentswarms
+kubectl -n agentswarms rollout restart deploy/agentswarms-web deploy/agentswarms-analytics
 ```
 
 **9. Managed Postgres for the lakehouse catalog.** The in-cluster
@@ -1178,8 +1178,10 @@ Give the cluster's subnet a private endpoint or a firewall rule, then set
 the one place AKS differs materially. Two honest options:
 
 - **Run MinIO in the cluster**, backed by a Premium disk, and point
-  `LAKEHOUSE_S3_ENDPOINT` at its Service. This is what the Compose stack
-  does and what the lakehouse was built against.
+  `LAKEHOUSE_S3_ENDPOINT` at its Service. This is what the lakehouse was
+  built against, and what a local development box usually runs alongside the
+  Compose stack — object storage is yours to provide in every deployment
+  shape, Compose included.
 - **Use an S3 endpoint elsewhere** — an existing AWS account, or any
   S3-compatible store you already operate.
 
@@ -1228,7 +1230,7 @@ export TAG=1.4.0
 ```
 
 **1. Create the cluster and a node pool.** Size the pool for the roughly
-3 CPU and 6 GiB our pods request plus the Supabase chart — three
+4.5 CPU and 11 GiB our pods request plus the Supabase chart — three
 `VM.Standard.E4.Flex` nodes at 4 OCPUs and 32 GB is comfortable:
 
 ```bash
@@ -1364,7 +1366,7 @@ kubectl -n agentswarms get deploy agentswarms-docgen -o jsonpath='{.status.repli
    core at up to a gigabyte each.
 
 ```bash
-kubectl -n agentswarms get deploy agentswarms -o jsonpath='{.spec.template.spec.containers[0].resources}'
+kubectl -n agentswarms get deploy agentswarms-web -o jsonpath='{.spec.template.spec.containers[0].resources}'
 ```
 
 4. **The sandbox's egress really is denied**, which is only true if the CNI
@@ -1381,7 +1383,7 @@ take, and user-supplied code can reach the internet.
    must health-check `/api/health/ready`:
 
 ```bash
-kubectl -n agentswarms exec deploy/agentswarms -- wget -qO- localhost:8080/api/health/ready
+kubectl -n agentswarms exec deploy/agentswarms-web -- wget -qO- localhost:8080/api/health/ready
 ```
 
 6. **`PUBLIC_APP_URL` matches the hostname people type.** Invitations,
@@ -2041,7 +2043,7 @@ Table data lives here, so it needs durability rather than replicas. S3, GCS,
 R2 and Azure Blob (as an S3 endpoint) are all durable by design.
 
 **MinIO in single-node mode is not** — it is one disk on one host, and it is
-what the local Compose setup uses. It is right for development and wrong for
+what a local development box typically runs beside the Compose stack. It is right for development and wrong for
 production. Either run MinIO in distributed mode across four or more drives, or
 point `LAKEHOUSE_S3_ENDPOINT` at a cloud object store.
 

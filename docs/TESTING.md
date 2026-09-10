@@ -195,9 +195,10 @@ It reported **10/10 on the `eh` bundle** when the migration landed.
 ### DuckDB, the default engine
 
 `tests/differential/duckdb.test.ts` measures DuckDB against AlaSQL. It runs
-**every** corpus query and matches on all but four, each recorded in
-`DUCKDB_DIFFERENCES` with a reason — NULL ordering (DuckDB is NULLS LAST, as
-PostgreSQL is) and summing a numeric column that holds strings.
+**every** corpus query and matches on all but nine, each recorded in
+`DUCKDB_DIFFERENCES` with a reason: NULL ordering (DuckDB is NULLS LAST, as
+PostgreSQL is), summing a numeric column that holds strings, four window
+functions AlaSQL computes differently, and a CTE that refers to itself.
 
 Anything **not** in that list must match. A new divergence fails the test, so
 promoting DuckDB to the default was a decision made against a written list of
@@ -274,7 +275,11 @@ ranking 7/10, filter 6/9, ratio 2/3.
 > engine and the set have changed, so they are not comparable to what follows —
 > do not quote 88.9%.
 
-### Baseline on DuckDB (v3, 61 questions)
+### Baseline on DuckDB (v3)
+
+The runs below were measured against the 61-question v3 set. The set has since
+grown to **66 questions across 11 categories** — a `dirty` category of 5 was
+added — so a fresh run is not comparable to these rows line for line.
 
 | Date       | Model                                       | Set              | Execution accuracy       | Failure mix                        |
 | ---------- | ------------------------------------------- | ---------------- | ------------------------ | ---------------------------------- |
@@ -532,20 +537,24 @@ What they cover today: the cross-instance rate limiter and concurrency leases �
 specifically that a configured ceiling holds across INDEPENDENT callers (the
 guarantee that was broken when those limits were counted per process), and that
 an expired lease frees its slot so a crashed instance self-heals. Those are
-properties of the SQL, and no amount of mocking can demonstrate them.
+properties of the SQL, and no amount of mocking can demonstrate them. Beside
+them sit the audit hash chain, the audit triggers, the gateway's semantic
+cache, a Slack channel round trip and a SQL-model build — six suites in all,
+each needing a real project for the same reason.
 
 ## CI
 
 `.github/workflows/ci.yml` runs typecheck, tests and a production build on
-every push and pull request. No secrets are used; the build gets placeholder
+every push to `main` and on every pull request — a push to a side branch with
+no PR open does not trigger it. No secrets are used; the build gets placeholder
 `VITE_*` values, which is enough to prove the bundle compiles.
 
 **Lint gates.** The ~3,400-violation formatting backlog that once made it
 permanently red has been cleared with `npm run format`, so `npm run lint`
 reports **0 errors** and CI fails on any new one.
 
-362 warnings remain, almost all `@typescript-eslint/no-explicit-any` at untyped
-external boundaries — LLM provider responses, the MCP protocol, AlaSQL's UMD
+Around 210 warnings remain, almost all `@typescript-eslint/no-explicit-any` at
+untyped external boundaries — LLM provider responses, the MCP protocol, AlaSQL's UMD
 surface, Supabase `Json`. That rule is deliberately a **warning** rather than an
 error: replacing those with `unknown` plus narrowing is worth doing and is its
 own project, and a permanently-red required check is one everybody learns to

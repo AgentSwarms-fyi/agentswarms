@@ -36,7 +36,7 @@ validated; the sandbox holds no secrets even though callers are authenticated.
 
 ## Row Level Security is the authority
 
-Access control lives in Postgres policies, across 173 migrations in
+Access control lives in Postgres policies, across 233 migrations in
 `supabase/migrations/`. The application's own checks are a second layer, not the
 first — a bug in a handler should fail closed at the database rather than leak
 rows.
@@ -66,7 +66,7 @@ tenant:
 | `mcp_servers` by name        | `mcp_call_tool`               | the row, **including `auth_token`**   |
 | `mcp_servers` connected list | `mcp_call_tool` description   | other tenants' server names/endpoints |
 | `integrations` (firecrawl)   | `web_search`, `web_browse`    | another tenant's Firecrawl key        |
-| `integrations` (n8n) ×2      | tool offer + handler          | n8n endpoint and API token            |
+| `integrations` (n8n)         | tool offer + handler          | n8n endpoint and API token            |
 | `data_warehouse_connections` | `warehouse_query` description | connection names and providers        |
 | `user_data_tables`           | `sql_query` description       | table names and column schemas        |
 

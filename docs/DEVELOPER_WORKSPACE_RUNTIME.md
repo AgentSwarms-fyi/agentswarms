@@ -11,9 +11,9 @@
 > `src/utils/notebookRuntime/`), the control-plane routes
 > (`/api/notebook/runtime[/result|/source|/reap]`), session-token acceptance in
 > `/api/python-chat|kb`, the kernel image (`docker/notebook-runtime/`), the
-> websocket gateway (`services/notebook-gateway/`), the egress proxy + Docker
-> Compose (`docker-compose.notebooks.yml`) and Kubernetes (`deploy/k8s/notebooks/`)
-> topology, and the editor's Lite/Server switcher. The feature is **off by
+> websocket gateway (`services/notebook-gateway/`), the egress proxy in the
+> main `docker-compose.yml` behind the `notebooks` profile, the Kubernetes
+> (`deploy/k8s/notebooks/`) topology, and the editor's Lite/Server switcher. The feature is **off by
 > default** (`server_runtime_enabled=false` + no signing secret).
 >
 > **Not yet validated:** the container/websocket/K8s paths need a Docker or K8s
@@ -118,13 +118,14 @@ Key property: **provider API keys and the service-role key never enter the sandb
 - Ships the `agentswarms` Python helper (`chat`, `kb_search`, `list_knowledge_bases`, `format_context`, plus the framework adapters `chat_model`, `llama_llm`, `kb_retriever`, and the experiment client `start_run` / `Run.log_param(s)` / `log_metric(s)` / `finish`) pointed at the **in-cluster app URL** and authenticating with the injected session token. `chat_model()` returns a real LangChain `BaseChatModel` and supports **tool-calling** via `bind_tools([...])`, so LangGraph's `create_react_agent` / `ToolNode` work — the model's `tool_calls` are brokered through `/api/python-chat` and stay governed. Because the helper is baked into the image (`COPY agentswarms_helper.py → agentswarms.py`), **rebuild `agentswarms/notebook-runtime:latest` whenever the helper changes** for running deployments to pick it up.
 - Non-root user baked in; no build tools that require root at runtime.
 
-**Three modes, selected by `NB_MODE`** (see `docker/notebook-runtime/entrypoint.sh`):
+**Four modes, selected by `NB_MODE`** (see `docker/notebook-runtime/entrypoint.sh`):
 
 | `NB_MODE`               | Session `kind` | Process                             | Used by                                          |
 | ----------------------- | -------------- | ----------------------------------- | ------------------------------------------------ |
 | `interactive` (default) | `interactive`  | Jupyter Kernel Gateway, one kernel  | Notebook cells over the websocket gateway        |
 | `batch`                 | `batch`        | `batch_runner.py`, runs and exits   | Scheduled jobs, notebooks published as an API    |
 | `mcp`                   | `service`      | `mcp_runner.py`, serves `:8888/mcp` | **MCP Builder** — a user-authored FastMCP server |
+| `score`                 | `service`      | `score_server.py`, a warm scorer    | ML deployments holding a fitted model resident   |
 
 The `service` kind is the only long-lived one. It differs from an interactive kernel in exactly two
 places — the readiness probe (its own `/mcp` path rather than Jupyter's `/api`, and any status
@@ -186,7 +187,8 @@ The kernel pods have **no direct internet route**. Their only egress is an **HTT
 --tmpfs /home/runner/work:rw,size=512m,noexec? (exec needed for venvs → omit noexec on workdir)
 --cap-drop=ALL                # no Linux capabilities
 --security-opt=no-new-privileges
---security-opt seccomp=notebook-seccomp.json   # tuned profile (start from Docker default)
+# seccomp: NOT applied on the Docker path today — the profile in §11 phase 2
+# is still pending. Kubernetes already gets seccompProfile: RuntimeDefault.
 --pids-limit=256              # stop fork bombs
 --memory=2g --memory-swap=2g  # hard memory ceiling, no swap
 --cpus=1.0                    # CPU quota
@@ -208,7 +210,7 @@ The kernel pods have **no direct internet route**. Their only egress is an **HTT
 - **Session idle TTL** (e.g. 30 min): reaper destroys idle sessions.
 - **Session max lifetime** (e.g. 8 h): hard cap regardless of activity.
 - **Concurrency caps**: max sessions per user and per instance (protects the cluster).
-- **MCP cold-start budget** (`COLD_START_MS`, 90 s): how long a Deploy or a
+- **MCP cold-start budget** (`COLD_START_MS`, 90 s — a source constant in `src/utils/mcpApps/service.server.ts`, not a setting or an env var): how long a Deploy or a
   scale-to-zero request waits for a published MCP server to start serving.
   Measured on an idle single-host profile with the image already pulled, a
   healthy start takes about 23 s from request to `ready` — the container itself
@@ -248,10 +250,10 @@ The kernel pods have **no direct internet route**. Their only egress is an **HTT
 New migration `supabase/migrations/<ts>_notebook_runtime.sql`:
 
 - `notebook_runtime_sessions`
-  - `id uuid pk`, `user_id uuid → auth.users`, `notebook_id uuid → user_python_notebooks (nullable for scratch)`, `backend text`, `container_ref text`, `status text check in ('starting','ready','error','stopped')`, `image text`, `cpu_limit`, `mem_limit_mb`, `started_at`, `last_active_at`, `stopped_at`, `error text`.
+  - `id uuid pk`, `user_id uuid → auth.users`, `notebook_id uuid → user_python_notebooks (nullable for scratch)`, `backend text`, `container_ref text`, `status text check in ('queued','starting','ready','running','succeeded','stopping','stopped','error')` (default `'queued'`), `image text`, `cpu_limit`, `mem_limit_mb`, `started_at`, `last_active_at`, `stopped_at`, `error text`.
   - RLS: owner-only (`auth.uid() = user_id`), like `user_python_notebooks`.
 - `notebook_runtime_settings` (single-row, admin-managed, mirrors the `iam_settings` pattern)
-  - `server_runtime_enabled bool default false` (opt-in — the feature is off until an operator turns it on), `backend text default 'docker'`, `default_image text`, `max_sessions_per_user int`, `idle_ttl_minutes int`, `cell_timeout_seconds int`, `egress_allowlist text[]`, `pip_allowed bool default true`, `pip_allowlist text[] null` (null = any).
+  - `server_runtime_enabled bool default false` (opt-in — the feature is off until an operator turns it on), `backend text default 'docker'`, `default_image text`, `max_sessions_per_user int`, `idle_ttl_minutes int`, `cell_timeout_seconds int`, `egress_allowlist text[]`, `pip_allowed bool default true`. (A `pip_allowlist` column was designed and never built — see §11.)
   - RLS: SELECT authenticated; UPDATE superadmin only.
 - Optionally extend IAM: a `notebook_runtime` capability grantable per user/group (reuse the model-rules/grants machinery) so admins can gate _who_ may start server kernels.
 - Model calls continue to use `execution_traces` (no change).
@@ -260,7 +262,7 @@ Some operator defaults are also settable via env: `NOTEBOOK_RUNTIME_ENABLED`, `N
 
 **Env takes precedence over the settings row, not the other way round** (`process.env.NOTEBOOK_RUNTIME_BACKEND || data?.backend || "docker"`). An operator who sets the env var and then edits the admin UI will see the edit ignored, so pick one place per value.
 
-Everything else on `notebook_runtime_settings` — `egress_allowlist`, the session and resource limits — is **database-only** and has no env override; set those in **Admin → Notebook runtime**. In particular there is no `NOTEBOOK_EGRESS_ALLOWLIST` env var. (`NOTEBOOK_EGRESS_ALLOWLIST_PATH` is a different thing: the path the allowlist is written to _inside_ the egress sidecar.)
+`egress_allowlist` and the session/CPU/memory limits are **database-only**: set those in **Admin → Developer runtime**. In particular there is no `NOTEBOOK_EGRESS_ALLOWLIST` env var. Several other columns on `notebook_runtime_settings` _do_ take an environment fallback — the lakehouse, ML, gateway and document-vision knobs — as the resolution table further down sets out. (`NOTEBOOK_EGRESS_ALLOWLIST_PATH` is a different thing: the path the allowlist is written to _inside_ the egress sidecar.)
 
 `cell_timeout_seconds` is the one exception, and it is easy to trip over: the app reads it from the settings row, but the **websocket gateway enforces it from its own `NOTEBOOK_CELL_TIMEOUT_SECONDS`** (`services/notebook-gateway`, default `120`). They are separate values — change one in the admin UI and the gateway keeps using its own until you set the env var too.
 
@@ -270,13 +272,18 @@ Everything else on `notebook_runtime_settings` — `egress_allowlist`, the sessi
 
 New TanStack Start server routes (mirroring the existing `/api/python-*` style, JWT-authenticated):
 
-- `POST /api/notebook/runtime/start` — body `{ notebookId? }`. Checks `server_runtime_enabled`, the user's `notebook_runtime` IAM capability, and per-user session cap; asks the orchestrator to create a pod; inserts a `notebook_runtime_sessions` row; returns `{ sessionId, gatewayUrl, sessionToken }`.
-- `GET /api/notebook/runtime/:id/status` — poll while `starting`.
-- `POST /api/notebook/runtime/:id/stop` — teardown.
-- `POST /api/notebook/runtime/:id/token` — refresh the short-TTL session token.
+What shipped is **one** route, `POST /api/notebook/runtime`, dispatching on an `action` field in the body rather than the four paths this section originally planned:
+
+- `{ action: "start" | "run" }` — checks `server_runtime_enabled`, the user's `notebook_runtime` IAM capability and the per-user session cap; asks the orchestrator to create a pod; inserts a `notebook_runtime_sessions` row; returns the session, its gateway URL and a session token.
+- `{ action: "list" }`, `{ action: "status" }` — poll while `starting`.
+- `{ action: "stop" }` — teardown.
+- `{ action: "token" }` — refresh the short-TTL session token.
+
+Its siblings are `/api/notebook/runtime/{result,source,reap}`.
+
 - Existing `/api/python-chat` and `/api/python-kb` gain a second accepted credential: the **session token** (in addition to the user JWT), resolving to the same `userId` so IAM/budget/trace logic is unchanged.
 
-Reuse the existing pieces: `getEffectiveModelRules`/`isModelAllowed` (IAM gate), `resolveOpenAICompatTransport` (provider creds), `execution_traces` insert (tracing). The **runtime provider abstraction** lives in `src/utils/notebookRuntime/` (`orchestrator.ts` interface + `docker.ts`, `k8s.ts`, `e2b.ts`).
+Reuse the existing pieces: `getEffectiveModelRules`/`isModelAllowed` (IAM gate), `resolveOpenAICompatTransport` (provider creds), `execution_traces` insert (tracing). The **runtime provider abstraction** lives in `src/utils/notebookRuntime/` (`orchestrator.ts` interface + `docker.server.ts`, `k8s.server.ts`, `e2b.server.ts` — the `.server` suffix is load-bearing in this codebase's build split).
 
 ---
 
@@ -297,9 +304,10 @@ Reuse the existing pieces: `getEffectiveModelRules`/`isModelAllowed` (IAM gate),
 Adds four services to `docker-compose.yml`, all opt-in behind a compose profile `notebooks`:
 
 ```
-notebook-gateway     # ws proxy
-docker-socket-proxy  # least-privilege container control for the orchestrator
-notebook-egress      # filtering forward proxy (allowlist)
+notebook-runtime-image  # builds the kernel image, then exits
+notebook-gateway        # ws proxy
+notebook-docker-proxy   # least-privilege container control (tecnativa/docker-socket-proxy)
+notebook-egress         # filtering forward proxy (allowlist)
 # kernel containers are created on demand by the orchestrator (not long-running)
 ```
 
@@ -430,7 +438,7 @@ Automate S1–S13 as a pytest that drives a real session through the gateway and
 
 - **Websockets through the stack.** Confirmed approach keeps live kernel websockets in the dedicated gateway (not vinxi). Validate the gateway ↔ JKG protocol early in phase 1.
 - **Operational weight for tiny deploys.** Mitigation: everything is behind the `notebooks` compose profile and `server_runtime_enabled=false` — a hobby operator is unaffected until they opt in.
-- **pip supply-chain.** `pip_allowlist` (optional) and the audited egress proxy constrain what can be pulled; document the residual risk.
+- **pip supply-chain.** The audited egress proxy constrains what can be pulled; a `pip_allowlist` column was designed and is **not built**. Document the residual risk.
 - **Base-image size** (frameworks are heavy). Mitigation: multi-stage build, prune, and pin versions; publish the image so operators don't build it.
 - **gVisor syscall gaps.** Some native libs misbehave under runsc; keep Tier A the default and Tier B opt-in.
 
@@ -438,10 +446,11 @@ Automate S1–S13 as a pytest that drives a real session through the gateway and
 
 Phase 1 (MVP) ≈ the bulk; phases 2–3 are hardening + K8s. Estimate ~1.5–3 weeks of focused work to a production-ready phase 3, plus image maintenance. Phase 1 alone yields a demoable "real LangChain in a notebook" on a single host.
 
-## Compute resources — spending the machine you actually bought
+## Sizing the runtime — spending the machine you actually bought
 
 Every limit that decides how much of the host this deployment may use is
-editable under **Admin → Developer runtime → Compute resources**. None of them
+editable under **Admin → Developer runtime**, on the **Sandboxes** and
+**Data platform** tabs. None of them
 is capped by the application: if you run on a 64-core box, you can tell it to
 use 64 cores.
 
@@ -459,73 +468,13 @@ view of its host is not always the whole story.
 | **Batch CPU / memory**         | `2` / `4096 MB` | Per ETL run — each run is one batch sandbox.                                                           |
 | **Interactive CPU / memory**   | `1` / `2048 MB` | Per open notebook kernel.                                                                              |
 
-Each resolves in the order **setting → environment variable → built-in
-default**, so a value set in the UI beats a stale `LAKEHOUSE_THREADS` left in
-`.env` from an earlier deploy. Leave a field at its default and the environment
-variable still works exactly as before.
-
-### Sizing a large host
-
-The defaults are deliberately small — they have to be safe on a 2 vCPU VM. They
-do not grow on their own, so on a big machine you must raise them or most of it
-sits idle. The **Batch capacity** readout on the page does this arithmetic for
-you: `concurrent runs × batch CPU / batch memory`.
-
-For a **16 OCPU / 128 GB** host running heavy ETL, a reasonable starting point:
-
-| Setting                | Value   | Reasoning                                                           |
-| ---------------------- | ------- | ------------------------------------------------------------------- |
-| Batch CPU              | `4`     | 4 concurrent heavy runs ≈ 16 cores at full tilt                     |
-| Batch memory           | `16384` | 4 × 16 GB = 64 GB for ETL                                           |
-| Concurrent runs / user | `4`     | Matches the arithmetic above                                        |
-| Pipelines per sweep    | `8`     | A sweep runs every 60s; this is a start rate, not a concurrency cap |
-| Lakehouse memory limit | `32GB`  | The engine is in the app process, so leave room for it and the OS   |
-| Lakehouse threads      | `12`    | Leaves headroom for request handling                                |
-| Sandbox scratch        | `2048`  | See below                                                           |
-
-Deliberately **not** summing to 128 GB: ETL sandboxes, the lakehouse engine and
-the app all share the host, and a machine allocated to exactly 100% has nowhere
-to put a spike.
-
-> **Raise sandbox scratch before running heavy pipelines.** A pipeline that uses
-> both the SQL transform (`ibis-framework[duckdb]`, ~447 MB installed) and a
-> lakehouse node (DuckDB extensions into the same tmpfs) sits close enough to
-> the 512 MB default to fail intermittently — and pip reports it as a bare exit
-> code. 2 GB removes the problem.
-
-### ARM (Ampere A1, Graviton)
-
-Verified end to end on `linux/arm64`: the Node runtime, DuckDB's native
-bindings, the `ducklake` / `httpfs` / `postgres_scanner` extensions, and the
-ETL Python stack (duckdb, pandas, pyarrow all ship prebuilt `manylinux`
-aarch64 wheels — nothing compiles). No image pins an architecture. Given
-Ampere A1 pricing, it is often the better-value shape for this workload.
-
-## Compute resources — spending the machine you actually bought
-
-Every limit that decides how much of the host this deployment may use is
-editable under **Admin → Developer runtime → Compute resources**. None of them
-is capped by the application: if you run on a 64-core box, you can tell it to
-use 64 cores.
-
-The page shows what the host reports (CPU and RAM) beside the fields, and
-flags a value that exceeds it — as advice, not a block, because a container's
-view of its host is not always the whole story.
-
-| Setting                        | Default         | What it governs                                                                                        |
-| ------------------------------ | --------------- | ------------------------------------------------------------------------------------------------------ |
-| Lakehouse **memory limit**     | `2GB`           | Memory per lakehouse query engine, in this process. Queries past it spill to disk rather than failing. |
-| Lakehouse **threads**          | `4`             | Threads per lakehouse query engine.                                                                    |
-| **Sandbox scratch**            | `512 MB`        | Writable tmpfs per sandbox for `~/.local` (pip installs) and `~/work`.                                 |
-| ETL **concurrent runs / user** | `3`             | Pipelines one user may have running at once.                                                           |
-| ETL **pipelines per sweep**    | `3`             | Due pipelines started per scheduler sweep (sweeps run every 60s).                                      |
-| **Batch CPU / memory**         | `2` / `4096 MB` | Per ETL run — each run is one batch sandbox.                                                           |
-| **Interactive CPU / memory**   | `1` / `2048 MB` | Per open notebook kernel.                                                                              |
-
-Each resolves in the order **setting → environment variable → built-in
-default**, so a value set in the UI beats a stale `LAKEHOUSE_THREADS` left in
-`.env` from an earlier deploy. Leave a field at its default and the environment
-variable still works exactly as before.
+The four lakehouse and ETL rows resolve in the order **setting → environment
+variable → built-in default**, so a value set in the UI beats a stale
+`LAKEHOUSE_THREADS` left in `.env` from an earlier deploy, and leaving a field
+at its default keeps the environment variable working exactly as before. The
+last three — **Sandbox scratch**, **Batch CPU / memory** and **Interactive
+CPU / memory** — have no environment fallback at all: they come from the
+settings row or the built-in default, and nothing else.
 
 ### Sizing a large host
 

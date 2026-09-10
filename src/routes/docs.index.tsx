@@ -170,7 +170,55 @@ function IntroductionPage() {
             <DocLink key="e" to="/docs/bi">
               BI Workspace
             </DocLink>,
-            "Dashboards, filters, drill-through, alerts, sharing and embedding.",
+            "Dashboards, paginated reports, filters, drill-through, alerts, sharing and embedding.",
+          ],
+          [
+            <DocLink key="f" to="/docs/etl">
+              ETL Pipelines
+            </DocLink>,
+            "Move data in on a schedule: visual or code, with retries, quality gates and chaining.",
+          ],
+          [
+            <DocLink key="g" to="/docs/lakehouse">
+              Lakehouse
+            </DocLink>,
+            "The built-in warehouse: DuckLake over Parquet, time travel, governance and sharing.",
+          ],
+          [
+            <DocLink key="h" to="/docs/sql-models">
+              SQL Models
+            </DocLink>,
+            "Transformations as versioned SQL, built in dependency order with tests.",
+          ],
+          [
+            <DocLink key="i" to="/docs/workflows">
+              Workflows
+            </DocLink>,
+            "One graph over pipelines, model builds, retrains and notebooks.",
+          ],
+          [
+            <DocLink key="j" to="/docs/ml">
+              ML Models
+            </DocLink>,
+            "No-code training, a registry with stages, batch prediction and drift alerts.",
+          ],
+          [
+            <DocLink key="k" to="/docs/ai-sql">
+              AI in SQL
+            </DocLink>,
+            "Call a model from a SELECT, and cache what it answered.",
+          ],
+          [
+            <DocLink key="l" to="/docs/data-monitors">
+              Data monitors
+            </DocLink>,
+            "Standing checks with learned baselines that raise incidents.",
+          ],
+          [
+            <DocLink key="m" to="/docs/gateway">
+              AI Gateway
+            </DocLink>,
+            "One OpenAI-compatible endpoint in front of every provider, with caching and budgets.",
           ],
         ]}
       />

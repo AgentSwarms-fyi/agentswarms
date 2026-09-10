@@ -49,7 +49,7 @@ who knows the gap.
 
 ## Testing
 
-229 test files, 4216 tests, run with:
+316 test files, 5800 tests, run with:
 
 ```bash
 npm test
@@ -83,7 +83,7 @@ Prose drifts from code because nothing fails when it does. Three mechanisms push
 back, and it is worth knowing exactly what each does and does not catch.
 
 ```bash
-npm run check:docs      # 28 in-app documentation pages
+npm run check:docs      # 36 in-app documentation pages
 npm run check:md-docs   # every markdown file in docs/, README, the SDK README
 ```
 

@@ -236,19 +236,21 @@ double-firing a schedule, and it makes scheduled throughput a **start rate**
 rather than a function of replica count:
 
 ```
-pipelines started per minute  =  PIPELINES_PER_SWEEP     (the tick is 60s)
+pipelines started per minute  =  ETL_PIPELINES_PER_SWEEP  (the tick is 60s)
 ```
 
 Adding replicas does not raise it; raising the per-sweep number does, and it is
 editable under **Admin → Developer runtime**. Two things bound how far:
 
 - **A sweep has to finish inside the tick.** Measured on this deployment, an
-  _idle_ sweep — nothing due in any of the nine job categories — costs
-  **~2.1 s** steady-state (7.8 s on the first, cold call). Real work adds to
-  that. Once a sweep exceeds 60 s the next tick finds the lease held and returns
+  _idle_ sweep — nothing due in any of the dozen counted job categories, plus
+  the purges and syncs that ride the same pass — cost **~2.1 s** steady-state
+  (7.8 s on the first, cold call) when that was measured. Real work adds to
+  that, and the pass has gained categories since, so treat the figure as a
+  floor rather than a current reading. Once a sweep exceeds 60 s the next tick finds the lease held and returns
   `skipped: true`, so the effective rate degrades from "once per minute" to
   "once per sweep duration" without any error being raised.
-- **Concurrency is capped separately** by `MAX_CONCURRENT_RUNS_PER_USER`. The
+- **Concurrency is capped separately** by `ETL_MAX_CONCURRENT_RUNS_PER_USER`. The
   start rate governs how fast work is picked up; that governs how much runs at
   once.
 
@@ -266,7 +268,7 @@ actually touches it:
 | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Page renders, auth, RLS reads               | Yes — over HTTPS (PostgREST), so **connections do not multiply** with replicas or workers                                                                                                                         |
 | Traces, audit, BI results                   | Yes, and they _grow_ — see [storage growth](#storage-growth); retention purges are the control                                                                                                                    |
-| Scheduled sweeps                            | Yes: nine category queries every tick, per worker unless the in-process scheduler is off                                                                                                                          |
+| Scheduled sweeps                            | Yes: one query per due-work category every tick (a dozen counted, plus the purges and syncs on the same pass), per worker unless the in-process scheduler is off                                                  |
 | **Analytical queries over your own data**   | **No** — the lakehouse is DuckDB over Parquet. This is the product's main answer to the ceiling                                                                                                                   |
 | Lakehouse _catalog_ (DuckLake transactions) | Yes, as **raw connections held per worker process** that has served a lakehouse request (the engine is built lazily) — the one place clustering multiplies connections. It is your catalog Postgres, not Supabase |
 | Warehouse connectors                        | Raw pools, bounded by `WAREHOUSE_POOL_MAX_KEYS` × replicas                                                                                                                                                        |

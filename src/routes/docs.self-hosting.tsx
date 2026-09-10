@@ -153,10 +153,6 @@ function SelfHostingPage() {
             "Point at a compatible gateway instead of OpenRouter",
           ],
           [
-            <C key="d">OPENAI_API_KEY</C>,
-            "Workspace-wide OpenAI key for chat. NOT needed for Knowledge Base embeddings — those use whichever provider is connected.",
-          ],
-          [
             <C key="e">FIRECRAWL_API_KEY</C>,
             "Workspace-wide web search and JavaScript-rendered page fetching for web_search / web_browse. Optional: without it, web_browse uses the built-in fetcher (server-rendered pages only) and web_search falls back to DuckDuckGo entity lookups.",
           ],
@@ -683,9 +679,9 @@ BI_CRON_TOKEN="..."`}</Code>
       <P>
         All three are optional, and each degrades to something rather than breaking. Without the
         renderer, documents are generated in the browser and Deep mode is greyed out with the
-        reason. Without the notebook runtime, notebooks fall back to the in-browser Python runtime.
-        Without the sandbox, custom code still runs on the canvas and the Deploy dialog says plainly
-        that it will fail in headless runs.
+        reason. Without the notebook runtime, opening a notebook shows a panel saying a runtime is
+        required — there is no in-browser fallback. Without the sandbox, custom code still runs on
+        the canvas and the Deploy dialog says plainly that it will fail in headless runs.
       </P>
       <P>
         <strong>Observability → Monitoring</strong> (superadmin) shows which of these are actually

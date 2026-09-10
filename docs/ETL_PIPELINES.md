@@ -35,10 +35,13 @@ limit/SQL/Python) and targets, compiled deterministically to Python by
 Excel as sources; Parquet, CSV and JSONL as storage targets. Database sources
 and targets cover the three wire families (PostgreSQL, MySQL, SQL Server —
 14 of the 22 connection providers) over per-run SQLAlchemy URLs built
-server-side in `sqlalchemyUrlFor`; IAM-auth and token-only systems (Snowflake,
-BigQuery, Redshift, Databricks, Trino, Athena, Oracle, ClickHouse) refuse at
-save time with guidance to stage through object storage, which all of them
-ingest natively.
+server-side in `sqlalchemyUrlFor`. **Snowflake, BigQuery and Databricks are
+also native targets** through dlt's own destinations — see
+[Native warehouse targets](#native-warehouse-targets). The rest of the
+IAM-auth and token-only systems (Redshift, Trino, Athena, Oracle, ClickHouse)
+refuse at save time with guidance to stage through object storage, which all
+of them ingest natively; those five are read-only sources here, and Snowflake,
+BigQuery and Databricks are refused as _sources_ for the same reason.
 
 ## Picking sources and targets
 
@@ -366,7 +369,7 @@ There is no notification-driven discovery (bucket events): the listing is the
 discovery, which works on every S3-compatible store, MinIO included, and costs
 one LIST per run, taken fresh each time (the listing is never served from
 a cache, so a file that lands mid-run is seen on the next tick). Verified live
-against the compose MinIO: a continuous, exactly-once pipeline watching
+against a local MinIO: a continuous, exactly-once pipeline watching
 `landing/*.csv` loaded each dropped file once within a tick, a run restarted
 after a stop resumed from the committed ledger and read only the file that
 had arrived meanwhile, a re-dropped file loaded again as a new version, and
@@ -423,7 +426,7 @@ What holds it together:
   does not fire at a rollover — a continuous run "succeeds" every time it rolls
   over, which is not the event a chain means.
 
-Verified live against the compose Redpanda from the ETL page: a Kafka topic
+Verified live against a local Redpanda from the ETL page: a Kafka topic
 fed in bursts while a continuous pipeline loaded it into a lakehouse table
 every three seconds; every message arrived once, the card counted them as
 they landed, and Stop ended the sandbox.
@@ -698,10 +701,12 @@ decompresses the ranged-GET sample (sync-flush, so a truncated tail is fine).
 
 ## Data-size limits and machine sizing
 
-Each run executes in ONE sandbox container as an in-memory pandas process —
-there is no distributed engine. That is the honest boundary of this feature:
-a single run never spans machines, and its working set must fit in the
-container's RAM. Pandas typically needs **3–5× the raw data size** in memory
+On the default **pandas** engine, each run executes in ONE sandbox container
+as an in-memory process: a single run never spans machines, and its working
+set must fit in the container's RAM. That is the boundary this section sizes
+for. A pipeline switched to the **Spark** engine does span machines — see
+[Engines: the sandbox, or a Spark cluster](#engines-the-sandbox-or-a-spark-cluster)
+— and is the fourth way out when the numbers below stop working. Pandas typically needs **3–5× the raw data size** in memory
 (joins, wide aggregations and SCD-style self-comparisons sit at the high
 end), and the per-kernel ceiling is the **batch memory limit** in Admin →
 Developer runtime (default 4096 MB, 2 CPUs).
@@ -710,14 +715,14 @@ Sizing guidance for the machine running the kernels (the Docker host in the
 default setup — add the app itself ~1 GB, Postgres/Supabase if co-hosted,
 and multiply the kernel column by how many runs you allow concurrently):
 
-| Data per run  | Transforms                      | Kernel mem limit  | Host machine (kernels + app) |
-| ------------- | ------------------------------- | ----------------- | ---------------------------- |
-| ≤ 100 MB      | anything                        | 2 GB (default ok) | 4 GB / 2 vCPU                |
-| 100 MB – 1 GB | filters, derives, dedupe        | 4 GB              | 8 GB / 4 vCPU                |
-| 100 MB – 1 GB | joins, aggregations, SCD, fuzzy | 8 GB              | 16 GB / 4 vCPU               |
-| 1 – 5 GB      | simple linear transforms        | 16 GB             | 32 GB / 8 vCPU               |
-| 1 – 5 GB      | joins / wide reshapes           | 24–32 GB          | 64 GB / 8+ vCPU              |
-| > 5–10 GB     | any                             | — not this tool   | see below                    |
+| Data per run  | Transforms                      | Kernel mem limit         | Host machine (kernels + app) |
+| ------------- | ------------------------------- | ------------------------ | ---------------------------- |
+| ≤ 100 MB      | anything                        | 2 GB (under the default) | 4 GB / 2 vCPU                |
+| 100 MB – 1 GB | filters, derives, dedupe        | 4 GB                     | 8 GB / 4 vCPU                |
+| 100 MB – 1 GB | joins, aggregations, SCD, fuzzy | 8 GB                     | 16 GB / 4 vCPU               |
+| 1 – 5 GB      | simple linear transforms        | 16 GB                    | 32 GB / 8 vCPU               |
+| 1 – 5 GB      | joins / wide reshapes           | 24–32 GB                 | 64 GB / 8+ vCPU              |
+| > 5–10 GB     | any                             | — not this tool          | see below                    |
 
 Past a few GB per run, do not grow the kernel — change the shape of the work:
 
@@ -949,9 +954,12 @@ generated script to CPython's `compile()` rather than trusting shape checks.
 
 ## Known limits
 
-- **Destinations are object storage.** Warehouse destinations mean handing the sandbox
-  warehouse credentials, which deserves its own design rather than a checkbox. Land
-  Parquet and query it, or use prep flows for in-warehouse transforms.
+- **Redshift, Trino, Athena, Oracle and ClickHouse are not destinations.** The
+  five targets are object storage, a PostgreSQL/MySQL/SQL Server database, the
+  lakehouse, an HTTP API and a SaaS object; Snowflake, BigQuery and Databricks
+  arrive through dlt's native destinations. For the rest, land Parquet and
+  query it, or use prep flows for in-warehouse transforms.
 - **First run pays cold start + pip install** (a couple of minutes for the dlt stack).
-- **Merge mode is dlt's merge on object storage** — correct, but not a warehouse
-  MERGE; heavy upsert workloads belong in a warehouse.
+- **Merge on object storage is dlt's merge** — correct, but not a warehouse
+  MERGE; heavy upsert workloads belong in a warehouse. A lakehouse target
+  merges as delete-then-insert inside one DuckLake transaction instead.

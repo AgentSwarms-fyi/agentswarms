@@ -196,6 +196,65 @@ describe("the trust pages describe the software that exists", () => {
     }
   });
 
+  it("the handbook index reaches every documentation page", () => {
+    // FOUND BY AUDIT. Eight pages — ETL, Lakehouse, SQL Models, ML, AI in SQL,
+    // data monitors, the gateway and workflows — existed, were in the sidebar,
+    // and were absent from the index that presents itself as the map. A page
+    // nobody links is a page nobody finds from the handbook's front door.
+    const index = readFileSync("src/routes/docs.index.tsx", "utf8");
+    const linked = new Set([...index.matchAll(/"\/docs\/([a-z-]+)"/g)].map((m) => m[1]));
+    const pages = readdirSync("src/routes")
+      .filter((f) => f.startsWith("docs.") && f.endsWith(".tsx"))
+      .map((f) => f.slice("docs.".length, -".tsx".length))
+      .filter((n) => n && n !== "index");
+    const missing = pages.filter((n) => !linked.has(n));
+    expect(missing, `docs.index.tsx links no page for: ${missing.join(", ")}`).toEqual([]);
+  });
+
+  it("the chart-type count is the picker's length, everywhere it is claimed", async () => {
+    // FOUND BY AUDIT. Four places stated the number and no two agreed: the
+    // README said 19, the BI document 18, the landing page 19 and the about
+    // page 27 — while the picker offered 26. A count nobody pins is a count
+    // that drifts once per feature, so parse it out of each claim.
+    const { VIZ_TYPES } = await import("@/components/bi/BiVizPicker");
+    const n = VIZ_TYPES.length;
+    expect(n).toBe(26);
+    for (const [page, claim] of [
+      ["README.md", /multi-page dashboards with (\d+) visual types/],
+      ["docs/BUSINESS_INTELLIGENCE.md", /pick from \*\*(\d+) visual types\*\*/],
+      ["src/routes/index.tsx", /title: "(\d+) visual types"/],
+      ["src/routes/about.tsx", /(\d+) chart types/],
+    ] as const) {
+      const m = readFileSync(page, "utf8").match(claim);
+      expect(m, `${page} no longer states the chart-type count`).not.toBeNull();
+      expect(Number(m![1]), `${page} states a stale count`).toBe(n);
+    }
+  });
+
+  it("the grantable resource types are the ones the constraint admits", () => {
+    // FOUND BY AUDIT. IAM.md listed ten of the thirteen types the CHECK
+    // permits, so three shareable things — an AI analyst, a lakehouse schema
+    // and an ML model — were live in the share dialog and absent from the
+    // document that tells you what can be shared.
+    const migrations = readdirSync("supabase/migrations").sort();
+    const last = migrations
+      .filter((f) =>
+        readFileSync(`supabase/migrations/${f}`, "utf8").includes("resource_type IN ("),
+      )
+      .pop();
+    expect(last, "no migration defines the resource_type CHECK").toBeTruthy();
+    const sql = readFileSync(`supabase/migrations/${last}`, "utf8");
+    const block = sql.slice(sql.lastIndexOf("resource_type IN ("));
+    const types = [...block.slice(0, block.indexOf(")")).matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
+    expect(types.length).toBe(13);
+    const iam = readFileSync("docs/IAM.md", "utf8");
+    // The document names them in prose rather than as ids, so pin the three
+    // that were missing by the words it uses for them.
+    for (const phrase of ["AI analyst", "lakehouse schema", "ML model"]) {
+      expect(iam, `IAM.md no longer mentions ${phrase}`).toContain(phrase);
+    }
+  });
+
   it("'no telemetry' is true: no measurement id is baked into the build", () => {
     // The consent banner used to hardcode the project author's GA/GTM ids, so
     // a self-hosted deployment that clicked Accept sent ITS users' analytics

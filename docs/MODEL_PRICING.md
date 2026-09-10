@@ -19,7 +19,7 @@ Highest priority first. The first layer that answers wins.
 | #   | Layer                 | Where                                     | What it means                                          |
 | --- | --------------------- | ----------------------------------------- | ------------------------------------------------------ |
 | 1   | **Provider-reported** | `src/utils/observability/providerCost.ts` | The provider told us what **this call** cost.          |
-| 2   | Operator override     | `priceResolver.ts`                        | A rate an admin set by hand.                           |
+| 2   | Operator override     | `priceResolver.ts`                        | Built, but nothing populates it — see below.           |
 | 3   | Synced catalog        | `priceTable.generated.ts`                 | Vendored public price data.                            |
 | 4   | Bundled table         | `pricing.ts`                              | Defaults shipped with the app.                         |
 | 5   | Self-hosted           | `priceResolver.ts`                        | Ollama / vLLM on your own hardware — a **known** zero. |
@@ -30,8 +30,14 @@ Highest priority first. The first layer that answers wins.
 Layers 2–4 all answer _"what is the rate for this model"_ — they are estimates
 of a price list. Layer 1 answers a different and strictly better question:
 _"what was this call charged"_, computed by the party doing the billing. An
-override exists because the public sheet may not match your negotiated rate; a
-reported cost **is** your negotiated rate, already applied.
+override would exist because the public sheet may not match your negotiated
+rate; a reported cost **is** your negotiated rate, already applied.
+
+**The override layer is not reachable today.** The resolver honours it and the
+tests exercise it, but there is no overrides table, no loader and no admin
+surface, so in a running instance the map is always empty and layer 2 never
+fires. An operator whose negotiated rate differs from the public sheet cannot
+correct it yet.
 
 ### Which providers report cost
 

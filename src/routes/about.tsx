@@ -115,7 +115,7 @@ const comparisons = [
 const features = [
   "Visual Agent Builder + drag-and-drop multi-agent swarm canvas with routers, conditions, loops and functions",
   "RAG, tools, MCP servers, remote A2A agents, and export to LangGraph / CrewAI / the OpenAI Agents SDK",
-  "AI-native BI: dashboards, an analyst that writes the SQL, 27 chart types, scheduled refresh and data alerts",
+  "AI-native BI: dashboards, an analyst that writes the SQL, 26 chart types, scheduled refresh and data alerts",
   "22 database & warehouse connectors — PostgreSQL, MySQL, Oracle, Snowflake, BigQuery, Databricks, Redshift, Synapse, Trino/Starburst, Athena, ClickHouse and more",
   "Human-in-the-loop approvals, per-user budgets with alerts, and a full trace for every model call",
   "IAM with groups & model rules, SAML SSO, and a write-only encrypted secrets vault",

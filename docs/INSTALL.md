@@ -71,14 +71,11 @@ curl -fsSL https://bun.sh/install | bash
 
 #### Windows
 
-**Use WSL2 (Windows Subsystem for Linux) — strongly recommended.** The
-project's `build`/`build:dev` npm scripts set an env var inline
-(`NODE_OPTIONS=--max-old-space-size=6144 vite build ...`), which is POSIX
-shell syntax that **plain `cmd.exe` and native PowerShell cannot run
-as-is**. `npm run dev` (the command you'll use day-to-day) doesn't have this
-problem, but you'll hit it the first time you try `npm run build`. WSL2
-sidesteps this entirely by giving you a real Linux shell, and it's also
-generally the smoother path for Node tooling on Windows.
+**Use WSL2 (Windows Subsystem for Linux) — recommended.** Everything works
+on native Windows: the build scripts go through `cross-env`, so
+`npm run build` runs the same in `cmd.exe`, PowerShell and Git Bash. WSL2 is
+still the smoother path for Node tooling generally — file watching, native
+modules and shell scripts all behave the way the rest of the project assumes.
 
 ```powershell
 # In an elevated PowerShell:
@@ -92,17 +89,13 @@ dev`, etc.) from within WSL, not from Windows PowerShell.
 
 **If you'd rather stay on native Windows** (no WSL): install Node from
 [nodejs.org](https://nodejs.org) (LTS ≥20.19) and Git from
-[git-scm.com](https://git-scm.com), use **Git Bash** as your terminal (it
-understands the POSIX env-var syntax above), and install the Supabase CLI
-via `scoop install supabase` ([scoop.sh](https://scoop.sh)) or by
-downloading the Windows binary from the
-[Supabase CLI releases page](https://github.com/supabase/cli/releases). If
-you use plain PowerShell instead of Git Bash, `npm run build` will fail
-until you run it as:
-
-```powershell
-$env:NODE_OPTIONS="--max-old-space-size=6144"; npx vite build --sourcemap false
-```
+[git-scm.com](https://git-scm.com), and install the Supabase CLI via
+`scoop install supabase` ([scoop.sh](https://scoop.sh)) or by downloading
+the Windows binary from the
+[Supabase CLI releases page](https://github.com/supabase/cli/releases). Any
+terminal will do — `cmd.exe`, PowerShell or Git Bash — because the npm
+scripts set their environment through `cross-env` rather than POSIX shell
+syntax.
 
 ## 2. Clone and install
 
@@ -243,8 +236,8 @@ won't know where to push. The `project_id` in `supabase/config.toml` is
 just a local name for the CLI; it ships pre-filled (`"agentswarms"`) and
 you don't need to change it.
 
-**Alternative: manual, via the SQL Editor** (works but tedious for ~60
-files) — in the Supabase Dashboard, open **SQL Editor**, and run each file
+**Alternative: manual, via the SQL Editor** (works, but there are over two
+hundred files) — in the Supabase Dashboard, open **SQL Editor**, and run each file
 under `supabase/migrations/` **in filename order** (the leading timestamp
 is the sort key — oldest first). Paste each file's contents and run it
 before moving to the next.
@@ -298,7 +291,7 @@ is documented inline in the file. In short:
 
   > The **Project ID** from step 3.1 is not an environment variable. It is
   > passed straight to the CLI as `supabase link --project-ref <id>` in step
-  > 3.3, which records it under `supabase/.temp/`. Nothing at runtime reads
+  > 3.2, which records it under `supabase/.temp/`. Nothing at runtime reads
   > it.
 
 - `OPENROUTER_API_KEY` — optional but recommended; makes the app usable
@@ -538,13 +531,12 @@ skipped).
 
 ## Troubleshooting first-run errors
 
-**`npm run build` fails on Windows with `'NODE_OPTIONS' is not recognized as an
-internal or external command`.** The build script sets a memory limit using the
-POSIX `VAR=value command` form, which `cmd.exe` doesn't understand. Run it from
-Git Bash or WSL, or set the variable first in your shell:
+**`npm run build` runs out of memory.** The script already raises Node's heap
+to 6 GB through `cross-env`, so this means the machine itself is short. Close
+what you can, or raise it further:
 
 ```bash
-set NODE_OPTIONS=--max-old-space-size=6144 && npx vite build --sourcemap false
+npx cross-env NODE_OPTIONS=--max-old-space-size=8192 vite build --sourcemap false
 ```
 
 Docker builds are unaffected — the image builds on Linux.

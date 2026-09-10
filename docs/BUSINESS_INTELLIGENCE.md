@@ -8,12 +8,14 @@ and reports. An editable dashboard is called a **BI project**:
 - **Build visuals by hand** — a right-hand builder pane: pick a source (your
   Data & SQL datasets or any connected warehouse), tick one or **more tables
   to join** (a JOIN skeleton is written for you with auto-detected join
-  keys), run the read-only SQL, then pick from **18 visual types** in an
-  icon picker: column, bar, line, area, **combo (bars + line, dual axis)**,
-  **scatter**, pie/donut, **funnel**, **treemap**, **heatmap**,
-  **box &amp; whisker**, **waterfall**, KPI card (with target comparison),
-  **gauge**, **matrix (pivot) table**, **filled map** and **bubble map**
-  (country-level, fully offline — no tile servers), and table. Column, line
+  keys), run the read-only SQL, then pick from **26 visual types** in an
+  icon picker: column, bar, **stacked column**, **stacked bar**, **bar
+  race**, line, area, **combo (bars + line, dual axis)**, **scatter**,
+  pie/donut, **nightingale**, **radar**, **funnel**, **sankey**,
+  **treemap**, **word cloud**, **heatmap**, **box &amp; whisker**,
+  **waterfall**, KPI card (with target comparison), **gauge**, **matrix
+  (pivot) table**, **filled map**, **bubble map** (country-level, fully
+  offline — no tile servers), table and **ontology**. Column, line
   and area charts support **multi-series** (split by a category column —
   grouped or stacked), and every numeric visual takes a **value format**
   (currency / percent). Widgets live on a 12-column drag-and-resize grid,
@@ -418,7 +420,7 @@ PDF instead. Name, page setup and band changes are written to the audit log via
 
 ## AI Analyst — your analytical partner
 
-**AI Analyst** (`/ai-analyst`, first under Data &amp; BI) is the dedicated
+**AI Analyst** (`/ai-analyst`, under Data &amp; BI) is the dedicated
 conversational-analysis surface — the Spotter/conversational-BI equivalent,
 built on this stack's own discipline: every answer shows its work.
 
@@ -761,9 +763,12 @@ cover/contain/tile fit and a darken slider for readability, plus a
 menu has **Appearance**: an **accent colour** (recolours the chart primary
 and header icon via a scoped CSS variable) and a **card style** — default,
 accent tint, or glass (translucent blur, made for image backgrounds).
-All AI calls also carry hard timeouts now (120s client / 100s upstream),
-so a stalled model provider surfaces as a clear error instead of an
-infinite spinner.
+All AI calls also carry deadlines, so a stalled model provider surfaces as a
+clear error instead of an infinite spinner. They are computed per call rather
+than fixed: 60 s upstream for a chat model, 150 s for a reasoning one, plus
+time proportional to the completion budget, capped at 300 s — with the client
+always given 30 s more than the upstream deadline so the server gives up
+first.
 
 ## Pivot conditional formatting
 

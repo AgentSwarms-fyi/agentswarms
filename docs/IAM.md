@@ -44,9 +44,11 @@ It manages:
   for anonymous visitors and are checked against the owner's effective rules
   on every request — and reflected in the model pickers.
 
-- **Shares** — grant users or groups **read-only** access to any knowledge
-  base, SQL data table, secret, BI dashboard, semantic model, catalog source,
-  LLM key/credential, **database & warehouse connection** or **app source**;
+- **Shares** — grant users or groups **read-only** access to any of thirteen
+  resource types: knowledge base, SQL data table, secret, BI dashboard,
+  semantic model, catalog source, integration, LLM key/credential,
+  **database & warehouse connection**, **app source**, **AI analyst**,
+  **lakehouse schema** or **ML model**;
   recipients' agents can search/query them but never modify them. A shared
   **connection** runs as its OWNER: the owner's credential is decrypted
   server-side and the grantee's queries run against the owner's warehouse, so

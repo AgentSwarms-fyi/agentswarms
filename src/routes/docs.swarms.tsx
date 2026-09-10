@@ -369,7 +369,7 @@ Path:    data.id`}</Code>
         rows={[
           [
             <C key="a">toolId</C>,
-            "One of the ten swarm tool ids (kb_search, sql_query, web_search, …)",
+            "One of the eight ids this node offers (web_search, web_browse, sql_query, kb_search, calculator, datetime, weather, mcp_call_tool) — a subset of the twelve an agent node can call",
           ],
           [
             <C key="b">toolArgs</C>,

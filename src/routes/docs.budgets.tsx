@@ -87,14 +87,17 @@ function BudgetsPage() {
           ["Stored in", <C key="a">budget_settings.monthly_cap_usd</C>],
           ["Scope", "One person's own spend, across everything they do"],
           ["Period", "Calendar month"],
-          ["Default", "A very high number — effectively unlimited until you set it"],
+          [
+            "Default",
+            "$5 a month — small on purpose, so an unconfigured instance is not an open tab",
+          ],
         ]}
       />
 
       <H3 id="cap-scoped">Scoped caps</H3>
       <P>
         Set in <strong>Observability → AI Budgets</strong>, and per group in{" "}
-        <strong>Admin → IAM → Budgets</strong>. Three scopes exist, enforced by a database
+        <strong>Admin → IAM → Budgets</strong>. Four scopes exist, enforced by a database
         constraint:
       </P>
       <Table
@@ -114,6 +117,11 @@ function BudgetsPage() {
             <C key="c">swarm_api_key</C>,
             "One integration",
             "Bounds a retry storm in someone else's code",
+          ],
+          [
+            <C key="d">gateway_key</C>,
+            "One AI gateway key",
+            "A ceiling on whatever that key is wired into",
           ],
         ]}
       />
@@ -144,10 +152,10 @@ function BudgetsPage() {
         call proceeds.
       </P>
       <Callout kind="why">
-        The default is off because <C>monthly_cap_usd</C> ships at a very high value that nobody
-        chose. Enforcing it on upgrade would have started refusing model calls on instances whose
-        cap was never meant to bite. Turn it on deliberately once your caps reflect reality — and do
-        turn it on before exposing a public embed.
+        The default is off because <C>monthly_cap_usd</C> ships at $5, a value nobody chose.
+        Enforcing it on upgrade would have started refusing model calls on every instance running
+        with the default, most of which never meant a $5 ceiling to bite. Turn it on deliberately
+        once your caps reflect reality — and do turn it on before exposing a public embed.
       </Callout>
       <Callout kind="warn" title="The check fails open — unless you say otherwise">
         Cap evaluation happens before a call is dispatched. If the spend <em>lookup itself</em>{" "}

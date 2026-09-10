@@ -424,7 +424,7 @@ with agentswarms.start_run("churn-v2", params={"lr": 0.01, "depth": 6}) as run:
         the first version, as it does everywhere else. Both work from outside the platform with a
         user token, on <C>/api/ml/experiments/artifact</C> and <C>/api/ml/experiments/register</C>.
         One upload is bounded by <C>ML_ARTIFACT_MAX_MB</C> (512 MB), editable under{" "}
-        <strong>Admin → Developer runtime → Compute resources</strong>.
+        <strong>Admin → Developer runtime → Machine learning</strong>.
       </P>
       <Callout title="Runs are data, not configuration">
         Creating an experiment writes an audit row; a metric does not, or a training loop logging

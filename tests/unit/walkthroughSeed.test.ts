@@ -66,6 +66,43 @@ describe("the walkthrough document matches the data it describes", () => {
     expect(DOC).toContain(`${pct}%`);
   });
 
+  it("quotes the per-plan AOV the pipeline actually produces", () => {
+    // FOUND BY AUDIT. The plan block named `starter` and `growth`, which are
+    // not plans this generator emits, and its order counts summed to a total
+    // the same page contradicts two screens earlier. Nothing checked it,
+    // because the earlier tests here pin only the headline figures.
+    const facts = revenueFacts();
+    const byPlan = new Map<string, { n: number; sum: number; cust: Set<string> }>();
+    for (const f of facts) {
+      const g = byPlan.get(f.plan) ?? { n: 0, sum: 0, cust: new Set<string>() };
+      g.n += 1;
+      g.sum += f.net;
+      g.cust.add(f.customer);
+      byPlan.set(f.plan, g);
+    }
+    expect(byPlan.size).toBe(4); // free, pro, enterprise and the (unknown) tier
+    for (const [plan, g] of byPlan) {
+      const aov = (g.sum / g.n).toFixed(2);
+      expect(DOC, `the plan block no longer quotes ${plan}`).toContain(
+        `${plan.padEnd(11)} ${aov} (${g.n} orders, ${g.cust.size} customers)`,
+      );
+    }
+  });
+
+  it("quotes the KPI row the dashboard would show", () => {
+    const facts = revenueFacts();
+    const total = facts.reduce((a, f) => a + f.net, 0);
+    const customers = new Set(facts.map((f) => f.customer)).size;
+    const aov = (total / facts.length).toFixed(2);
+    // The customer count is the one people get wrong: it is distinct ids on a
+    // FACT row, which includes the ten that reached no CRM file — ten more
+    // than the customer CSVs hold.
+    expect(customers).toBe(70);
+    expect(DOC).toContain(
+      `**$${(total / 1000).toFixed(1)}K · ${facts.length} · ${customers} · $${aov}**`,
+    );
+  });
+
   it("still tells the reader how to regenerate it", () => {
     // The whole point: a walkthrough whose inputs cannot be reproduced is a
     // story, not a test.
@@ -116,3 +153,46 @@ describe("the generator is deterministic", () => {
     expect(code).not.toMatch(/Date\.now\s*\(|new Date\s*\(\s*\)/);
   });
 });
+
+/**
+ * Rebuild `analytics.revenue_facts` from the seeded CSVs, following the same
+ * eleven steps the document's pipeline table lists. Deliberately independent
+ * of the generator's own report: the point is to check the DOCUMENT against
+ * the data, not the generator against itself.
+ */
+function revenueFacts(): { order: string; customer: string; plan: string; net: number }[] {
+  const rd = (f: string) => {
+    const [head, ...rows] = readFileSync(join(dir, f), "utf8").trim().split(/\r?\n/);
+    const cols = head.split(",");
+    return rows.map((r) => Object.fromEntries(r.split(",").map((v, i) => [cols[i], v])));
+  };
+  const rates = new Map(rd("fx_rates/fx_rates.csv").map((r) => [r.currency, Number(r.to_usd)]));
+  const seen = new Set<string>();
+  const perOrder = new Map<string, number>();
+  for (const p of rd("payments/payments.csv")) {
+    if (seen.has(p.payment_id)) continue; // dedupe on payment_id
+    seen.add(p.payment_id);
+    const id = /[0-9]+/.exec(p.order_ref)?.[0] ?? "";
+    const amount = p.paid_amount === "" ? 0 : Number(p.paid_amount); // zero the nulls
+    perOrder.set(id, (perOrder.get(id) ?? 0) + amount * (rates.get(p.currency) ?? 1));
+  }
+  const customers = new Map(
+    [...rd("customers/customers.csv"), ...rd("customers/customers_batch2.csv")].map((c) => [
+      c.customer_id,
+      c,
+    ]),
+  );
+  const facts = [];
+  for (const o of rd("orders/orders.csv")) {
+    if (o.status === "cancelled") continue;
+    if (!perOrder.has(o.order_id)) continue;
+    facts.push({
+      order: o.order_id,
+      customer: o.customer_id,
+      // The LEFT join keeps the order and labels the gap.
+      plan: customers.get(o.customer_id)?.plan ?? "(unknown)",
+      net: perOrder.get(o.order_id) as number,
+    });
+  }
+  return facts;
+}

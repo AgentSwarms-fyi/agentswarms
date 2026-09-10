@@ -566,7 +566,7 @@ function EtlDocsPage() {
       <Table
         headers={["Data per run", "Transforms", "Kernel memory", "Host machine"]}
         rows={[
-          ["≤ 100 MB", "anything", "2 GB (default)", "4 GB / 2 vCPU"],
+          ["≤ 100 MB", "anything", "2 GB (under the 4 GB default)", "4 GB / 2 vCPU"],
           ["100 MB – 1 GB", "filters, derives, dedupe", "4 GB", "8 GB / 4 vCPU"],
           ["100 MB – 1 GB", "joins, aggregations, SCD", "8 GB", "16 GB / 4 vCPU"],
           ["1 – 5 GB", "simple linear transforms", "16 GB", "32 GB / 8 vCPU"],

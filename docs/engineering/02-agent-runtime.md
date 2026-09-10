@@ -81,13 +81,13 @@ something else. A model that gets `{"error":"Unknown skill \"foo\". Available:
 
 ### What the model can call
 
-`TOOLABLE_IDS` in `src/utils/tools/registry.server.ts` holds seventeen ids:
+`TOOLABLE_IDS` in `src/utils/tools/registry.server.ts` holds nineteen ids:
 
 | Group        | Tools                                                                           |
 | ------------ | ------------------------------------------------------------------------------- |
 | Retrieval    | `kb_search`, `kb_graph_search`                                                  |
 | Web          | `web_search`, `web_browse`                                                      |
-| Data         | `sql_query`, `metric_query`                                                     |
+| Data         | `sql_query`, `metric_query`, `data_health`, `ml_predict`                        |
 | Integrations | `n8n_run_workflow`, `mcp_call_tool`, `send_notification`                        |
 | Utility      | `calculator`, `datetime`, `weather`                                             |
 | Memory       | `memory_remember`, `memory_recall`, `memory_forget`, `memory_set`, `memory_get` |

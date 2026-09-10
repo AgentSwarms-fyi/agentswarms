@@ -54,17 +54,16 @@ function BiPage() {
 
       <H2 id="ai-analyst">AI Analyst — conversational analysis</H2>
       <P>
-        <strong>AI Analyst</strong> (first under Data &amp; BI) is the dedicated ask-anything
-        surface. An analyst is exactly two choices: a <strong>reasoning model</strong> from your
-        connected providers (the dialog suggests reasoning families and nudges you when a pick
-        doesn&apos;t look like one) and <strong>the data</strong> it analyses — local datasets and
-        uploads, one table, or a warehouse connection. Both stay <strong>editable</strong> from the
-        pencil on the analyst&apos;s card, and an edit applies to your next question: earlier
-        analyses are not re-run and each keeps a record of the model that produced it, so an
-        exported report never attributes old numbers to a newly-chosen model. Reasoning models are
-        also given a longer request deadline than chat models, because their time goes on thinking
-        rather than output — sized for chat models, the analyst&apos;s required model class was the
-        one that timed out.
+        <strong>AI Analyst</strong> (under Data &amp; BI) is the dedicated ask-anything surface. An
+        analyst is exactly two choices: a <strong>reasoning model</strong> from your connected
+        providers (the dialog suggests reasoning families and nudges you when a pick doesn&apos;t
+        look like one) and <strong>the data</strong> it analyses — local datasets and uploads, one
+        table, or a warehouse connection. Both stay <strong>editable</strong> from the pencil on the
+        analyst&apos;s card, and an edit applies to your next question: earlier analyses are not
+        re-run and each keeps a record of the model that produced it, so an exported report never
+        attributes old numbers to a newly-chosen model. Reasoning models are also given a longer
+        request deadline than chat models, because their time goes on thinking rather than output —
+        sized for chat models, the analyst&apos;s required model class was the one that timed out.
       </P>
       <P>
         <strong>Governed steps are compiled, not described.</strong> When a step&apos;s numbers come

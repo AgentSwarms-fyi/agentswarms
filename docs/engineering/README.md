@@ -14,7 +14,7 @@ And whoever picks this up in a year, when the reason for a decision has fallen
 out of everyone's head.
 
 **What this is not.** It is not a feature tour, not a tutorial, and not a
-reference for every module — 219,000 lines of TypeScript will not fit in a
+reference for every module — 300,000 lines of TypeScript will not fit in a
 document anyone reads. It covers the load-bearing parts, the ones where being
 wrong is expensive, and points at source for the rest. The code carries long
 comments explaining itself; where one already says a thing well, these pages
@@ -25,7 +25,7 @@ quote it rather than paraphrasing it worse.
 ## The shape of the system
 
 AgentSwarms is a single TanStack Start application talking to one Supabase
-project, plus three optional sidecar containers that exist only because some
+project, plus eight optional Compose services that exist only because some
 work must not run in the app's process.
 
 ```mermaid
@@ -86,7 +86,7 @@ caller's own token rather than handing credentials to a language model.
 **The database is the authority, not the app.** RLS policies are the access
 control; the app's checks are a second layer, not the first. A bug in a route
 handler should fail closed at Postgres rather than leak someone else's rows.
-There are 173 migrations in `supabase/migrations/`, and the schema they build is
+There are 233 migrations in `supabase/migrations/`, and the schema they build is
 the real specification.
 
 **Work runs as close to the data as it can.** Semantic queries compile to SQL
@@ -95,7 +95,7 @@ browser; only the orchestration happens in between. The app is a coordinator far
 more than it is a compute engine, which is what makes a single container a
 reasonable default.
 
-**Everything optional is off by default.** Six of the seven Compose services sit
+**Everything optional is off by default.** Eight of the nine Compose services sit
 behind profiles. A notebook runtime that mounts a Docker socket, or a renderer
 image carrying LibreOffice, should be a decision someone made rather than
 something that arrived with a `docker compose up`.

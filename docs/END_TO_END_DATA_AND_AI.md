@@ -59,10 +59,11 @@ pipeline it is used to check.
 ```
 MinIO (raw CSV)          ETL pipeline              Lakehouse           Semantic layer        Consumers
 ────────────────         ────────────              ─────────           ──────────────        ─────────
-payments.csv   ─┐
-fx_rates.csv   ─┤─────►  17 nodes, one per    ──►  analytics.      ──► "net_revenue"    ──►  BI dashboard
-orders.csv     ─┤        defect + a quality        revenue_facts       defined ONCE          AI Analyst
-customers.csv  ─┘        gate                      (836 rows)                                agents (metric_query)
+payments.csv       ─┐
+fx_rates.csv       ─┤──►  17 nodes, one per   ──►  analytics.      ──► "net_revenue"    ──►  BI dashboard
+orders.csv         ─┤     defect + a quality       revenue_facts       defined ONCE          AI Analyst
+customers.csv      ─┤     gate                     (836 rows)                                agents (metric_query)
+customers_batch2   ─┘
                                                                                              row/column security
                               ▲                         ▲
                               │                         │
@@ -254,14 +255,16 @@ net revenue, all up
 
 AOV by plan
   SQL: SELECT plan, (SUM(net_usd)) / nullif((COUNT(*)), 0) AS "avg_order_value", …
-  →    starter 565.77 (179 orders, 15 customers)
-       enterprise 541.72 (327 orders, 22 customers)
-       growth 529.66 (330 orders, 23 customers)
+  →    enterprise  509.82 (242 orders, 20 customers)
+       pro         500.29 (238 orders, 20 customers)
+       (unknown)   487.76 (114 orders, 10 customers)
+       free        455.71 (242 orders, 20 customers)
 ```
 
-Worth noticing: **starter has the highest average order value.** That is the
-kind of finding that only shows up once the currencies are conformed — in the
-raw data it was buried under the exchange rates.
+Worth noticing: **`(unknown)` is a whole plan tier here.** Those 114 orders are
+the ones the LEFT join kept — customers who exist in no CRM file. An inner join
+would have deleted them from this answer silently, taking 13.6% of revenue with
+them and leaving a plan comparison that looked complete.
 
 ---
 
@@ -336,8 +339,10 @@ which is what stops the dashboard and the analyst drifting apart later.
 | Top customers                                                | Horizontal bar |
 | Where the money was booked (original currency)               | Table          |
 
-The KPI row reads **$453.2K · 836 · 60 · $542.11** — the same numbers the
-pipeline produced and the semantic layer computes.
+The KPI row reads **$408.3K · 836 · 70 · $488.44** — the same numbers the
+pipeline produced and the semantic layer computes. Note the 70: it counts every
+distinct `customer_id` on a fact row, including the ten that reached no CRM
+file, which is ten more than the 60 rows the two customer CSVs hold.
 
 ---
 
@@ -484,7 +489,7 @@ worth much.
 ## Reproducing this
 
 1. **Data Catalog → Add source** — register an S3-compatible bucket.
-2. Upload the four CSVs (or point at your own equivalents).
+2. Upload the five CSVs (or point at your own equivalents).
 3. **ETL Pipelines → New pipeline** — build the graph from the table in Step 2.
    Use **Preview data** on each node as you go.
 4. **Run**, and check the quality-gate results in the run's metrics.

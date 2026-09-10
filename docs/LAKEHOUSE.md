@@ -181,10 +181,12 @@ entry and returned the new content. Two neighbouring settings were measured and
 deliberately left off: HTTP metadata caching was slower and less consistent, and
 Parquet prefetching bought nothing. Disable with `LAKEHOUSE_METADATA_CACHE=false`.
 
-**Memory and spill.** Both of the engine's sizing knobs are editable under
-**Admin → Developer runtime → Compute resources**, which takes precedence over
-the environment variables below — so you can retune a running deployment
-without a redeploy, and neither is capped by the application.
+**Memory and spill.** The engine's memory limit and thread count are editable
+under **Admin → Developer runtime → Data platform**, which takes precedence
+over the environment variables below — so you can retune a running deployment
+without a redeploy, and neither is capped by the application. The spill limit
+is environment-only: there is no settings row for it, so changing it needs a
+restart.
 
 Each engine gets `LAKEHOUSE_MEMORY_LIMIT` (default 2GB)
 and spills past it to a temp directory bounded by `LAKEHOUSE_SPILL_LIMIT`
@@ -456,8 +458,8 @@ bumps the version the client sees, and older snapshots are pruned. A filter
 that names the reader (`@me`, `@user_id`) makes the snapshot per token.
 
 The recipient fetches the files through **presigned URLs** signed for
-`LAKEHOUSE_S3_PUBLIC_ENDPOINT` when set (Compose's MinIO is reachable inside
-the network as `minio:9000` and from outside as whatever you publish), valid
+`LAKEHOUSE_S3_PUBLIC_ENDPOINT` when set (an in-network MinIO is typically
+reachable as `minio:9000` and from outside as whatever you publish), valid
 for `SHARE_URL_EXPIRY_SECONDS` (default 3600). The endpoint is
 `https://<your host>/api/delta-sharing`; requests are rate limited across
 tokens (`SHARE_RATE_LIMIT_PER_MIN`, default 600) and a snapshot write is
@@ -704,8 +706,14 @@ into a scratch prefix, checks what came back, removes both and prints
 
 ## Verified live
 
-The governance suite (19 checks) runs the real engine, catalog and object
-store: DDL/DML/SELECT round trips, CTEs, row caps, ten distinct refusal
+What follows is a record of one-off harnesses run against a real engine,
+catalog and object store while these features were built. They are **not** in
+`tests/`, so nothing re-runs them and the counts below cannot be reproduced
+from this repository — read them as evidence that the behaviour was checked
+against the real stack once, not as a suite you can invoke.
+
+The governance suite (19 checks) ran against the real engine, catalog and
+object store: DDL/DML/SELECT round trips, CTEs, row caps, ten distinct refusal
 paths, history + audit rows, snapshot commits. A further 26 checks cover the
 performance surfaces against the same live stack: spill settings actually
 applied to the engine, cache miss → hit → invalidated-by-write, cache bypass,

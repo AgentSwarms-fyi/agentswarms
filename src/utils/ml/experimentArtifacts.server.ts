@@ -85,7 +85,7 @@ export async function putExperimentArtifact(args: {
   if (args.body.length > maxBytes) {
     return {
       ok: false,
-      error: `The artifact is ${Math.round(args.body.length / 1048576)} MB, above the ${limits.mlArtifactMaxMb} MB limit (Admin → Developer runtime → Compute resources, or ML_ARTIFACT_MAX_MB)`,
+      error: `The artifact is ${Math.round(args.body.length / 1048576)} MB, above the ${limits.mlArtifactMaxMb} MB limit (Admin → Developer runtime → Machine learning, or ML_ARTIFACT_MAX_MB)`,
       status: 413,
     };
   }

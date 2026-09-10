@@ -108,7 +108,7 @@ SELECT *, ai_classify(region, 'americas, emea, apac') AS zone FROM analytics.rev
 
       <H2 id="prep">In Data Prep</H2>
       <P>
-        The same functions are a step in Data & BI → Data preparation: add an{" "}
+        The same functions are a step in Data & BI → BI Workspace → Data preparation: add an{" "}
         <strong>AI column</strong>, pick what the model does, the column it reads (or, for a free
         prompt, write the prompt with <C>{"{column}"}</C> placeholders), name the output and
         optionally the model. The step compiles to the matching <C>ai_*</C> call, so it runs
