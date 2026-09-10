@@ -696,9 +696,10 @@ function DataPage() {
         them into the dataset by key. Salesforce, Shopify, HubSpot, Jira, ServiceNow and GitHub
         follow every stream they offer, as do Linear and Asana; Stripe follows its six immutable
         object types; Zendesk follows tickets and users; Intercom follows contacts and
-        conversations; Freshdesk follows tickets and contacts. Everything else is a full refresh —
-        Zendesk has no incremental export for organizations, Intercom none for admins, Freshdesk
-        none for companies or agents, and a Google Sheets worksheet has no timestamp at all.
+        conversations; Freshdesk follows tickets and contacts; Klaviyo and Notion follow everything
+        they offer. Everything else is a full refresh — Zendesk has no incremental export for
+        organizations, Intercom none for admins, Freshdesk none for companies or agents, and neither
+        a Google Sheets worksheet nor an Airtable table has a timestamp to follow at all.
       </P>
       <Callout kind="warn" title="Each API is asked in its own dialect">
         Jira and ServiceNow page by offset, so both are ordered oldest-first: newest-first meant a

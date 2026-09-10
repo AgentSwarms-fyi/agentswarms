@@ -32,6 +32,9 @@ import {
 import { fetchIntercomRows, intercomIncremental, listIntercomStreams } from "./intercom.server";
 import { fetchGithubRows, githubIncremental, listGithubStreams } from "./github.server";
 import { fetchLinearRows, linearIncremental, listLinearStreams } from "./linear.server";
+import { fetchKlaviyoRows, klaviyoIncremental, listKlaviyoStreams } from "./klaviyo.server";
+import { fetchNotionRows, listNotionStreams, notionIncremental } from "./notion.server";
+import { airtableIncremental, fetchAirtableRows, listAirtableStreams } from "./airtable.server";
 import { asanaIncremental, fetchAsanaRows, listAsanaStreams } from "./asana.server";
 import { fetchFreshdeskRows, freshdeskIncremental, listFreshdeskStreams } from "./freshdesk.server";
 import type {
@@ -137,6 +140,21 @@ const CONNECTORS: Record<SaasProvider, SaasConnector> = {
     listStreams: listFreshdeskStreams,
     fetchRows: fetchFreshdeskRows,
     incremental: freshdeskIncremental,
+  },
+  klaviyo: {
+    listStreams: listKlaviyoStreams,
+    fetchRows: fetchKlaviyoRows,
+    incremental: klaviyoIncremental,
+  },
+  notion: {
+    listStreams: listNotionStreams,
+    fetchRows: fetchNotionRows,
+    incremental: notionIncremental,
+  },
+  airtable: {
+    listStreams: listAirtableStreams,
+    fetchRows: fetchAirtableRows,
+    incremental: airtableIncremental,
   },
 };
 

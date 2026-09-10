@@ -20,7 +20,10 @@ export type SaasProvider =
   | "github"
   | "linear"
   | "asana"
-  | "freshdesk";
+  | "freshdesk"
+  | "klaviyo"
+  | "notion"
+  | "airtable";
 
 export const SAAS_PROVIDERS: SaasProvider[] = [
   "google_sheets",
@@ -36,6 +39,9 @@ export const SAAS_PROVIDERS: SaasProvider[] = [
   "linear",
   "asana",
   "freshdesk",
+  "klaviyo",
+  "notion",
+  "airtable",
 ];
 
 export const SAAS_LABELS: Record<SaasProvider, string> = {
@@ -52,6 +58,9 @@ export const SAAS_LABELS: Record<SaasProvider, string> = {
   linear: "Linear",
   asana: "Asana",
   freshdesk: "Freshdesk",
+  klaviyo: "Klaviyo",
+  notion: "Notion",
+  airtable: "Airtable",
 };
 
 /**
@@ -164,6 +173,24 @@ export type SaasConfig =
       domain: string;
       /** API key from Profile settings; used as the basic-auth username. */
       api_key: string;
+    }
+  | {
+      provider: "klaviyo";
+      /** PRIVATE API key from Settings → API keys, not the public site id. */
+      api_key: string;
+    }
+  | {
+      provider: "notion";
+      /**
+       * Internal integration secret. The integration must also be SHARED with
+       * each database from Notion's UI — a token alone sees nothing.
+       */
+      access_token: string;
+    }
+  | {
+      provider: "airtable";
+      /** PAT with data.records:read and schema.bases:read. */
+      access_token: string;
     }
   | {
       provider: "zendesk";

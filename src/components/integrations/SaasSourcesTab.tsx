@@ -123,6 +123,37 @@ const PROVIDER_HELP: Record<
   SaasProvider,
   { description: string; setup: string; unit: string; units: string; fields: Field[] }
 > = {
+  klaviyo: {
+    description: "Sync profiles, events, lists, metrics and email campaigns into datasets.",
+    setup:
+      "Create a PRIVATE API key in Klaviyo under Settings → API keys — not the public site " +
+      "id — and give it read scopes for the objects you want to sync.",
+    unit: "object",
+    units: "objects",
+    fields: [{ key: "api_key", label: "Private API key", placeholder: "pk_…" }],
+  },
+  notion: {
+    description: "Sync Notion databases into datasets — one per database.",
+    setup:
+      "Create an internal integration at notion.so/my-integrations and copy its secret. " +
+      "Then SHARE each database with it from Notion: open the database, ••• → Connections → " +
+      "add the integration. A token on its own sees nothing.",
+    unit: "database",
+    units: "databases",
+    fields: [
+      { key: "access_token", label: "Integration secret", placeholder: "ntn_… or secret_…" },
+    ],
+  },
+  airtable: {
+    description: "Sync Airtable tables into datasets — one per table.",
+    setup:
+      "Create a personal access token at airtable.com/create/tokens with the " +
+      "data.records:read and schema.bases:read scopes, and add each base you want to its " +
+      "access list. Airtable has no modified timestamp, so these are re-read in full.",
+    unit: "table",
+    units: "tables",
+    fields: [{ key: "access_token", label: "Personal access token", placeholder: "pat…" }],
+  },
   linear: {
     description: "Sync issues, projects, teams, users and cycles into datasets.",
     setup:

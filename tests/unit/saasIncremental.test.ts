@@ -189,6 +189,9 @@ const STREAM_IDS: Record<string, string[]> = {
   linear: ["issues", "projects", "teams", "users", "cycles"],
   asana: ["tasks:1234567890"],
   freshdesk: ["tickets", "contacts", "companies", "agents"],
+  klaviyo: ["profiles", "events", "lists", "metrics", "campaigns"],
+  notion: ["database:11111111-2222-3333-4444-555555555555"],
+  airtable: ["records:appAbCdEf123456:tblAbCdEf123456"],
   // Google Sheets is the one source with genuinely nothing to follow: a
   // worksheet's rows are edited and deleted in place with no timestamp.
   google_sheets: ["Sheet1"],
@@ -452,7 +455,7 @@ describe("adding a provider means wiring every place that knows about one", () =
   };
 
   it("the database CHECK admits exactly the providers the code offers", () => {
-    const sql = rd("supabase/migrations/20260899000000_saas_linear_asana_freshdesk.sql");
+    const sql = rd("supabase/migrations/20260900000000_saas_klaviyo_notion_airtable.sql");
     const inCheck = [...sql.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
     expect([...inCheck].sort()).toEqual([...providersInCode()].sort());
   });
@@ -589,5 +592,73 @@ describe("the three native connectors ask their own APIs correctly", () => {
       expect(src, `${f} 401`).toMatch(/res\.status === 401/);
       expect(src, `${f} 403`).toMatch(/res\.status === 403/);
     }
+  });
+});
+
+describe("the marketing, wiki and spreadsheet sources", () => {
+  it("Klaviyo follows its own next link rather than rebuilding one", () => {
+    // The link carries the cursor AND the filters. Rebuilding is how a filter
+    // gets dropped on page two and the sync quietly returns everything.
+    const src = rd("src/utils/saas/klaviyo.server.ts");
+    expect(src).toContain("url = page.links?.next ?? null;");
+    expect(src).toContain("greater-or-equal(");
+    // The revision header is required on every request, not optional.
+    expect(src).toContain('const REVISION = "2024-10-15";');
+    expect(src).toContain("revision: REVISION");
+  });
+
+  it("Klaviyo sends its key the way Klaviyo wants it", () => {
+    const src = rd("src/utils/saas/klaviyo.server.ts");
+    expect(src).toContain("Klaviyo-API-Key ${cfg.api_key}");
+    expect(src).not.toContain("Bearer ${cfg.api_key}");
+  });
+
+  it("Klaviyo asks campaigns for a channel, which is not optional", () => {
+    const src = rd("src/utils/saas/klaviyo.server.ts");
+    expect(src).toContain("equals(messages.channel,'email')");
+  });
+
+  it("Notion unwraps a property rather than flattening its type wrapper", async () => {
+    // Left alone this produces columns like properties_Owner_people_0_id.
+    const { notionPropertyValue } = await import("@/utils/saas/notion.server");
+    expect(notionPropertyValue({ type: "title", title: [{ plain_text: "Ship it" }] })).toBe(
+      "Ship it",
+    );
+    expect(notionPropertyValue({ type: "select", select: { name: "Done" } })).toBe("Done");
+    expect(
+      notionPropertyValue({ type: "multi_select", multi_select: [{ name: "a" }, { name: "b" }] }),
+    ).toBe("a, b");
+    expect(notionPropertyValue({ type: "number", number: 7 })).toBe(7);
+    expect(notionPropertyValue({ type: "checkbox", checkbox: true })).toBe(true);
+  });
+
+  it("Notion keeps the END of a date range", () => {
+    // Collapsing a range to its start is a silently wrong answer to "how long
+    // did this take".
+    const src = rd("src/utils/saas/notion.server.ts");
+    expect(src).toContain("d?.end ? `${d.start} → ${d.end}`");
+  });
+
+  it("Notion says WHY an empty database list is empty", () => {
+    // Notion answers an unshared integration with an empty list, not an error.
+    const src = rd("src/utils/saas/notion.server.ts");
+    expect(src).toContain("Connections");
+    expect(src).toMatch(/streams\.length === 0[\s\S]{0,300}?add the integration/);
+  });
+
+  it("Airtable is full refresh on purpose, and the reason is written down", () => {
+    // It exposes no universal modified timestamp. Guessing at a likely field
+    // name would follow the wrong column on some bases and miss edits.
+    const src = rd("src/utils/saas/airtable.server.ts");
+    expect(src).toContain("no universal");
+    expect(src).toMatch(/export function airtableIncremental[\s\S]{0,200}?return null;/);
+  });
+
+  it("Airtable merges fields up, and tolerates a varying column set", () => {
+    // An empty Airtable cell is omitted from `fields` entirely rather than
+    // sent as null, so a record's columns vary row to row.
+    const src = rd("src/utils/saas/airtable.server.ts");
+    expect(src).toContain("...(r.fields ?? {})");
+    expect(src).toContain("varies row to row");
   });
 });
