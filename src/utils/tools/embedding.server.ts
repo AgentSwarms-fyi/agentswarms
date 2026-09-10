@@ -27,6 +27,8 @@ export type { ChunkOptions, ChunkStrategy };
 import { chunkParentChild, isChunkMode, type ChunkMode, DEFAULT_PARENT_TOKENS } from "@/lib/kbRag";
 import { generateQaPairs } from "./kbQa.server";
 import { getOpenRouterApiKey } from "@/utils/providers/openrouterDefault.server";
+import { usesExternalStore, vectorStore } from "@/utils/vector/store.server";
+import type { VectorPoint } from "@/utils/vector/types";
 
 export const DEFAULT_EMBED_MODEL = "text-embedding-3-small";
 export const SUPPORTED_EMBED_MODELS = new Set<string>([
@@ -370,6 +372,9 @@ export async function embedAndStoreDocuments(opts: {
   }
 
   if (docIdsToReplace.length > 0) {
+    // The external index first, while the rows that authorise it still exist.
+    // pgvector's store does nothing here: its vector leaves with the row.
+    await vectorStore(sb).deleteByDocuments(docIdsToReplace);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (sb.from("kb_chunks" as any) as any).delete().in("document_id", docIdsToReplace);
     // Parents second. Doing it first would cascade-delete the chunks we are
@@ -461,6 +466,8 @@ export async function embedAndStoreDocuments(opts: {
     if (error) throw new Error(error.message);
   }
 
+  await mirrorToExternalStore(sb, rows, embeddings);
+
   // Stamp what was actually used, per document. Retrieval reads this to embed
   // the query in the same space; previously it was only written by the upload
   // UI, so anything embedded by another path (auto-embed, back-fill, re-sync)
@@ -488,4 +495,62 @@ export async function embedAndStoreDocuments(opts: {
   }
 
   return { documentsProcessed: docs.length, chunksInserted: rows.length, warnings };
+}
+
+/**
+ * Copy the vectors just written into an external store, if there is one.
+ *
+ * AFTER the rows are committed, never before: the store is an index over rows
+ * that exist, and a point whose row was never written is a hit that hydrates
+ * to nothing.
+ *
+ * The chunk ids come back from a read rather than from the upsert, because the
+ * upsert conflicts on `(document_id, chunk_index)` and returns no rows — and
+ * that pair is exactly what matches a stored row back to the vector held here.
+ * A failure is logged, not thrown: the chunks ARE stored, retrieval still has
+ * keyword search, and re-indexing repairs it. Losing an ingest that succeeded
+ * would be the worse outcome.
+ */
+async function mirrorToExternalStore(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  sb: any,
+  rows: { document_id: string; knowledge_base_id: string; chunk_index: number }[],
+  embeddings: number[][],
+): Promise<void> {
+  if (!usesExternalStore() || rows.length === 0) return;
+  try {
+    const docIds = Array.from(new Set(rows.map((r) => r.document_id)));
+    const { data, error } = await sb
+      .from("kb_chunks")
+      .select("id, document_id, chunk_index, knowledge_base_id")
+      .in("document_id", docIds);
+    if (error) throw new Error(error.message);
+    const idBySlot = new Map<string, string>();
+    for (const r of (data ?? []) as {
+      id: string;
+      document_id: string;
+      chunk_index: number;
+    }[]) {
+      idBySlot.set(`${r.document_id}#${r.chunk_index}`, r.id);
+    }
+    const points: VectorPoint[] = [];
+    rows.forEach((r, i) => {
+      const id = idBySlot.get(`${r.document_id}#${r.chunk_index}`);
+      const embedding = embeddings[i];
+      if (!id || !embedding) return;
+      points.push({
+        id,
+        embedding,
+        knowledgeBaseId: r.knowledge_base_id,
+        documentId: r.document_id,
+      });
+    });
+    await vectorStore(sb).upsert(points);
+  } catch (e) {
+    console.warn(
+      "[embedding] chunks stored but the external vector store was not updated; " +
+        "re-index to repair:",
+      e instanceof Error ? e.message : e,
+    );
+  }
 }

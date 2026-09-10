@@ -226,14 +226,15 @@ counted by hand and re-checked when the feature changes.
   are missing from the bucket, and `npm run restore -- <dir> --drill` proves
   the backup restores; the recovery point and time are stated per deployment
   shape ([backups and restore](./docs/DEPLOYMENT.md#backups-and-restore)).
+- **Two vector stores** — pgvector in the application database by default, or
+  Qdrant when the index outgrows it, chosen with one environment variable and
+  swappable by re-indexing. Weaviate and Pinecone are not supported.
 
 **Not there yet — stated so nobody has to discover it**
 
 - **No multi-region** — every deployment shape lives in one region; recovery
   from the loss of a region is a restore from backup, not a failover
   ([DEPLOYMENT.md](./docs/DEPLOYMENT.md#high-availability-what-survives-the-loss-of-one-instance)).
-- **One vector store** — pgvector inside the application database; Qdrant,
-  Weaviate and Pinecone are not supported.
 - **High availability of the lakehouse catalog is yours to provide** — the
   compose file runs one Postgres container; point `LAKEHOUSE_CATALOG_URL` at a
   managed or replicated Postgres for anything you cannot lose between backups

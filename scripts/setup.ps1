@@ -9,6 +9,7 @@
     powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -Sandbox   # + JS sandbox (custom code in deployed runs)
     powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -Lakehouse # + a catalog Postgres for the lakehouse
     powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -Spark     # + a Spark Connect cluster for the ETL engine
+    powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -Vectors   # + Qdrant, for knowledge-base vectors
     powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -SkipMigrations
 
   Scaffolds .env, generates the encryption secrets, installs deps (dev mode),
@@ -17,7 +18,7 @@
 #>
 param(
   [switch]$Dev,
-  # -All is the whole product - the same five profiles `docker compose --profile
+  # -All is the whole product - the same six profiles `docker compose --profile
   # all` starts; the individual switches exist because each optional profile
   # costs something (LibreOffice image size, Docker socket access for notebook
   # kernels, a Postgres of its own, a ~1 GB Spark image). See docs/DEPLOYMENT.md.
@@ -27,9 +28,12 @@ param(
   [switch]$Sandbox,
   [switch]$Lakehouse,
   [switch]$Spark,
+  # Qdrant. Started, but not USED until .env sets VECTOR_STORE=qdrant -
+  # retrieval stays on pgvector until it does.
+  [switch]$Vectors,
   [switch]$SkipMigrations
 )
-if ($All) { $Docgen = $true; $Notebooks = $true; $Sandbox = $true; $Lakehouse = $true; $Spark = $true }
+if ($All) { $Docgen = $true; $Notebooks = $true; $Sandbox = $true; $Lakehouse = $true; $Spark = $true; $Vectors = $true }
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
@@ -130,6 +134,7 @@ if ($Dev) {
   if ($Sandbox)   { $profiles += @("--profile","sandbox") }
   if ($Lakehouse) { $profiles += @("--profile","lakehouse") }
   if ($Spark)     { $profiles += @("--profile","spark") }
+  if ($Vectors)   { $profiles += @("--profile","vectors") }
   Say "Starting Docker stack"
   docker compose @profiles up -d --build
   Say "Up. Open http://localhost:8080"
@@ -142,6 +147,12 @@ if ($Dev) {
     Write-Host "  Lakehouse catalog: a Postgres is up, but the lakehouse stays OFF until .env names"
     Write-Host "    it - uncomment LAKEHOUSE_CATALOG_URL and the LAKEHOUSE_DATA_URL / S3 lines, then"
     Write-Host "    'docker compose up -d agentswarms'. See docs/LAKEHOUSE.md."
+  }
+  if ($Vectors -and (Get-EnvVar "VECTOR_STORE") -ne "qdrant") {
+    Write-Host "  Vector store: Qdrant is up, but retrieval stays on pgvector until .env sets"
+    Write-Host "    VECTOR_STORE=qdrant and QDRANT_URL=http://qdrant:6333 (then"
+    Write-Host "    'docker compose up -d agentswarms'). Existing collections need one"
+    Write-Host "    Re-index in Admin -> Runtime -> AI services. See docs/KNOWLEDGE_BASES.md."
   }
   if ($Spark -and -not (Get-EnvVar "SPARK_CONNECT_URL")) {
     Write-Host "  Spark cluster: up, but no pipeline uses it until .env sets"

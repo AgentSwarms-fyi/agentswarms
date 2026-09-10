@@ -99,8 +99,15 @@ describe("the premise still holds — settings really do only steer chunks", () 
   });
 
   it("fusion, vector search and chunk-keyword search all read chunks", () => {
-    expect(server).toMatch(/rpc\("match_kb_chunks_v2"/);
+    // Vector search goes through the store seam now; the rows it names are
+    // fetched back from Postgres either way.
+    expect(server).toMatch(/vectorStore\(sb\)\.search\(/);
+    expect(server).toMatch(/rpc\("kb_chunks_by_ids"/);
     expect(server).toMatch(/rpc\("keyword_kb_chunks"/);
-    expect(server).toMatch(/fuseHybrid\(vectorScores, keywordScores, retrieval\)/);
+    // `effective` is the collection's settings, except on a turn where the
+    // vector store could not answer — then keyword is the only signal and is
+    // weighted as such, rather than at a semantic weight that would score
+    // every keyword hit zero.
+    expect(server).toMatch(/fuseHybrid\(vectorScores, keywordScores, effective\)/);
   });
 });

@@ -173,7 +173,7 @@ describe("the docs do not promise settings that do nothing", () => {
   // every UPPER_SNAKE token drags in SQL identifiers, sample secret names and
   // doc filenames, and the noise makes the check useless.
   const OWNED =
-    /^(WAREHOUSE|CONNECTOR|CONNECTION|CREDENTIAL|PARQUET|LOCAL_ENGINE|SWARM_RUN|NOTEBOOK|PREP|BI_CRON|AUDIT|OTEL|TRACE|PROVIDER_CREDS|INTERNAL_RUN|INTEGRATION_HEALTH)_[A-Z0-9_]+$/;
+    /^(WAREHOUSE|CONNECTOR|CONNECTION|CREDENTIAL|PARQUET|LOCAL_ENGINE|SWARM_RUN|NOTEBOOK|PREP|BI_CRON|AUDIT|OTEL|TRACE|PROVIDER_CREDS|INTERNAL_RUN|INTEGRATION_HEALTH|VECTOR|QDRANT)_[A-Z0-9_]+$/;
 
   /**
    * Names a doc mentions in order to say they do NOT exist.

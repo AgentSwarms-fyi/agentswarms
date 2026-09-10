@@ -278,7 +278,11 @@ a parked run can outlive any HTTP connection. See the API guide in the app at
 ### Knowledge bases (RAG)
 
 Per synced source: **500 items**, **400,000 characters** per document, and a
-crawl depth of **5**. Retrieval is pgvector (HNSW cosine) in your Postgres.
+crawl depth of **5**. Retrieval is pgvector (HNSW cosine) in your Postgres by
+default; `VECTOR_STORE=qdrant` moves the vector search into Qdrant, which is
+what an index too large for the database — or one that must survive losing it —
+wants. The chunk text stays in Postgres either way, so keyword search and the
+storage growth below are unchanged.
 
 ---
 

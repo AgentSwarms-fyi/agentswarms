@@ -6,6 +6,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 import { embedTexts } from "./embedding.server";
+import { vectorStore } from "@/utils/vector/store.server";
 import {
   fuseHybrid,
   resolveRetrievalSettings,
@@ -394,6 +395,8 @@ export async function retrieveCitationsServer(opts: {
   };
   let vectorRows: ChunkRow[] = [];
   let vectorScores: Candidate[] = [];
+  /** Set when a vector search was attempted and did not answer. */
+  let vectorSearchFailed = false;
   let fusedCits: Citation[] = [];
   // No operator-key default: an unresolvable target leaves this empty and
   // retrieval falls back to keyword search, which is the honest outcome.
@@ -444,19 +447,55 @@ export async function retrieveCitationsServer(opts: {
       // fusion can only promote what it was given, so a top-k fetch would let
       // the keyword side rescue nothing.
       const wide = reranker || retrieval.mode !== "semantic" ? Math.min(topK * 3, 30) : topK;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data: matches, error: matchErr } = await (sb as any).rpc("match_kb_chunks_v2", {
-        query_embedding: `[${queryEmbedding.join(",")}]`,
-        kb_ids: kbIds,
-        match_count: wide,
+      // WHICH chunks, from whichever store holds the vectors — pgvector in the
+      // same database by default, an external one when configured.
+      const matches = await vectorStore(sb).search({
+        embedding: queryEmbedding,
+        knowledgeBaseIds: kbIds,
+        limit: wide,
       });
-      if (matchErr) throw new Error(matchErr.message);
-      vectorRows = (matches ?? []) as ChunkRow[];
-      vectorScores = vectorRows.map((r) => ({ id: r.id, score: r.similarity ?? 0 }));
+      // WHAT they are, always from Postgres and always through the caller's
+      // own client. This is the second ACL check: a store that returned an id
+      // from somebody else's knowledge base gets nothing back, because RLS and
+      // the kb_ids filter both apply here.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: rows, error: rowErr } = await (sb as any).rpc("kb_chunks_by_ids", {
+        chunk_ids: matches.map((m) => m.id),
+        kb_ids: kbIds,
+      });
+      if (rowErr) throw new Error(rowErr.message);
+      const byChunkId = new Map<string, ChunkRow>(
+        ((rows ?? []) as ChunkRow[]).map((r) => [r.id, r]),
+      );
+      // Ordered by the store's ranking; a uuid array has none of its own.
+      vectorRows = matches
+        .map((m) => byChunkId.get(m.id))
+        .filter((r): r is ChunkRow => r !== undefined);
+      const scoreOf = new Map(matches.map((m) => [m.id, m.score]));
+      vectorScores = vectorRows.map((r) => ({ id: r.id, score: scoreOf.get(r.id) ?? 0 }));
     } catch (err) {
+      vectorSearchFailed = true;
       console.warn("[kb.server] vector search failed, falling back to keyword scan:", err);
     }
   }
+
+  /**
+   * What to run, and how to weigh it, once the vector side is known.
+   *
+   * A store that cannot be reached must not mean an empty answer: the chunk
+   * text never left Postgres, so keyword search still works. But a
+   * semantic-only collection would skip the keyword pass entirely, and even
+   * with it forced on, a `semanticWeight` of 1 scores every keyword hit ZERO
+   * and hands back a list ordered by nothing. So for a turn where the vectors
+   * are unavailable, keyword IS the signal and is weighted as such.
+   *
+   * This is what makes the promise in the deployment docs true — "losing the
+   * vector store degrades retrieval to keyword search rather than breaking it"
+   * — for every collection rather than only the ones already set to hybrid.
+   */
+  const effective: RetrievalSettings = vectorSearchFailed
+    ? { ...retrieval, mode: "keyword", semanticWeight: 0 }
+    : retrieval;
 
   // 2b) Keyword search over the SAME chunks, via Postgres full-text search.
   //
@@ -466,7 +505,7 @@ export async function retrieveCitationsServer(opts: {
   // — could never rescue a weak semantic match.
   let keywordRows: ChunkRow[] = [];
   let keywordScores: Candidate[] = [];
-  if (retrieval.mode !== "semantic") {
+  if (effective.mode !== "semantic") {
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { data: kwMatches, error: kwErr } = await (sb as any).rpc("keyword_kb_chunks", {
@@ -493,7 +532,7 @@ export async function retrieveCitationsServer(opts: {
   {
     const byId = new Map<string, ChunkRow>();
     for (const r of [...vectorRows, ...keywordRows]) if (!byId.has(r.id)) byId.set(r.id, r);
-    const fused = fuseHybrid(vectorScores, keywordScores, retrieval);
+    const fused = fuseHybrid(vectorScores, keywordScores, effective);
     if (fused.length > 0) {
       const docIds = Array.from(
         new Set(fused.map((f) => byId.get(f.id)?.document_id).filter((d): d is string => !!d)),

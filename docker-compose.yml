@@ -209,6 +209,53 @@ services:
       retries: 5
       start_period: 300s
 
+  # ── Qdrant vector store (opt-in: --profile vectors) ───────────────────────
+  # Where knowledge-base embeddings are searched when VECTOR_STORE=qdrant.
+  # Opt-in because it is not needed to run the platform: the default keeps
+  # vectors in Postgres beside the chunks, which is one fewer thing to operate
+  # and one fewer thing to back up.
+  #
+  # It holds VECTORS AND TWO IDS. The chunk text, the document and the
+  # permissions stay in Postgres, so a Qdrant that loses this volume costs a
+  # re-index (Admin -> Runtime -> AI services -> Re-index) and nothing else —
+  # which is why there is no backup guidance here and why losing it is not a
+  # data-loss event.
+  #
+  # ONE NODE IS NOT HIGH AVAILABILITY. This is the single-node shape for a
+  # laptop or a small install; a deployment that needs retrieval to survive
+  # losing a node runs a Qdrant cluster and sets QDRANT_REPLICATION to at
+  # least 2. The admin page reports the replication the collection ACTUALLY
+  # has, so the difference is visible rather than assumed.
+  qdrant:
+    image: qdrant/qdrant:v1.12.4
+    profiles: [vectors, all]
+    environment:
+      # PASS-THROUGH, and it has to be. Written as
+      # `QDRANT__SERVICE__API_KEY: ${QDRANT_API_KEY:-}` this variable is always
+      # SET, just empty — and Qdrant reads an empty key as "API-key auth is on,
+      # and the key is the empty string". Every request without one then gets
+      # `401 Must provide an API key`, which is a server that refuses to work
+      # out of the box and blames your credentials for it. The list form below
+      # is omitted entirely when the variable is unset, which leaves auth off.
+      #
+      # To secure it, set BOTH in .env: QDRANT__SERVICE__API_KEY for the server
+      # here, and QDRANT_API_KEY for what the app sends. They are two settings
+      # because most deployments point at a Qdrant this file did not start.
+      - QDRANT__SERVICE__API_KEY
+    volumes:
+      - qdrant-data:/qdrant/storage
+    restart: unless-stopped
+    # The image ships no curl and no wget, so the check opens the port itself.
+    # `bash` explicitly, not CMD-SHELL: /dev/tcp is a bash feature and the
+    # image's /bin/sh is dash, where the same line is a file-not-found and the
+    # service reports unhealthy for ever while serving perfectly.
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/6333"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
   # ── Spark Connect server (opt-in: --profile spark) ────────────────────────
   # The Spark engine's STATIC-ENDPOINT provider for one host: driver and
   # executors in one JVM (local[*]). Enough to run every Spark-engine pipeline
@@ -389,3 +436,4 @@ networks:
 volumes:
   lakehouse-catalog-data:
   spark-ivy:
+  qdrant-data:

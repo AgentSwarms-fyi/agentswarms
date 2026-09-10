@@ -10,14 +10,16 @@
 #   bash scripts/setup.sh --sandbox       # + JS sandbox (custom code in deployed runs)
 #   bash scripts/setup.sh --lakehouse     # + a catalog Postgres for the lakehouse
 #   bash scripts/setup.sh --spark         # + a Spark Connect cluster for the ETL engine
+#   bash scripts/setup.sh --vectors       # + Qdrant, for knowledge-base vectors
 #   bash scripts/setup.sh --skip-migrations
 #
-# --all is the whole product — the same five profiles `docker compose --profile
+# --all is the whole product — the same six profiles `docker compose --profile
 # all` starts. They are separate because each costs something: the renderer
 # pulls LibreOffice (~1 GB), the notebook runtime mounts the Docker socket into
 # a least-privilege proxy so it can start kernel containers, the catalog is a
-# Postgres of its own, and Spark pulls a ~1 GB image and downloads its
-# connector jars on first use. All are documented in docs/DEPLOYMENT.md.
+# Postgres of its own, Spark pulls a ~1 GB image and downloads its connector
+# jars on first use, and Qdrant is only reached at all once .env sets
+# VECTOR_STORE=qdrant. All are documented in docs/DEPLOYMENT.md.
 #
 # It scaffolds .env, generates the encryption secrets, installs deps (dev mode),
 # applies the DB migrations, and starts the stack. It CANNOT create your Supabase
@@ -34,6 +36,7 @@ SANDBOX=0
 NOTEBOOKS=0
 LAKEHOUSE=0
 SPARK=0
+VECTORS=0
 SKIP_MIGRATIONS=0
 
 add_profile() {
@@ -47,14 +50,15 @@ for arg in "$@"; do
     --docker) MODE="docker" ;;
     --dev) MODE="dev" ;;
     --all)
-      DOCGEN=1; SANDBOX=1; NOTEBOOKS=1; LAKEHOUSE=1; SPARK=1
+      DOCGEN=1; SANDBOX=1; NOTEBOOKS=1; LAKEHOUSE=1; SPARK=1; VECTORS=1
       add_profile docgen; add_profile notebooks; add_profile sandbox
-      add_profile lakehouse; add_profile spark ;;
+      add_profile lakehouse; add_profile spark; add_profile vectors ;;
     --docgen) DOCGEN=1; add_profile docgen ;;
     --notebooks) NOTEBOOKS=1; add_profile notebooks ;;
     --sandbox) SANDBOX=1; add_profile sandbox ;;
     --lakehouse) LAKEHOUSE=1; add_profile lakehouse ;;
     --spark) SPARK=1; add_profile spark ;;
+    --vectors) VECTORS=1; add_profile vectors ;;
     --skip-migrations) SKIP_MIGRATIONS=1 ;;
     -h|--help) sed -n '2,21p' "$0"; exit 0 ;;
     *) echo "Unknown option: $arg (try --help)"; exit 1 ;;
@@ -167,6 +171,12 @@ if [ "$MODE" = "docker" ]; then
     echo "  Spark cluster: up, but no pipeline uses it until .env sets"
     echo "    SPARK_CONNECT_URL=\"sc://spark-connect:15002\" (then 'docker compose up -d agentswarms')."
     echo "    Its first run downloads the connector jars. See docs/ETL_PIPELINES.md."
+  fi
+  if [ "$VECTORS" -eq 1 ] && [ "$(getenv VECTOR_STORE)" != "qdrant" ]; then
+    echo "  Vector store: Qdrant is up, but retrieval stays on pgvector until .env sets"
+    echo "    VECTOR_STORE=qdrant and QDRANT_URL=http://qdrant:6333 (then"
+    echo "    'docker compose up -d agentswarms'). Existing collections need one"
+    echo "    Re-index in Admin -> Runtime -> AI services. See docs/KNOWLEDGE_BASES.md."
   fi
   if [ "$SANDBOX" -eq 1 ]; then
     echo "  JS sandbox: custom-code nodes now run in DEPLOYED and SCHEDULED swarm runs too."

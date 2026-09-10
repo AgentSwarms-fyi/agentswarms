@@ -164,12 +164,83 @@ index is queried, not how it was built.
   GIN index. Generated so it cannot drift from the text it indexes. The question
   is included because a Q&A answer often does not contain the words someone
   would search for.
-- RPCs `match_kb_chunks_v2` (parent-aware vector match) and `keyword_kb_chunks`
-  (FTS). The original `match_kb_chunks` is left in place for compatibility.
+- RPCs `match_kb_chunk_ids` (pgvector nearest neighbours: ids and similarities),
+  `kb_chunks_by_ids` (the rows, parent-aware) and `keyword_kb_chunks` (FTS).
+  Search and fetch are separate calls because the search may happen outside this
+  database — see below. `match_kb_chunks_v2`, which did both, and the original
+  `match_kb_chunks` are left in place for compatibility.
 
 Parent citations get a 4,000-character budget rather than the 560 used for
 ordinary snippets — reusing the smaller cap would trim a parent down to about
 14% of itself and quietly deliver flat chunking under a different name.
+
+### Where the vectors are searched
+
+By default, in your Postgres: `kb_chunks.embedding` is a `vector(1536)` with an
+HNSW cosine index, and the permission check is the row-level security already
+protecting those rows. For most deployments that is the right answer — one thing
+to run, one thing to back up, and a knowledge base that cannot half-exist
+because two systems disagree.
+
+Set `VECTOR_STORE=qdrant` and `QDRANT_URL` to search them in Qdrant instead.
+The reason to is **capacity, not availability**: an HNSW index wants RAM, and by
+default it wants it from the same instance serving your traces, audit, BI
+results and every OLTP query. Past a few million chunks it is the largest thing
+in there, and the only way to feed it is to resize the whole database. Qdrant is
+a place to put the index that scales — and replicates — on its own.
+
+It is **not** a way to survive losing Postgres. Every hit is hydrated from
+`kb_chunks`, so a database outage takes retrieval with it wherever the vectors
+live. The availability that is real runs the other way: losing **Qdrant**
+degrades retrieval to keyword search rather than breaking it, because the text
+never left Postgres.
+
+**Qdrant holds vectors and two ids. That is all.** The chunk text, the document
+it came from, the parent passage and who may read it stay in Postgres. Three
+things follow, and they are the reason the split is drawn here:
+
+- **Hybrid retrieval is unaffected.** The keyword half is Postgres full-text
+  search over the same chunks, and it does not know or care where the vectors
+  went.
+- **The index is disposable.** A Qdrant that loses its volume costs a re-index,
+  not a restore. There is no backup guidance for it because it is not a system
+  of record.
+- **An external store cannot leak a document.** A search returns ids, which are
+  then fetched through the caller's own database client — so row-level security
+  applies to the answer, not just to the question. A store that returned an id
+  from somebody else's knowledge base gets nothing back.
+
+| Setting              | Default                 | What it does                                   |
+| -------------------- | ----------------------- | ---------------------------------------------- |
+| `VECTOR_STORE`       | `pgvector`              | `pgvector` or `qdrant`                         |
+| `QDRANT_URL`         | —                       | e.g. `http://qdrant:6333`                      |
+| `QDRANT_API_KEY`     | —                       | Sent as `api-key`; omit if the server has none |
+| `QDRANT_COLLECTION`  | `agentswarms_kb_chunks` | Created on first use, 1536-dim cosine          |
+| `QDRANT_REPLICATION` | `1`                     | Copies per shard. **2+ for HA**, cluster only  |
+| `QDRANT_SHARDS`      | `1`                     | Shards per collection                          |
+
+**One Qdrant node is not high availability.** A single node is the right shape
+for a laptop or a small install, and losing it degrades retrieval to keyword
+search rather than breaking it — but surviving the loss of a node means a Qdrant
+cluster with `QDRANT_REPLICATION` at 2 or more. Admin → Runtime → AI services
+reports the replication the collection **actually** has, so the difference
+between what was asked for and what was placed is visible.
+
+Selecting `qdrant` without `QDRANT_URL` logs an error and uses pgvector. It does
+not fail to start: the vectors are still in `kb_chunks` and retrieval still
+works.
+
+### Re-indexing an external store
+
+Admin → Runtime → AI services → **Re-index** drops every vector in the store and
+writes them back from `kb_chunks`. It is idempotent, and it is the answer to
+every way an external index can drift: a restored-from-empty volume, a store
+switched on after documents were already embedded, a delete that happened while
+it was unreachable. The same page shows chunks-in-Postgres beside
+vectors-in-the-store, which is how you notice you need it.
+
+Re-indexing does **not** re-embed. It moves vectors that already exist; a
+document with no embedding stays keyword-only until it is indexed.
 
 ### Which provider embeds
 

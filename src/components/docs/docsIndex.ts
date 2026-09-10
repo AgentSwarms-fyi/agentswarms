@@ -2017,12 +2017,17 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "DOCUMENT_VISION_MODEL",
       "GITHUB_TOKEN",
       "OPENROUTER_API_KEY",
+      "QDRANT_REPLICATION",
+      "QDRANT_URL",
+      "VECTOR_STORE=qdrant",
       "dimensions",
       "error",
       "final_v3.pdf",
       "flat",
       "google/gemini-embedding-001",
       "kb.document.ocr",
+      "kb_chunks",
+      "kb_chunks.embedding",
       "kb_graph_search",
       "kb_search",
       "llama-nemotron-rerank-vl-1b-v2",
@@ -2081,6 +2086,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       {
         "id": "embedding-provider",
         "text": "Which model does the embedding",
+        "level": 3
+      },
+      {
+        "id": "vector-store",
+        "text": "Where the vectors are searched",
         "level": 3
       },
       {

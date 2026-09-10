@@ -14,7 +14,8 @@ export type ServiceId =
   | "notebook-egress"
   | "notebook-docker-proxy"
   | "lakehouse-catalog"
-  | "spark-connect";
+  | "spark-connect"
+  | "qdrant";
 
 export type ServiceStatus =
   /** Answered, and answered correctly. */
@@ -169,6 +170,23 @@ export const SERVICE_CATALOGUE: {
     candidates: ["http://notebook-docker-proxy:2375", "http://127.0.0.1:2375"],
     path: "/_ping",
     expect: "docker-ping",
+  },
+  {
+    id: "qdrant",
+    // Not published to the host: on the Compose network the app reaches it by
+    // service name, and a vector store on a laptop's loopback is a vector
+    // store anyone on that laptop can read.
+    hostPublished: false,
+    label: "Vector store (Qdrant)",
+    purpose:
+      "Where knowledge-base embeddings are searched when VECTOR_STORE=qdrant. Without it, retrieval falls back to keyword search over the same chunks — the text never leaves Postgres.",
+    profile: "vectors",
+    optional: true,
+    candidates: ["http://qdrant:6333", "http://127.0.0.1:6333"],
+    // /readyz, not /livez: "the process is up" is not the same claim as "it
+    // can answer a search", and this page exists to tell them apart.
+    path: "/readyz",
+    expect: "any-2xx",
   },
 ];
 

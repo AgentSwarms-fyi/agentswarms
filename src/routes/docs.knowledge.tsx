@@ -270,13 +270,12 @@ question ──▶ embed ──▶ nearest chunks ──▶ pasted into the prom
         existing ones across.
       </Callout>
       <Callout kind="info">
-        The vector store is <strong>Supabase pgvector</strong> — the only option, and already
-        configured; there is nothing to connect and no external vector database to run. Every
-        collection shares one column with an HNSW cosine index, so it is fixed at{" "}
-        <strong>1536 dimensions</strong>. A model must be able to emit that width — the OpenAI{" "}
-        <C>text-embedding-3-*</C> models truncate to any size on request. If a model returns a
-        different width the embed fails with a message saying so rather than writing unusable
-        vectors.
+        Vectors are <strong>1536 dimensions</strong>, wherever they are searched: every collection
+        shares one column with an HNSW cosine index, and an external store is created at the same
+        width. A model must be able to emit it — the OpenAI <C>text-embedding-3-*</C> models
+        truncate to any size on request, and a narrower local model is zero-padded, which is exact
+        for cosine similarity. A model that returns something <em>wider</em> fails the embed with a
+        message saying so rather than writing unusable vectors.
       </Callout>
       <P>
         The OpenRouter default is <C>openai/text-embedding-3-small</C> because it is the{" "}
@@ -305,6 +304,47 @@ question ──▶ embed ──▶ nearest chunks ──▶ pasted into the prom
         model exists. Two NVIDIA nemotron ids used to be offered here and both returned{" "}
         <C>404 No endpoints found</C> — selecting one produced a failed embed with nothing to
         indicate the model had never been available.
+      </P>
+
+      <H3 id="vector-store">Where the vectors are searched</H3>
+      <P>
+        By default, in your own Postgres — <C>kb_chunks.embedding</C> is a pgvector column with an
+        HNSW cosine index, and the permission check is the row-level security already protecting
+        those rows. Nothing to connect, nothing extra to back up, and a collection that cannot
+        half-exist because two systems disagree. For most deployments that is the end of it.
+      </P>
+      <P>
+        A self-hosted deployment can point the vector search at <strong>Qdrant</strong> instead, by
+        setting <C>VECTOR_STORE=qdrant</C> and <C>QDRANT_URL</C>. The reason is{" "}
+        <strong>capacity, not availability</strong>: an HNSW index wants RAM, and by default it
+        wants it from the same instance serving your traces, audit, BI results and every other
+        query. Past a few million chunks it is the largest thing in there, and the only way to feed
+        it is to resize the whole database. Qdrant is a place to put the index that scales — and
+        replicates — on its own. It does <em>not</em> make retrieval survive a Postgres outage:
+        every hit is hydrated from <C>kb_chunks</C>, so the database going down takes retrieval with
+        it wherever the vectors live.
+      </P>
+      <Callout kind="why" title="Qdrant holds vectors and two ids — that is all">
+        The chunk text, the document it came from, the parent passage and who may read it stay in
+        Postgres. So the keyword half of hybrid search is untouched; a Qdrant that loses its volume
+        costs a re-index rather than a restore; and the store cannot leak a document, because what
+        it returns is a list of ids that are then fetched through the caller&apos;s own database
+        client, where row-level security applies a second time.
+      </Callout>
+      <P>
+        <strong>One Qdrant node is not high availability.</strong> A single node is the right shape
+        for a small install, and losing it degrades retrieval to keyword search rather than breaking
+        it — but surviving the loss of a node means a Qdrant cluster with <C>QDRANT_REPLICATION</C>{" "}
+        at 2 or more. <strong>Admin → Runtime → AI services</strong> shows which store is in use,
+        whether it is answering, how many vectors it holds against how many chunks the database has,
+        and the replication the collection <em>actually</em> got.
+      </P>
+      <P>
+        That same page has <strong>Re-index</strong>, which drops every vector in the store and
+        writes them back from the chunks. It is the answer to every way an external index can drift
+        — a restored-from-empty volume, a store switched on after documents were already embedded, a
+        delete that happened while it was unreachable. It moves vectors that already exist; it does
+        not re-embed, so a document that was never indexed stays keyword-only until it is.
       </P>
 
       {/* ── RETRIEVAL ── */}

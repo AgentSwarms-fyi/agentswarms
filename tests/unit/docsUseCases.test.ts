@@ -123,7 +123,10 @@ describe("the README scorecard is honest about what is missing", () => {
   it("exists and states the known gaps by name", () => {
     expect(readme).toContain("## Where it stands");
     expect(section).toContain("No multi-region");
-    expect(section).toContain("One vector store");
+    // "One vector store" was a stated gap until Qdrant shipped; like the SCIM
+    // line below, it must not come back.
+    expect(section).toContain("Two vector stores");
+    expect(section).not.toContain("One vector store");
     expect(section).toContain("High availability of the lakehouse catalog");
     expect(section).toContain("verified to validation");
     // SCIM was a stated gap until it shipped; the line must not come back.
@@ -139,13 +142,17 @@ describe("the README scorecard is honest about what is missing", () => {
     expect(section).toMatch(/SCIM 2\.0\s+provisioning/);
     // No multi-region: the deployment guide still says so.
     expect(rd("docs/DEPLOYMENT.md")).toContain("There is no multi-region story");
-    // One vector store: the picker on the knowledge page offers pgvector only.
-    const kb = rd("src/routes/_authenticated/knowledge.tsx");
-    const stores = kb.slice(
-      kb.indexOf("const VECTOR_STORES"),
-      kb.indexOf("];", kb.indexOf("const VECTOR_STORES")),
+    // Two vector stores, counted from the list the code actually selects on —
+    // not from a picker in the UI, which is where this used to look and which
+    // was a dead control listing one option whatever the deployment ran.
+    const types = rd("src/utils/vector/types.ts");
+    const stores = types.slice(
+      types.indexOf("export const VECTOR_STORES"),
+      types.indexOf("]", types.indexOf("export const VECTOR_STORES")),
     );
-    expect((stores.match(/\bid: "/g) ?? []).length).toBe(1);
+    expect((stores.match(/"[a-z]+"/g) ?? []).length).toBe(2);
+    expect(stores).toContain('"pgvector"');
+    expect(stores).toContain('"qdrant"');
     // Single catalog container in compose.
     const compose = rd("docker-compose.yml");
     expect(compose).toContain("lakehouse-catalog:\n    image: postgres:16");

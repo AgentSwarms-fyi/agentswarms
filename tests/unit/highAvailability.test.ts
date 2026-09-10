@@ -41,6 +41,94 @@ const STATELESS = [
   { name: "agentswarms-js-sandbox", component: "js-sandbox" },
 ];
 
+describe("the vector store survives losing a node", () => {
+  // A vector index is stateful but REBUILDABLE: Postgres still holds every
+  // chunk, so losing Qdrant costs a re-index rather than data. That is the
+  // reason it can be clustered rather than treated like the catalog — and the
+  // reason it should be, because a single node is an outage that turns
+  // retrieval into keyword search until somebody notices.
+  const sts = objectOf(ALL, "StatefulSet", "qdrant") ?? "";
+
+  it("runs three nodes, which is what Raft needs to lose one", () => {
+    expect(sts, "no qdrant StatefulSet").not.toBe("");
+    const m = /^ {2}replicas: (\d+)$/m.exec(sts);
+    expect(Number(m?.[1])).toBeGreaterThanOrEqual(3);
+  });
+
+  it("spreads them across nodes", () => {
+    // Three replicas on one node is one node's worth of availability.
+    expect(sts).toContain("topologySpreadConstraints");
+    expect(sts).toContain("topologyKey: kubernetes.io/hostname");
+    expect(sts).toContain("whenUnsatisfiable: ScheduleAnyway");
+  });
+
+  it("keeps a quorum through a node drain", () => {
+    // minAvailable: 1 would let a drain take a three-node Raft cluster to one,
+    // where the survivor cannot reach consensus on a write.
+    const pdb = objectOf(ALL, "PodDisruptionBudget", "agentswarms-qdrant") ?? "";
+    expect(pdb, "no PDB for qdrant").not.toBe("");
+    const m = /minAvailable: (\d+)/.exec(pdb);
+    expect(Number(m?.[1])).toBeGreaterThanOrEqual(2);
+  });
+
+  it("finds its peers by a headless service, not a load balancer", () => {
+    // Cluster members address each other by stable per-pod DNS. A ClusterIP
+    // would round-robin the peer traffic and no cluster would ever form.
+    const headless = objectOf(ALL, "Service", "qdrant-headless") ?? "";
+    expect(headless).toContain("clusterIP: None");
+    // And a joining peer must be reachable BEFORE it is ready, because
+    // becoming ready is what joining accomplishes.
+    expect(headless).toContain("publishNotReadyAddresses: true");
+    expect(sts).toContain("serviceName: qdrant-headless");
+    expect(sts).toContain("QDRANT__CLUSTER__ENABLED");
+  });
+
+  it("starts one node at a time, so three cannot each go first", () => {
+    expect(sts).toContain("podManagementPolicy: OrderedReady");
+    expect(sts).toContain("--bootstrap");
+  });
+
+  it("takes traffic off a node that is not in the cluster yet", () => {
+    // /livez only says the process is up. Readiness has to mean "in the
+    // cluster and able to serve", or the Service sends queries to a node
+    // still catching up.
+    expect(sts).toMatch(/readinessProbe:[\s\S]{0,120}\/readyz/);
+    expect(sts).toMatch(/livenessProbe:[\s\S]{0,120}\/livez/);
+    // And a startup probe, because loading a large index off disk is minutes
+    // and a liveness probe firing during it restarts the pod for ever.
+    expect(sts).toContain("startupProbe");
+  });
+
+  it("never ships an empty API key, which would reject every request", () => {
+    // Qdrant reads an EMPTY key as "auth is on, and the key is the empty
+    // string". `optional: true` omits the variable when the secret has no such
+    // key; a plain secretKeyRef would fail the pod, and a default of "" would
+    // 401 every request while blaming the caller's credentials.
+    expect(sts).toContain("QDRANT__SERVICE__API_KEY");
+    expect(sts).toMatch(/QDRANT__SERVICE__API_KEY[\s\S]{0,200}optional: true/);
+  });
+
+  it("says that replicas alone are not replication", () => {
+    // THE TRAP THIS SECTION EXISTS FOR. `replicas: 3` places pods;
+    // QDRANT_REPLICATION decides how many copies of each shard Qdrant keeps,
+    // and the app reads it when the collection is FIRST CREATED. Three pods
+    // with a replication factor of 1 still lose a third of the index with a
+    // node. The manifest and the deployment guide both have to say so.
+    // The warning lives in the manifest's comment block, above the objects,
+    // so this reads the FILE rather than the parsed StatefulSet.
+    expect(readFileSync(SERVICES, "utf8")).toContain("QDRANT_REPLICATION");
+    const deploy = readFileSync("docs/DEPLOYMENT.md", "utf8");
+    // Not "the name appears somewhere" — the guide has to hand over a command
+    // that actually sets it to more than one. A first version of this asserted
+    // the name was present, and renaming it in the prose still passed because
+    // the code block below mentioned it too.
+    expect(deploy, "no runnable instruction to set the replication factor").toMatch(
+      /"QDRANT_REPLICATION"\s*:\s*"([2-9]|\d\d+)"/,
+    );
+    expect(deploy).toMatch(/first created|before the first document/i);
+  });
+});
+
 describe("every stateless tier survives losing one instance", () => {
   it.each(STATELESS)("$name runs at least two replicas", ({ name }) => {
     const d = objectOf(ALL, "Deployment", name);

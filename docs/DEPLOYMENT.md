@@ -2004,8 +2004,42 @@ perfectly reasonable one for most teams — just know which promise you have.
 | Lakehouse catalog     | **Yes — irreplaceable**      | 1 StatefulSet pod + 10 Gi PVC     | The whole lakehouse is unreadable; Parquet alone cannot rebuild it | **Managed Postgres with a standby.** See below                                    |
 | Supabase              | **Yes — irreplaceable**      | Hosted, or self-hosted single pod | Everything: agents, IAM, audit, schedules                          | Hosted Supabase, or your own replicated Postgres                                  |
 | Object storage        | **Yes — the table data**     | Bring your own                    | Tables read as missing files                                       | S3, GCS, R2 or MinIO in distributed mode. Never single-node MinIO in prod         |
+| Vector store (Qdrant) | Yes, but **rebuildable**     | Opt-in: 3-node StatefulSet, PDB   | Retrieval falls back to keyword search until it returns            | Already is, at `replicas: 3` — but set `QDRANT_REPLICATION=2` before first index  |
 | Spark engine (static) | No                           | 1 endpoint                        | Spark-engine ETL runs fail                                         | Use the per-run Kubernetes provider: a lost driver fails one run, which retries   |
 | Kernels and sandboxes | No, but pinned to their node | Per run                           | That run                                                           | Inherent. ETL retries on a fresh sandbox; an interactive session does not survive |
+
+The vector store is the one stateful row above that is not a restore. When
+`VECTOR_STORE=qdrant` it holds vectors and two ids; the chunk text, the
+documents and the permissions stay in Postgres. So losing it costs a re-index
+(Admin → Runtime → AI services → **Re-index**), not data — and while it is
+down, retrieval degrades to keyword search rather than failing. Left at the
+default it does not exist as a service at all: the vectors are columns on rows
+you are already backing up.
+
+It ships as **three nodes**, and there is a second number that has to agree
+with that one. `replicas: 3` places the pods; `QDRANT_REPLICATION` decides how
+many copies of each shard Qdrant keeps, and the app reads it **when the
+collection is first created**. A collection created while that said `1` keeps
+one copy per shard however many nodes join afterwards — three pods, and losing
+one still loses a third of the index. So set it in the secret before the first
+document is indexed:
+
+```bash
+kubectl -n agentswarms patch secret agentswarms-env --type merge \
+  -p '{"stringData":{"VECTOR_STORE":"qdrant","QDRANT_URL":"http://qdrant:6333","QDRANT_REPLICATION":"2"}}'
+kubectl -n agentswarms rollout restart deploy/agentswarms-web deploy/agentswarms-analytics
+```
+
+Admin → Runtime → AI services reports the replication the collection
+**actually** has, so the two numbers disagreeing is visible rather than
+assumed. The repair is to delete the collection and **Re-index**, which costs
+nothing but time: Postgres still holds every chunk.
+
+To require an API key, set `QDRANT__SERVICE__API_KEY` (the server's own
+setting, read by the StatefulSet) and `QDRANT_API_KEY` (what the app sends) to
+the same value in that secret. Leave both **unset** rather than empty — Qdrant
+reads an empty key as "auth is on, and the key is the empty string", and then
+rejects every request.
 
 The pattern: **everything stateless already runs two or more**, spread across
 nodes with a `topologySpreadConstraint` and protected by a

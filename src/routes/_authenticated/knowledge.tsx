@@ -64,6 +64,7 @@ import {
   kbEmbedProbe,
   kbEmbedStatus,
 } from "@/utils/tools/kbEmbed.functions";
+import { forgetVectors, vectorStoreBrief } from "@/utils/vector/vector.functions";
 import { formatDistanceToNow } from "date-fns";
 import { Slider } from "@/components/ui/slider";
 import { type ChunkMode, type RetrievalMode, resolveRetrievalSettings } from "@/lib/kbRag";
@@ -135,32 +136,6 @@ const CONNECTOR_LABELS: Record<ConnectorKind, string> = {
   web: "Website",
   confluence: "Confluence",
 };
-
-// Vector store providers. The built-in store uses pgvector (1536-dim
-// embeddings via OpenAI's text-embedding-3-small, HNSW cosine index).
-// Documents that haven't been embedded yet fall back to a keyword scan
-// during retrieval so existing data keeps working.
-type VectorStoreField = {
-  key: string;
-  label: string;
-  type: "text" | "password";
-  placeholder?: string;
-};
-type VectorStoreDef = {
-  id: string;
-  name: string;
-  description: string;
-  fields: VectorStoreField[];
-};
-const VECTOR_STORES: VectorStoreDef[] = [
-  {
-    id: "local",
-    name: "Supabase pgvector (default — configured)",
-    description:
-      "Documents are chunked and embedded with the embedding model you select above (OpenAI or Google), truncated to 1536 dims via Matryoshka so all models share one pgvector column with an HNSW cosine index. Retrieval embeds the query with the same model and runs semantic similarity search; any document that hasn't been embedded yet falls back to a keyword scan so nothing goes silent during back-fill.",
-    fields: [],
-  },
-];
 
 // Embedding models, each reached through a provider the user has connected.
 // All are truncated to 1536 dims via Matryoshka so they land in the same
@@ -267,6 +242,26 @@ function KnowledgePage() {
   const embedStatusFn = useServerFn(kbEmbedStatus);
   const probeFn = useServerFn(kbEmbedProbe);
   const backfillFn = useServerFn(backfillKbEmbeddings);
+  const forgetVectorsFn = useServerFn(forgetVectors);
+  const storeBriefFn = useServerFn(vectorStoreBrief);
+  const [storeBrief, setStoreBrief] = useState<{
+    kind: string;
+    external: boolean;
+    dims: number;
+  } | null>(null);
+  useEffect(() => {
+    let live = true;
+    void storeBriefFn({ data: {} })
+      .then((b) => {
+        if (live) setStoreBrief(b);
+      })
+      // A store read-out that cannot load is a missing line of prose, not a
+      // reason to break the settings dialog.
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [storeBriefFn]);
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const [bases, setBases] = useState<KnowledgeBase[]>([]);
@@ -302,7 +297,6 @@ function KnowledgePage() {
   const [docContent, setDocContent] = useState("");
 
   // Vector store settings
-  const [vectorStore, setVectorStore] = useState("local");
   const [embeddingModel, setEmbeddingModel] = useState("text-embedding-3-small");
   const [embedProvider, setEmbedProvider] = useState(DEFAULT_EMBED_PROVIDER);
   // Set once the user picks a provider, so the auto-default stops interfering.
@@ -666,6 +660,10 @@ function KnowledgePage() {
       toast.error("Sample sources can't be removed");
       return;
     }
+    // Vectors first, while the rows that prove ownership still exist. On the
+    // default pgvector store this is a no-op — the vector is a column on the
+    // chunk and the cascade takes it.
+    await forgetVectorsFn({ data: { sourceIds: [src.id] } }).catch(() => {});
     await supabase.from("knowledge_documents").delete().eq("source_id", src.id);
     const { error } = await supabase.from("kb_sources").delete().eq("id", src.id);
     if (error) {
@@ -716,6 +714,7 @@ function KnowledgePage() {
       }))
     )
       return;
+    await forgetVectorsFn({ data: { knowledgeBaseIds: [id] } }).catch(() => {});
     await supabase.from("knowledge_bases").delete().eq("id", id);
     if (selectedBase?.id === id) {
       setSelectedBase(null);
@@ -857,6 +856,7 @@ function KnowledgePage() {
   } as unknown as Parameters<typeof useDropzone>[0]);
 
   async function deleteDoc(id: string) {
+    await forgetVectorsFn({ data: { documentIds: [id] } }).catch(() => {});
     await supabase.from("knowledge_documents").delete().eq("id", id);
     if (selectedBase) loadDocs(selectedBase.id);
     toast.success("Document deleted");
@@ -878,8 +878,6 @@ function KnowledgePage() {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   }
-
-  const currentVectorStore = VECTOR_STORES.find((v) => v.id === vectorStore);
 
   /**
    * Index / re-index the selected collection.
@@ -1000,38 +998,65 @@ function KnowledgePage() {
                     </TabsTrigger>
                   </TabsList>
 
+                  {/*
+                   * READ-ONLY, and that is the honest shape.
+                   *
+                   * This tab used to be a "Vector Store Provider" dropdown
+                   * with one option, backed by a `useState` nothing read and
+                   * nothing saved — a control that looked like a choice and
+                   * was not one. Where vectors are searched is a deployment
+                   * setting (VECTOR_STORE / QDRANT_URL), not a per-collection
+                   * one: splitting it per collection would put one knowledge
+                   * base's vectors in Postgres and another's in Qdrant, and a
+                   * switch would strand half of one in each.
+                   *
+                   * So it says which store this deployment uses, and where to
+                   * change it. Nothing here is sensitive — no endpoint, no
+                   * counts, no key — because any collection owner can open it.
+                   */}
                   <TabsContent value="vectorstore" className="space-y-4 mt-4">
-                    <div className="space-y-2">
-                      <Label>Vector Store Provider</Label>
-                      <Select value={vectorStore} onValueChange={setVectorStore}>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {VECTOR_STORES.map((vs) => (
-                            <SelectItem key={vs.id} value={vs.id}>
-                              <div className="flex items-center gap-2">
-                                <Database className="h-3 w-3" />
-                                {vs.name}
-                              </div>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      {currentVectorStore && (
-                        <p className="text-xs text-muted-foreground">
-                          {currentVectorStore.description}
-                        </p>
-                      )}
+                    <div className="rounded-lg border border-border/60 p-3 space-y-2">
+                      <div className="flex items-center gap-2">
+                        <Database className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-sm font-medium">
+                          {storeBrief?.external
+                            ? `Searched in ${storeBrief.kind}`
+                            : "Searched in Postgres (pgvector)"}
+                        </span>
+                        <Badge variant="secondary" className="text-[10px]">
+                          {storeBrief ? `${storeBrief.dims} dimensions` : "…"}
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {storeBrief?.external ? (
+                          <>
+                            Embeddings are searched in an external{" "}
+                            <strong>{storeBrief.kind}</strong> store. It holds vectors and two ids;
+                            the chunk text, the parent passages and who may read them stay in
+                            Postgres, so keyword search is unaffected and the index can always be
+                            rebuilt.
+                          </>
+                        ) : (
+                          <>
+                            Embeddings live in <strong>Postgres</strong>, in the same rows as the
+                            chunks they belong to. One thing to run, one thing to back up, and the
+                            permission check is the row-level security already protecting those
+                            rows.
+                          </>
+                        )}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        This applies to <strong>every</strong> collection — it is set once for the
+                        deployment, not per knowledge base, because one collection&apos;s vectors
+                        living somewhere else from another&apos;s is a way to strand half of each.
+                        An operator changes it in <strong>Admin → Runtime → AI services</strong>,
+                        which also shows whether the store is answering and can re-index it.
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        What you set on the other tabs — chunking, the embedding model, retrieval
+                        mode — applies wherever the vectors are searched.
+                      </p>
                     </div>
-                    <Button
-                      onClick={() => {
-                        toast.success("Defaults updated — they apply to documents you add next");
-                        setSettingsOpen(false);
-                      }}
-                    >
-                      Use These Defaults
-                    </Button>
                   </TabsContent>
 
                   <TabsContent value="embedding" className="space-y-4 mt-4">
@@ -1422,15 +1447,21 @@ function KnowledgePage() {
             <div className="flex items-center gap-3">
               <Database className="h-5 w-5 text-primary" />
               <div>
-                <p className="text-sm font-medium">Retrieval: {currentVectorStore?.name}</p>
+                <p className="text-sm font-medium">
+                  Retrieval:{" "}
+                  {storeBrief?.external
+                    ? `vectors searched in ${storeBrief.kind}`
+                    : "vectors searched in Postgres (pgvector)"}
+                </p>
                 <p className="text-xs text-muted-foreground">
-                  Semantic search over pgvector embeddings (HNSW cosine index). Documents that
-                  haven't been embedded yet fall back to a keyword scan.
+                  Semantic search over {storeBrief?.dims ?? 1536}-dimensional embeddings, cosine
+                  distance. The chunk text and its permissions are always in Postgres, so a document
+                  that has not been embedded yet still answers by keyword.
                 </p>
               </div>
             </div>
             <Badge variant="outline" className="border-primary/30 text-primary">
-              Built-in
+              {storeBrief?.external ? storeBrief.kind : "Built-in"}
             </Badge>
           </CardContent>
         </Card>

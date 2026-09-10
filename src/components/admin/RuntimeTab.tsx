@@ -24,6 +24,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { VectorStorePanel } from "@/components/admin/VectorStorePanel";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { normalizeEgressHost, normalizeEgressIp } from "@/utils/notebookRuntime/egress";
@@ -916,7 +917,8 @@ export function RuntimeTab({
 
         <TabsContent value="ai" className="space-y-4">
           <p className="text-xs text-muted-foreground">
-            Models and limits for AI in SQL, document reading on upload, and the AI gateway.
+            Models and limits for AI in SQL, document reading on upload, and the AI gateway — and
+            where knowledge-base embeddings are searched.
           </p>
           <div className="space-y-3 rounded-lg border border-border/60 p-3">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -1046,6 +1048,8 @@ export function RuntimeTab({
               />
             </div>
           </div>
+
+          <VectorStorePanel token={token} />
         </TabsContent>
 
         {/* Who may start a kernel. */}

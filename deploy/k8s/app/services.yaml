@@ -368,3 +368,225 @@ spec:
         resources:
           requests:
             storage: 10Gi
+---
+# ── Qdrant vector store (optional: only when VECTOR_STORE=qdrant) ────────────
+# THREE NODES, and the number is the point.
+#
+# One Qdrant node is a vector index with an outage in it. Three, with a
+# replication factor of two, is one that survives losing a node and survives a
+# rolling node drain — which on a managed cluster happens on somebody else's
+# schedule, not yours.
+#
+# Two settings have to agree or the extra replicas are decoration:
+#
+#   * `replicas: 3` here places the nodes;
+#   * `QDRANT_REPLICATION` on the APP decides how many copies of each shard
+#     Qdrant keeps, and it is read when the collection is FIRST CREATED.
+#
+# A collection created while that said 1 keeps one copy per shard however many
+# nodes join later. Set QDRANT_REPLICATION=2 in the agentswarms-env secret
+# BEFORE the first document is indexed. Admin → Runtime → AI services reports
+# the replication the collection ACTUALLY has, so a mismatch is visible rather
+# than assumed; the repair is to drop the collection and Re-index, which costs
+# nothing because Postgres still holds every chunk.
+#
+# Delete this whole section if you use pgvector, which is the default.
+apiVersion: v1
+kind: Service
+metadata:
+  name: qdrant-headless
+  namespace: agentswarms
+  labels:
+    app.kubernetes.io/name: agentswarms
+    app.kubernetes.io/component: qdrant
+spec:
+  # Headless, and load-bearing: cluster members find each other by the stable
+  # per-pod DNS name a headless service publishes. A ClusterIP here would
+  # round-robin the peer traffic and no node would ever form a cluster.
+  clusterIP: None
+  # A joining peer has to be reachable BEFORE it is ready, because becoming
+  # ready is what joining accomplishes.
+  publishNotReadyAddresses: true
+  selector:
+    app.kubernetes.io/name: agentswarms
+    app.kubernetes.io/component: qdrant
+  ports:
+    - name: http
+      port: 6333
+      targetPort: http
+    - name: grpc
+      port: 6334
+      targetPort: grpc
+    - name: p2p
+      port: 6335
+      targetPort: p2p
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: qdrant
+  namespace: agentswarms
+  labels:
+    app.kubernetes.io/name: agentswarms
+    app.kubernetes.io/component: qdrant
+spec:
+  # What the app talks to: QDRANT_URL=http://qdrant:6333. Any node answers any
+  # request — it forwards internally to whichever holds the shard — so a plain
+  # ClusterIP across all three is both the load balancer and the failover.
+  selector:
+    app.kubernetes.io/name: agentswarms
+    app.kubernetes.io/component: qdrant
+  ports:
+    - name: http
+      port: 6333
+      targetPort: http
+    - name: grpc
+      port: 6334
+      targetPort: grpc
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: agentswarms-qdrant
+  namespace: agentswarms
+spec:
+  # TWO, not one. Qdrant's cluster state is Raft: two of three is the quorum,
+  # and a drain that took it down to one would leave the survivor unable to
+  # accept a write it cannot reach consensus on.
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agentswarms
+      app.kubernetes.io/component: qdrant
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: qdrant
+  namespace: agentswarms
+  labels:
+    app.kubernetes.io/name: agentswarms
+    app.kubernetes.io/component: qdrant
+spec:
+  serviceName: qdrant-headless
+  replicas: 3
+  # OrderedReady, the default, stated because it matters here: each node joins
+  # the Raft cluster and becomes ready before the next one starts, so three
+  # pods coming up at once cannot each decide they are the first.
+  podManagementPolicy: OrderedReady
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agentswarms
+      app.kubernetes.io/component: qdrant
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: agentswarms
+        app.kubernetes.io/component: qdrant
+    spec:
+      automountServiceAccountToken: false
+      # Three replicas on one node is one node's worth of availability.
+      # ScheduleAnyway rather than DoNotSchedule so a two-node cluster runs
+      # three pods instead of leaving one Pending for ever.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: agentswarms
+              app.kubernetes.io/component: qdrant
+      securityContext:
+        # The image starts as root and its storage directory is root-owned; the
+        # PVC mounted over that path is not, so fsGroup is what makes the volume
+        # writable by the non-root user this pod actually runs as. Without it
+        # the pod starts and then cannot write a single point.
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        runAsNonRoot: true
+        seccompProfile: { type: RuntimeDefault }
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: qdrant
+          image: qdrant/qdrant:v1.12.4
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+          workingDir: /qdrant
+          # Pod 0 forms the cluster; every other pod joins it. Both pass their
+          # OWN address as --uri, which is how a peer rescheduled onto another
+          # node is still recognised as the same member: the name is the
+          # StatefulSet's stable DNS entry, not the pod IP.
+          #
+          # Pod 0 does NOT re-bootstrap on restart — it reads the cluster it
+          # already belongs to out of its volume — which is what makes this
+          # safe to run on every start rather than once.
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -e
+              PEER="http://${HOSTNAME}.qdrant-headless:6335"
+              if [ "${HOSTNAME##*-}" = "0" ]; then
+                exec ./qdrant --uri "$PEER"
+              fi
+              exec ./qdrant --bootstrap "http://qdrant-0.qdrant-headless:6335" --uri "$PEER"
+          ports:
+            - name: http
+              containerPort: 6333
+            - name: grpc
+              containerPort: 6334
+            - name: p2p
+              containerPort: 6335
+          env:
+            - name: QDRANT__CLUSTER__ENABLED
+              value: "true"
+            - name: QDRANT__CLUSTER__P2P__PORT
+              value: "6335"
+            # OPTIONAL, and it has to be. A key set to the EMPTY string turns
+            # API-key auth ON with an empty key, and every request without one
+            # is then rejected — a cluster that refuses to work and blames your
+            # credentials for it. `optional: true` omits the variable when the
+            # secret has no such key, which leaves auth off. Set it, and set
+            # QDRANT_API_KEY on the app to the same value.
+            - name: QDRANT__SERVICE__API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: agentswarms-env
+                  key: QDRANT__SERVICE__API_KEY
+                  optional: true
+          volumeMounts:
+            - name: storage
+              mountPath: /qdrant/storage
+          resources:
+            # An HNSW index wants RAM, and wanting it somewhere that is not your
+            # database's buffer pool is the whole reason to run this. Size the
+            # limit to the index: roughly 4 bytes × 1536 dimensions × chunks,
+            # plus the graph on top.
+            requests: { cpu: 250m, memory: 1Gi }
+            limits: { cpu: "2", memory: 4Gi }
+          # /readyz means "in the cluster and able to serve"; /livez only means
+          # the process is up. Using the second for both would keep sending
+          # traffic to a node that is still catching up.
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            httpGet: { path: /livez, port: http }
+            periodSeconds: 20
+            failureThreshold: 5
+          startupProbe:
+            httpGet: { path: /livez, port: http }
+            periodSeconds: 5
+            # Loading a large index off disk is minutes, not seconds, and a
+            # liveness probe that fires during it restarts the pod for ever.
+            failureThreshold: 60
+  volumeClaimTemplates:
+    - metadata:
+        name: storage
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 20Gi

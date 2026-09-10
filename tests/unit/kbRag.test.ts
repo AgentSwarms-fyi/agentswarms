@@ -343,13 +343,23 @@ describe("retrieval wiring", () => {
     );
   });
 
-  it("runs keyword search whenever the mode is not semantic", () => {
-    expect(KB).toMatch(/if \(retrieval\.mode !== "semantic"\) \{/);
+  it("runs keyword search whenever the mode is not semantic — or the vectors failed", () => {
+    // `effective`, not `retrieval`: the collection's own mode decides
+    // normally, and a vector search that could not answer forces the keyword
+    // pass on so an unreachable store degrades retrieval rather than emptying
+    // it. See the fallback tests in vectorStore.test.ts.
+    expect(KB).toMatch(/if \(effective\.mode !== "semantic"\) \{/);
+    expect(KB).toMatch(/vectorSearchFailed\s*\n?\s*\?/);
     expect(KB).toMatch(/rpc\("keyword_kb_chunks"/);
   });
 
-  it("uses the parent-aware vector RPC", () => {
-    expect(KB).toMatch(/rpc\("match_kb_chunks_v2"/);
+  it("searches for ids and fetches the parent-aware rows separately", () => {
+    // These were one RPC, `match_kb_chunks_v2`, until the vectors were allowed
+    // to live outside this database — at which point the search and the fetch
+    // happen in two different systems and no single function can do both. The
+    // parent join did not go anywhere; it moved into kb_chunks_by_ids.
+    expect(KB).toMatch(/vectorStore\(sb\)\.search\(/);
+    expect(KB).toMatch(/rpc\("kb_chunks_by_ids"/);
   });
 
   it("applies the knowledge base's own retrieval settings", () => {
