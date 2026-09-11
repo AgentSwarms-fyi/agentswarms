@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { resumeApprovedSwarmRun } from "@/utils/swarmResume.functions";
+import { mlApplyApprovedPromotion } from "@/utils/ml.functions";
 import {
   Inbox,
   CheckCircle2,
@@ -72,6 +73,7 @@ export function ApprovalInbox() {
   const { user } = useAuth();
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const resumeRunFn = useServerFn(resumeApprovedSwarmRun);
+  const applyPromotionFn = useServerFn(mlApplyApprovedPromotion);
   const [open, setOpen] = useState(false);
   const [pulse, setPulse] = useState(false);
   const seenIdsRef = useRef<Set<string>>(new Set());
@@ -173,14 +175,42 @@ export function ApprovalInbox() {
       toast.error("Failed to update approval");
       return;
     }
+    // A model promotion is not an agent resuming, and saying so would be the
+    // kind of small lie that makes a reader distrust the rest of the sentence.
+    const isPromotion = item?.action_type === "ml.promote";
     if (status === "approved") {
       toast.success(`Approved: ${item?.action_title}`, {
-        description: `${item?.agent_name} is resuming.`,
+        description: isPromotion
+          ? `${item?.agent_name} is going into production.`
+          : `${item?.agent_name} is resuming.`,
       });
     } else {
       toast.error(`Rejected: ${item?.action_title}`, {
-        description: `${item?.agent_name} has been halted.`,
+        description: isPromotion
+          ? `${item?.agent_name} stays on the version it is serving.`
+          : `${item?.agent_name} has been halted.`,
       });
+    }
+
+    // The inbox records the decision; the server does the thing, and re-checks
+    // everything — including that the approver is not the person who asked.
+    if (isPromotion && status === "approved") {
+      try {
+        const { data: sess } = await supabase.auth.getSession();
+        const token = sess.session?.access_token;
+        if (token) {
+          const res = await applyPromotionFn({ data: { access_token: token, approval_id: id } });
+          if (!res.ok) {
+            toast.warning("Decision saved, but the version was not promoted", {
+              description: res.error,
+            });
+          }
+        }
+      } catch (e) {
+        toast.warning("Decision saved, but the version was not promoted", {
+          description: (e as Error).message,
+        });
+      }
     }
 
     // A headless run (API key / schedule) parks at its approval node with a

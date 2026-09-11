@@ -2514,6 +2514,8 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "_model_version",
       "_predict",
       "_predicted_at",
+      "approved_by",
+      "argmax",
       "artifact_sha256",
       "artifact_uri",
       "classes",
@@ -2538,6 +2540,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "ml.train.start",
       "ml.train.succeeded",
       "ml.version.promote",
+      "ml.version.promote.requested",
       "ml_list_models",
       "ml_model.create",
       "ml_model.delete",
@@ -2614,6 +2617,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       {
         "id": "experiment-save",
         "text": "Saving the model from the notebook",
+        "level": 3
+      },
+      {
+        "id": "promotion-approval",
+        "text": "Who signs off a promotion",
         "level": 3
       },
       {

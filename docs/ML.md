@@ -352,6 +352,39 @@ Limits: 5,000 runs per experiment, and 2,000 named params or metrics per run —
 100k steps would put 100k keys in one column and a row nothing can render is
 not a record of anything.
 
+### Who signs off a promotion
+
+Promotion is audited but ungated by default: anyone with write access can put a
+version in front of customers on their own, and the record says so afterwards.
+Where that is not enough — model-risk policy usually asks for a second
+signature **before** the change, from somebody who did not make it — name the
+approvers under **Versions → Who signs off a promotion**.
+
+With approvers named, **Promote** stops promoting and starts asking. The
+version keeps serving whatever it serves until one of them agrees, and the
+request appears under **Pending approvals** in the header, beside the swarm
+approvals — the same table, the same inbox. There is no second approvals
+system.
+
+**Nobody may approve their own promotion.** Naming only yourself is refused at
+save; the requester is removed from the approver list when a request is raised;
+and the check runs again when the approval is applied, because reaching that
+line means somebody edited the row. A self-signed approval is worse than no
+gate at all, since it produces an audit trail saying a review happened.
+
+**Only production is gated.** Moving a version to staging or archiving it
+changes nothing a customer meets.
+
+**The button says what it will do.** With a gate on, the confirmation asks
+whether to _request_ the promotion and says the version keeps serving what it
+serves now — the dialog is where a gate is first visible, and promising an
+immediate switch there would be a lie told at the moment somebody decides
+whether to press.
+
+The audit names both people: `ml.version.promote.requested` when it is asked
+for, and `ml.version.promote` with `approved_by` when it happens. Turning the
+gate on and off is itself recorded.
+
 ## Predictions
 
 **Try it** — a form generated from the feature schema (medians and category
@@ -987,7 +1020,7 @@ Where AgentSwarms stands against Databricks ML and SageMaker, honestly:
 | Ground-truth monitoring    | Outcome source per model; the training metric recomputed on matched rows, with coverage; decay alerts on the platform clock | Model-quality monitoring jobs                          |
 | Explainability             | Global permutation importance at training, plus per-row contributions by ablation against a typical row. Not Shapley values | SHAP per prediction, Clarify                           |
 | Fairness                   | Selection-rate ratio and error-rate gaps per group, per column; assistant suggests columns and proxies; four-fifths default | Clarify / bias reports                                 |
-| Promotion approval         | **Not implemented** — promotion is audited, not gated                                                                       | Approval workflows                                     |
+| Promotion approval         | Named approvers per model, in the same inbox as swarm approvals; a requester can never approve their own                    | Approval workflows                                     |
 | Scheduled retraining       | Cron/cadence, promote-when-better, one platform clock                                                                       | Workflows / Pipelines                                  |
 | Public API                 | Per-model scoped keys, rate limits, audited denials, BYO registration                                                       | Yes, IAM-based                                         |
 | Bring your own model       | Any joblib pipeline under a small contract                                                                                  | Any framework, containers                              |
@@ -999,11 +1032,19 @@ Where AgentSwarms stands against Databricks ML and SageMaker, honestly:
 | Agents and BI              | Models are agent tools; forecasts and drift live in the BI layer                                                            | Separate products                                      |
 | Cost and residency         | Self-hosted, your infrastructure, no per-call charges                                                                       | Managed, metered                                       |
 
-Everything in the left column that is not marked **Not implemented** is
-shipped and tested. What is left, in the order it is usually asked for:
+Everything in the left column is shipped and tested. What is left, in the
+order it is usually asked for:
 
-- **Promotion approval.** Any owner may promote a version to production; it is
-  audited, but nobody signs it off.
+- **Probability calibration and a decision threshold.** A classifier reports
+  the score its algorithm produces and decides by `argmax`, so a displayed
+  confidence ranks well but is not a calibrated probability, and a
+  cost-asymmetric decision has no operating point to set.
+- **Cross-validation.** One stratified holdout both picks the model and sets
+  the baseline a decay alert compares against; there is no `TimeSeriesSplit`
+  for temporal data.
+- **Reason codes on every scored row.** An explanation is available for a row
+  you ask about, not written beside every decision in a batch.
+
 - **Training one model across machines.** The algorithm search spreads over
   sandboxes, but a single fit still happens in one container, so a model too
   large for one box does not train here.

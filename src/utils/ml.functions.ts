@@ -29,6 +29,15 @@ import {
 } from "./ml/access.server";
 import { cancelMlJob, refreshMlJob } from "./ml/train.server";
 import {
+  ML_PROMOTE_ACTION,
+  applyApprovedPromotion,
+  applyPromotion,
+  approverEmails,
+  promotionGated,
+  requestPromotion,
+  resolveApprovers,
+} from "./ml/promote.server";
+import {
   ML_ROWS_PREDICT_CAP,
   cancelPrediction,
   predictRowsSync,
@@ -518,56 +527,121 @@ export const mlPromoteVersion = createServerFn({ method: "POST" })
       })
       .parse(input),
   )
+  .handler(
+    async ({ data }): Promise<{ ok: true; pending?: boolean } | { ok: false; error: string }> => {
+      const userId = await resolveCaller(data.access_token);
+      const { data: version } = await supabaseAdmin
+        .from("ml_model_versions")
+        .select("*")
+        .eq("id", data.version_id)
+        .maybeSingle();
+      if (!version) return { ok: false, error: "Version not found" };
+      const { model } = await loadModelForUser(version.model_id, userId, { write: true });
+
+      // Gated models ASK instead of doing. Only production is gated: moving a
+      // version to staging or archiving it changes nothing a customer meets.
+      if (promotionGated(model, data.stage)) {
+        if (version.status !== "ready") {
+          return { ok: false, error: "Only a trained version can serve production" };
+        }
+        const asked = await requestPromotion(model, version, userId);
+        return asked.ok ? { ok: true, pending: true } : asked;
+      }
+      return await applyPromotion(model, version, data.stage, userId);
+    },
+  );
+
+/** Who may approve this model's promotions. Empty means ungated. */
+export const mlSetPromotionApprovers = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z
+      .object({
+        access_token: z.string().min(1),
+        model_id: z.string().uuid(),
+        approver_emails: z.array(z.string().trim().email()).max(10),
+      })
+      .parse(input),
+  )
   .handler(async ({ data }): Promise<{ ok: true } | { ok: false; error: string }> => {
     const userId = await resolveCaller(data.access_token);
-    const { data: version } = await supabaseAdmin
-      .from("ml_model_versions")
-      .select("*")
-      .eq("id", data.version_id)
-      .maybeSingle();
-    if (!version) return { ok: false, error: "Version not found" };
-    const { model } = await loadModelForUser(version.model_id, userId, { write: true });
-    if (data.stage === "production" && version.status !== "ready") {
-      return { ok: false, error: "Only a trained version can serve production" };
+    const { model } = await loadModelForUser(data.model_id, userId, { write: true });
+    const { ids, unknown } = await resolveApprovers(data.approver_emails);
+    if (unknown.length) {
+      return { ok: false, error: `No user here with the address ${unknown.join(", ")}` };
     }
-    const now = new Date().toISOString();
-    if (data.stage === "production") {
-      if (model.production_version_id && model.production_version_id !== version.id) {
-        await supabaseAdmin
-          .from("ml_model_versions")
-          .update({ stage: "archived" })
-          .eq("id", model.production_version_id);
-      }
-      await supabaseAdmin
-        .from("ml_models")
-        .update({ production_version_id: version.id, updated_at: now })
-        .eq("id", model.id);
-    } else if (model.production_version_id === version.id) {
-      await supabaseAdmin
-        .from("ml_models")
-        .update({ production_version_id: null, updated_at: now })
-        .eq("id", model.id);
+    const others = ids.filter((id) => id !== userId);
+    if (ids.length && !others.length) {
+      // Naming only yourself is not a gate, and a gate that looks like one is
+      // worse than none: the audit trail would record a review that was you.
+      return {
+        ok: false,
+        error: "Name somebody other than yourself — nobody may approve their own promotion.",
+      };
     }
-    await supabaseAdmin
-      .from("ml_model_versions")
-      .update({ stage: data.stage })
-      .eq("id", version.id);
+    const { error } = await supabaseAdmin
+      .from("ml_models")
+      .update({ promotion_approvers: ids.length ? ids : null })
+      .eq("id", model.id);
+    if (error) return { ok: false, error: error.message };
     auditEvent({
       userId,
-      action: "ml.version.promote",
+      action: ids.length ? "ml.promotion.gate.on" : "ml.promotion.gate.off",
       resourceType: "ml_model",
       resourceId: model.id,
       resourceName: model.name,
-      decisionId: version.id,
-      detail: {
-        version_id: version.id,
-        version: version.version,
-        from: version.stage,
-        stage: data.stage,
-      },
+      // The addresses, not only the ids: an audit entry a person can read
+      // without a second query is one they will actually read.
+      detail: { approvers: ids, approver_emails: data.approver_emails },
     });
     return { ok: true };
   });
+
+/**
+ * Carry out a promotion the inbox just approved.
+ *
+ * The inbox records the decision; this does the thing. Everything is
+ * re-checked server-side, so a decision written straight into the row by a
+ * client still cannot promote anything it should not.
+ */
+export const mlApplyApprovedPromotion = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z.object({ access_token: z.string().min(1), approval_id: z.string().uuid() }).parse(input),
+  )
+  .handler(async ({ data }): Promise<{ ok: true } | { ok: false; error: string }> => {
+    const userId = await resolveCaller(data.access_token);
+    return await applyApprovedPromotion(data.approval_id, userId);
+  });
+
+/** Versions of this model waiting on somebody's yes. */
+export const mlPendingPromotions = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z.object({ access_token: z.string().min(1), model_id: z.string().uuid() }).parse(input),
+  )
+  .handler(
+    async ({
+      data,
+    }): Promise<{
+      pending: { version_id: string; requested_by: string }[];
+      approvers: string[];
+    }> => {
+      const userId = await resolveCaller(data.access_token);
+      const { model } = await loadModelForUser(data.model_id, userId);
+      const { data: rows } = await supabaseAdmin
+        .from("approvals")
+        .select("payload")
+        .eq("action_type", ML_PROMOTE_ACTION)
+        .eq("status", "pending")
+        .contains("payload", { model_id: model.id });
+      const emails = await approverEmails(model.promotion_approvers ?? []);
+      return {
+        pending: (rows ?? []).map((r) => {
+          const p = (r.payload ?? {}) as { version_id?: string; requested_by?: string };
+          return { version_id: p.version_id ?? "", requested_by: p.requested_by ?? "" };
+        }),
+        approvers: Object.values(emails),
+      };
+    },
+  );
 
 export const mlUpdateModel = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) =>

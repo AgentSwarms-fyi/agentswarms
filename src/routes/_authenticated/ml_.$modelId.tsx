@@ -42,6 +42,7 @@ import {
   mlCancelJob,
   mlDeleteModel,
   mlGetModel,
+  mlPendingPromotions,
   mlPromoteVersion,
   mlTrainVersion,
   mlUpdateModel,
@@ -79,6 +80,7 @@ import {
 } from "@/components/ml/mlUi";
 import { AccuracyPanel } from "@/components/ml/AccuracyPanel";
 import { FairnessPanel } from "@/components/ml/FairnessPanel";
+import { PromotionGate } from "@/components/ml/PromotionGate";
 import { PredictionsPanel } from "@/components/ml/PredictionsPanel";
 import { MlApiKeysDialog } from "@/components/ml/MlApiKeysDialog";
 import { ModelCardDialog } from "@/components/ml/ModelCardDialog";
@@ -141,6 +143,23 @@ function ModelPage() {
   const trainFn = useServerFn(mlTrainVersion);
   const cancelFn = useServerFn(mlCancelJob);
   const promoteFn = useServerFn(mlPromoteVersion);
+  // Whether this model's promotions need a second signature. Read here rather
+  // than passed down, because the CONFIRM DIALOG has to say the right thing —
+  // the button's own copy is where a gate is first visible.
+  const pendingFn = useServerFn(mlPendingPromotions);
+  const [gated, setGated] = useState(false);
+  const [gateNonce, setGateNonce] = useState(0);
+  useEffect(() => {
+    let live = true;
+    void pendingFn({ data: { access_token: token, model_id: modelId } })
+      .then((r) => {
+        if (live) setGated(r.approvers.length > 0);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [pendingFn, token, modelId, gateNonce]);
   const updateFn = useServerFn(mlUpdateModel);
   const deleteFn = useServerFn(mlDeleteModel);
 
@@ -213,9 +232,14 @@ function ModelPage() {
     v: MlVersionRow,
     stage: "production" | "staging" | "archived" | "candidate",
   ) => {
+    // When a gate is on, this button ASKS. Saying "switch to it immediately"
+    // and then raising a request would be a small lie told at the exact moment
+    // somebody is deciding whether to press.
     const label =
       stage === "production"
-        ? `Promote v${v.version} to production? Agents and dashboards using this model switch to it immediately.`
+        ? gated
+          ? `Ask for v${v.version} to go into production? It keeps serving what it serves now until an approver agrees.`
+          : `Promote v${v.version} to production? Agents and dashboards using this model switch to it immediately.`
         : stage === "archived"
           ? `Archive v${v.version}? It stays in the registry with its metrics and passport but is no longer offered.`
           : null;
@@ -223,12 +247,16 @@ function ModelPage() {
       label &&
       !(await confirmAsk({
         title: label,
-        actionLabel: stage === "production" ? "Promote" : "Archive",
+        actionLabel: stage === "production" ? (gated ? "Ask for approval" : "Promote") : "Archive",
       }))
     )
       return;
     const r = await promoteFn({ data: { access_token: token, version_id: v.id, stage } });
     if (!r.ok) toast.error(r.error);
+    else if (r.pending)
+      toast.success(`Asked for v${v.version}`, {
+        description: "It goes into production when an approver agrees, and not before.",
+      });
     else
       toast.success(
         stage === "production" ? `v${v.version} is now in production` : `v${v.version} → ${stage}`,
@@ -440,6 +468,12 @@ function ModelPage() {
         </TabsContent>
 
         <TabsContent value="versions" className="mt-4 space-y-4">
+          <PromotionGate
+            token={token}
+            modelId={model.id}
+            shared={shared}
+            onChanged={() => setGateNonce((n) => n + 1)}
+          />
           {compare.size >= 2 ? (
             <CompareVersions
               versions={versions.filter((v) => compare.has(v.id))}

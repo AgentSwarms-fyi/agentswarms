@@ -434,6 +434,33 @@ with agentswarms.start_run("churn-v2", params={"lr": 0.01, "depth": 6}) as run:
         against the caller&apos;s own id — a run id is a uuid, not a capability.
       </Callout>
 
+      <H3 id="promotion-approval">Who signs off a promotion</H3>
+      <P>
+        Promotion is audited but ungated by default: anyone with write access can put a version in
+        front of customers on their own. Where that is not enough — model-risk policy usually asks
+        for a second signature <em>before</em> the change, from somebody who did not make it — name
+        the approvers under <strong>Versions → Who signs off a promotion</strong>. With approvers
+        named, <strong>Promote</strong> stops promoting and starts asking: the version keeps serving
+        whatever it serves until one of them agrees, and the request appears under{" "}
+        <strong>Pending approvals</strong> in the header, beside the swarm approvals. The same
+        table, the same inbox — there is no second approvals system.
+      </P>
+      <Callout kind="warn" title="Nobody may approve their own promotion">
+        Naming only yourself is refused at save; the requester is removed from the approver list
+        when a request is raised; and the check runs again when the approval is applied, because
+        reaching that line means somebody edited the row. A self-signed approval is worse than no
+        gate at all — it produces an audit trail saying a review happened.
+      </Callout>
+      <P>
+        <strong>Only production is gated</strong> — moving a version to staging or archiving it
+        changes nothing a customer meets. <strong>The button says what it will do</strong>: with a
+        gate on, the confirmation asks whether to <em>request</em> the promotion and says the
+        version keeps serving what it serves now, because the dialog is where a gate is first
+        visible and promising an immediate switch there would be a lie told at the moment somebody
+        decides whether to press. The audit names both people — <C>ml.version.promote.requested</C>{" "}
+        when it is asked for, and <C>ml.version.promote</C> with <C>approved_by</C> when it happens.
+      </P>
+
       <H2 id="predictions">Predictions</H2>
       <H3 id="try-it">Try it</H3>
       <P>
@@ -1025,7 +1052,7 @@ curl -X POST https://your-instance/api/ml/predict/batch \\
           ],
           [
             "Promotion approval",
-            "Not implemented — promotion is audited, not gated",
+            "Named approvers per model, in the same inbox as swarm approvals; a requester can never approve their own",
             "Approval workflows",
           ],
           [
@@ -1077,13 +1104,17 @@ curl -X POST https://your-instance/api/ml/predict/batch \\
         ]}
       />
       <P>
-        Everything in the left column not marked <strong>Not implemented</strong> is shipped and
-        tested. What is left, in the order it is usually asked for:{" "}
-        <strong>promotion approval</strong> (any owner may promote a version to production — it is
-        audited, but nobody signs it off); <strong>training one model across machines</strong> (the
-        search spreads over sandboxes, but a single fit still happens in one container, so a model
-        too large for one box does not train here); and <strong>serving at scale</strong> (one warm
-        endpoint, one replica, no autoscaling and no canary or shadow traffic).
+        Everything in the left column is shipped and tested. What is left, in the order it is
+        usually asked for: <strong>probability calibration and a decision threshold</strong> (a
+        classifier reports the score its algorithm produces and decides by <C>argmax</C>, so a
+        displayed confidence ranks well but is not a calibrated probability, and a cost-asymmetric
+        decision has no operating point to set); <strong>cross-validation</strong> (one stratified
+        holdout both picks the model and sets the baseline a decay alert compares against);{" "}
+        <strong>reason codes on every scored row</strong> (an explanation is available for a row you
+        ask about, not written beside every decision in a batch);{" "}
+        <strong>training one model across machines</strong> (the search spreads over sandboxes, but
+        a single fit still happens in one container); and <strong>serving at scale</strong> (one
+        warm endpoint, one replica, no autoscaling and no canary or shadow traffic).
       </P>
 
       <H2 id="use-cases">Use cases</H2>

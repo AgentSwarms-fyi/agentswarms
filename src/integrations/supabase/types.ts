@@ -5219,6 +5219,7 @@ export type Database = {
           period: string;
           prep: Json;
           production_version_id: string | null;
+          promotion_approvers: string[] | null;
           rating_column: string | null;
           source: Json;
           target_column: string | null;
@@ -5246,6 +5247,7 @@ export type Database = {
           period?: string;
           prep?: Json;
           production_version_id?: string | null;
+          promotion_approvers?: string[] | null;
           rating_column?: string | null;
           source: Json;
           target_column?: string | null;
@@ -5273,6 +5275,7 @@ export type Database = {
           period?: string;
           prep?: Json;
           production_version_id?: string | null;
+          promotion_approvers?: string[] | null;
           rating_column?: string | null;
           source?: Json;
           target_column?: string | null;
