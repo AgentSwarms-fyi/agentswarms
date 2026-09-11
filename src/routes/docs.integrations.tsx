@@ -358,7 +358,7 @@ function IntegrationsDoc() {
           ],
           [
             "Data sources",
-            "22 database/warehouse connectors queried in place, 17 apps synced into datasets, plus object stores and lakehouse catalogs",
+            "22 database/warehouse connectors queried in place, 17 apps synced into datasets, plus object stores and external table catalogs",
             <DocLink key="b" to="/docs/data">
               Data Catalog &amp; SQL
             </DocLink>,

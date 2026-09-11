@@ -1092,7 +1092,7 @@ function TableTab({
               if (
                 !(await confirmAsk({
                   title: `Drop table ${schema}.${table}?`,
-                  body: "The table and its catalog entry are removed. This cannot be undone.",
+                  body: "The table's rows and its Parquet files go, along with the lakehouse's own record of them. Its entry in the Data Catalog stays until the next crawl. This cannot be undone.",
                   actionLabel: "Drop table",
                 }))
               )

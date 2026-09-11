@@ -6,6 +6,28 @@ Connect your own databases, warehouses and lakehouses so agents and the BI
 Workspace can query them directly. Connectors live under **Integrations →
 Data Sources**.
 
+## Three different things are called a catalog
+
+The word does a lot of work in this business, and two of the three are ours, so
+it is worth being explicit once:
+
+| What you read                                   | What it is                                                                                                                  |
+| ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| **Data Catalog** (`/data-sql`)                  | The inventory of every dataset you can reach — columns, tags, PII flags, profile. Describes data **for people and agents**. |
+| **External table catalog**                      | Somebody else's metadata service — Iceberg REST, Unity, Polaris, Nessie. Connected here as a source.                        |
+| **lakehouse catalog** (`LAKEHOUSE_CATALOG_URL`) | The Postgres the built-in lakehouse keeps its table manifests and snapshots in. **Machinery, not an inventory.**            |
+
+They sit in a stack rather than side by side: the lakehouse catalog is what
+makes the Parquet in your bucket queryable at all, and the Data Catalog then
+describes those tables — along with everything else — so a person can find
+them. Losing annotations in the first costs you documentation; losing the third
+leaves you with files nobody can name.
+
+They are also connected in one direction that matters: a **tag written in the
+Data Catalog drives lakehouse masking and row policies**, so the thing that
+describes the data is also what governs it. See
+[LAKEHOUSE.md](./LAKEHOUSE.md#policies-by-tag) for that path.
+
 ## How connecting works
 
 1. Open **Integrations → Data Sources** and pick a provider.

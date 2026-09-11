@@ -67,7 +67,7 @@ function DataPage() {
       <DocsHeader
         eyebrow="Data & analytics"
         title="Data Catalog & SQL"
-        description="Everything tabular: uploaded files, 22 databases and warehouses, 7 app sources, the catalog that describes them, and the workbench that queries them."
+        description="Everything tabular: uploaded files, 22 databases and warehouses, 17 app sources, the catalog that describes them, and the workbench that queries them."
       />
 
       <P>
@@ -500,7 +500,17 @@ function DataPage() {
         ]}
       />
 
-      <H3 id="c-other">Object stores and lakehouse catalogs</H3>
+      <H3 id="c-other">Object stores and external table catalogs</H3>
+      <Callout kind="why" title="Three different things are called a catalog">
+        The word does a lot of work in this business, so: the <strong>Data Catalog</strong> is this
+        page — an inventory of every dataset you can reach, with its columns, tags and profile. An{" "}
+        <strong>external table catalog</strong> is somebody else&apos;s metadata service — Iceberg
+        REST, Unity, Polaris, Nessie — which you connect as a source here. And the{" "}
+        <strong>lakehouse catalog</strong> (<C>LAKEHOUSE_CATALOG_URL</C>) is the Postgres the
+        built-in lakehouse keeps its own table manifests and snapshots in; it is machinery, not an
+        inventory, and you never browse it. The first describes data for people; the third is what
+        makes the Parquet in your bucket queryable at all.
+      </Callout>
       <P>
         S3, Cloudflare R2, MinIO, DigitalOcean Spaces, Backblaze B2, GCS over its S3 API, any other
         S3-compatible endpoint, and Azure Blob Storage / ADLS Gen2 (account key or SAS token) are

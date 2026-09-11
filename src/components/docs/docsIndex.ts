@@ -988,7 +988,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
   {
     "route": "/docs/data",
     "title": "Data Catalog & SQL",
-    "description": "Everything tabular: uploaded files, 22 databases and warehouses, 7 app sources, the catalog that describes them, and the workbench that queries them.",
+    "description": "Everything tabular: uploaded files, 22 databases and warehouses, 17 app sources, the catalog that describes them, and the workbench that queries them.",
     "terms": [
       ".avro",
       ".csv",
@@ -996,6 +996,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "2024-03-01",
       "AwsDataCatalog",
       "HTTPS_PROXY",
+      "LAKEHOUSE_CATALOG_URL",
       "LIST",
       "LastModifiedDate",
       "MAP",
@@ -1088,7 +1089,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       },
       {
         "id": "c-other",
-        "text": "Object stores and lakehouse catalogs",
+        "text": "Object stores and external table catalogs",
         "level": 3
       },
       {
