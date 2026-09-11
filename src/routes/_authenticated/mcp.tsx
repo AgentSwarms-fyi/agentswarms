@@ -39,6 +39,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { toast } from "sonner";
+import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { probeMcpServer } from "@/lib/mcp/probe.functions";
@@ -165,6 +166,15 @@ function McpPage() {
   };
 
   const removeServer = async (id: string) => {
+    const server = servers.find((s) => s.id === id);
+    if (
+      !(await confirmAsk({
+        title: `Remove "${server?.name ?? "this server"}"?`,
+        body: "Agents using its tools lose them on their next turn. The server itself is untouched — this removes the connection to it.",
+        actionLabel: "Remove server",
+      }))
+    )
+      return;
     const { error } = await supabase.from("mcp_servers").delete().eq("id", id);
     if (error) toast.error("Failed to remove");
     else toast.success("MCP server removed");

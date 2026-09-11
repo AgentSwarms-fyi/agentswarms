@@ -660,6 +660,17 @@ function KnowledgePage() {
       toast.error("Sample sources can't be removed");
       return;
     }
+    // Removing a source CASCADES its documents — every page crawled or synced
+    // from it, and their chunks and vectors. The guard added for deleteBase
+    // sat right next to this one while this deleted more on a single click.
+    if (
+      !(await confirmAsk({
+        title: `Remove "${src.label ?? src.kind}"?`,
+        body: "Every document synced from it goes too, with their chunks and embeddings. Retrieval stops using them at once. This cannot be undone.",
+        actionLabel: "Remove source",
+      }))
+    )
+      return;
     // Vectors first, while the rows that prove ownership still exist. On the
     // default pgvector store this is a no-op — the vector is a column on the
     // chunk and the cascade takes it.
@@ -856,6 +867,15 @@ function KnowledgePage() {
   } as unknown as Parameters<typeof useDropzone>[0]);
 
   async function deleteDoc(id: string) {
+    const doc = docs.find((d) => d.id === id);
+    if (
+      !(await confirmAsk({
+        title: `Delete "${doc?.name ?? "this document"}"?`,
+        body: "Its chunks and embeddings go with it, so answers stop citing it. This cannot be undone.",
+        actionLabel: "Delete document",
+      }))
+    )
+      return;
     await forgetVectorsFn({ data: { documentIds: [id] } }).catch(() => {});
     await supabase.from("knowledge_documents").delete().eq("id", id);
     if (selectedBase) loadDocs(selectedBase.id);

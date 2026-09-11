@@ -441,6 +441,14 @@ function DatasetPanel({
   };
 
   const deleteCase = async (id: string) => {
+    if (
+      !(await confirmAsk({
+        title: "Delete this case?",
+        body: "It leaves the dataset, so future runs no longer test it. Results already recorded are kept.",
+        actionLabel: "Delete case",
+      }))
+    )
+      return;
     await supabase.from("eval_cases").delete().eq("id", id);
     await load();
   };

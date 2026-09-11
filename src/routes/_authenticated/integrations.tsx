@@ -34,6 +34,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { confirmAsk } from "@/components/ui/confirm-dialog";
 import {
   Zap,
   Cloud,
@@ -830,6 +831,16 @@ function IntegrationsPage() {
   }
 
   async function disconnectProvider(providerId: string) {
+    // The key itself is gone after this — it is stored encrypted and never
+    // shown again, so there is nothing to copy back out afterwards.
+    if (
+      !(await confirmAsk({
+        title: `Disconnect ${providerId}?`,
+        body: "The stored key is deleted, not disabled. Agents and gateway routes using this provider stop working until you paste a key in again — and the old one cannot be read back.",
+        actionLabel: "Disconnect",
+      }))
+    )
+      return;
     if (ENCRYPTED_PROVIDERS.has(providerId)) {
       const encId = toEncryptedProviderId(providerId);
       if (!encId) return;

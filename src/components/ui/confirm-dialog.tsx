@@ -77,6 +77,17 @@ export function promptAsk(req: ConfirmRequest & { input: NonNullable<ConfirmRequ
 /** Mounted once, near the root. Everything above talks to this. */
 export function ConfirmHost() {
   const [pending, setPending] = useState<Pending | null>(null);
+  /**
+   * What the dialog is SHOWING, which is not the same as whether it is open.
+   *
+   * Settling used to clear `pending`, and the content was derived from it — so
+   * for the ~150ms Radix spends animating the dialog out, the question
+   * vanished and the buttons fell back to their defaults. Every one of the
+   * call sites flashed a generic "Confirm" on the way out, right after the
+   * reader had decided something. This holds the last request until a new one
+   * replaces it, so the dialog fades out still saying what it said.
+   */
+  const [shown, setShown] = useState<ConfirmRequest | null>(null);
   const [text, setText] = useState("");
   const resolver = useRef<Pending["resolve"] | null>(null);
 
@@ -84,6 +95,7 @@ export function ConfirmHost() {
     deliver = (p) => {
       resolver.current = p.resolve;
       setText(p.req.input?.defaultValue ?? "");
+      setShown(p.req);
       setPending(p);
     };
     return () => {
@@ -100,7 +112,8 @@ export function ConfirmHost() {
     r?.(value);
   }, []);
 
-  const req = pending?.req;
+  // Read from `shown`, not `pending`: see the comment on `shown` above.
+  const req = shown;
   const wantsText = Boolean(req?.input);
   const blocked = wantsText && Boolean(req?.input?.required) && text.trim() === "";
 
