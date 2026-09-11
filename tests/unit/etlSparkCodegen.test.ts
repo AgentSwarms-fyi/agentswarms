@@ -25,7 +25,12 @@ import {
   type EtlNode,
 } from "@/utils/etl/codegen";
 import { ETL_ENGINES, compilePipeline, engineOf, pipelineRequirements } from "@/utils/etl/compile";
-import { compileSparkGraph, sparkRefusal, sparkRequirementsFor } from "@/utils/etl/sparkCodegen";
+import {
+  compileSparkGraph,
+  sparkRefusal,
+  sparkRequirementsFor,
+  sqlDialectRefusal,
+} from "@/utils/etl/sparkCodegen";
 
 // ── Python syntax oracle (skips silently when no interpreter exists) ────────
 
@@ -799,6 +804,69 @@ describe("compileSparkGraph — the lakehouse is written by the cluster", () => 
     expect(block).toContain("staged files left at");
     // And the tidy-up comes after the load, not before it.
     expect(block.indexOf("con.close()")).toBeLessThan(block.indexOf("_fs.rm("));
+  });
+});
+
+describe("SQL steps: the dialect traps, said before the run", () => {
+  // FOUND BY RUNNING ONE. A pipeline with a SQL step died minutes into a
+  // cluster run with `INVALID_PARAMETER_VALUE.REGEX_GROUP_INDEX`, having
+  // already read its sources — because `regexp_extract(s, pattern)` returns
+  // the whole match in DuckDB and Spark reads the missing third argument as
+  // capture group 1. Both engines run the same SQL step; where they disagree,
+  // save time is the place to say so.
+  const sqlStep = (query: string) => node("x", "transform", { type: "sql", query });
+
+  it("refuses a two-argument regexp_extract, and says what to write instead", () => {
+    const why = sqlDialectRefusal("SELECT regexp_extract(ref, '[0-9]+') AS n FROM t", "Normalise");
+    expect(why).toMatch(/Normalise/);
+    expect(why).toMatch(/regexp_extract\(x, pattern, 0\)/);
+    // The refusal has to carry the fix, not just the complaint.
+    expect(why).toMatch(/whole match/i);
+  });
+
+  it("accepts the explicit forms, which both engines agree on", () => {
+    // Verified against DuckDB: idx 0 and idx 1 both return "123" for
+    // regexp_extract('ORD-123', '([0-9]+)', idx). Spark matches.
+    for (const q of [
+      "SELECT regexp_extract(ref, '([0-9]+)', 0) FROM t",
+      "SELECT regexp_extract(ref, '([0-9]+)', 1) FROM t",
+      "SELECT upper(ref) FROM t",
+    ]) {
+      expect(sqlDialectRefusal(q, "s"), q).toBeNull();
+    }
+  });
+
+  it("does not read a function call out of a string literal", () => {
+    // The whole reason literals are blanked first: a query that merely
+    // MENTIONS the call in text is not making it.
+    const q = "SELECT 'regexp_extract(a, b)' AS note, regexp_extract(ref, 'x', 0) FROM t";
+    expect(sqlDialectRefusal(q, "s")).toBeNull();
+  });
+
+  it("counts arguments at the top level, not inside nested calls", () => {
+    // `regexp_extract(concat(a, b), p)` is still two arguments; the comma
+    // inside concat() belongs to concat.
+    expect(sqlDialectRefusal("SELECT regexp_extract(concat(a, b), '[0-9]+') FROM t", "s")).toMatch(
+      /regexp_extract/,
+    );
+    expect(
+      sqlDialectRefusal("SELECT regexp_extract(concat(a, b), '[0-9]+', 0) FROM t", "s"),
+    ).toBeNull();
+  });
+
+  it("refuses the graph at save time, through sparkRefusal", () => {
+    // The point of finding it here: compileSparkGraph throws before anything
+    // reaches a cluster.
+    const g = linear(CSV_SRC, sqlStep("SELECT regexp_extract(a, 'p') FROM t"), PARQUET_TGT);
+    expect(sparkRefusal(g)).toMatch(/regexp_extract/);
+    expect(() => compileSparkGraph(g)).toThrow(/regexp_extract/);
+  });
+
+  it("leaves the pandas engine alone — it is the Spark default that differs", () => {
+    // DuckDB is happy with the two-argument form and always was. Refusing it
+    // on both engines would be inventing a rule to make two engines agree.
+    const g = linear(CSV_SRC, sqlStep("SELECT regexp_extract(a, 'p') FROM t"), PARQUET_TGT);
+    expect(() => compileGraph(g)).not.toThrow();
   });
 });
 

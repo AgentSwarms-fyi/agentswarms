@@ -1441,6 +1441,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "notebooks",
       "numErrors",
       "raw/orders/*.csv",
+      "regexp_extract",
       "replace",
       "sc://spark-connect:15002",
       "success"

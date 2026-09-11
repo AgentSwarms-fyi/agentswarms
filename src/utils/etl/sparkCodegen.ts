@@ -104,6 +104,86 @@ function targetMode(node: EtlNode): "storage" | "jdbc" | "lakehouse" | "driver" 
 }
 
 /**
+ * A SQL step's text with string literals blanked out.
+ *
+ * Scanning SQL with a regex is a way to find a function call inside a comment
+ * or a quoted string and refuse a query that was fine. Blanking the literals
+ * first costs one pass and removes that whole class of wrong answer.
+ */
+function sqlWithoutLiterals(query: string): string {
+  let out = "";
+  let quote: string | null = null;
+  for (let i = 0; i < query.length; i++) {
+    const ch = query[i];
+    if (quote) {
+      // Doubled quote is an escaped quote, not the end of the literal.
+      if (ch === quote && query[i + 1] === quote) {
+        out += "  ";
+        i++;
+        continue;
+      }
+      if (ch === quote) quote = null;
+      out += ch === "\n" ? "\n" : " ";
+      continue;
+    }
+    if (ch === "'" || ch === '"') {
+      quote = ch;
+      out += " ";
+      continue;
+    }
+    out += ch;
+  }
+  return out;
+}
+
+/** How many top-level arguments a call starting at `open` has. */
+function argCount(text: string, open: number): number {
+  let depth = 0;
+  let args = 1;
+  for (let i = open; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === "(") depth++;
+    else if (ch === ")") {
+      depth--;
+      if (depth === 0) return args;
+    } else if (ch === "," && depth === 1) args++;
+  }
+  return args;
+}
+
+/**
+ * Dialect traps in a SQL step, said before the run rather than during it.
+ *
+ * A SQL step is written once and executed by whichever engine the pipeline is
+ * on: DuckDB in the sandbox, Spark SQL on the cluster. They agree on almost
+ * everything, and where they disagree the disagreement is usually silent. This
+ * one is not silent, but it surfaces as `INVALID_PARAMETER_VALUE.REGEX_GROUP_
+ * INDEX` from inside a cluster, minutes into a run and after the data has been
+ * read — which is a long way to travel to learn that a default differs.
+ *
+ * FOUND BY RUNNING ONE. `regexp_extract(s, pattern)` returns the WHOLE match in
+ * DuckDB; Spark reads the missing third argument as capture group 1 and raises
+ * if the pattern has no groups. Both engines accept the explicit form, and it
+ * means the same thing in each, so the fix is to write the group you meant.
+ */
+export function sqlDialectRefusal(query: string, label: string): string | null {
+  const text = sqlWithoutLiterals(query);
+  const call = /\bregexp_extract\s*\(/gi;
+  for (const m of text.matchAll(call)) {
+    const open = m.index! + m[0].length - 1;
+    if (argCount(text, open) !== 2) continue;
+    return (
+      `Step "${label}": \`regexp_extract\` means different things to the two engines — ` +
+      `DuckDB returns the whole match, Spark reads the absent third argument as capture ` +
+      `group 1 and fails if the pattern has none. Say which you mean: ` +
+      `\`regexp_extract(x, pattern, 0)\` for the whole match, or \`1\` for the first group. ` +
+      `Both engines agree once it is explicit.`
+    );
+  }
+  return null;
+}
+
+/**
  * Why this graph cannot run on the Spark engine, or null.
  *
  * Said at save time in the words of the fix, because each of these would
@@ -111,6 +191,14 @@ function targetMode(node: EtlNode): "storage" | "jdbc" | "lakehouse" | "driver" 
  */
 export function sparkRefusal(graph: EtlGraph): string | null {
   for (const n of graph.nodes ?? []) {
+    if (n.kind === "transform") {
+      const t = n.config as EtlTransformConfig;
+      if (t.type === "sql") {
+        const problem = sqlDialectRefusal(t.query ?? "", n.label || n.id);
+        if (problem) return problem;
+      }
+      continue;
+    }
     if (n.kind !== "target") continue;
     const c = n.config as EtlTargetConfig;
     const label = n.label || n.id;

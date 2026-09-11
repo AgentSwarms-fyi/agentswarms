@@ -286,7 +286,10 @@ function EtlDocsPage() {
         either engine. Filter and derive expressions keep their pandas spelling and are translated
         to Spark SQL at save time; a construct Spark cannot express is refused at save, naming it
         and the fix. The engine also refuses, at save: Iceberg targets (write Delta), merge into
-        plain files (merge needs a Delta table), and merge into a database.
+        plain files (merge needs a Delta table), merge into a database, and a SQL step calling{" "}
+        <C>regexp_extract</C> without its third argument — DuckDB returns the whole match there
+        while Spark reads the missing argument as capture group 1, so the step is asked which it
+        means rather than left to fail minutes into a cluster run.
       </P>
       <P>
         <strong>Where the cluster comes from</strong> is one choice for the deployment, in Admin →

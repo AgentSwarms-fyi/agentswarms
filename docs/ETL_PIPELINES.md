@@ -157,6 +157,16 @@ construct Spark has no equivalent for is refused at save, naming it and the
 fix (usually: a SQL step). A SQL step is Spark SQL on this engine, DuckDB SQL
 on the pandas engine; the overlap is large but not total.
 
+Where the two dialects disagree the disagreement is usually silent, which is
+the dangerous part — so the one case found in practice is refused at save
+rather than left to the run: `regexp_extract(s, pattern)` with no third
+argument returns the **whole match** in DuckDB, while Spark reads the absent
+argument as **capture group 1** and fails outright if the pattern has no
+groups. Left alone it surfaces as `INVALID_PARAMETER_VALUE.REGEX_GROUP_INDEX`
+from inside a cluster, minutes in and after the sources have been read. Write
+the group you mean — `regexp_extract(x, pattern, 0)` for the whole match, `1`
+for the first group — and both engines agree.
+
 **What the Spark engine refuses**, at save time, in words: an Iceberg target
 (write Delta, or land in the lakehouse and publish from there), merge into
 plain files (merge needs a Delta table), merge into a database (append or
