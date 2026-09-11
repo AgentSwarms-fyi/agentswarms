@@ -13,6 +13,8 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { PAGE_TABS, readAppNav } from "./lib/navPaths.mjs";
+
 const quiet = process.argv.includes("--quiet");
 const findings = [];
 const fail = (check, detail) => findings.push({ check, detail });
@@ -66,6 +68,21 @@ const FOREIGN_NAMES = [
 
 const pkg = JSON.parse(read("package.json"));
 const npmScripts = new Set(Object.keys(pkg.scripts ?? {}));
+
+const APP_NAV = readAppNav();
+
+/**
+ * Every screen a nav path can start at, and what sits one level inside it.
+ *
+ * Merged, not layered: "Integrations" is BOTH a sidebar group (holding Web
+ * Embedding, Secrets, …) and a screen with tabs (Apps, Slack, …), and building
+ * this with a later entry overwriting an earlier one hid the group's items
+ * behind the tabs — which reported four correct paths as wrong.
+ */
+const NAV_PARENTS = new Map();
+for (const [k, v] of [...Object.entries(APP_NAV), ...Object.entries(PAGE_TABS)]) {
+  NAV_PARENTS.set(k, [...(NAV_PARENTS.get(k) ?? []), ...v]);
+}
 
 const apiRoutes = new Set(
   fs
@@ -248,6 +265,49 @@ for (const file of FILES) {
       }
     }
     if (!found) fail("documented default not in the code", `${name}: ${v} = ${shown}`);
+  }
+
+  // 8. "Open Admin → Developer runtime" is a claim about the sidebar, checked
+  //    against src/lib/appNav.ts. The in-app pages have had this check for a
+  //    while; these documents make the same claim — 19 times for that one item
+  //    — in running prose, and nothing read them. A rule enforced on one
+  //    corpus is a rule an author escapes by writing in the other.
+  //
+  //    Only the group → item hop is judged, and only by PREFIX. Prose has no
+  //    boundaries: a path runs into the sentence after it ("…under Admin →
+  //    Developer runtime and takes effect on the next job") and is wrapped
+  //    mid-path by the formatter, so demanding a clean segment produced four
+  //    findings that were all correct paths split across two lines. A prefix
+  //    match ignores the trailing sentence and still catches the thing this is
+  //    for: an item that was renamed and left behind in the docs.
+  const flowed = prose.replace(/[*_`]/g, " ").replace(/\s+/g, " ");
+  for (const m of flowed.matchAll(/([A-Za-z0-9&/ -]{1,60}?)\s*→\s*([A-Za-z0-9&/ -]{1,60})/g)) {
+    const words = m[1].trim().split(" ");
+    const parent = [4, 3, 2, 1]
+      .map((n) => words.slice(-n).join(" "))
+      .find((cand) => NAV_PARENTS.has(cand));
+    if (!parent) continue;
+    const after = m[2].trim().split(" ");
+    // A nav item is a proper noun. An arrow into lowercase prose is somebody
+    // describing a drill-down in words — "Agent Builder → the sql_query tool →
+    // tables" — and judging it would mean deciding what English may say.
+    if (!/^[A-Z0-9]/.test(after[0] ?? "")) continue;
+    const children = NAV_PARENTS.get(parent);
+    const named = [1, 2, 3, 4].some((n) => {
+      const cand = after.slice(0, n).join(" ").toLowerCase();
+      return children.some((c) => c.toLowerCase() === cand);
+    });
+    if (!named) {
+      const real = [...NAV_PARENTS].find(([, items]) =>
+        items.some((i) => i.toLowerCase() === after.slice(0, 2).join(" ").toLowerCase()),
+      )?.[0];
+      fail(
+        "bad nav path",
+        `${name}: "${parent} → ${after.slice(0, 3).join(" ")}…" — ${
+          real ? `that is under "${real}"` : `nothing under "${parent}" is called that`
+        }`,
+      );
+    }
   }
 }
 

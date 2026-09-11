@@ -330,8 +330,9 @@ docker compose --profile all up --build
 `--profile all` (or the setup script's `--all`) brings up the optional services too: the
 **document renderer** (native PowerPoint/Word/Excel), the **JS sandbox** (custom
 code in deployed swarm runs), the **Developer-workspace runtime** (real Python
-kernels), a **catalog Postgres** for the lakehouse and a **Spark Connect
-cluster** for the ETL engine. They are separate profiles because each costs
+kernels), a **catalog Postgres** for the lakehouse, a **Spark Connect cluster**
+for the ETL engine and the **Qdrant vector store** for knowledge bases that
+have outgrown pgvector. They are separate profiles because each costs
 something — LibreOffice is a large image, the notebook runtime needs
 Docker-socket access through a least-privilege proxy, and Spark is a ~1 GB
 image. The last two stay idle until `.env` points at them

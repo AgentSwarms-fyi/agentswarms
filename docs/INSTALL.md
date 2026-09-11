@@ -364,8 +364,8 @@ pointing at their own machine.
 
 ### Web search & browsing (optional)
 
-Agents can be given two web tools in the agent editor (**Build → Agents → edit
-→ Tools**): `web_search` (search the web) and `web_browse` (fetch one page as
+Agents can be given two web tools in the agent editor (**Build → Agent Builder
+→ edit → Tools**): `web_search` (search the web) and `web_browse` (fetch one page as
 clean markdown). How well they work depends on whether a key is configured —
 **no key is required to start**, but the free fallback is limited:
 

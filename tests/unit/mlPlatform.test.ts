@@ -296,7 +296,6 @@ describe("the ML area is reachable", () => {
     expect(routes).toContain("ml_.new.tsx");
     expect(routes).toContain("ml_.$modelId.tsx");
     expect(rd("src/lib/appNav.ts")).toContain('url: "/ml"');
-    expect(rd("scripts/check-docs.mjs")).toContain('"ML Models"');
   });
 
   it("destructive actions go through the app dialog", () => {

@@ -73,7 +73,8 @@ The result line under the editor shows what a statement cost: `12 AI calls ·
 
 ## In Data Prep
 
-The same functions are a step in **Data & BI → Data preparation**: add an
+The same functions are a step in **Data & BI → BI Workspace → Data
+preparation**: add an
 **AI column**, pick what the model does, the column it reads (or, for a free
 prompt, write the prompt with `{column}` placeholders), name the output and
 optionally the model. The step compiles to the matching `ai_*` call, so it

@@ -114,9 +114,10 @@ It cannot create your Supabase project or guess its keys: it writes the `.env`
 and tells you which values to fill in, then you re-run it. Open
 **http://localhost:8080** when it finishes.
 
-`--all` turns on the five optional profiles — the document renderer, the JS
-sandbox, the notebook runtime, a catalog Postgres for the lakehouse and a Spark
-Connect cluster — exactly what the Compose equivalent,
+`--all` turns on the six optional profiles — the document renderer, the JS
+sandbox, the notebook runtime, a catalog Postgres for the lakehouse, a Spark
+Connect cluster and the Qdrant vector store — exactly what the Compose
+equivalent,
 `docker compose --profile all up -d --build`, starts. Plain
 `docker compose up --build` starts the app alone — enough to try it, but
 notebooks, Deep-mode documents, headless custom code and the lakehouse stay
@@ -2243,6 +2244,13 @@ calls) and MCP Builder series (`agentswarms_mcp_calls_total` — counter-like, u
 process/DB down, scheduler stall, error-rate, p95 latency and MCP call surges
 ships at [`deploy/prometheus/alerts.yml`](../deploy/prometheus/alerts.yml) —
 load it via `rule_files` and tune the thresholds to your fleet.
+
+Three more are exported and not alerted on, because what counts as wrong is
+yours to decide: `agentswarms_spend_usd_mtd` (month-to-date AI spend across all
+users, in USD), `agentswarms_active_users_24h` (distinct users with an LLM call
+in the last day) and `agentswarms_scrape_duration_seconds` (how long this
+response took to build — it queries the database, so a rising number is a
+database getting slower, not a metrics bug).
 
 ### Distributed tracing (OpenTelemetry / OTLP)
 

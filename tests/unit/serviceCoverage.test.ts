@@ -129,15 +129,85 @@ describe("every optional profile is documented where somebody would look", () =>
     );
   });
 
+  const WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
+
   it("counts them correctly in prose", () => {
     // "Five more services are optional profiles" survived the sixth being
     // added. A number in prose is a claim like any other.
-    const WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
     const word = WORDS[PROFILES.length];
     expect(
       installSection.toLowerCase(),
       `INSTALL.md should say "${word}" optional profiles, not something else`,
     ).toContain(`${word} more services`);
+  });
+
+  // Everywhere ELSE that counts them. The check above was written for one
+  // section of one file, and the same sentence had gone stale twice more
+  // outside it: DEPLOYMENT.md said "--all turns on the five optional
+  // profiles" and enumerated five, README.md enumerated the same five — both
+  // written before the vector store and neither updated with it. An operator
+  // reading either would not know a service existed.
+  const COUNTED = [
+    "README.md",
+    "docs/DEPLOYMENT.md",
+    "docs/INSTALL.md",
+    "docs/SYSTEM_REQUIREMENTS.md",
+    "src/routes/docs.self-hosting.tsx",
+  ];
+
+  it.each(COUNTED)("%s never states a profile count that is out of date", (file) => {
+    const word = WORDS[PROFILES.length];
+    const wrong: string[] = [];
+    const text = rd(file);
+    for (const m of text.matchAll(
+      /\b(zero|one|two|three|four|five|six|seven|eight|nine|[0-9]+)\s+(?:more\s+)?(?:optional\s+)?(profiles?|services?)\b/gi,
+    )) {
+      const said = m[1].toLowerCase();
+      const about = text.slice(Math.max(0, m.index - 90), m.index + 90).toLowerCase();
+      // Only counts that are ABOUT the optional profiles. "two services" in a
+      // sentence about two particular services is not a claim about the set.
+      if (!/optional|--all|profile all|--profile/.test(about)) continue;
+      if (said !== word && said !== String(PROFILES.length)) wrong.push(`"${m[0]}"`);
+    }
+    expect(
+      wrong,
+      `${file} counts the optional profiles as ${wrong.join(", ")}; there are ${PROFILES.length} (${PROFILES.join(", ")})`,
+    ).toEqual([]);
+  });
+
+  // A count is only half the claim. Both stale sentences also LISTED the
+  // services, and a reader trusts the list over the number.
+  // Whitespace-tolerant rather than a literal space in every one of these: the
+  // formatter wraps prose at 80 columns, so "the JS sandbox" arrives split
+  // across two lines about half the time. The first version matched a literal
+  // space and reported a service as missing from a sentence that names it.
+  const IN_PROSE: Record<string, RegExp> = {
+    docgen: /document\s+renderer|docgen/i,
+    sandbox: /js\s+sandbox|javascript\s+sandbox/i,
+    notebooks: /notebook\s+runtime|developer.workspace\s+runtime|python\s+kernels/i,
+    lakehouse: /catalog\s+postgres|lakehouse\s+catalog/i,
+    spark: /spark/i,
+    vectors: /vector\s+store|qdrant/i,
+  };
+
+  it.each(COUNTED)("%s names every profile wherever it enumerates them", (file) => {
+    const text = rd(file);
+    const missing: string[] = [];
+    for (const m of text.matchAll(
+      /\b(?:six|seven|eight|[0-9]+)\s+optional\s+(?:profiles|services)/gi,
+    )) {
+      // The enumeration follows the count, within a sentence or two.
+      const after = text.slice(m.index, m.index + 500);
+      for (const profile of PROFILES) {
+        const pattern = IN_PROSE[profile];
+        expect(pattern, `${profile} has no prose spelling — add one with the service`).toBeTruthy();
+        if (!pattern.test(after)) missing.push(`${profile} (after "${m[0]}")`);
+      }
+    }
+    expect(
+      missing,
+      `${file} counts the profiles and then leaves out: ${missing.join(", ")}`,
+    ).toEqual([]);
   });
 
   it("the in-app page does not claim a count of its own", () => {

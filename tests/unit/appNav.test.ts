@@ -112,22 +112,7 @@ describe("the sidebar", () => {
   });
 });
 
-describe("the docs checker's copy of the rail", () => {
-  /** APP_NAV in scripts/check-docs.mjs, as { group: items[] }. */
-  function checkerNav(): Record<string, string[]> {
-    const src = rd("scripts/check-docs.mjs");
-    const start = src.indexOf("const APP_NAV = {");
-    expect(start, "APP_NAV not found in scripts/check-docs.mjs").toBeGreaterThan(-1);
-    const block = src.slice(start, src.indexOf("\n};", start));
-    const out: Record<string, string[]> = {};
-    for (const m of block.matchAll(/(?:"([^"]+)"|([A-Za-z_][\w]*))\s*:\s*\[([^\]]*)\]/g)) {
-      const label = m[1] ?? m[2];
-      const items = [...m[3].matchAll(/"([^"]+)"/g)].map((x) => x[1]);
-      out[label] = items;
-    }
-    return out;
-  }
-
+describe("the rail the docs checker reads", () => {
   it("orders Data & BI as the journey a table takes, not alphabetically", () => {
     // The order is the product's explanation of itself: a reader scanning the
     // rail top to bottom should be reading a pipeline. Pinned because it is
@@ -169,13 +154,30 @@ describe("the docs checker's copy of the rail", () => {
     expect(at.slice().sort((a, b) => a - b)).toEqual(at);
   });
 
-  it("lists exactly the groups and pages the app renders", () => {
-    const checker = checkerNav();
-    expect(Object.keys(checker).sort()).toEqual(ALL_GROUPS.map((g) => g.label).sort());
+  it("reads exactly the groups and pages the app renders", async () => {
+    // This used to compare the app's rail against a hand-kept copy of it in
+    // scripts/check-docs.mjs, and the copy was right — until it would not have
+    // been. The checker now READS this file, so what can break is the reader:
+    // a regex that stops matching returns an empty rail and approves every
+    // "Open X → Y" in both corpora, the wrong answer arriving silently.
+    const { readAppNav } = (await import("../../scripts/lib/navPaths.mjs")) as {
+      readAppNav: () => Record<string, string[]>;
+    };
+    const parsed = readAppNav();
+    expect(Object.keys(parsed).sort()).toEqual(ALL_GROUPS.map((g) => g.label).sort());
     for (const group of ALL_GROUPS) {
-      expect(checker[group.label].slice().sort(), group.label).toEqual(
-        group.items.map((i) => i.title).sort(),
-      );
+      expect(parsed[group.label], group.label).toEqual(group.items.map((i) => i.title));
     }
+  });
+
+  it("keeps the admin group where the reader can find it", () => {
+    // The parser takes everything from `export const NAV_GROUPS` to the end of
+    // the file, which is how the Admin group — declared separately, because
+    // only a superadmin sees it — ends up in the map at all. Declared ABOVE
+    // NAV_GROUPS it would vanish from the checker without a word.
+    const src = rd("src/lib/appNav.ts");
+    expect(src.indexOf("export const ADMIN_GROUP")).toBeGreaterThan(
+      src.indexOf("export const NAV_GROUPS"),
+    );
   });
 });
