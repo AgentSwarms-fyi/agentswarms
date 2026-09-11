@@ -52,7 +52,7 @@ describe("the licence the project actually ships under", () => {
       for (const e of readdirSync(dir, { withFileTypes: true })) {
         const p = `${dir}/${e.name}`;
         if (e.isDirectory()) {
-          if (["node_modules", ".git", "dist", ".output"].includes(e.name)) continue;
+          if (["node_modules", ".git", ".claude", "dist", ".output"].includes(e.name)) continue;
           walk(p);
         } else if (/\.(ts|tsx|md)$/.test(e.name)) {
           if (SELF.test(readFileSync(p, "utf8"))) offenders.push(p);
@@ -321,7 +321,7 @@ describe("no document promises the removed in-browser runtime", () => {
     for (const e of readdirSync(dir, { withFileTypes: true })) {
       const p = `${dir}/${e.name}`;
       if (e.isDirectory()) {
-        if (["node_modules", ".git", "dist", ".output"].includes(e.name)) continue;
+        if (["node_modules", ".git", ".claude", "dist", ".output"].includes(e.name)) continue;
         docs(p, out);
       } else if (e.name.endsWith(".md")) out.push(p);
     }
@@ -340,14 +340,45 @@ describe("no document promises the removed in-browser runtime", () => {
   });
 
   it("does not describe notebooks as running in the browser", () => {
+    // THIS GUARD HAD A HOLE, and an audit walked through it. It matched three
+    // exact phrasings — "in-browser python", "browser (pyodide)", "via
+    // pyodide" — and the removed runtime's actual NAME was "Lite". So
+    // INSTALL.md told operators "Notebooks run in the browser (Lite) only" and
+    // walked them through a "Lite / Server switch" that does not exist, while
+    // this test passed. Matching a feature by one of its names is matching it
+    // by none of them.
+    //
+    // Checked per LINE, not per file, so a document is still free to explain
+    // that the runtime was removed — which is the only way it may mention it.
+    const RUNTIME_CLAIM =
+      /in-browser python|in-browser pyodide|browser \(pyodide\)|via \[?pyodide|lite \(browser\)|browser \(lite\)|lite ?\/ ?server|in the browser \(lite\)/i;
+    // A line that is plainly about the REMOVAL, or about Google's model.
+    const EXPLAINING =
+      /removed|overtaken|~~|no in-browser|used to|no longer|was written alongside|flash ?lite/i;
+
     const offenders: string[] = [];
     for (const f of docs(".")) {
-      const text = readFileSync(f, "utf8");
-      // Allowed: explaining that it WAS removed. Not allowed: presenting it as
-      // how notebooks work.
-      if (/in-browser python|browser \(pyodide\)|via \[?pyodide/i.test(text)) offenders.push(f);
+      for (const [i, line] of readFileSync(f, "utf8").split("\n").entries()) {
+        if (RUNTIME_CLAIM.test(line) && !EXPLAINING.test(line)) {
+          offenders.push(`${f}:${i + 1}`);
+        }
+      }
     }
     expect(offenders, `still promise an in-browser runtime: ${offenders.join(", ")}`).toEqual([]);
+  });
+
+  it("does not tell an operator that notebooks work without the runtime", () => {
+    // The other half of the same lie, and the one an operator acts on: the
+    // optional-services table said skipping the `notebooks` profile merely
+    // downgraded notebooks to a browser runtime. It does not downgrade them —
+    // the editor renders a Runtime required panel and nothing runs.
+    const gate = readFileSync("src/routes/_authenticated/notebooks.py.$pyNotebookId.tsx", "utf8");
+    expect(gate, "the runtime gate is gone — re-check what happens without it").toMatch(
+      /runtimeEnabled === false[\s\S]{0,200}RuntimeRequired/,
+    );
+    const install = readFileSync("docs/INSTALL.md", "utf8");
+    expect(install).not.toMatch(/Notebooks run in the browser/i);
+    expect(install).toMatch(/Notebooks cannot run at all/i);
   });
 
   it("does not tell an operator to switch to it", () => {

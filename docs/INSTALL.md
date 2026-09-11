@@ -456,7 +456,7 @@ profiles, off unless you ask for them.
 | --------------------------- | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Document renderer           | `docgen`    | Deep-mode exports fall back to the in-browser builder (no native charts/tables)                                                                             |
 | JS sandbox                  | `sandbox`   | Function and custom-component nodes work on the canvas but fail in deployed / scheduled swarm runs                                                          |
-| Developer-workspace runtime | `notebooks` | Notebooks run in the browser (Lite) only — no real CPython, no `pip install`; ETL runs, ML training and MCP servers need it too                             |
+| Developer-workspace runtime | `notebooks` | **Notebooks cannot run at all** — the editor shows a panel asking an admin to enable the runtime. ETL runs, ML training and MCP servers need it too         |
 | Lakehouse catalog           | `lakehouse` | A Postgres for the lakehouse's catalog; without one (this, or your own in `LAKEHOUSE_CATALOG_URL`) the lakehouse, SQL models and ML stay off                |
 | Spark cluster               | `spark`     | A Spark Connect endpoint for the ETL Spark engine and lakehouse queries on Spark; idle until `SPARK_CONNECT_URL` names it, ~1 GB image, jars on first use   |
 | Vector store (Qdrant)       | `vectors`   | Somewhere other than Postgres to search knowledge-base embeddings; idle until `VECTOR_STORE=qdrant` names it, and retrieval stays on pgvector until it does |
@@ -503,8 +503,9 @@ short "runtime required" panel until an admin turns it on. To enable it:
    signing secret and defaults every internal URL to the compose service names.
    Optionally tune limits/egress or restrict access to specific users/groups,
    and hit **Run preflight** to confirm everything is reachable.
-3. Open a notebook — a **Lite / Server** switch appears in the header. Switch to
-   **Server** and run `import langchain`.
+3. Open a notebook and run `import langchain`. Cells execute on a sandboxed
+   server kernel; there is no in-browser fallback, so until step 2 is done the
+   editor shows a panel asking an admin to turn the runtime on.
 
 The first `--build` is slow (it installs the frameworks into the kernel image).
 Everything is optional and off by default: instances that never run that command

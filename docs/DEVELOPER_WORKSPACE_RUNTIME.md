@@ -4,7 +4,14 @@
 > host); phases 2–4 pending.** This document is the implementation, security,
 > and deployment plan for the real, server-side Python runtime that lets
 > notebooks `pip install` and run actual frameworks (LangChain, LlamaIndex,
-> LangGraph, …) alongside the in-browser Pyodide "Lite" mode.
+> LangGraph, …).
+>
+> **The in-browser Pyodide "Lite" runtime this plan was written alongside has
+> since been REMOVED** — it could never import a real LangChain — so server
+> kernels are not one of two modes any more, they are the only one. Passages
+> below that describe a Lite/Server switch describe a plan that was overtaken;
+> they are marked where they appear rather than deleted, because the reasoning
+> they carry is still why the runtime is shaped the way it is.
 >
 > **What's built (Phase 1):** migration + settings/grants (`notebook_runtime_*`),
 > session-token minting, the pluggable orchestrator (`docker`/`k8s`/`e2b` under
@@ -13,7 +20,7 @@
 > `/api/python-chat|kb`, the kernel image (`docker/notebook-runtime/`), the
 > websocket gateway (`services/notebook-gateway/`), the egress proxy in the
 > main `docker-compose.yml` behind the `notebooks` profile, the Kubernetes
-> (`deploy/k8s/notebooks/`) topology, and the editor's Lite/Server switcher. The feature is **off by
+> (`deploy/k8s/notebooks/`) topology, and the editor's runtime session UI. The feature is **off by
 > default** (`server_runtime_enabled=false` + no signing secret).
 >
 > **Not yet validated:** the container/websocket/K8s paths need a Docker or K8s
@@ -38,7 +45,9 @@
 
 - GPU scheduling inside kernels (design leaves room; not in phase 1–3).
 - Running genuinely _untrusted, anonymous, public_ code (that's the microVM/E2B tier; see §5.6).
-- Replacing Pyodide. The browser "Lite" runtime stays for the zero-setup teaching samples.
+- ~~Replacing Pyodide. The browser "Lite" runtime stays for the zero-setup teaching samples.~~
+  **Overtaken:** Pyodide was removed. There is no browser runtime; a notebook
+  without the server runtime shows a panel asking an admin to enable it.
 
 ---
 
@@ -289,11 +298,18 @@ Reuse the existing pieces: `getEffectiveModelRules`/`isModelAllowed` (IAM gate),
 
 ## 8. UI
 
-- **Runtime switcher** in the notebook editor header: `Lite (browser)` ⟷ `Server (full Python)`. Server shows a session status pill (`starting → ready`), a **Restart kernel** and **Stop** button, and current limits (mem/CPU/timeout).
-- When Server is selected, cell execution goes over the gateway websocket instead of `runPythonCell` (Pyodide). Same cell UI, same output rendering.
+- **Session controls** in the notebook editor header — there is no runtime
+  _switcher_, because there is nothing to switch between: a session status pill
+  (`starting → ready`), a **Restart kernel** and **Stop** button, and current
+  limits (mem/CPU/timeout).
+- Cell execution goes over the gateway websocket to a server kernel. It is the
+  only execution path; the Pyodide one this plan compared it against is gone.
 - **Packages**: `!pip install …` in a cell just works; optionally a small "Packages" panel that shows installed versions and lets users add from the allowlist.
-- The four framework **samples** stay runnable in Lite (teaching), and each gains a note: _"Switch to Server runtime to run the real `langchain`/… package end-to-end."_ Optionally add real-framework sample variants that require Server.
-- If `server_runtime_enabled` is false, the switcher shows a disabled "Server runtime — ask your admin to enable" state.
+- The four framework **samples** need the server runtime like everything else.
+  (Originally they were to stay runnable in Lite for teaching; with Pyodide gone
+  there is nowhere else for them to run.)
+- If `server_runtime_enabled` is false the editor renders a **Runtime required**
+  panel in place of the cells, rather than a disabled switch.
 
 ---
 
@@ -350,7 +366,7 @@ Kernel containers are **Linux containers** (the frameworks are Linux-first). On 
 - `docs/INSTALL.md`: new "Enabling the server runtime" section (Docker profile + Windows/Linux notes, the container-runtime dependency, how to turn it on).
 - `docs/DEPLOYMENT.md`: the K8s profile, hardening knobs, egress allowlist, scaling.
 - [`SECURITY.md`](../SECURITY.md) (extend it): the runtime threat model + isolation tiers, so operators can make an informed risk decision.
-- In-app `/docs/notebooks`: Lite vs Server runtime, when to use each.
+- In-app `/docs/notebooks`: what the server runtime is and how to enable it.
 
 ---
 
