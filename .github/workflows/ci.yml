@@ -64,6 +64,16 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      # Two checkers that read the documentation against the code: one for the
+      # in-app pages (src/routes/docs.*.tsx), one for the markdown corpus
+      # someone reads on GitHub before installing. Both existed and neither ran
+      # anywhere automatic — they were a thing to REMEMBER, which is the same
+      # as not having them. Every documentation bug this project has found was
+      # drift: a claim true when written that quietly stopped being true, which
+      # is exactly what a machine notices and a reader does not.
+      - name: Check documentation against the code
+        run: npm run check:docs && npm run check:md-docs
+
       - name: Test
         run: npm run test
 

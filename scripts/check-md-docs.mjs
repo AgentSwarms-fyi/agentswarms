@@ -21,6 +21,21 @@ const read = (p) => fs.readFileSync(p, "utf8");
 const FILES = [
   "README.md",
   "sdk/react/README.md",
+  // The files someone opens BEFORE the docs: the contribution and reporting
+  // paths, the roadmap, the credits. They were the one part of the corpus
+  // nothing checked, and they are read by people with no way to tell a stale
+  // instruction from a current one. CONTRIBUTING alone names npm scripts and
+  // file paths in every other paragraph.
+  "CONTRIBUTING.md",
+  "SECURITY.md",
+  "CODE_OF_CONDUCT.md",
+  "ROADMAP.md",
+  "ACKNOWLEDGEMENTS.md",
+  // Service-local READMEs, for the same reason: they describe a directory
+  // whose contents move.
+  "docgen-service/README.md",
+  "docs/screenshots/README.md",
+  "src/assets/README.md",
   ...fs
     .readdirSync("docs")
     // The adversarial log is a historical record of an audit, quoting file
@@ -199,6 +214,40 @@ for (const file of FILES) {
     if (isDesignDoc) continue;
     if (FOREIGN_NAMES.some((re) => re.test(v))) continue;
     if (!envHaystack.includes(v)) fail("unknown env var", `${name}: ${v}`);
+  }
+
+  // 7. Documented DEFAULTS, not just documented names. A table row saying a
+  //    variable defaults to 500000 is the number an operator plans capacity
+  //    against, and it is the half most likely to rot: the name survives a
+  //    change to the value, so the check above stays green while the table
+  //    starts lying. Checked by looking for the same number near a read of
+  //    that variable, which is where a default is written.
+  for (const m of src.matchAll(/\|\s*`([A-Z][A-Z0-9_]{3,})`\s*\|[^|]*?`([0-9][0-9_,]*)`/g)) {
+    const [, v, shown] = m;
+    if (FOREIGN_NAMES.some((re) => re.test(v))) continue;
+    if (isDesignDoc) continue;
+    const want = shown.replace(/[,_]/g, "");
+    let found = false;
+    for (const hit of envHaystack.matchAll(new RegExp(v, "g"))) {
+      const window = envHaystack.slice(Math.max(0, hit.index - 120), hit.index + 400);
+      // Sizes are written as arithmetic far more often than as a literal:
+      // 100 * 1024 * 1024 is how a 100 MB cap appears in code, and comparing
+      // digits alone called the one correct row in the corpus a lie.
+      const literals = [...window.matchAll(/\b[0-9][0-9_]*(?:\s*\*\s*[0-9][0-9_]*)*\b/g)].map((n) =>
+        String(
+          n[0]
+            .replace(/_/g, "")
+            .split("*")
+            .map((x) => Number(x.trim()))
+            .reduce((a, b) => a * b, 1),
+        ),
+      );
+      if (literals.includes(want)) {
+        found = true;
+        break;
+      }
+    }
+    if (!found) fail("documented default not in the code", `${name}: ${v} = ${shown}`);
   }
 }
 

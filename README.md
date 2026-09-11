@@ -232,9 +232,12 @@ counted by hand and re-checked when the feature changes.
 
 **Not there yet — stated so nobody has to discover it**
 
-- **No multi-region** — every deployment shape lives in one region; recovery
-  from the loss of a region is a restore from backup, not a failover
+- **No multi-region failover** — every deployment shape lives in one region;
+  recovery from the loss of a region is a restore from backup, not a failover
   ([DEPLOYMENT.md](./docs/DEPLOYMENT.md#high-availability-what-survives-the-loss-of-one-instance)).
+  **Data residency** is a different question and is supported today: run one
+  deployment per region, each with its own database and bucket
+  ([DEPLOYMENT.md](./docs/DEPLOYMENT.md#data-residency-one-deployment-per-region)).
 - **High availability of the lakehouse catalog is yours to provide** — the
   compose file runs one Postgres container; point `LAKEHOUSE_CATALOG_URL` at a
   managed or replicated Postgres for anything you cannot lose between backups

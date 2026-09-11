@@ -2127,13 +2127,73 @@ have a budget beside it.
 #### What is still not covered
 
 - **No multi-region.** There is no multi-region story: recovery from the loss
-  of a region is the restore runbook on a new cluster.
+  of a region is the restore runbook on a new cluster. If what you need is
+  **data residency** rather than failover, see below — that is a different
+  problem with a different answer.
 - **A running notebook kernel or sandbox does not migrate.** ETL retries on a
   fresh sandbox; an interactive session reconnects and re-runs.
 - **Health checks are not covered by monitoring yet.** Readiness reports the
   Supabase connection and the key ring only, so a lakehouse catalog that is
   down does not show there. Watch it yourself with the metrics endpoint and the
   alert rules in `deploy/prometheus/alerts.yml`.
+
+### Data residency: one deployment per region
+
+"Multi-region" is asked for in two quite different senses, and conflating them
+is how people end up disappointed.
+
+**Failover** — a region goes down and another serves the same data, already
+there. That needs the database to be multi-master across regions, and this
+project does not do it. The honest answer is the restore runbook above.
+
+**Residency** — this customer's data must stay inside this jurisdiction. That
+is the one enterprises usually mean, it is unrelated to failover, and it is
+supported today by the simplest mechanism there is: **run a separate
+deployment in each region**.
+
+Nothing in the application ties one install to another. A deployment is pinned
+to its data entirely by environment — `SUPABASE_URL`, the lake bucket and
+catalog, the key ring — and there is no notion of a region, an instance id, or
+a registry of peers anywhere in the code. Two deployments are two installs that
+happen to run the same image.
+
+So:
+
+```
+eu.example.com  →  app (EU)  →  Supabase (EU)   + lake bucket (EU)
+us.example.com  →  app (US)  →  Supabase (US)   + lake bucket (US)
+```
+
+Each is deployed, upgraded, backed up and restored exactly as a single-region
+install is. Route people to theirs with DNS, or from your identity provider —
+one SAML/OIDC application per deployment, which is also what gives each region
+its own SCIM sync.
+
+**What you get.** Data written in a region stays in that region: rows, files,
+traces, audit, embeddings. There is no replication link to switch off and no
+setting to get wrong, because there is no connection between them to begin with.
+
+**What you do not get**, and should decide you can live without before choosing
+this shape:
+
+- **No cross-region anything.** A query, dashboard, agent or knowledge base in
+  one deployment cannot see another's data. If a report needs both regions,
+  someone exports and combines them outside the platform.
+- **No single pane of glass.** Users, agents, IAM groups, budgets and audit are
+  per deployment. An administrator manages each one.
+- **A region's outage is that region's outage.** Residency is not availability —
+  see the failover paragraph above.
+- **Upgrades are per deployment**, so versions drift unless you drive them
+  together.
+
+**The trap worth naming**: residency for your _data_ is not residency for your
+_prompts_. Every model call leaves for whatever endpoint that provider is
+configured with, and the default endpoints of most vendors are global. If the
+requirement covers content sent for inference — and in a regulated setting it
+usually does — configure a regional model endpoint too: Bedrock takes a
+`region`, Azure OpenAI a resource endpoint of its own, Vertex a location. A
+deployment can be perfectly resident and still stream every prompt to another
+continent.
 
 ### Progressive Web App (PWA)
 

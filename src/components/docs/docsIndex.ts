@@ -3252,6 +3252,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "oci-bv",
       "off",
       "onboarding@resend.dev",
+      "region",
       "resources.limits.cpu",
       "restricted",
       "runAsNonRoot",
@@ -3432,6 +3433,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       {
         "id": "high-availability",
         "text": "Keeping every service available",
+        "level": 3
+      },
+      {
+        "id": "residency",
+        "text": "Data residency: one deployment per region",
         "level": 3
       },
       {

@@ -1308,6 +1308,58 @@ kubectl apply -f deploy/k8s/app/agentswarms.yaml`}</Code>
         availability.
       </P>
 
+      <H3 id="residency">Data residency: one deployment per region</H3>
+      <P>
+        "Multi-region" gets asked for in two quite different senses. <strong>Failover</strong> — a
+        second region already holding the same data, serving it the moment the first one goes —
+        needs a database that is multi-master across regions, and this platform does not do it; the
+        answer there is the restore runbook. <strong>Residency</strong> — this customer's data must
+        stay inside this jurisdiction — is the one enterprises usually mean, has nothing to do with
+        failover, and is supported today by the plainest mechanism available:{" "}
+        <strong>run a separate deployment in each region</strong>.
+      </P>
+      <P>
+        Nothing ties one install to another. A deployment is pinned to its data entirely by
+        environment — <C>SUPABASE_URL</C>, the lake bucket and catalog, the key ring — and there is
+        no notion of a region, an instance id or a registry of peers anywhere in the code. Two
+        deployments are two installs that happen to run the same image, each deployed, upgraded,
+        backed up and restored exactly as a single one is. Route people to theirs with DNS, or from
+        your identity provider: one SAML/OIDC application per deployment, which is also what gives
+        each region its own SCIM sync.
+      </P>
+      <P>
+        What you get is that data written in a region stays there — rows, files, traces, audit,
+        embeddings — with no replication link to switch off and no setting to get wrong, because
+        there is no connection between them to begin with. What you give up is worth deciding on
+        before you choose the shape:
+      </P>
+      <UL>
+        <li>
+          <strong>No cross-region anything.</strong> A query, dashboard, agent or knowledge base in
+          one deployment cannot see another's data. A report spanning both is assembled outside the
+          platform.
+        </li>
+        <li>
+          <strong>No single pane of glass.</strong> Users, agents, IAM groups, budgets and audit are
+          per deployment, and an administrator manages each one.
+        </li>
+        <li>
+          <strong>A region's outage is that region's outage.</strong> Residency is not availability.
+        </li>
+        <li>
+          <strong>Upgrades are per deployment</strong>, so versions drift unless you drive them
+          together.
+        </li>
+      </UL>
+      <Callout kind="warn" title="Residency for your data is not residency for your prompts">
+        Every model call leaves for whatever endpoint that provider is configured with, and most
+        vendors' default endpoints are global. If the requirement covers content sent for inference
+        — in a regulated setting it usually does — configure a regional model endpoint as well:
+        Bedrock takes a <C>region</C>, Azure OpenAI a resource endpoint of its own, Vertex a
+        location. A deployment can be perfectly resident and still stream every prompt to another
+        continent.
+      </Callout>
+
       <H3 id="hardening">Before you expose it</H3>
       <UL>
         <li>
