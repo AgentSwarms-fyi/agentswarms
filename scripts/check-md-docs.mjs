@@ -12,6 +12,7 @@
 //   node scripts/check-md-docs.mjs --quiet   summary only
 import fs from "node:fs";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 
 import { PAGE_TABS, readAppNav } from "./lib/navPaths.mjs";
 
@@ -70,6 +71,64 @@ const pkg = JSON.parse(read("package.json"));
 const npmScripts = new Set(Object.keys(pkg.scripts ?? {}));
 
 const APP_NAV = readAppNav();
+
+/**
+ * What the REPOSITORY contains — not what this machine happens to have.
+ *
+ * This check used to ask `fs.existsSync`, and CI proved that was the wrong
+ * question: it passed here and failed on a fresh checkout. INSTALL.md names
+ * `supabase/.temp/`, a git-ignored directory the Supabase CLI creates, which
+ * exists on any machine that has run `db push` and nowhere else. A checker
+ * whose verdict depends on what the developer happened to run is worse than no
+ * checker — green locally, red in CI, which is exactly where people stop
+ * reading it.
+ *
+ * Git gives the same answer everywhere. A path is fine if git TRACKS it, or if
+ * git IGNORES it on purpose: an ignored path is a runtime artifact, and a
+ * document is entitled to name one — INSTALL.md calls it "the git-ignored
+ * `supabase/.temp/` directory" in the same sentence. Anything else is a path
+ * that is simply not there.
+ *
+ * Tracking, rather than presence, also closes a hole that was open the whole
+ * time: an uncommitted scratch file on my disk used to be enough to validate a
+ * documented path that no reader would ever have.
+ */
+const tracked = (() => {
+  const r = spawnSync("git", ["ls-files", "-z"], {
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  if (r.status !== 0) return null;
+  return new Set(r.stdout.split("\0").filter(Boolean));
+})();
+
+/** Every directory implied by a tracked file, so `src/utils/` resolves too. */
+const trackedDirs = (() => {
+  if (!tracked) return null;
+  const dirs = new Set();
+  for (const f of tracked) {
+    const parts = f.split("/");
+    for (let i = 1; i < parts.length; i++) dirs.add(parts.slice(0, i).join("/"));
+  }
+  return dirs;
+})();
+
+const ignoreCache = new Map();
+const gitIgnores = (p) => {
+  if (!ignoreCache.has(p)) {
+    ignoreCache.set(p, spawnSync("git", ["check-ignore", "-q", p]).status === 0);
+  }
+  return ignoreCache.get(p);
+};
+
+function repoHas(p) {
+  const clean = p.replace(/\/+$/, "");
+  // No git (a tarball, a vendored copy): fall back to the filesystem rather
+  // than failing every path claim in the corpus. Best effort beats a wall.
+  if (!tracked) return fs.existsSync(clean);
+  if (tracked.has(clean) || trackedDirs.has(clean)) return true;
+  return gitIgnores(p);
+}
 
 /**
  * Every screen a nav path can start at, and what sits one level inside it.
@@ -185,7 +244,7 @@ for (const file of FILES) {
     // supabase/docker is the directory inside Supabase's own cloned repo —
     // both look exactly like paths in this tree and are not.
     if (/^supabase\/(postgres|docker)\b/.test(p)) continue;
-    if (!fs.existsSync(p)) fail("missing path", `${name}: ${p}`);
+    if (!repoHas(p)) fail("missing path", `${name}: ${p}`);
   }
 
   // 4. npm run <script> — every script named must exist.
