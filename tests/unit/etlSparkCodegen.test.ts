@@ -9,7 +9,7 @@
 // Python's compile(), as the pandas compiler's tests do, because the quoting
 // edges are the same injection surface here.
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -639,7 +639,11 @@ describe("compileSparkGraph — targets", () => {
     expect(strict).toContain("'double': 'float64'");
   });
 
-  it("lakehouse, HTTP and SaaS targets take the collected result on the driver", () => {
+  it("HTTP and SaaS targets take the collected result; the lakehouse does not", () => {
+    // The lakehouse USED to be on this list. It is not any more — an HTTP
+    // target is a few hundred records posted to an API, which a cluster has
+    // nothing to parallelise, while a lakehouse target can be the whole
+    // result of the pipeline and used to have to fit in the driver.
     const lake = node("t1", "target", {
       type: "lakehouse",
       schema: "main",
@@ -655,15 +659,148 @@ describe("compileSparkGraph — targets", () => {
       ],
     };
     const code = compileSparkGraph(g);
-    expect(code).toContain("_pd_t1 = f_s1.toPandas()");
+    expect(code).not.toContain("_pd_t1 = f_s1.toPandas()");
     expect(code).toContain("_pd_t2 = f_s1.toPandas()");
     expect(code).toContain("def _lakehouse_con():");
-    expect(code).toContain("# target t1: lakehouse → main.items (replace)");
+    expect(code).toContain("# target t1: lakehouse → main.items (replace), written by the cluster");
     assertParsesAsPython(code);
   });
 });
 
 // ── What the engine says no to, at save time ────────────────────────────────
+
+describe("compileSparkGraph — the lakehouse is written by the cluster", () => {
+  // THE LAST WRITE THAT WENT THROUGH THE DRIVER. Object storage and JDBC
+  // targets always wrote from the executors; a lakehouse target called
+  // `.toPandas()` and handed the frame to the pandas loader, so a pipeline
+  // sized for a cluster still had to fit its RESULT in one process. DuckLake
+  // has no Spark connector and still has not — what changed is that it does
+  // not need one: the executors write Parquet into the lake's own bucket and
+  // the driver loads it with one statement that streams the files in.
+  const lakeTarget = (write_mode: string, primary_key?: string[]) =>
+    node("t1", "target", {
+      type: "lakehouse",
+      schema: "analytics",
+      table: "orders",
+      write_mode,
+      ...(primary_key ? { primary_key } : {}),
+    });
+
+  it("never collects the frame to the driver", () => {
+    for (const mode of ["replace", "append"]) {
+      const code = compileSparkGraph(linear(CSV_SRC, lakeTarget(mode)));
+      // The whole point. `.toPandas()` on a target's input is the bug.
+      expect(code, `${mode} collects to the driver`).not.toContain("_pd_t1 = f_s1.toPandas()");
+      expect(code).toContain("_sdf.write.options(**_lake_s3_options()).mode('overwrite').parquet(");
+      assertParsesAsPython(code);
+    }
+  });
+
+  it("stages under the lake's own bucket, per run and per node", () => {
+    // Per RUN because a re-run must not write over Parquet an earlier run is
+    // still loading; per NODE because two lakehouse targets in one graph
+    // would otherwise share a prefix and load each other's rows.
+    const code = compileSparkGraph(linear(CSV_SRC, lakeTarget("append")));
+    expect(code).toContain("_spark_stage/t1/");
+    expect(code).toContain("os.environ.get('ETL_RUN_ID'");
+    expect(code).toContain("os.environ['ETL_LAKEHOUSE_DATA_URL'].rstrip('/')");
+    // Spark writes s3a://, DuckDB reads s3://. Getting that backwards is a
+    // scheme error at the far end of a long job.
+    expect(code).toContain("_stage = _lake.replace('s3://', 's3a://', 1)");
+    expect(code).toContain("_q = _lake + '/' + _stage_key + '/*.parquet'");
+  });
+
+  it("loads by streaming the files, not by reading them into the driver", () => {
+    const code = compileSparkGraph(linear(CSV_SRC, lakeTarget("replace")));
+    expect(code).toContain("con = _lakehouse_con()");
+    expect(code).toContain(
+      'CREATE OR REPLACE TABLE "analytics"."orders" AS SELECT * FROM read_parquet(',
+    );
+    expect(code).not.toContain("register('_src'");
+  });
+
+  it("appends without letting an empty batch shape the table", () => {
+    // read_parquet over a prefix Spark wrote nothing to is an error, not zero
+    // rows — and a stream with nothing new is an ordinary Tuesday.
+    const code = compileSparkGraph(linear(CSV_SRC, lakeTarget("append")));
+    expect(code).toContain("if _n:");
+    expect(code).toContain(`CREATE TABLE IF NOT EXISTS "analytics"."orders"`);
+    expect(code).toContain(
+      `INSERT INTO "analytics"."orders" BY NAME SELECT * FROM read_parquet(' + _qlit + ')`,
+    );
+  });
+
+  it("upserts in one transaction, as the pandas engine does", () => {
+    // A reader must never see the gap between the delete and the insert.
+    const code = compileSparkGraph(linear(CSV_SRC, lakeTarget("merge", ["id", "region"])));
+    const block = code.slice(code.indexOf("# target t1"));
+    const begin = block.indexOf("BEGIN TRANSACTION");
+    const del = block.indexOf('DELETE FROM "analytics"."orders"');
+    const ins = block.indexOf('INSERT INTO "analytics"."orders"');
+    const commit = block.indexOf("COMMIT");
+    expect(begin).toBeGreaterThan(-1);
+    expect(del).toBeGreaterThan(begin);
+    expect(ins).toBeGreaterThan(del);
+    expect(commit).toBeGreaterThan(ins);
+    expect(block).toContain(
+      `WHERE ("id", "region") IN (SELECT "id", "region" FROM read_parquet(' + _qlit + ')`,
+    );
+    assertParsesAsPython(code);
+  });
+
+  it("refuses a merge with no keys rather than writing duplicates", () => {
+    // The refusal comes from the pandas compiler, which compileSparkGraph runs
+    // over the same graph as a validation pass — one list of rules, one
+    // wording. This pins the BEHAVIOUR, not where it lives.
+    expect(() => compileSparkGraph(linear(CSV_SRC, lakeTarget("merge")))).toThrow(/primary key/i);
+  });
+
+  it("stages under a prefix the run can be traced from", () => {
+    // ETL_RUN_ID has to be SET for the prefix to mean anything — the code
+    // falls back to a clock, and two runs of one pipeline starting in the same
+    // second would then write over each other. The one call that is about to
+    // become a running sandbox is the one that knows the run.
+    const svc = readFileSync("src/utils/etl/service.server.ts", "utf8");
+    expect(svc).toContain("env.ETL_RUN_ID = opts.runId");
+    // The whole function body, not up to the first brace: the signature has
+    // braces of its own and the first version of this read only those.
+    const from = svc.indexOf("export async function etlEnvFor");
+    const launch = svc.slice(from, svc.indexOf("\n}", from));
+    expect(launch).toContain("runId: run.id");
+  });
+
+  it("installs the client the cleanup needs", () => {
+    // The pandas compiler asks for s3fs when a graph READS object storage. On
+    // this engine every lakehouse target WRITES it, to clear its staging
+    // prefix — and without the package that cleanup fails on every run with an
+    // ImportError while the bucket grows.
+    // A source that does NOT read object storage, or s3fs is already there for
+    // its own reasons and this test proves nothing — which it did, until a
+    // mutation deleted the line and changed no result.
+    const src = node("s1", "source", { type: "lakehouse", schema: "raw", table: "events" });
+    expect(sparkRequirementsFor(linear(src, lakeTarget("append")))).toMatch(/^s3fs/m);
+    // And it is the TARGET that asks: the same source with a non-lakehouse
+    // target does not need it.
+    expect(sparkRequirementsFor(linear(src, PARQUET_TGT))).not.toMatch(/^s3fs/m);
+  });
+
+  it("clears the staging prefix, and never fails the run for failing to", () => {
+    // The load COPIED the rows, so the staged Parquet is rubbish the moment it
+    // commits — left behind it grows the bucket by every run for ever. But the
+    // rows are already committed, so failing to tidy up is not a failed run.
+    const code = compileSparkGraph(linear(CSV_SRC, lakeTarget("replace")));
+    const block = code.slice(code.indexOf("# target t1"));
+    // fsspec, NOT Hadoop's FileSystem API: under Spark Connect the client has
+    // no JVM gateway, so `_jsc` does not exist and the obvious spelling is
+    // silently skipped on exactly the deployment this engine is for.
+    expect(block).toContain("_fs.rm(_lake + '/' + _stage_key, recursive=True)");
+    expect(block).not.toContain("_jsc");
+    expect(block).toContain("except Exception as _e:");
+    expect(block).toContain("staged files left at");
+    // And the tidy-up comes after the load, not before it.
+    expect(block.indexOf("con.close()")).toBeLessThan(block.indexOf("_fs.rm("));
+  });
+});
 
 describe("sparkRefusal", () => {
   const tgt = (extra: Record<string, unknown>, label?: string) =>

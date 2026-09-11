@@ -1522,6 +1522,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "level": 3
       },
       {
+        "id": "spark-writes",
+        "text": "What the cluster writes, and what it does not",
+        "level": 3
+      },
+      {
         "id": "reverse-etl-saas",
         "text": "Reverse ETL into a SaaS tool",
         "level": 2

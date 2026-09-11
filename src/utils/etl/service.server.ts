@@ -168,10 +168,20 @@ export async function resolveRunEnv(
     sparkConnectUrl?: string | null;
     /** The sandbox is about to run: an absent endpoint is now an error. */
     requireSparkEndpoint?: boolean;
+    /**
+     * This run's id, when there is one.
+     *
+     * The Spark engine stages a lakehouse target's Parquet under a prefix
+     * named after the run, so two runs of the same pipeline cannot write over
+     * each other and a prefix left behind by a failure can be traced back to
+     * the run that left it. A compile has no run, and falls back to a clock.
+     */
+    runId?: string | null;
   },
 ): Promise<{ env: Record<string, string>; secretValues: string[] }> {
   const env: Record<string, string> = {};
   const secretValues: string[] = [];
+  if (opts?.runId) env.ETL_RUN_ID = opts.runId;
 
   const storageEnv = async (catalogSourceId: string, stem: string, shape: "source" | "target") => {
     const { data: src } = await supabaseAdmin
@@ -829,6 +839,9 @@ export async function etlEnvFor(
   const { env } = await resolveRunEnv(pipeline, {
     sparkConnectUrl: run.spark_connect_url,
     requireSparkEndpoint: true,
+    // This is the one call that is about to become a running sandbox, so it
+    // is the one that knows which run the staged files belong to.
+    runId: run.id,
   });
   const requirements = (pipeline.requirements ?? "")
     .split("\n")

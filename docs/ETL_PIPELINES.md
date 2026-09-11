@@ -225,6 +225,32 @@ scoped to the read or write, never set on the cluster's shared
 configuration where another session could read them. Warehouse credentials
 go to the JDBC driver the same way.
 
+**Every target is written by the cluster.** Object storage and warehouses
+always were. A **lakehouse** target used to be the exception: DuckLake has no
+Spark connector, so the result was collected to the driver with `.toPandas()`
+and loaded from there — which meant a pipeline sized for a cluster still had
+to fit its RESULT in one process, and a big one died holding it.
+
+DuckLake still has no Spark connector. What changed is that it does not need
+one. The executors write ordinary Parquet into the lake's own bucket under
+`_spark_stage/<node>/<run id>/`, and the driver then issues a single statement
+that streams those files into the table. The frame never exists in the driver,
+only the statement does. The staging prefix is deleted once the load commits;
+if that delete fails the run still succeeds and says where the files were left,
+because the rows are already committed and a leftover prefix is rubbish rather
+than damage.
+
+The load copies the rows rather than adopting the Parquet where it lies.
+DuckDB's `ducklake_add_data_files` can register external files and does work —
+but adopted files sit outside DuckLake's own layout, and what compaction,
+snapshot expiry and orphan cleanup then do with them is not something this
+project has satisfied itself about. Writing twice costs time; losing a file an
+old snapshot still references is not a cost.
+
+Only two targets still take the collected result: **HTTP** and **SaaS**. Both
+post a few hundred records at a time to an API, so there is nothing for a
+cluster to parallelise and the row counts that reach them are small by nature.
+
 **Versions.** The sandbox image carries `pyspark-client` (the Spark Connect
 client, 4.2) and the server must be the same major.minor — the protocol is
 versioned. The Compose service and the per-run default both pin

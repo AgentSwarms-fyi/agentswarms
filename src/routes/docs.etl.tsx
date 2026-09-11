@@ -439,6 +439,27 @@ function EtlDocsPage() {
         prefix whole and refuses the setting at save.
       </P>
 
+      <H3 id="spark-writes">What the cluster writes, and what it does not</H3>
+      <P>
+        On the Spark engine every target is written by the <strong>executors</strong> — object
+        storage, warehouses over JDBC, and the lakehouse. That last one was the exception until
+        recently: DuckLake has no Spark connector, so a lakehouse target collected the result to the
+        driver and loaded it from there, which meant a pipeline sized for a cluster still had to fit
+        its <em>result</em> in one process.
+      </P>
+      <Callout kind="why" title="No connector, and no longer any need for one">
+        The executors write ordinary Parquet into the lake&apos;s own bucket, and the driver then
+        runs one statement that streams those files into the table. The frame never exists in the
+        driver — only the statement does. Staged files are cleared once the load commits, and a
+        failure to clear them does not fail a run whose rows are already committed: it says where
+        they were left.
+      </Callout>
+      <P>
+        Two targets still take the collected result, and deliberately: <strong>HTTP</strong> and{" "}
+        <strong>SaaS</strong>. Each posts a few hundred records at a time to an API, so there is
+        nothing for a cluster to parallelise and the row counts that reach them are small by nature.
+      </P>
+
       <H2 id="reverse-etl-saas">Reverse ETL into a SaaS tool</H2>
       <P>
         The <strong>SaaS tool</strong> target pushes rows back into HubSpot or Salesforce through a

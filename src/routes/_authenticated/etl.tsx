@@ -3517,7 +3517,7 @@ function SettingsTab({
             </Select>
             <p className="mt-1 text-[11px] text-muted-foreground">
               {p.engine === "spark"
-                ? "Transforms, object-storage and JDBC loads run on the cluster. Lakehouse, HTTP and SaaS targets and Custom Python run in the sandbox on the collected result; merge needs a Delta target. Preview always samples in the sandbox."
+                ? "Transforms and every table load — object storage, warehouses over JDBC, and the lakehouse — run on the cluster. HTTP and SaaS targets and Custom Python run in the sandbox on the collected result; a merge into object storage needs a Delta target. Preview always samples in the sandbox."
                 : "One sandbox container running an in-memory pandas program — right for most pipelines. Pick the Spark cluster when a run's data does not fit one box."}
             </p>
           </div>

@@ -95,10 +95,11 @@ function sourceMode(node: EtlNode): "storage" | "jdbc" | "driver" {
 }
 
 /** How a target is written on the Spark engine. */
-function targetMode(node: EtlNode): "storage" | "jdbc" | "driver" {
+function targetMode(node: EtlNode): "storage" | "jdbc" | "lakehouse" | "driver" {
   const c = node.config as EtlTargetConfig;
   if (c.type === "object_storage") return "storage";
   if (c.type === "database" && dbFamily(c.provider) !== null) return "jdbc";
+  if (c.type === "lakehouse") return "lakehouse";
   return "driver";
 }
 
@@ -128,13 +129,20 @@ export function sparkRefusal(graph: EtlGraph): string | null {
 
 /** pip requirements for the sandbox half of a Spark run. */
 export function sparkRequirementsFor(graph: EtlGraph): string {
+  // A lakehouse target clears its staging prefix through fsspec, which the
+  // pandas compiler only asks for when a graph READS object storage. On this
+  // engine every lakehouse target writes it.
+  const needsS3 = (graph.nodes ?? []).some(
+    (n) => n.kind === "target" && (n.config as EtlTargetConfig).type === "lakehouse",
+  );
   // The Spark Connect client is baked into the runtime image. dlt and ibis
   // are the two things the pandas engine needed that this one does not: the
   // cluster does the loading, and SQL steps run as Spark SQL.
-  return requirementsFor(graph)
+  const reqs = requirementsFor(graph)
     .split("\n")
-    .filter((l) => l.trim() && !/^(dlt|ibis-framework)\b/.test(l.trim()))
-    .join("\n");
+    .filter((l) => l.trim() && !/^(dlt|ibis-framework)\b/.test(l.trim()));
+  if (needsS3 && !reqs.some((l) => /^s3fs\b/.test(l.trim()))) reqs.push("s3fs");
+  return reqs.join("\n");
 }
 
 // ── Python fragments ────────────────────────────────────────────────────────
@@ -146,6 +154,7 @@ function prelude(): string[] {
     `# mode to make this file the source of truth.`,
     `import json`,
     `import os`,
+    `import time`,
     ``,
     `import pandas as pd`,
     `from pyspark.sql import SparkSession, Window`,
@@ -162,6 +171,32 @@ function prelude(): string[] {
     `        _SPARK = SparkSession.builder.remote(_url).getOrCreate()`,
     `        print('[etl] spark: connected to ' + _url.split(';')[0] + ' (' + _SPARK.version + ')')`,
     `    return _SPARK`,
+    ``,
+    `def _lake_s3_options():`,
+    `    # The lake's own bucket, under its own credentials. Same shape as`,
+    `    # _s3_options below, but the lake is not a connection the graph names,`,
+    `    # so its settings come from the runtime rather than from a node.`,
+    `    o = {`,
+    `        'fs.s3a.access.key': os.environ.get('ETL_LAKEHOUSE_S3_KEY_ID', ''),`,
+    `        'fs.s3a.secret.key': os.environ.get('ETL_LAKEHOUSE_S3_SECRET', ''),`,
+    `        'fs.s3a.aws.credentials.provider': 'org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider',`,
+    `    }`,
+    `    _ep = os.environ.get('ETL_LAKEHOUSE_S3_ENDPOINT')`,
+    `    if _ep:`,
+    `        _scheme = 'https://' if os.environ.get('ETL_LAKEHOUSE_S3_USE_SSL', 'false') == 'true' else 'http://'`,
+    `        o['fs.s3a.endpoint'] = _ep if '://' in _ep else _scheme + _ep`,
+    `        o['fs.s3a.path.style.access'] = 'true' if os.environ.get('ETL_LAKEHOUSE_S3_URL_STYLE', 'path') == 'path' else 'false'`,
+    `    return o`,
+    ``,
+    `def _lake_fsspec_client_kwargs():`,
+    `    # fsspec/boto want an endpoint_url with a scheme; Hadoop wants a host`,
+    `    # and a separate path-style flag. Same setting, two spellings.`,
+    `    _ep = os.environ.get('ETL_LAKEHOUSE_S3_ENDPOINT')`,
+    `    if not _ep:`,
+    `        return {}`,
+    `    if '://' not in _ep:`,
+    `        _ep = ('https://' if os.environ.get('ETL_LAKEHOUSE_S3_USE_SSL', 'false') == 'true' else 'http://') + _ep`,
+    `    return {'endpoint_url': _ep}`,
     ``,
     `def _s3_options(stem):`,
     `    # Hadoop S3A settings passed as data-source options, per read and per`,
@@ -638,6 +673,122 @@ function storageTarget(
   return lines.join("\n");
 }
 
+/**
+ * A lakehouse target, written by the CLUSTER rather than collected.
+ *
+ * This was the last write on the Spark engine that went through the driver:
+ * `f.toPandas()` and then the pandas loader, which means a pipeline sized for
+ * a cluster had to fit its RESULT in one process. Object storage and JDBC
+ * targets never did that; the lakehouse did, because DuckLake has no Spark
+ * connector and there is no way for an executor to speak to it.
+ *
+ * There still is not. What changed is that nothing needs to: the executors
+ * write ordinary Parquet into the lake's own bucket, and the driver then loads
+ * it with one SQL statement that STREAMS the files in. The frame never exists
+ * in the driver, only the statement does.
+ *
+ * The load copies rather than adopting the files where they lie —
+ * `ducklake_add_data_files` can register external Parquet, and it works, but
+ * adopted files sit outside DuckLake's own layout and I could not satisfy
+ * myself about what compaction, snapshot expiry and orphan cleanup then do
+ * with them. Writing twice is a cost; losing a file an old snapshot still
+ * references is not a cost, it is data loss. The staging prefix is deleted
+ * once the load commits, so the second copy is the only one that persists.
+ */
+function lakehouseTarget(
+  node: EtlNode,
+  c: Extract<EtlTargetConfig, { type: "lakehouse" }>,
+  input: string,
+): string {
+  const schema = pyIdent(c.schema, "Lakehouse schema");
+  const table = pyIdent(c.table, "Lakehouse table");
+  const fq = `"${schema}"."${table}"`;
+  // No keyless-merge check here on purpose: compileSparkGraph runs the pandas
+  // compiler over the same graph as a validation pass, and that is where the
+  // refusal — in the wording users already know — comes from. A second copy
+  // was unreachable, which a mutation proved by deleting it and changing
+  // nothing.
+  const keys = (c.primary_key ?? []).map((k) => pyIdent(k, "Primary key column"));
+  const keyList = keys.map((k) => `"${k}"`).join(", ");
+
+  // The load, once the Parquet is in the bucket.
+  //
+  // Written out rather than composed from a shared fragment. Each of these
+  // closes its Python string in a different place — after the path, after a
+  // trailing `WHERE false`, after a subquery's second bracket — and a helper
+  // that got one of them right got the others wrong by exactly one quote.
+  // Single-quoted Python around double-quoted SQL identifiers; `_qlit` is the
+  // path already wrapped in SQL quotes.
+  const load =
+    c.write_mode === "replace"
+      ? [
+          `            con.execute('CREATE OR REPLACE TABLE ${fq} AS SELECT * FROM read_parquet(' + _qlit + ')')`,
+        ]
+      : c.write_mode === "append"
+        ? [
+            `            con.execute('CREATE TABLE IF NOT EXISTS ${fq} AS SELECT * FROM read_parquet(' + _qlit + ') WHERE false')`,
+            `            con.execute('INSERT INTO ${fq} BY NAME SELECT * FROM read_parquet(' + _qlit + ')')`,
+          ]
+        : [
+            // Upsert, in one transaction so no reader sees the gap between the
+            // delete and the insert — the same contract the pandas engine has.
+            `            con.execute('CREATE TABLE IF NOT EXISTS ${fq} AS SELECT * FROM read_parquet(' + _qlit + ') WHERE false')`,
+            `            con.execute('BEGIN TRANSACTION')`,
+            `            con.execute('DELETE FROM ${fq} WHERE (${keyList}) IN (SELECT ${keyList} FROM read_parquet(' + _qlit + '))')`,
+            `            con.execute('INSERT INTO ${fq} BY NAME SELECT * FROM read_parquet(' + _qlit + ')')`,
+            `            con.execute('COMMIT')`,
+          ];
+
+  return [
+    `    # target ${node.id}: lakehouse → ${schema}.${table} (${c.write_mode}), written by the cluster`,
+    `    _sdf = ${input}`,
+    ...driftLines(node, c as never),
+    `    _n = _sdf.count()`,
+    // Unique per run AND per node: a re-run must not write over Parquet a
+    // previous run is still loading, and two targets in one graph must not
+    // share a prefix.
+    `    _stage_key = '_spark_stage/${node.id}/' + os.environ.get('ETL_RUN_ID', str(int(time.time())))`,
+    `    _lake = os.environ['ETL_LAKEHOUSE_DATA_URL'].rstrip('/')`,
+    `    _stage = _lake.replace('s3://', 's3a://', 1) + '/' + _stage_key`,
+    `    _q = _lake + '/' + _stage_key + '/*.parquet'`,
+    `    _qlit = chr(39) + _q + chr(39)`,
+    `    _sdf.write.options(**_lake_s3_options()).mode('overwrite').parquet(_stage)`,
+    `    print('[etl] spark: staged ' + str(_n) + ' row(s) at ' + _stage)`,
+    `    con = _lakehouse_con()`,
+    `    try:`,
+    // An empty batch writes no Parquet at all, and read_parquet over nothing
+    // is an error rather than zero rows. Nothing to load is not a failure.
+    `        if _n:`,
+    ...load,
+    `    finally:`,
+    `        con.close()`,
+    // The staging copy has served its purpose the moment the load commits.
+    // Left behind it would grow the bucket by the size of every run for ever,
+    // and it is NOT referenced by the table: the load copied the rows.
+    //
+    // Deleted through fsspec rather than Hadoop's FileSystem API. Under Spark
+    // CONNECT the client has no JVM gateway — `_jsc` does not exist — so the
+    // obvious `FileSystem.get(...).delete(...)` is silently skipped on exactly
+    // the deployment shape this engine is for, and the bucket grows for ever
+    // while the log says it was tidied.
+    `    try:`,
+    `        import fsspec`,
+    `        _fs = fsspec.filesystem(`,
+    `            's3',`,
+    `            key=os.environ.get('ETL_LAKEHOUSE_S3_KEY_ID'),`,
+    `            secret=os.environ.get('ETL_LAKEHOUSE_S3_SECRET'),`,
+    `            client_kwargs=_lake_fsspec_client_kwargs(),`,
+    `        )`,
+    `        _fs.invalidate_cache()`,
+    `        _fs.rm(_lake + '/' + _stage_key, recursive=True)`,
+    `    except Exception as _e:`,
+    // Never fatal: the rows are committed, and a leftover prefix is rubbish
+    // rather than damage. Saying where beats a run that fails after succeeding.
+    `        print('[etl] spark: staged files left at ' + _stage + ' (' + str(_e) + ')')`,
+    `    _loads.append({'node': '${node.id}', 'target': '${schema}.${table}', 'fqn': '${schema}.${table}', 'rows': int(_n), 'load_id': None})`,
+  ].join("\n");
+}
+
 function jdbcTarget(
   node: EtlNode,
   c: Extract<EtlTargetConfig, { type: "database" }>,
@@ -808,10 +959,16 @@ export function compileSparkGraph(graph: EtlGraph): string {
       lines.push(
         jdbcTarget(n, c as Extract<EtlTargetConfig, { type: "database" }>, `f_${inputId}`),
       );
+    } else if (mode === "lakehouse") {
+      lines.push(
+        lakehouseTarget(n, c as Extract<EtlTargetConfig, { type: "lakehouse" }>, `f_${inputId}`),
+      );
     } else {
-      // Lakehouse, HTTP and SaaS targets: the pandas compiler's own block,
-      // fed the result collected to the driver. The lakehouse has no Spark
-      // connector, and the other two are HTTP calls that are small by nature.
+      // HTTP and SaaS targets: the pandas compiler's own block, fed the result
+      // collected to the driver. Both are HTTP calls against an API that takes
+      // records in batches of a few hundred — there is nothing for a cluster
+      // to parallelise, and the row counts that reach them are small by
+      // nature. The lakehouse used to be here too; it is not any more.
       lines.push(
         `    _pd_${n.id} = f_${inputId}.toPandas()`,
         targetBlock(n, `_pd_${n.id}`, cdcInput),
