@@ -2492,7 +2492,9 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "LimitRange",
       "ML_API_RATE_LIMIT_PER_MIN",
       "ML_ARTIFACT_MAX_MB",
+      "ML_DECAY_ALERT_RATIO",
       "ML_DRIFT_ALERT_PSI",
+      "ML_EVALUATIONS_PER_SWEEP",
       "ML_MAX_CONCURRENT_TRAININGS_PER_USER",
       "ML_PREDICT_MAX_ROWS",
       "ML_TRAIN_GPUS",
@@ -2511,6 +2513,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "artifact_sha256",
       "artifact_uri",
       "classes",
+      "f1_macro",
       "features",
       "finish",
       "key",
@@ -2518,6 +2521,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "keys_not_found",
       "ml-artifacts/",
       "ml.api_key.denied",
+      "ml.decay.alert",
       "ml.drift.alert",
       "ml.experiment.promote",
       "ml.predict_query",
@@ -2540,6 +2544,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "proba_&lt;class&gt;",
       "probability",
       "read",
+      "rmse",
       "served",
       "start_run",
       "start_run()",
@@ -2631,6 +2636,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       {
         "id": "drift",
         "text": "Drift",
+        "level": 2
+      },
+      {
+        "id": "ground-truth",
+        "text": "Was it right?",
         "level": 2
       },
       {

@@ -1218,6 +1218,8 @@ export type CronPassResult = {
   workflow_steps: number;
   swarm_schedules: number;
   kernels_reaped: number;
+  /** Prediction runs measured against real outcomes this pass. */
+  ml_evaluations: number;
 };
 
 /**
@@ -1247,6 +1249,7 @@ export async function runCronPass(opts: { force?: boolean } = {}): Promise<CronP
     workflow_steps: 0,
     swarm_schedules: 0,
     kernels_reaped: 0,
+    ml_evaluations: 0,
   };
 
   const { acquireCronLease, releaseCronLease } = await import("@/utils/cronLock.server");
@@ -1297,6 +1300,18 @@ export async function runCronPass(opts: { force?: boolean } = {}): Promise<CronP
     // SQL models ride the same sweep. A due model builds itself AND its
     // ancestors, and several due models for one owner become one build, so a
     // shared staging table is built once rather than once per dependant.
+    // Ground truth arrives late and on its own schedule, so this is driven
+    // from the PREDICTIONS rather than from a schedule of its own: every pass
+    // asks which recent runs have gone a day without being measured. On a
+    // deployment where no model names an outcome source it is one indexed
+    // query that returns nothing.
+    const ml_evaluations = await import("@/utils/ml/evaluate.server")
+      .then((m) => m.runDueEvaluations().then((r) => r.evaluated))
+      .catch((e) => {
+        console.warn("[ml-evaluate] sweep failed:", (e as Error).message);
+        return 0;
+      });
+
     const sql_model_builds = await import("@/utils/sqlModels/run.server")
       .then((m) => m.processDueSqlModels(force))
       .catch((e) => {
@@ -1421,6 +1436,7 @@ export async function runCronPass(opts: { force?: boolean } = {}): Promise<CronP
       analyses,
       swarm_schedules,
       kernels_reaped,
+      ml_evaluations,
     };
   } finally {
     await releaseCronLease("scheduler");

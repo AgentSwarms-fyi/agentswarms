@@ -4827,6 +4827,82 @@ export type Database = {
           },
         ];
       };
+      ml_evaluations: {
+        Row: {
+          baseline_value: number | null;
+          created_at: string;
+          decay_ratio: number | null;
+          error: string | null;
+          extra: Json | null;
+          id: string;
+          matched_rows: number;
+          metric_name: string;
+          metric_value: number;
+          model_id: string;
+          prediction_id: string;
+          scored_rows: number;
+          user_id: string;
+          verdict: string | null;
+          version_id: string;
+        };
+        Insert: {
+          baseline_value?: number | null;
+          created_at?: string;
+          decay_ratio?: number | null;
+          error?: string | null;
+          extra?: Json | null;
+          id?: string;
+          matched_rows: number;
+          metric_name: string;
+          metric_value: number;
+          model_id: string;
+          prediction_id: string;
+          scored_rows: number;
+          user_id: string;
+          verdict?: string | null;
+          version_id: string;
+        };
+        Update: {
+          baseline_value?: number | null;
+          created_at?: string;
+          decay_ratio?: number | null;
+          error?: string | null;
+          extra?: Json | null;
+          id?: string;
+          matched_rows?: number;
+          metric_name?: string;
+          metric_value?: number;
+          model_id?: string;
+          prediction_id?: string;
+          scored_rows?: number;
+          user_id?: string;
+          verdict?: string | null;
+          version_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "ml_evaluations_model_id_fkey";
+            columns: ["model_id"];
+            isOneToOne: false;
+            referencedRelation: "ml_models";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "ml_evaluations_prediction_id_fkey";
+            columns: ["prediction_id"];
+            isOneToOne: false;
+            referencedRelation: "ml_predictions";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "ml_evaluations_version_id_fkey";
+            columns: ["version_id"];
+            isOneToOne: false;
+            referencedRelation: "ml_model_versions";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       ml_experiment_runs: {
         Row: {
           artifact_bytes: number | null;
@@ -5061,6 +5137,7 @@ export type Database = {
           item_column: string | null;
           n_clusters: number | null;
           name: string;
+          outcome_source: Json | null;
           period: string;
           prep: Json;
           production_version_id: string | null;
@@ -5085,6 +5162,7 @@ export type Database = {
           item_column?: string | null;
           n_clusters?: number | null;
           name: string;
+          outcome_source?: Json | null;
           period?: string;
           prep?: Json;
           production_version_id?: string | null;
@@ -5109,6 +5187,7 @@ export type Database = {
           item_column?: string | null;
           n_clusters?: number | null;
           name?: string;
+          outcome_source?: Json | null;
           period?: string;
           prep?: Json;
           production_version_id?: string | null;
@@ -5796,6 +5875,7 @@ export type Database = {
           max_sessions_total: number;
           mem_limit_mb: number;
           ml_artifact_max_mb: number | null;
+          ml_decay_alert_ratio: number | null;
           ml_drift_alert_psi: number | null;
           ml_max_concurrent_trainings_per_user: number | null;
           ml_max_deployments_per_user: number | null;
@@ -5852,6 +5932,7 @@ export type Database = {
           max_sessions_total?: number;
           mem_limit_mb?: number;
           ml_artifact_max_mb?: number | null;
+          ml_decay_alert_ratio?: number | null;
           ml_drift_alert_psi?: number | null;
           ml_max_concurrent_trainings_per_user?: number | null;
           ml_max_deployments_per_user?: number | null;
@@ -5908,6 +5989,7 @@ export type Database = {
           max_sessions_total?: number;
           mem_limit_mb?: number;
           ml_artifact_max_mb?: number | null;
+          ml_decay_alert_ratio?: number | null;
           ml_drift_alert_psi?: number | null;
           ml_max_concurrent_trainings_per_user?: number | null;
           ml_max_deployments_per_user?: number | null;

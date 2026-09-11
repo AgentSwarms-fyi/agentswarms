@@ -707,6 +707,117 @@ export const mlCancelPrediction = createServerFn({ method: "POST" })
     return { ok: await cancelPrediction(data.prediction_id, userId) };
   });
 
+// ── Ground truth ─────────────────────────────────────────────────────────────
+// Drift says the rows LOOK different. These say whether the answers were
+// right. See src/utils/ml/evaluate.server.ts for why that is a different
+// question, and src/lib/mlEvaluation.ts for the arithmetic.
+import { evaluatePrediction, readOutcomeSource, type MlEvaluationRow } from "./ml/evaluate.server";
+import { validateOutcomeSource, type MlOutcomeSource } from "@/lib/mlEvaluation";
+export type { MlEvaluationRow };
+
+const outcomeSourceInput = z.object({
+  schema: z.string().trim().min(1).max(128),
+  table: z.string().trim().min(1).max(128),
+  key_columns: z.array(z.string().trim().min(1).max(128)).min(1).max(8),
+  outcome_column: z.string().trim().min(1).max(128),
+});
+
+/** Where this model's real outcomes land, or null to stop measuring it. */
+export const mlSetOutcomeSource = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z
+      .object({
+        access_token: z.string().min(1),
+        model_id: z.string().uuid(),
+        source: outcomeSourceInput.nullable(),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data }): Promise<{ ok: true } | { ok: false; error: string }> => {
+    const userId = await resolveCaller(data.access_token);
+    // write: true — configuring what a model is measured against is an owner's
+    // decision, not a grantee's.
+    const { model } = await loadModelForUser(data.model_id, userId, { write: true });
+
+    if (data.source) {
+      const problem = validateOutcomeSource(data.source as MlOutcomeSource);
+      if (problem) return { ok: false, error: problem };
+      // Checked against the lake now, as the owner, so a typo surfaces here
+      // rather than behind a scheduled evaluation nobody is watching.
+      const cols = [...data.source.key_columns, data.source.outcome_column]
+        .map((c) => `"${c.replace(/"/g, '""')}"`)
+        .join(", ");
+      try {
+        await runLakehouseStatement(
+          model.user_id,
+          `SELECT ${cols} FROM "${data.source.schema.replace(/"/g, '""')}"."${data.source.table.replace(/"/g, '""')}" LIMIT 0`,
+          { auditVia: "ml.outcome_source" },
+        );
+      } catch (e) {
+        return { ok: false, error: (e as Error).message };
+      }
+    }
+
+    const { error } = await supabaseAdmin
+      .from("ml_models")
+      .update({ outcome_source: (data.source ?? null) as Json })
+      .eq("id", model.id);
+    if (error) return { ok: false, error: error.message };
+
+    auditEvent({
+      userId,
+      action: data.source ? "ml.outcome_source.set" : "ml.outcome_source.clear",
+      resourceType: "ml_model",
+      resourceId: model.id,
+      resourceName: model.name,
+      detail: data.source ? { ...data.source } : {},
+    });
+    return { ok: true };
+  });
+
+/** Every measurement of this model against reality, newest first. */
+export const mlListEvaluations = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z.object({ access_token: z.string().min(1), model_id: z.string().uuid() }).parse(input),
+  )
+  .handler(
+    async ({
+      data,
+    }): Promise<{ evaluations: MlEvaluationRow[]; source: MlOutcomeSource | null }> => {
+      const userId = await resolveCaller(data.access_token);
+      const { model, shared } = await loadModelForUser(data.model_id, userId);
+      let q = supabaseAdmin.from("ml_evaluations").select("*").eq("model_id", model.id);
+      // Same rule as predictions: a grantee sees what they caused, the owner
+      // sees everything measured with their model.
+      if (shared) q = q.eq("user_id", userId);
+      const { data: rows } = await q.order("created_at", { ascending: false }).limit(50);
+      return { evaluations: rows ?? [], source: readOutcomeSource(model.outcome_source) };
+    },
+  );
+
+/** Measure one prediction run now, rather than waiting for the sweep. */
+export const mlEvaluatePrediction = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z.object({ access_token: z.string().min(1), prediction_id: z.string().uuid() }).parse(input),
+  )
+  .handler(
+    async ({
+      data,
+    }): Promise<{ ok: true; evaluation: MlEvaluationRow } | { ok: false; error: string }> => {
+      const userId = await resolveCaller(data.access_token);
+      const { data: prediction } = await supabaseAdmin
+        .from("ml_predictions")
+        .select("model_id")
+        .eq("id", data.prediction_id)
+        .maybeSingle();
+      if (!prediction) return { ok: false, error: "Prediction not found" };
+      // Reading the model is the access check: a caller who cannot see the
+      // model cannot measure its runs.
+      await loadModelForUser(prediction.model_id, userId);
+      return await evaluatePrediction(data.prediction_id, userId, "ui");
+    },
+  );
+
 // ── Forecast versions for BI ─────────────────────────────────────────────────
 import { listForecastVersionsForUser, type MlForecastVersionOption } from "./ml/forecast.server";
 export type { MlForecastVersionOption };

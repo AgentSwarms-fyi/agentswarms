@@ -77,6 +77,7 @@ import {
   metricTone,
   relTime,
 } from "@/components/ml/mlUi";
+import { AccuracyPanel } from "@/components/ml/AccuracyPanel";
 import { PredictionsPanel } from "@/components/ml/PredictionsPanel";
 import { MlApiKeysDialog } from "@/components/ml/MlApiKeysDialog";
 import { ModelCardDialog } from "@/components/ml/ModelCardDialog";
@@ -416,6 +417,7 @@ function ModelPage() {
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="versions">Versions ({versions.length})</TabsTrigger>
           <TabsTrigger value="predictions">Predictions</TabsTrigger>
+          <TabsTrigger value="accuracy">Accuracy</TabsTrigger>
           <TabsTrigger value="jobs">Jobs ({jobs.length})</TabsTrigger>
           <TabsTrigger value="automation">Automation</TabsTrigger>
         </TabsList>
@@ -581,6 +583,13 @@ function ModelPage() {
 
         <TabsContent value="predictions" className="mt-4">
           <PredictionsPanel token={token} model={model} versions={versions} shared={shared} />
+        </TabsContent>
+
+        {/* Next to Predictions rather than inside Automation: what the model
+            SAID and whether it was RIGHT are read together, and separating
+            them is how a drift badge gets mistaken for an accuracy report. */}
+        <TabsContent value="accuracy" className="mt-4">
+          <AccuracyPanel token={token} modelId={model.id} task={model.task} shared={shared} />
         </TabsContent>
 
         <TabsContent value="automation" className="mt-4 space-y-4">

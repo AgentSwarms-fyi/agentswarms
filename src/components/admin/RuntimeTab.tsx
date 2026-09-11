@@ -911,6 +911,12 @@ export function RuntimeTab({
                 onChange={(n) => set("ml_drift_alert_psi", n)}
                 hint="A batch prediction whose rows drift past this population stability index notifies the model's owner. 0.25 is the usual line."
               />
+              <NumberField
+                label="Decay alert threshold (ratio)"
+                value={form.ml_decay_alert_ratio}
+                onChange={(n) => set("ml_decay_alert_ratio", n)}
+                hint="How much worse than its training score a model may do against real outcomes before its owner is told. A ratio, so 0.1 means ten per cent worse — and it reads the same way for a metric that should rise and one that should fall."
+              />
             </div>
           </div>
         </TabsContent>

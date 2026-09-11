@@ -504,6 +504,56 @@ with agentswarms.start_run("churn-v2", params={"lr": 0.01, "depth": 6}) as run:
         same numbers in <C>/api/ml/predict/status</C>.
       </P>
 
+      <H2 id="ground-truth">Was it right?</H2>
+      <P>
+        Drift and this are different questions, and treating the first as an answer to the second is
+        the most common way a model quietly stops working. Drift says the rows arriving now do not{" "}
+        <em>look like</em> the rows the model trained on. Inputs can shift while accuracy holds, and
+        inputs can sit perfectly still while the world changes underneath the label. The only way to
+        know whether a model is still right is to wait for the real answer and compare.
+      </P>
+      <P>
+        So a model may name an <strong>outcome source</strong> — the table where the real answers
+        land, and the key that lets a scored row find its own. Set it on the model page under{" "}
+        <strong>Accuracy</strong>: a schema and table, one to eight key columns present in both that
+        table and the scored one, and the column holding what actually happened. Rows where that
+        column is still null are skipped.
+      </P>
+      <P>
+        An evaluation joins one prediction run&apos;s output table to it and recomputes{" "}
+        <strong>the model&apos;s own primary metric</strong> — <C>f1_macro</C> for a classification,{" "}
+        <C>rmse</C> for a regression or forecast — on the rows that have an answer, then compares it
+        to the same metric on the validation split when that version trained. A run more than{" "}
+        <C>ML_DECAY_ALERT_RATIO</C> worse (0.10, ten per cent) is audited as <C>ml.decay.alert</C>{" "}
+        and notifies the owner. A ratio rather than a metric value, so it reads the same way for a
+        metric that should rise and one that should fall.
+      </P>
+      <P>
+        It runs on the platform clock: answers arrive over hours or weeks, so each successful batch
+        run is re-measured once a day while it is less than a month old (
+        <C>ML_EVALUATIONS_PER_SWEEP</C> bounds one pass). <strong>Measure now</strong> does one
+        immediately.
+      </P>
+      <Callout kind="why" title="Three things it deliberately does not do">
+        <strong>A missing answer is not a wrong one.</strong> The join is an INNER join — counting a
+        prediction whose outcome has not arrived as a mistake would make every model look worse the
+        fresher its predictions are. <strong>A metric never appears without its coverage</strong>:
+        every evaluation carries how many rows it matched out of how many were scored, because an f1
+        of 0.9 over 6% of the rows belongs to whoever answered first, and they are rarely a random
+        sample — and a join matching nothing is an error naming the key columns to check, not a
+        score of zero. <strong>An improvement is not celebrated</strong>: a model scoring markedly
+        better than its own validation score is usually the outcome column leaking into the
+        features, so that verdict reads &ldquo;Better than training&rdquo; in a neutral badge.
+      </Callout>
+      <P>
+        The metric is recomputed exactly as scikit-learn computes it, because the baseline came out
+        of that same call at training time — two defensible definitions of one metric would fire a
+        decay alert the first time every model was measured, which teaches everyone to ignore decay
+        alerts. Evaluating costs no sandbox: a confusion matrix and five sums are a <C>GROUP BY</C>,
+        so one statement runs through the governed lakehouse chokepoint as the model&apos;s owner
+        and the arithmetic happens in the app.
+      </P>
+
       <H2 id="api">Public API</H2>
       <P>
         A model can be published as an API. <strong>Publish as API</strong> on the model page mints
@@ -847,6 +897,26 @@ curl -X POST https://your-instance/api/ml/predict/batch \\
             "Lakehouse Monitoring / Model Monitor (more statistics)",
           ],
           [
+            "Ground-truth monitoring",
+            "Outcome source per model; the training metric recomputed on matched rows, with coverage; decay alerts on the platform clock",
+            "Model-quality monitoring jobs",
+          ],
+          [
+            "Explainability",
+            "Permutation importance over the raw input columns, at training time. No per-prediction explanation",
+            "SHAP per prediction, Clarify",
+          ],
+          [
+            "Fairness",
+            "Not implemented — no subgroup metrics, no disparate-impact measures",
+            "Clarify / bias reports",
+          ],
+          [
+            "Promotion approval",
+            "Not implemented — promotion is audited, not gated",
+            "Approval workflows",
+          ],
+          [
             "Scheduled retraining",
             "Cron/cadence, promote-when-better, one platform clock",
             "Workflows / Pipelines",
@@ -895,9 +965,17 @@ curl -X POST https://your-instance/api/ml/predict/batch \\
         ]}
       />
       <P>
-        What is left is <strong>training one model across machines</strong>: the search now spreads
-        over sandboxes, but a single fit still happens in one container, so a model too large for
-        one box does not train here. Everything in the left column is shipped and tested.
+        Everything in the left column not marked <strong>Not implemented</strong> is shipped and
+        tested. What is left, in the order it is usually asked for:{" "}
+        <strong>per-prediction explanation</strong> (importance is global and computed once at
+        training — which features moved <em>this</em> row&apos;s answer is not available, and in
+        credit or hiring that is a legal requirement rather than a nicety);{" "}
+        <strong>fairness</strong> (no subgroup performance, no disparate-impact ratio);{" "}
+        <strong>promotion approval</strong> (any owner may promote a version to production — it is
+        audited, but nobody signs it off); <strong>training one model across machines</strong> (the
+        search spreads over sandboxes, but a single fit still happens in one container, so a model
+        too large for one box does not train here); and <strong>serving at scale</strong> (one warm
+        endpoint, one replica, no autoscaling and no canary or shadow traffic).
       </P>
 
       <H2 id="use-cases">Use cases</H2>
