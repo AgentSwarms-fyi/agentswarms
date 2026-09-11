@@ -9,6 +9,13 @@
 # The app is configured with NOTEBOOK_RUNTIME_BACKEND=k8s and runs with the
 # `notebook-orchestrator` ServiceAccount (or a SA bound to the Role below).
 # See docs/DEVELOPER_WORKSPACE_RUNTIME.md §5.2/§9.2.
+#
+# NOTHING HERE CORRESPONDS TO COMPOSE'S `notebook-docker-proxy`, and that is
+# deliberate rather than missing. That proxy is how the `docker` backend starts
+# kernel CONTAINERS without handing the app a Docker socket. On Kubernetes the
+# backend is `k8s`, kernels are PODS, and they are created through the API with
+# the ServiceAccount and Role below — there is no socket to proxy, and adding
+# one would be a second way in for no benefit.
 ---
 apiVersion: v1
 kind: Namespace

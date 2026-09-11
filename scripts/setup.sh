@@ -176,7 +176,7 @@ if [ "$MODE" = "docker" ]; then
     echo "  Vector store: Qdrant is up, but retrieval stays on pgvector until .env sets"
     echo "    VECTOR_STORE=qdrant and QDRANT_URL=http://qdrant:6333 (then"
     echo "    'docker compose up -d agentswarms'). Existing collections need one"
-    echo "    Re-index in Admin -> Runtime -> AI services. See docs/KNOWLEDGE_BASES.md."
+    echo "    Re-index in Admin -> Developer runtime -> AI services. See docs/KNOWLEDGE_BASES.md."
   fi
   if [ "$SANDBOX" -eq 1 ]; then
     echo "  JS sandbox: custom-code nodes now run in DEPLOYED and SCHEDULED swarm runs too."

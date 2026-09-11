@@ -669,19 +669,37 @@ BI_CRON_TOKEN="..."`}</Code>
             <C key="p3">--profile sandbox</C>,
             "Runs Function nodes and custom components in deployed and scheduled swarms, in a locked-down container instead of next to the app's credentials.",
           ],
+          [
+            "Lakehouse catalog",
+            <C key="p4">--profile lakehouse</C>,
+            "A Postgres of its own holding the lakehouse's table definitions. Without one — this, or your own in LAKEHOUSE_CATALOG_URL — the lakehouse, SQL models and ML stay off.",
+          ],
+          [
+            "Spark cluster",
+            <C key="p5">--profile spark</C>,
+            "A Spark Connect endpoint for the ETL Spark engine and lakehouse queries on Spark. Idle until SPARK_CONNECT_URL names it; the image is about a gigabyte and it downloads its connector jars on first use.",
+          ],
+          [
+            "Vector store",
+            <C key="p6">--profile vectors</C>,
+            "Qdrant, for deployments whose knowledge-base index has outgrown the application database. Idle until VECTOR_STORE=qdrant names it, and retrieval stays on pgvector until it does.",
+          ],
         ]}
       />
-      <Code lang="bash">{`docker compose --profile docgen --profile notebooks --profile sandbox up -d --build`}</Code>
+      <Code lang="bash">{`docker compose --profile all up -d --build`}</Code>
       <P>
         Or let the setup script start everything: <C>bash scripts/setup.sh --all</C> (
         <C>powershell -File scripts\setup.ps1 -All</C> on Windows).
       </P>
       <P>
-        All three are optional, and each degrades to something rather than breaking. Without the
+        Every one is optional, and each degrades to something rather than breaking. Without the
         renderer, documents are generated in the browser and Deep mode is greyed out with the
         reason. Without the notebook runtime, opening a notebook shows a panel saying a runtime is
         required — there is no in-browser fallback. Without the sandbox, custom code still runs on
-        the canvas and the Deploy dialog says plainly that it will fail in headless runs.
+        the canvas and the Deploy dialog says plainly that it will fail in headless runs. The last
+        three are inert until an environment variable points at them: start the Spark or vector
+        profile without setting <C>SPARK_CONNECT_URL</C> or <C>VECTOR_STORE</C> and the container
+        runs while nothing uses it.
       </P>
       <P>
         <strong>Observability → Monitoring</strong> (superadmin) shows which of these are actually

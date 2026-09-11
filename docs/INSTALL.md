@@ -449,16 +449,17 @@ Product documentation for every feature ships inside the app at `/docs`.
 
 ## 7. Optional services (and how to start all of them)
 
-The core stack is one container: the app. Five more services are optional
+The core stack is one container: the app. Six more services are optional
 profiles, off unless you ask for them.
 
-| Service                     | Profile     | What you lose without it                                                                                                                                  |
-| --------------------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Document renderer           | `docgen`    | Deep-mode exports fall back to the in-browser builder (no native charts/tables)                                                                           |
-| JS sandbox                  | `sandbox`   | Function and custom-component nodes work on the canvas but fail in deployed / scheduled swarm runs                                                        |
-| Developer-workspace runtime | `notebooks` | Notebooks run in the browser (Lite) only — no real CPython, no `pip install`; ETL runs, ML training and MCP servers need it too                           |
-| Lakehouse catalog           | `lakehouse` | A Postgres for the lakehouse's catalog; without one (this, or your own in `LAKEHOUSE_CATALOG_URL`) the lakehouse, SQL models and ML stay off              |
-| Spark cluster               | `spark`     | A Spark Connect endpoint for the ETL Spark engine and lakehouse queries on Spark; idle until `SPARK_CONNECT_URL` names it, ~1 GB image, jars on first use |
+| Service                     | Profile     | What you lose without it                                                                                                                                    |
+| --------------------------- | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Document renderer           | `docgen`    | Deep-mode exports fall back to the in-browser builder (no native charts/tables)                                                                             |
+| JS sandbox                  | `sandbox`   | Function and custom-component nodes work on the canvas but fail in deployed / scheduled swarm runs                                                          |
+| Developer-workspace runtime | `notebooks` | Notebooks run in the browser (Lite) only — no real CPython, no `pip install`; ETL runs, ML training and MCP servers need it too                             |
+| Lakehouse catalog           | `lakehouse` | A Postgres for the lakehouse's catalog; without one (this, or your own in `LAKEHOUSE_CATALOG_URL`) the lakehouse, SQL models and ML stay off                |
+| Spark cluster               | `spark`     | A Spark Connect endpoint for the ETL Spark engine and lakehouse queries on Spark; idle until `SPARK_CONNECT_URL` names it, ~1 GB image, jars on first use   |
+| Vector store (Qdrant)       | `vectors`   | Somewhere other than Postgres to search knowledge-base embeddings; idle until `VECTOR_STORE=qdrant` names it, and retrieval stays on pgvector until it does |
 
 **Start everything:**
 

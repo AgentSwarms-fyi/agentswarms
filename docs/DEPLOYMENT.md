@@ -2011,7 +2011,7 @@ perfectly reasonable one for most teams — just know which promise you have.
 The vector store is the one stateful row above that is not a restore. When
 `VECTOR_STORE=qdrant` it holds vectors and two ids; the chunk text, the
 documents and the permissions stay in Postgres. So losing it costs a re-index
-(Admin → Runtime → AI services → **Re-index**), not data — and while it is
+(Admin → Developer runtime → AI services → **Re-index**), not data — and while it is
 down, retrieval degrades to keyword search rather than failing. Left at the
 default it does not exist as a service at all: the vectors are columns on rows
 you are already backing up.
@@ -2030,7 +2030,7 @@ kubectl -n agentswarms patch secret agentswarms-env --type merge \
 kubectl -n agentswarms rollout restart deploy/agentswarms-web deploy/agentswarms-analytics
 ```
 
-Admin → Runtime → AI services reports the replication the collection
+Admin → Developer runtime → AI services reports the replication the collection
 **actually** has, so the two numbers disagreeing is visible rather than
 assumed. The repair is to delete the collection and **Re-index**, which costs
 nothing but time: Postgres still holds every chunk.

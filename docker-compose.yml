@@ -217,7 +217,7 @@ services:
   #
   # It holds VECTORS AND TWO IDS. The chunk text, the document and the
   # permissions stay in Postgres, so a Qdrant that loses this volume costs a
-  # re-index (Admin -> Runtime -> AI services -> Re-index) and nothing else —
+  # re-index (Admin -> Developer runtime -> AI services -> Re-index) and nothing else —
   # which is why there is no backup guidance here and why losing it is not a
   # data-loss event.
   #

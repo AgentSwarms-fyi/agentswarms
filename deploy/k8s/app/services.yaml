@@ -385,7 +385,7 @@ spec:
 #
 # A collection created while that said 1 keeps one copy per shard however many
 # nodes join later. Set QDRANT_REPLICATION=2 in the agentswarms-env secret
-# BEFORE the first document is indexed. Admin → Runtime → AI services reports
+# BEFORE the first document is indexed. Admin → Developer runtime → AI services reports
 # the replication the collection ACTUALLY has, so a mismatch is visible rather
 # than assumed; the repair is to drop the collection and Re-index, which costs
 # nothing because Postgres still holds every chunk.

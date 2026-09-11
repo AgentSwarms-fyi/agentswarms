@@ -1049,8 +1049,9 @@ function KnowledgePage() {
                         This applies to <strong>every</strong> collection — it is set once for the
                         deployment, not per knowledge base, because one collection&apos;s vectors
                         living somewhere else from another&apos;s is a way to strand half of each.
-                        An operator changes it in <strong>Admin → Runtime → AI services</strong>,
-                        which also shows whether the store is answering and can re-index it.
+                        An operator changes it in{" "}
+                        <strong>Admin → Developer runtime → AI services</strong>, which also shows
+                        whether the store is answering and can re-index it.
                       </p>
                       <p className="text-xs text-muted-foreground">
                         What you set on the other tabs — chunking, the embedding model, retrieval

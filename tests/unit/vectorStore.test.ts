@@ -474,7 +474,10 @@ describe("the knowledge base page says where its vectors go", () => {
     // The banner said "Retrieval: Supabase pgvector" whatever was configured.
     expect(PAGE).toContain("vectorStoreBrief");
     expect(PAGE).toContain("storeBrief?.external");
-    expect(RAW).toContain("Admin → Runtime → AI services");
+    // The nav item is "Developer runtime". An earlier version of this pinned
+    // "Admin → Runtime", which is a menu that does not exist — caught by
+    // scripts/check-docs.mjs, which validates nav paths against the real nav.
+    expect(RAW).toContain("Admin → Developer runtime → AI services");
   });
 
   it("tells a collection owner nothing an operator would not", () => {

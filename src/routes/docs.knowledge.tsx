@@ -321,8 +321,8 @@ question ──▶ embed ──▶ nearest chunks ──▶ pasted into the prom
         query. Past a few million chunks it is the largest thing in there, and the only way to feed
         it is to resize the whole database. Qdrant is a place to put the index that scales — and
         replicates — on its own. It does <em>not</em> make retrieval survive a Postgres outage:
-        every hit is hydrated from <C>kb_chunks</C>, so the database going down takes retrieval with
-        it wherever the vectors live.
+        every hit is hydrated from the chunk rows in Postgres, so the database going down takes
+        retrieval with it wherever the vectors live.
       </P>
       <Callout kind="why" title="Qdrant holds vectors and two ids — that is all">
         The chunk text, the document it came from, the parent passage and who may read it stay in
@@ -335,9 +335,9 @@ question ──▶ embed ──▶ nearest chunks ──▶ pasted into the prom
         <strong>One Qdrant node is not high availability.</strong> A single node is the right shape
         for a small install, and losing it degrades retrieval to keyword search rather than breaking
         it — but surviving the loss of a node means a Qdrant cluster with <C>QDRANT_REPLICATION</C>{" "}
-        at 2 or more. <strong>Admin → Runtime → AI services</strong> shows which store is in use,
-        whether it is answering, how many vectors it holds against how many chunks the database has,
-        and the replication the collection <em>actually</em> got.
+        at 2 or more. <strong>Admin → Developer runtime → AI services</strong> shows which store is
+        in use, whether it is answering, how many vectors it holds against how many chunks the
+        database has, and the replication the collection <em>actually</em> got.
       </P>
       <P>
         That same page has <strong>Re-index</strong>, which drops every vector in the store and

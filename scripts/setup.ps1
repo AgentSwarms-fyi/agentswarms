@@ -152,7 +152,7 @@ if ($Dev) {
     Write-Host "  Vector store: Qdrant is up, but retrieval stays on pgvector until .env sets"
     Write-Host "    VECTOR_STORE=qdrant and QDRANT_URL=http://qdrant:6333 (then"
     Write-Host "    'docker compose up -d agentswarms'). Existing collections need one"
-    Write-Host "    Re-index in Admin -> Runtime -> AI services. See docs/KNOWLEDGE_BASES.md."
+    Write-Host "    Re-index in Admin -> Developer runtime -> AI services. See docs/KNOWLEDGE_BASES.md."
   }
   if ($Spark -and -not (Get-EnvVar "SPARK_CONNECT_URL")) {
     Write-Host "  Spark cluster: up, but no pipeline uses it until .env sets"

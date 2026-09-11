@@ -222,7 +222,7 @@ things follow, and they are the reason the split is drawn here:
 **One Qdrant node is not high availability.** A single node is the right shape
 for a laptop or a small install, and losing it degrades retrieval to keyword
 search rather than breaking it — but surviving the loss of a node means a Qdrant
-cluster with `QDRANT_REPLICATION` at 2 or more. Admin → Runtime → AI services
+cluster with `QDRANT_REPLICATION` at 2 or more. Admin → Developer runtime → AI services
 reports the replication the collection **actually** has, so the difference
 between what was asked for and what was placed is visible.
 
@@ -232,7 +232,7 @@ works.
 
 ### Re-indexing an external store
 
-Admin → Runtime → AI services → **Re-index** drops every vector in the store and
+Admin → Developer runtime → AI services → **Re-index** drops every vector in the store and
 writes them back from `kb_chunks`. It is idempotent, and it is the answer to
 every way an external index can drift: a restored-from-empty volume, a store
 switched on after documents were already embedded, a delete that happened while

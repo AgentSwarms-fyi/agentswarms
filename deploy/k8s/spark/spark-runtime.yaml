@@ -13,6 +13,15 @@
 # executors have to reach the driver. Separate namespaces let each have the
 # policy and the quota it actually needs.
 #
+# NOTHING HERE CORRESPONDS TO COMPOSE'S `spark-connect` service, and that is
+# deliberate rather than missing. That service is a STATIC endpoint — one
+# cluster everybody shares, which is the right shape on a laptop and the only
+# shape available when the app is not itself in Kubernetes. In a cluster the
+# app creates a driver per run instead, so a long pipeline cannot be starved by
+# a short one, and capacity is the node pool rather than one container. Set
+# SPARK_CONNECT_URL and SPARK_PROVIDER=static if you would rather point at an
+# endpoint you already run; the Roles and quota below are then unused.
+#
 # See docs/ETL_PIPELINES.md § Engines.
 ---
 apiVersion: v1
