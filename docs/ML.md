@@ -545,6 +545,96 @@ so one statement runs through the governed lakehouse chokepoint — as the
 model's **owner**, so the same schema grants apply — and the arithmetic happens
 in the app.
 
+## How groups are treated
+
+Two questions, and each hides the other.
+
+**Selection rate** asks how often each group gets the favourable answer. It
+needs no outcomes at all — only the scored table — so it can be checked the
+moment a batch runs, and it is the one employment and lending law is written
+about.
+
+**Error rates** ask whether the model is _wrong_ more often for one group. That
+needs the real answers, so it rides on the same join an
+[evaluation](#was-it-right) makes. A model can have near-identical selection
+rates and still be far worse at one group, which is why both are reported and
+neither is shown without room for the other.
+
+**Accuracy** on the model page, then **How groups are treated**:
+
+| Field                 | What it is                                           |
+| --------------------- | ---------------------------------------------------- |
+| Compare groups by     | Up to 8 columns present in the scored table.         |
+| The favourable answer | The predicted label that counts as the good outcome. |
+
+Each column is compared separately and recorded as its own check — two columns
+are two comparisons, and averaging them would hide the one that matters. The
+result gives a **selection-rate ratio** (the lowest group's rate over the
+highest's) and, where outcomes are known, the **largest true-positive-rate
+gap** between groups.
+
+### The lines it will not cross
+
+**The favourable answer is named by you, never inferred.** Which label is the
+good one is a fact about the world — "approved" is favourable, "fraud" is not,
+and "churn" depends on who is asking — and a platform that guessed would put
+its guess in a compliance report.
+
+**The verdict is "worth a review", never "unfair".** Nothing computable decides
+whether a model is fair; that is a judgement about a context this platform
+cannot see. What a ratio can say is that the groups came out far enough apart
+to deserve a person's attention.
+
+**Four fifths is a default, not a law.** `ML_FAIRNESS_MIN_RATIO` defaults to
+0.8 because that is the threshold the US EEOC's Uniform Guidelines use as prima
+facie evidence of adverse impact. It is a rule of thumb with no statistical
+claim behind it, it is not the standard everywhere, and a deployment may hold
+itself to more.
+
+**A group too small to judge is still shown.** Groups under 30 rows are
+reported and greyed but never drive the verdict: a rate over five people swings
+20% when one of them changes, so judging on that produces alarms out of
+arithmetic — and one false alarm is enough for somebody to switch the check
+off. Hiding the group instead is how a real problem stays invisible for a
+quarter. A value nobody recorded becomes its own group, **(not recorded)**,
+for the same reason.
+
+### Where the agent layer helps, and where it does not
+
+This is the first place in the platform where a language model touches a number
+somebody may have to defend, so the boundary is explicit and tested:
+
+> **The platform measures. The model proposes and narrates. A number never
+> comes from the language model.**
+
+**Suggesting what to compare by.** The hard part of a fairness check is not the
+arithmetic, it is knowing that `postcode` stands in for ethnicity and
+`first_name` stands in for gender. Proxies are where careful people miss
+things. **Suggest columns** asks the assistant to nominate candidates — both
+directly sensitive attributes and proxies, each with a reason you can disagree
+with — and you tick what applies. Nothing is enabled by the suggestion itself.
+
+**Only column names, types and cardinalities are sent.** Never values. A column
+of ethnicities is sensitive data, and posting a sample of it to an inference
+endpoint to ask whether it is sensitive would answer its own question. The
+suggestion path never queries the lake at all, and a test enforces that. Any
+column the model names that is not in the schema is dropped rather than shown.
+
+**Reading a result back in words.** _Explain this in words_ passes the already
+computed figures to the assistant and asks for two or three sentences. The
+prompt forbids it from computing, estimating, rounding differently or
+introducing any figure it was not given, and the narration is stored **beside**
+the numbers rather than instead of them — so one that drifts is visibly
+contradicted by the table above it.
+
+Both calls go through the same governed door as every other model call
+(`internalChatText`), so IAM model rules, budgets and audit apply, and both are
+audited as `ml.fairness.suggest` and `ml.fairness.narrate`. The assistant model
+is `ML_ASSIST_MODEL`.
+
+A check is recorded as `ml.fairness.check`, or `ml.fairness.review` when the
+ratio falls below the line, which also notifies the model's owner.
+
 ## Public API
 
 A model can be published as an API. **Publish as API** on the model page
@@ -896,7 +986,7 @@ Where AgentSwarms stands against Databricks ML and SageMaker, honestly:
 | Drift monitoring           | PSI per feature on every batch, threshold alerts                                                                            | Lakehouse Monitoring / Model Monitor (more statistics) |
 | Ground-truth monitoring    | Outcome source per model; the training metric recomputed on matched rows, with coverage; decay alerts on the platform clock | Model-quality monitoring jobs                          |
 | Explainability             | Global permutation importance at training, plus per-row contributions by ablation against a typical row. Not Shapley values | SHAP per prediction, Clarify                           |
-| Fairness                   | **Not implemented** — no subgroup metrics, no disparate-impact measures                                                     | Clarify / bias reports                                 |
+| Fairness                   | Selection-rate ratio and error-rate gaps per group, per column; assistant suggests columns and proxies; four-fifths default | Clarify / bias reports                                 |
 | Promotion approval         | **Not implemented** — promotion is audited, not gated                                                                       | Approval workflows                                     |
 | Scheduled retraining       | Cron/cadence, promote-when-better, one platform clock                                                                       | Workflows / Pipelines                                  |
 | Public API                 | Per-model scoped keys, rate limits, audited denials, BYO registration                                                       | Yes, IAM-based                                         |
@@ -912,7 +1002,6 @@ Where AgentSwarms stands against Databricks ML and SageMaker, honestly:
 Everything in the left column that is not marked **Not implemented** is
 shipped and tested. What is left, in the order it is usually asked for:
 
-- **Fairness.** No subgroup performance, no disparate-impact ratio.
 - **Promotion approval.** Any owner may promote a version to production; it is
   audited, but nobody signs it off.
 - **Training one model across machines.** The algorithm search spreads over

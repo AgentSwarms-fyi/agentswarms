@@ -2492,11 +2492,13 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "LimitRange",
       "ML_API_RATE_LIMIT_PER_MIN",
       "ML_ARTIFACT_MAX_MB",
+      "ML_ASSIST_MODEL",
       "ML_DECAY_ALERT_RATIO",
       "ML_DRIFT_ALERT_PSI",
       "ML_EVALUATIONS_PER_SWEEP",
       "ML_EXPLAIN_MAX_ROWS",
       "ML_EXPLAIN_TOP_K",
+      "ML_FAIRNESS_MIN_RATIO",
       "ML_MAX_CONCURRENT_TRAININGS_PER_USER",
       "ML_PREDICT_MAX_ROWS",
       "ML_TRAIN_GPUS",
@@ -2526,6 +2528,10 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "ml.decay.alert",
       "ml.drift.alert",
       "ml.experiment.promote",
+      "ml.fairness.check",
+      "ml.fairness.narrate",
+      "ml.fairness.review",
+      "ml.fairness.suggest",
       "ml.predict_query",
       "ml.schedule.failed",
       "ml.schedule.run",
@@ -2649,6 +2655,16 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "id": "ground-truth",
         "text": "Was it right?",
         "level": 2
+      },
+      {
+        "id": "fairness",
+        "text": "How groups are treated",
+        "level": 2
+      },
+      {
+        "id": "fairness-agent",
+        "text": "Where the agent layer helps, and where it does not",
+        "level": 3
       },
       {
         "id": "api",

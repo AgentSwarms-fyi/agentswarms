@@ -912,6 +912,12 @@ export function RuntimeTab({
                 hint="A batch prediction whose rows drift past this population stability index notifies the model's owner. 0.25 is the usual line."
               />
               <NumberField
+                label="Fairness review threshold (ratio)"
+                value={form.ml_fairness_min_ratio}
+                onChange={(n) => set("ml_fairness_min_ratio", n)}
+                hint="A group selected less often than this share of the best-treated group's rate asks for review. 0.8 is the four-fifths rule from the US EEOC guidelines — a rule of thumb rather than a law, and not the standard everywhere."
+              />
+              <NumberField
                 label="Decay alert threshold (ratio)"
                 value={form.ml_decay_alert_ratio}
                 onChange={(n) => set("ml_decay_alert_ratio", n)}

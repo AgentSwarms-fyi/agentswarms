@@ -827,6 +827,161 @@ export const mlEvaluatePrediction = createServerFn({ method: "POST" })
     },
   );
 
+// ── Fairness ─────────────────────────────────────────────────────────────────
+// Measured in SQL; the model layer only suggests what to compare by and reads
+// the result back in words. See src/utils/ml/fairness.server.ts for the rule.
+import {
+  narrateFairnessCheck,
+  runFairnessCheck,
+  suggestSensitiveColumns,
+  type MlFairnessRow,
+  type MlSensitiveSuggestion,
+} from "./ml/fairness.server";
+import { validateFairnessConfig } from "@/lib/mlFairness";
+export type { MlFairnessRow, MlSensitiveSuggestion };
+
+/** Which columns to compare groups by, and which answer is the good one. */
+export const mlSetFairnessConfig = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z
+      .object({
+        access_token: z.string().min(1),
+        model_id: z.string().uuid(),
+        sensitive_columns: z.array(z.string().trim().min(1).max(128)).max(8),
+        favourable_label: z.string().trim().max(200).nullable(),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data }): Promise<{ ok: true } | { ok: false; error: string }> => {
+    const userId = await resolveCaller(data.access_token);
+    const { model } = await loadModelForUser(data.model_id, userId, { write: true });
+    if (data.sensitive_columns.length) {
+      const problem = validateFairnessConfig({
+        sensitive_columns: data.sensitive_columns,
+        favourable_label: data.favourable_label,
+      });
+      if (problem) return { ok: false, error: problem };
+    }
+    const { error } = await supabaseAdmin
+      .from("ml_models")
+      .update({
+        sensitive_columns: data.sensitive_columns.length ? data.sensitive_columns : null,
+        favourable_label: data.favourable_label,
+      })
+      .eq("id", model.id);
+    if (error) return { ok: false, error: error.message };
+    auditEvent({
+      userId,
+      action: "ml.fairness.configure",
+      resourceType: "ml_model",
+      resourceId: model.id,
+      resourceName: model.name,
+      detail: {
+        sensitive_columns: data.sensitive_columns,
+        favourable_label: data.favourable_label,
+      },
+    });
+    return { ok: true };
+  });
+
+/** Every fairness check of this model, newest first, with its configuration. */
+export const mlListFairness = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z.object({ access_token: z.string().min(1), model_id: z.string().uuid() }).parse(input),
+  )
+  .handler(
+    async ({
+      data,
+    }): Promise<{
+      checks: MlFairnessRow[];
+      sensitive_columns: string[];
+      favourable_label: string | null;
+      /** Columns this model could be compared by, for the picker. */
+      candidates: string[];
+    }> => {
+      const userId = await resolveCaller(data.access_token);
+      const { model, shared } = await loadModelForUser(data.model_id, userId);
+      let q = supabaseAdmin.from("ml_fairness_checks").select("*").eq("model_id", model.id);
+      if (shared) q = q.eq("user_id", userId);
+      const { data: rows } = await q.order("created_at", { ascending: false }).limit(60);
+      const { data: version } = await supabaseAdmin
+        .from("ml_model_versions")
+        .select("feature_schema")
+        .eq("id", model.production_version_id ?? "")
+        .maybeSingle();
+      const schema = (version?.feature_schema ?? []) as { name?: string }[];
+      return {
+        checks: rows ?? [],
+        sensitive_columns: model.sensitive_columns ?? [],
+        favourable_label: model.favourable_label,
+        candidates: schema.map((c) => c.name).filter((n): n is string => typeof n === "string"),
+      };
+    },
+  );
+
+/** Compare the most recent batch run's groups now. */
+export const mlRunFairnessCheck = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z.object({ access_token: z.string().min(1), prediction_id: z.string().uuid() }).parse(input),
+  )
+  .handler(
+    async ({
+      data,
+    }): Promise<{ ok: true; checks: MlFairnessRow[] } | { ok: false; error: string }> => {
+      const userId = await resolveCaller(data.access_token);
+      const { data: prediction } = await supabaseAdmin
+        .from("ml_predictions")
+        .select("model_id")
+        .eq("id", data.prediction_id)
+        .maybeSingle();
+      if (!prediction) return { ok: false, error: "Prediction not found" };
+      await loadModelForUser(prediction.model_id, userId);
+      return await runFairnessCheck(data.prediction_id, userId, "ui");
+    },
+  );
+
+/**
+ * Ask the assistant which columns are worth comparing by.
+ *
+ * Owner-only, because it spends a model call against the owner's budget and
+ * because acting on the answer is an owner's decision. The answer is a list to
+ * tick, never a configuration.
+ */
+export const mlSuggestSensitiveColumns = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z.object({ access_token: z.string().min(1), model_id: z.string().uuid() }).parse(input),
+  )
+  .handler(
+    async ({
+      data,
+    }): Promise<
+      { ok: true; suggestions: MlSensitiveSuggestion[] } | { ok: false; error: string }
+    > => {
+      const userId = await resolveCaller(data.access_token);
+      await loadModelForUser(data.model_id, userId, { write: true });
+      return await suggestSensitiveColumns(data.model_id, userId);
+    },
+  );
+
+/** Read one measured check back in plain words. */
+export const mlNarrateFairness = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z.object({ access_token: z.string().min(1), check_id: z.string().uuid() }).parse(input),
+  )
+  .handler(
+    async ({ data }): Promise<{ ok: true; narrative: string } | { ok: false; error: string }> => {
+      const userId = await resolveCaller(data.access_token);
+      const { data: check } = await supabaseAdmin
+        .from("ml_fairness_checks")
+        .select("model_id")
+        .eq("id", data.check_id)
+        .maybeSingle();
+      if (!check) return { ok: false, error: "Check not found" };
+      await loadModelForUser(check.model_id, userId);
+      return await narrateFairnessCheck(data.check_id, userId);
+    },
+  );
+
 // ── Forecast versions for BI ─────────────────────────────────────────────────
 import { listForecastVersionsForUser, type MlForecastVersionOption } from "./ml/forecast.server";
 export type { MlForecastVersionOption };

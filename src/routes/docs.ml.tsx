@@ -596,6 +596,76 @@ with agentswarms.start_run("churn-v2", params={"lr": 0.01, "depth": 6}) as run:
         and the arithmetic happens in the app.
       </P>
 
+      <H2 id="fairness">How groups are treated</H2>
+      <P>
+        Two questions, and each hides the other. <strong>Selection rate</strong> asks how often each
+        group gets the favourable answer — it needs no outcomes at all, so it can be checked the
+        moment a batch runs, and it is the one employment and lending law is written about.{" "}
+        <strong>Error rates</strong> ask whether the model is <em>wrong</em> more often for one
+        group, which needs the real answers and so rides on the same join an evaluation makes. A
+        model can have near-identical selection rates and still be far worse at one group, which is
+        why both are reported.
+      </P>
+      <P>
+        Set it on the model page under <strong>Accuracy → How groups are treated</strong>: up to
+        eight columns present in the scored table, and the predicted label that counts as the good
+        outcome. Each column is compared separately and recorded as its own check — two columns are
+        two comparisons, and averaging them would hide the one that matters.
+      </P>
+      <Callout kind="why" title="The lines it will not cross">
+        <strong>The favourable answer is named by you, never inferred</strong> — which label is the
+        good one is a fact about the world, and a guess would end up in a compliance report.{" "}
+        <strong>The verdict is &ldquo;worth a review&rdquo;, never &ldquo;unfair&rdquo;</strong>:
+        nothing computable decides whether a model is fair, so what a ratio can say is that groups
+        came out far enough apart to deserve attention. <strong>Four fifths is a default</strong> (
+        <C>ML_FAIRNESS_MIN_RATIO</C>) taken from the US EEOC&apos;s Uniform Guidelines — a rule of
+        thumb with no statistical claim behind it, not the standard everywhere.{" "}
+        <strong>A group too small to judge is still shown</strong>: under 30 rows it is greyed and
+        excluded from the verdict, because a rate over five people swings 20% when one changes — but
+        hiding it is how a real problem stays invisible for a quarter. A value nobody recorded
+        becomes its own group.
+      </Callout>
+
+      <H3 id="fairness-agent">Where the agent layer helps, and where it does not</H3>
+      <P>
+        This is the first place in the platform where a language model touches a number somebody may
+        have to defend, so the boundary is explicit and tested:{" "}
+        <strong>
+          the platform measures, the model proposes and narrates, and a number never comes from the
+          language model.
+        </strong>
+      </P>
+      <P>
+        <strong>Suggest columns</strong> asks the assistant to nominate what to compare by — both
+        directly sensitive attributes and <em>proxies</em>, the columns that are not themselves
+        sensitive but stand in for one: a postcode for ethnicity, a first name for gender, a school
+        for class. Proxies are the valuable half, because they are what careful people miss. Each
+        suggestion comes with a reason you can disagree with, and you tick what applies; nothing is
+        enabled by the suggestion itself, because which attributes are protected is a legal question
+        about your context rather than one this platform can answer.
+      </P>
+      <P>
+        <strong>Only column names, types and cardinalities are sent.</strong> Never values — a
+        column of ethnicities is sensitive data, and posting a sample of it to an inference endpoint
+        to ask whether it is sensitive would answer its own question. The suggestion path never
+        queries the lake at all, and a test enforces that. Any column the assistant names that is
+        not in the schema is dropped rather than shown.
+      </P>
+      <P>
+        <strong>Explain this in words</strong> passes the already computed figures to the assistant
+        and asks for two or three sentences. The prompt forbids it from computing, estimating,
+        rounding differently or introducing any figure it was not given, and the narration is stored{" "}
+        <em>beside</em> the numbers rather than instead of them — so one that drifts is visibly
+        contradicted by the table above it.
+      </P>
+      <P>
+        Both calls go through the same governed door as every other model call, so IAM model rules,
+        budgets and audit apply; they are recorded as <C>ml.fairness.suggest</C> and{" "}
+        <C>ml.fairness.narrate</C>, and the assistant model is <C>ML_ASSIST_MODEL</C>. A check is
+        audited as <C>ml.fairness.check</C>, or <C>ml.fairness.review</C> when the ratio falls below
+        the line, which also notifies the model&apos;s owner.
+      </P>
+
       <H2 id="api">Public API</H2>
       <P>
         A model can be published as an API. <strong>Publish as API</strong> on the model page mints
@@ -950,7 +1020,7 @@ curl -X POST https://your-instance/api/ml/predict/batch \\
           ],
           [
             "Fairness",
-            "Not implemented — no subgroup metrics, no disparate-impact measures",
+            "Selection-rate ratio and error-rate gaps per group, per column; assistant suggests columns and proxies; four-fifths default",
             "Clarify / bias reports",
           ],
           [
@@ -1008,13 +1078,12 @@ curl -X POST https://your-instance/api/ml/predict/batch \\
       />
       <P>
         Everything in the left column not marked <strong>Not implemented</strong> is shipped and
-        tested. What is left, in the order it is usually asked for: <strong>fairness</strong> (no
-        subgroup performance, no disparate-impact ratio); <strong>promotion approval</strong> (any
-        owner may promote a version to production — it is audited, but nobody signs it off);{" "}
-        <strong>training one model across machines</strong> (the search spreads over sandboxes, but
-        a single fit still happens in one container, so a model too large for one box does not train
-        here); and <strong>serving at scale</strong> (one warm endpoint, one replica, no autoscaling
-        and no canary or shadow traffic).
+        tested. What is left, in the order it is usually asked for:{" "}
+        <strong>promotion approval</strong> (any owner may promote a version to production — it is
+        audited, but nobody signs it off); <strong>training one model across machines</strong> (the
+        search spreads over sandboxes, but a single fit still happens in one container, so a model
+        too large for one box does not train here); and <strong>serving at scale</strong> (one warm
+        endpoint, one replica, no autoscaling and no canary or shadow traffic).
       </P>
 
       <H2 id="use-cases">Use cases</H2>

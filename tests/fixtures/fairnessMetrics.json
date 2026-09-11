@@ -1,0 +1,259 @@
+{
+  "cases": [
+    {
+      "name": "uneven",
+      "favourable": "approved",
+      "counts": [
+        {
+          "group": "A",
+          "n": 200,
+          "selected": 139
+        },
+        {
+          "group": "B",
+          "n": 200,
+          "selected": 65
+        }
+      ],
+      "outcomes": [
+        {
+          "group": "A",
+          "tp": 131,
+          "fp": 8,
+          "fn": 13,
+          "tn": 48
+        },
+        {
+          "group": "B",
+          "tp": 53,
+          "fp": 12,
+          "fn": 11,
+          "tn": 124
+        }
+      ],
+      "expected": {
+        "groups": [
+          {
+            "group": "A",
+            "n": 200,
+            "selection_rate": 0.695,
+            "true_positive_rate": 0.9097222222222222,
+            "false_positive_rate": 0.14285714285714285,
+            "accuracy": 0.895
+          },
+          {
+            "group": "B",
+            "n": 200,
+            "selection_rate": 0.325,
+            "true_positive_rate": 0.828125,
+            "false_positive_rate": 0.08823529411764706,
+            "accuracy": 0.885
+          }
+        ],
+        "disparate_impact": 0.4676258992805756,
+        "equal_opportunity_gap": 0.08159722222222221,
+        "lowest_group": "B"
+      }
+    },
+    {
+      "name": "equal rates, unequal errors",
+      "favourable": "approved",
+      "counts": [
+        {
+          "group": "A",
+          "n": 200,
+          "selected": 103
+        },
+        {
+          "group": "B",
+          "n": 200,
+          "selected": 110
+        }
+      ],
+      "outcomes": [
+        {
+          "group": "A",
+          "tp": 98,
+          "fp": 5,
+          "fn": 5,
+          "tn": 92
+        },
+        {
+          "group": "B",
+          "tp": 78,
+          "fp": 32,
+          "fn": 28,
+          "tn": 62
+        }
+      ],
+      "expected": {
+        "groups": [
+          {
+            "group": "A",
+            "n": 200,
+            "selection_rate": 0.515,
+            "true_positive_rate": 0.9514563106796117,
+            "false_positive_rate": 0.05154639175257732,
+            "accuracy": 0.95
+          },
+          {
+            "group": "B",
+            "n": 200,
+            "selection_rate": 0.55,
+            "true_positive_rate": 0.7358490566037735,
+            "false_positive_rate": 0.3404255319148936,
+            "accuracy": 0.7
+          }
+        ],
+        "disparate_impact": 0.9363636363636363,
+        "equal_opportunity_gap": 0.21560725407583814,
+        "lowest_group": "A"
+      }
+    },
+    {
+      "name": "tiny group",
+      "favourable": "approved",
+      "counts": [
+        {
+          "group": "A",
+          "n": 200,
+          "selected": 124
+        },
+        {
+          "group": "B",
+          "n": 5,
+          "selected": 0
+        }
+      ],
+      "outcomes": [
+        {
+          "group": "A",
+          "tp": 106,
+          "fp": 18,
+          "fn": 8,
+          "tn": 68
+        },
+        {
+          "group": "B",
+          "tp": 0,
+          "fp": 0,
+          "fn": 0,
+          "tn": 5
+        }
+      ],
+      "expected": {
+        "groups": [
+          {
+            "group": "A",
+            "n": 200,
+            "selection_rate": 0.62,
+            "true_positive_rate": 0.9298245614035088,
+            "false_positive_rate": 0.20930232558139536,
+            "accuracy": 0.87
+          },
+          {
+            "group": "B",
+            "n": 5,
+            "selection_rate": 0.0,
+            "true_positive_rate": null,
+            "false_positive_rate": 0.0,
+            "accuracy": 1.0
+          }
+        ],
+        "disparate_impact": null,
+        "equal_opportunity_gap": null,
+        "lowest_group": null
+      }
+    },
+    {
+      "name": "single group",
+      "favourable": "approved",
+      "counts": [
+        {
+          "group": "A",
+          "n": 120,
+          "selected": 72
+        }
+      ],
+      "outcomes": [
+        {
+          "group": "A",
+          "tp": 65,
+          "fp": 7,
+          "fn": 9,
+          "tn": 39
+        }
+      ],
+      "expected": {
+        "groups": [
+          {
+            "group": "A",
+            "n": 120,
+            "selection_rate": 0.6,
+            "true_positive_rate": 0.8783783783783784,
+            "false_positive_rate": 0.15217391304347827,
+            "accuracy": 0.8666666666666667
+          }
+        ],
+        "disparate_impact": null,
+        "equal_opportunity_gap": null,
+        "lowest_group": null
+      }
+    },
+    {
+      "name": "missing group",
+      "favourable": "approved",
+      "counts": [
+        {
+          "group": "(not recorded)",
+          "n": 40,
+          "selected": 40
+        },
+        {
+          "group": "A",
+          "n": 100,
+          "selected": 58
+        }
+      ],
+      "outcomes": [
+        {
+          "group": "(not recorded)",
+          "tp": 40,
+          "fp": 0,
+          "fn": 0,
+          "tn": 0
+        },
+        {
+          "group": "A",
+          "tp": 48,
+          "fp": 10,
+          "fn": 5,
+          "tn": 37
+        }
+      ],
+      "expected": {
+        "groups": [
+          {
+            "group": "(not recorded)",
+            "n": 40,
+            "selection_rate": 1.0,
+            "true_positive_rate": 1.0,
+            "false_positive_rate": null,
+            "accuracy": 1.0
+          },
+          {
+            "group": "A",
+            "n": 100,
+            "selection_rate": 0.58,
+            "true_positive_rate": 0.9056603773584906,
+            "false_positive_rate": 0.2127659574468085,
+            "accuracy": 0.85
+          }
+        ],
+        "disparate_impact": 0.58,
+        "equal_opportunity_gap": 0.09433962264150941,
+        "lowest_group": "A"
+      }
+    }
+  ]
+}

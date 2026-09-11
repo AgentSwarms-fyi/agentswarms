@@ -70,6 +70,14 @@ export type PlatformResourceSettings = {
    * should go up and an RMSE that should go down.
    */
   mlDecayAlertRatio: number;
+  /**
+   * Selection-rate ratio below which a fairness check asks for review.
+   *
+   * Four fifths is the US EEOC guideline's rule of thumb, not a law and not
+   * the standard everywhere — a default, so a deployment may hold itself to
+   * more.
+   */
+  mlFairnessMinRatio: number;
   /** Largest artifact (MB) a notebook run may upload into the lake bucket. */
   mlArtifactMaxMb: number;
   /** Warm inference endpoints one user may hold open. */
@@ -149,7 +157,7 @@ export async function getPlatformResources(): Promise<PlatformResourceSettings> 
   const { data } = await supabaseAdmin
     .from("notebook_runtime_settings")
     .select(
-      "lakehouse_memory_limit, lakehouse_threads, etl_max_concurrent_runs_per_user, etl_pipelines_per_sweep, ml_train_max_rows, ml_train_time_budget_minutes, ml_train_mem_limit_mb, ml_max_concurrent_trainings_per_user, ml_predict_max_rows, ml_train_gpus, ml_train_workers, ml_drift_alert_psi, ml_decay_alert_ratio, ml_artifact_max_mb, ml_max_deployments_per_user, ml_max_deployments_total, gateway_rate_limit_per_min, gateway_fallback_models, gateway_metrics_max_rows, gateway_cache_similarity, gateway_cache_ttl_hours, gateway_cache_max_temperature, data_monitors_per_sweep, data_monitor_anomaly_sigma, ai_sql_max_calls_per_statement, ai_sql_default_model, ai_sql_cache_ttl_days, document_vision_model, document_vision_max_pages",
+      "lakehouse_memory_limit, lakehouse_threads, etl_max_concurrent_runs_per_user, etl_pipelines_per_sweep, ml_train_max_rows, ml_train_time_budget_minutes, ml_train_mem_limit_mb, ml_max_concurrent_trainings_per_user, ml_predict_max_rows, ml_train_gpus, ml_train_workers, ml_drift_alert_psi, ml_decay_alert_ratio, ml_fairness_min_ratio, ml_artifact_max_mb, ml_max_deployments_per_user, ml_max_deployments_total, gateway_rate_limit_per_min, gateway_fallback_models, gateway_metrics_max_rows, gateway_cache_similarity, gateway_cache_ttl_hours, gateway_cache_max_temperature, data_monitors_per_sweep, data_monitor_anomaly_sigma, ai_sql_max_calls_per_statement, ai_sql_default_model, ai_sql_cache_ttl_days, document_vision_model, document_vision_max_pages",
     )
     .eq("id", true)
     .maybeSingle();
@@ -185,6 +193,8 @@ export async function getPlatformResources(): Promise<PlatformResourceSettings> 
     // job, not to this platform.
     mlDecayAlertRatio:
       positiveNum(data?.ml_decay_alert_ratio) ?? envNum("ML_DECAY_ALERT_RATIO") ?? 0.1,
+    mlFairnessMinRatio:
+      positiveNum(data?.ml_fairness_min_ratio) ?? envNum("ML_FAIRNESS_MIN_RATIO") ?? 0.8,
     // A notebook's model reaches the lake through the app, so this bounds one
     // upload. Uncapped like the rest: a large VM may keep a large model.
     mlArtifactMaxMb: positive(data?.ml_artifact_max_mb) ?? envInt("ML_ARTIFACT_MAX_MB") ?? 512,

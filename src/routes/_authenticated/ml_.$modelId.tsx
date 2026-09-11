@@ -78,6 +78,7 @@ import {
   relTime,
 } from "@/components/ml/mlUi";
 import { AccuracyPanel } from "@/components/ml/AccuracyPanel";
+import { FairnessPanel } from "@/components/ml/FairnessPanel";
 import { PredictionsPanel } from "@/components/ml/PredictionsPanel";
 import { MlApiKeysDialog } from "@/components/ml/MlApiKeysDialog";
 import { ModelCardDialog } from "@/components/ml/ModelCardDialog";
@@ -588,8 +589,11 @@ function ModelPage() {
         {/* Next to Predictions rather than inside Automation: what the model
             SAID and whether it was RIGHT are read together, and separating
             them is how a drift badge gets mistaken for an accuracy report. */}
-        <TabsContent value="accuracy" className="mt-4">
+        <TabsContent value="accuracy" className="mt-4 space-y-6">
           <AccuracyPanel token={token} modelId={model.id} task={model.task} shared={shared} />
+          {/* Beneath, not beside: "is it right" is the question people ask
+              first, and "is it right for everyone" is the one they forget. */}
+          <FairnessPanel token={token} modelId={model.id} task={model.task} shared={shared} />
         </TabsContent>
 
         <TabsContent value="automation" className="mt-4 space-y-4">

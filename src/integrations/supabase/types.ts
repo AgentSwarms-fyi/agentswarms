@@ -5124,6 +5124,82 @@ export type Database = {
           },
         ];
       };
+      ml_fairness_checks: {
+        Row: {
+          column_name: string;
+          created_at: string;
+          disparate_impact: number | null;
+          equal_opportunity_gap: number | null;
+          error: string | null;
+          favourable_label: string | null;
+          groups: Json;
+          id: string;
+          lowest_group: string | null;
+          model_id: string;
+          narrative: string | null;
+          prediction_id: string;
+          user_id: string;
+          verdict: string | null;
+          version_id: string;
+        };
+        Insert: {
+          column_name: string;
+          created_at?: string;
+          disparate_impact?: number | null;
+          equal_opportunity_gap?: number | null;
+          error?: string | null;
+          favourable_label?: string | null;
+          groups?: Json;
+          id?: string;
+          lowest_group?: string | null;
+          model_id: string;
+          narrative?: string | null;
+          prediction_id: string;
+          user_id: string;
+          verdict?: string | null;
+          version_id: string;
+        };
+        Update: {
+          column_name?: string;
+          created_at?: string;
+          disparate_impact?: number | null;
+          equal_opportunity_gap?: number | null;
+          error?: string | null;
+          favourable_label?: string | null;
+          groups?: Json;
+          id?: string;
+          lowest_group?: string | null;
+          model_id?: string;
+          narrative?: string | null;
+          prediction_id?: string;
+          user_id?: string;
+          verdict?: string | null;
+          version_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "ml_fairness_checks_model_id_fkey";
+            columns: ["model_id"];
+            isOneToOne: false;
+            referencedRelation: "ml_models";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "ml_fairness_checks_prediction_id_fkey";
+            columns: ["prediction_id"];
+            isOneToOne: false;
+            referencedRelation: "ml_predictions";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "ml_fairness_checks_version_id_fkey";
+            columns: ["version_id"];
+            isOneToOne: false;
+            referencedRelation: "ml_model_versions";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       ml_models: {
         Row: {
           aggregation: string | null;
@@ -5137,7 +5213,9 @@ export type Database = {
           item_column: string | null;
           n_clusters: number | null;
           name: string;
+          favourable_label: string | null;
           outcome_source: Json | null;
+          sensitive_columns: string[] | null;
           period: string;
           prep: Json;
           production_version_id: string | null;
@@ -5162,7 +5240,9 @@ export type Database = {
           item_column?: string | null;
           n_clusters?: number | null;
           name: string;
+          favourable_label?: string | null;
           outcome_source?: Json | null;
+          sensitive_columns?: string[] | null;
           period?: string;
           prep?: Json;
           production_version_id?: string | null;
@@ -5187,7 +5267,9 @@ export type Database = {
           item_column?: string | null;
           n_clusters?: number | null;
           name?: string;
+          favourable_label?: string | null;
           outcome_source?: Json | null;
+          sensitive_columns?: string[] | null;
           period?: string;
           prep?: Json;
           production_version_id?: string | null;
@@ -5877,6 +5959,7 @@ export type Database = {
           ml_artifact_max_mb: number | null;
           ml_decay_alert_ratio: number | null;
           ml_drift_alert_psi: number | null;
+          ml_fairness_min_ratio: number | null;
           ml_max_concurrent_trainings_per_user: number | null;
           ml_max_deployments_per_user: number | null;
           ml_max_deployments_total: number | null;
@@ -5934,6 +6017,7 @@ export type Database = {
           ml_artifact_max_mb?: number | null;
           ml_decay_alert_ratio?: number | null;
           ml_drift_alert_psi?: number | null;
+          ml_fairness_min_ratio?: number | null;
           ml_max_concurrent_trainings_per_user?: number | null;
           ml_max_deployments_per_user?: number | null;
           ml_max_deployments_total?: number | null;
@@ -5991,6 +6075,7 @@ export type Database = {
           ml_artifact_max_mb?: number | null;
           ml_decay_alert_ratio?: number | null;
           ml_drift_alert_psi?: number | null;
+          ml_fairness_min_ratio?: number | null;
           ml_max_concurrent_trainings_per_user?: number | null;
           ml_max_deployments_per_user?: number | null;
           ml_max_deployments_total?: number | null;
