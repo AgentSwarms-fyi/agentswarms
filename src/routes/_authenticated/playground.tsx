@@ -85,6 +85,7 @@ import { planDocument } from "@/lib/docGen/plan";
 import { encodeModelChoice, isBiCompatProvider } from "@/utils/providers/modelChoice";
 import { gatherDocContext } from "@/utils/docGen.functions";
 import { toast } from "sonner";
+import { confirmAsk } from "@/components/ui/confirm-dialog";
 import {
   ModelFallbackDialog,
   type FallbackChoice,
@@ -444,6 +445,22 @@ function PlaygroundPage() {
   }
 
   async function deleteConversation(id: string) {
+    // The trash icon sits one row away from the chat you are working in, and
+    // it used to delete on the first click. `messages.conversation_id` is
+    // ON DELETE CASCADE, so that click takes the whole transcript with it —
+    // every prompt, every answer, every step of whatever you were in the
+    // middle of — and there is no undo, no trash and no export on the way out.
+    // A misclick during a session is unrecoverable, which is the one case that
+    // earns a question.
+    const title = conversations.find((c) => c.id === id)?.title ?? "this chat";
+    if (
+      !(await confirmAsk({
+        title: `Delete "${title}"?`,
+        body: "Every message in this chat goes with it. This cannot be undone.",
+        actionLabel: "Delete chat",
+      }))
+    )
+      return;
     await supabase.from("conversations").delete().eq("id", id);
     if (activeConvo === id) {
       setActiveConvo("");
