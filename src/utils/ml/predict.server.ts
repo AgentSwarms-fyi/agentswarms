@@ -30,6 +30,7 @@ import {
   type MlPredictOutput,
   type MlPredictionKind,
   type MlDrift,
+  type MlContribution,
 } from "./types";
 export type { MlCell, MlPredictInput, MlPredictOutput, MlPredictionKind } from "./types";
 
@@ -50,6 +51,8 @@ export type MlPredictResult = {
   warnings?: string[];
   elapsed_seconds?: number;
   drift?: MlDrift | null;
+  /** One entry per explained row, each already sorted by absolute weight. */
+  explanations?: MlContribution[][] | null;
 };
 
 const LOG_CAP = 200_000;
@@ -58,6 +61,21 @@ const LOG_CAP = 200_000;
 // These are the stash kind and the payload kind, not session kinds.
 const PREDICT_STASH_KIND = "predict" as const;
 const ROWS_KIND = "rows" as const;
+
+/**
+ * How many rows one request may have explained, and how many features come
+ * back for each.
+ *
+ * Explaining costs one extra prediction per feature per row, so this is a
+ * ceiling on work rather than a licence fee: the try-it form sends one row,
+ * and the API is for the decision somebody is about to have to justify.
+ */
+const envCount = (name: string, fallback: number) => {
+  const n = Number(process.env[name]);
+  return Number.isFinite(n) && n > 0 ? Math.trunc(n) : fallback;
+};
+const ML_EXPLAIN_MAX_ROWS = envCount("ML_EXPLAIN_MAX_ROWS", 20);
+const ML_EXPLAIN_TOP_K = envCount("ML_EXPLAIN_TOP_K", 8);
 const LAKEHOUSE_KIND = "lakehouse" as const;
 const LIVE = [...ML_JOB_LIVE];
 const PREDICTION_DECISION_KIND: DecisionKind = "ml_prediction";
@@ -116,6 +134,10 @@ export async function mlPredictBundleFor(
     input,
     output: b.prediction.output,
     max_rows: limits.mlPredictMaxRows,
+    // Asked for per row, never for a batch: every feature costs a prediction.
+    explain: Boolean((stored as { explain?: boolean }).explain),
+    explain_max_rows: ML_EXPLAIN_MAX_ROWS,
+    explain_top_k: ML_EXPLAIN_TOP_K,
   };
   const b64 = Buffer.from(JSON.stringify(program), "utf8").toString("base64");
   const code =
@@ -144,10 +166,13 @@ export async function mlPredictEnvFor(
   }
 }
 
-function summariseInput(input: MlPredictInput): Json {
-  return input.kind === "rows"
-    ? ({ kind: ROWS_KIND, count: input.rows.length } as Json)
-    : (input as unknown as Json);
+function summariseInput(input: MlPredictInput, explain = false): Json {
+  // The rows themselves are stashed separately; what stays on the row is the
+  // shape of the request. `explain` belongs here rather than in a column
+  // because the session rebuilds the program from this summary, and a flag
+  // that did not survive the round trip would be silently ignored.
+  const base = input.kind === "rows" ? { kind: ROWS_KIND, count: input.rows.length } : { ...input };
+  return (explain ? { ...base, explain: true } : base) as Json;
 }
 
 /**
@@ -157,6 +182,8 @@ function summariseInput(input: MlPredictInput): Json {
  * version, a forecast model, a missing lakehouse, too many live runs.
  */
 export async function startPrediction(args: {
+  /** Ask the program why each row got its answer. Rows mode only. */
+  explain?: boolean;
   model: MlModelRow;
   version: MlVersionRow;
   userId: string;
@@ -208,7 +235,7 @@ export async function startPrediction(args: {
       status: "queued",
       kind: args.kind,
       via: args.via,
-      input: summariseInput(args.input),
+      input: summariseInput(args.input, args.explain),
       output: args.output as Json,
     })
     .select("*")
@@ -395,6 +422,12 @@ export async function finalizePrediction(
         result_digest: digest,
         elapsed_seconds: r.elapsed_seconds ?? null,
         drift: (r.drift ?? null) as Json,
+        // FOUND FROM THE UI. This object is an explicit whitelist, not a
+        // spread of what the program returned, so a new field computed in
+        // Python and read in React still has to be named HERE — and when it is
+        // not, the program does the work, the server drops it and nothing
+        // anywhere reports a problem. The explanation simply never appeared.
+        explanations: (r.explanations ?? null) as Json,
       } as Json,
     })
     .eq("id", id)
@@ -671,6 +704,8 @@ export async function predictRowsSync(args: {
   via: string;
   decisionId?: string | null;
   waitMs?: number;
+  /** Also ask why each row got its answer. Forces the sandbox path. */
+  explain?: boolean;
 }): Promise<
   | {
       ok: true;
@@ -682,14 +717,23 @@ export async function predictRowsSync(args: {
       elapsedSeconds: number | null;
       /** Which path answered. Warm means no container was started. */
       served: "warm" | "sandbox";
+      explanations?: MlContribution[][] | null;
     }
   | { ok: false; error: string; predictionId?: string; pending?: boolean }
 > {
   // A warm endpoint, if this model has one serving this exact version. It
   // records the same row and writes the same audit as the sandbox path — the
   // only thing that differs is the twenty seconds of container start.
-  const warm = await scoreOnDeployment(args);
-  if (warm) return warm;
+  //
+  // An EXPLAINED call skips it and takes the sandbox. The endpoint's serving
+  // program would need its own copy of the ablation to answer, and a second
+  // implementation of "what moved this answer" is a second definition of it —
+  // the same trap avoided for the evaluation metrics. Explaining already costs
+  // a prediction per feature, so the container start is not what makes it slow.
+  if (!args.explain) {
+    const warm = await scoreOnDeployment(args);
+    if (warm) return warm;
+  }
 
   const started = await startPrediction({
     model: args.model,
@@ -700,6 +744,7 @@ export async function predictRowsSync(args: {
     kind: ROWS_KIND,
     via: args.via,
     decisionId: args.decisionId,
+    explain: args.explain,
   });
   if (!started.ok) return started;
   const deadline = Date.now() + (args.waitMs ?? 90_000);
@@ -714,6 +759,7 @@ export async function predictRowsSync(args: {
         algorithm: string | null;
         warnings: string[];
         elapsed_seconds: number | null;
+        explanations?: MlContribution[][] | null;
       };
       return {
         ok: true,
@@ -724,6 +770,7 @@ export async function predictRowsSync(args: {
         warnings: res.warnings ?? [],
         elapsedSeconds: res.elapsed_seconds,
         served: "sandbox",
+        explanations: res.explanations ?? null,
       };
     }
     if (row.status === "failed" || row.status === "cancelled") {

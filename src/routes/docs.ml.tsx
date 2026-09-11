@@ -504,6 +504,48 @@ with agentswarms.start_run("churn-v2", params={"lr": 0.01, "depth": 6}) as run:
         same numbers in <C>/api/ml/predict/status</C>.
       </P>
 
+      <H2 id="explain">Why this row got this answer</H2>
+      <P>
+        The model page shows what a model relies on <em>overall</em> — permutation importance over
+        the raw input columns, measured once when the version trained. That answers &ldquo;what does
+        this model key on&rdquo;. It does not answer &ldquo;why was this customer declined&rdquo;,
+        which is the question a person asks when the answer is about them, and in credit, insurance
+        or hiring it is one you may be obliged to answer.
+      </P>
+      <P>
+        Tick <strong>Explain this answer</strong> under <strong>Try it</strong> on the Predictions
+        tab. Each feature comes back with how far the answer moved when its value was replaced with
+        the one a typical training row carried: bars to the right pushed the answer up, bars to the
+        left pushed it down, in probability for a classification and in the target&apos;s own units
+        for a regression.
+      </P>
+      <Callout kind="why" title="This is an ablation, and it is not SHAP">
+        Nothing in the product calls it that, because a Shapley value has properties this does not:
+        these contributions are not additive and they do not sum to the prediction. What they are is
+        the <strong>local twin of the permutation importance</strong> already shown for the whole
+        model — that shuffles a column across every row, this replaces one cell in one row — which
+        is why the two can be read side by side and mean compatible things. The typical row comes
+        from the same feature distribution drift already records inside the artifact: the middle
+        quantile for a number, the commonest value for a category.
+      </Callout>
+      <P>
+        It works on <strong>any</strong> model, including one registered from a notebook, because it
+        only ever calls <C>predict</C>. The one case it declines is a classifier with no{" "}
+        <C>predict_proba</C>: without probabilities the only measurable move is that the label
+        flipped, which is a yes/no rather than a contribution, so it returns nothing rather than
+        dressing a coin flip as a number.
+      </P>
+      <P>
+        It costs one extra prediction per feature per row, so it is opt-in and bounded —{" "}
+        <C>ML_EXPLAIN_MAX_ROWS</C> rows per request, <C>ML_EXPLAIN_TOP_K</C> features back for each
+        — and an explained call{" "}
+        <strong>takes the sandbox path even when a warm endpoint is up</strong>, because the
+        endpoint&apos;s serving program would need its own copy of the ablation and a second
+        implementation of &ldquo;what moved this answer&rdquo; is a second definition of it. An
+        explanation that fails never costs you the prediction: the answer comes back with a warning
+        attached.
+      </P>
+
       <H2 id="ground-truth">Was it right?</H2>
       <P>
         Drift and this are different questions, and treating the first as an answer to the second is
@@ -903,7 +945,7 @@ curl -X POST https://your-instance/api/ml/predict/batch \\
           ],
           [
             "Explainability",
-            "Permutation importance over the raw input columns, at training time. No per-prediction explanation",
+            "Global permutation importance at training, plus per-row contributions by ablation against a typical row. Not Shapley values",
             "SHAP per prediction, Clarify",
           ],
           [
@@ -966,16 +1008,13 @@ curl -X POST https://your-instance/api/ml/predict/batch \\
       />
       <P>
         Everything in the left column not marked <strong>Not implemented</strong> is shipped and
-        tested. What is left, in the order it is usually asked for:{" "}
-        <strong>per-prediction explanation</strong> (importance is global and computed once at
-        training — which features moved <em>this</em> row&apos;s answer is not available, and in
-        credit or hiring that is a legal requirement rather than a nicety);{" "}
-        <strong>fairness</strong> (no subgroup performance, no disparate-impact ratio);{" "}
-        <strong>promotion approval</strong> (any owner may promote a version to production — it is
-        audited, but nobody signs it off); <strong>training one model across machines</strong> (the
-        search spreads over sandboxes, but a single fit still happens in one container, so a model
-        too large for one box does not train here); and <strong>serving at scale</strong> (one warm
-        endpoint, one replica, no autoscaling and no canary or shadow traffic).
+        tested. What is left, in the order it is usually asked for: <strong>fairness</strong> (no
+        subgroup performance, no disparate-impact ratio); <strong>promotion approval</strong> (any
+        owner may promote a version to production — it is audited, but nobody signs it off);{" "}
+        <strong>training one model across machines</strong> (the search spreads over sandboxes, but
+        a single fit still happens in one container, so a model too large for one box does not train
+        here); and <strong>serving at scale</strong> (one warm endpoint, one replica, no autoscaling
+        and no canary or shadow traffic).
       </P>
 
       <H2 id="use-cases">Use cases</H2>

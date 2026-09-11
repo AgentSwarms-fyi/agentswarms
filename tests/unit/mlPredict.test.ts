@@ -79,9 +79,13 @@ describe("the program: preparation, tuning, prediction", () => {
   });
 
   it("prediction re-uses the training feature preparation and writes back through the catalog", () => {
+    // One closure, used for the scored rows AND for the ablated copies an
+    // explanation builds, so an explanation can never be prepared differently
+    // from the prediction it explains.
     expect(TRAIN_PY).toContain(
-      "X = _prepare_x(df, art['features'], art['dt_cols'], art['num_all'], art['cat'], art.get('text') or [])",
+      "return _prepare_x(frame, art['features'], art['dt_cols'], art['num_all'], art['cat'], art.get('text') or [])",
     );
+    expect(TRAIN_PY).toContain("X = _prep(df)");
     expect(TRAIN_PY).toContain(
       "con.execute('CREATE OR REPLACE TABLE ' + fq + ' AS SELECT * FROM _pred')",
     );

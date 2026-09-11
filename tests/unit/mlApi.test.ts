@@ -153,7 +153,9 @@ describe("the service", () => {
     expect(api).toContain('action: "ml.version.register"');
     expect(api).toContain("artifact_sha256 must be the hex SHA-256 of the artifact bytes");
     expect(TRAIN_PY).toContain("if art.get('external'):");
-    expect(TRAIN_PY).toContain("X = df[list(art['features'])]");
+    // An externally registered pipeline owns its own preprocessing, so ours is
+    // bypassed — still true now that the choice is made once in a closure.
+    expect(TRAIN_PY).toContain("return frame[list(art['features'])]");
   });
 
   it("never exposes owner ids or artifact paths in a model summary", () => {

@@ -423,6 +423,56 @@ with the three most drifted features — the cue to retrain, or to schedule
 retraining. The public API returns the same numbers in
 `/api/ml/predict/status`.
 
+## Why this row got this answer
+
+The model page shows what the model relies on **overall** — permutation
+importance over the raw input columns, measured once when the version trained.
+That answers "what does this model key on". It does not answer "why was this
+customer declined", which is the question a person asks when the answer is
+about them, and in credit, insurance or hiring it is a question you may be
+obliged to answer.
+
+Tick **Explain this answer** under **Try it** on the Predictions tab. Each
+feature comes back with how far the answer moved when its value was replaced
+with the one a typical training row carried — bars to the right pushed the
+answer up, bars to the left pushed it down, measured in probability for a
+classification and in the target's own units for a regression.
+
+### What this is, exactly
+
+**It is an ablation against a typical row, and it is not SHAP.** Nothing in the
+product calls it that, because a Shapley value has properties this does not:
+these contributions are not additive and they do not sum to the prediction.
+What they are is the **local twin of the permutation importance** already shown
+for the model as a whole — that shuffles a column across every row, this
+replaces one cell in one row — which is why the two can be read side by side
+and mean compatible things.
+
+The typical row comes from the same feature distribution drift already records
+inside the artifact: the middle quantile for a number, the commonest value for
+a category. A feature whose distribution was never recorded is ablated to
+missing instead, and the pipeline imputes it exactly as it imputes any absent
+value.
+
+**It works on any model**, including one registered from a notebook, because it
+only ever calls `predict`. The one case it declines is a classifier with no
+`predict_proba`: without probabilities the only measurable move is that the
+label flipped, which is a yes/no rather than a contribution, so it returns
+nothing rather than dressing a coin flip as a number.
+
+### What it costs
+
+One extra prediction per feature per row, so it is opt-in and bounded:
+`ML_EXPLAIN_MAX_ROWS` (20) rows per request and `ML_EXPLAIN_TOP_K` (8) features
+back for each. An explained call also **takes the sandbox path even when a warm
+endpoint is up** — the endpoint's serving program would need its own copy of
+the ablation to answer, and a second implementation of "what moved this answer"
+is a second definition of it.
+
+An explanation that fails never costs you the prediction: the answer is
+returned with a warning attached, because the answer is the product and the
+explanation is commentary on it.
+
 ## Was it right?
 
 Drift and this are different questions, and treating the first as an answer to
@@ -845,7 +895,7 @@ Where AgentSwarms stands against Databricks ML and SageMaker, honestly:
 | Real-time inference        | Warm endpoints hold one version in memory: 45 ms of scoring instead of a ~25 s container start; one replica, no autoscaling | Serving endpoints with autoscaling                     |
 | Drift monitoring           | PSI per feature on every batch, threshold alerts                                                                            | Lakehouse Monitoring / Model Monitor (more statistics) |
 | Ground-truth monitoring    | Outcome source per model; the training metric recomputed on matched rows, with coverage; decay alerts on the platform clock | Model-quality monitoring jobs                          |
-| Explainability             | Permutation importance over the raw input columns, at training time. **No per-prediction explanation**                      | SHAP per prediction, Clarify                           |
+| Explainability             | Global permutation importance at training, plus per-row contributions by ablation against a typical row. Not Shapley values | SHAP per prediction, Clarify                           |
 | Fairness                   | **Not implemented** — no subgroup metrics, no disparate-impact measures                                                     | Clarify / bias reports                                 |
 | Promotion approval         | **Not implemented** — promotion is audited, not gated                                                                       | Approval workflows                                     |
 | Scheduled retraining       | Cron/cadence, promote-when-better, one platform clock                                                                       | Workflows / Pipelines                                  |
@@ -862,9 +912,6 @@ Where AgentSwarms stands against Databricks ML and SageMaker, honestly:
 Everything in the left column that is not marked **Not implemented** is
 shipped and tested. What is left, in the order it is usually asked for:
 
-- **Per-prediction explanation.** Importance is global and computed once at
-  training. Which features moved THIS row's answer is not available, and in
-  credit or hiring that is a legal requirement rather than a nicety.
 - **Fairness.** No subgroup performance, no disparate-impact ratio.
 - **Promotion approval.** Any owner may promote a version to production; it is
   audited, but nobody signs it off.

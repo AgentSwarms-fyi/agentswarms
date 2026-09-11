@@ -669,6 +669,8 @@ export const mlPredictRows = createServerFn({ method: "POST" })
         model_id: z.string().uuid(),
         version_id: z.string().uuid().optional(),
         rows: z.array(z.record(z.string(), z.unknown())).min(1).max(ML_ROWS_PREDICT_CAP),
+        /** Also ask what moved each answer. Costs a prediction per feature. */
+        explain: z.boolean().optional(),
       })
       .parse(input),
   )
@@ -677,7 +679,14 @@ export const mlPredictRows = createServerFn({ method: "POST" })
     const { model } = await loadModelForUser(data.model_id, userId);
     const version = await pickVersion(model.id, data.version_id, model.production_version_id);
     if (!version) return { ok: false as const, error: "No trained version to predict with" };
-    return predictRowsSync({ model, version, userId, rows: data.rows, via: "ui" });
+    return predictRowsSync({
+      model,
+      version,
+      userId,
+      rows: data.rows,
+      via: "ui",
+      explain: data.explain,
+    });
   });
 
 export const mlListPredictions = createServerFn({ method: "POST" })

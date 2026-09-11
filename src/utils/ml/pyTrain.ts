@@ -698,6 +698,98 @@ def _feature_stats(df, schema, features):
     return stats
 
 
+def _baseline_row(stats, features):
+    # The row a typical training example looked like, recovered from the same
+    # distribution drift already records: the middle quantile edge for a
+    # number, the commonest value for a category. A feature with no recorded
+    # distribution gets None, which the pipeline imputes exactly as it imputes
+    # a missing value - that IS the honest baseline for a column we know
+    # nothing about.
+    base = {}
+    for f in features:
+        st = (stats or {}).get(f)
+        if not st:
+            base[f] = None
+        elif st.get('kind') == 'numeric':
+            edges = st.get('edges') or []
+            base[f] = float(edges[len(edges) // 2]) if edges else None
+        else:
+            props = st.get('props') or {}
+            base[f] = max(props, key=props.get) if props else None
+    return base
+
+
+def _explain(art, df, pipe, prep, task, classes, pred, max_rows, top_k):
+    # Why THIS row got THIS answer.
+    #
+    # NOT Shapley values, and the docs say so. For each feature the value is
+    # replaced with the one a typical training row carried, the model is asked
+    # again, and the contribution is how far the answer moved. Positive means
+    # the actual value pushed the answer up relative to typical.
+    #
+    # It is the LOCAL twin of the permutation importance already reported for
+    # the model as a whole - that shuffles a column across rows, this replaces
+    # one cell - which is why the two can be read side by side. It also works
+    # on any pipeline at all, including one registered from a notebook, because
+    # it only ever calls predict.
+    #
+    # One stacked frame and ONE predict call rather than a call per feature:
+    # rows x features is small at these limits and a loop would spend its life
+    # in sklearn's per-call overhead.
+    import numpy as np
+    import pandas as pd
+    feats = [f for f in art['features'] if f in df.columns]
+    if not feats:
+        return None
+    n = int(min(len(df), max_rows))
+    if n <= 0:
+        return None
+    is_class = bool(classes) and task not in ('clustering', 'anomaly')
+    has_proba = hasattr(pipe, 'predict_proba')
+    if is_class and not has_proba:
+        # Without probabilities the only measurable move is "the label flipped",
+        # which is a yes/no rather than a contribution. Saying nothing beats
+        # dressing a coin flip as a number.
+        return None
+    base = _baseline_row(art.get('feature_stats'), feats)
+
+    head = df.iloc[:n]
+    blocks = []
+    for f in feats:
+        b = head.copy()
+        b[f] = base.get(f)
+        blocks.append(b)
+    stacked = pd.concat(blocks, ignore_index=True)
+
+    if is_class:
+        base_proba = pipe.predict_proba(prep(head))
+        idx = [int(np.argmax(base_proba[i])) for i in range(n)]
+        base_score = np.array([float(base_proba[i][idx[i]]) for i in range(n)])
+        ab = pipe.predict_proba(prep(stacked))
+        moved = np.empty((len(feats), n), dtype=float)
+        for j in range(len(feats)):
+            for i in range(n):
+                moved[j][i] = float(ab[j * n + i][idx[i]])
+    else:
+        base_score = np.asarray(pipe.predict(prep(head)), dtype=float).reshape(-1)
+        flat = np.asarray(pipe.predict(prep(stacked)), dtype=float).reshape(-1)
+        moved = flat.reshape(len(feats), n)
+
+    out = []
+    for i in range(n):
+        parts = []
+        for j, f in enumerate(feats):
+            c = float(base_score[i] - moved[j][i])
+            if not np.isfinite(c) or c == 0.0:
+                continue
+            parts.append({'feature': f, 'contribution': round(c, 6),
+                          'value': _jsonable_cell(head.iloc[i][f]),
+                          'baseline': _jsonable_cell(base.get(f))})
+        parts.sort(key=lambda d: -abs(d['contribution']))
+        out.append(parts[:top_k])
+    return out
+
+
 def _drift(stats, df):
     # Population stability index per feature: sum((a - e) * ln(a / e)) over the
     # training bins, with the new rows binned the same way. Below 0.1 is stable,
@@ -1333,9 +1425,12 @@ def _predict(cfg, warnings_):
         warnings_.append('Input is missing %d feature column(s), treated as empty: %s' % (len(missing), ', '.join(missing[:8])))
     if art.get('external'):
         # Registered from outside: the pipeline owns its own preprocessing.
-        X = df[list(art['features'])]
+        def _prep(frame):
+            return frame[list(art['features'])]
     else:
-        X = _prepare_x(df, art['features'], art['dt_cols'], art['num_all'], art['cat'], art.get('text') or [])
+        def _prep(frame):
+            return _prepare_x(frame, art['features'], art['dt_cols'], art['num_all'], art['cat'], art.get('text') or [])
+    X = _prep(df)
     pipe = art['pipeline']
     pred = pipe.predict(X)
     out = df.copy()
@@ -1387,9 +1482,19 @@ def _predict(cfg, warnings_):
     sample = [[_jsonable_cell(v) for v in row] for row in out.head(sample_n).itertuples(index=False, name=None)]
     digest_cols = ['prediction'] + [c for c in ('probability', 'anomaly_score', 'distance') if c in out.columns]
     digest_rows = [[_jsonable_cell(v) for v in row] for row in out[digest_cols].head(1000).itertuples(index=False, name=None)]
+    # Explanations are opt-in and bounded: every feature costs a prediction, so
+    # this is for the row somebody is looking at, not for a million-row batch.
+    explanations = None
+    if cfg.get('explain'):
+        try:
+            explanations = _explain(art, df, pipe, _prep, task, classes, pred,
+                                    int(cfg.get('explain_max_rows') or 20),
+                                    int(cfg.get('explain_top_k') or 8))
+        except Exception as e:
+            warnings_.append('Could not explain these rows: %s' % e)
     return {'mode': 'predict', 'row_count': int(len(out)), 'total_input_rows': int(total), 'output': written, 'drift': drift,
             'columns': cols, 'sample': sample, 'digest_columns': digest_cols, 'digest_rows': digest_rows,
-            'algorithm': art.get('algorithm')}
+            'explanations': explanations, 'algorithm': art.get('algorithm')}
 
 
 # ── Entry point ──────────────────────────────────────────────────────────────

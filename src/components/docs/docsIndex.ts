@@ -2495,6 +2495,8 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "ML_DECAY_ALERT_RATIO",
       "ML_DRIFT_ALERT_PSI",
       "ML_EVALUATIONS_PER_SWEEP",
+      "ML_EXPLAIN_MAX_ROWS",
+      "ML_EXPLAIN_TOP_K",
       "ML_MAX_CONCURRENT_TRAININGS_PER_USER",
       "ML_PREDICT_MAX_ROWS",
       "ML_TRAIN_GPUS",
@@ -2636,6 +2638,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       {
         "id": "drift",
         "text": "Drift",
+        "level": 2
+      },
+      {
+        "id": "explain",
+        "text": "Why this row got this answer",
         "level": 2
       },
       {

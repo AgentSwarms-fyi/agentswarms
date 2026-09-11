@@ -31,7 +31,7 @@ import type { MlModelRow, MlVersionRow } from "@/utils/ml/access.server";
 import type { MlPredictionRow, MlRowsPredictResult } from "@/utils/ml/predict.server";
 import { ML_JOB_LIVE, type MlFeatureSchemaEntry, type MlForecastPoint } from "@/utils/ml/types";
 import { JobStatusChip, fmtDuration, fmtInt, relTime } from "@/components/ml/mlUi";
-import { ML_DRIFT_MODERATE, type MlDrift } from "@/utils/ml/types";
+import { ML_DRIFT_MODERATE, type MlContribution, type MlDrift } from "@/utils/ml/types";
 
 const LIVE = new Set<string>(ML_JOB_LIVE);
 
@@ -335,6 +335,9 @@ function TryIt({
   );
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<TryResult | null>(null);
+  // Off by default: it costs a prediction per feature and skips the warm
+  // endpoint, so it is a thing you ask for about a row you have to justify.
+  const [explain, setExplain] = useState(false);
 
   const run = async () => {
     setBusy(true);
@@ -353,7 +356,13 @@ function TryIt({
               : v;
       }
       const r = await predictFn({
-        data: { access_token: token, model_id: model.id, version_id: version.id, rows: [row] },
+        data: {
+          access_token: token,
+          model_id: model.id,
+          version_id: version.id,
+          rows: [row],
+          explain,
+        },
       });
       setResult(r);
       if (!r.ok) toast.error(r.error);
@@ -427,6 +436,15 @@ function TryIt({
             )}
             Predict
           </Button>
+          <label className="inline-flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
+            <input
+              type="checkbox"
+              className="h-3.5 w-3.5 accent-primary"
+              checked={explain}
+              onChange={(e) => setExplain(e.target.checked)}
+            />
+            Explain this answer
+          </label>
           {busy ? (
             <span className="text-xs text-muted-foreground">Scoring in a sandbox…</span>
           ) : null}
@@ -472,6 +490,9 @@ function TryIt({
                 ) : null}
               </p>
             )}
+            {result.ok && result.explanations?.[0]?.length ? (
+              <ContributionList parts={result.explanations[0]} task={model.task} />
+            ) : null}
             {probas.length ? (
               <div className="mt-2 space-y-1">
                 {probas
@@ -689,6 +710,65 @@ function outputBlurb(task: string) {
     <>
       a <code>prediction</code> column (and class probabilities)
     </>
+  );
+}
+
+/**
+ * What moved this answer, as a diverging bar per feature.
+ *
+ * Deliberately NOT called SHAP anywhere the reader can see, because it is not:
+ * each bar is how far the answer moved when that one value was replaced with
+ * the one a typical training row carried. The caption says exactly that, in
+ * one sentence, because a number a person may have to defend to a regulator
+ * should not need a footnote to be understood.
+ */
+function ContributionList({ parts, task }: { parts: MlContribution[]; task: string }) {
+  const widest = Math.max(...parts.map((p) => Math.abs(p.contribution)), 1e-9);
+  const unit = task === "classification" ? "probability" : "predicted value";
+  return (
+    <div className="mt-3 border-t pt-3">
+      <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+        What moved this answer
+      </p>
+      <p className="mb-2 mt-0.5 text-[11px] text-muted-foreground">
+        How far the {unit} moved when each value was replaced with a typical one. Bars to the right
+        pushed the answer up.
+      </p>
+      <div className="space-y-1.5">
+        {parts.map((p) => {
+          const share = Math.abs(p.contribution) / widest;
+          const up = p.contribution > 0;
+          return (
+            <div key={p.feature} className="flex items-center gap-2 text-xs">
+              <span className="w-32 shrink-0 truncate font-mono text-[11px]" title={p.feature}>
+                {p.feature}
+              </span>
+              <span
+                className="w-24 shrink-0 truncate text-muted-foreground"
+                title={String(p.value)}
+              >
+                {String(p.value ?? "—")}
+              </span>
+              <span className="relative h-3 flex-1 rounded bg-muted">
+                <span
+                  className={`absolute top-0 h-3 rounded ${up ? "bg-emerald-500/70" : "bg-rose-500/70"}`}
+                  style={{
+                    width: `${Math.max(2, share * 50)}%`,
+                    left: up ? "50%" : undefined,
+                    right: up ? undefined : "50%",
+                  }}
+                />
+                <span className="absolute left-1/2 top-0 h-3 w-px bg-border" />
+              </span>
+              <span className="w-16 shrink-0 text-right tabular-nums">
+                {p.contribution > 0 ? "+" : ""}
+                {p.contribution.toFixed(3)}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 

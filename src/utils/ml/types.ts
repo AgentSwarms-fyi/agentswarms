@@ -266,6 +266,25 @@ export type MlClusterProfile = {
   profile: Record<string, number | string | null>;
 };
 
+/**
+ * Why one row got the answer it did.
+ *
+ * NOT a Shapley value, and nothing in the UI calls it one. The feature's value
+ * was replaced with the one a typical training row carried and the model was
+ * asked again; `contribution` is how far the answer moved, in probability for
+ * a classification and in the target's own units for a regression. Positive
+ * means the actual value pushed the answer UP relative to typical.
+ *
+ * The local twin of the permutation importance reported for the whole model —
+ * that shuffles a column across rows, this replaces one cell.
+ */
+export type MlContribution = {
+  feature: string;
+  contribution: number;
+  value: MlCell;
+  baseline: MlCell;
+};
+
 /** Population stability of a scored batch against the training distribution. */
 export type MlDrift = {
   /** The highest per-feature PSI. */
