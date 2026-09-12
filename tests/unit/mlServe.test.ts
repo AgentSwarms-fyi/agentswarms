@@ -118,8 +118,11 @@ describe("a missing endpoint is slower, never wrong", () => {
     // Every one of these returns null, which is the caller's signal to take
     // the cold path. None of them is an error to the person predicting.
     const warm = SERVE.slice(SERVE.indexOf("export async function scoreWarm"));
-    expect(warm).toContain('if (!dep || dep.status !== "ready" || !dep.session_id) return null;');
-    expect(warm).toContain("if (!endpoint) return null;");
+    // The sandbox moved into ml_deployment_replicas, so "nothing to score on"
+    // is now two conditions: no endpoint at all, and no COPY of it that is
+    // ready. The property is unchanged — every one of these returns null.
+    expect(warm).toContain('if (!dep || dep.status !== "ready") return null;');
+    expect(warm).toContain("if (!replica?.endpoint) return null;");
     expect(warm).toContain("if (res.status === 503) return null;");
     expect(PREDICT).toContain("const warm = await scoreOnDeployment(args);");
     expect(PREDICT).toContain("if (warm) return warm;");
@@ -233,11 +236,27 @@ describe("an endpoint nobody calls is stopped", () => {
     expect(rd("supabase/migrations/20260874000000_ml_deployment_endpoint.sql")).toContain(
       "ADD COLUMN IF NOT EXISTS endpoint text",
     );
-    expect(SERVE).toContain("let endpoint = dep.endpoint;");
-    expect(SERVE).toContain("endpoint: ready.endpoint");
-    // A stale address must not stay remembered.
-    expect(SERVE).toContain(".update({ endpoint: null })");
+    // The address is remembered on the COPY that owns it now — one endpoint
+    // can have several, and a single remembered address was the shape that
+    // made more than one impossible.
+    expect(rd("supabase/migrations/20260908000000_ml_deployment_replicas.sql")).toContain(
+      "endpoint text",
+    );
+    expect(SERVE).toContain("const endpoint = replica.endpoint;");
+    expect(SERVE).toContain("endpoint: ready.endpoint,");
+    // A stale address must not stay remembered: retiring the copy clears it.
     expect(SERVE).toContain("endpoint: null,");
+    const retire = SERVE.slice(SERVE.indexOf("async function retireReplica"));
+    expect(retire.slice(0, 600)).toContain("endpoint: null,");
+  });
+
+  it("one dead copy does not take the whole endpoint down", () => {
+    // With a single sandbox these were the same event, so a transport failure
+    // forgot the endpoint's address. With several, doing that would throw away
+    // the copies that are still answering.
+    const warm = SERVE.slice(SERVE.indexOf("export async function scoreWarm"));
+    expect(warm).toContain("void retireReplica(replica,");
+    expect(warm).not.toContain('.from("ml_deployments").update({ endpoint: null })');
   });
 
   it("warms the scorer's first call before reporting ready", () => {

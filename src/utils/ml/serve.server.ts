@@ -28,6 +28,13 @@ import {
   type SessionRow,
 } from "@/utils/notebookRuntime/service.server";
 import { getOrchestrator, sandboxName } from "@/utils/notebookRuntime/orchestrator";
+import {
+  idleSeconds,
+  ratePerMinute,
+  replicaToScore,
+  replicaToStop,
+  scaleDecision,
+} from "@/lib/mlAutoscale";
 import type { MlModelRow, MlVersionRow } from "./access.server";
 
 /** The stash a score session carries, so the source route can recognise it. */
@@ -119,16 +126,54 @@ export type MlDeploymentRow = {
   model_id: string;
   version_id: string | null;
   status: "starting" | "ready" | "failed" | "stopped";
-  session_id: string | null;
   keep_warm: boolean;
   idle_ttl_minutes: number;
   last_used_at: string | null;
   last_started_at: string | null;
   last_error: string | null;
   request_count: number;
-  /** Remembered so a score does not ask the orchestrator where to go. */
-  endpoint: string | null;
+  /** Copies held with no traffic, and the ceiling autoscaling may reach. */
+  min_replicas: number;
+  max_replicas: number;
+  /** The counter and when it was read, so a rate can be measured not guessed. */
+  scale_checked_at: string | null;
+  scale_checked_count: number | null;
+  last_scaled_at: string | null;
+  last_scale_reason: string | null;
 };
+
+/**
+ * One copy of the model, in its own sandbox.
+ *
+ * The deployment is the policy; this is the thing that actually answers. A
+ * copy owns its session, its address and its own idle clock — the last of
+ * which is what makes stopping one safe, because "idle" has to mean idle for
+ * THIS container rather than for the endpoint as a whole.
+ */
+export type MlReplicaRow = {
+  id: string;
+  deployment_id: string;
+  user_id: string;
+  session_id: string | null;
+  status: "starting" | "ready" | "failed" | "stopped";
+  endpoint: string | null;
+  last_used_at: string | null;
+  last_started_at: string | null;
+  last_error: string | null;
+  request_count: number;
+};
+
+const LIVE_REPLICA = ["starting", "ready"] as const;
+
+export async function listReplicas(deploymentId: string, liveOnly = true): Promise<MlReplicaRow[]> {
+  let q = supabaseAdmin
+    .from("ml_deployment_replicas")
+    .select("*")
+    .eq("deployment_id", deploymentId);
+  if (liveOnly) q = q.in("status", [...LIVE_REPLICA]);
+  const { data } = await q;
+  return ((data ?? []) as MlReplicaRow[]).slice();
+}
 
 /** The scorer's HTTP surface inside the sandbox. */
 const SCORE_PATH = "/score";
@@ -160,11 +205,20 @@ export async function getDeployment(modelId: string): Promise<MlDeploymentRow | 
   return (data as MlDeploymentRow | null) ?? null;
 }
 
+/**
+ * Warm containers held right now.
+ *
+ * REPLICAS, not deployments. The cap exists to bound how much memory is held
+ * resident, and one deployment with four copies is four sandboxes. Counting
+ * deployments would have let a single endpoint walk straight through a limit
+ * written to protect the machine. Every endpoint defaults to one copy, so this
+ * counts the same as it used to until somebody raises a maximum.
+ */
 async function countLive(userId?: string): Promise<number> {
   let q = supabaseAdmin
-    .from("ml_deployments")
+    .from("ml_deployment_replicas")
     .select("id", { count: "exact", head: true })
-    .in("status", ["starting", "ready"]);
+    .in("status", [...LIVE_REPLICA]);
   if (userId) q = q.eq("user_id", userId);
   const { count } = await q;
   return count ?? 0;
@@ -187,8 +241,6 @@ async function markStopped(id: string, error?: string | null): Promise<void> {
     .from("ml_deployments")
     .update({
       status: error ? "failed" : "stopped",
-      session_id: null,
-      endpoint: null,
       last_error: error?.slice(0, 2000) ?? null,
       updated_at: new Date().toISOString(),
     })
@@ -222,14 +274,20 @@ export async function ensureDeployment(args: {
 
   let dep = await getDeployment(model.id);
 
-  // Already serving the version asked for? Then this is just a probe.
-  if (dep && dep.status === "ready" && dep.session_id && dep.version_id === version.id) {
-    const session = await getSession(userId, dep.session_id);
-    if (session && !["stopped", "failed"].includes(session.status)) {
-      const endpoint = await endpointOf(session);
-      if (endpoint && (await healthy(endpoint))) return { ok: true, endpoint, deployment: dep };
+  // Already serving the version asked for? Then this is just a probe — but
+  // the answer comes from a COPY that is actually healthy, not from a status
+  // column. A row saying "ready" while every sandbox behind it has gone is
+  // exactly the lie the replicas table was split out to make impossible.
+  if (dep && dep.status === "ready" && dep.version_id === version.id) {
+    for (const replica of await listReplicas(dep.id)) {
+      if (replica.status !== "ready" || !replica.endpoint) continue;
+      if (await healthy(replica.endpoint)) {
+        return { ok: true, endpoint: replica.endpoint, deployment: dep };
+      }
+      // This one has gone. Retire it and keep looking; the endpoint as a
+      // whole is only down when none of them answer.
+      await retireReplica(replica, "health check failed");
     }
-    // The row said ready and the sandbox is not. Fall through and restart.
     await markStopped(dep.id);
     dep = await getDeployment(model.id);
   }
@@ -249,8 +307,14 @@ export async function ensureDeployment(args: {
   }
 
   // Stop whatever was there: a deployment serving a different version must not
-  // linger, or the endpoint answers with a model nobody asked for.
-  if (dep?.session_id) await stopQuietly(userId, dep.session_id);
+  // linger, or the endpoint answers with a model nobody asked for. EVERY copy,
+  // not the first — leaving one behind is an endpoint that answers with two
+  // different models depending on which copy the round-robin picks.
+  if (dep) {
+    for (const replica of await listReplicas(dep.id)) {
+      await retireReplica(replica, "replaced");
+    }
+  }
 
   const limits = await getPlatformResources();
   const { ensurePlatformEgress } = await import("@/utils/notebookRuntime/egressApply.server");
@@ -277,52 +341,159 @@ export async function ensureDeployment(args: {
   if (upErr) return { ok: false, error: upErr.message };
   dep = saved as MlDeploymentRow;
 
+  const first = await startReplica({
+    deployment: dep,
+    model,
+    version,
+    userId,
+    memLimitMb: limits.mlTrainMemLimitMb,
+    waitMs: args.waitMs ?? READY_TIMEOUT_MS,
+  });
+  if (!first.ok) {
+    await markStopped(dep.id, first.error);
+    return { ok: false, error: first.error };
+  }
+  await supabaseAdmin
+    .from("ml_deployments")
+    .update({ status: "ready", last_error: null, updated_at: new Date().toISOString() })
+    .eq("id", dep.id);
+
+  auditEvent({
+    userId,
+    action: "ml.deploy",
+    resourceType: "ml_deployment",
+    resourceId: dep.id,
+    resourceName: model.name,
+    detail: { model_id: model.id, version: version.version, version_id: version.id },
+  });
+
+  // Any further copies the minimum asks for are started WITHOUT waiting. The
+  // caller has a working endpoint the moment the first one answers; making
+  // them wait another twenty seconds each for copies two and three would be
+  // charging them for headroom they have not asked to use yet.
+  const wantMore = Math.max(0, Math.min(dep.min_replicas, dep.max_replicas) - 1);
+  if (wantMore > 0) {
+    void (async () => {
+      for (let i = 0; i < wantMore; i++) {
+        const room = await replicaRoom(userId);
+        if (!room.ok) break;
+        await startReplica({
+          deployment: dep,
+          model,
+          version,
+          userId,
+          memLimitMb: limits.mlTrainMemLimitMb,
+          waitMs: READY_TIMEOUT_MS,
+        });
+      }
+    })().catch((e) => console.warn("[ml-serve] extra copy failed:", (e as Error).message));
+  }
+
+  return { ok: true, endpoint: first.endpoint, deployment: { ...dep, status: "ready" } };
+}
+
+/** Is there room for one more warm container, for this user and overall? */
+async function replicaRoom(userId: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const caps = await deploymentCaps();
+  const [mine, all] = await Promise.all([countLive(userId), countLive()]);
+  if (mine >= caps.perUser) {
+    return { ok: false, error: `You are already holding ${caps.perUser} warm containers` };
+  }
+  if (all >= caps.total)
+    return { ok: false, error: "This instance is at its warm-container limit" };
+  return { ok: true };
+}
+
+/**
+ * Start one copy and wait for it to load the model.
+ *
+ * The replica row is written BEFORE the sandbox starts, so a copy that dies
+ * during load is a row someone can see and reap rather than a container with
+ * nothing pointing at it.
+ */
+async function startReplica(args: {
+  deployment: MlDeploymentRow;
+  model: MlModelRow;
+  version: MlVersionRow;
+  userId: string;
+  memLimitMb: number;
+  waitMs: number;
+}): Promise<{ ok: true; endpoint: string; replicaId: string } | { ok: false; error: string }> {
+  const nowIso = new Date().toISOString();
+  const { data: row, error: insErr } = await supabaseAdmin
+    .from("ml_deployment_replicas")
+    .insert({
+      deployment_id: args.deployment.id,
+      user_id: args.userId,
+      status: "starting",
+      last_started_at: nowIso,
+    })
+    .select("*")
+    .single();
+  if (insErr || !row) return { ok: false, error: insErr?.message ?? "Could not record the copy" };
+  const replica = row as MlReplicaRow;
+
   try {
     const { session } = await startSession({
-      userId,
+      userId: args.userId,
       kind: "service",
       serviceMode: "score",
       restartOnFailure: true,
       // The scorer holds the ML stack and a fitted pipeline resident; the
       // 2 GB an MCP server gets is the wrong budget for that.
-      memLimitMb: limits.mlTrainMemLimitMb,
-      inputs: { __ml_score: { model_id: model.id, version_id: version.id } },
+      memLimitMb: args.memLimitMb,
+      inputs: { __ml_score: { model_id: args.model.id, version_id: args.version.id } },
     });
     await supabaseAdmin
-      .from("ml_deployments")
+      .from("ml_deployment_replicas")
       .update({ session_id: session.id, updated_at: new Date().toISOString() })
-      .eq("id", dep.id);
+      .eq("id", replica.id);
 
-    const ready = await waitReady(userId, session.id, args.waitMs ?? READY_TIMEOUT_MS);
+    const ready = await waitReady(args.userId, session.id, args.waitMs);
     if (!ready.ok) {
-      await markStopped(dep.id, ready.error);
-      await stopQuietly(userId, session.id);
+      await supabaseAdmin
+        .from("ml_deployment_replicas")
+        .update({
+          status: "failed",
+          last_error: ready.error.slice(0, 2000),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", replica.id);
+      await stopQuietly(args.userId, session.id);
       return { ok: false, error: ready.error };
     }
     await supabaseAdmin
-      .from("ml_deployments")
+      .from("ml_deployment_replicas")
       .update({
         status: "ready",
         endpoint: ready.endpoint,
         last_error: null,
         updated_at: new Date().toISOString(),
       })
-      .eq("id", dep.id);
-
-    auditEvent({
-      userId,
-      action: "ml.deploy",
-      resourceType: "ml_deployment",
-      resourceId: dep.id,
-      resourceName: model.name,
-      detail: { model_id: model.id, version: version.version, version_id: version.id },
-    });
-    return { ok: true, endpoint: ready.endpoint, deployment: { ...dep, status: "ready" } };
+      .eq("id", replica.id);
+    return { ok: true, endpoint: ready.endpoint, replicaId: replica.id };
   } catch (e) {
     const message = (e as Error).message;
-    await markStopped(dep.id, message);
+    await supabaseAdmin
+      .from("ml_deployment_replicas")
+      .update({ status: "failed", last_error: message.slice(0, 2000) })
+      .eq("id", replica.id);
     return { ok: false, error: message };
   }
+}
+
+/** Stop one copy's sandbox and mark the row, whichever way round it goes. */
+async function retireReplica(replica: MlReplicaRow, reason: string): Promise<void> {
+  if (replica.session_id) await stopQuietly(replica.user_id, replica.session_id);
+  await supabaseAdmin
+    .from("ml_deployment_replicas")
+    .update({
+      status: "stopped",
+      endpoint: null,
+      last_error: reason.slice(0, 2000),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", replica.id);
 }
 
 /** Is the scorer listening AND finished loading its model? */
@@ -402,21 +573,20 @@ export async function scoreWarm(args: {
   | null
 > {
   const dep = await getDeployment(args.model.id);
-  if (!dep || dep.status !== "ready" || !dep.session_id) return null;
+  if (!dep || dep.status !== "ready") return null;
   // A deployment serving a different version must not answer for this one.
   if (dep.version_id !== args.version.id) return null;
 
-  // The remembered address first. Asking the orchestrator where the sandbox
-  // is means a `docker inspect` per score, which was most of the latency a
-  // warm endpoint was supposed to have removed.
-  let endpoint = dep.endpoint;
-  if (!endpoint) {
-    const session = await getSession(args.userId, dep.session_id);
-    if (!session) return null;
-    endpoint = await endpointOf(session);
-    if (!endpoint) return null;
-    void supabaseAdmin.from("ml_deployments").update({ endpoint }).eq("id", dep.id);
-  }
+  // THE QUIETEST COPY, by the same rule the scaler uses to choose what to
+  // stop. Two different notions of "quietest" would have the two disagreeing
+  // about the same endpoint, and the idle clock the scale-down safety check
+  // reads would stop meaning what it says.
+  const ready = (await listReplicas(dep.id)).filter(
+    (r) => r.status === "ready" && Boolean(r.endpoint),
+  );
+  const replica = replicaToScore(ready);
+  if (!replica?.endpoint) return null;
+  const endpoint = replica.endpoint;
 
   try {
     const res = await fetch(`${endpoint}${SCORE_PATH}`, {
@@ -432,7 +602,7 @@ export async function scoreWarm(args: {
       if (res.status === 503) return null;
       return { ok: false, error: String(body?.error ?? `The scorer answered ${res.status}`) };
     }
-    void touch(dep.id);
+    void touch(dep.id, replica.id);
     return {
       ok: true,
       columns: (body?.columns as string[]) ?? [],
@@ -444,22 +614,37 @@ export async function scoreWarm(args: {
     };
   } catch (e) {
     // A transport failure is a cold-path fallback, not an error to the caller:
-    // the sandbox may have just been reaped out from under this request. Forget
-    // the address so the next call re-resolves it rather than retrying a
-    // container that has gone.
-    void supabaseAdmin.from("ml_deployments").update({ endpoint: null }).eq("id", dep.id);
+    // the sandbox may have just been reaped out from under this request.
+    //
+    // Retire THIS COPY rather than the endpoint. With one sandbox the two were
+    // the same thing; with several, forgetting the whole endpoint's address
+    // because one container went would throw away the copies still answering.
+    void retireReplica(replica, `transport failure: ${(e as Error).message}`.slice(0, 200));
     console.warn("[ml-serve] warm score failed:", (e as Error).message);
     return null;
   }
 }
 
-/** Record use, so the idle reaper knows this endpoint is earning its memory. */
-async function touch(id: string): Promise<void> {
+/**
+ * Record use on both the endpoint and the copy that answered.
+ *
+ * The endpoint's counter is what the autoscaler differences into a rate; the
+ * copy's timestamp is what makes stopping it safe. Neither can be derived
+ * from the other — a busy endpoint says nothing about which copy is quiet —
+ * so both are written, and both off the request path.
+ */
+async function touch(deploymentId: string, replicaId: string): Promise<void> {
   try {
-    // One statement: the RPC sets both the counter and the timestamp the idle
-    // reaper reads. A second UPDATE here would double the writes on the path
-    // this whole feature exists to keep short.
-    await supabaseAdmin.rpc("increment_ml_deployment_use", { p_id: id });
+    await Promise.all([
+      // One statement: the RPC sets both the counter and the timestamp the
+      // idle reaper reads. A second UPDATE here would double the writes on the
+      // path this whole feature exists to keep short.
+      supabaseAdmin.rpc("increment_ml_deployment_use", { p_id: deploymentId }),
+      supabaseAdmin
+        .from("ml_deployment_replicas")
+        .update({ last_used_at: new Date().toISOString() })
+        .eq("id", replicaId),
+    ]);
   } catch (e) {
     console.warn("[ml-serve] could not record use:", (e as Error).message);
   }
@@ -478,7 +663,9 @@ async function stopQuietly(userId: string, sessionId: string): Promise<void> {
 export async function undeploy(modelId: string, userId: string): Promise<void> {
   const dep = await getDeployment(modelId);
   if (!dep) return;
-  if (dep.session_id) await stopQuietly(userId, dep.session_id);
+  for (const replica of await listReplicas(dep.id)) {
+    await retireReplica(replica, "undeployed");
+  }
   await markStopped(dep.id);
   auditEvent({
     userId,
@@ -514,14 +701,21 @@ export async function reapIdleDeployments(): Promise<number> {
     // minutes of idleness on a sandbox that was thirty-seven seconds old and
     // stopped it. Starting is something happening; an endpoint that has just
     // come up is not idle however long ago it was last called.
-    const marks = [raw.last_used_at, raw.last_started_at]
+    const replicas = await listReplicas(raw.id);
+    const marks = [
+      raw.last_used_at,
+      raw.last_started_at,
+      // A copy started a moment ago keeps the endpoint alive even if the
+      // endpoint's own clocks are stale: something IS happening.
+      ...replicas.flatMap((r) => [r.last_used_at, r.last_started_at]),
+    ]
       .filter((t): t is string => Boolean(t))
       .map((t) => new Date(t).getTime())
       .filter((n) => Number.isFinite(n));
     if (marks.length === 0) continue;
     const idleMs = Date.now() - Math.max(...marks);
     if (idleMs < raw.idle_ttl_minutes * 60_000) continue;
-    if (raw.session_id) await stopQuietly(raw.user_id, raw.session_id);
+    for (const replica of replicas) await retireReplica(replica, "idle");
     await markStopped(raw.id);
     auditEvent({
       userId: raw.user_id,
@@ -538,4 +732,209 @@ export async function reapIdleDeployments(): Promise<number> {
     stopped++;
   }
   return stopped;
+}
+
+/**
+ * How hard one copy is expected to work, and how reluctant the scaler is.
+ *
+ * Env knobs rather than settings rows, like the two explanation limits they
+ * sit beside: these describe the shape of the machine rather than a policy an
+ * owner picks per model, and the per-model policy (min, max) lives on the
+ * deployment where an owner can see it.
+ */
+const envCount = (name: string, fallback: number) => {
+  const n = Number(process.env[name]);
+  return Number.isFinite(n) && n > 0 ? Math.trunc(n) : fallback;
+};
+const TARGET_RPM_PER_REPLICA = envCount("ML_SERVE_TARGET_RPM_PER_REPLICA", 120);
+const SCALE_COOLDOWN_SECONDS = envCount("ML_SERVE_SCALE_COOLDOWN_SECONDS", 180);
+
+/**
+ * Resize every endpoint to the load it is actually carrying.
+ *
+ * Runs on the platform clock beside the idle reaper. The decision itself is in
+ * src/lib/mlAutoscale.ts and is pure arithmetic — this function's whole job is
+ * to measure honestly, act once, and record why.
+ *
+ * MEASURED, NOT SAMPLED: the endpoint keeps a cumulative request counter, and
+ * a rate is the difference between two readings of it over the time between
+ * them. The first pass after a restart has nothing to difference against and
+ * deliberately does nothing but take a reading — guessing from a cumulative
+ * total would read a month of traffic as if it had all arrived this minute.
+ */
+export async function autoscaleDeployments(): Promise<{ scaled: number }> {
+  const { data: rows } = await supabaseAdmin
+    .from("ml_deployments")
+    .select("*")
+    .eq("status", "ready");
+  const deployments = (rows ?? []) as MlDeploymentRow[];
+  const now = new Date();
+  let scaled = 0;
+
+  for (const dep of deployments) {
+    const rate = ratePerMinute(
+      dep.scale_checked_count,
+      dep.scale_checked_at,
+      dep.request_count,
+      now,
+    );
+    // Always take a reading, whatever else happens: skipping it on a pass that
+    // decided nothing would leave the next pass differencing across two
+    // intervals and reporting half the real rate.
+    const reading = {
+      scale_checked_at: now.toISOString(),
+      scale_checked_count: dep.request_count,
+    };
+
+    // An endpoint that cannot grow or shrink is not worth measuring further,
+    // and the overwhelming majority are exactly that until somebody opts in.
+    if (dep.min_replicas === dep.max_replicas) {
+      await supabaseAdmin.from("ml_deployments").update(reading).eq("id", dep.id);
+      continue;
+    }
+    if (rate === null) {
+      await supabaseAdmin.from("ml_deployments").update(reading).eq("id", dep.id);
+      continue;
+    }
+
+    const replicas = await listReplicas(dep.id);
+    const ready = replicas.filter((r) => r.status === "ready");
+    const starting = replicas.filter((r) => r.status === "starting");
+    const quietest = replicaToStop(ready);
+
+    const decision = scaleDecision({
+      requestsPerMinute: rate,
+      replicasReady: ready.length,
+      replicasStarting: starting.length,
+      min: dep.min_replicas,
+      max: dep.max_replicas,
+      targetPerReplica: TARGET_RPM_PER_REPLICA,
+      secondsSinceChange: dep.last_scaled_at
+        ? Math.max(0, (now.getTime() - new Date(dep.last_scaled_at).getTime()) / 1000)
+        : Number.POSITIVE_INFINITY,
+      cooldownSeconds: SCALE_COOLDOWN_SECONDS,
+      // Idle since it was last USED, or since it STARTED if it never was.
+      //
+      // FOUND LIVE: a copy that has answered nothing has last_used_at null, so
+      // reading only that returned null, the safety check said "no copy is
+      // idle enough to stop", and the endpoint could never shrink again. A
+      // copy nothing has ever been routed to is the SAFEST one to stop, not
+      // the least safe — there is certainly no request inside it.
+      idlestReplicaIdleSeconds: quietest
+        ? (idleSeconds(quietest.last_used_at, now) ?? idleSeconds(quietest.last_started_at, now))
+        : null,
+    });
+
+    if (decision.action === "hold") {
+      await supabaseAdmin
+        .from("ml_deployments")
+        .update({ ...reading, last_scale_reason: decision.reason })
+        .eq("id", dep.id);
+      continue;
+    }
+
+    if (decision.action === "up") {
+      const room = await replicaRoom(dep.user_id);
+      if (!room.ok) {
+        await supabaseAdmin
+          .from("ml_deployments")
+          .update({ ...reading, last_scale_reason: `wanted another copy but ${room.error}` })
+          .eq("id", dep.id);
+        continue;
+      }
+      const bundle = await loadForScale(dep);
+      if (!bundle) {
+        await supabaseAdmin.from("ml_deployments").update(reading).eq("id", dep.id);
+        continue;
+      }
+      // ONE copy per pass, however far behind the endpoint is. The next pass
+      // is a minute away and will add another if it is still needed — and by
+      // then the first will have loaded, so the decision is made knowing what
+      // it actually bought. Starting four at once on a burst is how a machine
+      // runs out of memory serving a spike that was over before they loaded.
+      const started = await startReplica({
+        deployment: dep,
+        model: bundle.model,
+        version: bundle.version,
+        userId: dep.user_id,
+        memLimitMb: (await getPlatformResources()).mlTrainMemLimitMb,
+        waitMs: READY_TIMEOUT_MS,
+      });
+      await supabaseAdmin
+        .from("ml_deployments")
+        .update({
+          ...reading,
+          last_scaled_at: now.toISOString(),
+          last_scale_reason: started.ok
+            ? `added a copy: ${decision.reason}`
+            : `could not add a copy: ${started.error}`,
+        })
+        .eq("id", dep.id);
+      if (started.ok) {
+        scaled++;
+        auditEvent({
+          userId: dep.user_id,
+          action: "ml.scale",
+          resourceType: "ml_deployment",
+          resourceId: dep.id,
+          resourceName: dep.model_id,
+          detail: {
+            direction: "up",
+            from: ready.length,
+            to: ready.length + 1,
+            requests_per_minute: Math.round(rate * 10) / 10,
+            reason: decision.reason,
+          },
+        });
+      }
+      continue;
+    }
+
+    // Down. The copy chosen is the one the decision already judged safe — the
+    // quietest — so the safety check and the action cannot disagree about
+    // which container they mean.
+    if (!quietest) {
+      await supabaseAdmin.from("ml_deployments").update(reading).eq("id", dep.id);
+      continue;
+    }
+    await retireReplica(quietest, "scaled down");
+    await supabaseAdmin
+      .from("ml_deployments")
+      .update({
+        ...reading,
+        last_scaled_at: now.toISOString(),
+        last_scale_reason: `removed a copy: ${decision.reason}`,
+      })
+      .eq("id", dep.id);
+    scaled++;
+    auditEvent({
+      userId: dep.user_id,
+      action: "ml.scale",
+      resourceType: "ml_deployment",
+      resourceId: dep.id,
+      resourceName: dep.model_id,
+      detail: {
+        direction: "down",
+        from: ready.length,
+        to: ready.length - 1,
+        requests_per_minute: Math.round(rate * 10) / 10,
+        reason: decision.reason,
+      },
+    });
+  }
+
+  return { scaled };
+}
+
+/** The model and version a deployment is serving, for starting another copy. */
+async function loadForScale(
+  dep: MlDeploymentRow,
+): Promise<{ model: MlModelRow; version: MlVersionRow } | null> {
+  if (!dep.version_id) return null;
+  const [{ data: model }, { data: version }] = await Promise.all([
+    supabaseAdmin.from("ml_models").select("*").eq("id", dep.model_id).maybeSingle(),
+    supabaseAdmin.from("ml_model_versions").select("*").eq("id", dep.version_id).maybeSingle(),
+  ]);
+  if (!model || !version) return null;
+  return { model: model as MlModelRow, version: version as MlVersionRow };
 }

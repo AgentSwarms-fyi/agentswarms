@@ -1166,6 +1166,89 @@ fitted pipeline resident whether or not anyone is scoring, so:
 Forecast models have no endpoint: a forecast is answered from the stored series
 with no model in the loop at all.
 
+### More than one copy
+
+One sandbox is one Python process scoring one request at a time, so the second
+caller waits for the first — and at that point the twenty seconds a warm
+endpoint saved are being spent again in the queue, somewhere less visible.
+
+An endpoint can therefore hold several **copies** of the model, each in its own
+sandbox. Set the range on the deployment panel: the first number is how many
+are held even with no traffic, the second the ceiling.
+
+**Both default to 1, so nothing changes until you raise the second.** Every
+copy is a container holding the ML stack and a fitted pipeline resident on your
+machine; starting more of them because a feature shipped would be spending your
+memory without asking.
+
+Requests go to the copy that has gone longest without one. That is the same
+rule the scaler uses to choose what to stop, deliberately — two notions of
+"quietest" would have the two disagreeing about the same endpoint.
+
+### When copies are added and removed
+
+The platform clock measures the endpoint's request rate — the change in its
+counter between two readings, not a sample — and compares it with
+`ML_SERVE_TARGET_RPM_PER_REPLICA` (120), the load one copy is sized for.
+
+**Adding is immediate.** A queue is the thing a warm endpoint exists to
+prevent, so there is no cooldown before relieving one. One copy is added per
+pass however far behind the endpoint is: the next pass is a minute away and
+will add another if it is still needed, by which time the first has loaded, so
+the decision is made knowing what it bought. Starting four at once on a burst
+is how a machine runs out of memory serving a spike that ended before they
+loaded.
+
+**Removing is reluctant**, and needs three things at once:
+
+- the load clear of what the smaller number could carry, not merely at it —
+  otherwise the next pass adds the copy straight back and the endpoint flaps,
+  paying a cold start every time it changes its mind;
+- `ML_SERVE_SCALE_COOLDOWN_SECONDS` (180) since the last change either way;
+- a copy that has actually been idle that long, because stopping a container
+  takes any request still inside it.
+
+Every decision is recorded on the endpoint in plain words — the panel shows the
+last one — and every change is audited as `ml.scale` with the rate that caused
+it.
+
+### What a copy actually is, and how far it gets you
+
+A copy is a sandbox, started the same way every other sandbox is — so what it
+lands on depends entirely on the runtime backend:
+
+| Backend    | A copy is                                                   |
+| ---------- | ----------------------------------------------------------- |
+| Docker     | Another container on this machine.                          |
+| Kubernetes | Another **Pod**, which the scheduler may place on any node. |
+
+Nothing in the scaling code mentions either. It asks the orchestrator for a
+scoring sandbox and gets back an address.
+
+**On Kubernetes these are bare Pods the app creates, not a Deployment.** There
+is no ReplicaSet and no Service in front of them: the app holds each Pod's
+address and picks between them itself. That means the **HorizontalPodAutoscaler
+is not involved** — the platform clock is the control loop — and it also means
+copies genuinely spread across nodes, so an endpoint can outlive one of them.
+
+**On a single machine the benefit is real but bounded, and worth being blunt
+about.** The scorer is a threading HTTP server, so one copy already accepts
+concurrent requests; but scoring is CPU-bound Python and the GIL serialises
+most of it, with only the numpy and BLAS parts overlapping. A second copy is a
+second OS process, which is genuine parallelism. So:
+
+- copies help up to roughly the machine's core count;
+- past that they contend for the same CPU and each holds the ML stack and a
+  fitted pipeline in memory, so more copies make things worse;
+- and two copies on one box die with the box. There is no fault tolerance in
+  raising the number on a single host.
+
+That is why the maximum defaults to 1. Raise it when you have cores spare or
+nodes to spread across, not by default.
+
+Either way the warm-container limits still apply, and they count copies rather
+than endpoints, because the thing being bounded is resident memory.
+
 ## Forecasting in BI
 
 Line charts on a BI dashboard project ahead with the platform's shared
@@ -1265,30 +1348,31 @@ See [SCALE_AND_LIMITS.md](./SCALE_AND_LIMITS.md#machine-learning--srcutilsnotebo
 
 Where AgentSwarms stands against Databricks ML and SageMaker, honestly:
 
-| Capability                 | AgentSwarms                                                                                                                                                             | Databricks / SageMaker                                               |
-| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| No-code AutoML             | Six tasks incl. clustering, anomaly, recommendation; tuning; data prep in the wizard                                                                                    | AutoML / Canvas: similar tasks, larger search spaces                 |
-| Registry, stages, lineage  | Versions, stages, snapshot + decision id per version, artifact digests                                                                                                  | MLflow registry / Model Registry                                     |
-| Batch scoring              | Into lakehouse tables, scheduled, with drift per run                                                                                                                    | Jobs / Batch Transform                                               |
-| Real-time inference        | Warm endpoints hold one version in memory: 45 ms of scoring instead of a ~25 s container start; one replica, no autoscaling                                             | Serving endpoints with autoscaling                                   |
-| Drift monitoring           | PSI per feature on every batch, threshold alerts                                                                                                                        | Lakehouse Monitoring / Model Monitor (more statistics)               |
-| Ground-truth monitoring    | Outcome source per model; the training metric recomputed on matched rows, with coverage; decay alerts on the platform clock                                             | Model-quality monitoring jobs                                        |
-| Model selection            | Candidates scored by cross-validation inside the training rows; the holdout is read once, for reporting. Fold spread on every version; TimeSeriesSplit for ordered data | Cross-validation in AutoML / Autopilot                               |
-| Calibration and thresholds | Reliability curve and Brier/ECE per version; calibration kept only when both improve; measured threshold sweep, set per version without retraining                      | Calibration in SageMaker Clarify; thresholds set in application code |
-| Reason codes in batch      | Top-3 drivers and their effects as columns on the scored table, the same ablation as the single-row explanation; refused above a row ceiling rather than truncated      | Clarify batch explainability jobs                                    |
-| Explainability             | Global permutation importance at training, plus per-row contributions by ablation against a typical row. Not Shapley values                                             | SHAP per prediction, Clarify                                         |
-| Fairness                   | Selection-rate ratio and error-rate gaps per group, per column; assistant suggests columns and proxies; four-fifths default                                             | Clarify / bias reports                                               |
-| Promotion approval         | Named approvers per model, in the same inbox as swarm approvals; a requester can never approve their own                                                                | Approval workflows                                                   |
-| Scheduled retraining       | Cron/cadence, promote-when-better, one platform clock                                                                                                                   | Workflows / Pipelines                                                |
-| Public API                 | Per-model scoped keys, rate limits, audited denials, BYO registration                                                                                                   | Yes, IAM-based                                                       |
-| Bring your own model       | Any joblib pipeline under a small contract                                                                                                                              | Any framework, containers                                            |
-| Feature store              | Feature views: score by key, read from the table training read; describes rather than materialises                                                                      | Yes                                                                  |
-| Distributed / GPU training | The algorithm search spreads across several sandboxes; one model still trains in one container; GPUs requestable                                                        | Clusters, distributed frameworks, GPU instances                      |
-| Experiment tracking        | Runs logged from a notebook or a script with params, metrics and curves; a run promotes into the registry                                                               | MLflow / Experiments                                                 |
-| Model cards                | Generated from the registry                                                                                                                                             | SageMaker Model Cards                                                |
-| Governance                 | IAM shares, trigger audit, decision ids, result digests, one statement guard for all data                                                                               | Unity Catalog / IAM                                                  |
-| Agents and BI              | Models are agent tools; forecasts and drift live in the BI layer                                                                                                        | Separate products                                                    |
-| Cost and residency         | Self-hosted, your infrastructure, no per-call charges                                                                                                                   | Managed, metered                                                     |
+| Capability                 | AgentSwarms                                                                                                                                                                   | Databricks / SageMaker                                               |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| No-code AutoML             | Six tasks incl. clustering, anomaly, recommendation; tuning; data prep in the wizard                                                                                          | AutoML / Canvas: similar tasks, larger search spaces                 |
+| Registry, stages, lineage  | Versions, stages, snapshot + decision id per version, artifact digests                                                                                                        | MLflow registry / Model Registry                                     |
+| Batch scoring              | Into lakehouse tables, scheduled, with drift per run                                                                                                                          | Jobs / Batch Transform                                               |
+| Real-time inference        | Warm endpoints hold one version in memory: 45 ms of scoring instead of a ~25 s container start; several copies per endpoint, scaled on measured load                          | Serving endpoints with autoscaling                                   |
+| Serving at scale           | Several copies per endpoint on one machine, added on measured request rate and removed only when idle and clear of the line; copies counted against the warm-container limits | Autoscaling across hosts, canary and shadow traffic                  |
+| Drift monitoring           | PSI per feature on every batch, threshold alerts                                                                                                                              | Lakehouse Monitoring / Model Monitor (more statistics)               |
+| Ground-truth monitoring    | Outcome source per model; the training metric recomputed on matched rows, with coverage; decay alerts on the platform clock                                                   | Model-quality monitoring jobs                                        |
+| Model selection            | Candidates scored by cross-validation inside the training rows; the holdout is read once, for reporting. Fold spread on every version; TimeSeriesSplit for ordered data       | Cross-validation in AutoML / Autopilot                               |
+| Calibration and thresholds | Reliability curve and Brier/ECE per version; calibration kept only when both improve; measured threshold sweep, set per version without retraining                            | Calibration in SageMaker Clarify; thresholds set in application code |
+| Reason codes in batch      | Top-3 drivers and their effects as columns on the scored table, the same ablation as the single-row explanation; refused above a row ceiling rather than truncated            | Clarify batch explainability jobs                                    |
+| Explainability             | Global permutation importance at training, plus per-row contributions by ablation against a typical row. Not Shapley values                                                   | SHAP per prediction, Clarify                                         |
+| Fairness                   | Selection-rate ratio and error-rate gaps per group, per column; assistant suggests columns and proxies; four-fifths default                                                   | Clarify / bias reports                                               |
+| Promotion approval         | Named approvers per model, in the same inbox as swarm approvals; a requester can never approve their own                                                                      | Approval workflows                                                   |
+| Scheduled retraining       | Cron/cadence, promote-when-better, one platform clock                                                                                                                         | Workflows / Pipelines                                                |
+| Public API                 | Per-model scoped keys, rate limits, audited denials, BYO registration                                                                                                         | Yes, IAM-based                                                       |
+| Bring your own model       | Any joblib pipeline under a small contract                                                                                                                                    | Any framework, containers                                            |
+| Feature store              | Feature views: score by key, read from the table training read; describes rather than materialises                                                                            | Yes                                                                  |
+| Distributed / GPU training | The algorithm search spreads across several sandboxes; one model still trains in one container; GPUs requestable                                                              | Clusters, distributed frameworks, GPU instances                      |
+| Experiment tracking        | Runs logged from a notebook or a script with params, metrics and curves; a run promotes into the registry                                                                     | MLflow / Experiments                                                 |
+| Model cards                | Generated from the registry                                                                                                                                                   | SageMaker Model Cards                                                |
+| Governance                 | IAM shares, trigger audit, decision ids, result digests, one statement guard for all data                                                                                     | Unity Catalog / IAM                                                  |
+| Agents and BI              | Models are agent tools; forecasts and drift live in the BI layer                                                                                                              | Separate products                                                    |
+| Cost and residency         | Self-hosted, your infrastructure, no per-call charges                                                                                                                         | Managed, metered                                                     |
 
 Everything in the left column is shipped and tested. What is left, in the
 order it is usually asked for:
@@ -1296,8 +1380,11 @@ order it is usually asked for:
 - **Training one model across machines.** The algorithm search spreads over
   sandboxes, but a single fit still happens in one container, so a model too
   large for one box does not train here.
-- **Serving at scale.** One warm endpoint, one replica, no autoscaling and no
-  canary or shadow traffic.
+- **Canary and shadow traffic.** An endpoint serves one version at a time, so
+  a new one is tried by switching to it rather than by sending it a share of
+  real traffic first, or mirroring traffic to it and comparing.
+- **Serving across machines.** Copies of an endpoint all live on one host, and
+  the host itself does not scale.
 
 ## Use cases
 

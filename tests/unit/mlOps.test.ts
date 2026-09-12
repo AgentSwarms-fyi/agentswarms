@@ -311,9 +311,13 @@ describe("compare and docs", () => {
       }
     }
     // The comparison is honest about the gaps — and about which ones have
-    // closed. Warm endpoints now exist; ONE replica of one, with no
-    // autoscaling, which is the part still worth admitting.
-    expect(md).toContain("one replica, no autoscaling");
+    // closed. Warm endpoints scale across copies now, so the old admission
+    // ("one replica, no autoscaling") became FALSE and this guard caught it
+    // still standing. What is admitted moves to the limit that is still real:
+    // every copy is on the same machine, and a version switch is not a canary.
+    expect(md).not.toContain("one replica, no autoscaling");
+    expect(md).toContain("Copies of an endpoint all live on one host");
+    expect(md).toContain("Canary and shadow traffic");
     expect(md).not.toContain("no warm autoscaled endpoint yet");
     expect(page).toContain("Feature store");
   });

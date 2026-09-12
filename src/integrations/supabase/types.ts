@@ -4751,19 +4751,76 @@ export type Database = {
           },
         ];
       };
+      ml_deployment_replicas: {
+        Row: {
+          created_at: string;
+          deployment_id: string;
+          endpoint: string | null;
+          id: string;
+          last_error: string | null;
+          last_started_at: string | null;
+          last_used_at: string | null;
+          request_count: number;
+          session_id: string | null;
+          status: string;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          deployment_id: string;
+          endpoint?: string | null;
+          id?: string;
+          last_error?: string | null;
+          last_started_at?: string | null;
+          last_used_at?: string | null;
+          request_count?: number;
+          session_id?: string | null;
+          status?: string;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          deployment_id?: string;
+          endpoint?: string | null;
+          id?: string;
+          last_error?: string | null;
+          last_started_at?: string | null;
+          last_used_at?: string | null;
+          request_count?: number;
+          session_id?: string | null;
+          status?: string;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "ml_deployment_replicas_deployment_id_fkey";
+            columns: ["deployment_id"];
+            isOneToOne: false;
+            referencedRelation: "ml_deployments";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       ml_deployments: {
         Row: {
           created_at: string;
-          endpoint: string | null;
           id: string;
           idle_ttl_minutes: number;
+          min_replicas: number;
+          max_replicas: number;
+          scale_checked_at: string | null;
+          scale_checked_count: number | null;
+          last_scaled_at: string | null;
+          last_scale_reason: string | null;
           keep_warm: boolean;
           last_error: string | null;
           last_started_at: string | null;
           last_used_at: string | null;
           model_id: string;
           request_count: number;
-          session_id: string | null;
           status: string;
           updated_at: string;
           user_id: string;
@@ -4771,16 +4828,20 @@ export type Database = {
         };
         Insert: {
           created_at?: string;
-          endpoint?: string | null;
           id?: string;
           idle_ttl_minutes?: number;
+          min_replicas?: number;
+          max_replicas?: number;
+          scale_checked_at?: string | null;
+          scale_checked_count?: number | null;
+          last_scaled_at?: string | null;
+          last_scale_reason?: string | null;
           keep_warm?: boolean;
           last_error?: string | null;
           last_started_at?: string | null;
           last_used_at?: string | null;
           model_id: string;
           request_count?: number;
-          session_id?: string | null;
           status?: string;
           updated_at?: string;
           user_id: string;
@@ -4788,16 +4849,20 @@ export type Database = {
         };
         Update: {
           created_at?: string;
-          endpoint?: string | null;
           id?: string;
           idle_ttl_minutes?: number;
+          min_replicas?: number;
+          max_replicas?: number;
+          scale_checked_at?: string | null;
+          scale_checked_count?: number | null;
+          last_scaled_at?: string | null;
+          last_scale_reason?: string | null;
           keep_warm?: boolean;
           last_error?: string | null;
           last_started_at?: string | null;
           last_used_at?: string | null;
           model_id?: string;
           request_count?: number;
-          session_id?: string | null;
           status?: string;
           updated_at?: string;
           user_id?: string;

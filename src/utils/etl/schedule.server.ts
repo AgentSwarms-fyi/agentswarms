@@ -130,6 +130,11 @@ export async function processDueEtlPipelines(force = false): Promise<number> {
     // reaper only knows how to idle out an MCP server.
     .then(() => import("@/utils/ml/serve.server"))
     .then((m) => m.reapIdleDeployments())
+    // Resize the endpoints that are still up, on the same clock. AFTER the
+    // reaper, so a pass never measures an endpoint it is about to stop and
+    // starts a copy of it.
+    .then(() => import("@/utils/ml/serve.server"))
+    .then((m) => m.autoscaleDeployments())
     .catch((e) => console.warn("[ml] orphan sweep failed:", (e as Error).message));
 
   return started;

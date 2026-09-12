@@ -2506,6 +2506,8 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "ML_FAIRNESS_MIN_RATIO",
       "ML_MAX_CONCURRENT_TRAININGS_PER_USER",
       "ML_PREDICT_MAX_ROWS",
+      "ML_SERVE_SCALE_COOLDOWN_SECONDS",
+      "ML_SERVE_TARGET_RPM_PER_REPLICA",
       "ML_TRAIN_GPUS",
       "ML_TRAIN_MAX_ROWS",
       "ML_TRAIN_MEM_LIMIT_MB",
@@ -2542,6 +2544,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "ml.fairness.review",
       "ml.fairness.suggest",
       "ml.predict_query",
+      "ml.scale",
       "ml.schedule.failed",
       "ml.schedule.run",
       "ml.threshold.set",
@@ -2773,6 +2776,21 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "id": "warm",
         "text": "Warm endpoints",
         "level": 2
+      },
+      {
+        "id": "replicas",
+        "text": "More than one copy",
+        "level": 3
+      },
+      {
+        "id": "replicas-scaling",
+        "text": "When copies are added and removed",
+        "level": 3
+      },
+      {
+        "id": "replicas-limits",
+        "text": "What a copy actually is, and how far it gets you",
+        "level": 3
       },
       {
         "id": "forecasting",

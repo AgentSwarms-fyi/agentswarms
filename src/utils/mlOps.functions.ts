@@ -262,6 +262,21 @@ export type MlDeploymentView = {
   last_error: string | null;
   request_count: number;
   caps: { perUser: number; total: number };
+  /** What the owner set: how many copies this endpoint may have. */
+  min_replicas: number;
+  max_replicas: number;
+  /** Why the endpoint is the size it is, in the scaler's own words. */
+  last_scale_reason: string | null;
+  last_scaled_at: string | null;
+  /** One entry per copy actually running, quietest first. */
+  replicas: {
+    id: string;
+    status: "starting" | "ready" | "failed" | "stopped";
+    last_used_at: string | null;
+    last_started_at: string | null;
+    request_count: number;
+    last_error: string | null;
+  }[];
 };
 
 export const mlDeploymentGet = createServerFn({ method: "POST" })
@@ -272,9 +287,10 @@ export const mlDeploymentGet = createServerFn({ method: "POST" })
     const userId = await resolveCaller(data.accessToken);
     const { model } = await loadModelForUser(data.modelId, userId);
     if (!model) return { ok: false, error: "Model not found" };
-    const { getDeployment, deploymentCaps } = await import("@/utils/ml/serve.server");
+    const { getDeployment, deploymentCaps, listReplicas } = await import("@/utils/ml/serve.server");
     const [dep, caps] = await Promise.all([getDeployment(model.id), deploymentCaps()]);
     if (!dep) return { ok: true, deployment: null };
+    const replicas = await listReplicas(dep.id);
     const { data: version } = await supabaseAdmin
       .from("ml_model_versions")
       .select("version")
@@ -295,6 +311,25 @@ export const mlDeploymentGet = createServerFn({ method: "POST" })
         last_error: dep.last_error,
         request_count: dep.request_count,
         caps,
+        min_replicas: dep.min_replicas,
+        max_replicas: dep.max_replicas,
+        last_scale_reason: dep.last_scale_reason,
+        last_scaled_at: dep.last_scaled_at,
+        // Quietest first, the order the scorer picks in and the scaler stops
+        // in — so what a reader sees is the order things will happen.
+        replicas: [...replicas]
+          .sort(
+            (a, b) =>
+              new Date(a.last_used_at ?? 0).getTime() - new Date(b.last_used_at ?? 0).getTime(),
+          )
+          .map((r) => ({
+            id: r.id,
+            status: r.status,
+            last_used_at: r.last_used_at,
+            last_started_at: r.last_started_at,
+            request_count: r.request_count,
+            last_error: r.last_error,
+          })),
       },
     };
   });
@@ -351,6 +386,10 @@ export const mlDeploymentUpdate = createServerFn({ method: "POST" })
         modelId: z.string().uuid(),
         keep_warm: z.boolean().optional(),
         idle_ttl_minutes: z.number().int().min(1).max(1440).optional(),
+        // The ceiling matches the table's own CHECK, so an impossible number
+        // is refused here with a readable message rather than by Postgres.
+        min_replicas: z.number().int().min(0).max(64).optional(),
+        max_replicas: z.number().int().min(1).max(64).optional(),
       })
       .parse(input),
   )
@@ -358,11 +397,37 @@ export const mlDeploymentUpdate = createServerFn({ method: "POST" })
     const userId = await resolveCaller(data.accessToken);
     const { model } = await loadModelForUser(data.modelId, userId, { write: true });
     if (!model) return { ok: false, error: "Model not found" };
-    const patch: { keep_warm?: boolean; idle_ttl_minutes?: number; updated_at: string } = {
-      updated_at: new Date().toISOString(),
-    };
+    const patch: {
+      keep_warm?: boolean;
+      idle_ttl_minutes?: number;
+      min_replicas?: number;
+      max_replicas?: number;
+      updated_at: string;
+    } = { updated_at: new Date().toISOString() };
     if (data.keep_warm !== undefined) patch.keep_warm = data.keep_warm;
     if (data.idle_ttl_minutes !== undefined) patch.idle_ttl_minutes = data.idle_ttl_minutes;
+    if (data.min_replicas !== undefined) patch.min_replicas = data.min_replicas;
+    if (data.max_replicas !== undefined) patch.max_replicas = data.max_replicas;
+
+    // Checked HERE as well as by the table, because the table's constraint
+    // reads both columns and a request that changes only one would otherwise
+    // be judged against the other's old value — sending max=1 to an endpoint
+    // whose min is 3 fails with a constraint name instead of a sentence.
+    if (patch.min_replicas !== undefined || patch.max_replicas !== undefined) {
+      const { data: current } = await supabaseAdmin
+        .from("ml_deployments")
+        .select("min_replicas, max_replicas")
+        .eq("model_id", model.id)
+        .maybeSingle();
+      const min = patch.min_replicas ?? current?.min_replicas ?? 1;
+      const max = patch.max_replicas ?? current?.max_replicas ?? 1;
+      if (min > max) {
+        return {
+          ok: false,
+          error: `A minimum of ${min} copies cannot sit above a maximum of ${max}`,
+        };
+      }
+    }
     const { error } = await supabaseAdmin
       .from("ml_deployments")
       .update(patch)

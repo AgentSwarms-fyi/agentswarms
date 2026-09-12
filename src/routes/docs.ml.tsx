@@ -1190,6 +1190,83 @@ curl -X POST https://your-instance/api/ml/predict/batch \\
         nothing to hold warm.
       </Callout>
 
+      <H3 id="replicas">More than one copy</H3>
+      <P>
+        One sandbox is one Python process scoring one request at a time, so the second caller waits
+        for the first — and at that point the twenty seconds a warm endpoint saved are being spent
+        again in the queue, somewhere less visible.
+      </P>
+      <P>
+        An endpoint can therefore hold several <strong>copies</strong> of the model, each in its own
+        sandbox. Set the range on the deployment panel: the first number is how many are held even
+        with no traffic, the second the ceiling. <strong>Both default to 1</strong>, so nothing
+        changes until you raise the second — every copy is a container holding the ML stack and a
+        fitted pipeline resident on your machine, and starting more because a feature shipped would
+        be spending your memory without asking.
+      </P>
+      <P>
+        Requests go to the copy that has gone longest without one. That is the same rule the scaler
+        uses to choose what to stop, deliberately: two notions of &ldquo;quietest&rdquo; would have
+        the two disagreeing about the same endpoint.
+      </P>
+      <H3 id="replicas-scaling">When copies are added and removed</H3>
+      <P>
+        The platform clock measures the endpoint&apos;s request rate — the change in its counter
+        between two readings, not a sample — and compares it with{" "}
+        <C>ML_SERVE_TARGET_RPM_PER_REPLICA</C> (120), the load one copy is sized for.
+      </P>
+      <P>
+        <strong>Adding is immediate.</strong> A queue is the thing a warm endpoint exists to
+        prevent, so there is no cooldown before relieving one. One copy is added per pass however
+        far behind the endpoint is: the next pass is a minute away and will add another if it is
+        still needed, by which time the first has loaded — so the decision is made knowing what it
+        bought. Starting four at once on a burst is how a machine runs out of memory serving a spike
+        that ended before they loaded.
+      </P>
+      <Callout kind="info" title="Removing a copy needs three things at once">
+        The load clear of what the smaller number could carry, not merely at it — otherwise the next
+        pass adds the copy straight back and the endpoint flaps, paying a cold start every time it
+        changes its mind. <C>ML_SERVE_SCALE_COOLDOWN_SECONDS</C> (180) since the last change either
+        way. And a copy that has actually been idle that long, because stopping a container takes
+        any request still inside it.
+      </Callout>
+      <P>
+        Every decision is recorded on the endpoint in plain words — the panel shows the last one —
+        and every change is audited as <C>ml.scale</C> with the rate that caused it.
+      </P>
+      <H3 id="replicas-limits">What a copy actually is, and how far it gets you</H3>
+      <P>
+        A copy is a sandbox, started the same way every other sandbox is — so what it lands on
+        depends entirely on the runtime backend. Nothing in the scaling code mentions either one: it
+        asks the orchestrator for a scoring sandbox and gets back an address.
+      </P>
+      <Table
+        headers={["Backend", "A copy is"]}
+        rows={[
+          ["Docker", "Another container on this machine."],
+          ["Kubernetes", "Another Pod, which the scheduler may place on any node."],
+        ]}
+      />
+      <P>
+        <strong>On Kubernetes these are bare Pods the app creates, not a Deployment.</strong> There
+        is no ReplicaSet and no Service in front of them: the app holds each Pod&apos;s address and
+        picks between them itself. So the HorizontalPodAutoscaler is not involved — the platform
+        clock is the control loop — and copies do genuinely spread across nodes, which means an
+        endpoint can outlive one of them.
+      </P>
+      <Callout kind="warn" title="On a single machine the benefit is bounded">
+        The scorer is a threading HTTP server, so one copy already accepts concurrent requests — but
+        scoring is CPU-bound Python and the GIL serialises most of it, with only the numpy and BLAS
+        parts overlapping. A second copy is a second OS process, which is genuine parallelism.
+        Copies therefore help up to roughly the machine&apos;s core count; past that they contend
+        for the same CPU and each holds the ML stack and a fitted pipeline in memory. And two copies
+        on one box die with the box. That is why the maximum defaults to 1.
+      </Callout>
+      <P>
+        Either way the warm-container limits still apply, and they count copies rather than
+        endpoints, because the thing being bounded is resident memory.
+      </P>
+
       <H2 id="forecasting">Forecasting in BI</H2>
       <P>
         Line charts on a dashboard project ahead with the platform&apos;s shared forecaster:
@@ -1307,8 +1384,13 @@ curl -X POST https://your-instance/api/ml/predict/batch \\
           ],
           [
             "Real-time inference",
-            "Warm endpoints hold one version in memory: 45 ms of scoring instead of a ~25 s container start; one replica, no autoscaling",
+            "Warm endpoints hold one version in memory: 45 ms of scoring instead of a ~25 s container start; several copies per endpoint, scaled on measured load",
             "Serving endpoints with autoscaling",
+          ],
+          [
+            "Serving at scale",
+            "Several copies per endpoint on one machine, added on measured request rate and removed only when idle and clear of the line; copies counted against the warm-container limits",
+            "Autoscaling across hosts, canary and shadow traffic",
           ],
           [
             "Drift monitoring",
@@ -1402,8 +1484,10 @@ curl -X POST https://your-instance/api/ml/predict/batch \\
         Everything in the left column is shipped and tested. What is left, in the order it is
         usually asked for: <strong>training one model across machines</strong> (the search spreads
         over sandboxes, but a single fit still happens in one container); and{" "}
-        <strong>serving at scale</strong> (one warm endpoint, one replica, no autoscaling and no
-        canary or shadow traffic).
+        <strong>canary and shadow traffic</strong> (an endpoint serves one version at a time, so a
+        new one is tried by switching to it rather than by sending it a share of real traffic first,
+        or mirroring traffic to it and comparing); and <strong>serving across machines</strong>{" "}
+        (copies of an endpoint all live on one host, and the host itself does not scale).
       </P>
 
       <H2 id="use-cases">Use cases</H2>
