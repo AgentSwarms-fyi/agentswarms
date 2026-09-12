@@ -80,6 +80,7 @@ import {
 } from "@/components/ml/mlUi";
 import { AccuracyPanel } from "@/components/ml/AccuracyPanel";
 import { CalibrationPanel } from "@/components/ml/CalibrationPanel";
+import { SelectionEvidence } from "@/components/ml/SelectionEvidence";
 import { FairnessPanel } from "@/components/ml/FairnessPanel";
 import { PromotionGate } from "@/components/ml/PromotionGate";
 import { PredictionsPanel } from "@/components/ml/PredictionsPanel";
@@ -885,6 +886,10 @@ function VersionOverview({
     meta?: { period?: string; aggregation?: string; periods?: number; last_period?: string } | null;
   } | null;
   const usedFeatures = schema.filter((e) => e.role === "feature");
+  // Clustering and anomaly detection have no held-out score to separate from a
+  // selection score — there is no target to be right about — so the evidence
+  // card would be describing a split that did not happen.
+  const selected = task === "classification" || task === "regression";
 
   return (
     <>
@@ -905,6 +910,11 @@ function VersionOverview({
           />
         ))}
       </div>
+
+      {/* Directly under the tiles, because the tiles are the claim and this is
+          the evidence for it. A score read without its spread invites a
+          precision nobody measured. */}
+      {selected ? <SelectionEvidence metrics={version.metrics} /> : null}
 
       <div className="grid gap-4 lg:grid-cols-2">
         {task === "forecast" && forecast ? (

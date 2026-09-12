@@ -60,7 +60,14 @@ describe("the trainer actually measures it", () => {
     // The rule came out of a 90-row probe where the Brier score improved while
     // the calibration error got worse. Kept on Brier alone, that ships a model
     // whose probabilities are worse at the one job the step exists to do.
-    expect(TRAIN_PY).toContain("after['calibration_error'] > before['calibration_error']");
+    //
+    // The _d suffix is not cosmetic: the decision reads figures measured on a
+    // slice of the TRAINING rows, while `before`/`after` without it are the
+    // holdout figures shown to a reader. Asserting on the decision variables
+    // is what keeps this guard pointed at the decision.
+    expect(TRAIN_PY).toContain("after_d['calibration_error'] > before_d['calibration_error']");
+    expect(TRAIN_PY).toContain("after_d['brier'] >= before_d['brier']");
+    expect(TRAIN_PY).toContain("after_d, before_d = inner_after, inner_before");
   });
 
   it("measures the sweep at the value it reports", () => {

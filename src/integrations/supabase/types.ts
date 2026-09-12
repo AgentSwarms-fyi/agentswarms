@@ -5967,6 +5967,7 @@ export type Database = {
           mem_limit_mb: number;
           ml_artifact_max_mb: number | null;
           ml_decay_alert_ratio: number | null;
+          ml_cv_min_holdout_rows: number | null;
           ml_drift_alert_psi: number | null;
           ml_fairness_min_ratio: number | null;
           ml_max_concurrent_trainings_per_user: number | null;
@@ -6025,6 +6026,7 @@ export type Database = {
           mem_limit_mb?: number;
           ml_artifact_max_mb?: number | null;
           ml_decay_alert_ratio?: number | null;
+          ml_cv_min_holdout_rows?: number | null;
           ml_drift_alert_psi?: number | null;
           ml_fairness_min_ratio?: number | null;
           ml_max_concurrent_trainings_per_user?: number | null;
@@ -6083,6 +6085,7 @@ export type Database = {
           mem_limit_mb?: number;
           ml_artifact_max_mb?: number | null;
           ml_decay_alert_ratio?: number | null;
+          ml_cv_min_holdout_rows?: number | null;
           ml_drift_alert_psi?: number | null;
           ml_fairness_min_ratio?: number | null;
           ml_max_concurrent_trainings_per_user?: number | null;

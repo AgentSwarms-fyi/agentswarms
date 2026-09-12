@@ -147,6 +147,7 @@ export async function mlBundleFor(
   const b = await loadJobBundle(stash.job_id, userId);
   if (!b) return { error: "Training job not found for this session" };
   const cfg = b.version.config as Partial<MlTrainConfig>;
+  const resources = await getPlatformResources();
   const program = {
     job_id: b.job.id,
     model_id: b.model.id,
@@ -167,6 +168,10 @@ export async function mlBundleFor(
     max_rows: cfg.max_rows ?? 0,
     time_budget_minutes: cfg.time_budget_minutes ?? 30,
     validation_fraction: cfg.validation_fraction ?? 0.2,
+    // Selection never reads the holdout; this only decides whether it pays for
+    // k folds or one inner split. Missing from the program config, the trainer
+    // falls back to the same 2000 and nothing breaks quietly.
+    cv_min_holdout_rows: resources.mlCvMinHoldoutRows,
     tuning: cfg.tuning ?? "none",
     prep: cfg.prep ?? (b.model as { prep?: unknown }).prep ?? {},
     mode: "train",

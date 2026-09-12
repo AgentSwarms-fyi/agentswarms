@@ -21,6 +21,7 @@ from sklearn.pipeline import Pipeline
 ns = {"__name__": "trainpy"}
 exec(open("/work/train_py.py", encoding="utf-8").read(), ns)  # noqa: S102
 _calibrate = ns["_calibrate"]
+_cv_splits = ns["_cv_splits"]
 _calibration_scores = ns["_calibration_scores"]
 _threshold_sweep = ns["_threshold_sweep"]
 _reliability = ns["_reliability"]
@@ -62,7 +63,8 @@ forest.fit(Xtr, ytr)
 
 before = _calibration_scores(forest, Xva, yva, ["0", "1"])
 warnings = []
-calibrated, info = _calibrate(forest, Xtr, ytr, Xva, yva, ["0", "1"], warnings)
+splits = _cv_splits("classification", {"strategy": "stratified", "folds": 3}, ytr)
+calibrated, info = _calibrate(forest, Xtr, ytr, splits, Xva, yva, ["0", "1"], warnings)
 print(f"  Brier before {before['brier']:.4f}, ECE {before['calibration_error']:.4f}")
 if info and info.get("after"):
     print(f"  Brier after  {info['after']['brier']:.4f}, ECE {info['after']['calibration_error']:.4f}")
@@ -71,6 +73,8 @@ check("a flip-heavy forest is miscalibrated to begin with", before["calibration_
       f"ECE {before['calibration_error']:.4f}")
 check("calibration was applied and improved the Brier score",
       bool(info and info["calibrated"] and info["after"]["brier"] < before["brier"]))
+check("a rejected calibration reports no holdout after-figure",
+      (info is None) or info["calibrated"] or info["after"] is None)
 check("and the returned model is the calibrated one", calibrated is not forest)
 check("isotonic was chosen for a large training set", info["method"] == "isotonic", str(info["method"]))
 
@@ -82,7 +86,8 @@ Xs_tr, Xs_va, ys_tr, ys_va = train_test_split(Xs, ys, test_size=0.3, random_stat
 small = Pipeline([("model", RandomForestClassifier(n_estimators=40, random_state=1))])
 small.fit(Xs_tr, ys_tr)
 w2 = []
-kept, info2 = _calibrate(small, Xs_tr, ys_tr, Xs_va, ys_va, ["0", "1"], w2)
+splits2 = _cv_splits("classification", {"strategy": "stratified", "folds": 3}, ys_tr)
+kept, info2 = _calibrate(small, Xs_tr, ys_tr, splits2, Xs_va, ys_va, ["0", "1"], w2)
 print(f"  small sample: calibrated={info2['calibrated']} method={info2['method']} warnings={len(w2)}")
 check("sigmoid is chosen for a small training set", info2["method"] == "sigmoid", str(info2["method"]))
 check(

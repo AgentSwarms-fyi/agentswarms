@@ -63,13 +63,20 @@ describe("the program: preparation, tuning, prediction", () => {
   });
 
   it("tunes the best candidates under the budget and keeps a tuned model only when it wins", () => {
-    expect(TRAIN_PY).toContain("RandomizedSearchCV(pipe, space, n_iter=n_iter, cv=cv");
+    // cv=splits, not a fold count of the tuner's own: the search is handed the
+    // SAME splitter the untuned candidates were scored on, so best_score_ and
+    // base_score are the same currency. A tuned model that won by being
+    // measured over 3 folds while its untuned self was measured over one split
+    // would be adopted for the measurement, not the model.
+    expect(TRAIN_PY).toContain("RandomizedSearchCV(pipe, space, n_iter=n_iter, cv=splits");
     expect(TRAIN_PY).toContain("if _elapsed() > budget * 0.6:");
     expect(TRAIN_PY).toContain(
       "better_than_base = score > base_score if higher else score < base_score",
     );
     for (const t of ML_TUNINGS) expect(["none", "quick", "thorough"]).toContain(t);
-    expect(TRAIN_PY).toContain("(6, 3) if mode == 'quick' else (20, 5)");
+    // The fold count moved to _cv_plan, so only the trial count is the
+    // tuner's to choose.
+    expect(TRAIN_PY).toContain("n_iter = 6 if mode == 'quick' else 20");
   });
 
   it("refuses an artifact whose bytes do not hash to the registry's digest", () => {

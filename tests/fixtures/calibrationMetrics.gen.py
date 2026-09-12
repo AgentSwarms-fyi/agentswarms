@@ -34,6 +34,7 @@ exec(open("/work/train_py.py", encoding="utf-8").read(), ns)  # noqa: S102
 _calibrate = ns["_calibrate"]
 _calibration_scores = ns["_calibration_scores"]
 _threshold_sweep = ns["_threshold_sweep"]
+_cv_splits = ns["_cv_splits"]
 
 
 def build(name, n_samples, flip_y, seed):
@@ -46,7 +47,10 @@ def build(name, n_samples, flip_y, seed):
     pipe.fit(Xtr, ytr)
 
     warnings_ = []
-    best, calibration = _calibrate(pipe, Xtr, ytr, Xva, yva, ["0", "1"], warnings_)
+    # _calibrate decides on a slice of the TRAINING rows and reports on the
+    # holdout it is handed, so it needs the same splits the trainer builds.
+    splits = _cv_splits("classification", {"strategy": "stratified", "folds": 3}, ytr)
+    best, calibration = _calibrate(pipe, Xtr, ytr, splits, Xva, yva, ["0", "1"], warnings_)
     sweep = _threshold_sweep(best, Xva, yva, ["0", "1"])
 
     metrics = {"accuracy": 0.0, "tuning_trials": 1.0}

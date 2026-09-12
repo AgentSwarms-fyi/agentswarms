@@ -369,18 +369,45 @@ def _search_space(name):
     return None
 
 
-def _tune(task, ranked, prep, Xtr, ytr, Xva, yva, budget, mode, leaderboard, warnings_):
-    # ranked: [(name, pipeline, score)] best first. Tune the top two while
+def _fold_detail(search, higher):
+    # The per-fold scores of the trial that won, pulled out of cv_results_ so a
+    # tuned model reports the same shape as an untuned one. Without this the
+    # spread would simply vanish the moment tuning was switched on.
+    import numpy as np
+    i = int(search.best_index_)
+    vals = []
+    for key in search.cv_results_:
+        if key.startswith('split') and key.endswith('_test_score'):
+            v = float(search.cv_results_[key][i])
+            vals.append(v if higher else -v)
+    if not vals:
+        return {'scores': [], 'mean': 0.0, 'std': 0.0}
+    return {'scores': [round(v, 6) for v in vals],
+            'mean': round(float(np.mean(vals)), 6),
+            'std': round(float(np.std(vals, ddof=1)), 6) if len(vals) > 1 else 0.0}
+
+
+def _tune(task, ranked, prep, Xtr, ytr, splits, budget, mode, leaderboard, warnings_):
+    # ranked: [(name, pipeline, score, cv)] best first. Tune the top two while
     # at least 40% of the budget remains; each search is capped so one slow
     # estimator cannot eat the rest.
+    #
+    # THE SEARCH GETS THE SAME SPLITTER the untuned candidates were scored
+    # with, and the holdout is not passed in at all. Two reasons, and both were
+    # real: the tuned model used to be judged on the holdout, which is the set
+    # the version's metric is reported from, so tuning quietly optimised the
+    # published number; and it used to be compared against a score measured a
+    # different way, so a tuned model could win by being measured over 3 folds
+    # while its untuned self was measured over one split. Same splits, same
+    # currency, neither of them the holdout.
     from sklearn.model_selection import RandomizedSearchCV
-    n_iter, cv = (6, 3) if mode == 'quick' else (20, 5)
+    n_iter = 6 if mode == 'quick' else 20
     higher = task == 'classification'
     metric = 'f1_macro' if higher else 'rmse'
     scoring = 'f1_macro' if higher else 'neg_root_mean_squared_error'
     best_tuned = None
     trials = 0
-    for name, pipe, base_score in ranked[:2]:
+    for name, pipe, base_score, base_cv in ranked[:2]:
         space = _search_space(name)
         if not space:
             continue
@@ -391,20 +418,28 @@ def _tune(task, ranked, prep, Xtr, ytr, Xva, yva, budget, mode, leaderboard, war
             continue
         t0 = time.time()
         try:
-            search = RandomizedSearchCV(pipe, space, n_iter=n_iter, cv=cv, scoring=scoring, random_state=42, n_jobs=1, refit=True)
+            search = RandomizedSearchCV(pipe, space, n_iter=n_iter, cv=splits, scoring=scoring, random_state=42, n_jobs=1, refit=True)
             search.fit(Xtr, ytr)
             trials += len(search.cv_results_['mean_test_score'])
             tuned = search.best_estimator_
-            score = _primary(task, tuned, Xva, yva)
+            # best_score_ is the mean over the SAME folds the untuned candidate
+            # was scored on, in sklearn's higher-is-better convention. Flip it
+            # back for regression so the number means RMSE everywhere.
+            score = float(search.best_score_) if higher else -float(search.best_score_)
+            tuned_cv = _fold_detail(search, higher)
             params = {k.replace('model__', ''): (v if isinstance(v, (int, float, str, bool)) or v is None else str(v))
                       for k, v in search.best_params_.items()}
-            leaderboard.append({'algorithm': name + ' (tuned)', 'metric': metric, 'value': _safe_float(score), 'higher_is_better': higher,
-                                'fit_seconds': round(time.time() - t0, 2), 'status': 'ok',
-                                'note': 'best of %d trials: %s' % (n_iter, json.dumps(params, sort_keys=True))})
+            trow = {'algorithm': name + ' (tuned)', 'metric': metric, 'value': _safe_float(score), 'higher_is_better': higher,
+                    'fit_seconds': round(time.time() - t0, 2), 'status': 'ok',
+                    'note': 'best of %d trials: %s' % (n_iter, json.dumps(params, sort_keys=True))}
+            if len(tuned_cv['scores']) > 1:
+                trow['spread'] = tuned_cv['std']
+                trow['folds'] = len(tuned_cv['scores'])
+            leaderboard.append(trow)
             _log('%s tuned: %s=%.4f in %.1fs (%d trials)' % (name, metric, score, time.time() - t0, n_iter))
             better_than_base = score > base_score if higher else score < base_score
             if better_than_base and (best_tuned is None or (score > best_tuned[2] if higher else score < best_tuned[2])):
-                best_tuned = (name + ' (tuned)', tuned, score, params)
+                best_tuned = (name + ' (tuned)', tuned, score, params, tuned_cv)
         except Exception as e:
             leaderboard.append({'algorithm': name + ' (tuned)', 'metric': metric, 'value': None, 'higher_is_better': higher,
                                 'fit_seconds': round(time.time() - t0, 2), 'status': 'failed', 'note': str(e)[:200]})
@@ -453,6 +488,111 @@ def _full_metrics(task, model, Xva, yva, classes):
         mask = yva != 0
         out['mape'] = float(np.mean(np.abs((yva[mask] - pred[mask]) / yva[mask])) * 100) if mask.any() else None
     return {k: (v if isinstance(v, dict) else _safe_float(v)) for k, v in out.items()}
+
+
+def _cv_plan(task, n_dev, n_holdout, temporal, min_class, min_holdout_rows):
+    # How selection gets a score, and why it is never the holdout's.
+    #
+    # THE BUG THIS EXISTS TO FIX: every candidate used to be fitted on the
+    # training rows and scored on the HOLDOUT, the best of those scores picked
+    # the winner, the tuner then optimised against the same holdout, and that
+    # very number was published as the version's metric. Taking the maximum of
+    # a dozen noisy estimates and reporting the maximum is the winner's curse:
+    # it is biased high by exactly the amount of noise the search could
+    # exploit. It then became the baseline a decay alert compares against, so a
+    # model could be flagged as degraded in production purely because its
+    # training number had been inflated by the act of choosing it.
+    #
+    # So selection happens INSIDE the training rows and the holdout is read
+    # once, at the end, by code that is only reporting.
+    #
+    # Whether that inner score is worth k fits is a question about the SIZE OF
+    # THE HOLDOUT, not the size of the training set. A few thousand held-out
+    # rows already pin a proportion to well under a point, far below the 10%
+    # a decay alert cares about, and k-fold would multiply every fit by k to
+    # buy almost nothing. A few dozen rows pin nothing at all, and there
+    # k-fold is the difference between a number and a guess.
+    if temporal:
+        return {'strategy': 'timeseries', 'folds': 5 if n_dev >= 1000 else 3,
+                'reason': 'rows are ordered in time, so every fold trains on the past and scores the future'}
+    if n_holdout >= int(min_holdout_rows):
+        return {'strategy': 'inner_split', 'folds': 1,
+                'reason': '%d held-out rows already give a stable estimate, so selection uses one split inside the training rows rather than paying for k folds' % n_holdout}
+    folds = 5 if n_dev >= 250 else 3
+    if task == 'classification':
+        if min_class < 2:
+            return {'strategy': 'inner_split', 'folds': 1,
+                    'reason': 'the rarest class has a single example, so no set of folds can each contain one'}
+        if min_class < folds:
+            folds = int(min_class)
+            return {'strategy': 'stratified', 'folds': folds,
+                    'reason': 'a small holdout, so selection cross-validates; folds limited to %d by the rarest class' % folds}
+        return {'strategy': 'stratified', 'folds': folds,
+                'reason': 'only %d held-out rows, so selection cross-validates over %d folds instead of trusting one split' % (n_holdout, folds)}
+    return {'strategy': 'kfold', 'folds': folds,
+            'reason': 'only %d held-out rows, so selection cross-validates over %d folds instead of trusting one split' % (n_holdout, folds)}
+
+
+def _cv_splits(task, plan, y):
+    # ONE object handed to both cross_val_score and RandomizedSearchCV, so the
+    # untuned and tuned scores are the same currency. Comparing a k-fold mean
+    # against a single-split score is how a tuned model gets adopted for being
+    # measured differently rather than for being better.
+    import numpy as np
+    from sklearn.model_selection import KFold, StratifiedKFold, TimeSeriesSplit, train_test_split
+    k = int(plan['folds'])
+    if plan['strategy'] == 'timeseries':
+        return TimeSeriesSplit(n_splits=k)
+    if plan['strategy'] == 'stratified':
+        return StratifiedKFold(n_splits=k, shuffle=True, random_state=42)
+    if plan['strategy'] == 'kfold':
+        return KFold(n_splits=k, shuffle=True, random_state=42)
+    # inner_split: a single fold, expressed as the same [(train, test)] shape
+    # every sklearn cv argument accepts.
+    idx = np.arange(len(y))
+    strat = None
+    if task == 'classification':
+        import pandas as pd
+        counts = pd.Series(y).value_counts()
+        if len(counts) and int(counts.min()) >= 2:
+            strat = y
+    tr, te = train_test_split(idx, test_size=0.25, random_state=42, stratify=strat)
+    return [(tr, te)]
+
+
+def _rows(X, idx):
+    # Take rows by position from either shape a caller might hold. The trainer
+    # always has a DataFrame; a probe driving these functions directly has a
+    # numpy array, and a helper that only knew about one of them would work in
+    # production and fail the moment anything tried to check it.
+    return X.iloc[idx] if hasattr(X, 'iloc') else X[idx]
+
+
+def _first_fold(splits, X, y):
+    # The first (train, score) pair out of whatever _cv_splits returned: a
+    # splitter object has to be asked, a list of one already is the answer.
+    if hasattr(splits, 'split'):
+        return next(iter(splits.split(X, y)))
+    return splits[0]
+
+
+def _cv_score(pipe, X, y, splits, task):
+    # The score selection is allowed to see. Every fold refits the WHOLE
+    # pipeline, preprocessing included, so nothing a fold learns about its own
+    # validation rows can leak into the estimate.
+    import numpy as np
+    from sklearn.base import clone
+    from sklearn.model_selection import cross_val_score
+    scoring = 'f1_macro' if task == 'classification' else 'neg_root_mean_squared_error'
+    raw = cross_val_score(clone(pipe), X, y, cv=splits, scoring=scoring, n_jobs=1, error_score='raise')
+    vals = [float(v) for v in raw]
+    if task != 'classification':
+        # Back to RMSE, which is the name the rest of the program uses and the
+        # direction a reader expects.
+        vals = [-v for v in vals]
+    return {'scores': [round(v, 6) for v in vals],
+            'mean': round(float(np.mean(vals)), 6),
+            'std': round(float(np.std(vals, ddof=1)), 6) if len(vals) > 1 else 0.0}
 
 
 def _reliability(y_true, p_pos, bins=10):
@@ -506,7 +646,7 @@ def _calibration_scores(model, Xva, yva, classes):
     return {'brier': round(brier, 6), 'calibration_error': round(ece, 6), 'curve': curve}
 
 
-def _calibrate(best, Xtr, ytr, Xva, yva, classes, warnings_):
+def _calibrate(best, Xtr, ytr, splits, Xrep, yrep, classes, warnings_):
     # Turn a ranking score into a probability, and KEEP IT ONLY IF IT HELPED.
     #
     # Tree ensembles are systematically over-confident: a forest that votes 9-1
@@ -522,20 +662,45 @@ def _calibrate(best, Xtr, ytr, Xva, yva, classes, warnings_):
     # skewed holdout it regularly does — so the calibrated model is scored on
     # the same holdout and kept only when the Brier score improves. A step that
     # cannot fail is a step nobody can trust.
+    from sklearn.base import clone
     from sklearn.calibration import CalibratedClassifierCV
     if not classes or not hasattr(best, 'predict_proba'):
         return best, None
-    before = _calibration_scores(best, Xva, yva, classes)
-    if before is None:
-        return best, None
     method = 'isotonic' if len(Xtr) >= 1000 else 'sigmoid'
+
+    # DECIDE INSIDE THE TRAINING ROWS, REPORT ON THE HOLDOUT.
+    #
+    # Keeping or discarding a calibration is a choice, and a choice made by
+    # looking at the holdout is selection on the set the version reports from —
+    # the same mistake the candidate search used to make, one decision wide
+    # instead of a dozen. It also meant the Brier and calibration figures
+    # printed on the version were the better of two numbers measured on the
+    # rows that chose between them.
+    #
+    # So the decision is made on a slice of the training rows, and once it is
+    # made the figures are measured again on the holdout, which nothing in this
+    # function was allowed to consult.
+    fit_idx, sel_idx = _first_fold(splits, Xtr, ytr)
+    Xfit, yfit = _rows(Xtr, fit_idx), ytr[fit_idx]
+    Xsel, ysel = _rows(Xtr, sel_idx), ytr[sel_idx]
+    inner_before = _calibration_scores(clone(best).fit(Xfit, yfit), Xsel, ysel, classes)
+    if inner_before is None:
+        return best, None
     try:
-        cal = CalibratedClassifierCV(best, method=method, cv=3)
-        cal.fit(Xtr, ytr)
+        probe = CalibratedClassifierCV(clone(best), method=method, cv=3)
+        probe.fit(Xfit, yfit)
     except Exception as e:
         warnings_.append('Probabilities left uncalibrated: ' + str(e)[:160])
+        before = _calibration_scores(best, Xrep, yrep, classes)
         return best, {'calibrated': False, 'method': None, 'before': before, 'after': None}
-    after = _calibration_scores(cal, Xva, yva, classes)
+    inner_after = _calibration_scores(probe, Xsel, ysel, classes)
+
+    # The figure a reader sees for the model as it stands, on the untouched
+    # holdout. Its calibrated twin is only fitted if the decision below keeps
+    # it — a CalibratedClassifierCV over every training row is not a cheap
+    # thing to build for a model about to be thrown away.
+    before = _calibration_scores(best, Xrep, yrep, classes)
+    after_d, before_d = inner_after, inner_before
     # BOTH have to improve, and that rule came out of running this.
     #
     # Brier is a proper scoring rule, but it is calibration AND sharpness added
@@ -545,17 +710,29 @@ def _calibrate(best, Xtr, ytr, Xva, yva, classes, warnings_):
     # on Brier alone, that would have shipped a model whose probabilities were
     # WORSE at the one job this step exists to do, under a metric that said it
     # had improved.
-    if after is None or after['brier'] >= before['brier'] or (
-            after['calibration_error'] > before['calibration_error']):
-        why = 'the Brier score' if (after is None or after['brier'] >= before['brier']) \
+    if after_d is None or after_d['brier'] >= before_d['brier'] or (
+            after_d['calibration_error'] > before_d['calibration_error']):
+        why = 'the Brier score' if (after_d is None or after_d['brier'] >= before_d['brier']) \
             else 'the calibration error'
         warnings_.append(
-            'Calibration did not improve %s (Brier %.4f against %.4f, calibration error %.4f '
-            'against %.4f), so the uncalibrated model was kept.' % (
-                why, (after or before)['brier'], before['brier'],
-                (after or before)['calibration_error'], before['calibration_error']))
-        return best, {'calibrated': False, 'method': method, 'before': before, 'after': after}
-    _log('calibrated with %s: Brier %.4f -> %.4f, ECE %.4f -> %.4f' % (
+            'Calibration did not improve %s on held-back training rows (Brier %.4f against %.4f, '
+            'calibration error %.4f against %.4f), so the uncalibrated model was kept.' % (
+                why, (after_d or before_d)['brier'], before_d['brier'],
+                (after_d or before_d)['calibration_error'], before_d['calibration_error']))
+        return best, {'calibrated': False, 'method': method, 'before': before, 'after': None}
+
+    # Kept. Refit over every training row — the inner slice existed to decide,
+    # and the model that ships should have seen everything it was entitled to.
+    try:
+        cal = CalibratedClassifierCV(clone(best), method=method, cv=3)
+        cal.fit(Xtr, ytr)
+    except Exception as e:
+        warnings_.append('Probabilities left uncalibrated: ' + str(e)[:160])
+        return best, {'calibrated': False, 'method': None, 'before': before, 'after': None}
+    after = _calibration_scores(cal, Xrep, yrep, classes)
+    if after is None:
+        return best, {'calibrated': False, 'method': method, 'before': before, 'after': None}
+    _log('calibrated with %s: on the holdout Brier %.4f -> %.4f, ECE %.4f -> %.4f' % (
         method, before['brier'], after['brier'], before['calibration_error'], after['calibration_error']))
     return cal, {'calibrated': True, 'method': method, 'before': before, 'after': after}
 
@@ -746,8 +923,37 @@ def _train_tabular(df, cfg, warnings_):
             warnings_.append('Target clipped to the %s-%s percentile range [%.4g, %.4g]; %d rows affected.' % (clip[0], clip[1], lo, hi, n_clipped))
         stratify = None
 
-    Xtr, Xva, ytr, yva = train_test_split(X, y, test_size=frac, random_state=42, stratify=stratify)
-    _log('training on %d rows, validating on %d (%d features)' % (len(Xtr), len(Xva), len(features)))
+    # A time-ordered table must not be split at random. Shuffling rows that
+    # have an order puts next month in the training set and last month in the
+    # holdout, and the score that comes back is the score for predicting the
+    # past from the future — reliably flattering, and reliably wrong the first
+    # time the model runs for real.
+    tcol = cfg.get('time_column')
+    temporal = bool(tcol) and tcol in df.columns
+    if temporal:
+        tvals = pd.to_datetime(df.loc[X.index, tcol], errors='coerce')
+        if tvals.isna().all():
+            temporal = False
+            warnings_.append('%s holds no readable dates, so rows were split at random rather than in time order.' % tcol)
+        else:
+            order = np.argsort(tvals.to_numpy(), kind='stable')
+            X, y = X.iloc[order], y[order]
+            cut = max(1, int(round(len(X) * (1.0 - frac))))
+            Xtr, Xva, ytr, yva = X.iloc[:cut], X.iloc[cut:], y[:cut], y[cut:]
+            warnings_.append('Rows were ordered by %s and the most recent %d kept back, so the score describes predicting forward.' % (tcol, len(Xva)))
+    if not temporal:
+        Xtr, Xva, ytr, yva = train_test_split(X, y, test_size=frac, random_state=42, stratify=stratify)
+
+    # WHAT SELECTION IS ALLOWED TO SEE. Never yva: the holdout is read once, at
+    # the end, by code that only reports.
+    min_class = 0
+    if task == 'classification':
+        min_class = int(pd.Series(ytr).value_counts().min())
+    cv_plan = _cv_plan(task, len(Xtr), len(Xva), temporal, min_class,
+                       cfg.get('cv_min_holdout_rows') or 2000)
+    splits = _cv_splits(task, cv_plan, ytr)
+    _log('training on %d rows, holding back %d (%d features); selecting by %s' % (
+        len(Xtr), len(Xva), len(features), cv_plan['strategy']))
 
     leaderboard, ranked = [], []
     higher = task == 'classification'
@@ -761,12 +967,21 @@ def _train_tabular(df, cfg, warnings_):
         t0 = time.time()
         try:
             pipe = Pipeline([('prep', prepro), ('model', make())])
+            cvres = _cv_score(pipe, Xtr, ytr, splits, task)
+            score = cvres['mean']
+            # Refit on every training row once the score is settled: the folds
+            # existed to measure, and the model that ships should have seen all
+            # the data selection was entitled to use.
             pipe.fit(Xtr, ytr)
-            score = _primary(task, pipe, Xva, yva)
-            leaderboard.append({'algorithm': name, 'metric': metric, 'value': _safe_float(score), 'higher_is_better': higher,
-                                'fit_seconds': round(time.time() - t0, 2), 'status': 'ok'})
-            _log('%s: %s=%.4f in %.1fs' % (name, metric, score, time.time() - t0))
-            ranked.append((name, pipe, score))
+            row = {'algorithm': name, 'metric': metric, 'value': _safe_float(score), 'higher_is_better': higher,
+                   'fit_seconds': round(time.time() - t0, 2), 'status': 'ok'}
+            if len(cvres['scores']) > 1:
+                row['spread'] = cvres['std']
+                row['folds'] = len(cvres['scores'])
+            leaderboard.append(row)
+            _log('%s: %s=%.4f (+/-%.4f over %d) in %.1fs' % (
+                name, metric, score, cvres['std'], len(cvres['scores']), time.time() - t0))
+            ranked.append((name, pipe, score, cvres))
         except Exception as e:
             leaderboard.append({'algorithm': name, 'metric': metric, 'value': None, 'higher_is_better': higher,
                                 'fit_seconds': round(time.time() - t0, 2), 'status': 'failed', 'note': str(e)[:200]})
@@ -774,13 +989,13 @@ def _train_tabular(df, cfg, warnings_):
     if not ranked:
         raise RuntimeError('Every candidate failed to train. First error: ' + str(leaderboard[0].get('note', 'unknown')))
     ranked.sort(key=lambda r: -r[2] if higher else r[2])
-    best_name, best, best_score = ranked[0]
+    best_name, best, best_score, best_cv = ranked[0]
     tuning_info = {'mode': tuning, 'trials': 0}
     if tuning in ('quick', 'thorough'):
-        tuned, trials = _tune(task, ranked, prep, Xtr, ytr, Xva, yva, budget, tuning, leaderboard, warnings_)
+        tuned, trials = _tune(task, ranked, prep, Xtr, ytr, splits, budget, tuning, leaderboard, warnings_)
         tuning_info['trials'] = trials
         if tuned:
-            best_name, best, best_score, params = tuned
+            best_name, best, best_score, params, best_cv = tuned
             tuning_info['best_params'] = params
     leaderboard.sort(key=lambda r: (r['status'] != 'ok', -(r['value'] or -1e18) if higher else (r['value'] if r['value'] is not None else 1e18)))
 
@@ -788,9 +1003,18 @@ def _train_tabular(df, cfg, warnings_):
     # model that is actually saved rather than the one that was selected.
     calibration = None
     if task == 'classification':
-        best, calibration = _calibrate(best, Xtr, ytr, Xva, yva, classes or [], warnings_)
+        best, calibration = _calibrate(best, Xtr, ytr, splits, Xva, yva, classes or [], warnings_)
+    # Reported from the holdout, which nothing above was allowed to read.
     metrics = _full_metrics(task, best, Xva, yva, classes or [])
     metrics['tuning_trials'] = float(tuning_info['trials'])
+    metrics['cross_validation'] = {
+        'strategy': cv_plan['strategy'], 'folds': int(cv_plan['folds']), 'reason': cv_plan['reason'],
+        'metric': metric, 'higher_is_better': higher,
+        'scores': (best_cv or {}).get('scores') or [],
+        'mean': (best_cv or {}).get('mean'), 'std': (best_cv or {}).get('std'),
+        'holdout_rows': int(len(Xva)), 'training_rows': int(len(Xtr)),
+        'holdout_value': _safe_float(metrics.get(metric)),
+    }
     if calibration:
         metrics['calibrated'] = bool(calibration['calibrated'])
         metrics['calibration_method'] = calibration['method']

@@ -213,6 +213,95 @@ and the public API's model listing repeat them:
   an estimate for rows like the ones you have, not for next quarter's; train
   on a prep flow that stops at a date to see how the model ages.
 
+## How the winner is chosen
+
+Training tries several algorithms and keeps the best. The question this section
+answers is what "best" was measured against — because for a long time the
+answer here was wrong in a way that flattered every model the platform
+produced.
+
+### The mistake, and what it cost
+
+Every candidate used to be fitted on the training rows and scored on the
+**holdout**. The best of those scores picked the winner, the tuner then
+searched against the same holdout, and that very number was published as the
+version's metric.
+
+Taking the maximum of a dozen noisy estimates and publishing the maximum is the
+winner's curse: the number is biased upward by exactly as much noise as the
+search could exploit. Run over thirty seeds on data where the candidates were
+genuinely equivalent — so any gap is selection noise and nothing else — the
+published F1 came out **0.046 too high on average**. Against a decay alert that
+fires at a ten per cent drop, most of the alert budget was spent before the
+model had scored a single real row.
+
+### What happens now
+
+Selection happens **inside the training rows**, and the holdout is read once,
+at the end, by code that is only reporting.
+
+| Scheme                    | When                                                                |
+| ------------------------- | ------------------------------------------------------------------- |
+| **Stratified folds**      | Classification with a small holdout. Each fold keeps the class mix. |
+| **Cross-validated folds** | Regression with a small holdout.                                    |
+| **Time-ordered folds**    | Any model given a time column. Always, whatever the holdout size.   |
+| **One inner split**       | A holdout already large enough that folds would buy almost nothing. |
+
+Which one a version used, and why, is written on the version and shown under
+the metric tiles. So is the spread between folds, which is the part that makes
+the headline number readable: it is how much the score moves when the same
+model meets different rows, and therefore the scale below which a difference
+between two versions is noise.
+
+Folds cost k fits per candidate, so they are not always worth paying for. What
+decides is the **size of the holdout**, not the size of the training set — a
+few thousand held-out rows already pin the score to well under a point, while a
+few dozen pin nothing at all. The line sits at
+`ML_CV_MIN_HOLDOUT_ROWS` (2000), also editable under
+**Admin → Developer runtime**. Above it, one inner split; below it, folds. A class
+with fewer examples than folds lowers the fold count, and a class with a single
+example turns folds off altogether — no set of folds can each contain one.
+
+The winner is refitted on every training row before it is saved. The folds
+existed to measure; the model that ships should have seen all the data
+selection was entitled to use.
+
+### The holdout is read once
+
+Two numbers therefore appear on a version, and they are not the same number:
+
+- **Across the folds** — what chose the winner.
+- **On the held-back rows** — what nothing was allowed to optimise against.
+  This is what the version reports, and what a decay alert compares production
+  against.
+
+Shown side by side on purpose. When they disagree the disagreement is
+information: a winner that looked good on the folds and did not repeat itself
+on untouched rows is telling you something a single number would have hidden.
+
+**Calibration is decided the same way.** Keeping or discarding a probability
+calibration is also a choice, so it is made on a slice of the training rows,
+and only then are the Brier score and calibration error measured again on the
+holdout for reporting.
+
+### Rows that are ordered in time
+
+A table with a time column must not be split at random. Shuffling rows that
+have an order puts next month in the training set and last month in the
+holdout, and the score that comes back is the score for predicting the past
+from the future — reliably flattering, and reliably wrong the first time the
+model runs for real.
+
+Name a **time column** and three things change: rows are sorted by it, the most
+recent slice is what gets held back, and the folds become `TimeSeriesSplit` —
+every fold trains strictly before the rows it scores, on an expanding window of
+history. Time order wins over every other consideration, including a holdout
+large enough that a random split would otherwise have been used.
+
+If the column turns out to hold no readable dates the run falls back to a
+random split and **says so in the run log**. Quietly shuffling rows after being
+told they are ordered is the version of this bug nobody would ever find.
+
 ## Versions
 
 **Versions** lists every version with its stage, algorithm, primary metric,
@@ -1134,35 +1223,33 @@ See [SCALE_AND_LIMITS.md](./SCALE_AND_LIMITS.md#machine-learning--srcutilsnotebo
 
 Where AgentSwarms stands against Databricks ML and SageMaker, honestly:
 
-| Capability                 | AgentSwarms                                                                                                                                        | Databricks / SageMaker                                               |
-| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| No-code AutoML             | Six tasks incl. clustering, anomaly, recommendation; tuning; data prep in the wizard                                                               | AutoML / Canvas: similar tasks, larger search spaces                 |
-| Registry, stages, lineage  | Versions, stages, snapshot + decision id per version, artifact digests                                                                             | MLflow registry / Model Registry                                     |
-| Batch scoring              | Into lakehouse tables, scheduled, with drift per run                                                                                               | Jobs / Batch Transform                                               |
-| Real-time inference        | Warm endpoints hold one version in memory: 45 ms of scoring instead of a ~25 s container start; one replica, no autoscaling                        | Serving endpoints with autoscaling                                   |
-| Drift monitoring           | PSI per feature on every batch, threshold alerts                                                                                                   | Lakehouse Monitoring / Model Monitor (more statistics)               |
-| Ground-truth monitoring    | Outcome source per model; the training metric recomputed on matched rows, with coverage; decay alerts on the platform clock                        | Model-quality monitoring jobs                                        |
-| Calibration and thresholds | Reliability curve and Brier/ECE per version; calibration kept only when both improve; measured threshold sweep, set per version without retraining | Calibration in SageMaker Clarify; thresholds set in application code |
-| Explainability             | Global permutation importance at training, plus per-row contributions by ablation against a typical row. Not Shapley values                        | SHAP per prediction, Clarify                                         |
-| Fairness                   | Selection-rate ratio and error-rate gaps per group, per column; assistant suggests columns and proxies; four-fifths default                        | Clarify / bias reports                                               |
-| Promotion approval         | Named approvers per model, in the same inbox as swarm approvals; a requester can never approve their own                                           | Approval workflows                                                   |
-| Scheduled retraining       | Cron/cadence, promote-when-better, one platform clock                                                                                              | Workflows / Pipelines                                                |
-| Public API                 | Per-model scoped keys, rate limits, audited denials, BYO registration                                                                              | Yes, IAM-based                                                       |
-| Bring your own model       | Any joblib pipeline under a small contract                                                                                                         | Any framework, containers                                            |
-| Feature store              | Feature views: score by key, read from the table training read; describes rather than materialises                                                 | Yes                                                                  |
-| Distributed / GPU training | The algorithm search spreads across several sandboxes; one model still trains in one container; GPUs requestable                                   | Clusters, distributed frameworks, GPU instances                      |
-| Experiment tracking        | Runs logged from a notebook or a script with params, metrics and curves; a run promotes into the registry                                          | MLflow / Experiments                                                 |
-| Model cards                | Generated from the registry                                                                                                                        | SageMaker Model Cards                                                |
-| Governance                 | IAM shares, trigger audit, decision ids, result digests, one statement guard for all data                                                          | Unity Catalog / IAM                                                  |
-| Agents and BI              | Models are agent tools; forecasts and drift live in the BI layer                                                                                   | Separate products                                                    |
-| Cost and residency         | Self-hosted, your infrastructure, no per-call charges                                                                                              | Managed, metered                                                     |
+| Capability                 | AgentSwarms                                                                                                                                                             | Databricks / SageMaker                                               |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| No-code AutoML             | Six tasks incl. clustering, anomaly, recommendation; tuning; data prep in the wizard                                                                                    | AutoML / Canvas: similar tasks, larger search spaces                 |
+| Registry, stages, lineage  | Versions, stages, snapshot + decision id per version, artifact digests                                                                                                  | MLflow registry / Model Registry                                     |
+| Batch scoring              | Into lakehouse tables, scheduled, with drift per run                                                                                                                    | Jobs / Batch Transform                                               |
+| Real-time inference        | Warm endpoints hold one version in memory: 45 ms of scoring instead of a ~25 s container start; one replica, no autoscaling                                             | Serving endpoints with autoscaling                                   |
+| Drift monitoring           | PSI per feature on every batch, threshold alerts                                                                                                                        | Lakehouse Monitoring / Model Monitor (more statistics)               |
+| Ground-truth monitoring    | Outcome source per model; the training metric recomputed on matched rows, with coverage; decay alerts on the platform clock                                             | Model-quality monitoring jobs                                        |
+| Model selection            | Candidates scored by cross-validation inside the training rows; the holdout is read once, for reporting. Fold spread on every version; TimeSeriesSplit for ordered data | Cross-validation in AutoML / Autopilot                               |
+| Calibration and thresholds | Reliability curve and Brier/ECE per version; calibration kept only when both improve; measured threshold sweep, set per version without retraining                      | Calibration in SageMaker Clarify; thresholds set in application code |
+| Explainability             | Global permutation importance at training, plus per-row contributions by ablation against a typical row. Not Shapley values                                             | SHAP per prediction, Clarify                                         |
+| Fairness                   | Selection-rate ratio and error-rate gaps per group, per column; assistant suggests columns and proxies; four-fifths default                                             | Clarify / bias reports                                               |
+| Promotion approval         | Named approvers per model, in the same inbox as swarm approvals; a requester can never approve their own                                                                | Approval workflows                                                   |
+| Scheduled retraining       | Cron/cadence, promote-when-better, one platform clock                                                                                                                   | Workflows / Pipelines                                                |
+| Public API                 | Per-model scoped keys, rate limits, audited denials, BYO registration                                                                                                   | Yes, IAM-based                                                       |
+| Bring your own model       | Any joblib pipeline under a small contract                                                                                                                              | Any framework, containers                                            |
+| Feature store              | Feature views: score by key, read from the table training read; describes rather than materialises                                                                      | Yes                                                                  |
+| Distributed / GPU training | The algorithm search spreads across several sandboxes; one model still trains in one container; GPUs requestable                                                        | Clusters, distributed frameworks, GPU instances                      |
+| Experiment tracking        | Runs logged from a notebook or a script with params, metrics and curves; a run promotes into the registry                                                               | MLflow / Experiments                                                 |
+| Model cards                | Generated from the registry                                                                                                                                             | SageMaker Model Cards                                                |
+| Governance                 | IAM shares, trigger audit, decision ids, result digests, one statement guard for all data                                                                               | Unity Catalog / IAM                                                  |
+| Agents and BI              | Models are agent tools; forecasts and drift live in the BI layer                                                                                                        | Separate products                                                    |
+| Cost and residency         | Self-hosted, your infrastructure, no per-call charges                                                                                                                   | Managed, metered                                                     |
 
 Everything in the left column is shipped and tested. What is left, in the
 order it is usually asked for:
 
-- **Cross-validation.** One stratified holdout both picks the model and sets
-  the baseline a decay alert compares against; there is no `TimeSeriesSplit`
-  for temporal data.
 - **Reason codes on every scored row.** An explanation is available for a row
   you ask about, not written beside every decision in a batch.
 - **Training one model across machines.** The algorithm search spreads over

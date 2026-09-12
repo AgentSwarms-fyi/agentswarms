@@ -2495,6 +2495,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "ML_API_RATE_LIMIT_PER_MIN",
       "ML_ARTIFACT_MAX_MB",
       "ML_ASSIST_MODEL",
+      "ML_CV_MIN_HOLDOUT_ROWS",
       "ML_DECAY_ALERT_RATIO",
       "ML_DRIFT_ALERT_PSI",
       "ML_EVALUATIONS_PER_SWEEP",
@@ -2604,6 +2605,31 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       {
         "id": "warnings",
         "text": "What the trainer warns about",
+        "level": 3
+      },
+      {
+        "id": "selection",
+        "text": "How the winner is chosen",
+        "level": 2
+      },
+      {
+        "id": "selection-mistake",
+        "text": "The mistake, and what it cost",
+        "level": 3
+      },
+      {
+        "id": "selection-now",
+        "text": "What happens now",
+        "level": 3
+      },
+      {
+        "id": "selection-holdout",
+        "text": "The holdout is read once",
+        "level": 3
+      },
+      {
+        "id": "selection-time",
+        "text": "Rows that are ordered in time",
         "level": 3
       },
       {

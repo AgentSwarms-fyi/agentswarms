@@ -319,6 +319,103 @@ function MlDocsPage() {
         </li>
       </UL>
 
+      <H2 id="selection">How the winner is chosen</H2>
+      <P>
+        Training tries several algorithms and keeps the best. What &ldquo;best&rdquo; is measured
+        against is the question this section answers — because for a long time the answer was wrong
+        here, in a way that flattered every model the platform produced.
+      </P>
+      <H3 id="selection-mistake">The mistake, and what it cost</H3>
+      <P>
+        Every candidate used to be fitted on the training rows and scored on the{" "}
+        <strong>holdout</strong>. The best of those scores picked the winner, the tuner then
+        searched against the same holdout, and that very number was published as the version&apos;s
+        metric.
+      </P>
+      <Callout kind="warn" title="Publishing a maximum publishes a bias">
+        Taking the best of a dozen noisy estimates and printing it is the winner&apos;s curse: the
+        number is too high by as much noise as the search could exploit. Measured over thirty seeds
+        on data where the candidates were genuinely equivalent, the published F1 came out{" "}
+        <strong>0.046 too high on average</strong>. Against a decay alert that fires at a ten per
+        cent drop, most of the alert budget was gone before the model scored a single real row.
+      </Callout>
+      <H3 id="selection-now">What happens now</H3>
+      <P>
+        Selection happens <strong>inside the training rows</strong>, and the holdout is read once,
+        at the end, by code that is only reporting.
+      </P>
+      <Table
+        headers={["Scheme", "When"]}
+        rows={[
+          [
+            <strong key="s">Stratified folds</strong>,
+            "Classification with a small holdout. Each fold keeps the class mix.",
+          ],
+          [<strong key="k">Cross-validated folds</strong>, "Regression with a small holdout."],
+          [
+            <strong key="t">Time-ordered folds</strong>,
+            "Any model given a time column. Always, whatever the holdout size.",
+          ],
+          [
+            <strong key="i">One inner split</strong>,
+            "A holdout already large enough that folds would buy almost nothing.",
+          ],
+        ]}
+      />
+      <P>
+        Which scheme a version used, and why, is written on the version and shown under the metric
+        tiles — together with the spread between folds, which is what makes the headline number
+        readable. The spread is how much the score moves when the same model meets different rows,
+        and therefore the scale below which a difference between two versions is noise.
+      </P>
+      <P>
+        Folds cost k fits per candidate, so they are not always worth paying for. What decides is
+        the <strong>size of the holdout</strong>, not the size of the training set: a few thousand
+        held-out rows already pin the score to well under a point, while a few dozen pin nothing at
+        all. The line sits at <C>ML_CV_MIN_HOLDOUT_ROWS</C> (2000), also editable under{" "}
+        <strong>Admin → Developer runtime</strong>. A class with fewer examples than folds lowers
+        the fold count; a class with a single example turns folds off altogether, because no set of
+        folds can each contain one.
+      </P>
+      <P>
+        The winner is refitted on every training row before it is saved. The folds existed to
+        measure; the model that ships should have seen all the data selection was entitled to use.
+      </P>
+      <H3 id="selection-holdout">The holdout is read once</H3>
+      <P>
+        Two numbers therefore appear on a version, and they are not the same number:{" "}
+        <strong>across the folds</strong>, which chose the winner, and{" "}
+        <strong>on the held-back rows</strong>, which nothing was allowed to optimise against. The
+        second is what the version reports and what a decay alert compares production against.
+      </P>
+      <P>
+        They are shown side by side on purpose. When they disagree the disagreement is information:
+        a winner that looked good on the folds and did not repeat itself on untouched rows is
+        telling you something a single number would have hidden.{" "}
+        <strong>Calibration is decided the same way</strong> — keeping or discarding it is also a
+        choice, so it is made on a slice of the training rows, and only then are the Brier score and
+        calibration error measured again on the holdout for reporting.
+      </P>
+      <H3 id="selection-time">Rows that are ordered in time</H3>
+      <P>
+        A table with a time column must not be split at random. Shuffling rows that have an order
+        puts next month in the training set and last month in the holdout, and the score that comes
+        back is the score for predicting the past from the future — reliably flattering, and
+        reliably wrong the first time the model runs for real.
+      </P>
+      <P>
+        Name a <strong>time column</strong> and three things change: rows are sorted by it, the most
+        recent slice is what gets held back, and the folds become <C>TimeSeriesSplit</C> — every
+        fold trains strictly before the rows it scores, on an expanding window of history. Time
+        order wins over every other consideration, including a holdout large enough that a random
+        split would otherwise have been used.
+      </P>
+      <P>
+        If the column turns out to hold no readable dates, the run falls back to a random split and{" "}
+        <strong>says so in the run log</strong>. Quietly shuffling rows after being told they are
+        ordered is the version of this bug nobody would ever find.
+      </P>
+
       <H2 id="versions">Versions</H2>
       <P>
         Tick two or more trained versions on the <strong>Versions</strong> tab to{" "}
@@ -1179,6 +1276,11 @@ curl -X POST https://your-instance/api/ml/predict/batch \\
             "Model-quality monitoring jobs",
           ],
           [
+            "Model selection",
+            "Candidates scored by cross-validation inside the training rows; the holdout is read once, for reporting. Fold spread on every version; TimeSeriesSplit for ordered data",
+            "Cross-validation in AutoML / Autopilot",
+          ],
+          [
             "Calibration and thresholds",
             "Reliability curve and Brier/ECE per version; calibration kept only when both improve; measured threshold sweep, set per version without retraining",
             "Calibration in SageMaker Clarify; thresholds set in application code",
@@ -1248,14 +1350,11 @@ curl -X POST https://your-instance/api/ml/predict/batch \\
       />
       <P>
         Everything in the left column is shipped and tested. What is left, in the order it is
-        usually asked for: <strong>cross-validation</strong> (one stratified holdout both picks the
-        model and sets the baseline a decay alert compares against, and there is no{" "}
-        <C>TimeSeriesSplit</C> for temporal data); <strong>reason codes on every scored row</strong>{" "}
-        (an explanation is available for a row you ask about, not written beside every decision in a
-        batch); <strong>training one model across machines</strong> (the search spreads over
-        sandboxes, but a single fit still happens in one container); and{" "}
-        <strong>serving at scale</strong> (one warm endpoint, one replica, no autoscaling and no
-        canary or shadow traffic).
+        usually asked for: <strong>reason codes on every scored row</strong> (an explanation is
+        available for a row you ask about, not written beside every decision in a batch);{" "}
+        <strong>training one model across machines</strong> (the search spreads over sandboxes, but
+        a single fit still happens in one container); and <strong>serving at scale</strong> (one
+        warm endpoint, one replica, no autoscaling and no canary or shadow traffic).
       </P>
 
       <H2 id="use-cases">Use cases</H2>

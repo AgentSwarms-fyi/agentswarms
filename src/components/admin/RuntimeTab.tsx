@@ -918,6 +918,12 @@ export function RuntimeTab({
                 hint="A group selected less often than this share of the best-treated group's rate asks for review. 0.8 is the four-fifths rule from the US EEOC guidelines — a rule of thumb rather than a law, and not the standard everywhere."
               />
               <NumberField
+                label="Cross-validate below this many holdout rows"
+                value={form.ml_cv_min_holdout_rows}
+                onChange={(n) => set("ml_cv_min_holdout_rows", n)}
+                hint="Picking a model never reads the holdout — it scores candidates inside the training rows. Above this many held-out rows one inner split already pins the score, so k-fold would cost k times the fits to buy almost nothing; below it, folds earn their keep. Time-ordered data always uses time-series folds."
+              />
+              <NumberField
                 label="Decay alert threshold (ratio)"
                 value={form.ml_decay_alert_ratio}
                 onChange={(n) => set("ml_decay_alert_ratio", n)}

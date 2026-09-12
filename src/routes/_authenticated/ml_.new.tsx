@@ -126,6 +126,12 @@ function TrainWizard() {
   const [target, setTarget] = useState("");
   const [task, setTask] = useState<MlTask>("classification");
   const [timeColumn, setTimeColumn] = useState("");
+  // Separate from timeColumn on purpose. Profiling a table defaults
+  // timeColumn to the first date column, which is what forecasting needs and
+  // exactly what this must not do: whether rows are ORDERED is a fact about
+  // the world, and defaulting it to yes would opt every model on a dated
+  // table into a temporal split that nobody chose.
+  const [orderedBy, setOrderedBy] = useState("");
   const [horizon, setHorizon] = useState(12);
   const [aggregation, setAggregation] = useState<"sum" | "mean">("sum");
   const [period, setPeriod] = useState<MlPeriod>("auto");
@@ -185,6 +191,9 @@ function TrainWizard() {
         );
         const firstTime = p.columns.find((c) => c.kind === "datetime");
         setTimeColumn(firstTime?.name ?? "");
+        // Not carried across tables: whether one table's rows are ordered says
+        // nothing about the next one's.
+        setOrderedBy("");
       } catch (e) {
         toast.error((e as Error).message);
         setTable(null);
@@ -284,7 +293,15 @@ function TrainWizard() {
           task,
           source: { kind: "lakehouse", schema: table.schema, table: table.table },
           target_column: needsTarget ? target : undefined,
-          time_column: task === "forecast" ? timeColumn : undefined,
+          // Forecasting needs one; classification and regression may have one,
+          // and when they do it changes how the rows are split rather than
+          // what is predicted.
+          time_column:
+            task === "forecast"
+              ? timeColumn
+              : (task === "classification" || task === "regression") && orderedBy
+                ? orderedBy
+                : undefined,
           horizon: task === "forecast" ? horizon : undefined,
           aggregation: task === "forecast" ? aggregation : undefined,
           period: task === "forecast" ? period : undefined,
@@ -800,6 +817,34 @@ function TrainWizard() {
                     </div>
                   </div>
                 ) : null}
+                {/* Ordered rows are a fact about the data, so a person says
+                    so — the platform will not guess it from a column being a
+                    date. Without this control the trainer's ordered split was
+                    reachable only through the API, which is the same as not
+                    shipping it. */}
+                {(task === "classification" || task === "regression") &&
+                datetimeColumns.length > 0 ? (
+                  <div className="space-y-2 rounded-lg border p-3">
+                    <Label className="text-xs">Are these rows ordered in time?</Label>
+                    <select
+                      className="h-9 w-full rounded-md border bg-background px-2 text-sm sm:max-w-xs"
+                      value={orderedBy}
+                      onChange={(e) => setOrderedBy(e.target.value)}
+                    >
+                      <option value="">No — rows are independent</option>
+                      {datetimeColumns.map((c) => (
+                        <option key={c.name} value={c.name}>
+                          Yes, ordered by {c.name}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-[11px] leading-relaxed text-muted-foreground">
+                      {orderedBy
+                        ? `Rows will be sorted by ${orderedBy}, the most recent kept back, and every fold trained strictly before the rows it scores. The score then describes predicting forward, which is what the model will actually be asked to do.`
+                        : "Leave this alone unless one row happening before another matters. If it does, saying so keeps next month out of the training set — a random split would score the model on predicting the past from the future, which flatters it and tells you nothing."}
+                    </p>
+                  </div>
+                ) : null}
                 <PrepOptions
                   task={task}
                   value={prep}
@@ -872,6 +917,13 @@ function TrainWizard() {
                       <Row k="Items" v={itemColumn} />
                       <Row k="Strength" v={ratingColumn || "every row counts once"} />
                     </>
+                  ) : null}
+                  {/* Confirmed before training because it silently changes
+                      what the score means: a temporal split reports how well
+                      the model predicts FORWARD, which is a harder and more
+                      honest question than the random split answers. */}
+                  {(task === "classification" || task === "regression") && orderedBy ? (
+                    <Row k="Row order" v={`in time, by ${orderedBy}`} />
                   ) : null}
                   {task === "clustering" ? (
                     <Row

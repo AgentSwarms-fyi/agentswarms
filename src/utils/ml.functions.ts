@@ -390,7 +390,21 @@ export const mlCreateModel = createServerFn({ method: "POST" })
           rating_column: data.task === "recommendation" ? (data.rating_column ?? null) : null,
           n_clusters: data.task === "clustering" ? (data.n_clusters ?? null) : null,
           contamination: data.task === "anomaly" ? (data.contamination ?? null) : null,
-          time_column: data.task === "forecast" ? (data.time_column ?? null) : null,
+          // Forecasting REQUIRES one — it is the axis being predicted along.
+          // Classification and regression may have one, and when they do it
+          // means something different: the rows are ordered, so the split and
+          // the folds must respect that order.
+          //
+          // This line used to read `task === "forecast" ? ... : null`, which
+          // silently discarded the column for every other task. The wizard
+          // sent it, the validator accepted it, the review step told the user
+          // "in time, by signed_up_on" — and the model was stored with a null,
+          // so the trainer shuffled the rows anyway. Found by reading the row
+          // back after a real run, not by anything failing.
+          time_column:
+            data.task === "forecast" || data.task === "classification" || data.task === "regression"
+              ? (data.time_column ?? null)
+              : null,
           horizon: data.task === "forecast" ? (data.horizon ?? 12) : null,
           aggregation: data.task === "forecast" ? (data.aggregation ?? "sum") : null,
           period: data.task === "forecast" ? (data.period ?? "auto") : "auto",
