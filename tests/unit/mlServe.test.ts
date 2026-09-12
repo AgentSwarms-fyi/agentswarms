@@ -103,7 +103,17 @@ describe("warm and cold give the same answer", () => {
       'await finalizePrediction(row.id, { status: "succeeded", result: scored.raw })',
     );
     expect(PREDICT).toContain('.from("ml_predictions")');
-    expect(SERVE).toContain("raw: body ?? {}");
+    // THIS LINE USED TO ASSERT `raw: body ?? {}` — the mechanism — and the
+    // mechanism was wrong, so the guard pinned the bug while its own name
+    // stated the property being broken. Measured live: 21 of 21 warm
+    // predictions were stored as failures for six days, because the finaliser
+    // accepts only the batch envelope and the warm scorer's body has no `ok`
+    // (the Python entrypoint sets it, and the scorer bypasses that entrypoint
+    // deliberately, to keep one scoring implementation).
+    //
+    // Now asserted as the OUTCOME: what is handed over satisfies the finaliser.
+    expect(SERVE).toContain("raw: { ...(body ?? {}), ok: true }");
+    expect(SERVE).not.toContain("raw: body ?? {},");
   });
 
   it("says which path answered", () => {

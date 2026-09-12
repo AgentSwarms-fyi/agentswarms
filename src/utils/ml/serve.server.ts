@@ -36,6 +36,7 @@ import {
   scaleDecision,
 } from "@/lib/mlAutoscale";
 import { compareAnswers, type MlShadowTask } from "@/lib/mlShadow";
+import { clampPercent, rollbackDecision, routeToCandidate } from "@/lib/mlCanary";
 import type { MlModelRow, MlVersionRow } from "./access.server";
 
 /** The stash a score session carries, so the source route can recognise it. */
@@ -143,13 +144,29 @@ export type MlDeploymentRow = {
   last_scale_reason: string | null;
   /** A version being tried alongside the one in production. */
   candidate_version_id: string | null;
-  candidate_mode: "off" | "shadow";
+  candidate_mode: "off" | "shadow" | "canary";
   candidate_started_at: string | null;
   shadow_requests: number;
   shadow_rows: number;
   shadow_agreed: number;
   shadow_errors: number;
   shadow_last_error: string | null;
+  /**
+   * The share of real requests the candidate ANSWERS, while the mode is canary.
+   *
+   * Shadowing and canary share the candidate and its copy and differ in one
+   * thing: whether the candidate's answer reaches the caller. That is the
+   * whole difference, and it is the reason these counters are separate from
+   * the shadow ones — a shadow measures agreement, a canary measures failure.
+   */
+  candidate_percent: number;
+  canary_primary_requests: number;
+  canary_primary_errors: number;
+  canary_requests: number;
+  canary_errors: number;
+  canary_last_error: string | null;
+  canary_rolled_back_at: string | null;
+  canary_rollback_reason: string | null;
 };
 
 /**
@@ -609,6 +626,16 @@ export async function scoreWarm(args: {
        * of the record.
        */
       raw: Record<string, unknown>;
+      /**
+       * The version that actually answered.
+       *
+       * Usually the endpoint's, and under a canary sometimes the candidate's.
+       * The caller records it on the prediction row: "why did this row get
+       * this answer" has to name the model that made it, and during a canary
+       * the endpoint's version is a guess that is wrong for some share of the
+       * rows by design.
+       */
+      servedVersionId: string | null;
     }
   | { ok: false; error: string }
   | null
@@ -622,15 +649,39 @@ export async function scoreWarm(args: {
   // stop. Two different notions of "quietest" would have the two disagreeing
   // about the same endpoint, and the idle clock the scale-down safety check
   // reads would stop meaning what it says.
-  // PRIMARY copies only. A candidate exists to be compared against, never to
-  // answer somebody — handing a caller its answer is the one thing shadowing
-  // promises will not happen.
-  const ready = (await listReplicas(dep.id, true, "primary")).filter(
+  // WHICH SIDE ANSWERS THIS REQUEST.
+  //
+  // Under a shadow the answer is never in doubt: a candidate exists to be
+  // compared against and answers nobody. A CANARY is the deliberate exception
+  // — `candidate_percent` of requests are answered by the candidate, for real,
+  // because the only way to learn how a version behaves in front of live
+  // traffic is to put it in front of live traffic.
+  //
+  // The roll is taken per request rather than per caller: a prediction has no
+  // session to be sticky to, and a sticky split would let one unlucky caller
+  // take every bad answer while the average looked fine.
+  let side: "primary" | "candidate" =
+    dep.candidate_mode === "canary" && routeToCandidate(dep.candidate_percent, Math.random())
+      ? "candidate"
+      : "primary";
+
+  let ready = (await listReplicas(dep.id, true, side)).filter(
     (r) => r.status === "ready" && Boolean(r.endpoint),
   );
+  // A canary whose copy is not up must not cost anybody their answer. It falls
+  // back to production silently — the share slips for a few requests, which is
+  // a far smaller thing than a failed request, and the counters record what
+  // actually happened rather than what was configured.
+  if (side === "candidate" && ready.length === 0) {
+    side = "primary";
+    ready = (await listReplicas(dep.id, true, "primary")).filter(
+      (r) => r.status === "ready" && Boolean(r.endpoint),
+    );
+  }
   const replica = replicaToScore(ready);
   if (!replica?.endpoint) return null;
   const endpoint = replica.endpoint;
+  const servedVersionId = replica.version_id ?? dep.version_id;
 
   try {
     const res = await fetch(`${endpoint}${SCORE_PATH}`, {
@@ -643,10 +694,16 @@ export async function scoreWarm(args: {
     if (!res.ok) {
       // 503 means it is loading or its model failed to load: not an answer,
       // and not a reason to fail the request either.
+      const message = String(body?.error ?? `The scorer answered ${res.status}`);
+      // Counted BEFORE returning, on both exits. A candidate that cannot
+      // answer is exactly the thing a canary exists to notice, and the two
+      // ways it declines to answer are not different facts.
+      await recordCanary(dep, side, true, message);
       if (res.status === 503) return null;
-      return { ok: false, error: String(body?.error ?? `The scorer answered ${res.status}`) };
+      return { ok: false, error: message };
     }
     void touch(dep.id, replica.id);
+    await recordCanary(dep, side, false, null);
     // AFTER the answer is in hand and deliberately not awaited. A mirror that
     // the caller waits for is not a shadow, it is a second serving path with
     // twice the latency and twice the ways to fail.
@@ -660,7 +717,24 @@ export async function scoreWarm(args: {
       algorithm: (body?.algorithm as string | null) ?? null,
       warnings: (body?.warnings as string[]) ?? [],
       elapsedSeconds: typeof body?.elapsed_seconds === "number" ? body.elapsed_seconds : null,
-      raw: body ?? {},
+      // `ok: true` is ADDED HERE, and without it nothing downstream works.
+      //
+      // finalizePrediction accepts a result only if it looks like the batch
+      // path's envelope, and that envelope's `ok` is set by the Python
+      // ENTRYPOINT — which the warm scorer bypasses, because it calls
+      // `_predict` directly to keep one scoring implementation. So the body
+      // carries mode, row_count, columns, digests and drift, and no `ok`, and
+      // every warm prediction was recorded as "The sandbox finished without
+      // returning predictions" while the caller was handed a correct answer.
+      //
+      // MEASURED, not reasoned: 21 of 21 warm predictions since 2026-09-06
+      // were stored as failed, and asking the live scorer for its keys showed
+      // `ok` undefined and everything else present.
+      //
+      // The app is entitled to set it: `ok` means "the run succeeded", and on
+      // this path the HTTP status has already established that.
+      raw: { ...(body ?? {}), ok: true },
+      servedVersionId,
     };
   } catch (e) {
     // A transport failure is a cold-path fallback, not an error to the caller:
@@ -671,8 +745,114 @@ export async function scoreWarm(args: {
     // because one container went would throw away the copies still answering.
     void retireReplica(replica, `transport failure: ${(e as Error).message}`.slice(0, 200));
     console.warn("[ml-serve] warm score failed:", (e as Error).message);
+    await recordCanary(dep, side, true, (e as Error).message);
     return null;
   }
+}
+
+/**
+ * Count one answered request while a canary is running, then decide.
+ *
+ * AWAITED, unlike the shadow mirror. The mirror is spare work whose result
+ * nobody is waiting for; this is the record of a request a real caller was
+ * served by an unapproved version, and the automatic rollback reads it. A
+ * count dropped because the process moved on is a failure the platform never
+ * learns about, on the one path where not learning is dangerous.
+ */
+async function recordCanary(
+  dep: MlDeploymentRow,
+  side: "primary" | "candidate",
+  failed: boolean,
+  error: string | null,
+): Promise<void> {
+  if (dep.candidate_mode !== "canary") return;
+  try {
+    await supabaseAdmin.rpc("record_ml_canary_result", {
+      p_id: dep.id,
+      p_side: side,
+      p_failed: failed,
+      p_error: error ? error.slice(0, 2000) : null,
+    });
+    await maybeRollBackCanary(dep.id);
+  } catch (e) {
+    // Counting must never be the thing that fails a request. The caller has
+    // their answer either way; losing a count degrades the evidence, whereas
+    // throwing here would turn a healthy request into an error.
+    console.warn("[ml-canary] could not record:", (e as Error).message);
+  }
+}
+
+/**
+ * Take a failing candidate out of the traffic, without being asked.
+ *
+ * A canary is the one place in the platform where a version nobody approved is
+ * answering real callers, so the thing that notices it is failing cannot be a
+ * person watching a panel — nobody is watching at three in the morning. The
+ * rule is in src/lib/mlCanary.ts and compares the candidate against the
+ * version it would replace, so a platform-wide outage does not read as a bad
+ * model and roll back to one failing just as hard.
+ */
+async function maybeRollBackCanary(deploymentId: string): Promise<void> {
+  const { data: dep } = await supabaseAdmin
+    .from("ml_deployments")
+    // ONE LITERAL, not a concatenation. The client infers the row shape from
+    // this string, and a computed one infers nothing — every field then reads
+    // as an error type.
+    .select(
+      "id, user_id, model_id, candidate_mode, candidate_version_id, candidate_percent, canary_primary_requests, canary_primary_errors, canary_requests, canary_errors",
+    )
+    .eq("id", deploymentId)
+    .maybeSingle();
+  if (!dep || dep.candidate_mode !== "canary") return;
+
+  const decision = rollbackDecision({
+    primaryRequests: dep.canary_primary_requests,
+    primaryErrors: dep.canary_primary_errors,
+    candidateRequests: dep.canary_requests,
+    candidateErrors: dep.canary_errors,
+  });
+  if (!decision.rollback) return;
+
+  // STOP THE TRAFFIC FIRST, and claim the rollback in the same statement.
+  // `.eq("candidate_mode", "canary")` is what makes this safe under
+  // concurrency: every in-flight request that just recorded a failure reaches
+  // this line, and exactly one of them changes the row. The losers read no row
+  // back and return, so the candidate's copies are retired once and the audit
+  // says it happened once.
+  const { data: claimed } = await supabaseAdmin
+    .from("ml_deployments")
+    .update({
+      candidate_mode: "off",
+      candidate_percent: 0,
+      canary_rolled_back_at: new Date().toISOString(),
+      canary_rollback_reason: decision.reason,
+    })
+    .eq("id", deploymentId)
+    .eq("candidate_mode", "canary")
+    .select("id")
+    .maybeSingle();
+  if (!claimed) return;
+
+  for (const replica of await listReplicas(deploymentId, true, "candidate")) {
+    await retireReplica(replica, "canary rolled back");
+  }
+  auditEvent({
+    userId: dep.user_id,
+    action: "ml.canary.rollback",
+    resourceType: "ml_deployment",
+    resourceId: deploymentId,
+    resourceName: dep.model_id,
+    detail: {
+      reason: decision.reason,
+      candidate_version_id: dep.candidate_version_id,
+      share_percent: dep.candidate_percent,
+      candidate_requests: dep.canary_requests,
+      candidate_errors: dep.canary_errors,
+      primary_requests: dep.canary_primary_requests,
+      primary_errors: dep.canary_primary_errors,
+    },
+  });
+  console.warn("[ml-canary] " + decision.reason);
 }
 
 /**
@@ -1137,16 +1317,36 @@ async function trimDisagreements(deploymentId: string): Promise<void> {
 }
 
 /**
- * Start shadowing a version, or stop.
+ * Put a candidate behind the endpoint, or take it away.
  *
- * Starting brings up a candidate copy and resets the totals: figures gathered
- * against a DIFFERENT candidate would answer a question nobody asked.
+ * ONE function for both modes because they are one thing with one difference.
+ * A shadow and a canary share the candidate, its copy, its container budget
+ * and its lifecycle; what differs is whether the candidate's answer reaches
+ * the caller. Splitting them into two controls would have meant two ways to
+ * start a copy, two ways to stop one, and a promotion from shadow to canary
+ * that threw away a warm container to start an identical one.
+ *
+ * Starting a candidate resets the totals: figures gathered against a DIFFERENT
+ * candidate answer a question nobody asked. Changing the MODE of a candidate
+ * that is already running keeps its copy and resets only the figures that stop
+ * being true.
  */
-export async function setShadowCandidate(args: {
+export async function setCandidate(args: {
   model: MlModelRow;
   userId: string;
   version: MlVersionRow | null;
+  /** How the candidate is used. Shadowing answers nobody; canary answers some. */
+  mode?: "shadow" | "canary";
+  /** Share of real requests the candidate answers. Canary only. */
+  percent?: number;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
+  const mode = args.mode ?? "shadow";
+  const percent = clampPercent(args.percent ?? 0);
+  if (mode === "canary" && percent <= 0) {
+    // A canary at nothing per cent is "off" with a container running, and the
+    // reader would be told a candidate is taking traffic when none is.
+    return { ok: false, error: "Choose a share above 0% to send the candidate real traffic" };
+  }
   const dep = await getDeployment(args.model.id);
   if (!dep || dep.status !== "ready") {
     return { ok: false, error: "The endpoint is not running, so there is nothing to shadow" };
@@ -1159,20 +1359,29 @@ export async function setShadowCandidate(args: {
     }
     await supabaseAdmin
       .from("ml_deployments")
-      .update({ candidate_mode: "off", candidate_version_id: null })
+      .update({ candidate_mode: "off", candidate_version_id: null, candidate_percent: 0 })
       .eq("id", dep.id);
     auditEvent({
       userId: args.userId,
-      action: "ml.shadow.stop",
+      action: dep.candidate_mode === "canary" ? "ml.canary.stop" : "ml.shadow.stop",
       resourceType: "ml_deployment",
       resourceId: dep.id,
       resourceName: args.model.name,
-      detail: {
-        requests: dep.shadow_requests,
-        rows: dep.shadow_rows,
-        agreed: dep.shadow_agreed,
-        errors: dep.shadow_errors,
-      },
+      detail:
+        dep.candidate_mode === "canary"
+          ? {
+              share_percent: dep.candidate_percent,
+              candidate_requests: dep.canary_requests,
+              candidate_errors: dep.canary_errors,
+              primary_requests: dep.canary_primary_requests,
+              primary_errors: dep.canary_primary_errors,
+            }
+          : {
+              requests: dep.shadow_requests,
+              rows: dep.shadow_rows,
+              agreed: dep.shadow_agreed,
+              errors: dep.shadow_errors,
+            },
     });
     return { ok: true };
   }
@@ -1183,6 +1392,54 @@ export async function setShadowCandidate(args: {
   if (args.version.status !== "ready" || !args.version.artifact_uri) {
     return { ok: false, error: "That version has no artifact to serve" };
   }
+  // Bound to a local because narrowing does not follow `args.version` into a
+  // callback — the property could in principle be reassigned between calls.
+  const version = args.version;
+  // ALREADY RUNNING THIS VERSION? Then this is a change of mode, not a new
+  // candidate: keep the copy that is already warm. The usual path here is a
+  // shadow that has earned a canary, and throwing away a loaded container to
+  // start an identical one would cost twenty-five seconds to change a column.
+  const running = (await listReplicas(dep.id, true, "candidate")).filter(
+    (r) => r.version_id === version.id,
+  );
+  if (dep.candidate_version_id === version.id && running.length > 0) {
+    await supabaseAdmin
+      .from("ml_deployments")
+      .update({
+        candidate_mode: mode,
+        candidate_percent: mode === "canary" ? percent : 0,
+        // The canary figures describe a RUN, and this starts a new one. The
+        // shadow totals are left alone: they are still true about this
+        // candidate, and a canary does not invalidate them.
+        ...(mode === "canary"
+          ? {
+              canary_primary_requests: 0,
+              canary_primary_errors: 0,
+              canary_requests: 0,
+              canary_errors: 0,
+              canary_last_error: null,
+              canary_rolled_back_at: null,
+              canary_rollback_reason: null,
+            }
+          : {}),
+      })
+      .eq("id", dep.id);
+    auditEvent({
+      userId: args.userId,
+      action: mode === "canary" ? "ml.canary.start" : "ml.shadow.start",
+      resourceType: "ml_deployment",
+      resourceId: dep.id,
+      resourceName: args.model.name,
+      detail: {
+        candidate_version: args.version.version,
+        candidate_version_id: args.version.id,
+        ...(mode === "canary" ? { share_percent: percent } : {}),
+        kept_warm_copy: true,
+      },
+    });
+    return { ok: true };
+  }
+
   const room = await replicaRoom(args.userId);
   if (!room.ok) return { ok: false, error: room.error };
 
@@ -1208,7 +1465,8 @@ export async function setShadowCandidate(args: {
     .from("ml_deployments")
     .update({
       candidate_version_id: args.version.id,
-      candidate_mode: "shadow",
+      candidate_mode: mode,
+      candidate_percent: mode === "canary" ? percent : 0,
       candidate_started_at: new Date().toISOString(),
       // Reset: totals from a previous candidate describe a different question.
       shadow_requests: 0,
@@ -1216,17 +1474,28 @@ export async function setShadowCandidate(args: {
       shadow_agreed: 0,
       shadow_errors: 0,
       shadow_last_error: null,
+      canary_primary_requests: 0,
+      canary_primary_errors: 0,
+      canary_requests: 0,
+      canary_errors: 0,
+      canary_last_error: null,
+      canary_rolled_back_at: null,
+      canary_rollback_reason: null,
     })
     .eq("id", dep.id);
   await supabaseAdmin.from("ml_shadow_disagreements").delete().eq("deployment_id", dep.id);
 
   auditEvent({
     userId: args.userId,
-    action: "ml.shadow.start",
+    action: mode === "canary" ? "ml.canary.start" : "ml.shadow.start",
     resourceType: "ml_deployment",
     resourceId: dep.id,
     resourceName: args.model.name,
-    detail: { candidate_version: args.version.version, candidate_version_id: args.version.id },
+    detail: {
+      candidate_version: args.version.version,
+      candidate_version_id: args.version.id,
+      ...(mode === "canary" ? { share_percent: percent } : {}),
+    },
   });
   return { ok: true };
 }

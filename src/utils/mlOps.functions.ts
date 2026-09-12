@@ -269,18 +269,49 @@ export type MlDeploymentView = {
   last_scale_reason: string | null;
   last_scaled_at: string | null;
   /** A version being tried alongside, and what has been learned about it. */
-  shadow: {
+  candidate: {
+    /** Shadowing answers nobody; a canary answers `percent` of real callers. */
+    mode: "shadow" | "canary";
     version_id: string;
     version: number | null;
     started_at: string | null;
-    requests: number;
-    rows: number;
-    agreed: number;
-    errors: number;
-    last_error: string | null;
-    /** A few rows the two answered differently, most recent first. */
-    disagreements: { primary: string | null; candidate: string | null; at: string }[];
+    percent: number;
+    /** Agreement — what a SHADOW measures. Both versions answered the row. */
+    shadow: {
+      requests: number;
+      rows: number;
+      agreed: number;
+      errors: number;
+      last_error: string | null;
+      /** A few rows the two answered differently, most recent first. */
+      disagreements: { primary: string | null; candidate: string | null; at: string }[];
+    };
+    /**
+     * Failure — what a CANARY measures, on BOTH sides.
+     *
+     * There is no agreement figure here and there cannot be: each row was
+     * answered once, by one version, so there is no second answer to compare
+     * it against. Production's figures sit beside the candidate's because the
+     * question is never "is it failing" but "is it failing worse than what it
+     * would replace".
+     */
+    canary: {
+      primaryRequests: number;
+      primaryErrors: number;
+      requests: number;
+      errors: number;
+      last_error: string | null;
+    };
   } | null;
+  /**
+   * The last automatic rollback, if there was one.
+   *
+   * OUTSIDE the candidate block on purpose: a rollback removes the candidate,
+   * so anything nested inside it would vanish at the moment it became the most
+   * important thing on the panel. Somebody arriving to an endpoint serving its
+   * old version needs to find out why from the endpoint.
+   */
+  rollback: { at: string; reason: string | null } | null;
   /** One entry per copy actually running, quietest first. */
   replicas: {
     id: string;
@@ -313,8 +344,8 @@ export const mlDeploymentGet = createServerFn({ method: "POST" })
     // The candidate's own version number and the rows it disagreed on. Only
     // fetched when something is actually being shadowed — the overwhelming
     // majority of endpoints are not.
-    let shadow: MlDeploymentView["shadow"] = null;
-    if (dep.candidate_mode === "shadow" && dep.candidate_version_id) {
+    let candidate: MlDeploymentView["candidate"] = null;
+    if (dep.candidate_mode !== "off" && dep.candidate_version_id) {
       const [{ data: cv }, { data: diffs }] = await Promise.all([
         supabaseAdmin
           .from("ml_model_versions")
@@ -328,20 +359,31 @@ export const mlDeploymentGet = createServerFn({ method: "POST" })
           .order("created_at", { ascending: false })
           .limit(10),
       ]);
-      shadow = {
+      candidate = {
+        mode: dep.candidate_mode,
         version_id: dep.candidate_version_id,
         version: cv?.version ?? null,
         started_at: dep.candidate_started_at,
-        requests: dep.shadow_requests,
-        rows: dep.shadow_rows,
-        agreed: dep.shadow_agreed,
-        errors: dep.shadow_errors,
-        last_error: dep.shadow_last_error,
-        disagreements: (diffs ?? []).map((d) => ({
-          primary: d.primary_answer,
-          candidate: d.candidate_answer,
-          at: d.created_at,
-        })),
+        percent: dep.candidate_percent,
+        shadow: {
+          requests: dep.shadow_requests,
+          rows: dep.shadow_rows,
+          agreed: dep.shadow_agreed,
+          errors: dep.shadow_errors,
+          last_error: dep.shadow_last_error,
+          disagreements: (diffs ?? []).map((d) => ({
+            primary: d.primary_answer,
+            candidate: d.candidate_answer,
+            at: d.created_at,
+          })),
+        },
+        canary: {
+          primaryRequests: dep.canary_primary_requests,
+          primaryErrors: dep.canary_primary_errors,
+          requests: dep.canary_requests,
+          errors: dep.canary_errors,
+          last_error: dep.canary_last_error,
+        },
       };
     }
     const { data: version } = await supabaseAdmin
@@ -366,7 +408,10 @@ export const mlDeploymentGet = createServerFn({ method: "POST" })
         caps,
         min_replicas: dep.min_replicas,
         max_replicas: dep.max_replicas,
-        shadow,
+        candidate,
+        rollback: dep.canary_rolled_back_at
+          ? { at: dep.canary_rolled_back_at, reason: dep.canary_rollback_reason }
+          : null,
         last_scale_reason: dep.last_scale_reason,
         last_scaled_at: dep.last_scaled_at,
         // Quietest first, the order the scorer picks in and the scaler stops
@@ -445,6 +490,11 @@ export const mlShadowSet = createServerFn({ method: "POST" })
         accessToken: z.string().min(1),
         modelId: z.string().uuid(),
         versionId: z.string().uuid().nullable(),
+        // Shadowing answers nobody; a canary answers `percent` of real
+        // callers. Validated here rather than trusted, because the difference
+        // between the two is whether an unapproved model reaches a person.
+        mode: z.enum(["shadow", "canary"]).optional(),
+        percent: z.number().int().min(0).max(100).optional(),
       })
       .parse(input),
   )
@@ -467,8 +517,8 @@ export const mlShadowSet = createServerFn({ method: "POST" })
       version = v as MlVersionRow;
     }
 
-    const { setShadowCandidate } = await import("@/utils/ml/serve.server");
-    return setShadowCandidate({ model, userId, version });
+    const { setCandidate } = await import("@/utils/ml/serve.server");
+    return setCandidate({ model, userId, version, mode: data.mode, percent: data.percent });
   });
 
 export const mlDeploymentUpdate = createServerFn({ method: "POST" })

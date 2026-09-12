@@ -688,7 +688,15 @@ async function scoreOnDeployment(args: {
     .from("ml_predictions")
     .insert({
       model_id: args.model.id,
-      version_id: args.version.id,
+      // THE VERSION THAT ANSWERED, which is not always the one asked for.
+      //
+      // Under a canary some share of requests are answered by the candidate,
+      // so recording the endpoint's version here would attribute a candidate's
+      // prediction to the version in production — wrong on the row a person
+      // reads when they ask why something got the answer it did, wrong in the
+      // drift figures, and wrong in exactly the cases somebody is looking into.
+      // `scored` is already in hand at this point, so this costs nothing.
+      version_id: ("servedVersionId" in scored && scored.servedVersionId) || args.version.id,
       user_id: args.userId,
       status: "running",
       kind: ROWS_KIND,

@@ -4825,6 +4825,14 @@ export type Database = {
           shadow_agreed: number;
           shadow_errors: number;
           shadow_last_error: string | null;
+          candidate_percent: number;
+          canary_primary_requests: number;
+          canary_primary_errors: number;
+          canary_requests: number;
+          canary_errors: number;
+          canary_last_error: string | null;
+          canary_rolled_back_at: string | null;
+          canary_rollback_reason: string | null;
           scale_checked_at: string | null;
           scale_checked_count: number | null;
           last_scaled_at: string | null;
@@ -4854,6 +4862,14 @@ export type Database = {
           shadow_agreed?: number;
           shadow_errors?: number;
           shadow_last_error?: string | null;
+          candidate_percent?: number;
+          canary_primary_requests?: number;
+          canary_primary_errors?: number;
+          canary_requests?: number;
+          canary_errors?: number;
+          canary_last_error?: string | null;
+          canary_rolled_back_at?: string | null;
+          canary_rollback_reason?: string | null;
           scale_checked_at?: string | null;
           scale_checked_count?: number | null;
           last_scaled_at?: string | null;
@@ -4883,6 +4899,14 @@ export type Database = {
           shadow_agreed?: number;
           shadow_errors?: number;
           shadow_last_error?: string | null;
+          candidate_percent?: number;
+          canary_primary_requests?: number;
+          canary_primary_errors?: number;
+          canary_requests?: number;
+          canary_errors?: number;
+          canary_last_error?: string | null;
+          canary_rolled_back_at?: string | null;
+          canary_rollback_reason?: string | null;
           scale_checked_at?: string | null;
           scale_checked_count?: number | null;
           last_scaled_at?: string | null;
@@ -8141,6 +8165,10 @@ export type Database = {
         Returns: number;
       };
       rate_limit_sweep: { Args: never; Returns: undefined };
+      record_ml_canary_result: {
+        Args: { p_error: string | null; p_failed: boolean; p_id: string; p_side: string };
+        Returns: undefined;
+      };
       record_ml_shadow_result: {
         Args: { p_agreed: number; p_error: string | null; p_id: string; p_rows: number };
         Returns: undefined;

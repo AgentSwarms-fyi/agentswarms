@@ -2798,6 +2798,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "level": 3
       },
       {
+        "id": "canary",
+        "text": "Giving it a share of real traffic",
+        "level": 3
+      },
+      {
         "id": "forecasting",
         "text": "Forecasting in BI",
         "level": 2

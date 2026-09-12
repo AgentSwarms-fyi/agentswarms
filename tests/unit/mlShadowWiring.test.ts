@@ -3,12 +3,18 @@
 // The comparison arithmetic is in tests/unit/mlShadow.test.ts. These are the
 // promises that arithmetic cannot keep, and the load-bearing one is short:
 //
-//   A CANDIDATE NEVER ANSWERS A CALLER.
+//   A SHADOW CANDIDATE NEVER ANSWERS A CALLER.
 //
 // Everything else about shadowing is a convenience. That one is the whole
 // reason it is safe to point real traffic at an untried model, and breaking it
 // would serve production from a version nobody approved — silently, because
 // the answer would look exactly like any other answer.
+//
+// A CANARY is the deliberate exception, and it is deliberate in the strict
+// sense: a candidate answers a caller only where the mode is canary AND the
+// per-request roll falls inside the configured share. Those tests live in
+// tests/unit/mlCanaryWiring.test.ts. What this file guards is that nothing
+// ELSE can produce that outcome — no ordering, no default, no fallback.
 import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
@@ -27,12 +33,22 @@ const MD = rd("docs/ML.md");
 const PAGE = rd("src/routes/docs.ml.tsx");
 
 describe("a candidate never answers a caller", () => {
-  it("scoring asks for primary copies only", () => {
+  it("the candidate side is reachable ONLY through the canary decision", () => {
+    // This used to read "nothing in the scoring path mentions the candidate",
+    // which stopped being true the moment a canary existed. The promise it was
+    // really making survives in a sharper form: there is exactly ONE place the
+    // side becomes "candidate", and it is guarded by the mode AND the roll.
     const warm = SERVE.slice(SERVE.indexOf("export async function scoreWarm"));
-    const upToReturn = warm.slice(0, warm.indexOf("void touch("));
-    expect(upToReturn).toContain('listReplicas(dep.id, true, "primary")');
-    // And nothing in the path that chooses who answers mentions the candidate.
-    expect(upToReturn).not.toContain('"candidate"');
+    const choose = warm.slice(0, warm.indexOf("const replica = replicaToScore"));
+    expect(choose).toContain(
+      'dep.candidate_mode === "canary" && routeToCandidate(dep.candidate_percent, Math.random())',
+    );
+    // One assignment of the candidate side, not two.
+    expect(choose.match(/"candidate"\s*$/gm) ?? []).toHaveLength(1);
+    // And the fallback goes the safe way: a canary with no copy serves from
+    // production, never the reverse.
+    expect(warm).toContain('if (side === "candidate" && ready.length === 0) {');
+    expect(warm).toContain('side = "primary";');
   });
 
   it("the mirror runs AFTER the answer is in hand, and is not awaited", () => {
@@ -257,7 +273,7 @@ describe("starting and stopping", () => {
   it("a new candidate resets the totals", () => {
     // Figures gathered against a DIFFERENT candidate answer a question nobody
     // asked, and left in place they would read as evidence about this one.
-    const fn = SERVE.slice(SERVE.indexOf("export async function setShadowCandidate"));
+    const fn = SERVE.slice(SERVE.indexOf("export async function setCandidate"));
     expect(fn).toContain("shadow_requests: 0,");
     expect(fn).toContain('.from("ml_shadow_disagreements").delete().eq("deployment_id", dep.id)');
   });
@@ -265,17 +281,21 @@ describe("starting and stopping", () => {
   it("only one candidate at a time", () => {
     // Two would be two answers to the question "what would the new version
     // have said".
-    const fn = SERVE.slice(SERVE.indexOf("export async function setShadowCandidate"));
+    const fn = SERVE.slice(SERVE.indexOf("export async function setCandidate"));
     expect(fn).toContain('await retireReplica(r, "replaced by a new candidate");');
+    // ...except when it is the SAME version, where the mode changes in place
+    // and the already-loaded copy is kept. Promoting a shadow to a canary
+    // should not cost a cold start to change one column.
+    expect(fn).toContain("if (dep.candidate_version_id === version.id && running.length > 0) {");
   });
 
   it("shadowing the version already being served is refused", () => {
-    const fn = SERVE.slice(SERVE.indexOf("export async function setShadowCandidate"));
+    const fn = SERVE.slice(SERVE.indexOf("export async function setCandidate"));
     expect(fn).toContain("That version is already the one being served");
   });
 
   it("a candidate costs a container, so it checks there is room", () => {
-    const fn = SERVE.slice(SERVE.indexOf("export async function setShadowCandidate"));
+    const fn = SERVE.slice(SERVE.indexOf("export async function setCandidate"));
     expect(fn).toContain("const room = await replicaRoom(args.userId);");
     // And the count it checks against includes candidates. Both docs say a
     // candidate counts against the warm-container limits, which is only true
@@ -287,8 +307,8 @@ describe("starting and stopping", () => {
   });
 
   it("and both starting and stopping are audited", () => {
-    expect(SERVE).toContain('action: "ml.shadow.start"');
-    expect(SERVE).toContain('action: "ml.shadow.stop"');
+    expect(SERVE).toContain('"ml.canary.start" : "ml.shadow.start"');
+    expect(SERVE).toContain('"ml.canary.stop" : "ml.shadow.stop"');
   });
 });
 
@@ -308,20 +328,33 @@ describe("a person can run one", () => {
     expect(PANEL).toContain('v.id !== dep.version_id && v.status === "ready"');
   });
 
-  it("and is not offered for tasks the mirror refuses to compare", () => {
+  it("and reads the candidate off the view, not a shadow-shaped field", () => {
+    // The view carries one candidate with a mode, because a shadow and a
+    // canary are one thing with one difference. A second field would have let
+    // the two disagree about which version is being tried.
+    expect(OPS).toContain('mode: "shadow" | "canary";');
+    expect(PANEL).toContain("dep.candidate?.version_id");
+  });
+
+  it("and SHADOWING is not offered for tasks the mirror refuses to compare", () => {
     // serve.server.ts returns early for clustering, anomaly and recommendation.
-    // Offering the control anyway would start a container, mirror nothing, and
-    // sit on "watching" forever with no way for a person to know why.
+    // Shadowing those would start a container, mirror nothing, and sit on
+    // "watching" for ever with no way for a person to know why.
+    //
+    // A CANARY is offered for them, and that is not an inconsistency: it
+    // measures failure, which means the same thing for every task, rather than
+    // agreement, which does not.
     expect(PANEL).toContain(
       'const comparable = task === "classification" || task === "regression";',
     );
-    expect(PANEL).toContain("{!shared && comparable ? (");
-    expect(PANEL).toContain("Not available for this task");
+    expect(PANEL).toContain("disabled={busy || !comparable}");
+    expect(PANEL).toContain("there is nothing to shadow");
+    expect(PANEL).toContain('setShadow(id, "canary"');
   });
 
   it("the control has a name, not just a shape", () => {
     // A bare select is keyboard-operable but unnamed to a screen reader.
-    expect(PANEL).toContain('aria-label="Version to shadow"');
+    expect(PANEL).toContain('aria-label="Version to try"');
   });
 
   it("and leads with a verdict rather than a percentage", () => {
@@ -432,13 +465,16 @@ describe("the gap list no longer claims shadowing is missing", () => {
     }
   });
 
-  it("canary remains, because a share of real traffic still cannot be split", () => {
-    // The honest half of the old bullet. serve.server.ts routes every request
-    // to a primary; nothing weights a choice between two versions.
-    expect(SERVE).not.toMatch(/traffic_split|canary_percent/i);
+  it("and canary has gone too, because a share CAN now be split", () => {
+    // This bullet has now been narrowed twice and then removed: first to drop
+    // the shadow half, now to drop the rest. The code that closed it is the
+    // routing decision in scoreWarm, so the gap list and the router are
+    // asserted together — a list that said "no canary" while the router had
+    // one would be the same stale-admission failure a third time.
+    expect(SERVE).toContain("routeToCandidate(dep.candidate_percent, Math.random())");
     for (const gaps of [mdGaps, pageGaps]) {
-      expect(gaps).toMatch(/\*\*Canary traffic\.\*\*|<strong>canary traffic<\/strong>/);
-      expect(gaps).toContain("share of real traffic");
+      expect(gaps).not.toMatch(/canary/i);
+      expect(gaps).not.toContain("share of real traffic");
     }
   });
 

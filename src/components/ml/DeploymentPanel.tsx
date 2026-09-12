@@ -30,6 +30,16 @@ import {
   shadowVerdict,
   type MlShadowTotals,
 } from "@/lib/mlShadow";
+import {
+  canaryVerdict,
+  errorRate,
+  observedShare,
+  requestsUntilVerdict,
+  type MlCanaryTotals,
+} from "@/lib/mlCanary";
+
+/** The share a canary starts at when somebody picks one without saying. */
+const DEFAULT_SHARE = 5;
 
 export function DeploymentPanel({
   token,
@@ -61,6 +71,7 @@ export function DeploymentPanel({
   const [ttl, setTtl] = useState("15");
   const [minR, setMinR] = useState("1");
   const [maxR, setMaxR] = useState("1");
+  const [share, setShare] = useState(String(DEFAULT_SHARE));
 
   const load = useCallback(async () => {
     const res = await getFn({ data: { accessToken: token, modelId } });
@@ -117,12 +128,16 @@ export function DeploymentPanel({
     }
   }
 
-  async function setShadow(versionId: string | null) {
+  async function setShadow(versionId: string | null, mode?: "shadow" | "canary", percent?: number) {
     setBusy(true);
     try {
-      const res = await shadowFn({ data: { accessToken: token, modelId, versionId } });
+      const res = await shadowFn({
+        data: { accessToken: token, modelId, versionId, mode, percent },
+      });
       if (!res.ok) toast.error(res.error);
-      else toast.success(versionId ? "Shadowing started" : "Shadowing stopped");
+      else if (!versionId) toast.success("Stopped trying that version");
+      else if (mode === "canary") toast.success(`Sending ${percent}% of requests to the candidate`);
+      else toast.success("Shadowing started");
       // Either way, like every other control here: a refused change must not
       // sit on screen looking as though it took.
       await load();
@@ -362,21 +377,61 @@ export function DeploymentPanel({
               <h4 className="flex items-center gap-2 text-xs font-medium">
                 <Eye className="h-3.5 w-3.5" /> Trying another version
               </h4>
-              {!shared && comparable ? (
+              {!shared ? (
                 <span className="flex items-center gap-2">
-                  <select
-                    aria-label="Version to shadow"
-                    className="h-7 rounded-md border bg-background px-2 text-xs"
-                    value={dep.shadow?.version_id ?? ""}
+                  <Label htmlFor="canary-share" className="text-xs text-muted-foreground">
+                    Share
+                  </Label>
+                  <Input
+                    id="canary-share"
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={share}
                     disabled={busy}
-                    onChange={(e) => void setShadow(e.target.value || null)}
+                    onChange={(e) => setShare(e.target.value)}
+                    onBlur={() => {
+                      // Applied only when a canary is already running. Before
+                      // that it is just the share the next one would start at,
+                      // sitting in plain sight so that choosing a version can
+                      // never quietly put traffic somewhere unexpected.
+                      const n = Number(share);
+                      if (
+                        dep.candidate?.mode === "canary" &&
+                        Number.isFinite(n) &&
+                        n >= 1 &&
+                        n <= 100 &&
+                        n !== dep.candidate.percent
+                      ) {
+                        void setShadow(dep.candidate.version_id, "canary", n);
+                      }
+                    }}
+                    className="h-7 w-16"
+                  />
+                  <select
+                    aria-label="Version to try"
+                    className="h-7 rounded-md border bg-background px-2 text-xs"
+                    value={dep.candidate?.version_id ?? ""}
+                    disabled={busy}
+                    onChange={(e) => {
+                      const id = e.target.value || null;
+                      if (!id) return void setShadow(null);
+                      // A comparable task starts SHADOWING, which answers
+                      // nobody. Where answers cannot be compared there is
+                      // nothing to shadow, so it starts as a canary at the
+                      // share shown next to this control.
+                      const n = Number(share);
+                      return void (comparable
+                        ? setShadow(id, "shadow")
+                        : setShadow(id, "canary", Number.isFinite(n) ? n : DEFAULT_SHARE));
+                    }}
                   >
                     <option value="">Not trying one</option>
                     {versions
                       .filter((v) => v.id !== dep.version_id && v.status === "ready")
                       .map((v) => (
                         <option key={v.id} value={v.id}>
-                          Shadow v{v.version}
+                          {comparable ? "Shadow" : "Canary"} v{v.version}
                         </option>
                       ))}
                   </select>
@@ -384,22 +439,37 @@ export function DeploymentPanel({
               ) : null}
             </div>
 
-            {!comparable ? (
-              <p className="text-[11px] leading-relaxed text-muted-foreground">
-                Not available for this task. Cluster and anomaly labels are arbitrary between fits —
-                cluster 3 of one model has nothing to do with cluster 3 of another — so comparing
-                two versions&apos; answers would report total disagreement between models that are
-                identical. Offering it anyway would produce a figure that means nothing.
+            {dep.rollback && !dep.candidate ? (
+              <p className="rounded-md border border-destructive/40 bg-destructive/5 p-2 text-[11px] leading-relaxed text-destructive">
+                <strong>Rolled back {relTime(dep.rollback.at)}.</strong>{" "}
+                {dep.rollback.reason ?? "The candidate was failing."} The endpoint is serving the
+                version it was serving before.
               </p>
-            ) : !dep.shadow ? (
+            ) : null}
+
+            {!dep.candidate ? (
               <p className="text-[11px] leading-relaxed text-muted-foreground">
                 A version is normally adopted by switching to it, which means the first evidence it
-                behaves differently is production behaving differently. Shadowing asks first: every
-                request is mirrored to the candidate, its answer is thrown away, and the two are
-                compared. Nobody waits for it and nobody is served by it.
+                behaves differently is production behaving differently.{" "}
+                {comparable
+                  ? "Shadowing asks first: every request is mirrored to the candidate, its answer is thrown away, and the two are compared. Nobody waits for it and nobody is served by it. When it looks right, hand it a share of real traffic."
+                  : "Cluster and anomaly labels are arbitrary between fits, so two versions' answers cannot be compared and there is nothing to shadow. A canary can still be run: it measures whether the candidate FAILS more than the version in production, which means the same thing for every task."}
               </p>
             ) : (
-              <ShadowReport shadow={dep.shadow} />
+              <CandidateReport
+                candidate={dep.candidate}
+                busy={busy}
+                shared={shared}
+                comparable={comparable}
+                onMode={(mode) => {
+                  const n = Number(share);
+                  void setShadow(
+                    dep.candidate!.version_id,
+                    mode,
+                    mode === "canary" ? (Number.isFinite(n) ? n : DEFAULT_SHARE) : undefined,
+                  );
+                }}
+              />
             )}
           </div>
         ) : null}
@@ -416,14 +486,77 @@ export function DeploymentPanel({
   );
 }
 
+type Candidate = NonNullable<MlDeploymentView["candidate"]>;
+
 /**
- * What the mirror has learned so far.
+ * What has been learned about the candidate, and the one control that matters.
+ *
+ * The mode row is deliberately two buttons rather than a toggle: the step from
+ * "answers nobody" to "answers some of your callers" is the most consequential
+ * thing on this panel, and it should read as a choice between two named states
+ * rather than as flipping a switch.
+ */
+function CandidateReport({
+  candidate,
+  busy,
+  shared,
+  comparable,
+  onMode,
+}: {
+  candidate: Candidate;
+  busy: boolean;
+  shared: boolean;
+  comparable: boolean;
+  onMode: (mode: "shadow" | "canary") => void;
+}) {
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge variant="outline" className="text-[10px]">
+          v{candidate.version ?? "?"}
+        </Badge>
+        {!shared ? (
+          <div className="flex items-center gap-1">
+            <Button
+              size="sm"
+              variant={candidate.mode === "shadow" ? "default" : "outline"}
+              className="h-6 px-2 text-[11px]"
+              disabled={busy || !comparable}
+              title={comparable ? undefined : "Answers cannot be compared for this task"}
+              onClick={() => onMode("shadow")}
+            >
+              Mirror only
+            </Button>
+            <Button
+              size="sm"
+              variant={candidate.mode === "canary" ? "default" : "outline"}
+              className="h-6 px-2 text-[11px]"
+              disabled={busy}
+              onClick={() => onMode("canary")}
+            >
+              Send real traffic
+            </Button>
+          </div>
+        ) : null}
+      </div>
+
+      {candidate.mode === "shadow" ? (
+        <ShadowFigures shadow={candidate.shadow} />
+      ) : (
+        <CanaryFigures canary={candidate.canary} percent={candidate.percent} />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Agreement, which is what a SHADOW can measure.
  *
  * Leads with the verdict rather than the percentage, because a percentage on
  * forty rows invites a decision nobody has evidence for — and the whole point
  * of shadowing is to make the decision on evidence.
  */
-function ShadowReport({ shadow }: { shadow: NonNullable<MlDeploymentView["shadow"]> }) {
+function ShadowFigures({ shadow }: { shadow: Candidate["shadow"] }) {
   const totals: MlShadowTotals = {
     requests: shadow.requests,
     rows: shadow.rows,
@@ -446,9 +579,6 @@ function ShadowReport({ shadow }: { shadow: NonNullable<MlDeploymentView["shadow
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2 text-xs">
-        <Badge variant="outline" className="text-[10px]">
-          v{shadow.version ?? "?"}
-        </Badge>
         <span className={cn("font-medium", tone)}>
           {verdict === "failing"
             ? `Failing: ${shadow.errors} of ${shadow.requests} mirrored calls did not answer`
@@ -488,8 +618,86 @@ function ShadowReport({ shadow }: { shadow: NonNullable<MlDeploymentView["shadow
       ) : null}
 
       <p className="text-[11px] leading-relaxed text-muted-foreground">
-        The candidate has never answered a caller. Switch to it with <strong>Redeploy</strong> once
-        you are satisfied, or stop trying it above.
+        The candidate has never answered a caller. Hand it a share of real traffic above, or switch
+        to it with <strong>Redeploy</strong> once you are satisfied.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * Failure, which is what a CANARY can measure — and it measures BOTH sides.
+ *
+ * There is no agreement figure here and there cannot be: each row was answered
+ * once, by one version. Production's rate sits next to the candidate's because
+ * the question is never "is it failing" but "is it failing worse than the
+ * thing it would replace".
+ */
+function CanaryFigures({ canary, percent }: { canary: Candidate["canary"]; percent: number }) {
+  const totals: MlCanaryTotals = {
+    primaryRequests: canary.primaryRequests,
+    primaryErrors: canary.primaryErrors,
+    candidateRequests: canary.requests,
+    candidateErrors: canary.errors,
+  };
+  const verdict = canaryVerdict(totals);
+  const observed = observedShare(totals);
+  const candidateRate = errorRate(canary.requests, canary.errors);
+  const primaryRate = errorRate(canary.primaryRequests, canary.primaryErrors);
+  const short = requestsUntilVerdict(totals);
+
+  const tone =
+    verdict === "failing"
+      ? "text-destructive"
+      : verdict === "endpoint-failing"
+        ? "text-amber-600 dark:text-amber-400"
+        : verdict === "healthy"
+          ? "text-emerald-600 dark:text-emerald-400"
+          : "text-muted-foreground";
+
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <span className={cn("font-medium", tone)}>
+          {verdict === "watching"
+            ? `Watching — ${short} more requests through the candidate`
+            : verdict === "failing"
+              ? "Failing more than the version in production"
+              : verdict === "endpoint-failing"
+                ? "Both versions are failing — this is not about the candidate"
+                : "No more failures than the version in production"}
+        </span>
+        <span className="tabular-nums text-muted-foreground">
+          {percent}% asked for
+          {observed !== null ? `, ${(observed * 100).toFixed(1)}% served` : ""}
+        </span>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 text-[11px]">
+        <div className="rounded-md border p-2">
+          <p className="text-muted-foreground">Candidate</p>
+          <p className="tabular-nums">
+            {canary.errors} failed of {canary.requests.toLocaleString()}
+            {candidateRate !== null ? ` · ${(candidateRate * 100).toFixed(1)}%` : ""}
+          </p>
+        </div>
+        <div className="rounded-md border p-2">
+          <p className="text-muted-foreground">In production</p>
+          <p className="tabular-nums">
+            {canary.primaryErrors} failed of {canary.primaryRequests.toLocaleString()}
+            {primaryRate !== null ? ` · ${(primaryRate * 100).toFixed(1)}%` : ""}
+          </p>
+        </div>
+      </div>
+
+      {canary.last_error ? (
+        <p className="text-[11px] text-destructive">Last failure: {canary.last_error}</p>
+      ) : null}
+
+      <p className="text-[11px] leading-relaxed text-muted-foreground">
+        These callers are being answered by the candidate. If it starts failing more than production
+        does, the platform takes it out of the traffic by itself and says so here — nobody has to be
+        watching. Adopt it with <strong>Redeploy</strong>, or go back to mirroring above.
       </p>
     </div>
   );

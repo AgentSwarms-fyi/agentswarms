@@ -323,7 +323,9 @@ describe("compare and docs", () => {
     // admissions are now backend-specific and narrower.
     expect(md).not.toContain("Copies of an endpoint all live on one host");
     expect(md).toContain("On Docker every copy is a container on this");
-    expect(md).toContain("- **Canary traffic.**");
+    // The canary bullet is gone entirely now that a share of real traffic can
+    // be split. What is still admitted is the machines limit below.
+    expect(md).not.toContain("- **Canary traffic.**");
     // This used to match the gap bullet's own "Canary and shadow traffic",
     // not the comparison, so narrowing that bullet silently changed what it
     // was about. Anchored on the right-hand column, which is what a reader

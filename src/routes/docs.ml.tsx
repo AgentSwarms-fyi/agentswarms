@@ -1344,6 +1344,80 @@ curl -X POST https://your-instance/api/ml/predict/batch \\
         stopping are audited, as <Code>ml.shadow.start</Code> and <Code>ml.shadow.stop</Code>.
       </P>
 
+      <H3 id="canary">Giving it a share of real traffic</H3>
+      <P>
+        Shadowing tells you the candidate answers the same way. It cannot tell you the candidate
+        answers <em>at all</em> under real load, on real data, at real concurrency — because nobody
+        was ever waiting for one of its answers.
+      </P>
+      <P>
+        A <strong>canary</strong> does. Switch the candidate from <em>Mirror only</em> to{" "}
+        <em>Send real traffic</em> and a share of requests are answered by it, for real, and
+        returned to whoever asked. The share is a whole number of per cent and the default is 5.
+        This is the one place in the platform where a version nobody approved answers a real caller,
+        so it is worth being exact about what bounds it.
+      </P>
+      <Callout kind="info" title="The split is per request, and nobody is refused">
+        The roll is taken per request, not per caller: a prediction has no session to be sticky to,
+        and a sticky split would let one unlucky caller take every bad answer while the average
+        looked fine. A random split lands <em>near</em> the number rather than on it, so the panel
+        shows the share actually served next to the share asked for — at 10% on a hundred requests,
+        thirteen crossing is ordinary. And if the candidate&apos;s copy is not up when the roll
+        picks it, the request goes to production instead: the share slips for a few requests, which
+        is a far smaller thing than a failed request.
+      </Callout>
+      <P>
+        A canary <strong>cannot measure agreement</strong>, and no amount of wanting it to will
+        help: each row was answered once, by one version, so there is no second answer to compare it
+        against. That is what shadowing is for, and why the two are separate steps rather than one
+        slider. What a canary measures is failure — on both sides.
+      </P>
+      <Table
+        headers={["", "What is counted"]}
+        rows={[
+          ["Candidate", "Requests it answered, and how many failed."],
+          ["In production", "The same two figures for the version it would replace."],
+        ]}
+      />
+      <P>
+        Production&apos;s figures are there because the question is never &ldquo;is the candidate
+        failing&rdquo; but &ldquo;is it failing{" "}
+        <strong>worse than the thing it would replace</strong>&rdquo;. Without them, a lakehouse
+        outage reads as a bad model. And because it measures failure rather than agreement, a canary
+        works for <strong>every task</strong> — including clustering, anomaly detection and
+        recommendation, where shadowing cannot be offered at all.
+      </P>
+      <Callout kind="warn" title="It rolls itself back, without being asked">
+        Nobody is watching a panel at three in the morning, and this is the one feature where not
+        noticing has a cost measured in other people&apos;s answers. The platform takes the
+        candidate out of the traffic when all three hold: at least <strong>20 requests</strong> have
+        gone through it (every one a real caller, so the number is the smallest that makes a rate
+        mean anything); it has failed <strong>10% or more</strong> of them (two in twenty, rather
+        than a single transient timeout); and that is at least <strong>5 points worse</strong> than
+        production over the same period. The third condition is what stops the canary blaming itself
+        for everything — if both sides are failing the endpoint says so and rolls back nothing,
+        because reverting to a version failing just as hard fixes nothing. A rollback stops the
+        traffic first, then takes the copy down, writes the reason on the endpoint and audits{" "}
+        <Code>ml.canary.rollback</Code>. The reason stays after the candidate is gone: somebody
+        arriving to find production serving its old version needs to learn why from the endpoint.
+      </Callout>
+      <P>
+        Every prediction records the version that <strong>actually</strong> answered it, not the one
+        the endpoint is nominally serving. Under a canary those differ for some share of rows by
+        design, and recording the endpoint&apos;s version would attribute a candidate&apos;s
+        prediction to production — wrong on the row somebody reads when they ask why, wrong in the
+        drift figures, and wrong in exactly the cases anybody is looking into.
+      </P>
+      <P>
+        A candidate already running as a shadow <strong>keeps its warm copy</strong> when it becomes
+        a canary: same version, same container, and throwing away a loaded model to change one
+        column would cost twenty-five seconds for nothing. The canary figures reset because they
+        describe a run and this is a new one; the shadow totals are left alone because they are
+        still true. Adopting the candidate is the ordinary <strong>Redeploy</strong> to that version
+        — nothing here promotes anything by itself. The only thing the platform does on its own is
+        take a failing candidate <em>out</em>.
+      </P>
+
       <H2 id="forecasting">Forecasting in BI</H2>
       <P>
         Line charts on a dashboard project ahead with the platform&apos;s shared forecaster:
@@ -1466,7 +1540,7 @@ curl -X POST https://your-instance/api/ml/predict/batch \\
           ],
           [
             "Serving at scale",
-            "Several copies per endpoint, added on measured request rate and removed only when idle and clear of the line; on Kubernetes each copy is a Pod the scheduler may place anywhere. Shadow traffic: a candidate version scored on every real request, compared, and never served",
+            "Several copies per endpoint, added on measured request rate and removed only when idle and clear of the line; on Kubernetes each copy is a Pod the scheduler may place anywhere. Shadow traffic (mirrored, compared, never served) and canary traffic (a share of real requests answered by the candidate, rolled back automatically when it fails worse than production)",
             "Autoscaling across hosts, canary and shadow traffic",
           ],
           [
@@ -1561,11 +1635,9 @@ curl -X POST https://your-instance/api/ml/predict/batch \\
         Everything in the left column is shipped and tested. What is left, in the order it is
         usually asked for: <strong>training one model across machines</strong> (the search spreads
         over sandboxes, but a single fit still happens in one container); and{" "}
-        <strong>canary traffic</strong> (a candidate can be shadowed — scored on every real request
-        and compared — but it cannot yet be given a share of real traffic to answer, so adoption is
-        still a switch); and <strong>serving across machines</strong> (on Docker every copy is a
-        container on this machine, so the host is the ceiling; on Kubernetes copies do spread across
-        nodes, but nothing grows the cluster itself when they run out of room).
+        <strong>serving across machines</strong> (on Docker every copy is a container on this
+        machine, so the host is the ceiling; on Kubernetes copies do spread across nodes, but
+        nothing grows the cluster itself when they run out of room).
       </P>
 
       <H2 id="use-cases">Use cases</H2>
