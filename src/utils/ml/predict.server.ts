@@ -76,6 +76,21 @@ const envCount = (name: string, fallback: number) => {
 };
 const ML_EXPLAIN_MAX_ROWS = envCount("ML_EXPLAIN_MAX_ROWS", 20);
 const ML_EXPLAIN_TOP_K = envCount("ML_EXPLAIN_TOP_K", 8);
+/**
+ * Rows a BATCH may have reason codes written for, and how many rows share
+ * one stacked frame while that happens.
+ *
+ * Reason codes cost the same ablation an explanation does — one extra
+ * prediction per feature per row — so a million-row batch asking for them
+ * is asking for twenty million predictions. The cap is checked BEFORE a
+ * sandbox starts, against the row count the batch already counts, and it
+ * refuses rather than explaining a prefix: a scored table where the first
+ * fifty thousand rows carry reasons and the rest do not is a trap for
+ * anyone who queries it.
+ */
+export const ML_EXPLAIN_BATCH_MAX_ROWS = envCount("ML_EXPLAIN_BATCH_MAX_ROWS", 50_000);
+export const ML_EXPLAIN_BATCH_TOP_K = envCount("ML_EXPLAIN_BATCH_TOP_K", 3);
+const ML_EXPLAIN_CHUNK_ROWS = envCount("ML_EXPLAIN_CHUNK_ROWS", 2000);
 const LAKEHOUSE_KIND = "lakehouse" as const;
 const LIVE = [...ML_JOB_LIVE];
 const PREDICTION_DECISION_KIND: DecisionKind = "ml_prediction";
@@ -141,7 +156,11 @@ export async function mlPredictBundleFor(
     decision_threshold: b.version.decision_threshold,
     positive_label: b.version.positive_label,
     explain_max_rows: ML_EXPLAIN_MAX_ROWS,
-    explain_top_k: ML_EXPLAIN_TOP_K,
+    // A batch writes a column per reason, so it asks for fewer of them than
+    // the detail view does: three is what a reason code conventionally is,
+    // and each one costs two columns on the table.
+    explain_top_k: b.prediction.kind === "batch" ? ML_EXPLAIN_BATCH_TOP_K : ML_EXPLAIN_TOP_K,
+    explain_chunk_rows: ML_EXPLAIN_CHUNK_ROWS,
   };
   const b64 = Buffer.from(JSON.stringify(program), "utf8").toString("base64");
   const code =

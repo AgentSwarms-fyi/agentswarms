@@ -582,6 +582,48 @@ only ever calls `predict`. The one case it declines is a classifier with no
 label flipped, which is a yes/no rather than a contribution, so it returns
 nothing rather than dressing a coin flip as a number.
 
+### Reason codes on every scored row
+
+The explanation above answers for one row you are looking at. A batch answers
+for all of them: tick **Write reason codes beside every row** on the batch
+prediction dialog and the scored table gains
+
+| Column                                | What it holds                                                    |
+| ------------------------------------- | ---------------------------------------------------------------- |
+| `reason_1` … `reason_3`               | The features that moved this row's answer most, strongest first. |
+| `reason_1_effect` … `reason_3_effect` | How far each moved it, signed.                                   |
+
+Flat columns rather than a JSON blob, because the point is that
+`WHERE reason_1 = 'support_tickets'` works in plain SQL and a dashboard can
+group by it. The value that drove the answer is not repeated: it is already in
+the row, in the column the reason names. A row with fewer features that moved
+anything than there are slots gets nulls, not blanks.
+
+**They are the same measurement as the single-row explanation**, run over every
+row instead of one — the same ablation against the same typical row. That is
+deliberate and it is the expensive choice: a cheaper approximation for batches
+would be a second answer to the same question wearing the same name, free to
+disagree with what the row's own page shows. A reason code that contradicts the
+explanation is worse than no reason code.
+
+### What reason codes cost, and what happens when it is too much
+
+One extra prediction per feature per row, the same as explaining a single row —
+so a hundred thousand rows with twenty features is two million predictions. The
+work is done in chunks so memory stays flat however large the batch is, but the
+time does not.
+
+So there is a ceiling, `ML_EXPLAIN_BATCH_MAX_ROWS` (50,000), and a batch above
+it is **refused before the sandbox starts** — the row count is already known
+from the check that enforces the prediction limit, so the answer names the real
+number and what to do about it. It is refused rather than truncated on purpose:
+a scored table where the first fifty thousand rows carry reasons and the rest
+are null looks complete and is not, and nothing downstream would know.
+
+Narrow the rows with a filter, score without reason codes, or raise the
+ceiling. `ML_EXPLAIN_BATCH_TOP_K` (3) sets how many reasons are written, and
+each one costs two columns.
+
 ### What it costs
 
 One extra prediction per feature per row, so it is opt-in and bounded:
@@ -1233,6 +1275,7 @@ Where AgentSwarms stands against Databricks ML and SageMaker, honestly:
 | Ground-truth monitoring    | Outcome source per model; the training metric recomputed on matched rows, with coverage; decay alerts on the platform clock                                             | Model-quality monitoring jobs                                        |
 | Model selection            | Candidates scored by cross-validation inside the training rows; the holdout is read once, for reporting. Fold spread on every version; TimeSeriesSplit for ordered data | Cross-validation in AutoML / Autopilot                               |
 | Calibration and thresholds | Reliability curve and Brier/ECE per version; calibration kept only when both improve; measured threshold sweep, set per version without retraining                      | Calibration in SageMaker Clarify; thresholds set in application code |
+| Reason codes in batch      | Top-3 drivers and their effects as columns on the scored table, the same ablation as the single-row explanation; refused above a row ceiling rather than truncated      | Clarify batch explainability jobs                                    |
 | Explainability             | Global permutation importance at training, plus per-row contributions by ablation against a typical row. Not Shapley values                                             | SHAP per prediction, Clarify                                         |
 | Fairness                   | Selection-rate ratio and error-rate gaps per group, per column; assistant suggests columns and proxies; four-fifths default                                             | Clarify / bias reports                                               |
 | Promotion approval         | Named approvers per model, in the same inbox as swarm approvals; a requester can never approve their own                                                                | Approval workflows                                                   |
@@ -1250,8 +1293,6 @@ Where AgentSwarms stands against Databricks ML and SageMaker, honestly:
 Everything in the left column is shipped and tested. What is left, in the
 order it is usually asked for:
 
-- **Reason codes on every scored row.** An explanation is available for a row
-  you ask about, not written beside every decision in a batch.
 - **Training one model across machines.** The algorithm search spreads over
   sandboxes, but a single fit still happens in one container, so a model too
   large for one box does not train here.

@@ -72,11 +72,21 @@ describe("the program that does the explaining", () => {
 
   it("never lets an explanation failure lose the prediction", () => {
     // The answer is the product; the explanation is commentary on it.
-    const at = program.indexOf("if cfg.get('explain')");
-    expect(at).toBeGreaterThan(-1);
-    const block = program.slice(at, at + 500);
-    expect(block).toContain("except Exception");
-    expect(block).toMatch(/warnings_\.append/);
+    //
+    // EVERY such block, not just the first. This used to take a fixed window
+    // after one occurrence, and when reason codes added a second — earlier in
+    // the function and longer than the window — the test started reading the
+    // new block and missing its `except` off the end. The property it cares
+    // about is true of both, so it should be asserted of both: a window that
+    // happens to fit is not the thing being checked.
+    const starts = [...program.matchAll(/if cfg\.get\('explain'\)/g)].map((m) => m.index!);
+    expect(starts.length).toBeGreaterThanOrEqual(2);
+    for (const at of starts) {
+      // To the end of the statement this guards, wherever that falls.
+      const block = program.slice(at, program.indexOf("\n\n", at));
+      expect(block).toContain("except Exception");
+      expect(block).toMatch(/warnings_\.append/);
+    }
   });
 });
 

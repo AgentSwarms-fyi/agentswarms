@@ -2499,6 +2499,8 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "ML_DECAY_ALERT_RATIO",
       "ML_DRIFT_ALERT_PSI",
       "ML_EVALUATIONS_PER_SWEEP",
+      "ML_EXPLAIN_BATCH_MAX_ROWS",
+      "ML_EXPLAIN_BATCH_TOP_K",
       "ML_EXPLAIN_MAX_ROWS",
       "ML_EXPLAIN_TOP_K",
       "ML_FAIRNESS_MIN_RATIO",
@@ -2691,6 +2693,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "id": "explain",
         "text": "Why this row got this answer",
         "level": 2
+      },
+      {
+        "id": "reason-codes",
+        "text": "Reason codes on every scored row",
+        "level": 3
       },
       {
         "id": "ground-truth",

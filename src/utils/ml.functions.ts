@@ -725,6 +725,7 @@ export const mlPredictBatch = createServerFn({ method: "POST" })
           schema: IDENT,
           table: z.string().regex(TABLE_NAME, "lowercase letters, digits and _"),
         }),
+        explain: z.boolean().optional(),
       })
       .parse(input),
   )
@@ -743,6 +744,7 @@ export const mlPredictBatch = createServerFn({ method: "POST" })
         input: data.input,
         output: data.output,
         via: "ui",
+        explain: data.explain,
       });
       return started.ok ? { ok: true, prediction_id: started.predictionId } : started;
     },

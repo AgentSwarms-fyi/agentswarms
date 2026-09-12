@@ -670,6 +670,51 @@ with agentswarms.start_run("churn-v2", params={"lr": 0.01, "depth": 6}) as run:
         attached.
       </P>
 
+      <H3 id="reason-codes">Reason codes on every scored row</H3>
+      <P>
+        The explanation above answers for one row you are looking at. A batch answers for all of
+        them: tick <strong>Write reason codes beside every row</strong> on the batch prediction
+        dialog and the scored table gains the drivers as columns.
+      </P>
+      <Table
+        headers={["Column", "What it holds"]}
+        rows={[
+          [
+            <C key="r">reason_1 … reason_3</C>,
+            "The features that moved this row's answer most, strongest first.",
+          ],
+          [<C key="e">reason_1_effect … reason_3_effect</C>, "How far each moved it, signed."],
+        ]}
+      />
+      <P>
+        Flat columns rather than a JSON blob, because the point is that{" "}
+        <C>WHERE reason_1 = &apos;support_tickets&apos;</C> works in plain SQL and a dashboard can
+        group by it. The value that drove the answer is not repeated — it is already in the row, in
+        the column the reason names. A row with fewer features that moved anything than there are
+        slots gets nulls, not blanks.
+      </P>
+      <Callout kind="info" title="The same measurement, not a cheaper twin">
+        Reason codes are the same ablation against the same typical row as the single-row
+        explanation, run over every row instead of one. That is the expensive choice and it is
+        deliberate: an approximation used only for batches would be a second answer to the same
+        question wearing the same name, free to disagree with what the row&apos;s own page shows. A
+        reason code that contradicts the explanation is worse than no reason code.
+      </Callout>
+      <P>
+        They cost one extra prediction per feature per row, so a hundred thousand rows with twenty
+        features is two million predictions. The work is chunked so memory stays flat however large
+        the batch is, but the time does not. A batch above <C>ML_EXPLAIN_BATCH_MAX_ROWS</C> (50,000)
+        is therefore <strong>refused before the sandbox starts</strong> — the row count is already
+        known from the check that enforces the prediction limit, so the answer names the real number
+        and the way out.
+      </P>
+      <P>
+        Refused rather than truncated, on purpose: a scored table where the first fifty thousand
+        rows carry reasons and the rest are null looks complete and is not, and nothing downstream
+        would know. Narrow the rows with a filter, score without reason codes, or raise the ceiling.{" "}
+        <C>ML_EXPLAIN_BATCH_TOP_K</C> (3) sets how many are written, and each one costs two columns.
+      </P>
+
       <H2 id="ground-truth">Was it right?</H2>
       <P>
         Drift and this are different questions, and treating the first as an answer to the second is
@@ -1286,6 +1331,11 @@ curl -X POST https://your-instance/api/ml/predict/batch \\
             "Calibration in SageMaker Clarify; thresholds set in application code",
           ],
           [
+            "Reason codes in batch",
+            "Top-3 drivers and their effects as columns on the scored table, the same ablation as the single-row explanation; refused above a row ceiling rather than truncated",
+            "Clarify batch explainability jobs",
+          ],
+          [
             "Explainability",
             "Global permutation importance at training, plus per-row contributions by ablation against a typical row. Not Shapley values",
             "SHAP per prediction, Clarify",
@@ -1350,11 +1400,10 @@ curl -X POST https://your-instance/api/ml/predict/batch \\
       />
       <P>
         Everything in the left column is shipped and tested. What is left, in the order it is
-        usually asked for: <strong>reason codes on every scored row</strong> (an explanation is
-        available for a row you ask about, not written beside every decision in a batch);{" "}
-        <strong>training one model across machines</strong> (the search spreads over sandboxes, but
-        a single fit still happens in one container); and <strong>serving at scale</strong> (one
-        warm endpoint, one replica, no autoscaling and no canary or shadow traffic).
+        usually asked for: <strong>training one model across machines</strong> (the search spreads
+        over sandboxes, but a single fit still happens in one container); and{" "}
+        <strong>serving at scale</strong> (one warm endpoint, one replica, no autoscaling and no
+        canary or shadow traffic).
       </P>
 
       <H2 id="use-cases">Use cases</H2>

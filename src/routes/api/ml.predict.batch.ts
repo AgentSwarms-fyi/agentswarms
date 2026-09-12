@@ -22,6 +22,8 @@ const Body = z.object({
   version_id: z.string().uuid().optional(),
   input: z.object({ schema: IDENT, table: IDENT, where: z.string().max(2000).optional() }),
   output: z.object({ schema: IDENT, table: z.string().regex(/^[a-z_][a-z0-9_]{0,127}$/) }),
+  /** Write reason codes beside every scored row. Capped by row count. */
+  explain: z.boolean().optional(),
 });
 
 export const Route = createFileRoute("/api/ml/predict/batch")({
@@ -49,6 +51,7 @@ export const Route = createFileRoute("/api/ml/predict/batch")({
           output: parsed.data.output,
           via: "api",
           apiKeyId: auth.key.id,
+          explain: parsed.data.explain,
         });
         if (!started.ok) return mlJson({ error: started.error }, 409);
         return mlJson(

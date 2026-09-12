@@ -12,7 +12,7 @@ import { envInt, rateLimitedGlobal } from "@/utils/rateLimit.server";
 import { clientIp, clientUserAgent } from "@/utils/requestMeta.server";
 import { hashMlApiKey, looksLikeMlApiKey, type MlKeyScope } from "@/utils/mlApiKeys";
 import type { MlModelRow, MlVersionRow } from "./access.server";
-import { ML_ROWS_PREDICT_CAP, startPrediction } from "./predict.server";
+import { ML_EXPLAIN_BATCH_MAX_ROWS, ML_ROWS_PREDICT_CAP, startPrediction } from "./predict.server";
 import { startTrainingJob } from "./train.server";
 import {
   ML_PRIMARY_METRIC,
@@ -321,6 +321,8 @@ export async function startBatchPrediction(args: {
   output: { schema: string; table: string };
   via: string;
   apiKeyId?: string | null;
+  /** Write reason codes beside every scored row. */
+  explain?: boolean;
 }): Promise<{ ok: true; predictionId: string } | { ok: false; error: string }> {
   const { userId, model, version } = args;
   const schemas = await accessibleSchemas(userId);
@@ -356,6 +358,16 @@ export async function startBatchPrediction(args: {
       error: `${rows.toLocaleString()} rows to score, above the ${r.mlPredictMaxRows.toLocaleString()}-row limit. Add a filter, or raise ML_PREDICT_MAX_ROWS under Admin -> Developer runtime.`,
     };
   }
+  // Refused here, not half-done in the sandbox. The count above is already
+  // paid for, so the answer names the real number and what to do about it —
+  // and the alternative, explaining the first N rows and leaving the rest
+  // null, produces a table that looks complete and is not.
+  if (args.explain && rows > ML_EXPLAIN_BATCH_MAX_ROWS) {
+    return {
+      ok: false,
+      error: `${rows.toLocaleString()} rows is above the ${ML_EXPLAIN_BATCH_MAX_ROWS.toLocaleString()}-row limit for reason codes, which cost one extra prediction per feature per row. Narrow the rows with a filter, score without reason codes, or raise ML_EXPLAIN_BATCH_MAX_ROWS.`,
+    };
+  }
   const started = await startPrediction({
     model,
     version,
@@ -364,6 +376,7 @@ export async function startBatchPrediction(args: {
     output: args.output,
     kind: "batch",
     via: args.via,
+    explain: args.explain,
   });
   if (!started.ok) return started;
   if (args.apiKeyId) {

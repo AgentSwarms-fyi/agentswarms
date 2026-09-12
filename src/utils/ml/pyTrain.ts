@@ -1168,6 +1168,68 @@ def _explain(art, df, pipe, prep, task, classes, pred, max_rows, top_k):
     return out
 
 
+def _reason_codes(art, df, pipe, prep, task, classes, top_k, chunk_rows, warnings_):
+    # Why every row got its answer, not just the one somebody asked about.
+    #
+    # THE SAME ABLATION as _explain, deliberately: "what moved this answer" has
+    # one definition in this product, and a cheaper second one for batches
+    # would be a second answer to the same question wearing the same name. A
+    # reason code that disagrees with the explanation shown on the row's own
+    # page is worse than no reason code.
+    #
+    # What changes is the bookkeeping. _explain stacks rows x features into one
+    # frame and predicts once, which is right for twenty rows and impossible
+    # for two hundred thousand. So the work is CHUNKED: the stacked frame stays
+    # bounded by chunk_rows x features however big the batch is, and the cost
+    # stays linear in rows rather than quadratic in memory.
+    n = len(df)
+    step = max(1, int(chunk_rows))
+    out = []
+    for start in range(0, n, step):
+        part = df.iloc[start:start + step]
+        got = _explain(art, part, pipe, prep, task, classes, None, len(part), top_k)
+        if got is None:
+            # _explain refuses for a reason it already knows (no features in
+            # the frame, or a classifier with no probabilities to move). Saying
+            # nothing is the contract there, so it is the contract here.
+            return None
+        out.extend(got)
+        if start == 0 and n > step:
+            _log('reason codes: %d rows per chunk, %d chunks' % (step, (n + step - 1) // step))
+    if len(out) != n:
+        warnings_.append('Reason codes covered %d of %d rows and were left off.' % (len(out), n))
+        return None
+    return out
+
+
+def _reason_frame(reasons, top_k):
+    # Flat columns, not a JSON blob.
+    #
+    # These land in a lakehouse table that people query with plain SQL and
+    # point dashboards at. "WHERE reason_1 = 'support_tickets'" has to work
+    # without a JSON function, and a BI tool has to be able to group by it.
+    #
+    # Feature and effect only: the VALUE that drove the answer is already in
+    # the row, in the column the reason names, so carrying it again would be a
+    # third of the width for a copy.
+    cols = {}
+    for slot in range(int(top_k)):
+        names, effects = [], []
+        for parts in reasons:
+            if slot < len(parts):
+                names.append(parts[slot]['feature'])
+                effects.append(parts[slot]['contribution'])
+            else:
+                # Fewer features moved the answer than slots asked for. None,
+                # not an empty string: nothing is not the same as a feature
+                # whose name happens to be blank.
+                names.append(None)
+                effects.append(None)
+        cols['reason_%d' % (slot + 1)] = names
+        cols['reason_%d_effect' % (slot + 1)] = effects
+    return cols
+
+
 def _drift(stats, df):
     # Population stability index per feature: sum((a - e) * ln(a / e)) over the
     # training bins, with the new rows binned the same way. Below 0.1 is stable,
@@ -1867,6 +1929,25 @@ def _predict(cfg, warnings_):
     out['_predicted_at'] = pd.Timestamp.utcnow().isoformat()
     _log('scored %d rows with %s v%d' % (len(out), art.get('algorithm'), int(cfg['version'])))
 
+    # REASON CODES ON EVERY SCORED ROW, when asked for and when there is a
+    # table to put them in. Before the write, so they are columns of the
+    # scored table rather than something a reader has to join back later.
+    if cfg.get('explain') and cfg.get('output'):
+        try:
+            rk = int(cfg.get('explain_top_k') or 3)
+            reasons = _reason_codes(art, df, pipe, _prep, task, classes, rk,
+                                    int(cfg.get('explain_chunk_rows') or 2000), warnings_)
+            if reasons is not None:
+                for col, vals in _reason_frame(reasons, rk).items():
+                    out[col] = vals
+                _log('wrote %d reason columns for %d rows' % (rk * 2, len(out)))
+            else:
+                warnings_.append('This model cannot be explained row by row, so no reason codes were written.')
+        except Exception as e:
+            # The scored rows are the deliverable; reasons are an addition to
+            # them. A failure here must not throw away a batch that scored.
+            warnings_.append('Reason codes could not be computed: %s' % str(e)[:200])
+
     output = cfg.get('output')
     written = None
     if output:
@@ -1883,8 +1964,11 @@ def _predict(cfg, warnings_):
     digest_rows = [[_jsonable_cell(v) for v in row] for row in out[digest_cols].head(1000).itertuples(index=False, name=None)]
     # Explanations are opt-in and bounded: every feature costs a prediction, so
     # this is for the row somebody is looking at, not for a million-row batch.
+    # A run that wrote a table already carries its reasons in the rows; a
+    # second copy in the job result would be the same answer in two places,
+    # free to drift apart.
     explanations = None
-    if cfg.get('explain'):
+    if cfg.get('explain') and not cfg.get('output'):
         try:
             explanations = _explain(art, df, pipe, _prep, task, classes, pred,
                                     int(cfg.get('explain_max_rows') or 20),
