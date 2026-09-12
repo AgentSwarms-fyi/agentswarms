@@ -1249,6 +1249,98 @@ nodes to spread across, not by default.
 Either way the warm-container limits still apply, and they count copies rather
 than endpoints, because the thing being bounded is resident memory.
 
+### Trying a version on real traffic
+
+A new version is normally adopted by **switching** to it. Which means the
+first evidence that it behaves differently from the old one is production
+behaving differently — noticed, if it is noticed, by whoever the difference
+landed on.
+
+**Shadowing asks the question first.** Pick a version on the deployment panel
+and the endpoint starts a second copy holding it. From then on, every request
+the endpoint answers is mirrored to that candidate, its answer is compared
+against the one that was actually served, and then thrown away.
+
+The load-bearing promise is one sentence:
+
+> **A candidate never answers a caller.**
+
+The scorer asks for copies marked `primary` and never sees the candidate at
+all, so there is no ordering, no flag and no race by which an unapproved
+version could end up on the wire. That is what makes it safe to point live
+traffic at a model nobody has approved.
+
+Two smaller promises follow from it:
+
+- **Nobody waits for it.** The mirror is fired after the served answer is in
+  hand and is not awaited, so the caller's latency is the primary's latency.
+  A mirror that is still running when the answer goes back is simply still
+  running.
+- **A mirror that fails cannot reach the caller.** It is caught and counted.
+  A candidate that cannot load, cannot score, or has been deleted shows up as
+  an error rate on the report, not as a failed request for somebody else.
+
+#### What "agree" means
+
+It is not the same question for every model, and pretending it is would make
+the number meaningless:
+
+| Task           | Agreement is                                                 |
+| -------------- | ------------------------------------------------------------ |
+| Classification | The same label. A proportion that reads exactly as it looks. |
+| Regression     | Within **1%**, relative, with an absolute floor near zero.   |
+
+Counting exact float matches on a regression would report 0% agreement on two
+models that are indistinguishable in practice, so the comparison is a
+tolerance and the headline figure is the typical gap.
+
+**Clustering, anomaly detection and recommendation are not compared**, and the
+mirror does not run for them. Their labels are arbitrary between fits: cluster
+3 of one model has nothing to do with cluster 3 of another, so a comparison
+would report total disagreement between two identical models.
+
+#### What is kept, and what is deliberately not
+
+Four running totals on the endpoint — requests, rows, rows agreed, errors —
+plus the **answers** from the fifty most recent rows the two disagreed on.
+
+**The mirrored input is never stored.** A mirrored request carries whatever
+the caller sent, which on a live endpoint is live personal data; keeping it
+would put that data in a debugging table nobody thinks of as a data store.
+The disagreement sample holds the two answers and the time, and nothing else.
+
+Totals rather than a row per request, because an endpoint at a couple of
+requests a second would write a hundred and fifty thousand rows a day to
+answer a question that is four numbers.
+
+#### The verdict, not the percentage
+
+The panel leads with a sentence rather than a figure, and below a hundred
+compared rows it refuses to give one at all — it says how many more it needs.
+A percentage on forty rows invites a decision nobody has evidence for, which
+is the opposite of what shadowing is for.
+
+| It says             | When                                                            |
+| ------------------- | --------------------------------------------------------------- |
+| Watching            | Fewer than 100 rows compared so far.                            |
+| Answers the same    | 90% of rows or more agreed.                                     |
+| Answers differently | Below that — with recent disagreeing answers listed underneath. |
+| Failing             | The candidate failed on 5% or more of mirrored calls.           |
+
+#### What it costs, and how it ends
+
+A candidate is a copy, so it is a container, and it counts against the same
+warm-container limits as any other. **One candidate at a time**: choosing
+another retires the first, and the totals reset — figures gathered against a
+different candidate answer a question nobody asked.
+
+Stopping it takes the copy down and leaves nothing behind. Adopting it is the
+ordinary **Redeploy** to that version; shadowing does not promote anything by
+itself, and never will. It measures. A person switches.
+
+Both starting and stopping are audited, as `ml.shadow.start` and
+`ml.shadow.stop`.
+
 ## Forecasting in BI
 
 Line charts on a BI dashboard project ahead with the platform's shared
@@ -1348,31 +1440,31 @@ See [SCALE_AND_LIMITS.md](./SCALE_AND_LIMITS.md#machine-learning--srcutilsnotebo
 
 Where AgentSwarms stands against Databricks ML and SageMaker, honestly:
 
-| Capability                 | AgentSwarms                                                                                                                                                                   | Databricks / SageMaker                                               |
-| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| No-code AutoML             | Six tasks incl. clustering, anomaly, recommendation; tuning; data prep in the wizard                                                                                          | AutoML / Canvas: similar tasks, larger search spaces                 |
-| Registry, stages, lineage  | Versions, stages, snapshot + decision id per version, artifact digests                                                                                                        | MLflow registry / Model Registry                                     |
-| Batch scoring              | Into lakehouse tables, scheduled, with drift per run                                                                                                                          | Jobs / Batch Transform                                               |
-| Real-time inference        | Warm endpoints hold one version in memory: 45 ms of scoring instead of a ~25 s container start; several copies per endpoint, scaled on measured load                          | Serving endpoints with autoscaling                                   |
-| Serving at scale           | Several copies per endpoint on one machine, added on measured request rate and removed only when idle and clear of the line; copies counted against the warm-container limits | Autoscaling across hosts, canary and shadow traffic                  |
-| Drift monitoring           | PSI per feature on every batch, threshold alerts                                                                                                                              | Lakehouse Monitoring / Model Monitor (more statistics)               |
-| Ground-truth monitoring    | Outcome source per model; the training metric recomputed on matched rows, with coverage; decay alerts on the platform clock                                                   | Model-quality monitoring jobs                                        |
-| Model selection            | Candidates scored by cross-validation inside the training rows; the holdout is read once, for reporting. Fold spread on every version; TimeSeriesSplit for ordered data       | Cross-validation in AutoML / Autopilot                               |
-| Calibration and thresholds | Reliability curve and Brier/ECE per version; calibration kept only when both improve; measured threshold sweep, set per version without retraining                            | Calibration in SageMaker Clarify; thresholds set in application code |
-| Reason codes in batch      | Top-3 drivers and their effects as columns on the scored table, the same ablation as the single-row explanation; refused above a row ceiling rather than truncated            | Clarify batch explainability jobs                                    |
-| Explainability             | Global permutation importance at training, plus per-row contributions by ablation against a typical row. Not Shapley values                                                   | SHAP per prediction, Clarify                                         |
-| Fairness                   | Selection-rate ratio and error-rate gaps per group, per column; assistant suggests columns and proxies; four-fifths default                                                   | Clarify / bias reports                                               |
-| Promotion approval         | Named approvers per model, in the same inbox as swarm approvals; a requester can never approve their own                                                                      | Approval workflows                                                   |
-| Scheduled retraining       | Cron/cadence, promote-when-better, one platform clock                                                                                                                         | Workflows / Pipelines                                                |
-| Public API                 | Per-model scoped keys, rate limits, audited denials, BYO registration                                                                                                         | Yes, IAM-based                                                       |
-| Bring your own model       | Any joblib pipeline under a small contract                                                                                                                                    | Any framework, containers                                            |
-| Feature store              | Feature views: score by key, read from the table training read; describes rather than materialises                                                                            | Yes                                                                  |
-| Distributed / GPU training | The algorithm search spreads across several sandboxes; one model still trains in one container; GPUs requestable                                                              | Clusters, distributed frameworks, GPU instances                      |
-| Experiment tracking        | Runs logged from a notebook or a script with params, metrics and curves; a run promotes into the registry                                                                     | MLflow / Experiments                                                 |
-| Model cards                | Generated from the registry                                                                                                                                                   | SageMaker Model Cards                                                |
-| Governance                 | IAM shares, trigger audit, decision ids, result digests, one statement guard for all data                                                                                     | Unity Catalog / IAM                                                  |
-| Agents and BI              | Models are agent tools; forecasts and drift live in the BI layer                                                                                                              | Separate products                                                    |
-| Cost and residency         | Self-hosted, your infrastructure, no per-call charges                                                                                                                         | Managed, metered                                                     |
+| Capability                 | AgentSwarms                                                                                                                                                                                                                                                                   | Databricks / SageMaker                                               |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| No-code AutoML             | Six tasks incl. clustering, anomaly, recommendation; tuning; data prep in the wizard                                                                                                                                                                                          | AutoML / Canvas: similar tasks, larger search spaces                 |
+| Registry, stages, lineage  | Versions, stages, snapshot + decision id per version, artifact digests                                                                                                                                                                                                        | MLflow registry / Model Registry                                     |
+| Batch scoring              | Into lakehouse tables, scheduled, with drift per run                                                                                                                                                                                                                          | Jobs / Batch Transform                                               |
+| Real-time inference        | Warm endpoints hold one version in memory: 45 ms of scoring instead of a ~25 s container start; several copies per endpoint, scaled on measured load                                                                                                                          | Serving endpoints with autoscaling                                   |
+| Serving at scale           | Several copies per endpoint, added on measured request rate and removed only when idle and clear of the line; on Kubernetes each copy is a Pod the scheduler may place anywhere. Shadow traffic: a candidate version scored on every real request, compared, and never served | Autoscaling across hosts, canary and shadow traffic                  |
+| Drift monitoring           | PSI per feature on every batch, threshold alerts                                                                                                                                                                                                                              | Lakehouse Monitoring / Model Monitor (more statistics)               |
+| Ground-truth monitoring    | Outcome source per model; the training metric recomputed on matched rows, with coverage; decay alerts on the platform clock                                                                                                                                                   | Model-quality monitoring jobs                                        |
+| Model selection            | Candidates scored by cross-validation inside the training rows; the holdout is read once, for reporting. Fold spread on every version; TimeSeriesSplit for ordered data                                                                                                       | Cross-validation in AutoML / Autopilot                               |
+| Calibration and thresholds | Reliability curve and Brier/ECE per version; calibration kept only when both improve; measured threshold sweep, set per version without retraining                                                                                                                            | Calibration in SageMaker Clarify; thresholds set in application code |
+| Reason codes in batch      | Top-3 drivers and their effects as columns on the scored table, the same ablation as the single-row explanation; refused above a row ceiling rather than truncated                                                                                                            | Clarify batch explainability jobs                                    |
+| Explainability             | Global permutation importance at training, plus per-row contributions by ablation against a typical row. Not Shapley values                                                                                                                                                   | SHAP per prediction, Clarify                                         |
+| Fairness                   | Selection-rate ratio and error-rate gaps per group, per column; assistant suggests columns and proxies; four-fifths default                                                                                                                                                   | Clarify / bias reports                                               |
+| Promotion approval         | Named approvers per model, in the same inbox as swarm approvals; a requester can never approve their own                                                                                                                                                                      | Approval workflows                                                   |
+| Scheduled retraining       | Cron/cadence, promote-when-better, one platform clock                                                                                                                                                                                                                         | Workflows / Pipelines                                                |
+| Public API                 | Per-model scoped keys, rate limits, audited denials, BYO registration                                                                                                                                                                                                         | Yes, IAM-based                                                       |
+| Bring your own model       | Any joblib pipeline under a small contract                                                                                                                                                                                                                                    | Any framework, containers                                            |
+| Feature store              | Feature views: score by key, read from the table training read; describes rather than materialises                                                                                                                                                                            | Yes                                                                  |
+| Distributed / GPU training | The algorithm search spreads across several sandboxes; one model still trains in one container; GPUs requestable                                                                                                                                                              | Clusters, distributed frameworks, GPU instances                      |
+| Experiment tracking        | Runs logged from a notebook or a script with params, metrics and curves; a run promotes into the registry                                                                                                                                                                     | MLflow / Experiments                                                 |
+| Model cards                | Generated from the registry                                                                                                                                                                                                                                                   | SageMaker Model Cards                                                |
+| Governance                 | IAM shares, trigger audit, decision ids, result digests, one statement guard for all data                                                                                                                                                                                     | Unity Catalog / IAM                                                  |
+| Agents and BI              | Models are agent tools; forecasts and drift live in the BI layer                                                                                                                                                                                                              | Separate products                                                    |
+| Cost and residency         | Self-hosted, your infrastructure, no per-call charges                                                                                                                                                                                                                         | Managed, metered                                                     |
 
 Everything in the left column is shipped and tested. What is left, in the
 order it is usually asked for:
@@ -1380,11 +1472,13 @@ order it is usually asked for:
 - **Training one model across machines.** The algorithm search spreads over
   sandboxes, but a single fit still happens in one container, so a model too
   large for one box does not train here.
-- **Canary and shadow traffic.** An endpoint serves one version at a time, so
-  a new one is tried by switching to it rather than by sending it a share of
-  real traffic first, or mirroring traffic to it and comparing.
-- **Serving across machines.** Copies of an endpoint all live on one host, and
-  the host itself does not scale.
+- **Canary traffic.** A candidate can be shadowed — scored on every real
+  request and compared — but it cannot yet be given a share of real traffic to
+  answer. Adoption is still a switch, taken once the shadow report justifies
+  it.
+- **Serving across machines.** On Docker every copy is a container on this
+  machine, so the host is the ceiling. On Kubernetes copies do spread across
+  nodes, but nothing grows the cluster itself when they run out of room.
 
 ## Use cases
 

@@ -2793,6 +2793,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "level": 3
       },
       {
+        "id": "shadow",
+        "text": "Trying a version on real traffic",
+        "level": 3
+      },
+      {
         "id": "forecasting",
         "text": "Forecasting in BI",
         "level": 2

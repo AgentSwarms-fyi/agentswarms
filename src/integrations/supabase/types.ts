@@ -4763,6 +4763,8 @@ export type Database = {
           request_count: number;
           session_id: string | null;
           status: string;
+          version_id: string | null;
+          role: string;
           updated_at: string;
           user_id: string;
         };
@@ -4777,6 +4779,8 @@ export type Database = {
           request_count?: number;
           session_id?: string | null;
           status?: string;
+          version_id?: string | null;
+          role?: string;
           updated_at?: string;
           user_id: string;
         };
@@ -4791,6 +4795,8 @@ export type Database = {
           request_count?: number;
           session_id?: string | null;
           status?: string;
+          version_id?: string | null;
+          role?: string;
           updated_at?: string;
           user_id?: string;
         };
@@ -4811,6 +4817,14 @@ export type Database = {
           idle_ttl_minutes: number;
           min_replicas: number;
           max_replicas: number;
+          candidate_version_id: string | null;
+          candidate_mode: string;
+          candidate_started_at: string | null;
+          shadow_requests: number;
+          shadow_rows: number;
+          shadow_agreed: number;
+          shadow_errors: number;
+          shadow_last_error: string | null;
           scale_checked_at: string | null;
           scale_checked_count: number | null;
           last_scaled_at: string | null;
@@ -4832,6 +4846,14 @@ export type Database = {
           idle_ttl_minutes?: number;
           min_replicas?: number;
           max_replicas?: number;
+          candidate_version_id?: string | null;
+          candidate_mode?: string;
+          candidate_started_at?: string | null;
+          shadow_requests?: number;
+          shadow_rows?: number;
+          shadow_agreed?: number;
+          shadow_errors?: number;
+          shadow_last_error?: string | null;
           scale_checked_at?: string | null;
           scale_checked_count?: number | null;
           last_scaled_at?: string | null;
@@ -4853,6 +4875,14 @@ export type Database = {
           idle_ttl_minutes?: number;
           min_replicas?: number;
           max_replicas?: number;
+          candidate_version_id?: string | null;
+          candidate_mode?: string;
+          candidate_started_at?: string | null;
+          shadow_requests?: number;
+          shadow_rows?: number;
+          shadow_agreed?: number;
+          shadow_errors?: number;
+          shadow_last_error?: string | null;
           scale_checked_at?: string | null;
           scale_checked_count?: number | null;
           last_scaled_at?: string | null;
@@ -5551,6 +5581,47 @@ export type Database = {
             columns: ["model_id"];
             isOneToOne: false;
             referencedRelation: "ml_models";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      ml_shadow_disagreements: {
+        Row: {
+          candidate_answer: string | null;
+          candidate_version_id: string | null;
+          created_at: string;
+          deployment_id: string;
+          id: string;
+          model_id: string;
+          primary_answer: string | null;
+          primary_version_id: string | null;
+        };
+        Insert: {
+          candidate_answer?: string | null;
+          candidate_version_id?: string | null;
+          created_at?: string;
+          deployment_id: string;
+          id?: string;
+          model_id: string;
+          primary_answer?: string | null;
+          primary_version_id?: string | null;
+        };
+        Update: {
+          candidate_answer?: string | null;
+          candidate_version_id?: string | null;
+          created_at?: string;
+          deployment_id?: string;
+          id?: string;
+          model_id?: string;
+          primary_answer?: string | null;
+          primary_version_id?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "ml_shadow_disagreements_deployment_id_fkey";
+            columns: ["deployment_id"];
+            isOneToOne: false;
+            referencedRelation: "ml_deployments";
             referencedColumns: ["id"];
           },
         ];
@@ -8070,6 +8141,10 @@ export type Database = {
         Returns: number;
       };
       rate_limit_sweep: { Args: never; Returns: undefined };
+      record_ml_shadow_result: {
+        Args: { p_agreed: number; p_error: string | null; p_id: string; p_rows: number };
+        Returns: undefined;
+      };
       rate_limit_take: {
         Args: { _bucket: string; _max: number; _window_seconds?: number };
         Returns: boolean;

@@ -35,6 +35,7 @@ import {
   replicaToStop,
   scaleDecision,
 } from "@/lib/mlAutoscale";
+import { compareAnswers, type MlShadowTask } from "@/lib/mlShadow";
 import type { MlModelRow, MlVersionRow } from "./access.server";
 
 /** The stash a score session carries, so the source route can recognise it. */
@@ -140,6 +141,15 @@ export type MlDeploymentRow = {
   scale_checked_count: number | null;
   last_scaled_at: string | null;
   last_scale_reason: string | null;
+  /** A version being tried alongside the one in production. */
+  candidate_version_id: string | null;
+  candidate_mode: "off" | "shadow";
+  candidate_started_at: string | null;
+  shadow_requests: number;
+  shadow_rows: number;
+  shadow_agreed: number;
+  shadow_errors: number;
+  shadow_last_error: string | null;
 };
 
 /**
@@ -161,16 +171,31 @@ export type MlReplicaRow = {
   last_started_at: string | null;
   last_error: string | null;
   request_count: number;
+  /**
+   * The version THIS copy is holding.
+   *
+   * Until a candidate existed every copy served the endpoint's version, so the
+   * version was a property of the endpoint. Two copies of one endpoint can now
+   * hold different models, and a scorer that assumed otherwise would mirror
+   * traffic to whichever it happened to pick.
+   */
+  version_id: string | null;
+  role: "primary" | "candidate";
 };
 
 const LIVE_REPLICA = ["starting", "ready"] as const;
 
-export async function listReplicas(deploymentId: string, liveOnly = true): Promise<MlReplicaRow[]> {
+export async function listReplicas(
+  deploymentId: string,
+  liveOnly = true,
+  role?: "primary" | "candidate",
+): Promise<MlReplicaRow[]> {
   let q = supabaseAdmin
     .from("ml_deployment_replicas")
     .select("*")
     .eq("deployment_id", deploymentId);
   if (liveOnly) q = q.in("status", [...LIVE_REPLICA]);
+  if (role) q = q.eq("role", role);
   const { data } = await q;
   return ((data ?? []) as MlReplicaRow[]).slice();
 }
@@ -279,7 +304,10 @@ export async function ensureDeployment(args: {
   // column. A row saying "ready" while every sandbox behind it has gone is
   // exactly the lie the replicas table was split out to make impossible.
   if (dep && dep.status === "ready" && dep.version_id === version.id) {
-    for (const replica of await listReplicas(dep.id)) {
+    // PRIMARY only. This returns an address the caller will score against, and
+    // a candidate's address here would hand a live caller the answer of a
+    // version nobody approved — the one thing shadowing promises cannot happen.
+    for (const replica of await listReplicas(dep.id, true, "primary")) {
       if (replica.status !== "ready" || !replica.endpoint) continue;
       if (await healthy(replica.endpoint)) {
         return { ok: true, endpoint: replica.endpoint, deployment: dep };
@@ -332,6 +360,12 @@ export async function ensureDeployment(args: {
         last_started_at: nowIso,
         last_error: null,
         updated_at: nowIso,
+        // The candidate's copies were just retired with every other copy, so
+        // leaving these set would describe a shadow that is not running. And
+        // in the ordinary case — adopting the candidate by deploying it — the
+        // endpoint would claim to be shadowing the very version it now serves.
+        candidate_version_id: null,
+        candidate_mode: "off",
         ...(dep ? {} : { keep_warm: false }),
       },
       { onConflict: "model_id" },
@@ -418,6 +452,8 @@ async function startReplica(args: {
   userId: string;
   memLimitMb: number;
   waitMs: number;
+  /** Defaults to the side that answers callers. */
+  role?: "primary" | "candidate";
 }): Promise<{ ok: true; endpoint: string; replicaId: string } | { ok: false; error: string }> {
   const nowIso = new Date().toISOString();
   const { data: row, error: insErr } = await supabaseAdmin
@@ -427,6 +463,11 @@ async function startReplica(args: {
       user_id: args.userId,
       status: "starting",
       last_started_at: nowIso,
+      // Recorded on the row rather than inferred from the deployment: the
+      // endpoint's version_id is the PRIMARY's, and a candidate copy holds
+      // something else entirely.
+      version_id: args.version.id,
+      role: args.role ?? "primary",
     })
     .select("*")
     .single();
@@ -581,7 +622,10 @@ export async function scoreWarm(args: {
   // stop. Two different notions of "quietest" would have the two disagreeing
   // about the same endpoint, and the idle clock the scale-down safety check
   // reads would stop meaning what it says.
-  const ready = (await listReplicas(dep.id)).filter(
+  // PRIMARY copies only. A candidate exists to be compared against, never to
+  // answer somebody — handing a caller its answer is the one thing shadowing
+  // promises will not happen.
+  const ready = (await listReplicas(dep.id, true, "primary")).filter(
     (r) => r.status === "ready" && Boolean(r.endpoint),
   );
   const replica = replicaToScore(ready);
@@ -603,6 +647,12 @@ export async function scoreWarm(args: {
       return { ok: false, error: String(body?.error ?? `The scorer answered ${res.status}`) };
     }
     void touch(dep.id, replica.id);
+    // AFTER the answer is in hand and deliberately not awaited. A mirror that
+    // the caller waits for is not a shadow, it is a second serving path with
+    // twice the latency and twice the ways to fail.
+    void mirrorToCandidate(dep, args, body).catch((e) =>
+      console.warn("[ml-shadow] mirror failed:", (e as Error).message),
+    );
     return {
       ok: true,
       columns: (body?.columns as string[]) ?? [],
@@ -666,6 +716,15 @@ export async function undeploy(modelId: string, userId: string): Promise<void> {
   for (const replica of await listReplicas(dep.id)) {
     await retireReplica(replica, "undeployed");
   }
+  // The candidate's copy went down with every other one just now, so the row
+  // would otherwise go on naming a shadow that is not running. SEEN LIVE after
+  // stopping an endpoint mid-shadow. Harmless while stopped — the mirror finds
+  // no candidate copy and returns — but a row should not describe something
+  // that is not happening. The totals stay: they are what the run measured.
+  await supabaseAdmin
+    .from("ml_deployments")
+    .update({ candidate_mode: "off", candidate_version_id: null })
+    .eq("id", dep.id);
   await markStopped(dep.id);
   auditEvent({
     userId,
@@ -797,7 +856,13 @@ export async function autoscaleDeployments(): Promise<{ scaled: number }> {
       continue;
     }
 
-    const replicas = await listReplicas(dep.id);
+    // PRIMARY only, and this one is easy to get wrong in both directions. A
+    // candidate counted as capacity makes an endpoint at its ceiling look
+    // over-provisioned, so the scaler stops a copy: either the candidate,
+    // killing the shadow silently, or the last primary, leaving an endpoint
+    // whose only warm copy is one the scorer refuses to use. The candidate is
+    // not spare capacity — it answers nobody.
+    const replicas = await listReplicas(dep.id, true, "primary");
     const ready = replicas.filter((r) => r.status === "ready");
     const starting = replicas.filter((r) => r.status === "starting");
     const quietest = replicaToStop(ready);
@@ -937,4 +1002,231 @@ async function loadForScale(
   ]);
   if (!model || !version) return null;
   return { model: model as MlModelRow, version: version as MlVersionRow };
+}
+
+/** How long a mirrored call may take before it is abandoned. */
+const SHADOW_TIMEOUT_MS = 20_000;
+/** Recent disagreements kept per endpoint, so the table cannot grow forever. */
+const SHADOW_KEEP_DISAGREEMENTS = 50;
+
+/**
+ * Ask the candidate the same question, throw its answer away, keep the score.
+ *
+ * Everything here is best-effort by construction. The caller already has their
+ * answer before this starts; nothing it does can change that answer, and any
+ * failure is recorded as a failure of the CANDIDATE rather than of the
+ * request. That asymmetry is the whole promise of shadowing — if a mirror
+ * could break a live prediction it would be a worse idea than switching.
+ */
+async function mirrorToCandidate(
+  dep: MlDeploymentRow,
+  args: { model: MlModelRow; userId: string; rows: Record<string, unknown>[] },
+  primaryBody: Record<string, unknown> | null,
+): Promise<void> {
+  if (dep.candidate_mode !== "shadow" || !dep.candidate_version_id) return;
+  // Only tasks where "the same answer" means something. Clustering and anomaly
+  // detection return labels whose numbering is arbitrary between fits, so
+  // comparing them would report disagreement on two identical models.
+  const task = args.model.task;
+  if (task !== "classification" && task !== "regression") return;
+
+  const candidates = (await listReplicas(dep.id, true, "candidate")).filter(
+    (r) => r.status === "ready" && Boolean(r.endpoint),
+  );
+  const target = replicaToScore(candidates);
+  if (!target?.endpoint) return;
+
+  let comparison: ReturnType<typeof compareAnswers> | null = null;
+  let failure: string | null = null;
+  try {
+    const res = await fetch(`${target.endpoint}${SCORE_PATH}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rows: args.rows }),
+      signal: AbortSignal.timeout(SHADOW_TIMEOUT_MS),
+    });
+    const body = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!res.ok) {
+      failure = String(body?.error ?? `the candidate answered ${res.status}`);
+    } else {
+      const pairs = answerPairs(primaryBody, body);
+      comparison = pairs.length > 0 ? compareAnswers(task as MlShadowTask, pairs) : null;
+      if (!comparison) failure = "the candidate returned no comparable rows";
+    }
+    // AWAITED, and it has to be. A PostgREST builder is lazy: the request is
+    // issued inside .then(), so a builder that is never awaited and never
+    // given a .then() does not call the database at all. MEASURED: after four
+    // mirrored requests the candidate's last_used_at was still null.
+    //
+    // The fire-and-forget stamps elsewhere in the repo end in `.then(() => {})`
+    // for exactly this reason — that terminal .then is what runs them, and the
+    // `void` only marks the floating promise. Here the mirror is already off
+    // the caller's path, so awaiting is simpler and lets the surrounding catch
+    // record a failure as the candidate's rather than losing it.
+    await supabaseAdmin
+      .from("ml_deployment_replicas")
+      .update({ last_used_at: new Date().toISOString() })
+      .eq("id", target.id);
+  } catch (e) {
+    failure = (e as Error).message;
+  }
+
+  // ATOMIC, not read-modify-write. `dep` was read when the request arrived, so
+  // adding to its totals and writing them back would lose every count that
+  // arrived in between — under exactly the concurrency a warm endpoint exists
+  // for. The arithmetic lives in the function and matches addComparison().
+  await supabaseAdmin.rpc("record_ml_shadow_result", {
+    p_id: dep.id,
+    p_rows: comparison?.rows ?? 0,
+    p_agreed: comparison?.agreed ?? 0,
+    p_error: failure ? failure.slice(0, 2000) : null,
+  });
+
+  if (comparison && comparison.examples.length > 0) {
+    // The counters say how OFTEN they differ; these say how. Without them a
+    // reader is told "they disagree on 8% of rows" and has nowhere to go.
+    await supabaseAdmin.from("ml_shadow_disagreements").insert(
+      comparison.examples.map((x) => ({
+        deployment_id: dep.id,
+        model_id: dep.model_id,
+        primary_version_id: dep.version_id,
+        candidate_version_id: dep.candidate_version_id,
+        // Strings, and no input: a mirrored request carries whatever the
+        // caller sent, and keeping that would put live personal data in a
+        // debugging table nobody thinks of as a data store.
+        primary_answer: String(x.primary).slice(0, 200),
+        candidate_answer: String(x.candidate).slice(0, 200),
+      })),
+    );
+    await trimDisagreements(dep.id);
+  }
+}
+
+/** Line up the two answers row by row, on the prediction column. */
+function answerPairs(
+  primary: Record<string, unknown> | null,
+  candidate: Record<string, unknown> | null,
+): { primary: unknown; candidate: unknown }[] {
+  const pCols = (primary?.columns as string[]) ?? [];
+  const cCols = (candidate?.columns as string[]) ?? [];
+  const pi = pCols.indexOf("prediction");
+  const ci = cCols.indexOf("prediction");
+  if (pi < 0 || ci < 0) return [];
+  const pRows = (primary?.sample as unknown[][]) ?? [];
+  const cRows = (candidate?.sample as unknown[][]) ?? [];
+  // The shorter of the two. Comparing a row against nothing is not a
+  // disagreement, and padding one side would invent one.
+  const n = Math.min(pRows.length, cRows.length);
+  const out: { primary: unknown; candidate: unknown }[] = [];
+  for (let i = 0; i < n; i++) out.push({ primary: pRows[i]?.[pi], candidate: cRows[i]?.[ci] });
+  return out;
+}
+
+/** Keep only the most recent disagreements for one endpoint. */
+async function trimDisagreements(deploymentId: string): Promise<void> {
+  const { data } = await supabaseAdmin
+    .from("ml_shadow_disagreements")
+    .select("id")
+    .eq("deployment_id", deploymentId)
+    .order("created_at", { ascending: false })
+    .range(SHADOW_KEEP_DISAGREEMENTS, SHADOW_KEEP_DISAGREEMENTS + 500);
+  const stale = (data ?? []).map((r) => r.id);
+  if (stale.length > 0) {
+    await supabaseAdmin.from("ml_shadow_disagreements").delete().in("id", stale);
+  }
+}
+
+/**
+ * Start shadowing a version, or stop.
+ *
+ * Starting brings up a candidate copy and resets the totals: figures gathered
+ * against a DIFFERENT candidate would answer a question nobody asked.
+ */
+export async function setShadowCandidate(args: {
+  model: MlModelRow;
+  userId: string;
+  version: MlVersionRow | null;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const dep = await getDeployment(args.model.id);
+  if (!dep || dep.status !== "ready") {
+    return { ok: false, error: "The endpoint is not running, so there is nothing to shadow" };
+  }
+
+  // Stopping: take the candidate copies down and leave the totals to be read.
+  if (!args.version) {
+    for (const r of await listReplicas(dep.id, true, "candidate")) {
+      await retireReplica(r, "shadow stopped");
+    }
+    await supabaseAdmin
+      .from("ml_deployments")
+      .update({ candidate_mode: "off", candidate_version_id: null })
+      .eq("id", dep.id);
+    auditEvent({
+      userId: args.userId,
+      action: "ml.shadow.stop",
+      resourceType: "ml_deployment",
+      resourceId: dep.id,
+      resourceName: args.model.name,
+      detail: {
+        requests: dep.shadow_requests,
+        rows: dep.shadow_rows,
+        agreed: dep.shadow_agreed,
+        errors: dep.shadow_errors,
+      },
+    });
+    return { ok: true };
+  }
+
+  if (args.version.id === dep.version_id) {
+    return { ok: false, error: "That version is already the one being served" };
+  }
+  if (args.version.status !== "ready" || !args.version.artifact_uri) {
+    return { ok: false, error: "That version has no artifact to serve" };
+  }
+  const room = await replicaRoom(args.userId);
+  if (!room.ok) return { ok: false, error: room.error };
+
+  // Any previous candidate goes first: two candidates would be two answers to
+  // the question "what would the new version have said".
+  for (const r of await listReplicas(dep.id, true, "candidate")) {
+    await retireReplica(r, "replaced by a new candidate");
+  }
+
+  const limits = await getPlatformResources();
+  const started = await startReplica({
+    deployment: dep,
+    model: args.model,
+    version: args.version,
+    userId: args.userId,
+    memLimitMb: limits.mlTrainMemLimitMb,
+    waitMs: READY_TIMEOUT_MS,
+    role: "candidate",
+  });
+  if (!started.ok) return { ok: false, error: started.error };
+
+  await supabaseAdmin
+    .from("ml_deployments")
+    .update({
+      candidate_version_id: args.version.id,
+      candidate_mode: "shadow",
+      candidate_started_at: new Date().toISOString(),
+      // Reset: totals from a previous candidate describe a different question.
+      shadow_requests: 0,
+      shadow_rows: 0,
+      shadow_agreed: 0,
+      shadow_errors: 0,
+      shadow_last_error: null,
+    })
+    .eq("id", dep.id);
+  await supabaseAdmin.from("ml_shadow_disagreements").delete().eq("deployment_id", dep.id);
+
+  auditEvent({
+    userId: args.userId,
+    action: "ml.shadow.start",
+    resourceType: "ml_deployment",
+    resourceId: dep.id,
+    resourceName: args.model.name,
+    detail: { candidate_version: args.version.version, candidate_version_id: args.version.id },
+  });
+  return { ok: true };
 }

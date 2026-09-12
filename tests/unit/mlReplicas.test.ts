@@ -134,7 +134,17 @@ describe("the scaler measures rather than guesses", () => {
   it("adds ONE copy per pass however far behind it is", () => {
     // Starting four at once on a burst is how a machine runs out of memory
     // serving a spike that ended before they loaded.
-    const scale = SERVE.slice(SERVE.indexOf("export async function autoscaleDeployments"));
+    //
+    // Scoped to the FUNCTION, not to the end of the file. Slicing to EOF also
+    // swept up setShadowCandidate's own startReplica call once shadowing was
+    // added, and the honest fix is a tighter slice rather than a looser count.
+    const from = SERVE.indexOf("export async function autoscaleDeployments");
+    const after = SERVE.slice(from + 10);
+    const scale = after.slice(
+      0,
+      after.indexOf("/** The model and version a deployment is serving"),
+    );
+    expect(scale.length).toBeGreaterThan(1000);
     const ups = scale.split("startReplica(").length - 1;
     expect(ups).toBe(1);
   });
@@ -237,7 +247,10 @@ describe("a person can see and set it", () => {
     expect(OPS).toContain("min_replicas: number;");
     expect(OPS).toContain("max_replicas: number;");
     expect(OPS).toContain("last_scale_reason: string | null;");
-    expect(OPS).toContain("const replicas = await listReplicas(dep.id);");
+    // Primary-filtered since shadowing: a candidate copy is not one of the
+    // copies answering, and counting it made the panel read "2 of 2 copies
+    // answering" directly above "The candidate has never answered a caller".
+    expect(OPS).toContain('const replicas = await listReplicas(dep.id, true, "primary");');
   });
 
   it("the range is validated as a PAIR, not one column at a time", () => {

@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
-import { Loader2, Play, Square, Zap } from "lucide-react";
+import { Eye, Loader2, Play, Square, Zap } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -15,13 +15,21 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { relTime } from "@/components/ml/mlUi";
+import { cn } from "@/lib/utils";
 import {
   mlDeploy,
   mlDeploymentGet,
   mlDeploymentUpdate,
+  mlShadowSet,
   mlUndeploy,
   type MlDeploymentView,
 } from "@/utils/mlOps.functions";
+import {
+  agreementRate,
+  rowsUntilVerdict,
+  shadowVerdict,
+  type MlShadowTotals,
+} from "@/lib/mlShadow";
 
 export function DeploymentPanel({
   token,
@@ -29,14 +37,18 @@ export function DeploymentPanel({
   task,
   shared,
   hasReadyVersion,
+  versions,
 }: {
   token: string;
   modelId: string;
   task: string;
   shared: boolean;
   hasReadyVersion: boolean;
+  /** Candidates a shadow can be run against. */
+  versions: { id: string; version: number; status: string }[];
 }) {
   const getFn = useServerFn(mlDeploymentGet);
+  const shadowFn = useServerFn(mlShadowSet);
   // Local strings so a half-typed number is not sent; committed on blur, the
   // same shape the idle-timeout box already uses.
   const deployFn = useServerFn(mlDeploy);
@@ -72,6 +84,10 @@ export function DeploymentPanel({
   if (task === "forecast") return null;
 
   const live = dep?.status === "ready" || dep?.status === "starting";
+  // Which tasks a shadow can be MEASURED on. The same two the mirror compares
+  // in serve.server.ts: elsewhere the two versions' labels are arbitrary
+  // between fits, so an agreement rate would be a number about nothing.
+  const comparable = task === "classification" || task === "regression";
 
   async function deploy() {
     setBusy(true);
@@ -95,6 +111,20 @@ export function DeploymentPanel({
       const res = await undeployFn({ data: { accessToken: token, modelId } });
       if (!res.ok) return toast.error(res.error);
       toast.success("Endpoint stopped");
+      await load();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function setShadow(versionId: string | null) {
+    setBusy(true);
+    try {
+      const res = await shadowFn({ data: { accessToken: token, modelId, versionId } });
+      if (!res.ok) toast.error(res.error);
+      else toast.success(versionId ? "Shadowing started" : "Shadowing stopped");
+      // Either way, like every other control here: a refused change must not
+      // sit on screen looking as though it took.
       await load();
     } finally {
       setBusy(false);
@@ -326,6 +356,54 @@ export function DeploymentPanel({
           </div>
         ) : null}
 
+        {live && dep ? (
+          <div className="space-y-2 border-t pt-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h4 className="flex items-center gap-2 text-xs font-medium">
+                <Eye className="h-3.5 w-3.5" /> Trying another version
+              </h4>
+              {!shared && comparable ? (
+                <span className="flex items-center gap-2">
+                  <select
+                    aria-label="Version to shadow"
+                    className="h-7 rounded-md border bg-background px-2 text-xs"
+                    value={dep.shadow?.version_id ?? ""}
+                    disabled={busy}
+                    onChange={(e) => void setShadow(e.target.value || null)}
+                  >
+                    <option value="">Not trying one</option>
+                    {versions
+                      .filter((v) => v.id !== dep.version_id && v.status === "ready")
+                      .map((v) => (
+                        <option key={v.id} value={v.id}>
+                          Shadow v{v.version}
+                        </option>
+                      ))}
+                  </select>
+                </span>
+              ) : null}
+            </div>
+
+            {!comparable ? (
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                Not available for this task. Cluster and anomaly labels are arbitrary between fits —
+                cluster 3 of one model has nothing to do with cluster 3 of another — so comparing
+                two versions&apos; answers would report total disagreement between models that are
+                identical. Offering it anyway would produce a figure that means nothing.
+              </p>
+            ) : !dep.shadow ? (
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                A version is normally adopted by switching to it, which means the first evidence it
+                behaves differently is production behaving differently. Shadowing asks first: every
+                request is mirrored to the candidate, its answer is thrown away, and the two are
+                compared. Nobody waits for it and nobody is served by it.
+              </p>
+            ) : (
+              <ShadowReport shadow={dep.shadow} />
+            )}
+          </div>
+        ) : null}
+
         {dep?.caps ? (
           <p className="text-[11px] text-muted-foreground">
             This instance allows {dep.caps.perUser} warm container
@@ -335,5 +413,84 @@ export function DeploymentPanel({
         ) : null}
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * What the mirror has learned so far.
+ *
+ * Leads with the verdict rather than the percentage, because a percentage on
+ * forty rows invites a decision nobody has evidence for — and the whole point
+ * of shadowing is to make the decision on evidence.
+ */
+function ShadowReport({ shadow }: { shadow: NonNullable<MlDeploymentView["shadow"]> }) {
+  const totals: MlShadowTotals = {
+    requests: shadow.requests,
+    rows: shadow.rows,
+    agreed: shadow.agreed,
+    errors: shadow.errors,
+  };
+  const verdict = shadowVerdict(totals);
+  const rate = agreementRate(totals);
+  const short = rowsUntilVerdict(totals);
+
+  const tone =
+    verdict === "failing"
+      ? "text-destructive"
+      : verdict === "differs"
+        ? "text-amber-600 dark:text-amber-400"
+        : verdict === "agrees"
+          ? "text-emerald-600 dark:text-emerald-400"
+          : "text-muted-foreground";
+
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <Badge variant="outline" className="text-[10px]">
+          v{shadow.version ?? "?"}
+        </Badge>
+        <span className={cn("font-medium", tone)}>
+          {verdict === "failing"
+            ? `Failing: ${shadow.errors} of ${shadow.requests} mirrored calls did not answer`
+            : verdict === "waiting"
+              ? `Watching — ${short} more rows before this means anything`
+              : verdict === "agrees"
+                ? "Answers the same as the version in production"
+                : "Answers differently often enough to look at"}
+        </span>
+        {rate !== null && verdict !== "waiting" ? (
+          <span className="tabular-nums text-muted-foreground">
+            {(rate * 100).toFixed(1)}% of {shadow.rows.toLocaleString()} rows agreed
+          </span>
+        ) : null}
+      </div>
+
+      {shadow.last_error ? (
+        <p className="text-[11px] text-destructive">Last failure: {shadow.last_error}</p>
+      ) : null}
+
+      {shadow.disagreements.length > 0 ? (
+        <div>
+          <p className="text-[11px] text-muted-foreground">
+            Most recent rows they answered differently:
+          </p>
+          <ul className="mt-1 space-y-0.5">
+            {shadow.disagreements.slice(0, 5).map((d, i) => (
+              <li key={i} className="flex items-center gap-2 text-[11px] tabular-nums">
+                <span className="text-muted-foreground">in production</span>
+                <code className="font-mono">{d.primary ?? "—"}</code>
+                <span className="text-muted-foreground">candidate</span>
+                <code className="font-mono">{d.candidate ?? "—"}</code>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      <p className="text-[11px] leading-relaxed text-muted-foreground">
+        The candidate has never answered a caller. Switch to it with <strong>Redeploy</strong> once
+        you are satisfied, or stop trying it above.
+      </p>
+    </div>
   );
 }

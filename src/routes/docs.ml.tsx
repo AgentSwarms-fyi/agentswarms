@@ -1267,6 +1267,83 @@ curl -X POST https://your-instance/api/ml/predict/batch \\
         endpoints, because the thing being bounded is resident memory.
       </P>
 
+      <H3 id="shadow">Trying a version on real traffic</H3>
+      <P>
+        A new version is normally adopted by <strong>switching</strong> to it. Which means the first
+        evidence that it behaves differently from the old one is production behaving differently —
+        noticed, if it is noticed, by whoever the difference landed on.
+      </P>
+      <P>
+        <strong>Shadowing asks the question first.</strong> Pick a version on the deployment panel
+        and the endpoint starts a second copy holding it. From then on, every request the endpoint
+        answers is mirrored to that candidate, its answer is compared against the one that was
+        actually served, and then thrown away.
+      </P>
+      <Callout kind="info" title="A candidate never answers a caller">
+        The scorer asks for copies marked <Code>primary</Code> and never sees the candidate at all,
+        so there is no ordering, no flag and no race by which an unapproved version could end up on
+        the wire. Two smaller promises follow from it. <strong>Nobody waits for it</strong> — the
+        mirror is fired after the served answer is in hand and is not awaited, so the caller&apos;s
+        latency is the primary&apos;s latency. And{" "}
+        <strong>a mirror that fails cannot reach the caller</strong>: it is caught and counted, so a
+        candidate that cannot load shows up as an error rate on the report rather than as a failed
+        request for somebody else.
+      </Callout>
+      <P>
+        What <em>agree</em> means is not the same question for every model, and pretending it is
+        would make the number meaningless.
+      </P>
+      <Table
+        headers={["Task", "Agreement is"]}
+        rows={[
+          ["Classification", "The same label. A proportion that reads exactly as it looks."],
+          ["Regression", "Within 1%, relative, with an absolute floor near zero."],
+        ]}
+      />
+      <P>
+        Counting exact float matches on a regression would report 0% agreement on two models that
+        are indistinguishable in practice, so the comparison is a tolerance.{" "}
+        <strong>Clustering, anomaly detection and recommendation are not compared</strong> and the
+        mirror does not run for them: their labels are arbitrary between fits, so cluster 3 of one
+        model has nothing to do with cluster 3 of another, and the comparison would report total
+        disagreement between two identical models.
+      </P>
+      <Callout kind="warn" title="The mirrored input is never stored">
+        A mirrored request carries whatever the caller sent, which on a live endpoint is live
+        personal data; keeping it would put that data in a debugging table nobody thinks of as a
+        data store. What is kept is four running totals on the endpoint — requests, rows, rows
+        agreed, errors — plus the two <em>answers</em> from the fifty most recent rows they
+        disagreed on. Totals rather than a row per request, because an endpoint at a couple of
+        requests a second would write a hundred and fifty thousand rows a day to answer a question
+        that is four numbers.
+      </Callout>
+      <P>
+        The panel leads with a sentence rather than a figure, and below a hundred compared rows it
+        refuses to give one at all — it says how many more it needs. A percentage on forty rows
+        invites a decision nobody has evidence for, which is the opposite of what shadowing is for.
+      </P>
+      <Table
+        headers={["It says", "When"]}
+        rows={[
+          ["Watching", "Fewer than 100 rows compared so far."],
+          ["Answers the same", "90% of rows or more agreed."],
+          [
+            "Answers differently",
+            "Below that — with recent disagreeing answers listed underneath.",
+          ],
+          ["Failing", "The candidate failed on 5% or more of mirrored calls."],
+        ]}
+      />
+      <P>
+        A candidate is a copy, so it is a container, and it counts against the same warm-container
+        limits as any other. <strong>One candidate at a time</strong>: choosing another retires the
+        first, and the totals reset, because figures gathered against a different candidate answer a
+        question nobody asked. Stopping it takes the copy down and leaves nothing behind. Adopting
+        it is the ordinary <strong>Redeploy</strong> to that version — shadowing does not promote
+        anything by itself, and never will. It measures; a person switches. Both starting and
+        stopping are audited, as <Code>ml.shadow.start</Code> and <Code>ml.shadow.stop</Code>.
+      </P>
+
       <H2 id="forecasting">Forecasting in BI</H2>
       <P>
         Line charts on a dashboard project ahead with the platform&apos;s shared forecaster:
@@ -1389,7 +1466,7 @@ curl -X POST https://your-instance/api/ml/predict/batch \\
           ],
           [
             "Serving at scale",
-            "Several copies per endpoint on one machine, added on measured request rate and removed only when idle and clear of the line; copies counted against the warm-container limits",
+            "Several copies per endpoint, added on measured request rate and removed only when idle and clear of the line; on Kubernetes each copy is a Pod the scheduler may place anywhere. Shadow traffic: a candidate version scored on every real request, compared, and never served",
             "Autoscaling across hosts, canary and shadow traffic",
           ],
           [
@@ -1484,10 +1561,11 @@ curl -X POST https://your-instance/api/ml/predict/batch \\
         Everything in the left column is shipped and tested. What is left, in the order it is
         usually asked for: <strong>training one model across machines</strong> (the search spreads
         over sandboxes, but a single fit still happens in one container); and{" "}
-        <strong>canary and shadow traffic</strong> (an endpoint serves one version at a time, so a
-        new one is tried by switching to it rather than by sending it a share of real traffic first,
-        or mirroring traffic to it and comparing); and <strong>serving across machines</strong>{" "}
-        (copies of an endpoint all live on one host, and the host itself does not scale).
+        <strong>canary traffic</strong> (a candidate can be shadowed — scored on every real request
+        and compared — but it cannot yet be given a share of real traffic to answer, so adoption is
+        still a switch); and <strong>serving across machines</strong> (on Docker every copy is a
+        container on this machine, so the host is the ceiling; on Kubernetes copies do spread across
+        nodes, but nothing grows the cluster itself when they run out of room).
       </P>
 
       <H2 id="use-cases">Use cases</H2>

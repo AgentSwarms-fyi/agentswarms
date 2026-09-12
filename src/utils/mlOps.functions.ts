@@ -6,7 +6,7 @@ import { z } from "zod";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { Database, Json } from "@/integrations/supabase/types";
-import { loadModelForUser } from "@/utils/ml/access.server";
+import { loadModelForUser, type MlVersionRow } from "@/utils/ml/access.server";
 import { ML_TUNINGS } from "@/utils/ml/types";
 
 type Fail = { ok: false; error: string };
@@ -268,6 +268,19 @@ export type MlDeploymentView = {
   /** Why the endpoint is the size it is, in the scaler's own words. */
   last_scale_reason: string | null;
   last_scaled_at: string | null;
+  /** A version being tried alongside, and what has been learned about it. */
+  shadow: {
+    version_id: string;
+    version: number | null;
+    started_at: string | null;
+    requests: number;
+    rows: number;
+    agreed: number;
+    errors: number;
+    last_error: string | null;
+    /** A few rows the two answered differently, most recent first. */
+    disagreements: { primary: string | null; candidate: string | null; at: string }[];
+  } | null;
   /** One entry per copy actually running, quietest first. */
   replicas: {
     id: string;
@@ -290,7 +303,47 @@ export const mlDeploymentGet = createServerFn({ method: "POST" })
     const { getDeployment, deploymentCaps, listReplicas } = await import("@/utils/ml/serve.server");
     const [dep, caps] = await Promise.all([getDeployment(model.id), deploymentCaps()]);
     if (!dep) return { ok: true, deployment: null };
-    const replicas = await listReplicas(dep.id);
+    // PRIMARY only. SEEN ON SCREEN: with a candidate running, the panel said
+    // "2 of 2 copies answering" directly above "The candidate has never
+    // answered a caller" — the two halves of the same card contradicting each
+    // other, and the wrong half was the one a person counts containers with.
+    // The candidate is reported by the shadow block below, as what it is.
+    const replicas = await listReplicas(dep.id, true, "primary");
+
+    // The candidate's own version number and the rows it disagreed on. Only
+    // fetched when something is actually being shadowed — the overwhelming
+    // majority of endpoints are not.
+    let shadow: MlDeploymentView["shadow"] = null;
+    if (dep.candidate_mode === "shadow" && dep.candidate_version_id) {
+      const [{ data: cv }, { data: diffs }] = await Promise.all([
+        supabaseAdmin
+          .from("ml_model_versions")
+          .select("version")
+          .eq("id", dep.candidate_version_id)
+          .maybeSingle(),
+        supabaseAdmin
+          .from("ml_shadow_disagreements")
+          .select("primary_answer, candidate_answer, created_at")
+          .eq("deployment_id", dep.id)
+          .order("created_at", { ascending: false })
+          .limit(10),
+      ]);
+      shadow = {
+        version_id: dep.candidate_version_id,
+        version: cv?.version ?? null,
+        started_at: dep.candidate_started_at,
+        requests: dep.shadow_requests,
+        rows: dep.shadow_rows,
+        agreed: dep.shadow_agreed,
+        errors: dep.shadow_errors,
+        last_error: dep.shadow_last_error,
+        disagreements: (diffs ?? []).map((d) => ({
+          primary: d.primary_answer,
+          candidate: d.candidate_answer,
+          at: d.created_at,
+        })),
+      };
+    }
     const { data: version } = await supabaseAdmin
       .from("ml_model_versions")
       .select("version")
@@ -313,6 +366,7 @@ export const mlDeploymentGet = createServerFn({ method: "POST" })
         caps,
         min_replicas: dep.min_replicas,
         max_replicas: dep.max_replicas,
+        shadow,
         last_scale_reason: dep.last_scale_reason,
         last_scaled_at: dep.last_scaled_at,
         // Quietest first, the order the scorer picks in and the scaler stops
@@ -378,6 +432,45 @@ export const mlUndeploy = createServerFn({ method: "POST" })
   });
 
 /** Keep it warm through idle periods, or change how long idle is allowed. */
+/**
+ * Try a version on real traffic without serving anybody from it.
+ *
+ * Passing no version stops shadowing and leaves the totals to be read; the
+ * candidate's copies come down either way.
+ */
+export const mlShadowSet = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z
+      .object({
+        accessToken: z.string().min(1),
+        modelId: z.string().uuid(),
+        versionId: z.string().uuid().nullable(),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data }): Promise<Fail | { ok: true }> => {
+    const userId = await resolveCaller(data.accessToken);
+    // Write access: starting a candidate spends a container and changes what
+    // the endpoint is doing, even though it never changes an answer.
+    const { model } = await loadModelForUser(data.modelId, userId, { write: true });
+    if (!model) return { ok: false, error: "Model not found" };
+
+    let version: MlVersionRow | null = null;
+    if (data.versionId) {
+      const { data: v } = await supabaseAdmin
+        .from("ml_model_versions")
+        .select("*")
+        .eq("id", data.versionId)
+        .eq("model_id", model.id)
+        .maybeSingle();
+      if (!v) return { ok: false, error: "Version not found on this model" };
+      version = v as MlVersionRow;
+    }
+
+    const { setShadowCandidate } = await import("@/utils/ml/serve.server");
+    return setShadowCandidate({ model, userId, version });
+  });
+
 export const mlDeploymentUpdate = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) =>
     z

@@ -656,6 +656,7 @@ function ModelPage() {
             task={model.task}
             shared={shared}
             hasReadyVersion={versions.some((v) => v.status === "ready")}
+            versions={versions}
           />
           <SchedulesPanel token={token} modelId={model.id} task={model.task} shared={shared} />
         </TabsContent>

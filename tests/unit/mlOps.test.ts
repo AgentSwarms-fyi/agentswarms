@@ -316,8 +316,19 @@ describe("compare and docs", () => {
     // still standing. What is admitted moves to the limit that is still real:
     // every copy is on the same machine, and a version switch is not a canary.
     expect(md).not.toContain("one replica, no autoscaling");
-    expect(md).toContain("Copies of an endpoint all live on one host");
-    expect(md).toContain("Canary and shadow traffic");
+    // ...and then the replacement went stale the same way, which is the point
+    // worth keeping. "Copies all live on one host" stopped being true the
+    // moment a copy became a Pod the Kubernetes scheduler places on any node,
+    // and shadowing closed the mirroring half of the canary bullet. Both
+    // admissions are now backend-specific and narrower.
+    expect(md).not.toContain("Copies of an endpoint all live on one host");
+    expect(md).toContain("On Docker every copy is a container on this");
+    expect(md).toContain("- **Canary traffic.**");
+    // This used to match the gap bullet's own "Canary and shadow traffic",
+    // not the comparison, so narrowing that bullet silently changed what it
+    // was about. Anchored on the right-hand column, which is what a reader
+    // would check it against: what the managed products do here.
+    expect(md).toContain("Autoscaling across hosts, canary and shadow traffic");
     expect(md).not.toContain("no warm autoscaled endpoint yet");
     expect(page).toContain("Feature store");
   });
