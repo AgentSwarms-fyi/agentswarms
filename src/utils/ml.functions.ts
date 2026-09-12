@@ -901,6 +901,136 @@ export const mlEvaluatePrediction = createServerFn({ method: "POST" })
     },
   );
 
+// ── Where the line is drawn ──────────────────────────────────────────────────
+
+/** The production version's calibration evidence and its operating point. */
+export const mlDecisionSettings = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z.object({ access_token: z.string().min(1), model_id: z.string().uuid() }).parse(input),
+  )
+  .handler(
+    async ({
+      data,
+    }): Promise<{
+      version_id: string | null;
+      version: number | null;
+      threshold: number | null;
+      positive_label: string | null;
+      metrics: Json | null;
+      /**
+       * A line an EARLIER version of this model was operating under.
+       *
+       * The threshold lives on the version, so a retrain — especially a
+       * scheduled one that promotes when the metric improves — produces a
+       * version with no line and quietly puts production back on argmax. That
+       * is a change in what the business does, made by nobody, and the first
+       * sign of it would be a shift in approval volume nobody could explain.
+       *
+       * It is NOT copied forward. A threshold is only portable between
+       * versions whose probabilities mean the same thing, and deciding that on
+       * the operator's behalf is exactly the kind of silent judgement this
+       * panel exists to avoid. So the fact is surfaced and the choice is left.
+       */
+      inherited: { version: number; threshold: number; positive_label: string | null } | null;
+    }> => {
+      const userId = await resolveCaller(data.access_token);
+      const { model } = await loadModelForUser(data.model_id, userId);
+      const empty = {
+        version_id: null,
+        version: null,
+        threshold: null,
+        positive_label: null,
+        metrics: null,
+        inherited: null,
+      };
+      if (!model.production_version_id) return empty;
+      const { data: v } = await supabaseAdmin
+        .from("ml_model_versions")
+        .select("id, version, decision_threshold, positive_label, metrics")
+        .eq("id", model.production_version_id)
+        .maybeSingle();
+      if (!v) return empty;
+
+      let inherited: { version: number; threshold: number; positive_label: string | null } | null =
+        null;
+      if (v.decision_threshold === null) {
+        const { data: prior } = await supabaseAdmin
+          .from("ml_model_versions")
+          .select("version, decision_threshold, positive_label")
+          .eq("model_id", data.model_id)
+          .not("decision_threshold", "is", null)
+          .lt("version", v.version)
+          .order("version", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (prior?.decision_threshold !== null && prior?.decision_threshold !== undefined) {
+          inherited = {
+            version: prior.version,
+            threshold: prior.decision_threshold,
+            positive_label: prior.positive_label,
+          };
+        }
+      }
+
+      return {
+        version_id: v.id,
+        version: v.version,
+        threshold: v.decision_threshold,
+        positive_label: v.positive_label,
+        metrics: v.metrics,
+        inherited,
+      };
+    },
+  );
+
+/**
+ * Move the line, without retraining.
+ *
+ * The artifact is untouched: the threshold is read from the version on every
+ * prediction, so this takes effect on the next run rather than the next train.
+ */
+export const mlSetDecisionThreshold = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z
+      .object({
+        access_token: z.string().min(1),
+        version_id: z.string().uuid(),
+        threshold: z.number().min(0).max(1).nullable(),
+        positive_label: z.string().trim().max(200).nullable(),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data }): Promise<{ ok: true } | { ok: false; error: string }> => {
+    const userId = await resolveCaller(data.access_token);
+    const { data: version } = await supabaseAdmin
+      .from("ml_model_versions")
+      .select("id, model_id, version")
+      .eq("id", data.version_id)
+      .maybeSingle();
+    if (!version) return { ok: false, error: "Version not found" };
+    const { model } = await loadModelForUser(version.model_id, userId, { write: true });
+    const { error } = await supabaseAdmin
+      .from("ml_model_versions")
+      .update({ decision_threshold: data.threshold, positive_label: data.positive_label })
+      .eq("id", version.id);
+    if (error) return { ok: false, error: error.message };
+    auditEvent({
+      userId,
+      action: "ml.threshold.set",
+      resourceType: "ml_model",
+      resourceId: model.id,
+      resourceName: model.name,
+      decisionId: version.id,
+      // Which way the line moved is the whole content of this event.
+      detail: {
+        version: version.version,
+        threshold: data.threshold,
+        positive_label: data.positive_label,
+      },
+    });
+    return { ok: true };
+  });
+
 // ── Fairness ─────────────────────────────────────────────────────────────────
 // Measured in SQL; the model layer only suggests what to compare by and reads
 // the result back in words. See src/utils/ml/fairness.server.ts for the rule.

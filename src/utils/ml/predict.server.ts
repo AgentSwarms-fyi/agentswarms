@@ -136,6 +136,10 @@ export async function mlPredictBundleFor(
     max_rows: limits.mlPredictMaxRows,
     // Asked for per row, never for a batch: every feature costs a prediction.
     explain: Boolean((stored as { explain?: boolean }).explain),
+    // Read from the version every run, so moving the line takes effect on the
+    // next prediction rather than on the next retrain.
+    decision_threshold: b.version.decision_threshold,
+    positive_label: b.version.positive_label,
     explain_max_rows: ML_EXPLAIN_MAX_ROWS,
     explain_top_k: ML_EXPLAIN_TOP_K,
   };

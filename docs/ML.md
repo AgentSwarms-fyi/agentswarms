@@ -578,6 +578,130 @@ so one statement runs through the governed lakehouse chokepoint — as the
 model's **owner**, so the same schema grants apply — and the arithmetic happens
 in the app.
 
+## Is 0.8 really 80%?
+
+Every classification here carries a probability, and the interface has always
+printed it beside the word **confidence**. For a tree ensemble that number is
+usually a _rank_ rather than a frequency: a forest that votes 9 trees to 1
+reports 0.9 whatever the real rate turns out to be. Good enough for sorting a
+queue, wrong for a rule that says "auto-approve above 80%".
+
+So the trainer measures it, and the model page shows the measurement.
+
+### The reliability curve
+
+The holdout rows are binned by what the model said, and each bin reports what
+actually happened. A point on the diagonal means the model's 70% really was
+70%; above it the model is under-selling itself, below it over-selling. Bins
+are drawn in proportion to how many rows they hold, because four rows landing
+far off the line is noise and four hundred is a problem.
+
+Two figures summarise the curve:
+
+| Figure                | What it means                                                                                                                               |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Calibration error** | The average gap between what was said and what happened. 0.04 is "typically within four points".                                            |
+| **Brier score**       | Mean squared error of the probabilities themselves. Lower is better; it moves when a model is confidently wrong, which accuracy never sees. |
+
+The page bands the calibration error rather than leaving a bare decimal: at or
+under 0.05 it is safe to write a rule against, under 0.15 it is fine for
+ranking and loose for a rule, and above that the numbers should be read as
+ranks.
+
+### What the trainer does about it
+
+After the algorithm search picks a winner and **before** any metric is
+recorded, classification models get a calibration pass —
+`CalibratedClassifierCV`, isotonic regression on 1000 training rows or more and
+Platt scaling below that, since isotonic needs data to fit its step function
+and overfits badly without it.
+
+**It is then checked, and discarded if it did not help.** The calibrated model
+is scored on the same holdout, and it is kept only when **both** the Brier
+score and the calibration error improve. Requiring both is not belt and braces:
+Brier is calibration and sharpness added together, so a model can win on Brier
+by growing more confident while drifting further from the truth. A 90-row probe
+did exactly that — Brier 0.1701 → 0.1572 while the calibration error went
+0.1917 → 0.2220 — and on the Brier test alone it would have shipped.
+
+When the pass is discarded the run log says so and the page says "left
+uncalibrated". That is not a failure: a model that was already well calibrated
+lands there, and so does one whose holdout was too small to fit a reliable
+mapping. Because metrics are recorded after this step, every number on the
+version describes the model that was actually saved.
+
+Versions trained before this shipped have no curve. They read as _not
+measured_, which is the truth — retrain to get one.
+
+## Where the line is drawn
+
+A classifier decides by `argmax`, which is a threshold of 0.5 that nobody
+chose. It is the right default and the wrong one for most real decisions:
+declining a good customer and missing a fraudulent order do not cost the same,
+and the person who knows the ratio is the operator, not the trainer.
+
+So the trainer **measures every operating point** and the model page lets you
+pick one. For a two-class model the holdout is scored at thresholds from 0.05
+to 0.95 in steps of 0.05, and each row of the table is a real measurement:
+
+| Column             | What it is                                        |
+| ------------------ | ------------------------------------------------- |
+| Line at            | The probability at or above which the model acts. |
+| Rows acted on      | How many holdout rows it would have acted on.     |
+| Right when it acts | Precision at that line.                           |
+| Caught             | Recall at that line.                              |
+
+The sweep is always expressed from one side — the second class, named on the
+page — and that loses nothing: with two classes the probabilities sum to one,
+so a line at 0.70 on `retained` is the same rule as a line at 0.30 on
+`churned`. Every operating point either class could have is already in the
+table, read from one end.
+
+The best-F1 row is marked **balanced** and is offered as a starting position,
+not a recommendation — F1 weights the two mistakes equally, which is the exact
+assumption this screen exists to let you reject.
+
+Choosing a row shows what would change against the line currently in use, and
+saving it asks first. The picker only offers thresholds the trainer actually
+measured: interpolating to 0.437 would present a number the platform never
+checked with the same authority as one it did.
+
+### It is a setting, not a retrain
+
+The threshold lives on the **version**, not inside the artifact. Prediction
+reads it at run time, so moving the line takes effect on the next prediction
+and the model is untouched. Every change is audited as `ml.threshold.set` with
+the old and new values, because "who decided to approve 12% more applications,
+and when" is a question that gets asked.
+
+Two more consequences worth knowing:
+
+- **The probability shown is the probability of the answer given.** A row
+  declined at 0.45 reports 0.55 against the class it was actually assigned, not
+  0.55 confidence in a decision nobody made.
+- **Scored tables record the line that produced them.** A batch run with a
+  threshold set writes `threshold_applied` on every row, so six months later
+  "why was this one declined" is answerable from the row rather than from
+  whatever the setting happens to be by then.
+
+### A retrain does not carry the line forward
+
+Because the threshold lives on the version, a new version arrives without one
+and decides by `argmax` again. That is deliberate: a line only means the same
+thing across two versions whose probabilities mean the same thing, and copying
+it forward silently would be the platform making a business decision on your
+behalf.
+
+It is also the sort of change nobody notices until approval volume shifts, so
+it is not left silent either. When the production version has no line and an
+earlier version of the same model did, the panel says so — naming the version
+and the value, with a button to draw it there again. Scheduled retraining with
+**promote when better** is exactly the case this is for.
+
+Multiclass models get no threshold and no sweep: there is no single line to
+draw, so each prediction is simply whichever class scores highest. Regression
+and forecasting have none either.
+
 ## How groups are treated
 
 Two questions, and each hides the other.
@@ -1010,41 +1134,37 @@ See [SCALE_AND_LIMITS.md](./SCALE_AND_LIMITS.md#machine-learning--srcutilsnotebo
 
 Where AgentSwarms stands against Databricks ML and SageMaker, honestly:
 
-| Capability                 | AgentSwarms                                                                                                                 | Databricks / SageMaker                                 |
-| -------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
-| No-code AutoML             | Six tasks incl. clustering, anomaly, recommendation; tuning; data prep in the wizard                                        | AutoML / Canvas: similar tasks, larger search spaces   |
-| Registry, stages, lineage  | Versions, stages, snapshot + decision id per version, artifact digests                                                      | MLflow registry / Model Registry                       |
-| Batch scoring              | Into lakehouse tables, scheduled, with drift per run                                                                        | Jobs / Batch Transform                                 |
-| Real-time inference        | Warm endpoints hold one version in memory: 45 ms of scoring instead of a ~25 s container start; one replica, no autoscaling | Serving endpoints with autoscaling                     |
-| Drift monitoring           | PSI per feature on every batch, threshold alerts                                                                            | Lakehouse Monitoring / Model Monitor (more statistics) |
-| Ground-truth monitoring    | Outcome source per model; the training metric recomputed on matched rows, with coverage; decay alerts on the platform clock | Model-quality monitoring jobs                          |
-| Explainability             | Global permutation importance at training, plus per-row contributions by ablation against a typical row. Not Shapley values | SHAP per prediction, Clarify                           |
-| Fairness                   | Selection-rate ratio and error-rate gaps per group, per column; assistant suggests columns and proxies; four-fifths default | Clarify / bias reports                                 |
-| Promotion approval         | Named approvers per model, in the same inbox as swarm approvals; a requester can never approve their own                    | Approval workflows                                     |
-| Scheduled retraining       | Cron/cadence, promote-when-better, one platform clock                                                                       | Workflows / Pipelines                                  |
-| Public API                 | Per-model scoped keys, rate limits, audited denials, BYO registration                                                       | Yes, IAM-based                                         |
-| Bring your own model       | Any joblib pipeline under a small contract                                                                                  | Any framework, containers                              |
-| Feature store              | Feature views: score by key, read from the table training read; describes rather than materialises                          | Yes                                                    |
-| Distributed / GPU training | The algorithm search spreads across several sandboxes; one model still trains in one container; GPUs requestable            | Clusters, distributed frameworks, GPU instances        |
-| Experiment tracking        | Runs logged from a notebook or a script with params, metrics and curves; a run promotes into the registry                   | MLflow / Experiments                                   |
-| Model cards                | Generated from the registry                                                                                                 | SageMaker Model Cards                                  |
-| Governance                 | IAM shares, trigger audit, decision ids, result digests, one statement guard for all data                                   | Unity Catalog / IAM                                    |
-| Agents and BI              | Models are agent tools; forecasts and drift live in the BI layer                                                            | Separate products                                      |
-| Cost and residency         | Self-hosted, your infrastructure, no per-call charges                                                                       | Managed, metered                                       |
+| Capability                 | AgentSwarms                                                                                                                                        | Databricks / SageMaker                                               |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| No-code AutoML             | Six tasks incl. clustering, anomaly, recommendation; tuning; data prep in the wizard                                                               | AutoML / Canvas: similar tasks, larger search spaces                 |
+| Registry, stages, lineage  | Versions, stages, snapshot + decision id per version, artifact digests                                                                             | MLflow registry / Model Registry                                     |
+| Batch scoring              | Into lakehouse tables, scheduled, with drift per run                                                                                               | Jobs / Batch Transform                                               |
+| Real-time inference        | Warm endpoints hold one version in memory: 45 ms of scoring instead of a ~25 s container start; one replica, no autoscaling                        | Serving endpoints with autoscaling                                   |
+| Drift monitoring           | PSI per feature on every batch, threshold alerts                                                                                                   | Lakehouse Monitoring / Model Monitor (more statistics)               |
+| Ground-truth monitoring    | Outcome source per model; the training metric recomputed on matched rows, with coverage; decay alerts on the platform clock                        | Model-quality monitoring jobs                                        |
+| Calibration and thresholds | Reliability curve and Brier/ECE per version; calibration kept only when both improve; measured threshold sweep, set per version without retraining | Calibration in SageMaker Clarify; thresholds set in application code |
+| Explainability             | Global permutation importance at training, plus per-row contributions by ablation against a typical row. Not Shapley values                        | SHAP per prediction, Clarify                                         |
+| Fairness                   | Selection-rate ratio and error-rate gaps per group, per column; assistant suggests columns and proxies; four-fifths default                        | Clarify / bias reports                                               |
+| Promotion approval         | Named approvers per model, in the same inbox as swarm approvals; a requester can never approve their own                                           | Approval workflows                                                   |
+| Scheduled retraining       | Cron/cadence, promote-when-better, one platform clock                                                                                              | Workflows / Pipelines                                                |
+| Public API                 | Per-model scoped keys, rate limits, audited denials, BYO registration                                                                              | Yes, IAM-based                                                       |
+| Bring your own model       | Any joblib pipeline under a small contract                                                                                                         | Any framework, containers                                            |
+| Feature store              | Feature views: score by key, read from the table training read; describes rather than materialises                                                 | Yes                                                                  |
+| Distributed / GPU training | The algorithm search spreads across several sandboxes; one model still trains in one container; GPUs requestable                                   | Clusters, distributed frameworks, GPU instances                      |
+| Experiment tracking        | Runs logged from a notebook or a script with params, metrics and curves; a run promotes into the registry                                          | MLflow / Experiments                                                 |
+| Model cards                | Generated from the registry                                                                                                                        | SageMaker Model Cards                                                |
+| Governance                 | IAM shares, trigger audit, decision ids, result digests, one statement guard for all data                                                          | Unity Catalog / IAM                                                  |
+| Agents and BI              | Models are agent tools; forecasts and drift live in the BI layer                                                                                   | Separate products                                                    |
+| Cost and residency         | Self-hosted, your infrastructure, no per-call charges                                                                                              | Managed, metered                                                     |
 
 Everything in the left column is shipped and tested. What is left, in the
 order it is usually asked for:
 
-- **Probability calibration and a decision threshold.** A classifier reports
-  the score its algorithm produces and decides by `argmax`, so a displayed
-  confidence ranks well but is not a calibrated probability, and a
-  cost-asymmetric decision has no operating point to set.
 - **Cross-validation.** One stratified holdout both picks the model and sets
   the baseline a decay alert compares against; there is no `TimeSeriesSplit`
   for temporal data.
 - **Reason codes on every scored row.** An explanation is available for a row
   you ask about, not written beside every decision in a batch.
-
 - **Training one model across machines.** The algorithm search spreads over
   sandboxes, but a single fit still happens in one container, so a model too
   large for one box does not train here.

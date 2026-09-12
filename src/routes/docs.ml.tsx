@@ -623,6 +623,144 @@ with agentswarms.start_run("churn-v2", params={"lr": 0.01, "depth": 6}) as run:
         and the arithmetic happens in the app.
       </P>
 
+      <H2 id="calibration">Is 0.8 really 80%?</H2>
+      <P>
+        Every classification carries a probability, and this interface has always printed it beside
+        the word <strong>confidence</strong>. For a tree ensemble that number is usually a{" "}
+        <em>rank</em> rather than a frequency: a forest that votes 9 trees to 1 reports 0.9 whatever
+        the real rate turns out to be. Good enough for sorting a queue, wrong for a rule that says
+        &ldquo;auto-approve above 80%&rdquo;.
+      </P>
+      <P>
+        So the trainer measures it, and the model page shows the measurement under{" "}
+        <strong>Accuracy → Confidence and the decision line</strong>.
+      </P>
+      <H3 id="reliability">The reliability curve</H3>
+      <P>
+        Holdout rows are binned by what the model said, and each bin reports what actually happened.
+        A point on the diagonal means the model&apos;s 70% really was 70%; above it the model is
+        under-selling itself, below it over-selling. Bins are drawn in proportion to how many rows
+        they hold, because four rows landing far off the line is noise and four hundred is a
+        problem.
+      </P>
+      <Table
+        headers={["Figure", "What it means"]}
+        rows={[
+          [
+            <strong key="e">Calibration error</strong>,
+            "The average gap between what was said and what happened. 0.04 is “typically within four points”.",
+          ],
+          [
+            <strong key="b">Brier score</strong>,
+            "Mean squared error of the probabilities themselves. Lower is better; it moves when a model is confidently wrong, which accuracy never sees.",
+          ],
+        ]}
+      />
+      <P>
+        The page bands the calibration error rather than leaving a bare decimal: at or under 0.05 it
+        is safe to write a rule against, under 0.15 it is fine for ranking and loose for a rule, and
+        above that the numbers should be read as ranks.
+      </P>
+      <H3 id="calibration-trainer">What the trainer does about it</H3>
+      <P>
+        After the algorithm search picks a winner and <strong>before</strong> any metric is
+        recorded, classification models get a calibration pass — <C>CalibratedClassifierCV</C>,
+        isotonic regression on 1000 training rows or more and Platt scaling below that, since
+        isotonic needs data to fit its step function and overfits badly without it.
+      </P>
+      <Callout kind="info" title="It is checked, and discarded if it did not help">
+        The calibrated model is scored on the same holdout and kept only when <strong>both</strong>{" "}
+        the Brier score and the calibration error improve. Requiring both is not belt and braces:
+        Brier is calibration and sharpness added together, so a model can win on Brier by growing
+        more confident while drifting further from the truth. A 90-row probe did exactly that —
+        Brier 0.1701 → 0.1572 while the calibration error went 0.1917 → 0.2220 — and on the Brier
+        test alone it would have shipped.
+      </Callout>
+      <P>
+        When the pass is discarded the run log says so and the page says <em>left uncalibrated</em>.
+        That is not a failure: a model already well calibrated lands there, and so does one whose
+        holdout was too small to fit a reliable mapping. Because metrics are recorded after this
+        step, every number on the version describes the model that was actually saved. Versions
+        trained before this shipped have no curve and read as <em>not measured</em>, which is the
+        truth — retrain to get one.
+      </P>
+
+      <H2 id="threshold">Where the line is drawn</H2>
+      <P>
+        A classifier decides by <C>argmax</C>, which is a threshold of 0.5 that nobody chose. It is
+        the right default and the wrong one for most real decisions: declining a good customer and
+        missing a fraudulent order do not cost the same, and the person who knows the ratio is the
+        operator, not the trainer.
+      </P>
+      <P>
+        So the trainer <strong>measures every operating point</strong> and the model page lets you
+        pick one. For a two-class model the holdout is scored at thresholds from 0.05 to 0.95 in
+        steps of 0.05, and every row of the table is a real measurement:
+      </P>
+      <Table
+        headers={["Column", "What it is"]}
+        rows={[
+          ["Line at", "The probability at or above which the model acts."],
+          ["Rows acted on", "How many holdout rows it would have acted on."],
+          ["Right when it acts", "Precision at that line."],
+          ["Caught", "Recall at that line."],
+        ]}
+      />
+      <P>
+        The sweep is always expressed from one side — the second class, named on the page — and that
+        loses nothing: with two classes the probabilities sum to one, so a line at 0.70 on{" "}
+        <C>retained</C> is the same rule as a line at 0.30 on <C>churned</C>. Every operating point
+        either class could have is already in the table, read from one end.
+      </P>
+      <P>
+        The best-F1 row is marked <strong>balanced</strong> and offered as a starting position, not
+        a recommendation — F1 weights the two mistakes equally, which is the exact assumption this
+        screen exists to let you reject. Choosing a row shows what would change against the line
+        currently in use, and saving it asks first. The picker only offers thresholds the trainer
+        actually measured: interpolating to 0.437 would present a number the platform never checked
+        with the same authority as one it did.
+      </P>
+      <H3 id="threshold-setting">A setting, not a retrain</H3>
+      <P>
+        The threshold lives on the <strong>version</strong>, not inside the artifact. Prediction
+        reads it at run time, so moving the line takes effect on the next prediction and the model
+        is untouched. Every change is audited as <C>ml.threshold.set</C> with the value, because
+        &ldquo;who decided to approve 12% more applications, and when&rdquo; is a question that gets
+        asked.
+      </P>
+      <UL>
+        <li>
+          <strong>The probability shown is the probability of the answer given.</strong> A row
+          declined at 0.45 reports 0.55 against the class it was actually assigned, not 0.55
+          confidence in a decision nobody made.
+        </li>
+        <li>
+          <strong>Scored tables record the line that produced them.</strong> A batch run with a
+          threshold set writes <C>threshold_applied</C> on every row, so six months later &ldquo;why
+          was this one declined&rdquo; is answerable from the row rather than from whatever the
+          setting happens to be by then.
+        </li>
+      </UL>
+      <H3 id="threshold-retrain">A retrain does not carry the line forward</H3>
+      <P>
+        Because the threshold lives on the version, a new version arrives without one and decides by{" "}
+        <C>argmax</C> again. That is deliberate: a line only means the same thing across two
+        versions whose probabilities mean the same thing, and copying it forward silently would be
+        the platform making a business decision on your behalf.
+      </P>
+      <P>
+        It is also the sort of change nobody notices until approval volume shifts, so it is not left
+        silent either. When the production version has no line and an earlier version of the same
+        model did, the panel says so — naming the version and the value, with a button to draw it
+        there again. Scheduled retraining with <strong>promote when better</strong> is exactly the
+        case this is for.
+      </P>
+      <P>
+        Multiclass models get no threshold and no sweep: there is no single line to draw, so each
+        prediction is simply whichever class scores highest. Regression and forecasting have none
+        either.
+      </P>
+
       <H2 id="fairness">How groups are treated</H2>
       <P>
         Two questions, and each hides the other. <strong>Selection rate</strong> asks how often each
@@ -1041,6 +1179,11 @@ curl -X POST https://your-instance/api/ml/predict/batch \\
             "Model-quality monitoring jobs",
           ],
           [
+            "Calibration and thresholds",
+            "Reliability curve and Brier/ECE per version; calibration kept only when both improve; measured threshold sweep, set per version without retraining",
+            "Calibration in SageMaker Clarify; thresholds set in application code",
+          ],
+          [
             "Explainability",
             "Global permutation importance at training, plus per-row contributions by ablation against a typical row. Not Shapley values",
             "SHAP per prediction, Clarify",
@@ -1105,16 +1248,14 @@ curl -X POST https://your-instance/api/ml/predict/batch \\
       />
       <P>
         Everything in the left column is shipped and tested. What is left, in the order it is
-        usually asked for: <strong>probability calibration and a decision threshold</strong> (a
-        classifier reports the score its algorithm produces and decides by <C>argmax</C>, so a
-        displayed confidence ranks well but is not a calibrated probability, and a cost-asymmetric
-        decision has no operating point to set); <strong>cross-validation</strong> (one stratified
-        holdout both picks the model and sets the baseline a decay alert compares against);{" "}
-        <strong>reason codes on every scored row</strong> (an explanation is available for a row you
-        ask about, not written beside every decision in a batch);{" "}
-        <strong>training one model across machines</strong> (the search spreads over sandboxes, but
-        a single fit still happens in one container); and <strong>serving at scale</strong> (one
-        warm endpoint, one replica, no autoscaling and no canary or shadow traffic).
+        usually asked for: <strong>cross-validation</strong> (one stratified holdout both picks the
+        model and sets the baseline a decay alert compares against, and there is no{" "}
+        <C>TimeSeriesSplit</C> for temporal data); <strong>reason codes on every scored row</strong>{" "}
+        (an explanation is available for a row you ask about, not written beside every decision in a
+        batch); <strong>training one model across machines</strong> (the search spreads over
+        sandboxes, but a single fit still happens in one container); and{" "}
+        <strong>serving at scale</strong> (one warm endpoint, one replica, no autoscaling and no
+        canary or shadow traffic).
       </P>
 
       <H2 id="use-cases">Use cases</H2>

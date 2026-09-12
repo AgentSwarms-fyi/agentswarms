@@ -5037,6 +5037,7 @@ export type Database = {
           artifact_uri: string | null;
           config: Json;
           created_at: string;
+          decision_threshold: number | null;
           decision_id: string | null;
           external: boolean;
           feature_importance: Json;
@@ -5047,6 +5048,7 @@ export type Database = {
           leaderboard: Json;
           metrics: Json;
           model_id: string;
+          positive_label: string | null;
           stage: string;
           status: string;
           trained_at: string | null;
@@ -5065,6 +5067,7 @@ export type Database = {
           artifact_uri?: string | null;
           config?: Json;
           created_at?: string;
+          decision_threshold?: number | null;
           decision_id?: string | null;
           external?: boolean;
           feature_importance?: Json;
@@ -5093,6 +5096,7 @@ export type Database = {
           artifact_uri?: string | null;
           config?: Json;
           created_at?: string;
+          decision_threshold?: number | null;
           decision_id?: string | null;
           external?: boolean;
           feature_importance?: Json;
@@ -5103,6 +5107,7 @@ export type Database = {
           leaderboard?: Json;
           metrics?: Json;
           model_id?: string;
+          positive_label?: string | null;
           stage?: string;
           status?: string;
           trained_at?: string | null;
@@ -5170,6 +5175,7 @@ export type Database = {
           id?: string;
           lowest_group?: string | null;
           model_id?: string;
+          positive_label?: string | null;
           narrative?: string | null;
           prediction_id?: string;
           user_id?: string;

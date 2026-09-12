@@ -79,6 +79,7 @@ import {
   relTime,
 } from "@/components/ml/mlUi";
 import { AccuracyPanel } from "@/components/ml/AccuracyPanel";
+import { CalibrationPanel } from "@/components/ml/CalibrationPanel";
 import { FairnessPanel } from "@/components/ml/FairnessPanel";
 import { PromotionGate } from "@/components/ml/PromotionGate";
 import { PredictionsPanel } from "@/components/ml/PredictionsPanel";
@@ -625,6 +626,11 @@ function ModelPage() {
             them is how a drift badge gets mistaken for an accuracy report. */}
         <TabsContent value="accuracy" className="mt-4 space-y-6">
           <AccuracyPanel token={token} modelId={model.id} task={model.task} shared={shared} />
+          {/* Between the two: both of the questions around it assume the
+              confidence number is a probability, and for a tree ensemble it
+              usually is not. Asking that here is what makes the answers above
+              and below mean what they appear to mean. */}
+          <CalibrationPanel token={token} modelId={model.id} task={model.task} shared={shared} />
           {/* Beneath, not beside: "is it right" is the question people ask
               first, and "is it right for everyone" is the one they forget. */}
           <FairnessPanel token={token} modelId={model.id} task={model.task} shared={shared} />

@@ -455,6 +455,148 @@ def _full_metrics(task, model, Xva, yva, classes):
     return {k: (v if isinstance(v, dict) else _safe_float(v)) for k, v in out.items()}
 
 
+def _reliability(y_true, p_pos, bins=10):
+    # How often something the model called 70% likely actually happened.
+    #
+    # Equal-width bins over the predicted probability, each reporting what the
+    # model said and what the world did. The gap between those two columns IS
+    # the calibration error, and showing both is what lets a reader see that
+    # rather than take a single number on trust.
+    import numpy as np
+    edges = np.linspace(0.0, 1.0, bins + 1)
+    out = []
+    ece = 0.0
+    n = len(y_true)
+    for k in range(bins):
+        lo, hi = edges[k], edges[k + 1]
+        m = (p_pos >= lo) & (p_pos < hi if k < bins - 1 else p_pos <= hi)
+        c = int(m.sum())
+        if c == 0:
+            continue
+        said = float(np.mean(p_pos[m]))
+        happened = float(np.mean(y_true[m]))
+        out.append({'from': float(lo), 'to': float(hi), 'n': c,
+                    'predicted': round(said, 4), 'observed': round(happened, 4)})
+        ece += (c / max(1, n)) * abs(said - happened)
+    return out, float(ece)
+
+
+def _calibration_scores(model, Xva, yva, classes):
+    # Brier and expected calibration error on the holdout, plus the curve.
+    #
+    # Brier is the mean squared error of the probabilities themselves, so it
+    # moves when a model is confidently wrong in a way accuracy never sees.
+    import numpy as np
+    if not hasattr(model, 'predict_proba') or not classes:
+        return None
+    proba = model.predict_proba(Xva)
+    y = np.asarray(yva)
+    k = len(classes)
+    onehot = np.zeros((len(y), k), dtype='float64')
+    onehot[np.arange(len(y)), y.astype(int)] = 1.0
+    brier = float(np.mean(np.sum((proba - onehot) ** 2, axis=1)))
+    if k == 2:
+        curve, ece = _reliability((y == 1).astype(float), proba[:, 1])
+    else:
+        # One curve over the CONFIDENCE of whatever was predicted, which is the
+        # quantity a reader sees in the interface.
+        conf = np.max(proba, axis=1)
+        hit = (np.argmax(proba, axis=1) == y.astype(int)).astype(float)
+        curve, ece = _reliability(hit, conf)
+    return {'brier': round(brier, 6), 'calibration_error': round(ece, 6), 'curve': curve}
+
+
+def _calibrate(best, Xtr, ytr, Xva, yva, classes, warnings_):
+    # Turn a ranking score into a probability, and KEEP IT ONLY IF IT HELPED.
+    #
+    # Tree ensembles are systematically over-confident: a forest that votes 9-1
+    # reports 0.9 whatever the real frequency is. The interface has always
+    # printed that number next to the word "confidence", so somebody setting a
+    # business rule at 80% was reading a rank, not a probability.
+    #
+    # Isotonic needs data to fit its step function and overfits badly without
+    # it; Platt scaling is one parameter and holds up on small samples. The
+    # crossover in sklearn's own guidance is around a thousand rows.
+    #
+    # AND IT IS CHECKED. Calibration can make things worse — on a small or
+    # skewed holdout it regularly does — so the calibrated model is scored on
+    # the same holdout and kept only when the Brier score improves. A step that
+    # cannot fail is a step nobody can trust.
+    from sklearn.calibration import CalibratedClassifierCV
+    if not classes or not hasattr(best, 'predict_proba'):
+        return best, None
+    before = _calibration_scores(best, Xva, yva, classes)
+    if before is None:
+        return best, None
+    method = 'isotonic' if len(Xtr) >= 1000 else 'sigmoid'
+    try:
+        cal = CalibratedClassifierCV(best, method=method, cv=3)
+        cal.fit(Xtr, ytr)
+    except Exception as e:
+        warnings_.append('Probabilities left uncalibrated: ' + str(e)[:160])
+        return best, {'calibrated': False, 'method': None, 'before': before, 'after': None}
+    after = _calibration_scores(cal, Xva, yva, classes)
+    # BOTH have to improve, and that rule came out of running this.
+    #
+    # Brier is a proper scoring rule, but it is calibration AND sharpness added
+    # together, so a model can win on Brier by getting more confident while
+    # drifting further from the truth. A 90-row probe did exactly that: Brier
+    # 0.1701 -> 0.1572 while the calibration error went 0.1917 -> 0.2220. Kept
+    # on Brier alone, that would have shipped a model whose probabilities were
+    # WORSE at the one job this step exists to do, under a metric that said it
+    # had improved.
+    if after is None or after['brier'] >= before['brier'] or (
+            after['calibration_error'] > before['calibration_error']):
+        why = 'the Brier score' if (after is None or after['brier'] >= before['brier']) \
+            else 'the calibration error'
+        warnings_.append(
+            'Calibration did not improve %s (Brier %.4f against %.4f, calibration error %.4f '
+            'against %.4f), so the uncalibrated model was kept.' % (
+                why, (after or before)['brier'], before['brier'],
+                (after or before)['calibration_error'], before['calibration_error']))
+        return best, {'calibrated': False, 'method': method, 'before': before, 'after': after}
+    _log('calibrated with %s: Brier %.4f -> %.4f, ECE %.4f -> %.4f' % (
+        method, before['brier'], after['brier'], before['calibration_error'], after['calibration_error']))
+    return cal, {'calibrated': True, 'method': method, 'before': before, 'after': after}
+
+
+def _threshold_sweep(model, Xva, yva, classes):
+    # What the decision would cost at every operating point.
+    #
+    # A classifier here decides by argmax, which is a threshold of 0.5 nobody
+    # chose. That is the right default and the wrong one for most real
+    # decisions: catching fraud and approving a loan are not symmetric, and the
+    # person who knows the ratio is the operator, not the trainer.
+    #
+    # So the sweep is MEASURED and reported, and the choice is left to them.
+    import numpy as np
+    from sklearn import metrics as M
+    if not classes or len(classes) != 2 or not hasattr(model, 'predict_proba'):
+        return None
+    p = model.predict_proba(Xva)[:, 1]
+    y = (np.asarray(yva).astype(int) == 1).astype(int)
+    rows = []
+    for raw_t in np.arange(0.05, 0.96, 0.05):
+        # MEASURE AT THE VALUE WE REPORT. np.arange lands on 0.7000000000000001
+        # rather than 0.7, and rounding only the reported number meant the row
+        # labelled 0.70 was measured at a hair above it. Two holdout rows sat at
+        # exactly 42/60 votes, so the table promised 30 rows while _predict —
+        # which compares against the stored 0.70 exactly — would have acted on
+        # 32. A table that does not describe what production will do is worse
+        # than no table.
+        t = round(float(raw_t), 2)
+        pred = (p >= t).astype(int)
+        rows.append({
+            'threshold': t,
+            'precision': round(float(M.precision_score(y, pred, zero_division=0)), 4),
+            'recall': round(float(M.recall_score(y, pred, zero_division=0)), 4),
+            'f1': round(float(M.f1_score(y, pred, zero_division=0)), 4),
+            'selected': int(pred.sum()),
+        })
+    best = max(rows, key=lambda r: r['f1'])
+    return {'positive_label': str(classes[1]), 'rows': rows, 'best_f1_threshold': best['threshold']}
+
+
 def _importance(model, Xva, yva, task, dt_cols):
     import numpy as np
     from sklearn.inspection import permutation_importance
@@ -642,8 +784,20 @@ def _train_tabular(df, cfg, warnings_):
             tuning_info['best_params'] = params
     leaderboard.sort(key=lambda r: (r['status'] != 'ok', -(r['value'] or -1e18) if higher else (r['value'] if r['value'] is not None else 1e18)))
 
+    # Calibrate BEFORE measuring, so every metric on the version describes the
+    # model that is actually saved rather than the one that was selected.
+    calibration = None
+    if task == 'classification':
+        best, calibration = _calibrate(best, Xtr, ytr, Xva, yva, classes or [], warnings_)
     metrics = _full_metrics(task, best, Xva, yva, classes or [])
     metrics['tuning_trials'] = float(tuning_info['trials'])
+    if calibration:
+        metrics['calibrated'] = bool(calibration['calibrated'])
+        metrics['calibration_method'] = calibration['method']
+        metrics['calibration'] = calibration
+    sweep = _threshold_sweep(best, Xva, yva, classes or []) if task == 'classification' else None
+    if sweep:
+        metrics['threshold_sweep'] = sweep
     if task != 'classification' and metrics.get('r2') is not None and metrics['r2'] <= 0.05:
         warnings_.append('The model explains only %.0f%% of the variation in %s (R2 %.3f): predicting the mean would do about as well. The features carry little signal for this target.' % (max(0.0, metrics['r2']) * 100, target, metrics['r2']))
     try:
@@ -1458,7 +1612,28 @@ def _predict(cfg, warnings_):
         out['prediction'] = [_label(i) for i in pred]
         if hasattr(pipe, 'predict_proba'):
             proba = pipe.predict_proba(X)
-            out['probability'] = np.max(proba, axis=1)
+            # A chosen operating point, for a binary model whose owner set one.
+            #
+            # argmax is a threshold of 0.5 nobody picked, and it is the wrong
+            # one wherever the two mistakes cost different amounts. The line
+            # lives on the VERSION rather than in this artifact, so moving it
+            # is a setting rather than a retrain — which is why it arrives in
+            # the config and is applied here instead of being baked in.
+            thr = cfg.get('decision_threshold')
+            if thr is not None and len(classes) == 2:
+                want = cfg.get('positive_label')
+                names = [str(c) for c in classes]
+                pos = names.index(str(want)) if str(want) in names else 1
+                hit = proba[:, pos] >= float(thr)
+                other = 1 - pos
+                out['prediction'] = [names[pos] if h else names[other] for h in hit]
+                # The probability shown stays the probability OF THE ANSWER, so
+                # a row declined at 0.45 does not report 0.55 confidence in a
+                # decision nobody made.
+                out['probability'] = np.where(hit, proba[:, pos], proba[:, other])
+                out['threshold_applied'] = float(thr)
+            else:
+                out['probability'] = np.max(proba, axis=1)
             if len(classes) <= 20:
                 for j, c in enumerate(classes):
                     out['proba_' + _re.sub(r'[^0-9A-Za-z_]+', '_', str(c))[:40]] = proba[:, j]

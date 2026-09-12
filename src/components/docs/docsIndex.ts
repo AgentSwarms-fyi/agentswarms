@@ -2490,6 +2490,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "404",
       "409",
       "429",
+      "CalibratedClassifierCV",
       "LimitRange",
       "ML_API_RATE_LIMIT_PER_MIN",
       "ML_ARTIFACT_MAX_MB",
@@ -2511,6 +2512,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "ResourceQuota",
       "SELECT",
       "SUMMARIZE",
+      "TimeSeriesSplit",
       "WHERE",
       "_model_version",
       "_predict",
@@ -2519,6 +2521,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "argmax",
       "artifact_sha256",
       "artifact_uri",
+      "churned",
       "classes",
       "f1_macro",
       "features",
@@ -2538,6 +2541,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "ml.predict_query",
       "ml.schedule.failed",
       "ml.schedule.run",
+      "ml.threshold.set",
       "ml.train.start",
       "ml.train.succeeded",
       "ml.version.promote",
@@ -2556,11 +2560,13 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "proba_&lt;class&gt;",
       "probability",
       "read",
+      "retained",
       "rmse",
       "served",
       "start_run",
       "start_run()",
       "task",
+      "threshold_applied",
       "train",
       "unique"
     ],
@@ -2664,6 +2670,36 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "id": "ground-truth",
         "text": "Was it right?",
         "level": 2
+      },
+      {
+        "id": "calibration",
+        "text": "Is 0.8 really 80%?",
+        "level": 2
+      },
+      {
+        "id": "reliability",
+        "text": "The reliability curve",
+        "level": 3
+      },
+      {
+        "id": "calibration-trainer",
+        "text": "What the trainer does about it",
+        "level": 3
+      },
+      {
+        "id": "threshold",
+        "text": "Where the line is drawn",
+        "level": 2
+      },
+      {
+        "id": "threshold-setting",
+        "text": "A setting, not a retrain",
+        "level": 3
+      },
+      {
+        "id": "threshold-retrain",
+        "text": "A retrain does not carry the line forward",
+        "level": 3
       },
       {
         "id": "fairness",
