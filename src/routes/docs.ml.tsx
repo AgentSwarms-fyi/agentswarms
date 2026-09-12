@@ -1148,8 +1148,9 @@ curl -X POST https://your-instance/api/ml/predict/batch \\
         and digest-checks the artifact, scores, posts the answer back and exits — about{" "}
         <strong>twenty seconds before any scoring happens</strong>. That is the right shape for a
         batch job over a million rows and the wrong one for scoring a row behind a web request. A{" "}
-        <strong>deployment</strong> holds one version in memory and answers over HTTP instead, from{" "}
-        <strong>Automation → Warm endpoint</strong> on the model page.
+        <strong>deployment</strong> holds the version it serves in memory and answers over HTTP
+        instead, from <strong>Automation → Warm endpoint</strong> on the model page. While a
+        candidate is being shadowed or run as a canary it holds that one too.
       </P>
       <UL>
         <li>
@@ -1535,7 +1536,7 @@ curl -X POST https://your-instance/api/ml/predict/batch \\
           ],
           [
             "Real-time inference",
-            "Warm endpoints hold one version in memory: 45 ms of scoring instead of a ~25 s container start; several copies per endpoint, scaled on measured load",
+            "Warm endpoints hold the served version in memory: 45 ms of scoring instead of a ~25 s container start; several copies per endpoint, scaled on measured load, plus a candidate's copy while one is being tried",
             "Serving endpoints with autoscaling",
           ],
           [
