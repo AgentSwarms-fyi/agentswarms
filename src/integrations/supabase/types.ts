@@ -8104,6 +8104,10 @@ export type Database = {
         Returns: string;
       };
       concurrency_release: { Args: { _id: string }; Returns: undefined };
+      accessible_lakehouse_schemas: {
+        Args: { uid: string };
+        Returns: Database["public"]["Tables"]["lakehouse_schemas"]["Row"][];
+      };
       has_resource_access: {
         Args: { rid: string; rtype: string; uid: string };
         Returns: boolean;

@@ -426,6 +426,67 @@ describe("write-conflict retry", () => {
   });
 });
 
+describe("who may read which schema", () => {
+  // This check runs ahead of EVERY governed statement, so its cost is paid by
+  // every dashboard, agent query and feature lookup in the product — and the
+  // database is usually not local.
+  const core = read("src/utils/lakehouse/core.server.ts");
+  const migration = read("supabase/migrations/20260917000000_accessible_schemas_batch.sql");
+  /**
+   * The migration with its `--` comments stripped.
+   *
+   * Because a guard that reads the prose above the code is not reading the
+   * code: a mutation pass removed SECURITY DEFINER from the function and the
+   * assertion still passed, satisfied by a comment that happens to explain why
+   * SECURITY DEFINER is there.
+   */
+  const sqlCode = migration.replace(/^\s*--.*$/gm, "");
+
+  it("is decided in one round trip, not one per foreign schema", () => {
+    // It used to read every schema and then ask about each one it did not own,
+    // sequentially, in the application. Measured against the real database:
+    // 107 ms at no foreign schemas, 327 at two, 676 at five and 2,485 at
+    // twenty — a cliff, invisible to anyone who owns all their own schemas.
+    const fn = core.slice(core.indexOf("export async function accessibleSchemas"));
+    const body = fn.slice(0, fn.indexOf("\n}"));
+    expect(body).toContain('supabaseAdmin.rpc("accessible_lakehouse_schemas", { uid: userId })');
+    expect(body).not.toMatch(/for \(/);
+    expect(body).not.toContain("has_resource_access");
+  });
+
+  it("and the grant rule itself was not copied out of has_resource_access", () => {
+    // THE REASON THE REWRITE IS SAFE. Restating the predicate as a join would
+    // have created a second definition of who may read what, and the two would
+    // diverge on the first change to grants — silently, in the permissive
+    // direction. Calling the same function per row inside one statement makes
+    // the user, group and no-grant paths equivalent by construction, which
+    // matters because a deployment with one account cannot exercise the group
+    // path at all.
+    expect(sqlCode).toContain("public.has_resource_access('lakehouse_schema', s.id, uid)");
+    expect(sqlCode).not.toMatch(/iam_resource_grants/);
+    expect(sqlCode).not.toMatch(/iam_group_members/);
+  });
+
+  it("and a function that answers about anybody is reachable only by the service role", () => {
+    // It takes a uid ARGUMENT and is SECURITY DEFINER, so left executable by
+    // `authenticated` it would let any signed-in user enumerate another
+    // user's schemas.
+    expect(sqlCode).toContain("SECURITY DEFINER");
+    for (const role of ["PUBLIC", "anon", "authenticated"]) {
+      expect(sqlCode, `still executable by ${role}`).toContain(
+        `REVOKE ALL ON FUNCTION public.accessible_lakehouse_schemas(uuid) FROM ${role};`,
+      );
+    }
+    expect(sqlCode).toContain(
+      "GRANT EXECUTE ON FUNCTION public.accessible_lakehouse_schemas(uuid) TO service_role;",
+    );
+  });
+
+  it("still returns them in one order, so callers may rely on it", () => {
+    expect(sqlCode).toContain("ORDER BY s.name");
+  });
+});
+
 describe("row and column security", () => {
   const policy = {
     id: "p1",

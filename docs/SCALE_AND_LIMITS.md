@@ -305,6 +305,15 @@ Postgres (traces, audit, KB vectors); see
 work takes a cross-instance database lease, and `DISABLE_INPROCESS_SCHEDULER`
 pins scheduling to one node. Remember that pool and rate limits are per process.
 
+**Where a governed query's first milliseconds go:** every lakehouse statement
+resolves which schemas the caller may read before it runs anything, and that is
+a query against the application database — one round trip, measured at 85 ms
+from inside the app container against a hosted Supabase. It is paid whether the
+statement touches eight hundred rows or eight million, which is why a trivial
+query never finishes faster than that floor. A deployment that cares about the
+floor should look at where its application database is before anything else on
+this page: the number above is network, not work.
+
 ### Machine learning — `src/utils/notebookRuntime/config.server.ts`
 
 Training and batch prediction run inside batch sandboxes of the notebook

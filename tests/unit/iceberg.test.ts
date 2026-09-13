@@ -176,9 +176,18 @@ describe("the wiring", () => {
     expect(core).toContain("INSTALL iceberg;");
     expect(core).toContain("LOAD iceberg;");
     expect(core).toContain("m.ensureIcebergCatalogs(c)");
-    expect(core).toContain(
-      '.select("id, name, user_id, description, lake_source_id, iceberg_catalog_id, iceberg_namespace")',
-    );
+    // THE BOOT ATTACH NEEDS THE MOUNT FIELDS ON EVERY SCHEMA ROW. This used to
+    // be pinned as a literal SELECT list, which was the right worry expressed
+    // the wrong way: the hazard was a column dropped from that list, mounting
+    // nothing and saying nothing. `accessible_lakehouse_schemas` returns SETOF
+    // lakehouse_schemas — whole rows — so there is no list left to forget from,
+    // and what is checked now is that the fields are declared and that no
+    // column list has crept back in.
+    expect(core).toContain('supabaseAdmin.rpc("accessible_lakehouse_schemas"');
+    expect(core).toContain("iceberg_catalog_id?: string | null;");
+    expect(core).toContain("iceberg_namespace?: string | null;");
+    const fn = core.slice(core.indexOf("export async function accessibleSchemas"));
+    expect(fn.slice(0, fn.indexOf("\n}"))).not.toContain(".select(");
     // A user statement may name no catalog but the lakehouse's own.
     expect(core).toContain('if (ref.catalog && ref.catalog !== "lake") {');
     const server = rd("src/utils/lakehouse/iceberg.server.ts");
