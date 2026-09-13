@@ -112,9 +112,39 @@ export function validateKeys(
   return null;
 }
 
-/** A key rendered the one way, so a lookup and its result agree on identity. */
+/**
+ * A key rendered the one way, so a lookup and its result agree on identity.
+ *
+ * JSON rather than `col=value|col=value`, and that is a correctness fix rather
+ * than a style choice: THE JOINED FORM IS NOT INJECTIVE. `{a: "x|b=y", b: ""}`
+ * and `{a: "x", b: "y|b="}` both render as `a=x|b=y|b=`, so two different
+ * entities share one identity — and since this is what matches a returned row
+ * back to the key that asked for it, the second key is answered with the FIRST
+ * key's features. A value carrying a separator is not exotic: composite ids,
+ * URLs and query strings all do. Demonstrated with those exact values in
+ * tests/unit/featureViews.test.ts.
+ *
+ * Values go through String() deliberately. A key arrives from JSON as the
+ * number 1 and comes back from the engine as a BIGINT, and those have to be
+ * the same entity; the array is what carries identity, and the column names
+ * are fixed by the view so they need no encoding of their own.
+ *
+ * Never shown to anybody — `keyLabel` is what a message uses.
+ */
 export function keyFingerprint(view: Pick<FeatureView, "key_columns">, key: FeatureKey): string {
-  return view.key_columns.map((c) => `${c}=${String(key[c])}`).join("|");
+  return JSON.stringify(view.key_columns.map((c) => String(key[c])));
+}
+
+/**
+ * The same key as a person reads it: `customer_id=c-1`.
+ *
+ * For messages and for the API's `keys_not_found`, never for matching. Two
+ * keys CAN share a label — that is exactly the ambiguity the fingerprint above
+ * exists to avoid — and a label is allowed to be ambiguous because nothing is
+ * decided by it.
+ */
+export function keyLabel(view: Pick<FeatureView, "key_columns">, key: FeatureKey): string {
+  return view.key_columns.map((c) => `${c}=${String(key[c])}`).join(", ");
 }
 
 /**
@@ -134,6 +164,87 @@ export function keyFingerprint(view: Pick<FeatureView, "key_columns">, key: Feat
  * With a timestamp column the newest row per key wins, resolved by a window
  * function rather than by reading everything and picking in JavaScript.
  */
+/**
+ * The feature columns a view actually serves.
+ *
+ * `feature_columns: []` is documented on the table as "every column that is
+ * not a key", and NOTHING IMPLEMENTED IT. `lookupSql` selects
+ * `[...key_columns, ...feature_columns]`, so an empty list made that list the
+ * key alone: a view saved with the panel's default served a model the one
+ * column it was looked up BY and no features whatsoever. Seen live — a lookup
+ * of `order_id=1000` came back as `order_id | 1000` — on a view a trained
+ * model was already bound to. Worse than the training/serving skew this whole
+ * component exists to remove, because the model gets nothing at all.
+ *
+ * Resolved from the table's columns and then STORED, rather than expanded on
+ * every read. That keeps the promise lookupSql is built around — a column
+ * added to the table later must not silently become a feature nobody trained
+ * on — and it keeps the read path free of a round trip whose whole job is to
+ * ask a question the view could have answered when it was saved.
+ */
+export function effectiveFeatureColumns(
+  view: Pick<FeatureView, "key_columns" | "feature_columns">,
+  tableColumns: string[],
+): string[] {
+  if (view.feature_columns.length > 0) return view.feature_columns;
+  const keys = new Set(view.key_columns);
+  return tableColumns.filter((c) => !keys.has(c));
+}
+
+/**
+ * The SELECT a refresh reads, one page at a time.
+ *
+ * KEYSET pagination ordered by the key columns, never LIMIT/OFFSET. Without an
+ * ORDER BY there is no promised order and the engine parallelises a scan, so
+ * two pages can overlap on some rows and miss others — the same unsoundness
+ * that made a distributed fit read the wrong rows. Ordering by the key is
+ * available here precisely because the key is what the store is built around,
+ * and a row comparison `(a, b) > (a0, b0)` is the composite form of it.
+ *
+ * With a timestamp column the latest row per key wins, by the same window
+ * function the single-key lookup uses. The keyset predicate prunes by KEY
+ * RANGE and the window partitions BY KEY, so a page boundary can never cut a
+ * partition in half and leave the wrong row winning.
+ */
+export function scanSql(view: FeatureView, after: FeatureKey | null, limit: number): string {
+  const cols = [...view.key_columns, ...view.feature_columns];
+  const selected = cols.map(qi).join(", ");
+  const order = view.key_columns.map(qi).join(", ");
+  const lit = (v: unknown) =>
+    typeof v === "number" || typeof v === "boolean" ? String(v) : ql(String(v));
+  const after_ =
+    after === null
+      ? ""
+      : `WHERE (${order}) > (${view.key_columns.map((c) => lit(after[c])).join(", ")})`;
+
+  // ONE ROW PER KEY, AND THE SIZE OF THE GROUP IT CAME FROM.
+  //
+  // The count is not decoration. A first version paged straight over the rows
+  // when the view had no timestamp, and DuckDB showed what that costs: of 500
+  // rows under 91 keys, paging returned 442 and repeated some, because taking
+  // the last row of a page and then asking for keys GREATER than it drops the
+  // other rows sharing that key. Silently — the store would simply have been
+  // short, and a lookup would have fallen back and looked fine.
+  //
+  // The deeper problem is that a view with no timestamp DECLARES its key to be
+  // unique, and paging by key made a broken table invisible: whichever row the
+  // scan happened to see became the answer, which is the "quietly picks one of
+  // two rows" this file's header refuses to do. So the partition size travels
+  // with the row and the refresh refuses a view whose key is not unique.
+  //
+  // With a timestamp the count is expected to exceed one and the newest row
+  // wins, exactly as the single-key lookup resolves it.
+  const within = view.timestamp_column ? ` ORDER BY ${qi(view.timestamp_column)} DESC` : "";
+  return (
+    `SELECT ${selected}, _fv_n FROM (` +
+    `SELECT ${selected}, ` +
+    `row_number() OVER (PARTITION BY ${order}${within}) AS _fv_rn, ` +
+    `count(*) OVER (PARTITION BY ${order}) AS _fv_n ` +
+    `FROM ${viewTable(view)} ${after_}` +
+    `) WHERE _fv_rn = 1 ORDER BY ${order} LIMIT ${limit}`
+  );
+}
+
 export function lookupSql(
   view: FeatureView,
   keys: FeatureKey[],
@@ -175,7 +286,7 @@ export function lookupSql(
 export type Resolution = {
   /** One row per key that matched, keyed the same way the request was. */
   rows: Record<string, unknown>[];
-  /** Keys that matched nothing, as fingerprints. */
+  /** Keys that matched nothing, as LABELS — these reach the caller's API. */
   missing: string[];
   /** Keys that matched more than one row, when the view has no timestamp. */
   duplicated: string[];
@@ -202,9 +313,11 @@ export function resolveRows(
   for (const key of keys) {
     const print = keyFingerprint(view, key);
     const matched = byPrint.get(print) ?? [];
-    if (matched.length === 0) out.missing.push(print);
+    // Matched by fingerprint, REPORTED by label: identity has to be exact and
+    // a message has to be readable, and those are not the same string.
+    if (matched.length === 0) out.missing.push(keyLabel(view, key));
     else {
-      if (matched.length > 1 && !view.timestamp_column) out.duplicated.push(print);
+      if (matched.length > 1 && !view.timestamp_column) out.duplicated.push(keyLabel(view, key));
       out.rows.push(matched[0]);
     }
   }

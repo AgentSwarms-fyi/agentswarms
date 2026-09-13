@@ -1116,6 +1116,78 @@ curl -X POST https://your-instance/api/ml/predict/batch \\
         memorise identifiers, which scores beautifully in training and predicts nothing.
       </Callout>
 
+      <H3 id="online-store">Serving them in milliseconds</H3>
+      <P>
+        A feature lookup reads the lakehouse, and the lakehouse is an analytics engine. Measured
+        across 300 audited statements on a laptop deployment,{" "}
+        <strong>none finished in under 127 ms</strong> and the median was 336 ms — before reading a
+        single row. The cost is not the scan; it is the access check in front of every statement,
+        which is a round trip to the application database, and it is paid whether the query touches
+        eight hundred rows or eight million. Fair for a dashboard. Poor for a prediction asking for
+        one customer&apos;s six numbers, which pays it every time.
+      </P>
+      <P>
+        The <strong>online feature store</strong> keeps a view&apos;s latest row per key one hop
+        away. Turn it on per view with <strong>Serve online</strong>, then <strong>Refresh</strong>{" "}
+        to fill it — the refresh reads the table through the same governed path as everything else,
+        so the owner&apos;s access, the row-level policies and the audit row all still apply.
+      </P>
+      <Table
+        headers={["The lookup itself", "Measured"]}
+        rows={[
+          ["Lakehouse lookup", "127 ms at best, 336 ms median"],
+          ["Online store, one key", "2 ms"],
+          ["Online store, 200 keys", "5 ms, in one call"],
+        ]}
+      />
+      <P>
+        End to end, the same <strong>Look up</strong> against the same key went from{" "}
+        <strong>439 ms to 252 ms</strong>. The lookup is the part that collapses; the remainder is
+        the request&apos;s own work — checking who is calling, loading the view — which this does
+        not touch and which is now the larger half. Quoting the 2 ms as the whole request would be a
+        measurement of the component sold as a measurement of the system.
+      </P>
+      <Callout title="Nothing in it is a source of truth">
+        A missing key, a stale store, a server that does not answer, a view edited since its last
+        refresh — every one of them falls back to reading the lakehouse and answers exactly as it
+        did before the store existed. Slower, never different. That is also why there is no volume
+        and no restore path: everything in it is a copy of rows the lake already holds, and a cache
+        restored to a state the lake never had would be worse than an empty one.
+      </Callout>
+      <UL>
+        <li>
+          <strong>It refuses a view whose key is not unique.</strong> A view with no timestamp
+          column declares its key unique. If the refresh finds two rows sharing one it stops and
+          names the key, rather than storing whichever it happened to see first.
+        </li>
+        <li>
+          <strong>It refuses rows from a view that changed.</strong> The store records the
+          view&apos;s table, keys, features and timestamp column, and compares them on every read.
+          Edit the view and its stored rows are the old shape, so they are ignored until a refresh
+          replaces them.
+        </li>
+        <li>
+          <strong>It says what it actually holds.</strong> A store bounded by{" "}
+          <C>FEATURE_STORE_MAX_KEYS</C> or by its own memory holds part of a view, which is correct
+          — the rest is read from the lakehouse — and the panel says how much.
+        </li>
+        <li>
+          <strong>Staleness is a setting.</strong> <C>FEATURE_STORE_STALE_MINUTES</C> (60 by
+          default, overridable per view) is how old the rows may be before lookups stop trusting
+          them. A table rebuilt nightly and one rebuilt every five minutes do not want the same
+          number.
+        </li>
+      </UL>
+      <P>
+        The panel reports where lookups are <strong>actually</strong> answered from rather than what
+        the switch is set to: a view that is on but stale is being served from the lakehouse, and
+        that is the moment the difference matters. Start one with{" "}
+        <C>docker compose --profile featurestore up -d</C> and point <C>FEATURE_STORE_URL</C> at it.
+        It is valkey rather than Redis for a licensing reason — Redis moved to RSALv2/SSPL, which
+        this project cannot ship in its own stack — and the protocol is the same, so that variable
+        may name a Redis you already run.
+      </P>
+
       <H3 id="point-in-time">Point-in-time training sets</H3>
       <P>
         Serving asks what an entity&apos;s features are <strong>now</strong>. Training has to ask
@@ -1663,7 +1735,7 @@ curl -X POST https://your-instance/api/ml/predict/batch \\
           ],
           [
             "Feature store",
-            "Feature views: score by key, read from the table training read; describes rather than materialises",
+            "Feature views: score by key, read from the table training read, with an online store serving the latest row per key in ~2 ms",
             "Yes",
           ],
           [

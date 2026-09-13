@@ -50,15 +50,17 @@ for arg in "$@"; do
     --docker) MODE="docker" ;;
     --dev) MODE="dev" ;;
     --all)
-      DOCGEN=1; SANDBOX=1; NOTEBOOKS=1; LAKEHOUSE=1; SPARK=1; VECTORS=1
+      DOCGEN=1; SANDBOX=1; NOTEBOOKS=1; LAKEHOUSE=1; SPARK=1; VECTORS=1; FEATURESTORE=1
       add_profile docgen; add_profile notebooks; add_profile sandbox
-      add_profile lakehouse; add_profile spark; add_profile vectors ;;
+      add_profile lakehouse; add_profile spark; add_profile vectors
+      add_profile featurestore ;;
     --docgen) DOCGEN=1; add_profile docgen ;;
     --notebooks) NOTEBOOKS=1; add_profile notebooks ;;
     --sandbox) SANDBOX=1; add_profile sandbox ;;
     --lakehouse) LAKEHOUSE=1; add_profile lakehouse ;;
     --spark) SPARK=1; add_profile spark ;;
     --vectors) VECTORS=1; add_profile vectors ;;
+    --featurestore) FEATURESTORE=1; add_profile featurestore ;;
     --skip-migrations) SKIP_MIGRATIONS=1 ;;
     -h|--help) sed -n '2,21p' "$0"; exit 0 ;;
     *) echo "Unknown option: $arg (try --help)"; exit 1 ;;

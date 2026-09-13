@@ -291,6 +291,7 @@ describe("Pod Security Standards", () => {
       "Deployment/agentswarms-docgen",
       "Deployment/agentswarms-js-sandbox",
       "StatefulSet/lakehouse-catalog",
+      "Deployment/agentswarms-valkey",
       "StatefulSet/qdrant",
     ]);
   });

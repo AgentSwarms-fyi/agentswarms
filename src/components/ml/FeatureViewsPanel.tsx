@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
-import { History, KeyRound, Loader2, Plus, Trash2 } from "lucide-react";
+import { History, KeyRound, Loader2, Plus, RefreshCw, Trash2, Zap } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -20,7 +20,9 @@ import {
   featureViewBuildTrainingSet,
   featureViewDelete,
   featureViewPreview,
+  featureViewRefreshOnline,
   featureViewSave,
+  featureViewSetOnline,
   featureViewsList,
   mlModelSetFeatureView,
 } from "@/utils/featureViews.functions";
@@ -63,16 +65,127 @@ const empty: Draft = {
   timestamp_column: "",
 };
 
+/** What the list says about one view's online store. */
+type OnlineSummary = {
+  configured: boolean;
+  enabled: boolean;
+  meta: { refreshed_at: string; rows: number; source_rows: number | null; def: string } | null;
+  ageMinutes: number | null;
+  refusal: string | null;
+  note: string | null;
+  staleAfterMinutes: number;
+};
+
+/** "4 minutes ago", without importing a date library for one line. */
+function agoLabel(minutes: number): string {
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${Math.floor(minutes)} min ago`;
+  const hours = minutes / 60;
+  if (hours < 48) return `${Math.floor(hours)} h ago`;
+  return `${Math.floor(hours / 24)} d ago`;
+}
+
+/**
+ * Where this view's lookups are answered from, and the two controls that
+ * change it.
+ *
+ * The sentence states WHAT IS HAPPENING, not what was asked for. A view whose
+ * switch is on but whose rows are stale is being served from the lakehouse,
+ * and a panel that showed "online" there would be telling its owner the
+ * opposite of the truth at the only moment the distinction matters.
+ */
+function OnlineStrip({
+  view,
+  summary,
+  busy,
+  onToggle,
+  onRefresh,
+}: {
+  view: FeatureViewRow;
+  summary?: OnlineSummary;
+  busy: boolean;
+  onToggle: (enabled: boolean) => void;
+  onRefresh: () => void;
+}) {
+  if (!summary) return null;
+
+  // Not configured at all: say so once, and do not offer controls that cannot
+  // work. An operator has to start the service before any of this means
+  // anything, and the profile that does it is the useful thing to name.
+  if (!summary.configured) {
+    return (
+      <div className="rounded-md border border-dashed bg-muted/20 p-2 text-xs text-muted-foreground">
+        <Zap className="mr-1 inline h-3 w-3" />
+        Lookups read the lakehouse. For millisecond serving, start the online feature store (
+        <code className="font-mono">--profile online-store</code>) and set{" "}
+        <code className="font-mono">FEATURE_STORE_URL</code>.
+      </div>
+    );
+  }
+
+  const serving = summary.enabled && summary.refusal === null;
+  const detail = !summary.enabled
+    ? "Every lookup reads the lakehouse."
+    : summary.refusal === "unreachable"
+      ? "The store is not answering — lookups are reading the lakehouse."
+      : summary.refusal === "no-meta"
+        ? "Nothing stored yet — refresh to fill it."
+        : summary.refusal === "definition-changed"
+          ? "The view changed since its last refresh, so the stored rows are the old shape. Refresh to replace them."
+          : summary.refusal === "stale"
+            ? `Older than ${summary.staleAfterMinutes} min, so lookups are reading the lakehouse.`
+            : `Serving ${summary.meta ? summary.meta.rows.toLocaleString() : "0"} keys, refreshed ${
+                summary.ageMinutes === null ? "" : agoLabel(summary.ageMinutes)
+              }.`;
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/20 p-2">
+      <div className="flex items-center gap-2 text-xs">
+        <Badge
+          variant={serving ? "default" : "outline"}
+          className={cn("text-[10px]", serving && "bg-sky-600 hover:bg-sky-600")}
+        >
+          {serving ? "online" : "lakehouse"}
+        </Badge>
+        <span className="text-muted-foreground">{detail}</span>
+        {summary.note ? <span className="text-amber-600">{summary.note}</span> : null}
+      </div>
+      <div className="flex items-center gap-1">
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={busy || !summary.enabled}
+          onClick={onRefresh}
+          title="Copy this view's latest row per key into the store"
+        >
+          <RefreshCw className="mr-1 h-3.5 w-3.5" /> Refresh
+        </Button>
+        <Button
+          size="sm"
+          variant={summary.enabled ? "outline" : "default"}
+          disabled={busy}
+          onClick={() => onToggle(!summary.enabled)}
+        >
+          {summary.enabled ? "Serve from lakehouse" : "Serve online"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export function FeatureViewsPanel({ token }: { token: string }) {
   const listFn = useServerFn(featureViewsList);
   const saveFn = useServerFn(featureViewSave);
   const deleteFn = useServerFn(featureViewDelete);
   const previewFn = useServerFn(featureViewPreview);
   const buildFn = useServerFn(featureViewBuildTrainingSet);
+  const setOnlineFn = useServerFn(featureViewSetOnline);
+  const refreshOnlineFn = useServerFn(featureViewRefreshOnline);
 
   const [views, setViews] = useState<FeatureViewRow[]>([]);
   const [tables, setTables] = useState<SourceTable[]>([]);
   const [usedBy, setUsedBy] = useState<Record<string, string[]>>({});
+  const [online, setOnline] = useState<Record<string, OnlineSummary>>({});
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -87,6 +200,7 @@ export function FeatureViewsPanel({ token }: { token: string }) {
       setViews(res.views);
       setTables(res.tables);
       setUsedBy(res.usedBy);
+      setOnline(res.online ?? {});
     } else toast.error(res.error);
     setLoading(false);
   }, [listFn, token]);
@@ -134,6 +248,39 @@ export function FeatureViewsPanel({ token }: { token: string }) {
       if (!res.ok) return toast.error(res.error);
       toast.success(draft.id ? `Saved ${draft.name}` : `Created ${draft.name}`);
       setDraft(null);
+      await load();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function toggleOnline(v: FeatureViewRow, enabled: boolean) {
+    setBusy(true);
+    try {
+      const res = await setOnlineFn({
+        data: { accessToken: token, id: v.id, enabled, staleMinutes: null },
+      });
+      if (!res.ok) return void toast.error(res.error);
+      toast.success(
+        enabled
+          ? `${v.name} serves from the online store once it is refreshed`
+          : `${v.name} reads the lakehouse again`,
+      );
+      await load();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function refreshOnline(v: FeatureViewRow) {
+    setBusy(true);
+    try {
+      const res = await refreshOnlineFn({ data: { accessToken: token, id: v.id } });
+      if (!res.ok) return void toast.error(res.error);
+      toast.success(
+        `${v.name}: ${res.rows.toLocaleString()} key${res.rows === 1 ? "" : "s"} in ${res.seconds.toFixed(1)}s` +
+          (res.note ? ` — ${res.note}` : ""),
+      );
       await load();
     } finally {
       setBusy(false);
@@ -457,6 +604,20 @@ export function FeatureViewsPanel({ token }: { token: string }) {
                     </Button>
                   </div>
                 </div>
+
+                {/* Serving from the online store. Off is the old behaviour
+                    exactly: every lookup reads the lakehouse. The line reports
+                    where lookups are ACTUALLY answered from rather than what
+                    the switch is set to — a store that is on but stale is
+                    serving from the lakehouse, and its owner should not have
+                    to work that out. */}
+                <OnlineStrip
+                  view={v}
+                  summary={online[v.id]}
+                  busy={busy}
+                  onToggle={(enabled) => void toggleOnline(v, enabled)}
+                  onRefresh={() => void refreshOnline(v)}
+                />
 
                 {/* A training set, joined as of each label's own moment. The
                     form asks for the label table rather than guessing it: only

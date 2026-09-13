@@ -256,6 +256,60 @@ services:
       retries: 5
       start_period: 20s
 
+  # ── Online feature store (opt-in: --profile featurestore) ─────────────────
+  # Where a feature view's latest row per key is kept FOR SERVING.
+  #
+  # MEASURED, which is why it exists. Every governed lakehouse statement costs
+  # ~130 ms before it reads a single row (min of 300 audited statements; p50
+  # 336 ms), because the access check ahead of it is a round trip to a hosted
+  # Postgres. That is a fair price for a dashboard and a poor one for a
+  # prediction, which needs the same handful of rows every time.
+  #
+  # VALKEY, NOT REDIS, and for a licence rather than a preference: Redis moved
+  # to RSALv2/SSPL, which this project cannot ship inside its own stack. Valkey
+  # is the BSD-3 fork of the same server and speaks the same protocol, so an
+  # operator who already runs Redis can point FEATURE_STORE_URL at it instead.
+  #
+  # NO VOLUME, DELIBERATELY. Everything in here is a copy of rows the lakehouse
+  # already holds, and a refresh rebuilds it. Persisting it would create a
+  # second source of truth with a restore path of its own — and a feature store
+  # that can be restored to a state the lake never had is worse than one that
+  # starts empty, because empty is visibly empty.
+  #
+  # Not published to the host, for the same reason the vector store is not: a
+  # feature store on a laptop's loopback is one anybody on that laptop can read.
+  valkey:
+    image: valkey/valkey:8.1-alpine
+    profiles: [featurestore, all]
+    command:
+      - valkey-server
+      # Persistence off on both mechanisms. `--save ""` is the documented way
+      # to disable snapshots; leaving the default would write an RDB into the
+      # container's writable layer, which is neither durable nor wanted.
+      - --save
+      - ""
+      - --appendonly
+      - "no"
+      - --maxmemory
+      - ${FEATURE_STORE_MAXMEMORY:-256mb}
+      # LRU rather than noeviction: a full store that starts REFUSING writes
+      # fails a refresh, while one that drops its coldest keys serves what it
+      # has and sends the rest to the lakehouse — slower, never wrong. The
+      # refresh records how many keys it wrote, so a store that cannot hold the
+      # whole view says so rather than implying it is complete.
+      - --maxmemory-policy
+      - allkeys-lru
+    restart: unless-stopped
+    # The image's own client, like the catalog's pg_isready — a check that
+    # speaks the server's protocol is the only one that can tell "listening"
+    # from "answering".
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
   # ── Spark Connect server (opt-in: --profile spark) ────────────────────────
   # The Spark engine's STATIC-ENDPOINT provider for one host: driver and
   # executors in one JVM (local[*]). Enough to run every Spark-engine pipeline

@@ -2879,6 +2879,12 @@ export type Database = {
           id: string;
           key_columns: string[];
           name: string;
+          online_enabled: boolean;
+          online_error: string | null;
+          online_max_staleness_minutes: number | null;
+          online_refreshed_at: string | null;
+          online_rows: number | null;
+          online_source_rows: number | null;
           schema_name: string;
           table_name: string;
           timestamp_column: string | null;
@@ -2892,6 +2898,12 @@ export type Database = {
           id?: string;
           key_columns: string[];
           name: string;
+          online_enabled?: boolean;
+          online_error?: string | null;
+          online_max_staleness_minutes?: number | null;
+          online_refreshed_at?: string | null;
+          online_rows?: number | null;
+          online_source_rows?: number | null;
           schema_name: string;
           table_name: string;
           timestamp_column?: string | null;
@@ -2905,6 +2917,12 @@ export type Database = {
           id?: string;
           key_columns?: string[];
           name?: string;
+          online_enabled?: boolean;
+          online_error?: string | null;
+          online_max_staleness_minutes?: number | null;
+          online_refreshed_at?: string | null;
+          online_rows?: number | null;
+          online_source_rows?: number | null;
           schema_name?: string;
           table_name?: string;
           timestamp_column?: string | null;

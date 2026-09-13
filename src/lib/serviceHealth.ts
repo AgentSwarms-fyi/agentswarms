@@ -15,7 +15,8 @@ export type ServiceId =
   | "notebook-docker-proxy"
   | "lakehouse-catalog"
   | "spark-connect"
-  | "qdrant";
+  | "qdrant"
+  | "valkey";
 
 export type ServiceStatus =
   /** Answered, and answered correctly. */
@@ -170,6 +171,23 @@ export const SERVICE_CATALOGUE: {
     candidates: ["http://notebook-docker-proxy:2375", "http://127.0.0.1:2375"],
     path: "/_ping",
     expect: "docker-ping",
+  },
+  {
+    id: "valkey",
+    // Not published to the host, for the reason the vector store is not: a
+    // feature store reachable on a laptop's loopback is one anybody on that
+    // laptop can read, and it holds whatever the feature table holds.
+    hostPublished: false,
+    label: "Online feature store",
+    purpose:
+      "Where a feature view's latest row per key is served from. Without it, every lookup reads the lakehouse instead — correct, and about sixty times slower.",
+    profile: "featurestore",
+    optional: true,
+    // RESP is not HTTP, so an open socket is the whole claim — as for the
+    // catalog's Postgres and Spark's gRPC.
+    candidates: ["tcp://valkey:6379", "tcp://127.0.0.1:6379"],
+    path: "",
+    expect: "tcp-open",
   },
   {
     id: "qdrant",

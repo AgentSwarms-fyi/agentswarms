@@ -14,6 +14,7 @@ import path from "node:path";
 import {
   MAX_KEYS_PER_LOOKUP,
   keyFingerprint,
+  keyLabel,
   lookupSql,
   ql,
   qi,
@@ -199,8 +200,38 @@ describe("matching rows back to keys", () => {
   });
 
   it("fingerprints a key the one way", () => {
-    expect(keyFingerprint(view({ key_columns: ["a", "b"] }), { a: 1, b: "x" })).toBe("a=1|b=x");
+    const ab = view({ key_columns: ["a", "b"] });
+    expect(keyFingerprint(ab, { a: 1, b: "x" })).toBe('["1","x"]');
+    // A number and its string spell the same entity ON PURPOSE: a key arrives
+    // from JSON as 1 and comes back from the engine as a BIGINT.
+    expect(keyFingerprint(ab, { a: "1", b: "x" })).toBe(keyFingerprint(ab, { a: 1, b: "x" }));
     expect(viewTableLabel(v)).toBe("analytics.fct_customer_features");
+  });
+
+  it("and two different keys can never fingerprint the same", () => {
+    // THE OLD FORM COLLIDED, with these exact values. `col=value` joined by
+    // `|` is not injective, so `a=x|b=y|b=` was the identity of BOTH of these
+    // — and identity is what decides which row answers which key, so the
+    // second entity was served the first one's features. Found while building
+    // the online store, which would have stored the collision as well.
+    const ab = view({ key_columns: ["a", "b"] });
+    const k1 = { a: "x|b=y", b: "" };
+    const k2 = { a: "x", b: "y|b=" };
+    expect(keyFingerprint(ab, k1)).not.toBe(keyFingerprint(ab, k2));
+
+    // And the collision is not merely different now, it is ABSENT: asking for
+    // both keys at once, only the one whose row came back is answered.
+    const r = resolveRows(ab, [k1, k2], [{ a: "x", b: "y|b=", f: 7 }]);
+    expect(r.rows).toEqual([{ a: "x", b: "y|b=", f: 7 }]);
+    expect(r.missing).toEqual(["a=x|b=y, b="]);
+  });
+
+  it("reports a key by a label a person can read, not by its identity", () => {
+    // `keys_not_found` reaches the caller through the predict API, so the
+    // readable form is part of the contract; the JSON identity never is.
+    const r = resolveRows(v, [{ customer_id: "ghost" }], []);
+    expect(r.missing).toEqual(["customer_id=ghost"]);
+    expect(keyLabel(v, { customer_id: "ghost" })).toBe("customer_id=ghost");
   });
 });
 

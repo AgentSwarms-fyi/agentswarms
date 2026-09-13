@@ -10,6 +10,7 @@
     powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -Lakehouse # + a catalog Postgres for the lakehouse
     powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -Spark     # + a Spark Connect cluster for the ETL engine
     powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -Vectors   # + Qdrant, for knowledge-base vectors
+    powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -Featurestore # + valkey, for millisecond feature lookups
     powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -SkipMigrations
 
   Scaffolds .env, generates the encryption secrets, installs deps (dev mode),
@@ -31,9 +32,10 @@ param(
   # Qdrant. Started, but not USED until .env sets VECTOR_STORE=qdrant -
   # retrieval stays on pgvector until it does.
   [switch]$Vectors,
+  [switch]$Featurestore,
   [switch]$SkipMigrations
 )
-if ($All) { $Docgen = $true; $Notebooks = $true; $Sandbox = $true; $Lakehouse = $true; $Spark = $true; $Vectors = $true }
+if ($All) { $Docgen = $true; $Notebooks = $true; $Sandbox = $true; $Lakehouse = $true; $Spark = $true; $Vectors = $true; $Featurestore = $true }
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
@@ -135,6 +137,7 @@ if ($Dev) {
   if ($Lakehouse) { $profiles += @("--profile","lakehouse") }
   if ($Spark)     { $profiles += @("--profile","spark") }
   if ($Vectors)   { $profiles += @("--profile","vectors") }
+  if ($Featurestore) { $profiles += @("--profile","featurestore") }
   Say "Starting Docker stack"
   docker compose @profiles up -d --build
   Say "Up. Open http://localhost:8080"

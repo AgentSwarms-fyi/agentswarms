@@ -2491,6 +2491,9 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "409",
       "429",
       "CalibratedClassifierCV",
+      "FEATURE_STORE_MAX_KEYS",
+      "FEATURE_STORE_STALE_MINUTES",
+      "FEATURE_STORE_URL",
       "LimitRange",
       "ML_API_RATE_LIMIT_PER_MIN",
       "ML_ARTIFACT_MAX_MB",
@@ -2766,6 +2769,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "id": "features",
         "text": "Feature views",
         "level": 2
+      },
+      {
+        "id": "online-store",
+        "text": "Serving them in milliseconds",
+        "level": 3
       },
       {
         "id": "point-in-time",

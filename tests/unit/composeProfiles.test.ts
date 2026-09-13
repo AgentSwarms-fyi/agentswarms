@@ -1,6 +1,6 @@
 // Compose profile rules.
 //
-// Six of the seven services sit behind profiles, so `docker compose up` starts
+// Seven of the eight services sit behind profiles, so `docker compose up` starts
 // the app alone — deliberate, because each optional service costs something.
 // The cost of that design is a one-command way to start everything, which is
 // the `all` profile every profiled service also carries.
@@ -52,7 +52,14 @@ describe("docker compose profiles", () => {
     // `all` is additive; it must not have replaced the per-service profiles the
     // docs and setup scripts still pass.
     const named = new Set(profiled.flatMap(([, s]) => s.profiles!).filter((p) => p !== "all"));
-    for (const profile of ["docgen", "notebooks", "sandbox", "lakehouse", "spark"]) {
+    for (const profile of [
+      "docgen",
+      "notebooks",
+      "sandbox",
+      "lakehouse",
+      "spark",
+      "featurestore",
+    ]) {
       expect(named).toContain(profile);
     }
   });

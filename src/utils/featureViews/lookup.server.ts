@@ -15,6 +15,7 @@
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { runLakehouseStatement } from "@/utils/lakehouse/core.server";
 import {
+  effectiveFeatureColumns,
   lookupSql,
   resolveRows,
   resolutionError,
@@ -23,6 +24,16 @@ import {
   type FeatureView,
   type Resolution,
 } from "@/lib/featureViews";
+import { readOnline } from "@/utils/featureStore/online.server";
+
+/** Where a lookup's rows came from, for the panel and for the logs. */
+export type ServedFrom = "online" | "mixed" | "lakehouse";
+
+/** The online columns live on the same row; the store reads them from it. */
+type OnlineViewRow = FeatureView & {
+  online_enabled?: boolean;
+  online_max_staleness_minutes?: number | null;
+};
 
 export type FeatureViewRow = FeatureView & {
   user_id: string;
@@ -38,7 +49,49 @@ export async function loadFeatureView(id: string, userId: string): Promise<Featu
     .eq("id", id)
     .eq("user_id", userId)
     .maybeSingle();
-  return (data as FeatureViewRow | null) ?? null;
+  const view = (data as FeatureViewRow | null) ?? null;
+  return view ? await repairFeatureColumns(view, userId) : null;
+}
+
+/**
+ * Give a view saved with "all columns" the actual list, once.
+ *
+ * `feature_columns: []` means "every column that is not a key" on the table
+ * and meant NOTHING in the code: lookupSql selects the key columns plus the
+ * feature columns, so an empty list served a model the one column it was
+ * looked up BY. Seen live on a view a trained model was already bound to —
+ * `order_id=1000` came back as `order_id | 1000`, no features at all.
+ *
+ * Resolved from the table and written back rather than expanded on every read,
+ * for the reason lookupSql is a column list in the first place: a column added
+ * to the table later must not silently become a feature nobody trained on. It
+ * also keeps the serving path free of a round trip.
+ *
+ * A failure here leaves the view exactly as it was. The lookup that follows is
+ * then no better than it was before — and no worse, which is what matters on a
+ * path a prediction is waiting behind.
+ */
+async function repairFeatureColumns(view: FeatureViewRow, userId: string): Promise<FeatureViewRow> {
+  if (view.feature_columns.length > 0) return view;
+  const described = await describeViewTable(userId, view.schema_name, view.table_name);
+  if (!described.ok) {
+    console.warn(`[features] ${view.name}: cannot resolve its columns — ${described.error}`);
+    return view;
+  }
+  const resolved = effectiveFeatureColumns(
+    view,
+    described.columns.map((c) => c.name),
+  );
+  if (resolved.length === 0) return view;
+  const { error } = await supabaseAdmin
+    .from("feature_views")
+    .update({ feature_columns: resolved })
+    .eq("id", view.id)
+    .eq("user_id", userId);
+  if (error) {
+    console.warn(`[features] ${view.name}: columns resolved but not saved — ${error.message}`);
+  }
+  return { ...view, feature_columns: resolved };
 }
 
 export async function listFeatureViews(userId: string): Promise<FeatureViewRow[]> {
@@ -63,16 +116,37 @@ export async function lookupFeatures(args: {
   keys: FeatureKey[];
   userId: string;
   via?: string;
-}): Promise<{ ok: true; resolution: Resolution } | { ok: false; error: string }> {
+}): Promise<
+  { ok: true; resolution: Resolution; servedFrom: ServedFrom } | { ok: false; error: string }
+> {
   const invalid = validateKeys(args.view, args.keys);
   if (invalid) return { ok: false, error: invalid };
 
+  // ── The online store first, when this view is served from one ────────────
+  //
+  // It answers in about 2 ms where the lakehouse answers in 130 at best, and
+  // it is never authoritative: anything it does not hold, will not vouch for,
+  // or cannot answer at all falls through to exactly the query that ran before
+  // the store existed. A partly-populated store still saves the keys it has.
+  const online = await readOnline(args.view as OnlineViewRow, args.keys);
+  const fromStore = online?.rows ?? [];
+  const wanted = online ? online.misses : args.keys;
+
+  if (wanted.length === 0 && online) {
+    const resolution = resolveRows(args.view, args.keys, fromStore);
+    const error = resolutionError(args.view, resolution);
+    if (error) return { ok: false, error };
+    return { ok: true, resolution, servedFrom: "online" };
+  }
+
   let result;
   try {
-    result = await runLakehouseStatement(args.userId, lookupSql(args.view, args.keys), {
+    result = await runLakehouseStatement(args.userId, lookupSql(args.view, wanted), {
       // One row per key, plus the one extra the SQL asks for so a duplicate
-      // key is visible rather than silently resolved.
-      rowCap: args.keys.length + 1,
+      // key is visible rather than silently resolved. Counted on the keys
+      // ACTUALLY being read: with a warm store that is the handful the store
+      // did not hold, not everything the caller asked for.
+      rowCap: wanted.length + 1,
       auditVia: args.via ?? "feature-lookup",
       // Features change; a cached answer is the one thing a feature store
       // must not serve.
@@ -91,10 +165,13 @@ export async function lookupFeatures(args: {
     return row;
   });
 
-  const resolution = resolveRows(args.view, args.keys, rows);
+  // Both halves are matched together: resolveRows pairs rows to keys by
+  // fingerprint rather than by order, so it does not care which of them came
+  // from where.
+  const resolution = resolveRows(args.view, args.keys, [...fromStore, ...rows]);
   const error = resolutionError(args.view, resolution);
   if (error) return { ok: false, error };
-  return { ok: true, resolution };
+  return { ok: true, resolution, servedFrom: online ? "mixed" : "lakehouse" };
 }
 
 /**

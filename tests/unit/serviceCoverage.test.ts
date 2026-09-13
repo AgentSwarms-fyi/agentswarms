@@ -188,6 +188,7 @@ describe("every optional profile is documented where somebody would look", () =>
     lakehouse: /catalog\s+postgres|lakehouse\s+catalog/i,
     spark: /spark/i,
     vectors: /vector\s+store|qdrant/i,
+    featurestore: /online\s+feature\s+store|feature\s+store|valkey/i,
   };
 
   it.each(COUNTED)("%s names every profile wherever it enumerates them", (file) => {
@@ -239,6 +240,7 @@ describe("the sizing guide knows what each service costs", () => {
     "lakehouse-catalog": /[Ll]akehouse catalog/,
     "spark-connect": /Spark/,
     qdrant: /[Vv]ector store|Qdrant/,
+    valkey: /[Oo]nline feature store|[Vv]alkey/,
   };
 
   /**

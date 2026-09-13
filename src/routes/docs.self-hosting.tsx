@@ -684,6 +684,11 @@ BI_CRON_TOKEN="..."`}</Code>
             <C key="p6">--profile vectors</C>,
             "Qdrant, for deployments whose knowledge-base index has outgrown the application database. Idle until VECTOR_STORE=qdrant names it, and retrieval stays on pgvector until it does.",
           ],
+          [
+            "Online feature store",
+            <C key="p7">--profile featurestore</C>,
+            "Valkey, holding a feature view's latest row per key so a prediction answers in milliseconds instead of reading the lakehouse. Idle until FEATURE_STORE_URL names it; every lookup reads the lakehouse until it does, which is correct and about sixty times slower.",
+          ],
         ]}
       />
       <Code lang="bash">{`docker compose --profile all up -d --build`}</Code>
@@ -696,10 +701,11 @@ BI_CRON_TOKEN="..."`}</Code>
         renderer, documents are generated in the browser and Deep mode is greyed out with the
         reason. Without the notebook runtime, opening a notebook shows a panel saying a runtime is
         required — there is no in-browser fallback. Without the sandbox, custom code still runs on
-        the canvas and the Deploy dialog says plainly that it will fail in headless runs. The last
-        three are inert until an environment variable points at them: start the Spark or vector
-        profile without setting <C>SPARK_CONNECT_URL</C> or <C>VECTOR_STORE</C> and the container
-        runs while nothing uses it.
+        the canvas and the Deploy dialog says plainly that it will fail in headless runs. Without
+        the feature store, feature lookups read the lakehouse exactly as they did before it existed.
+        The last four are inert until an environment variable points at them: start the Spark or
+        vector profile without setting <C>SPARK_CONNECT_URL</C> or <C>VECTOR_STORE</C> and the
+        container runs while nothing uses it.
       </P>
       <P>
         <strong>Observability → Monitoring</strong> (superadmin) shows which of these are actually

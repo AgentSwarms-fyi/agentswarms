@@ -369,6 +369,110 @@ spec:
           requests:
             storage: 10Gi
 ---
+# ── Online feature store (optional: only when FEATURE_STORE_URL names it) ────
+# Valkey, holding a feature view's latest row per key so a prediction answers
+# in milliseconds instead of paying the lakehouse's per-statement cost.
+#
+# ONE REPLICA, AND NO VOLUME, BOTH DELIBERATE. Nothing in here is a source of
+# truth: every key is a copy of a row the lakehouse already holds, and every
+# miss, stale entry or unreachable server falls back to reading it. Losing this
+# pod costs latency until a refresh refills it and costs nothing else, which is
+# why it needs neither a PodDisruptionBudget nor a PersistentVolumeClaim — and
+# why an emptyDir would be a liability rather than a help, since a restored
+# cache the lake never had is worse than an empty one.
+#
+# To share one store across several app replicas, this is already it: the
+# Service below is what FEATURE_STORE_URL should name. For a store that
+# survives its own restart, point that variable at a managed valkey/redis and
+# delete this section.
+apiVersion: v1
+kind: Service
+metadata:
+  name: valkey
+  namespace: agentswarms
+  labels:
+    app.kubernetes.io/name: agentswarms
+    app.kubernetes.io/component: feature-store
+spec:
+  selector:
+    app.kubernetes.io/name: agentswarms
+    app.kubernetes.io/component: feature-store
+  ports:
+    - name: resp
+      port: 6379
+      targetPort: resp
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agentswarms-valkey
+  namespace: agentswarms
+  labels:
+    app.kubernetes.io/name: agentswarms
+    app.kubernetes.io/component: feature-store
+spec:
+  replicas: 1
+  strategy:
+    # Recreate, not RollingUpdate: two pods would each hold half the keys
+    # behind one Service, so a lookup's answer would depend on which one it
+    # reached. Correct either way — a miss falls back — but it would make the
+    # hit rate look inexplicable during every deploy.
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agentswarms
+      app.kubernetes.io/component: feature-store
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: agentswarms
+        app.kubernetes.io/component: feature-store
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: valkey
+          image: valkey/valkey:8.1-alpine
+          args:
+            - valkey-server
+            - --save
+            - ""
+            - --appendonly
+            - "no"
+            - --maxmemory
+            - "256mb"
+            # LRU rather than noeviction: a full store that refuses writes
+            # fails a refresh, while one that drops its coldest keys serves
+            # what it has and sends the rest to the lakehouse.
+            - --maxmemory-policy
+            - allkeys-lru
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          ports:
+            - name: resp
+              containerPort: 6379
+          livenessProbe:
+            tcpSocket: { port: resp }
+            initialDelaySeconds: 5
+            periodSeconds: 20
+          readinessProbe:
+            # The server's own client, so "ready" means "answers commands"
+            # rather than "has an open socket".
+            exec: { command: ["valkey-cli", "ping"] }
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          resources:
+            requests: { cpu: "50m", memory: "128Mi" }
+            # A little above maxmemory, which bounds the DATA rather than the
+            # process: the allocator and the client buffers live on top of it.
+            limits: { cpu: "500m", memory: "384Mi" }
+---
 # ── Qdrant vector store (optional: only when VECTOR_STORE=qdrant) ────────────
 # THREE NODES, and the number is the point.
 #

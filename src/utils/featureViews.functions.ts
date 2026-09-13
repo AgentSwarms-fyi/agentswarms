@@ -9,7 +9,13 @@ import { z } from "zod";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { Json } from "@/integrations/supabase/types";
-import { validateView, type FeatureView } from "@/lib/featureViews";
+import { effectiveFeatureColumns, validateView, type FeatureView } from "@/lib/featureViews";
+import {
+  dropView,
+  onlineSummary,
+  recordRefresh,
+  refreshView,
+} from "@/utils/featureStore/online.server";
 import { loadModelForUser } from "@/utils/ml/access.server";
 import {
   describeViewTable,
@@ -44,6 +50,8 @@ export const featureViewsList = createServerFn({ method: "POST" })
           tables: { schema: string; table: string; columns: { name: string; type: string }[] }[];
           /** Which models already serve from which view. */
           usedBy: Record<string, string[]>;
+          /** What the online store holds for each view, by view id. */
+          online: Record<string, Awaited<ReturnType<typeof onlineSummary>>>;
         }
     > => {
       const userId = await resolveCaller(data.accessToken);
@@ -67,7 +75,9 @@ export const featureViewsList = createServerFn({ method: "POST" })
         const id = m.feature_view_id as string;
         usedBy[id] = [...(usedBy[id] ?? []), m.name];
       }
-      return { ok: true, views, tables, usedBy };
+      const online: Record<string, Awaited<ReturnType<typeof onlineSummary>>> = {};
+      for (const v of views) online[v.id] = await onlineSummary(v);
+      return { ok: true, views, tables, usedBy, online };
     },
   );
 
@@ -122,8 +132,29 @@ export const featureViewSave = createServerFn({ method: "POST" })
       };
     }
 
+    // "ALL COLUMNS" BECOMES A LIST, HERE, ONCE.
+    //
+    // An empty feature_columns is documented on the table as "every column
+    // that is not a key" and was implemented by nobody: lookupSql selects the
+    // keys plus the features, so an empty list served a model the one column
+    // it was looked up BY and nothing else. Resolving at save keeps the
+    // promise that a column added to the table later cannot silently become a
+    // feature nobody trained on, and keeps the serving path free of the round
+    // trip that asking the table would cost.
+    const resolved = effectiveFeatureColumns(
+      candidate,
+      described.columns.map((c) => c.name),
+    );
+    if (resolved.length === 0) {
+      return {
+        ok: false,
+        error: `${data.schema_name}.${data.table_name} has no columns left to serve as features once ${data.key_columns.join(", ")} is the key`,
+      };
+    }
+
     const patch = {
       ...candidate,
+      feature_columns: resolved,
       user_id: userId,
       description: data.description ?? null,
       updated_at: new Date().toISOString(),
@@ -143,6 +174,11 @@ export const featureViewDelete = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }): Promise<Fail | { ok: true; detachedFrom: string[] }> => {
     const userId = await resolveCaller(data.accessToken);
+    // The stored copy goes with it. A view id is a uuid and will not be
+    // reused, so leftover keys would simply occupy the store until their TTL
+    // — but a store that holds rows for a view nobody can name is exactly the
+    // sort of thing an operator finds at the worst moment.
+    await dropView(data.id);
     // Say what stops working. The FK nulls the column either way; a model that
     // silently went back to needing whole rows is a surprise at the next call.
     const { data: models } = await supabaseAdmin
@@ -263,3 +299,79 @@ export const featureViewBuildTrainingSet = createServerFn({ method: "POST" })
     if (!built.ok) return { ok: false, error: built.error };
     return { ok: true, result: built.result };
   });
+
+/**
+ * Turn online serving on or off for a view, and set how stale it may be.
+ *
+ * Switching it OFF also drops what was stored. Leaving the rows behind would
+ * mean a view turned back on later starts answering from whatever the table
+ * looked like at some forgotten moment — and the meta would say it was fresh,
+ * because the meta records when it was written, not when anybody last meant it.
+ */
+export const featureViewSetOnline = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z
+      .object({
+        accessToken: z.string().min(1),
+        id: z.string().uuid(),
+        enabled: z.boolean(),
+        staleMinutes: z.number().int().min(1).max(43200).nullable().optional(),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data }): Promise<Fail | { ok: true }> => {
+    const userId = await resolveCaller(data.accessToken);
+    const view = await loadFeatureView(data.id, userId);
+    if (!view) return { ok: false, error: "Feature view not found" };
+
+    const { error } = await supabaseAdmin
+      .from("feature_views")
+      .update({
+        online_enabled: data.enabled,
+        online_max_staleness_minutes: data.staleMinutes ?? null,
+        ...(data.enabled
+          ? {}
+          : { online_refreshed_at: null, online_rows: null, online_source_rows: null }),
+      })
+      .eq("id", data.id)
+      .eq("user_id", userId);
+    if (error) return { ok: false, error: error.message };
+    if (!data.enabled) await dropView(data.id);
+    return { ok: true };
+  });
+
+/**
+ * Copy the view's current rows into the store.
+ *
+ * Synchronous on purpose. A refresh is the owner asking "make serving match
+ * the table NOW", and an answer that says how many keys it wrote and how long
+ * it took is worth more than a job id — the numbers are how they find out the
+ * store holds only part of the view.
+ */
+export const featureViewRefreshOnline = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z.object({ accessToken: z.string().min(1), id: z.string().uuid() }).parse(input),
+  )
+  .handler(
+    async ({
+      data,
+    }): Promise<
+      | Fail
+      | { ok: true; rows: number; sourceRows: number | null; note: string | null; seconds: number }
+    > => {
+      const userId = await resolveCaller(data.accessToken);
+      const view = await loadFeatureView(data.id, userId);
+      if (!view) return { ok: false, error: "Feature view not found" };
+
+      const result = await refreshView(view, userId);
+      await recordRefresh(data.id, userId, result);
+      if (!result.ok) return { ok: false, error: result.error };
+      return {
+        ok: true,
+        rows: result.rows,
+        sourceRows: result.sourceRows,
+        note: result.note,
+        seconds: result.seconds,
+      };
+    },
+  );

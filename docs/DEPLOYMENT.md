@@ -114,10 +114,10 @@ It cannot create your Supabase project or guess its keys: it writes the `.env`
 and tells you which values to fill in, then you re-run it. Open
 **http://localhost:8080** when it finishes.
 
-`--all` turns on the six optional profiles — the document renderer, the JS
+`--all` turns on the seven optional profiles — the document renderer, the JS
 sandbox, the notebook runtime, a catalog Postgres for the lakehouse, a Spark
-Connect cluster and the Qdrant vector store — exactly what the Compose
-equivalent,
+Connect cluster, the Qdrant vector store and the online feature store — exactly
+what the Compose equivalent,
 `docker compose --profile all up -d --build`, starts. Plain
 `docker compose up --build` starts the app alone — enough to try it, but
 notebooks, Deep-mode documents, headless custom code and the lakehouse stay

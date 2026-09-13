@@ -1085,17 +1085,109 @@ feature store starts lying.
 
 ### Rules
 
-|               |                                                                                     |
-| ------------- | ----------------------------------------------------------------------------------- |
-| Key columns   | 1 to 8, composite supported. A key column may not also be a feature.                |
-| Features      | Named explicitly, or empty for every column that is not a key.                      |
-| Keys per call | 200, the same cap as rows.                                                          |
-| Reads         | Through the governed lakehouse chokepoint, as the model's owner, uncached, audited. |
+|               |                                                                                                                                                                      |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Key columns   | 1 to 8, composite supported. A key column may not also be a feature.                                                                                                 |
+| Features      | Named explicitly, or left empty to take every column that is not a key — which is resolved to the actual list when you save, so a column added later cannot join it. |
+| Keys per call | 200, the same cap as rows.                                                                                                                                           |
+| Reads         | Through the governed lakehouse chokepoint, as the model's owner, uncached, audited.                                                                                  |
 
 A column list is always sent explicitly rather than `SELECT *`, so a column
 added to the table later cannot silently become a feature the model never
 trained on. The view is checked against its table when you save it, because a
 missing column otherwise surfaces behind a live prediction.
+
+### Serving them in milliseconds
+
+A feature lookup reads the lakehouse, and the lakehouse is an analytics engine.
+Measured on a laptop deployment, across 300 audited statements, **no governed
+statement finished in under 127 ms** and the median was 336 ms — before it read
+a single row. The cost is not the scan. It is the access check in front of
+every statement, which is a round trip to the application database, and it is
+paid whether the query touches eight hundred rows or eight million.
+
+That is a fair price for a dashboard. It is a poor one for a prediction, which
+asks for one customer's six numbers and pays it every single time.
+
+The **online feature store** keeps a view's latest row per key one hop away:
+
+| The lookup itself      | measured                      |
+| ---------------------- | ----------------------------- |
+| Lakehouse lookup       | 127 ms at best, 336 ms median |
+| Online store, one key  | **2 ms**                      |
+| Online store, 200 keys | **5 ms**, in one call         |
+
+Measured end to end, the same **Look up** in the panel against the same key
+went from **439 ms to 252 ms**. The lookup itself is the part that collapses;
+the remainder is the request's own work — checking who is calling and loading
+the view, each a round trip to the application database — which this does not
+touch and which is now the larger half. Quoting the 2 ms as though it were the
+whole request would be a measurement of the component sold as a measurement of
+the system.
+
+Turn it on per view under **ML Models → Feature views → Serve online**, then
+**Refresh** to fill it. Refreshing reads the view's table through the same
+governed chokepoint as everything else — the owner's access, the row-level
+policies and the audit row all still apply — and copies one row per key into
+the store.
+
+#### Nothing in it is a source of truth
+
+This is the property everything else rests on. A key that is missing, a store
+that is stale, a server that does not answer, a view that was edited since its
+last refresh — **every one of them falls back to reading the lakehouse** and
+answers exactly as it did before the store existed. Slower, never different.
+
+That is also why losing the service is not an incident. There is no volume, no
+snapshot and no restore path, deliberately: everything in it is a copy of rows
+the lake already holds, and a cache restored to a state the lake never had
+would be worse than an empty one.
+
+The panel says where lookups are **actually** being answered from rather than
+what the switch is set to. A view that is switched on but stale is being served
+from the lakehouse, and that is the one moment the difference matters.
+
+#### What it refuses to do
+
+**It will not materialise a view whose key is not unique.** A view with no
+timestamp column declares its key unique; if the refresh finds two rows sharing
+one, it stops and names the key rather than storing whichever it saw first.
+Paging by key would have made that invisible — measured against DuckDB, a table
+of 500 rows under 91 keys pages out as 442 rows with repeats — so the scan
+carries the size of each key's group and refuses on the spot.
+
+**It will not serve rows from a view that changed.** The store records the
+view's definition — its table, key columns, feature columns and timestamp
+column — and compares it on every read. Edit the view and its stored rows are
+the old shape, so they are ignored until a refresh replaces them. The panel
+says that is why, rather than calling them stale.
+
+**It will not hold more than it was given.** `FEATURE_STORE_MAX_KEYS` bounds a
+refresh and `FEATURE_STORE_MAXMEMORY` bounds the server, which evicts its
+coldest keys rather than refusing writes. A store holding part of its view is a
+correct store — the keys it does not have are read from the lakehouse — and the
+panel says how many of them it holds.
+
+#### Staleness is a setting, not a guess
+
+`FEATURE_STORE_STALE_MINUTES` (60 by default) is how old the stored rows may be
+before the read path stops trusting them, and each view may set its own: a
+table rebuilt nightly and one rebuilt every five minutes do not want the same
+number, and only their owner knows which is which. Past the limit, lookups read
+the lakehouse until the next refresh.
+
+#### Running it
+
+`docker compose --profile featurestore up -d` starts one, and
+`FEATURE_STORE_URL=redis://valkey:6379` points the app at it. Unset, there is
+no store and every lookup reads the lakehouse, which is what happened before
+this existed.
+
+It is **valkey** rather than Redis for a licensing reason rather than a
+technical one: Redis moved to RSALv2/SSPL, which this project cannot ship
+inside its own stack. Valkey is the BSD-3 fork of the same server and speaks
+the same protocol, so `FEATURE_STORE_URL` may just as well name a Redis you
+already run, or a managed one.
 
 ## Warm endpoints
 
@@ -1640,7 +1732,7 @@ Where AgentSwarms stands against Databricks ML and SageMaker, honestly:
 | Scheduled retraining       | Cron/cadence, promote-when-better, one platform clock                                                                                                                                                                                                                                                                                                                     | Workflows / Pipelines                                                |
 | Public API                 | Per-model scoped keys, rate limits, audited denials, BYO registration                                                                                                                                                                                                                                                                                                     | Yes, IAM-based                                                       |
 | Bring your own model       | Any joblib pipeline under a small contract                                                                                                                                                                                                                                                                                                                                | Any framework, containers                                            |
-| Feature store              | Feature views: score by key, read from the table training read; describes rather than materialises                                                                                                                                                                                                                                                                        | Yes                                                                  |
+| Feature store              | Feature views: score by key, read from the table training read, with an online store serving the latest row per key in ~2 ms                                                                                                                                                                                                                                              | Yes                                                                  |
 | Distributed / GPU training | The algorithm search spreads across several sandboxes, and a dataset too large for one container is refit across several — disjoint hashed slices, averaged into one model, instead of a sample; GPUs requestable                                                                                                                                                         | Clusters, distributed frameworks, GPU instances                      |
 | Experiment tracking        | Runs logged from a notebook or a script with params, metrics and curves; a run promotes into the registry                                                                                                                                                                                                                                                                 | MLflow / Experiments                                                 |
 | Model cards                | Generated from the registry                                                                                                                                                                                                                                                                                                                                               | SageMaker Model Cards                                                |
