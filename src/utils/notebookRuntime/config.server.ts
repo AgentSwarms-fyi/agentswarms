@@ -71,6 +71,8 @@ export type PlatformResourceSettings = {
    */
   mlDecayAlertRatio: number;
   mlCvMinHoldoutRows: number;
+  /** Rows a worker must still get before a dataset is split across containers. */
+  mlParallelMinRows: number;
   /**
    * Selection-rate ratio below which a fairness check asks for review.
    *
@@ -158,7 +160,7 @@ export async function getPlatformResources(): Promise<PlatformResourceSettings> 
   const { data } = await supabaseAdmin
     .from("notebook_runtime_settings")
     .select(
-      "lakehouse_memory_limit, lakehouse_threads, etl_max_concurrent_runs_per_user, etl_pipelines_per_sweep, ml_train_max_rows, ml_train_time_budget_minutes, ml_train_mem_limit_mb, ml_max_concurrent_trainings_per_user, ml_predict_max_rows, ml_train_gpus, ml_train_workers, ml_drift_alert_psi, ml_decay_alert_ratio, ml_fairness_min_ratio, ml_cv_min_holdout_rows, ml_artifact_max_mb, ml_max_deployments_per_user, ml_max_deployments_total, gateway_rate_limit_per_min, gateway_fallback_models, gateway_metrics_max_rows, gateway_cache_similarity, gateway_cache_ttl_hours, gateway_cache_max_temperature, data_monitors_per_sweep, data_monitor_anomaly_sigma, ai_sql_max_calls_per_statement, ai_sql_default_model, ai_sql_cache_ttl_days, document_vision_model, document_vision_max_pages",
+      "lakehouse_memory_limit, lakehouse_threads, etl_max_concurrent_runs_per_user, etl_pipelines_per_sweep, ml_train_max_rows, ml_train_time_budget_minutes, ml_train_mem_limit_mb, ml_max_concurrent_trainings_per_user, ml_predict_max_rows, ml_train_gpus, ml_train_workers, ml_drift_alert_psi, ml_decay_alert_ratio, ml_fairness_min_ratio, ml_cv_min_holdout_rows, ml_parallel_min_rows, ml_artifact_max_mb, ml_max_deployments_per_user, ml_max_deployments_total, gateway_rate_limit_per_min, gateway_fallback_models, gateway_metrics_max_rows, gateway_cache_similarity, gateway_cache_ttl_hours, gateway_cache_max_temperature, data_monitors_per_sweep, data_monitor_anomaly_sigma, ai_sql_max_calls_per_statement, ai_sql_default_model, ai_sql_cache_ttl_days, document_vision_model, document_vision_max_pages",
     )
     .eq("id", true)
     .maybeSingle();
@@ -196,6 +198,8 @@ export async function getPlatformResources(): Promise<PlatformResourceSettings> 
       positiveNum(data?.ml_decay_alert_ratio) ?? envNum("ML_DECAY_ALERT_RATIO") ?? 0.1,
     mlCvMinHoldoutRows:
       positive(data?.ml_cv_min_holdout_rows) ?? envInt("ML_CV_MIN_HOLDOUT_ROWS") ?? 2000,
+    mlParallelMinRows:
+      positive(data?.ml_parallel_min_rows) ?? envInt("ML_PARALLEL_MIN_ROWS") ?? 25_000,
     mlFairnessMinRatio:
       positiveNum(data?.ml_fairness_min_ratio) ?? envNum("ML_FAIRNESS_MIN_RATIO") ?? 0.8,
     // A notebook's model reaches the lake through the app, so this bounds one

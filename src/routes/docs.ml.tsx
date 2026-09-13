@@ -1419,6 +1419,68 @@ curl -X POST https://your-instance/api/ml/predict/batch \\
         take a failing candidate <em>out</em>.
       </P>
 
+      <H3 id="data-parallel">More rows than one container holds</H3>
+      <P>
+        A dataset bigger than the row ceiling used to be <strong>sampled</strong>: the trainer took
+        a reservoir sample down to <Code>ml_train_max_rows</Code> and fitted on that. The model was
+        real, and it had seen a fraction of the evidence. It can now be fitted{" "}
+        <strong>across containers</strong> instead — once the search has picked an algorithm,
+        workers refit that one algorithm on disjoint slices of the rows and their fits are averaged
+        into a single model. This happens by itself, only when the search had to sample, and only
+        for classification and regression.
+      </P>
+      <Callout kind="info" title="What this is, said plainly">
+        It is <strong>pasting</strong>: bagging on disjoint partitions. A real ensemble method, and
+        NOT the same estimator you would get by fitting once on everything — but that estimator is
+        not on offer, because a single fit on all the rows is precisely the thing that does not fit.
+        The baseline is the sample fit, and against it the tree models that usually win gain about{" "}
+        <strong>+0.011 F1</strong> at eight workers, while linear models neither gain nor lose
+        because 25,000 rows was already enough for them to converge.
+      </Callout>
+      <P>
+        Against a single fit on all the rows the same measurement costs a little, and the cost is
+        governed by how many rows each worker still gets rather than by how many workers there are.
+        There is no cliff, so the floor is a line drawn on a curve: below{" "}
+        <strong>25,000 rows per worker</strong> the platform refuses to split and samples the old
+        way, because a fast answer that is worse than the slow one is not a feature.
+      </P>
+      <Table
+        headers={["Rows each", "Cost against one fit on all rows"]}
+        rows={[
+          ["160,000", "-0.0000"],
+          ["40,000", "-0.0035"],
+          ["20,000", "-0.0082"],
+          ["10,000", "-0.0123"],
+          ["2,500", "-0.0339"],
+        ]}
+      />
+      <Callout kind="warn" title="The rows are divided by hashing, not by LIMIT and OFFSET">
+        Without an <Code>ORDER BY</Code> there is no promised order, and DuckDB parallelises a scan,
+        so two containers issuing the same windowed query can overlap on some rows and miss others.
+        Nothing downstream would notice: the fit would simply be on the wrong rows and the score
+        would look ordinary. Hashing decides who owns a row with no ordering at all, and identical
+        rows land together — they are the same evidence. Verified against DuckDB: the partitions
+        cover every row exactly once, come out within a per cent of even, and are identical from a
+        fresh connection.
+      </Callout>
+      <P>
+        The version records the rows it actually covered and carries a note saying it was split, how
+        many containers over, and that pasting is not the same as one fit over everything. If the
+        workers between them still cannot hold all the rows, the note says how many were left out.{" "}
+        <strong>The metrics are the search&apos;s</strong>, measured on the holdout the search kept
+        rather than re-measured on the slices — each worker&apos;s own holdout is a piece of its own
+        slice, so a metric averaged over them would be measured on data each fit had seen a
+        neighbour of.
+      </P>
+      <P>
+        Nothing here can leave you without a model. If no worker will start, if every slice fails,
+        or if no container is free to combine them, the job keeps the model the search already
+        produced and says on the version that this is the sampled fit. A job that splits its rows
+        takes three phases rather than one — search, refit, assemble — and each hands over to the
+        next exactly once, claimed in the database so that of several workers finishing together
+        only one moves the job on.
+      </P>
+
       <H2 id="forecasting">Forecasting in BI</H2>
       <P>
         Line charts on a dashboard project ahead with the platform&apos;s shared forecaster:
@@ -1606,7 +1668,7 @@ curl -X POST https://your-instance/api/ml/predict/batch \\
           ],
           [
             "Distributed / GPU training",
-            "The algorithm search spreads across several sandboxes; one model still trains in one container; GPUs requestable",
+            "The algorithm search spreads across several sandboxes, and a dataset too large for one container is refit across several — disjoint hashed slices, averaged into one model, instead of a sample; GPUs requestable",
             "Clusters, distributed frameworks, GPU instances",
           ],
           [
@@ -1634,11 +1696,9 @@ curl -X POST https://your-instance/api/ml/predict/batch \\
       />
       <P>
         Everything in the left column is shipped and tested. What is left, in the order it is
-        usually asked for: <strong>training one model across machines</strong> (the search spreads
-        over sandboxes, but a single fit still happens in one container); and{" "}
-        <strong>serving across machines</strong> (on Docker every copy is a container on this
-        machine, so the host is the ceiling; on Kubernetes copies do spread across nodes, but
-        nothing grows the cluster itself when they run out of room).
+        usually asked for: <strong>serving across machines</strong> (on Docker every copy is a
+        container on this machine, so the host is the ceiling; on Kubernetes copies do spread across
+        nodes, but nothing grows the cluster itself when they run out of room).
       </P>
 
       <H2 id="use-cases">Use cases</H2>

@@ -36,6 +36,13 @@ import {
   shardWarnings,
   type ShardOutcome,
 } from "@/lib/mlShards";
+import {
+  assembledArtifactPath,
+  parallelPlan,
+  parallelWarnings,
+  partitionSql,
+  type ParallelPlan,
+} from "@/lib/mlDataParallel";
 import { TRAIN_PY } from "./pyTrain";
 import type { MlJobRow, MlModelRow, MlVersionRow } from "./access.server";
 import {
@@ -88,6 +95,8 @@ export async function mlTrainingEnv(
   version: number,
   /** Which worker of a distributed search this is, when there is more than one. */
   shard?: { index: number; count: number },
+  /** The assemble step, which needs a path of its own rather than the base. */
+  assembled?: boolean,
 ): Promise<{ env: Record<string, string>; secretValues: string[] }> {
   const cfg = lakehouseConfig();
   if (!cfg) {
@@ -111,11 +120,13 @@ export async function mlTrainingEnv(
     ETL_LAKEHOUSE_S3_USE_SSL: cfg.s3.useSsl ? "true" : "false",
     // Every worker uploads its own model; the job keeps the winner's URI
     // and the losers' blobs are the price of having searched in parallel.
-    ML_ARTIFACT_URI: shardArtifactPath(
-      mlArtifactUri(cfg.dataUrl, model.id, version),
-      shard?.index ?? 0,
-      shard?.count ?? 1,
-    ),
+    ML_ARTIFACT_URI: assembled
+      ? assembledArtifactPath(mlArtifactUri(cfg.dataUrl, model.id, version))
+      : shardArtifactPath(
+          mlArtifactUri(cfg.dataUrl, model.id, version),
+          shard?.index ?? 0,
+          shard?.count ?? 1,
+        ),
     AGENTSWARMS_ML_JOB: "1",
   };
   if (cfg.s3.endpoint) env.ETL_LAKEHOUSE_S3_ENDPOINT = cfg.s3.endpoint;
@@ -178,13 +189,32 @@ export async function mlBundleFor(
     // A distributed search deals the candidate names round-robin; a
     // single-container job sends none and the trainer tries them all, which
     // is what it did before any of this existed.
-    ...(stash.shards && stash.shards > 1
+    ...(stash.shards && stash.shards > 1 && stash.phase !== "parallel_fit"
       ? {
           candidates: shardOf(ML_CANDIDATES[b.model.task] ?? [], stash.shard ?? 0, stash.shards),
           shard_index: stash.shard ?? 0,
           shard_count: stash.shards,
         }
       : {}),
+    // A DATA-PARALLEL worker is the other shape of shard: one algorithm the
+    // search already chose, fitted on its own hashed slice of the rows rather
+    // than on the same rows as everybody else. Tuning is off because the
+    // search tuned it — re-tuning per slice would give the workers different
+    // hyper-parameters, and averaging those is averaging different models.
+    ...(stash.phase === "parallel_fit" && b.job.parallel_algorithm
+      ? {
+          candidates: [b.job.parallel_algorithm],
+          tuning: "none",
+          partition: {
+            sql: partitionSql(partitionColumns(b.job), stash.shard ?? 0, stash.shards ?? 1),
+            index: stash.shard ?? 0,
+            workers: stash.shards ?? 1,
+          },
+        }
+      : {}),
+    // ASSEMBLING is not a fit at all: one container loads what the workers
+    // uploaded and averages them into a single model.
+    ...(stash.phase === "assemble" ? { mode: "assemble", parts: assembleParts(b.job) } : {}),
   };
   // The configuration is a base64 literal, not interpolated code: a column
   // named `'); import os` is a column name and nothing else.
@@ -212,6 +242,7 @@ export async function mlEnvFor(
       stash.shards && stash.shards > 1
         ? { index: stash.shard ?? 0, count: stash.shards }
         : undefined,
+      stash.phase === "assemble",
     );
     // The program checks its imports and installs the stack only if the image
     // lacks it; sending the list here would cost a pip round-trip every job.
@@ -506,6 +537,7 @@ async function recordShardResult(
   shard: number,
   body: { status: string; result?: unknown; logs?: string; error?: string | null },
   secretValues: string[],
+  phase: string,
 ): Promise<void> {
   const ok = body.status !== "error" && isTrainResult(body.result);
   const r = ok ? (body.result as MlTrainResult) : null;
@@ -529,10 +561,25 @@ async function recordShardResult(
     logs: scrubSecrets((body.logs ?? "").slice(-40_000), secretValues),
   };
 
+  // Read BEFORE recording: the record is what makes this worker the last one,
+  // and the phase it belongs to is the phase it was started for.
+  const { data: job } = await supabaseAdmin
+    .from("ml_training_jobs")
+    .select("*")
+    .eq("id", jobId)
+    .maybeSingle();
+
   const { data: counted, error } = await supabaseAdmin.rpc("ml_job_record_shard", {
     _job: jobId,
     _shard: shard,
     _result: entry as unknown as Json,
+    // THE PHASE THIS WORKER WAS STARTED FOR, from its own stash. Clearing
+    // shard_results between phases makes an already-recorded shard eligible
+    // again, so without this a retried callback from the phase that just ended
+    // is accepted into the one that just began and counts toward completing
+    // it. Seen live: a search worker's duplicate report completed the
+    // parallel_fit phase while the second slice was still being created.
+    _phase: phase ?? "search",
   });
   if (error) {
     console.warn(`[ml] shard ${shard} of ${jobId} not recorded:`, error.message);
@@ -548,7 +595,7 @@ async function recordShardResult(
     // silent bar: a job with three workers is running until the third lands.
     await appendMlPartialLogs(
       jobId,
-      `── search worker ${shard + 1} of ${total} finished ──\n${entry.logs ?? ""}`,
+      `── ${phaseNoun(job?.phase)} ${shard + 1} of ${total} finished ──\n${entry.logs ?? ""}`,
     );
     return;
   }
@@ -565,6 +612,17 @@ async function recordShardResult(
     .sort((a, b) => a.shard - b.shard)
     .map((e) => `── search worker ${e.shard + 1} of ${total} ──\n${e.logs ?? ""}`)
     .join("\n");
+
+  // ── The last worker of a PARALLEL FIT: assemble what they produced ─────
+  if (job?.phase === "parallel_fit") {
+    await finishParallelFit(jobId, entries, logs);
+    return;
+  }
+  // ── The assemble container: its artifact IS the model ──────────────────
+  if (job?.phase === "assemble") {
+    await finishAssemble(jobId, entries, logs);
+    return;
+  }
 
   const winner = pickWinner(entries);
   if (!winner?.ok || !winner.result) {
@@ -591,7 +649,419 @@ async function recordShardResult(
     ) as MlTrainResult["leaderboard"],
     warnings: [...(winner.result.warnings ?? []), ...shardWarnings(entries, total)],
   };
+
+  // ── The search sampled: refit its winner across the rows instead ────────
+  if (job) {
+    const bundle = await loadJobBundle(jobId, job.user_id);
+    const plan = bundle ? await planParallelFit(job, bundle.model, merged) : null;
+    if (plan && bundle) {
+      const claimed = await advancePhase(jobId, "search", "parallel_fit", plan.workers, {
+        algorithm: merged.algorithm ?? null,
+        search: merged as unknown as Json,
+      });
+      if (claimed) {
+        const limits = await getPlatformResources();
+        const { started, error: startErr } = await startPhaseWorkers({
+          job: {
+            ...job,
+            parallel_algorithm: merged.algorithm ?? null,
+            search_result: merged as unknown as Json,
+          },
+          model: bundle.model,
+          phase: "parallel_fit",
+          count: plan.workers,
+          budget: (await getPlatformResources()).mlTrainTimeBudgetMinutes,
+          memLimitMb: limits.mlTrainMemLimitMb,
+          gpus: limits.mlTrainGpus || 0,
+        });
+        if (started.length > 0) {
+          await supabaseAdmin
+            .from("ml_training_jobs")
+            .update({
+              shards: started.length,
+              shard_sessions: started,
+              parallel_workers: started.length,
+              parallel_rows: plan.rowsUsed,
+              parallel_total_rows: plan.totalRows,
+            })
+            .eq("id", jobId);
+          await appendMlPartialLogs(
+            jobId,
+            `── the search chose ${merged.algorithm}; refitting it on ${started.length} slices of the rows ──\n`,
+          );
+          return;
+        }
+        // Not a single slice would start. The searched model is a real model
+        // and is better than no model, so the job keeps it and says why.
+        console.warn(`[ml] job ${jobId}: no parallel worker started (${startErr})`);
+        merged.warnings = [
+          ...(merged.warnings ?? []),
+          "Wanted to refit across containers on more rows, but none would start; this is the sampled fit.",
+        ];
+        await advancePhase(jobId, "parallel_fit", "search", total, {});
+      }
+    }
+  }
   await writeTrainOutcome(jobId, merged, logs);
+}
+
+/**
+ * The columns a row is hashed on to decide which worker owns it.
+ *
+ * The FEATURES the search settled on, not `SELECT *`: a column dropped by the
+ * prep step is not in the frame the workers read, so hashing on it would ask
+ * the database for something that is not there. Sorted, because the predicate
+ * has to be identical in every container and object key order is not a
+ * promise worth resting disjointness on.
+ */
+function partitionColumns(job: MlJobRow): string[] {
+  const schema = (
+    job.search_result as { feature_schema?: { name?: string; role?: string }[] } | null
+  )?.feature_schema;
+  const names = (schema ?? [])
+    // ROLE "feature" ONLY. The schema also lists the target and every column
+    // the prep step dropped, and those are not promised to exist in the frame
+    // a worker reads: a prep step with its own SQL selects what it likes, and
+    // hashing on a column that subquery never produced fails the whole fit.
+    // The comment here used to claim this filter existed while the code took
+    // every name; reading a real feature_schema is what showed the difference.
+    .filter((f) => f?.role === "feature")
+    .map((f) => (typeof f?.name === "string" ? f.name : ""))
+    .filter((n) => n.length > 0);
+  return [...names].sort();
+}
+
+/** The workers' uploaded models, for the container that averages them. */
+function assembleParts(job: MlJobRow): { artifact_uri: string; artifact_sha256: string }[] {
+  // FROM parallel_parts, not shard_results. The transition into the assemble
+  // phase CLEARS shard_results — it has to, or the slices' entries make the
+  // assemble phase look finished before its container has said anything — and
+  // the container reads the job fresh from the database after that. It found
+  // an empty list and raised "nothing to assemble".
+  const entries = ((job.parallel_parts as unknown as ShardEntry[]) ?? []).filter(
+    (e) => e?.ok && e.result?.artifact_uri && e.result?.artifact_sha256,
+  );
+  // Sorted by shard so the assembled model is byte-identical whichever order
+  // the callbacks happened to arrive in. A model whose digest depends on
+  // network timing cannot be compared against itself later.
+  return entries
+    .sort((a, b) => a.shard - b.shard)
+    .map((e) => ({
+      artifact_uri: e.result!.artifact_uri as string,
+      artifact_sha256: e.result!.artifact_sha256 as string,
+    }));
+}
+
+/**
+ * Should this job refit its winner across containers?
+ *
+ * ONLY WHEN THE SEARCH HAD TO SAMPLE. That is exactly the case this exists
+ * for: the rows did not fit, so the model was fitted on a reservoir sample of
+ * them, and the same containers can instead each take a slice and have their
+ * fits averaged. When the rows fitted, there is nothing to win and a split
+ * would only cost accuracy.
+ *
+ * Returns null rather than throwing when it is not worth it; the job then
+ * finishes the way it always did.
+ */
+async function planParallelFit(
+  job: MlJobRow,
+  model: MlModelRow,
+  winner: MlTrainResult,
+): Promise<ParallelPlan | null> {
+  if (!winner.training_sampled) return null;
+  // Averaging is only meaningful where the same answer means the same thing,
+  // the same reason shadowing refuses to compare clustering: cluster 3 of one
+  // worker's fit has nothing to do with cluster 3 of another's.
+  if (model.task !== "classification" && model.task !== "regression") return null;
+
+  const limits = await getPlatformResources();
+  const runtime = await getRuntimeSettings();
+  // EXCLUDING THIS JOB'S OWN WORKERS. A session is marked finished AFTER its
+  // callback, so at the moment the last search worker reports, every search
+  // container is still counted as in use — and the allowance looks full. The
+  // split was then refused with "this instance allows only one training
+  // container", and whether it happened at all depended on how quickly the
+  // other sessions had been reaped. Seen live, twice, differently.
+  const own = new Set((job.shard_sessions ?? []) as string[]);
+  const { data: live } = await supabaseAdmin
+    .from("notebook_runtime_sessions")
+    .select("id")
+    .eq("user_id", model.user_id)
+    .in("status", ["starting", "ready", "running"]);
+  const inUse = (live ?? []).filter((sess) => !own.has(sess.id)).length;
+  const planned = parallelPlan({
+    totalRows: Number(winner.training_total_rows ?? 0),
+    perWorker: limits.mlTrainMaxRows,
+    // The workers that just finished searching are gone by now, so the whole
+    // allowance is available again — minus anything else this person is
+    // holding, which is what the search itself is bounded by too.
+    maxWorkers: Math.min(limits.mlTrainWorkers, Math.max(0, runtime.maxSessionsPerUser - inUse)),
+    minRowsPerWorker: limits.mlParallelMinRows,
+  });
+  if (!planned.ok) {
+    console.log(`[ml] job ${job.id}: not splitting the rows — ${planned.reason}`);
+    return null;
+  }
+  // Nothing safe to hash on means no disjoint slices. Without this the
+  // predicate would come back null, every worker would read EVERY row, and
+  // their fits would be averaged over the same data several times over —
+  // which is not an error anything downstream could detect.
+  if (
+    partitionSql(partitionColumns({ ...job, search_result: winner as unknown as Json }), 0, 2) ===
+    null
+  ) {
+    console.log(`[ml] job ${job.id}: not splitting the rows — no feature columns to hash on`);
+    return null;
+  }
+  return planned.plan;
+}
+
+/**
+ * Start one container per slice, or per assemble step.
+ *
+ * The same launcher for both because they differ only in the stash: a phase
+ * that starts fewer workers than it planned records what actually started, so
+ * the merge waits for exactly those and a job cannot hang on a container that
+ * never existed.
+ */
+async function startPhaseWorkers(args: {
+  job: MlJobRow;
+  model: MlModelRow;
+  phase: "parallel_fit" | "assemble";
+  count: number;
+  budget: number;
+  memLimitMb: number;
+  gpus: number;
+}): Promise<{ started: string[]; error: string | null }> {
+  const started: string[] = [];
+  let error: string | null = null;
+  for (let shard = 0; shard < args.count; shard++) {
+    try {
+      const { session } = await startSession({
+        userId: args.model.user_id,
+        kind: "batch",
+        entrypoint: "entrypoint",
+        inputs: {
+          [ML_JOB_KEY]: {
+            job_id: args.job.id,
+            phase: args.phase,
+            ...(args.count > 1 ? { shard, shards: args.count } : { shard: 0, shards: 1 }),
+          },
+        },
+        memLimitMb: args.memLimitMb,
+        gpus: args.gpus || undefined,
+        maxMinutes: Math.max(args.budget + 15, 20),
+      });
+      started.push(session.id);
+    } catch (e) {
+      error = (e as Error).message;
+      break;
+    }
+  }
+  return { started, error };
+}
+
+/** What to call a worker in the logs, so a phase is legible from them. */
+function phaseNoun(phase: string | null | undefined): string {
+  if (phase === "parallel_fit") return "slice";
+  if (phase === "assemble") return "assembly";
+  return "search worker";
+}
+
+/**
+ * Move the job to its next phase, once.
+ *
+ * The claim is in the database, not here: `WHERE phase = _from` means that of
+ * several workers finishing at the same moment exactly one starts the next
+ * phase. The losers read no row back and do nothing, which is the same shape
+ * as the shard merge one level down.
+ */
+async function advancePhase(
+  jobId: string,
+  from: string,
+  to: string,
+  shards: number,
+  opts: { algorithm?: string | null; search?: Json; parts?: Json },
+): Promise<boolean> {
+  const { data, error } = await supabaseAdmin.rpc("ml_job_advance_phase", {
+    _job: jobId,
+    _from: from,
+    _to: to,
+    _shards: shards,
+    _algorithm: opts.algorithm ?? null,
+    _search: opts.search ?? null,
+    // Written in the SAME statement that clears shard_results, because that
+    // clear is what would otherwise destroy them.
+    _parts: opts.parts ?? null,
+  });
+  if (error) {
+    console.warn(`[ml] job ${jobId}: phase ${from} -> ${to} failed:`, error.message);
+    return false;
+  }
+  const row = Array.isArray(data) ? data[0] : data;
+  return Boolean(row?.claimed);
+}
+
+/**
+ * Every slice has reported. Start the container that averages them.
+ *
+ * A slice that failed is not fatal on its own — the average is over whichever
+ * fits exist, and three of four slices is still more rows than the sample the
+ * search used. Losing ALL of them is fatal, because then there is no model.
+ */
+async function finishParallelFit(
+  jobId: string,
+  entries: ShardEntry[],
+  logs: string,
+): Promise<void> {
+  const { data: job } = await supabaseAdmin
+    .from("ml_training_jobs")
+    .select("*")
+    .eq("id", jobId)
+    .maybeSingle();
+  if (!job) return;
+  const good = entries.filter((e) => e.ok && e.result?.artifact_uri);
+  const search = job.search_result as unknown as MlTrainResult | null;
+
+  if (good.length === 0) {
+    // Fall back to what the search already produced rather than failing the
+    // job: a sampled model is worse than a distributed one and far better
+    // than nothing, and the person asked for a model.
+    if (search) {
+      console.warn(`[ml] job ${jobId}: every slice failed; keeping the searched fit`);
+      await writeTrainOutcome(
+        jobId,
+        {
+          ...search,
+          warnings: [
+            ...(search.warnings ?? []),
+            "Tried to refit across containers on more rows and every slice failed; this is the sampled fit.",
+          ],
+        },
+        logs,
+      );
+      return;
+    }
+    await markJobFailed(jobId, entries.find((e) => !e.ok)?.error ?? "Every slice failed.", logs);
+    return;
+  }
+
+  const bundle = await loadJobBundle(jobId, job.user_id);
+  if (!bundle) return;
+  if (
+    !(await advancePhase(jobId, "parallel_fit", "assemble", 1, {
+      parts: good as unknown as Json,
+    }))
+  ) {
+    return;
+  }
+
+  const limits = await getPlatformResources();
+  const { started, error: startErr } = await startPhaseWorkers({
+    job: { ...job, shard_results: entries as unknown as Json },
+    model: bundle.model,
+    phase: "assemble",
+    count: 1,
+    budget: (await getPlatformResources()).mlTrainTimeBudgetMinutes,
+    memLimitMb: limits.mlTrainMemLimitMb,
+    gpus: 0,
+  });
+  if (started.length === 0) {
+    console.warn(`[ml] job ${jobId}: the assemble container would not start (${startErr})`);
+    if (search) {
+      await writeTrainOutcome(
+        jobId,
+        {
+          ...search,
+          warnings: [
+            ...(search.warnings ?? []),
+            "The slices were fitted but no container was free to combine them; this is the sampled fit.",
+          ],
+        },
+        logs,
+      );
+      return;
+    }
+    await markJobFailed(jobId, startErr ?? "No container could assemble the fitted slices.", logs);
+    return;
+  }
+  await supabaseAdmin
+    .from("ml_training_jobs")
+    .update({ shards: 1, shard_sessions: started })
+    .eq("id", jobId);
+  await appendMlPartialLogs(
+    jobId,
+    `── ${good.length} slice(s) fitted; combining them into one model ──\n`,
+  );
+}
+
+/**
+ * The assembled model is the job's model.
+ *
+ * The SEARCH's result carries everything a version needs — leaderboard,
+ * metrics, feature schema, statistics — because it is the same algorithm on
+ * the same columns. Only the artifact and the row counts are replaced, and
+ * the metrics keep saying what they always said: they were measured on the
+ * search's holdout, not re-measured here.
+ */
+async function finishAssemble(jobId: string, entries: ShardEntry[], logs: string): Promise<void> {
+  const { data: job } = await supabaseAdmin
+    .from("ml_training_jobs")
+    .select("*")
+    .eq("id", jobId)
+    .maybeSingle();
+  if (!job) return;
+  const search = job.search_result as unknown as MlTrainResult | null;
+  const done = entries.find((e) => e.ok && e.result?.artifact_uri);
+
+  if (!done?.result || !search) {
+    if (search) {
+      await writeTrainOutcome(
+        jobId,
+        {
+          ...search,
+          warnings: [
+            ...(search.warnings ?? []),
+            "The fitted slices could not be combined; this is the sampled fit.",
+          ],
+        },
+        logs,
+      );
+      return;
+    }
+    await markJobFailed(jobId, done?.error ?? "The model could not be assembled.", logs);
+    return;
+  }
+
+  const plan: ParallelPlan = {
+    workers: Number(job.parallel_workers ?? 0),
+    rowsPerWorker: Math.ceil(
+      Number(job.parallel_rows ?? 0) / Math.max(1, Number(job.parallel_workers ?? 1)),
+    ),
+    rowsUsed: Number(job.parallel_rows ?? 0),
+    totalRows: Number(job.parallel_total_rows ?? 0),
+  };
+  await writeTrainOutcome(
+    jobId,
+    {
+      ...search,
+      artifact_uri: done.result.artifact_uri,
+      artifact_sha256: done.result.artifact_sha256,
+      artifact_bytes: done.result.artifact_bytes,
+      training_rows: plan.rowsUsed,
+      training_total_rows: plan.totalRows,
+      // NOT sampled any more, and this flag is what the panel reads to say so.
+      training_sampled: false,
+      warnings: [
+        // The search's own "trained on a sample" warning is dropped: it
+        // described a fit that is no longer the model being shipped.
+        ...(search.warnings ?? []).filter((w) => !w.startsWith("Trained on a ")),
+        ...parallelWarnings(plan),
+      ],
+    },
+    logs,
+  );
 }
 
 /**
@@ -725,10 +1195,12 @@ export async function finalizeMlJob(
   body: { status: string; result?: unknown; logs?: string; error?: string | null },
   /** Which worker reported, for a job whose search was split across several. */
   shard?: number,
+  /** The phase that worker was started for, from its own stash. */
+  phase?: "parallel_fit" | "assemble",
 ): Promise<void> {
   const { data: job } = await supabaseAdmin
     .from("ml_training_jobs")
-    .select("id, model_id, version_id, user_id, status, shards")
+    .select("id, model_id, version_id, user_id, status, shards, phase")
     .eq("id", jobId)
     .maybeSingle();
   if (!job || !LIVE.includes(job.status as (typeof LIVE)[number])) return;
@@ -747,8 +1219,17 @@ export async function finalizeMlJob(
   }
   // A distributed search reports once per worker; the last one to land does
   // the merge and then takes the ordinary path below.
-  if ((job.shards ?? 1) > 1 && typeof shard === "number") {
-    await recordShardResult(jobId, shard, body, secretValues);
+  //
+  // ALSO every worker of a job that is past the search, whatever the count.
+  // The assemble phase runs ONE container, and the old condition sent it down
+  // the single-worker path below — which writes the job's outcome directly
+  // from a result that has no leaderboard and no metrics, bypassing the phase
+  // machinery that was supposed to finish the job. Seen live.
+  if (
+    ((job.shards ?? 1) > 1 || (job.phase ?? "search") !== "search") &&
+    typeof shard === "number"
+  ) {
+    await recordShardResult(jobId, shard, body, secretValues, phase ?? "search");
     return;
   }
   const logs = scrubSecrets((body.logs ?? "").slice(-LOG_CAP), secretValues);

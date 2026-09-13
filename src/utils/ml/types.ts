@@ -153,6 +153,16 @@ export type MlJobStash = {
    */
   shard?: number;
   shards?: number;
+  /**
+   * Which phase of the job this sandbox was started for.
+   *
+   * Absent means the search, which is what every job did before rows could be
+   * split. `parallel_fit` gives the worker one algorithm and its own slice of
+   * the rows; `assemble` gives it the workers' models to average rather than
+   * anything to fit. The stash says so rather than the sandbox inferring it,
+   * because a container that guesses its phase would read the wrong rows.
+   */
+  phase?: "parallel_fit" | "assemble";
 };
 
 /** Pull the job id out of a session's inputs, or null for any other session. */
@@ -164,11 +174,24 @@ export function mlJobStashOf(inputs: unknown): MlJobStash | null {
   if (typeof j !== "string" || j.length === 0) return null;
   const shard = (raw as { shard?: unknown }).shard;
   const shards = (raw as { shards?: unknown }).shards;
+  // THE PHASE HAS TO SURVIVE THIS. The stash is rebuilt field by field rather
+  // than spread, so anything not named here is silently dropped — and a phase
+  // that never arrives means every callback reports itself as "search". The
+  // recording then refuses it, correctly, and the job waits for workers that
+  // have already finished. Seen live: parallel_fit stuck at 0 of 2 with both
+  // containers long gone.
+  const phase = (raw as { phase?: unknown }).phase;
+  const known = phase === "parallel_fit" || phase === "assemble";
   return {
     job_id: j,
     kind: k === "predict" ? "predict" : "train",
     ...(typeof shard === "number" && Number.isInteger(shard) && shard >= 0 ? { shard } : {}),
-    ...(typeof shards === "number" && shards > 1 ? { shards } : {}),
+    // A phase past the search keeps its count even when it is 1: the assemble
+    // runs a single container and still has to report as that phase's worker.
+    // Without a phase the `> 1` rule stands, which keeps the ordinary
+    // single-container job byte-identical to what it was.
+    ...(typeof shards === "number" && (known ? shards >= 1 : shards > 1) ? { shards } : {}),
+    ...(known ? { phase } : {}),
   };
 }
 

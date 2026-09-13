@@ -924,6 +924,12 @@ export function RuntimeTab({
                 hint="Picking a model never reads the holdout — it scores candidates inside the training rows. Above this many held-out rows one inner split already pins the score, so k-fold would cost k times the fits to buy almost nothing; below it, folds earn their keep. Time-ordered data always uses time-series folds."
               />
               <NumberField
+                label="Split training above this many rows per worker"
+                value={form.ml_parallel_min_rows}
+                onChange={(n) => set("ml_parallel_min_rows", n)}
+                hint="A dataset too large for one container is refitted across several, each on its own hashed slice, and their fits averaged. Each worker still has to see enough rows to learn from: measured, a slice of 25,000 costs about half a point of F1 against a single fit while beating the sample fit that is the alternative, and a slice of 2,500 costs three points. Below this the trainer samples the old way instead."
+              />
+              <NumberField
                 label="Decay alert threshold (ratio)"
                 value={form.ml_decay_alert_ratio}
                 onChange={(n) => set("ml_decay_alert_ratio", n)}

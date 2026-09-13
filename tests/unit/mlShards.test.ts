@@ -233,13 +233,36 @@ describe("the wiring", () => {
   it("writes the version through one function whichever way it trained", () => {
     // Two copies of the registry write would diverge on the first change.
     expect(train).toContain("async function writeTrainOutcome(");
-    expect(train.match(/await writeTrainOutcome\(/g)?.length).toBe(2);
+    expect(train.match(/async function writeTrainOutcome\(/g)?.length).toBe(1);
+    // The CALL SITES are no longer two and should not be pinned to a number:
+    // a job can now finish from the search, from a parallel fit that could not
+    // start, from one whose slices all failed, or from the assembled model,
+    // and each of those is a real way for a job to end. What must stay true is
+    // that every one of them ends up in the same function — so the thing to
+    // count is the number of places that write a version row, which is where
+    // a second implementation would show up.
+    const sites = train.match(/await writeTrainOutcome\(/g)?.length ?? 0;
+    expect(sites).toBeGreaterThanOrEqual(2);
+    // So the count moves to the thing a second copy would have to do: mark a
+    // version READY. Exactly one place in this file does, and it is inside
+    // writeTrainOutcome. Without this, dropping the pinned call count would
+    // have left "two copies would diverge" asserted by nothing — a mutation
+    // that added a second registry write elsewhere passed the looser guard.
+    expect(train.match(/status: "ready",/g)?.length).toBe(1);
+    const outcome = train.slice(train.indexOf("async function writeTrainOutcome("));
+    const body = outcome.slice(0, outcome.indexOf("\n}"));
+    expect(body).toContain('.from("ml_model_versions")');
+    expect(body).toContain('status: "ready",');
   });
 
   it("takes the shard from the session's own stash, never from the caller", () => {
     // A worker must not be able to claim it is a different one.
     expect(rd("src/routes/api/notebook.runtime.result.ts")).toContain(
-      "m.finalizeMlJob(mlStash.job_id, outcome, mlStash.shard)",
+      // The PHASE comes from the stash for the same reason the shard does:
+      // a worker must not be able to claim it belongs to a phase it does not,
+      // which after the phase-qualified recording would let a stale report
+      // complete a phase it was never part of.
+      "m.finalizeMlJob(mlStash.job_id, outcome, mlStash.shard, mlStash.phase)",
     );
   });
 

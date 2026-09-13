@@ -41,6 +41,7 @@ export type NbRuntimeSettings = {
   ml_drift_alert_psi: number;
   ml_decay_alert_ratio: number;
   ml_cv_min_holdout_rows: number;
+  ml_parallel_min_rows: number;
   ml_fairness_min_ratio: number;
   ml_artifact_max_mb: number;
   gateway_rate_limit_per_min: number;
@@ -144,6 +145,7 @@ const DEFAULTS: NbRuntimeSettings = {
   ml_drift_alert_psi: 0.25,
   ml_decay_alert_ratio: 0.1,
   ml_cv_min_holdout_rows: 2000,
+  ml_parallel_min_rows: 25000,
   ml_fairness_min_ratio: 0.8,
   ml_artifact_max_mb: 512,
   gateway_rate_limit_per_min: 60,
@@ -219,6 +221,7 @@ export const nbRuntimeGetState = createServerFn({ method: "POST" })
           ml_drift_alert_psi: row.ml_drift_alert_psi ?? 0.25,
           ml_decay_alert_ratio: row.ml_decay_alert_ratio ?? 0.1,
           ml_cv_min_holdout_rows: row.ml_cv_min_holdout_rows ?? 2000,
+          ml_parallel_min_rows: row.ml_parallel_min_rows ?? 25000,
           ml_fairness_min_ratio: row.ml_fairness_min_ratio ?? 0.8,
           ml_artifact_max_mb: row.ml_artifact_max_mb ?? 512,
           gateway_rate_limit_per_min: row.gateway_rate_limit_per_min ?? 60,
@@ -322,6 +325,7 @@ export const nbRuntimeUpdateSettings = createServerFn({ method: "POST" })
         ml_drift_alert_psi: z.number().min(0.01).max(5).optional(),
         ml_decay_alert_ratio: z.number().min(0.01).max(10).optional(),
         ml_cv_min_holdout_rows: z.number().int().min(50).max(10_000_000).optional(),
+        ml_parallel_min_rows: z.number().int().min(50).max(100_000_000).optional(),
         ml_fairness_min_ratio: z.number().min(0.01).max(1).optional(),
         ml_artifact_max_mb: z.number().int().min(1).optional(),
         gateway_rate_limit_per_min: z.number().int().min(1).max(100000).optional(),

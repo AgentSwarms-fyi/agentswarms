@@ -1441,6 +1441,88 @@ Adopting the candidate is the ordinary **Redeploy** to that version. Nothing
 here promotes anything by itself — the only thing the platform does on its own
 is take a failing candidate _out_.
 
+### More rows than one container holds
+
+A dataset bigger than the row ceiling used to be **sampled**: the trainer took
+a reservoir sample down to `ml_train_max_rows` and fitted on that. The model
+was real, and it had seen a fraction of the evidence.
+
+It can now be fitted **across containers** instead. Once the search has picked
+an algorithm, workers refit that one algorithm on **disjoint slices** of the
+rows and their fits are averaged into a single model. This happens by itself,
+only when the search had to sample, and only for classification and
+regression — elsewhere two versions' labels are arbitrary between fits and
+averaging them would mean nothing.
+
+#### What it is, said plainly
+
+This is **pasting**: bagging on disjoint partitions. It is a real ensemble
+method and it is **not** the same estimator you would get by fitting once on
+everything. The honest comparison is not against that estimator, because that
+estimator is not on offer — a single fit on all the rows is precisely the
+thing that does not fit. The baseline is the sample fit, and against it:
+
+|                        | 4 workers   | 8 workers   | 16 workers |
+| ---------------------- | ----------- | ----------- | ---------- |
+| hist_gradient_boosting | **+0.0100** | **+0.0110** | +0.0086    |
+| logistic_regression    | -0.0009     | -0.0007     | -0.0008    |
+
+F1 macro on a common holdout, 400,000 rows, 25,000 per container. The tree
+models — the ones that usually win — gain. Linear models neither gain nor
+lose, because 25,000 rows was already enough for them to converge.
+
+Against a single fit on all the rows, the same measurement costs a little, and
+the cost is governed by how many rows each worker still gets rather than by how
+many workers there are:
+
+| rows each | 160,000 | 80,000  | 40,000  | 20,000  | 10,000  | 5,000   | 2,500   |
+| --------- | ------- | ------- | ------- | ------- | ------- | ------- | ------- |
+| cost      | -0.0000 | -0.0015 | -0.0035 | -0.0082 | -0.0123 | -0.0207 | -0.0339 |
+
+There is no cliff, so the floor is a line drawn on a curve: below **25,000
+rows per worker** the platform refuses to split and samples the old way,
+because a fast answer that is worse than the slow one is not a feature. That
+line is `ML_PARALLEL_MIN_ROWS` (25000), editable under **Admin → Developer
+runtime** like every other limit here — where the right place for it sits
+depends on the data, since a dataset with few columns and a simple boundary
+learns from far fewer rows than one with two hundred features.
+
+#### How the rows are divided
+
+By **hashing the row**, not by `LIMIT` and `OFFSET`. Without an `ORDER BY`
+there is no promised order, and DuckDB parallelises a scan, so two containers
+issuing the same windowed query can overlap on some rows and miss others —
+and nothing downstream would notice, because the fit would simply be on the
+wrong rows and the score would look ordinary. Hashing decides who owns a row
+with no ordering at all; identical rows land together, which is right, since
+they are the same evidence.
+
+Verified against DuckDB: the partitions cover every row exactly once, come out
+within a per cent of even, and are identical from a fresh connection.
+
+#### What the model says about itself
+
+The version records the rows it actually covered and carries a note saying it
+was split, how many containers over, and that pasting is not the same as one
+fit over everything. If the workers between them still cannot hold all the
+rows, the note says how many were left out — "trained on 8 million rows" and
+"trained on 8 of 100 million" are different claims.
+
+**The metrics are the search's**, measured on the holdout the search kept, not
+re-measured on the slices. Each worker's own holdout is a piece of its own
+slice, so a metric averaged over them would be measured on data each fit had
+seen a neighbour of.
+
+#### When it does not happen
+
+Nothing here can leave you without a model. If no worker will start, if every
+slice fails, or if no container is free to combine them, the job keeps the
+model the search already produced and says on the version that this is the
+sampled fit. A job that splits its rows takes three phases rather than one —
+search, refit, assemble — and each hands over to the next exactly once, claimed
+in the database so that of several workers finishing together only one moves
+the job on.
+
 ## Forecasting in BI
 
 Line charts on a BI dashboard project ahead with the platform's shared
@@ -1559,7 +1641,7 @@ Where AgentSwarms stands against Databricks ML and SageMaker, honestly:
 | Public API                 | Per-model scoped keys, rate limits, audited denials, BYO registration                                                                                                                                                                                                                                                                                                     | Yes, IAM-based                                                       |
 | Bring your own model       | Any joblib pipeline under a small contract                                                                                                                                                                                                                                                                                                                                | Any framework, containers                                            |
 | Feature store              | Feature views: score by key, read from the table training read; describes rather than materialises                                                                                                                                                                                                                                                                        | Yes                                                                  |
-| Distributed / GPU training | The algorithm search spreads across several sandboxes; one model still trains in one container; GPUs requestable                                                                                                                                                                                                                                                          | Clusters, distributed frameworks, GPU instances                      |
+| Distributed / GPU training | The algorithm search spreads across several sandboxes, and a dataset too large for one container is refit across several — disjoint hashed slices, averaged into one model, instead of a sample; GPUs requestable                                                                                                                                                         | Clusters, distributed frameworks, GPU instances                      |
 | Experiment tracking        | Runs logged from a notebook or a script with params, metrics and curves; a run promotes into the registry                                                                                                                                                                                                                                                                 | MLflow / Experiments                                                 |
 | Model cards                | Generated from the registry                                                                                                                                                                                                                                                                                                                                               | SageMaker Model Cards                                                |
 | Governance                 | IAM shares, trigger audit, decision ids, result digests, one statement guard for all data                                                                                                                                                                                                                                                                                 | Unity Catalog / IAM                                                  |
@@ -1569,9 +1651,6 @@ Where AgentSwarms stands against Databricks ML and SageMaker, honestly:
 Everything in the left column is shipped and tested. What is left, in the
 order it is usually asked for:
 
-- **Training one model across machines.** The algorithm search spreads over
-  sandboxes, but a single fit still happens in one container, so a model too
-  large for one box does not train here.
 - **Serving across machines.** On Docker every copy is a container on this
   machine, so the host is the ceiling. On Kubernetes copies do spread across
   nodes, but nothing grows the cluster itself when they run out of room.

@@ -39,7 +39,9 @@ describe("the job stash carries a kind", () => {
     // The training callback also names WHICH search worker reported, and
     // takes that from the session's own stash rather than the request body,
     // so a worker cannot claim to be a different one than it started as.
-    expect(result).toContain("finalizeMlJob(mlStash.job_id, outcome, mlStash.shard)");
+    expect(result).toContain(
+      "finalizeMlJob(mlStash.job_id, outcome, mlStash.shard, mlStash.phase)",
+    );
     expect(result).not.toContain("if (false as boolean)");
   });
 });

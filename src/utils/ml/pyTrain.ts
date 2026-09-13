@@ -133,6 +133,23 @@ def _read_frame(con, cfg):
     max_rows = int(cfg.get('max_rows') or 0)
     sql = 'SELECT * FROM ' + body
     sampled = False
+    # A DATA-PARALLEL worker reads only the rows hashed to it. Wrapped rather
+    # than appended, because the body may already carry a WHERE or be a
+    # subquery from the prep step, and 'WHERE a WHERE b' is not a query.
+    #
+    # Hashing rather than LIMIT/OFFSET: without an ORDER BY there is no stable
+    # order, DuckDB parallelises the scan, and two containers issuing the same
+    # windowed query can overlap on some rows and miss others. Nothing
+    # downstream would notice — the fit would simply be on the wrong rows, and
+    # the score would look ordinary. Verified against DuckDB: the partitions
+    # cover every row exactly once and are identical from a fresh connection.
+    part = cfg.get('partition') or {}
+    if part.get('sql'):
+        body = '(SELECT * FROM ' + body + ' WHERE ' + part['sql'] + ') AS _part'
+        total = int(con.execute('SELECT count(*) FROM ' + body).fetchone()[0])
+        sql = 'SELECT * FROM ' + body
+        _log('worker %s of %s: %d rows hashed to this container'
+             % (part.get('index'), part.get('workers'), total))
     if max_rows and total > max_rows:
         if cfg['task'] == 'forecast':
             raise RuntimeError(
@@ -1832,6 +1849,61 @@ def _download_artifact(cfg):
     return joblib.load(io.BytesIO(blob))
 
 
+def _paste(pipes, task):
+    """Several pipelines fitted on disjoint rows, answering as one model.
+
+    A FUNCTION RETURNING A NAMESPACE, not a class, and deliberately: a class
+    defined in this program pickles by reference to a module that does not
+    exist when the artifact is loaded, which is why the program only uses
+    functions. Nothing here is ever pickled — the artifact stores a plain list
+    of pipelines and this wraps them when the model is read.
+
+    Averaging PROBABILITIES rather than voting on labels, because a vote
+    throws away how sure each worker was, and three timid agreements should
+    not outweigh one confident disagreement.
+    """
+    import numpy as np
+    from types import SimpleNamespace
+    parts = [p for p in pipes if p is not None]
+    if not parts:
+        raise RuntimeError('This model has no fitted parts to answer with.')
+
+    # THE UNION of what the workers saw, in one order. A rare class can be
+    # missing from one worker's share of the rows entirely, and averaging
+    # those probability matrices column by column would line up different
+    # classes with each other and report the result as a confident answer.
+    # getattr(...) or [] would evaluate the TRUTH of a numpy array, which
+    # raises "the truth value of an array with more than one element is
+    # ambiguous". classes_ is always an array, so the fallback has to be
+    # chosen by identity rather than by truthiness.
+    seen = []
+    for part in parts:
+        cls = getattr(part, 'classes_', None)
+        for c in (list(cls) if cls is not None else []):
+            if not any(c == k for k in seen):
+                seen.append(c)
+    try:
+        seen = sorted(seen)
+    except Exception:
+        pass
+
+    def _proba(X):
+        index = dict((c, i) for i, c in enumerate(seen))
+        out = np.zeros((len(X), len(seen)), dtype='float64')
+        for part in parts:
+            pr = part.predict_proba(X)
+            for j, c in enumerate(list(part.classes_)):
+                out[:, index[c]] += pr[:, j]
+        return out / float(len(parts))
+
+    def _pred(X):
+        if task == 'classification':
+            return np.asarray(seen)[np.argmax(_proba(X), axis=1)]
+        return np.mean([part.predict(X) for part in parts], axis=0)
+
+    return SimpleNamespace(predict=_pred, predict_proba=_proba, classes_=seen, parts=parts)
+
+
 # ── Prediction ───────────────────────────────────────────────────────────────
 def _predict(cfg, warnings_):
     import numpy as np
@@ -1872,6 +1944,10 @@ def _predict(cfg, warnings_):
             return _prepare_x(frame, art['features'], art['dt_cols'], art['num_all'], art['cat'], art.get('text') or [])
     X = _prep(df)
     pipe = art['pipeline']
+    # A model trained across containers stores a LIST. Wrapped here rather
+    # than at every call site so there is still one scoring path.
+    if isinstance(pipe, list):
+        pipe = _paste(pipe, art.get('task'))
     pred = pipe.predict(X)
     out = df.copy()
     classes = art.get('classes')
@@ -1980,11 +2056,90 @@ def _predict(cfg, warnings_):
             'explanations': explanations, 'algorithm': art.get('algorithm')}
 
 
+def _assemble(cfg, warnings_):
+    """Combine the workers' fitted models into one artifact.
+
+    Runs in its own container because it needs sklearn to unpickle what the
+    workers uploaded; the application cannot open a joblib file.
+
+    Every part is digest-checked on the way in, exactly as a prediction checks
+    the model it is about to answer from — an assembled model is only as
+    trustworthy as the least-checked thing inside it.
+    """
+    import joblib
+    parts = cfg.get('parts') or []
+    if not parts:
+        raise RuntimeError('Nothing to assemble: no worker reported a fitted model.')
+    fs = _s3fs()
+    arts = []
+    for i, part in enumerate(parts):
+        with fs.open(part['artifact_uri'], 'rb') as f:
+            blob = f.read()
+        sha = hashlib.sha256(blob).hexdigest()
+        if sha != part['artifact_sha256']:
+            raise RuntimeError('Part %d hashes to %s but was recorded as %s. Refusing to assemble it.'
+                               % (i, sha[:12], part['artifact_sha256'][:12]))
+        arts.append(joblib.load(io.BytesIO(blob)))
+        _log('part %d of %d loaded (%d bytes)' % (i + 1, len(parts), len(blob)))
+
+    base = dict(arts[0])
+    pipes = []
+    for a in arts:
+        pipe = a.get('pipeline')
+        # A part that is itself pasted flattens in rather than nesting, so the
+        # average stays over the FITS and not over a tree of averages, where
+        # one worker's models would quietly outweigh another's.
+        pipes.extend(pipe if isinstance(pipe, list) else [pipe])
+    base['pipeline'] = pipes
+
+    if base.get('task') == 'classification':
+        seen = []
+        for a in arts:
+            cls = a.get('classes')
+            for c in (list(cls) if cls is not None else []):
+                if not any(c == k for k in seen):
+                    seen.append(c)
+        try:
+            seen = sorted(seen)
+        except Exception:
+            pass
+        base['classes'] = seen
+        short = [a for a in arts
+                 if len(list(a.get('classes') if a.get('classes') is not None else [])) < len(seen)]
+        if short:
+            warnings_.append('%d of %d workers did not see every class in their share of the rows; '
+                             'their answers still count, weighted by how sure they were.'
+                             % (len(short), len(arts)))
+
+    blob = io.BytesIO()
+    joblib.dump(base, blob)
+    raw = blob.getvalue()
+    sha = hashlib.sha256(raw).hexdigest()
+    uri = _upload(raw)
+    _log('assembled %d fitted models into one artifact (%d bytes)' % (len(pipes), len(raw)))
+    # 'metrics' is EMPTY BUT PRESENT, and it has to be: the application only
+    # accepts a worker's result as a result when it carries artifact_uri, a
+    # digest and a metrics object, and without one this whole phase would be
+    # recorded as a failed worker and the job would quietly fall back to the
+    # sampled fit every single time. Empty rather than invented, because an
+    # assembled model has no score of its own — its metrics are the search's,
+    # measured on the holdout the search kept, and the application fills them
+    # in from there.
+    return {'ok': True, 'mode': 'assemble', 'parts': len(pipes), 'metrics': {},
+            'artifact_uri': uri, 'artifact_sha256': sha, 'artifact_bytes': len(raw)}
+
+
 # ── Entry point ──────────────────────────────────────────────────────────────
 def entrypoint(inputs):
     cfg = _ML_CONFIG
     warnings_ = []
     _ensure_packages()
+    if cfg.get('mode') == 'assemble':
+        _log('assembling %d parts' % len(cfg.get('parts') or []))
+        result = _assemble(cfg, warnings_)
+        result.update({'elapsed_seconds': round(_elapsed(), 1), 'warnings': warnings_})
+        _log('done in %.1fs' % _elapsed())
+        return result
     if cfg.get('mode') == 'predict':
         _log('prediction %s: %s v%d' % (cfg['prediction_id'][:8], cfg['task'], int(cfg['version'])))
         result = _predict(cfg, warnings_)

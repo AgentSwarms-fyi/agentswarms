@@ -2803,6 +2803,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "level": 3
       },
       {
+        "id": "data-parallel",
+        "text": "More rows than one container holds",
+        "level": 3
+      },
+      {
         "id": "forecasting",
         "text": "Forecasting in BI",
         "level": 2

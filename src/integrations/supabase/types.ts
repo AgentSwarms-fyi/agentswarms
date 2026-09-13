@@ -5663,6 +5663,13 @@ export type Database = {
           session_id: string | null;
           shard_results: Json;
           shard_sessions: string[];
+          phase: string;
+          search_result: Json | null;
+          parallel_algorithm: string | null;
+          parallel_workers: number;
+          parallel_rows: number | null;
+          parallel_total_rows: number | null;
+          parallel_parts: Json;
           shards: number;
           started_at: string | null;
           status: string;
@@ -5682,6 +5689,13 @@ export type Database = {
           session_id?: string | null;
           shard_results?: Json;
           shard_sessions?: string[];
+          phase?: string;
+          search_result?: Json | null;
+          parallel_algorithm?: string | null;
+          parallel_workers?: number;
+          parallel_rows?: number | null;
+          parallel_total_rows?: number | null;
+          parallel_parts?: Json;
           shards?: number;
           started_at?: string | null;
           status?: string;
@@ -5701,6 +5715,13 @@ export type Database = {
           session_id?: string | null;
           shard_results?: Json;
           shard_sessions?: string[];
+          phase?: string;
+          search_result?: Json | null;
+          parallel_algorithm?: string | null;
+          parallel_workers?: number;
+          parallel_rows?: number | null;
+          parallel_total_rows?: number | null;
+          parallel_parts?: Json;
           shards?: number;
           started_at?: string | null;
           status?: string;
@@ -6128,6 +6149,7 @@ export type Database = {
           ml_artifact_max_mb: number | null;
           ml_decay_alert_ratio: number | null;
           ml_cv_min_holdout_rows: number | null;
+          ml_parallel_min_rows: number | null;
           ml_drift_alert_psi: number | null;
           ml_fairness_min_ratio: number | null;
           ml_max_concurrent_trainings_per_user: number | null;
@@ -6187,6 +6209,7 @@ export type Database = {
           ml_artifact_max_mb?: number | null;
           ml_decay_alert_ratio?: number | null;
           ml_cv_min_holdout_rows?: number | null;
+          ml_parallel_min_rows?: number | null;
           ml_drift_alert_psi?: number | null;
           ml_fairness_min_ratio?: number | null;
           ml_max_concurrent_trainings_per_user?: number | null;
@@ -6246,6 +6269,7 @@ export type Database = {
           ml_artifact_max_mb?: number | null;
           ml_decay_alert_ratio?: number | null;
           ml_cv_min_holdout_rows?: number | null;
+          ml_parallel_min_rows?: number | null;
           ml_drift_alert_psi?: number | null;
           ml_fairness_min_ratio?: number | null;
           ml_max_concurrent_trainings_per_user?: number | null;
@@ -8153,8 +8177,20 @@ export type Database = {
           similarity: number;
         }[];
       };
+      ml_job_advance_phase: {
+        Args: {
+          _algorithm: string | null;
+          _from: string;
+          _job: string;
+          _parts: Json | null;
+          _search: Json | null;
+          _shards: number;
+          _to: string;
+        };
+        Returns: { claimed: boolean }[];
+      };
       ml_job_record_shard: {
-        Args: { _job: string; _result: Json; _shard: number };
+        Args: { _job: string; _phase: string; _result: Json; _shard: number };
         Returns: {
           done: number;
           total: number;
