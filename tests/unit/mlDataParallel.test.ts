@@ -75,7 +75,16 @@ describe("when splitting the rows is worth it", () => {
     expect(plan.totalRows).toBe(100_000_000);
     const warned = parallelWarnings(plan).join(" ");
     expect(warned).toContain("8,000,000 of 100,000,000 rows");
-    expect(warned).toContain("The rest were left out");
+    // And WHY they were left out, in the reader's terms. "The rest were left
+    // out" on its own is a fact with no cause and nothing to do about it; the
+    // sentence that followed it said "4 containers hold this many rows between
+    // them", which has no referent and reads as a non-sequitur on a real
+    // version. The arithmetic and the two knobs that change it are the point.
+    expect(warned).toContain("a container takes at most 2,000,000 rows");
+    expect(warned).toContain("4 of them reach 8,000,000");
+    // Named by their UI labels, the way every other limit message in the repo
+    // names the control it wants the reader to find.
+    expect(warned).toContain('Raise "Training rows" or "Search workers"');
   });
 
   it("and says plainly when it did see everything", () => {

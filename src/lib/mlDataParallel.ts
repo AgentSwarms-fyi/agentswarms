@@ -150,8 +150,10 @@ export function parallelWarnings(plan: ParallelPlan): string[] {
   if (plan.rowsUsed < plan.totalRows) {
     out.push(
       `Trained on ${grouped(plan.rowsUsed)} of ${grouped(plan.totalRows)} rows, ` +
-        `split across ${plan.workers} containers. The rest were left out: ${plan.workers} containers ` +
-        `hold this many rows between them.`,
+        `split across ${plan.workers} containers. The rest were left out: a container takes at ` +
+        `most ${grouped(plan.rowsPerWorker)} rows, so ${plan.workers} of them reach ` +
+        `${grouped(plan.rowsUsed)}. Raise "Training rows" or "Search workers" under ` +
+        `Admin → Developer runtime to cover more.`,
     );
   } else {
     out.push(
