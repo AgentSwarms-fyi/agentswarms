@@ -82,6 +82,41 @@ describe("the settings whose job is to restrict come across", () => {
     expect(patch.toolConfigs?.metric_model_names).toEqual(["saas_sales_model"]);
   });
 
+  describe("carries the ML model allow-list, and keeps absent and empty apart", () => {
+    // Predictions were allow-all before this list existed, so an ABSENT list
+    // means every model — the SQL list's shape, with the SQL list's hazard:
+    // dropping it would widen the node. Unlike the SQL list, presence carries
+    // meaning: an agent configured to [] means "no models", and a node
+    // imported from it must say the same rather than inherit everything. The
+    // module's strings() helper reads absent and empty alike, which is exactly
+    // why this mapping gates on Array.isArray first.
+    const withMl = (model_names: string[] | undefined) => ({
+      ...agent,
+      tools: {
+        ...agent.tools,
+        toolConfigs: {
+          ...agent.tools.toolConfigs,
+          ...(model_names === undefined ? {} : { ml_predict: { model_names } }),
+        },
+      },
+    });
+
+    it("absent stays absent — every model, as before the list existed", () => {
+      const { patch } = agentToNodePatch(withMl(undefined));
+      expect(patch.toolConfigs?.ml_model_names).toBeUndefined();
+    });
+
+    it("an explicit empty list stays empty — no models, not all of them", () => {
+      const { patch } = agentToNodePatch(withMl([]));
+      expect(patch.toolConfigs?.ml_model_names).toEqual([]);
+    });
+
+    it("a named list comes across exactly", () => {
+      const { patch } = agentToNodePatch(withMl(["churn_classifier"]));
+      expect(patch.toolConfigs?.ml_model_names).toEqual(["churn_classifier"]);
+    });
+  });
+
   it("carries skills and MCP servers", () => {
     const { patch } = agentToNodePatch(agent);
     expect(patch.skillIds).toEqual(["skill-a", "skill-b"]);

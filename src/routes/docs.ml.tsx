@@ -588,6 +588,22 @@ with agentswarms.start_run("churn-v2", params={"lr": 0.01, "depth": 6}) as run:
         at least one model with a production version; on headless runs grants are re-derived from
         the run&apos;s owner. Forecast models return their projected periods.
       </P>
+      <P>
+        <strong>Which models the agent may use</strong> is a picker under the tool: every model you
+        can use — your own and those shared with you — with its task, and whether it has a
+        production version yet. Leave it untouched and the agent may predict with all of them, which
+        is what every agent did before the picker existed. Select some and the agent is restricted
+        to exactly those: <C>ml_list_models</C> shows nothing else, and <C>ml_predict</C> refuses
+        anything else by name, even a model it was told about in an earlier turn. The same picker
+        sits on an agent node on the swarm canvas, and importing an agent into a node carries its
+        selection across — including an empty one, which means <em>no models</em> and must not turn
+        into <em>all of them</em> on the way.
+      </P>
+      <Callout title="There is no key to paste">
+        Until this picker existed, enabling the tool showed an API key field: a password box, for a
+        tool that needs no key, with &quot;paste here&quot; in it. It accepted a credential and did
+        nothing with it. It is gone.
+      </Callout>
 
       <H2 id="automation">Automation</H2>
       <P>

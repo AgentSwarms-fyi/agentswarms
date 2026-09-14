@@ -386,7 +386,28 @@ export type ToolConfigs = {
   // system prompt on every call, so an agent that was given no models should
   // cost nothing rather than advertise the whole account's metrics.
   metric_model_names?: string[];
+  // Allow-list of ML model NAMES the ml_predict tool may score with.
+  //
+  // ABSENT MEANS EVERY MODEL THE CALLER CAN USE, the opposite of the metric
+  // list above, and deliberately: ML predictions were allow-all before this
+  // list existed, so an agent saved without one must keep working exactly as
+  // it did. PRESENT means exactly those names — and an empty array, written
+  // once somebody has touched the picker, means none. Two representations on
+  // purpose: "never configured" and "configured to nothing" are different
+  // facts, and the first is the compatibility case. See ADVERSARIAL_LOG on
+  // sql_table_names for what happens when an empty list quietly means all.
+  ml_model_names?: string[];
 };
+
+/** The models an agent may predict with, given its allow-list. */
+export function mlModelsAllowed<T extends { name: string }>(
+  models: T[],
+  allow: string[] | undefined,
+): T[] {
+  if (!Array.isArray(allow)) return models;
+  const names = new Set(allow.map((n) => n.trim()).filter((n) => n.length > 0));
+  return models.filter((m) => names.has(m.name));
+}
 
 async function braveSearch(query: string, limit: number, key: string): Promise<string> {
   try {
@@ -1906,8 +1927,9 @@ export async function resolveAgentTools(
   if (allows("ml_predict")) {
     const mlOwner = ctx.scopeUserId ?? ctx.userId;
     const { listModelsForUser } = await import("@/utils/ml/access.server");
-    const mlModels = (await listModelsForUser(mlOwner).catch(() => [])).filter(
-      (m) => m.production_version_id,
+    const mlModels = mlModelsAllowed(
+      (await listModelsForUser(mlOwner).catch(() => [])).filter((m) => m.production_version_id),
+      cfg.ml_model_names,
     );
     if (mlModels.length > 0) {
       enabled.ml = true;
@@ -1955,8 +1977,11 @@ export async function resolveAgentTools(
       handlers.set("ml_list_models", async (c) => {
         try {
           const { listModelsForUser } = await import("@/utils/ml/access.server");
-          const models = (await listModelsForUser(c.scopeUserId ?? c.userId)).filter(
-            (m) => m.production_version_id,
+          const models = mlModelsAllowed(
+            (await listModelsForUser(c.scopeUserId ?? c.userId)).filter(
+              (m) => m.production_version_id,
+            ),
+            cfg.ml_model_names,
           );
           const ids = models.map((m) => m.production_version_id as string);
           const { data: versions } = await c.sb
@@ -2025,6 +2050,13 @@ export async function resolveAgentTools(
             models.find((m) => m.name.toLowerCase() === name.toLowerCase());
           if (!model)
             return JSON.stringify({ error: `No model named "${name}". Call ml_list_models.` });
+          // Enforced HERE, not only in what was advertised: a model can be
+          // named from memory, or from a previous turn before the list was
+          // narrowed, and the list is the owner's decision.
+          if (mlModelsAllowed([model], cfg.ml_model_names).length === 0)
+            return JSON.stringify({
+              error: `"${model.name}" is not enabled for this agent. Call ml_list_models for the models it may use.`,
+            });
           if (!model.production_version_id)
             return JSON.stringify({ error: `"${model.name}" has no production version yet.` });
           const { data: version } = await c.sb

@@ -86,6 +86,78 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-14 — Module 3 revisited, Agent Builder (`/agents`): the ML Predictions picker
+
+Found by the UI round of a feature being shipped — a model picker for the ML
+Predictions tool — not by a suite. The pass is the usual one: press the button,
+then read the row.
+
+#### R1 · S1 · Clearing an allow-list saved the old list back
+
+The save-time `toolConfigs` was assembled as
+`{ ...toolConfigs, ...sqlSpread, ...metricSpread, ...mlSpread }`. The SQL and
+semantic spreads each dropped their own key by returning `rest` — the whole
+config minus that key — so a later spread re-added what an earlier one had
+removed, and the base spread of the unpruned state put back whatever the last
+spread merely left out.
+
+Measured on "Demo · Friendly Assistant" (`sql_query` limited to `saas_sales`):
+untick `saas_sales`, watch the panel read "No selection — the agent can query
+every table you can read", save, see "Agent updated". The row:
+`sql_query: {"table_names":["saas_sales"]}`. The form said every table; the
+agent still had one. Then the same on the new picker: "Allow every model again"
+rendered the allow-all state and the save wrote
+`ml_predict: {"model_names":["revenue_facts plan classifier"]}` back.
+
+Not a wrong number — a setting that reports one state and persists another.
+The persisted state is the narrower one, so it fails closed, which is how it
+survived: nothing got wider, and reopening the form showed the restriction
+still there, which reads as "I must not have saved".
+
+Fixed in `AgentForm.tsx`: every allow-list key is stripped from the state
+first and written back only when it should exist. Verified on the rebuilt image
+against the rows: SQL cleared → key absent; ML reset → key absent; restricted →
+exactly the one name; untouched → byte-for-byte the before snapshot.
+
+**Tests:** `tests/unit/mlAgentPicker.test.ts` — three guards on the save path,
+mutation-verified 6/6 (base spread re-added, key left in the remainder, length
+gate on the ML write, a second write, an always-true SQL condition, a re-add
+inside the metric branch).
+
+#### R2 · S2 · The model said "verbatim" and had not called the tool
+
+Not a code defect, and logged because it nearly passed as verification. Asked
+to call `ml_predict` with a model outside its list and paste the raw response,
+the Playground agent answered "The call failed as expected. Here is the tool's
+raw response, verbatim:" followed by an error text that exists nowhere in the
+codebase. The message row's metadata had no tool source for that turn; the
+turn before it — a real `ml_list_models` call — did. A prompt that insisted on
+the actual invocation came back with the server's own string,
+`"revenue_facts model" is not enabled for this agent. Call ml_list_models for
+the models it may use.` — which the model could not have produced otherwise.
+
+The rule this adds to the method: a transcript is not evidence that a tool
+ran. The row's `sources`, the audit trail, or a string only the server could
+have produced is.
+
+#### R3 · S2 (open) · A headless run's steps record no tool calls
+
+Applying R2's rule to the canvas round exposed a gap in the server executor.
+The same swarm, the same node, the same input, run twice: from the canvas, the
+`research` step in `swarm_run_steps` carries
+`tool_calls: [{name: "ml_list_models", type: "tool_call"}, {type: "tool_result",
+ok: true, preview: …}]`. From a schedule — the server executor — the step
+carries `tool_calls: []`, with the same one-model output. The server tracer
+(`observability/serverTracer.server.ts`) has no tool-call field at all; the
+client tracer writes `args.toolCalls`. So the Swarm Traces page shows a
+deployed run as if its agents never used a tool, which is the case where
+someone most wants to know. Left open here — this pass is about the picker —
+and queued for the ML/agent integration work, where the deterministic scoring
+node will need its calls visible on exactly this path. For this round the
+headless evidence is the run's `swarm_snapshot` (the node's
+`ml_model_names: ["revenue_facts plan classifier"]`) and an output naming that
+one model with "Count: 1", a name the input never mentioned.
+
 ### 2026-08-18 — Modules 30 & 31, IAM (`/admin/iam`) and Developer runtime (`/admin/runtime`)
 
 The last two modules, and the same finding on both: a failed load that could

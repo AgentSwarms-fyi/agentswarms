@@ -352,6 +352,12 @@ export function NodeInspector({
     { id: string; name: string }[]
   >([]);
   const [semanticModelsLoaded, setSemanticModelsLoaded] = useState(false);
+  // ML models for the ml_predict per-node allow-list. RLS returns own + shared,
+  // the same set listModelsForUser gives the tool at run time.
+  const [availableMlModels, setAvailableMlModels] = useState<
+    { id: string; name: string; task: string; production_version_id: string | null }[]
+  >([]);
+  const [mlModelsLoaded, setMlModelsLoaded] = useState(false);
   // Connected MCP servers — used by the mcp_call_tool per-node allow-list picker
   // so users can check off servers instead of typing names from memory.
   const [availableMcpServers, setAvailableMcpServers] = useState<
@@ -386,6 +392,12 @@ export function NodeInspector({
         .order("name", { ascending: true });
       if (sm) setAvailableSemanticModels(sm);
       setSemanticModelsLoaded(true);
+      const { data: ml } = await supabase
+        .from("ml_models")
+        .select("id, name, task, production_version_id")
+        .order("name", { ascending: true });
+      if (ml) setAvailableMlModels(ml);
+      setMlModelsLoaded(true);
       const { data: mcp } = await supabase
         .from("mcp_servers")
         .select("id, name, type, status")
@@ -1152,6 +1164,94 @@ export function NodeInspector({
                                         ? "No models selected — this tool stays inactive on this node."
                                         : `Node can query ${(tc.metric_model_names ?? []).length} model${(tc.metric_model_names ?? []).length === 1 ? "" : "s"}.`}
                                     </p>
+                                  </>
+                                )}
+                              </div>
+                            )}
+
+                            {on && t.id === "ml_predict" && (
+                              <div className="mt-2 pt-2 border-t border-border/40 space-y-1">
+                                {/* ALLOW-ALL UNTIL TOUCHED — the opposite of the semantic
+                                    picker above. Predictions were allow-all before this list
+                                    existed, and a node built then must keep working. Once a
+                                    list is present it is exact, and [] means none. */}
+                                <Label className="text-[10px] text-muted-foreground block">
+                                  Models this node may predict with
+                                </Label>
+                                {!mlModelsLoaded ? (
+                                  <p className="text-[10px] text-muted-foreground">
+                                    Loading models…
+                                  </p>
+                                ) : availableMlModels.length === 0 ? (
+                                  <p className="text-[10px] text-muted-foreground">
+                                    No ML models yet. Train one under{" "}
+                                    <span className="font-medium text-foreground">ML Models</span>.
+                                  </p>
+                                ) : (
+                                  <>
+                                    <div className="max-h-32 overflow-y-auto space-y-1 rounded-md border border-border/40 bg-background/40 p-2">
+                                      {availableMlModels.map((m) => {
+                                        const list = tc.ml_model_names;
+                                        const checked =
+                                          Array.isArray(list) && list.includes(m.name);
+                                        return (
+                                          <label
+                                            key={m.id}
+                                            className={`flex items-start gap-2 cursor-pointer text-[10px] ${
+                                              m.production_version_id ? "" : "opacity-60"
+                                            }`}
+                                            title={
+                                              m.production_version_id
+                                                ? undefined
+                                                : "No production version yet — cannot predict until one is promoted"
+                                            }
+                                          >
+                                            <input
+                                              type="checkbox"
+                                              className="mt-0.5"
+                                              checked={checked}
+                                              onChange={(e) => {
+                                                const prev = Array.isArray(list) ? list : [];
+                                                const next = e.target.checked
+                                                  ? Array.from(new Set([...prev, m.name]))
+                                                  : prev.filter((n) => n !== m.name);
+                                                patchToolConfig({ ml_model_names: next });
+                                              }}
+                                            />
+                                            <span className="font-mono truncate flex-1">
+                                              {m.name}
+                                            </span>
+                                            <span className="text-muted-foreground">{m.task}</span>
+                                          </label>
+                                        );
+                                      })}
+                                    </div>
+                                    <p
+                                      className={`text-[10px] ${
+                                        Array.isArray(tc.ml_model_names) &&
+                                        tc.ml_model_names.length === 0
+                                          ? "text-amber-600 dark:text-amber-500"
+                                          : "text-muted-foreground"
+                                      }`}
+                                    >
+                                      {!Array.isArray(tc.ml_model_names)
+                                        ? "All models you can use — select some to restrict this node to them."
+                                        : tc.ml_model_names.length === 0
+                                          ? "No models selected — this node cannot predict. Pick at least one, or switch the tool off."
+                                          : `Restricted to ${tc.ml_model_names.length} model${tc.ml_model_names.length === 1 ? "" : "s"}.`}
+                                    </p>
+                                    {Array.isArray(tc.ml_model_names) && (
+                                      <button
+                                        type="button"
+                                        className="text-[10px] underline text-muted-foreground"
+                                        onClick={() => {
+                                          const { ml_model_names: _drop, ...rest } = tc;
+                                          onChange({ toolConfigs: rest });
+                                        }}
+                                      >
+                                        Allow every model again
+                                      </button>
+                                    )}
                                   </>
                                 )}
                               </div>

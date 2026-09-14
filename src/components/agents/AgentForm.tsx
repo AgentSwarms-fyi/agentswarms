@@ -789,6 +789,33 @@ export function AgentForm({
     : [];
   const [metricModelNames, setMetricModelNames] = useState<string[]>(initialMetricModels);
 
+  // ML models the agent may predict with. The same RLS set the tool reaches
+  // (own + IAM-shared), so the picker cannot offer a model that would then be
+  // refused at run time.
+  const [availableMlModels, setAvailableMlModels] = useState<
+    {
+      id: string;
+      name: string;
+      task: string;
+      user_id: string;
+      production_version_id: string | null;
+    }[]
+  >([]);
+  const [mlModelsLoaded, setMlModelsLoaded] = useState(false);
+  // ABSENT means every model (what every agent saved before this list did);
+  // PRESENT means exactly these, and [] means none. Two representations on
+  // purpose — "never configured" is the compatibility case and must not
+  // collapse into "configured to nothing". `mlConfigured` remembers which.
+  const initialMlModels: string[] | null = Array.isArray(
+    (existingTools.toolConfigs?.ml_predict as { model_names?: unknown } | undefined)?.model_names,
+  )
+    ? (existingTools.toolConfigs!.ml_predict as { model_names: unknown[] }).model_names.filter(
+        (s): s is string => typeof s === "string" && s.trim().length > 0,
+      )
+    : null;
+  const [mlModelNames, setMlModelNames] = useState<string[]>(initialMlModels ?? []);
+  const [mlConfigured, setMlConfigured] = useState<boolean>(initialMlModels !== null);
+
   // Memory configuration. Loaded from agent_memory_config in the effect below
   // when editing an existing agent; defaults are used for new agents.
   const [memoryConfig, setMemoryConfig] = useState<MemoryConfigForm>(DEFAULT_MEMORY_CONFIG_FORM);
@@ -918,6 +945,27 @@ export function AgentForm({
           );
         }
         setSemanticModelsLoaded(true);
+      });
+
+    // Load ML models for the ml_predict allow-list. RLS returns own + shared,
+    // which is exactly listModelsForUser's set on the server.
+    supabase
+      .from("ml_models")
+      .select("id, name, task, user_id, production_version_id")
+      .order("name", { ascending: true })
+      .then(({ data }) => {
+        if (data) {
+          setAvailableMlModels(
+            data as {
+              id: string;
+              name: string;
+              task: string;
+              user_id: string;
+              production_version_id: string | null;
+            }[],
+          );
+        }
+        setMlModelsLoaded(true);
       });
 
     // Load memory config + items for an existing agent.
@@ -1127,32 +1175,51 @@ export function AgentForm({
     const toolsPayload: any = {
       guardrails,
       builtInTools: enabledTools,
-      toolConfigs: {
-        ...toolConfigs,
+      // Every allow-list key is REMOVED first and written back only when it
+      // should exist. Each list used to spread `rest` — the whole config
+      // minus its own key — over the others, so a later spread re-added what
+      // an earlier one had dropped: clearing the SQL table restriction saved
+      // the old list straight back, and "Allow every model again" saved the
+      // old model list. Both seen live before this shape replaced it.
+      toolConfigs: (() => {
+        const {
+          sql_query: sqlCfg,
+          metric_query: metricCfg,
+          ml_predict: mlCfg,
+          ...others
+        } = toolConfigs as Record<string, Record<string, unknown>>;
+        const out: Record<string, Record<string, unknown>> = { ...others };
         // SQL allow-list — only persist when the user picked specific tables.
-        // Empty array means "all tables", so we drop the key entirely.
-        ...(sqlTableNames.length > 0
-          ? { sql_query: { ...(toolConfigs.sql_query || {}), table_names: sqlTableNames } }
-          : (() => {
-              const { sql_query: _omit, ...rest } = toolConfigs as Record<string, unknown>;
-              return { ...(rest as typeof toolConfigs) };
-            })()),
+        // Empty means "all tables", so the key stays absent.
+        if (sqlTableNames.length > 0) {
+          out.sql_query = { ...(sqlCfg || {}), table_names: sqlTableNames };
+        }
         // Semantic-model allow-list. Persist only models still offered by the
         // picker, so a model the user lost access to cannot linger in the
-        // config and quietly come back if it is ever re-shared.
-        ...(() => {
-          const kept = metricModelNames.filter(
-            (n) => !semanticModelsLoaded || availableSemanticModels.some((m) => m.name === n),
-          );
-          if (kept.length > 0) {
-            return { metric_query: { ...(toolConfigs.metric_query || {}), model_names: kept } };
-          }
-          // Empty means deny-all, which is also the absent case — drop the key
-          // rather than storing [] so there is exactly one representation.
-          const { metric_query: _omit, ...rest } = toolConfigs as Record<string, unknown>;
-          return { ...(rest as typeof toolConfigs) };
-        })(),
-      },
+        // config and quietly come back if it is ever re-shared. Empty means
+        // deny-all, which is also the absent case — the key stays absent
+        // rather than holding [] so there is exactly one representation.
+        const metricKept = metricModelNames.filter(
+          (n) => !semanticModelsLoaded || availableSemanticModels.some((m) => m.name === n),
+        );
+        if (metricKept.length > 0) {
+          out.metric_query = { ...(metricCfg || {}), model_names: metricKept };
+        }
+        // ML allow-list. Written only once the picker has been touched or a
+        // list already existed — an agent that never configured one keeps the
+        // ABSENT key, which the server reads as "every model". Pruned to the
+        // models still offered, and persisted even when that leaves [] because
+        // for this list an empty array is a decision, not an absence.
+        if (mlConfigured) {
+          out.ml_predict = {
+            ...(mlCfg || {}),
+            model_names: mlModelNames.filter(
+              (n) => !mlModelsLoaded || availableMlModels.some((m) => m.name === n),
+            ),
+          };
+        }
+        return out;
+      })(),
       workflows: workflowConfigs,
       activeWorkflows,
       // Persist only MCP servers still present in the live picker.
@@ -2569,6 +2636,106 @@ export function AgentForm({
                                             ? "No models selected — this tool is inactive and costs the agent nothing. Pick at least one."
                                             : `Agent can query ${metricModelNames.length} model${metricModelNames.length === 1 ? "" : "s"}. Only these reach its prompt.`}
                                         </p>
+                                      </>
+                                    )}
+                                  </div>
+                                ) : tool.id === "ml_predict" ? (
+                                  <div className="space-y-1">
+                                    {/* A PICKER, not a key. Before this branch existed the tool
+                                        fell through to the generic "API Key / Endpoint" field
+                                        below — a password box for a tool that needs no key,
+                                        inviting a credential into a field that did nothing. */}
+                                    <Label className="text-xs">
+                                      Models this agent may predict with
+                                    </Label>
+                                    {!mlModelsLoaded ? (
+                                      <p className="text-[11px] text-muted-foreground">
+                                        Loading models…
+                                      </p>
+                                    ) : availableMlModels.length === 0 ? (
+                                      <p className="text-[11px] text-muted-foreground">
+                                        No ML models yet. Train one under{" "}
+                                        <span className="font-medium text-foreground">
+                                          ML Models
+                                        </span>
+                                        .
+                                      </p>
+                                    ) : (
+                                      <>
+                                        <div className="max-h-40 overflow-y-auto space-y-1 rounded-md border border-border/50 p-2 bg-background/40">
+                                          {availableMlModels.map((m) => {
+                                            const checked =
+                                              mlConfigured && mlModelNames.includes(m.name);
+                                            const unserved = !m.production_version_id;
+                                            return (
+                                              <label
+                                                key={m.id}
+                                                className={`flex items-start gap-2 cursor-pointer text-[11px] ${
+                                                  unserved ? "opacity-60" : ""
+                                                }`}
+                                                title={
+                                                  unserved
+                                                    ? "No production version yet — the agent cannot predict with it until one is promoted"
+                                                    : undefined
+                                                }
+                                              >
+                                                <input
+                                                  type="checkbox"
+                                                  className="mt-0.5"
+                                                  checked={checked}
+                                                  onChange={(e) => {
+                                                    setMlConfigured(true);
+                                                    setMlModelNames((prev) =>
+                                                      e.target.checked
+                                                        ? Array.from(new Set([...prev, m.name]))
+                                                        : prev.filter((n) => n !== m.name),
+                                                    );
+                                                  }}
+                                                />
+                                                <span className="font-mono truncate flex-1">
+                                                  {m.name}
+                                                </span>
+                                                <Badge variant="outline" className="text-[9px]">
+                                                  {m.task}
+                                                </Badge>
+                                                {!!userId && m.user_id !== userId && (
+                                                  <Badge variant="outline" className="text-[9px]">
+                                                    shared
+                                                  </Badge>
+                                                )}
+                                              </label>
+                                            );
+                                          })}
+                                        </div>
+                                        {/* ALLOW-ALL until touched — the opposite of the semantic
+                                            picker above, because predictions were allow-all before
+                                            this list existed and an agent saved then must keep
+                                            working. Say which state it is in, every time. */}
+                                        <p
+                                          className={`text-[11px] leading-snug ${
+                                            mlConfigured && mlModelNames.length === 0
+                                              ? "text-amber-600 dark:text-amber-500"
+                                              : "text-muted-foreground"
+                                          }`}
+                                        >
+                                          {!mlConfigured
+                                            ? "All models you can use — select some to restrict this agent to them."
+                                            : mlModelNames.length === 0
+                                              ? "No models selected — this agent cannot predict. Pick at least one, or switch the tool off."
+                                              : `Restricted to ${mlModelNames.length} model${mlModelNames.length === 1 ? "" : "s"}. Nothing else is offered or accepted.`}
+                                        </p>
+                                        {mlConfigured && (
+                                          <button
+                                            type="button"
+                                            className="text-[11px] underline text-muted-foreground"
+                                            onClick={() => {
+                                              setMlConfigured(false);
+                                              setMlModelNames([]);
+                                            }}
+                                          >
+                                            Allow every model again
+                                          </button>
+                                        )}
                                       </>
                                     )}
                                   </div>

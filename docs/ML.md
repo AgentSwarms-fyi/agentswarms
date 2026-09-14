@@ -510,6 +510,21 @@ a production version; on headless runs (deployed swarms, schedules) grants
 are re-derived from the run's owner. Forecast models return their projected
 periods.
 
+**Which models the agent may use** is a picker under the tool: every model you
+can use — your own and those shared with you — with its task, and whether it
+has a production version yet. Leave it untouched and the agent may predict
+with all of them, which is what every agent did before the picker existed.
+Select some and the agent is restricted to exactly those: `ml_list_models`
+shows nothing else, and `ml_predict` refuses anything else by name, even a
+model it was told about in an earlier turn. The same picker sits on an agent
+node on the swarm canvas, and importing an agent into a node carries its
+selection across — including an empty one, which means _no models_ and must
+not turn into _all of them_ on the way.
+
+Until this picker existed, enabling the tool showed an **API key** field: a
+password box, for a tool that needs no key, with "paste here" in it. It
+accepted a credential and did nothing with it. It is gone.
+
 ## Automation
 
 The model page's **Automation** tab schedules two kinds of work, each

@@ -1055,6 +1055,7 @@ export const Route = createFileRoute("/api/chat")({
               mcp_server_names?: string[];
               sql_table_names?: string[];
               metric_model_names?: string[];
+              ml_model_names?: string[];
             };
             // Per-call guardrail override (used by swarm nodes that want
             // their own policy independent of the linked agent). Server
@@ -1206,6 +1207,7 @@ export const Route = createFileRoute("/api/chat")({
             mcp_server_names?: string[];
             sql_table_names?: string[];
             metric_model_names?: string[];
+            ml_model_names?: string[];
           } = {};
           let agentSkillIds: string[] = [];
           let agentGuardrails: Guardrails = parseGuardrails(undefined);
@@ -1303,6 +1305,18 @@ export const Route = createFileRoute("/api/chat")({
                     );
                   }
                 }
+                // ML models. An ABSENT list means every model (the pre-list
+                // behaviour every existing agent relies on); a present one,
+                // even empty, means exactly what it says.
+                const mlCfg = tools.toolConfigs?.ml_predict;
+                if (mlCfg && typeof mlCfg === "object") {
+                  const raw = (mlCfg as { model_names?: unknown }).model_names;
+                  if (Array.isArray(raw)) {
+                    agentToolConfigs.ml_model_names = raw.filter(
+                      (s): s is string => typeof s === "string" && s.trim().length > 0,
+                    );
+                  }
+                }
               }
             } catch {
               /* ignore — trace label is non-critical */
@@ -1340,6 +1354,11 @@ export const Route = createFileRoute("/api/chat")({
               }
               if (Array.isArray(c.metric_model_names) && c.metric_model_names.length > 0) {
                 merged.metric_model_names = c.metric_model_names;
+              }
+              // Copied when PRESENT, including empty: for this list an empty
+              // array is a decision ("none"), not an absence.
+              if (Array.isArray(c.ml_model_names)) {
+                merged.ml_model_names = c.ml_model_names;
               }
             }
             return merged;

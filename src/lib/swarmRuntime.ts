@@ -128,6 +128,10 @@ export type SwarmToolConfigs = {
   // empty / undefined means NO models and the tool is not given to the node
   // at all, because the model catalogue costs prompt tokens on every call.
   metric_model_names?: string[];
+  // Allow-list of ML model names the ml_predict tool may score with. ABSENT
+  // means every model the owner can use (the pre-list behaviour); present
+  // means exactly those, and [] means none. Mirrors ToolConfigs on the server.
+  ml_model_names?: string[];
 };
 
 // Per-node guardrails — same shape the agent builder writes under

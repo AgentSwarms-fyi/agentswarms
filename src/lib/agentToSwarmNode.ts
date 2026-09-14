@@ -126,6 +126,15 @@ export function importableToolConfigs(tools: unknown): SwarmToolConfigs {
   const metricModels = strings(obj(cfgs.metric_query).model_names);
   if (metricModels.length) out.metric_model_names = metricModels;
 
+  // ALLOW by default, like the SQL list — predictions were allow-all before
+  // this list existed — so dropping it would widen a node exactly the way the
+  // SQL list once did. But unlike the SQL list, PRESENCE carries meaning: an
+  // agent configured to [] means "no models", and a node imported from it must
+  // say the same rather than inherit everything. Hence the Array.isArray gate
+  // instead of strings(), which reads absent and empty alike.
+  const mlRaw = obj(cfgs.ml_predict).model_names;
+  if (Array.isArray(mlRaw)) out.ml_model_names = strings(mlRaw);
+
   const mcp = strings(t.mcpServerNames);
   if (mcp.length) out.mcp_server_names = mcp;
 
