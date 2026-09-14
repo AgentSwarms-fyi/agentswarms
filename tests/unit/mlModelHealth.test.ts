@@ -154,9 +154,10 @@ describe("the sentence travels with the model", () => {
     expect(scoring).toContain("health: healthLine(modelHealth.get(model.id)),");
     expect(analyst.match(/health: string \| null;/g)?.length).toBe(2);
     expect(analyst).toContain('const health = m.health ? `\\n  ${m.health}` : "";');
-    expect(
-      analyst.match(/\$\{s\.scored\.health \? `; \$\{s\.scored\.health\}` : ""\}/g)?.length,
-    ).toBe(2);
+    // Both synthesis sites label a scored step through the one helper, which
+    // carries the health line.
+    expect(analyst.match(/scoredLabel\(s\.scored\)/g)?.length).toBe(2);
+    expect(analyst).toContain('${s.health ? `; ${s.health}` : ""}');
     expect(route).toContain('(s.scored.health ? ` ${s.scored.health}` : "")');
     expect(route).toContain("{s.scored.health}");
   });

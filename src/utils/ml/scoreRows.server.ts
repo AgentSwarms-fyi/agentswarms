@@ -12,6 +12,7 @@
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import {
   ANALYST_SCORE_CAP,
+  type ForecastResult,
   joinPredictions,
   type ScorableModel,
   type ScoreRowsResult,
@@ -23,11 +24,15 @@ import { listModelsForUser } from "@/utils/ml/access.server";
 import { modelHealthFor } from "@/utils/ml/health.server";
 import { runMlPredict, type AgentToolContext } from "@/utils/tools/registry.server";
 
-/** The models a plan may score with: usable, with a production version, and not a forecast (which takes no rows). */
+/**
+ * The models a plan may use: every usable model with a production version.
+ * Forecast models are in the list too — they take no rows, so the planner
+ * is told to give them a FORECAST step rather than a scored one. Measured
+ * live with them filtered out: "use a trained forecast model if one fits"
+ * was answered with the regression model and an invented projection.
+ */
 export async function scorableModelsForUser(userId: string): Promise<ScorableModel[]> {
-  const models = (await listModelsForUser(userId)).filter(
-    (m) => m.production_version_id && m.task !== "forecast",
-  );
+  const models = (await listModelsForUser(userId)).filter((m) => m.production_version_id);
   if (models.length === 0) return [];
   const [keyed, health, { data: versions }] = await Promise.all([
     keyedModelViews(models),
@@ -74,6 +79,12 @@ export async function scoreRowsForAnalyst(args: {
   const models = await listModelsForUser(args.userId);
   const model = models.find((m) => m.name === args.model);
   if (!model) return { ok: false, error: `No model named "${args.model}" is available to you.` };
+  if (model.task === "forecast") {
+    return {
+      ok: false,
+      error: `"${model.name}" is a forecast model: it takes no rows — plan a forecast step instead.`,
+    };
+  }
   const keyColumns = model.feature_view_id
     ? ((await keyedModelViews([model])).get(model.id)?.key_columns ?? null)
     : null;
@@ -81,6 +92,41 @@ export async function scoreRowsForAnalyst(args: {
     !!keyColumns &&
     keyColumns.length > 0 &&
     rows.every((r) => keyColumns.every((k) => r[k] !== undefined && r[k] !== null));
+  // The version's metrics and features, and the model's health, read once
+  // before scoring: the features decide whether these rows can be scored
+  // honestly at all. Measured live: a step selected customer_name alone for
+  // a seven-feature model and the scorer imputed the other six in silence
+  // — five "most at risk" customers with identical distances.
+  const [{ data: version }, modelHealth] = await Promise.all([
+    supabaseAdmin
+      .from("ml_model_versions")
+      .select("metrics, feature_schema")
+      .eq("id", model.production_version_id as string)
+      .maybeSingle(),
+    modelHealthFor([model]),
+  ]);
+  const features = ((version?.feature_schema ?? []) as { name: string; role: string }[])
+    .filter((e) => e.role === "feature")
+    .map((e) => e.name);
+  const notes: string[] = [];
+  if (!byKey && features.length > 0) {
+    const present = new Set(rows.flatMap((r) => Object.keys(r)));
+    const missing = features.filter((f) => !present.has(f));
+    if (missing.length * 2 >= features.length) {
+      return {
+        ok: false,
+        error:
+          `The step's rows carry ${features.length - missing.length} of the model's ${features.length} ` +
+          `feature columns (missing ${missing.join(", ")}); the SQL must select the feature columns ` +
+          `for the model to score anything real.`,
+      };
+    }
+    if (missing.length > 0) {
+      notes.push(
+        `Feature column${missing.length === 1 ? "" : "s"} not in the rows and imputed by the scorer: ${missing.join(", ")}.`,
+      );
+    }
+  }
   const ctx: AgentToolContext = {
     userId: args.userId,
     sb: supabaseAdmin as never,
@@ -106,8 +152,15 @@ export async function scoreRowsForAnalyst(args: {
     predictions?: unknown;
     keys_not_found?: unknown;
     features_served_from?: unknown;
+    notes?: unknown;
   };
   if (typeof parsed.error === "string") return { ok: false, error: parsed.error };
+  // What the tool said about the columns and the model — class meanings,
+  // group profiles, the trainer's warnings — travels with the disclosure,
+  // so the write-up can describe a group. The health line is `health`.
+  const toolNotes = (Array.isArray(parsed.notes) ? parsed.notes : []).filter(
+    (n): n is string => typeof n === "string" && !/^Health:/.test(n),
+  );
   const predictions = (Array.isArray(parsed.predictions) ? parsed.predictions : []).filter(
     (p): p is Record<string, unknown> => !!p && typeof p === "object",
   );
@@ -115,14 +168,6 @@ export async function scoreRowsForAnalyst(args: {
   // prediction column that collides with one the SQL returned is kept under
   // a prefix — the pure rule is in joinPredictions, where a test can reach it.
   const joined = joinPredictions(rows, predictions, byKey ? keyColumns : null);
-  const [{ data: version }, modelHealth] = await Promise.all([
-    supabaseAdmin
-      .from("ml_model_versions")
-      .select("metrics")
-      .eq("id", model.production_version_id as string)
-      .maybeSingle(),
-    modelHealthFor([model]),
-  ]);
   return {
     ok: true,
     columns: joined.columns,
@@ -142,6 +187,96 @@ export async function scoreRowsForAnalyst(args: {
         : [],
       columns: joined.added,
       health: healthLine(modelHealth.get(model.id)),
+      notes: [...toolNotes, ...notes],
+    },
+  };
+}
+
+/**
+ * A forecast model's projection for a forecast step — the SAME runner the
+ * agent tool and the canvas node use, with the analyst as the caller. One
+ * row per projected period: the point and its interval.
+ */
+export async function forecastForAnalyst(args: {
+  userId: string;
+  model: string;
+  decisionId?: string | null;
+}): Promise<ForecastResult> {
+  const models = await listModelsForUser(args.userId);
+  const model = models.find((m) => m.name === args.model);
+  if (!model) return { ok: false, error: `No model named "${args.model}" is available to you.` };
+  if (model.task !== "forecast") {
+    return {
+      ok: false,
+      error: `"${model.name}" is a ${model.task} model, not a forecast — score rows with it instead.`,
+    };
+  }
+  const ctx: AgentToolContext = {
+    userId: args.userId,
+    sb: supabaseAdmin as never,
+    scopeUserId: args.userId,
+    decisionId: args.decisionId ?? undefined,
+  };
+  const [raw, { data: version }, modelHealth] = await Promise.all([
+    runMlPredict(ctx, { model: model.name }, undefined, "ai_analyst"),
+    supabaseAdmin
+      .from("ml_model_versions")
+      .select("metrics")
+      .eq("id", model.production_version_id as string)
+      .maybeSingle(),
+    modelHealthFor([model]),
+  ]);
+  const parsed = JSON.parse(raw) as {
+    error?: unknown;
+    version?: unknown;
+    algorithm?: unknown;
+    period?: unknown;
+    aggregation?: unknown;
+    last_observed_period?: unknown;
+    forecast?: unknown;
+    notes?: unknown;
+  };
+  if (typeof parsed.error === "string") return { ok: false, error: parsed.error };
+  const points = (Array.isArray(parsed.forecast) ? parsed.forecast : []).filter(
+    (p): p is { period: string; yhat: number; lo?: number | null; hi?: number | null } =>
+      !!p && typeof p === "object" && typeof (p as { period?: unknown }).period === "string",
+  );
+  if (points.length === 0) {
+    return {
+      ok: false,
+      error: `"${model.name}" has no projected periods stored for its production version.`,
+    };
+  }
+  const str = (v: unknown) => (typeof v === "string" ? v : null);
+  return {
+    ok: true,
+    columns: ["period", "forecast", "lower", "upper"],
+    rows: points.map((p) => ({
+      period: p.period,
+      forecast: p.yhat,
+      lower: p.lo ?? null,
+      upper: p.hi ?? null,
+    })),
+    scored: {
+      model: model.name,
+      version: typeof parsed.version === "number" ? parsed.version : null,
+      task: "forecast",
+      algorithm: typeof parsed.algorithm === "string" ? parsed.algorithm : null,
+      metric: headlineMetric("forecast", version?.metrics ?? null),
+      keys: false,
+      featuresServedFrom: null,
+      rowsScored: points.length,
+      keysNotFound: [],
+      columns: ["forecast", "lower", "upper"],
+      health: healthLine(modelHealth.get(model.id)),
+      notes: (Array.isArray(parsed.notes) ? parsed.notes : []).filter(
+        (n): n is string => typeof n === "string" && !/^Health:/.test(n),
+      ),
+      forecast: {
+        period: str(parsed.period),
+        aggregation: str(parsed.aggregation),
+        lastObserved: str(parsed.last_observed_period),
+      },
     },
   };
 }

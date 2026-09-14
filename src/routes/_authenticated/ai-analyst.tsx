@@ -119,7 +119,12 @@ import {
   type SemanticEntry,
 } from "@/lib/biAgent";
 import { semanticRunQuery } from "@/utils/semantic.functions";
-import { analystScorableModels, analystScoreRows, cellRow } from "@/utils/analystScore.functions";
+import {
+  analystForecast,
+  analystScorableModels,
+  analystScoreRows,
+  cellRow,
+} from "@/utils/analystScore.functions";
 import {
   appendWidgetToDashboard,
   listDashboards,
@@ -208,6 +213,7 @@ function AiAnalystPage() {
   const runSemanticFn = useServerFn(semanticRunQuery);
   const scorableModelsFn = useServerFn(analystScorableModels);
   const scoreRowsFn = useServerFn(analystScoreRows);
+  const forecastFn = useServerFn(analystForecast);
   // Trained models a plan may score rows with — loaded like the governed
   // catalog, once a session exists. Empty means no step can be scored, and
   // the planner is not told about scoring at all.
@@ -515,6 +521,10 @@ function AiAnalystPage() {
                   data: { accessToken: token, model: req.model, rows: req.rows.map(cellRow) },
                 })
             : undefined,
+          // A forecast step: the model's own periods, no SQL — same seam.
+          forecast: token
+            ? async (req) => forecastFn({ data: { accessToken: token, model: req.model } })
+            : undefined,
           runSemantic: token
             ? async (query) => {
                 const res = await runSemanticFn({ data: { accessToken: token, query } });
@@ -629,7 +639,7 @@ function AiAnalystPage() {
         toast.error(`The scenario could not be compiled: ${(e as Error).message}`);
       }
     },
-    [thread, resolveScope, persistTurns, runSemanticFn, scoreRowsFn, scorable, token],
+    [thread, resolveScope, persistTurns, runSemanticFn, scoreRowsFn, forecastFn, scorable, token],
   );
 
   /** Record a human verdict on a finished analysis. */
@@ -1527,16 +1537,18 @@ function TurnView({
                   variant="outline"
                   className="ml-1.5 border-violet-500/40 bg-violet-500/5 text-[9px] text-violet-500"
                   title={
-                    `Scored by the trained model "${s.scored.model}"` +
+                    `${s.scored.task === "forecast" ? "Forecast by" : "Scored by"} the trained model "${s.scored.model}"` +
                     (s.scored.version !== null ? ` v${s.scored.version}` : "") +
                     ` (${s.scored.task}${s.scored.algorithm ? `, ${s.scored.algorithm}` : ""}` +
                     `${s.scored.metric ? `, ${s.scored.metric}` : ""}) — the prediction columns ` +
                     `are the model's estimates, not observed values. ` +
-                    (s.scored.keys
-                      ? `Scored by key; the features were read from the model's feature view` +
-                        (s.scored.featuresServedFrom ? ` (${s.scored.featuresServedFrom})` : "") +
-                        "."
-                      : "Scored from the row's own feature columns.") +
+                    (s.scored.task === "forecast"
+                      ? "The rows are the model's projected periods with their interval."
+                      : s.scored.keys
+                        ? `Scored by key; the features were read from the model's feature view` +
+                          (s.scored.featuresServedFrom ? ` (${s.scored.featuresServedFrom})` : "") +
+                          "."
+                        : "Scored from the row's own feature columns.") +
                     (s.scored.health ? ` ${s.scored.health}` : "")
                   }
                 >
@@ -1628,6 +1640,12 @@ function TurnView({
                 </span>
               </div>
             </div>
+          ) : s.forecast && !s.sql ? (
+            <p className="rounded bg-muted/60 p-2 font-mono text-[10px] leading-relaxed">
+              forecast by the trained model {s.forecast.model}
+              {s.forecast.horizon ? ` · horizon ${s.forecast.horizon}` : ""} — no SQL: the rows are
+              the model&apos;s projected periods
+            </p>
           ) : (
             s.sql && (
               <pre className="overflow-x-auto rounded bg-muted/60 p-2 font-mono text-[10px] leading-relaxed">
@@ -1765,18 +1783,40 @@ function TurnView({
               how many rows it scored, from where, and what it could not find. */}
           {s.scored && (
             <p className="text-[10px] leading-relaxed text-muted-foreground">
-              Scored {s.scored.rowsScored}
-              {(s.rowCount ?? 0) > s.scored.rowsScored ? ` of ${s.rowCount}` : ""} row
-              {s.scored.rowsScored === 1 ? "" : "s"} with <strong>{s.scored.model}</strong>
-              {s.scored.version !== null ? ` v${s.scored.version}` : ""}
-              {s.scored.metric ? ` (${s.scored.metric})` : ""} — the prediction columns are the
-              model&apos;s estimates, not observed values.
-              {s.scored.keys && s.scored.featuresServedFrom
-                ? ` Features read by key from the model's feature view (${s.scored.featuresServedFrom}).`
-                : ""}
-              {s.scored.keysNotFound.length > 0
-                ? ` Not found in the feature view: ${s.scored.keysNotFound.join(", ")}.`
-                : ""}
+              {s.scored.task === "forecast" ? (
+                <>
+                  Forecast {s.scored.rowsScored} {s.scored.forecast?.period ?? "period"}
+                  {s.scored.rowsScored === 1 ? "" : "s"} with <strong>{s.scored.model}</strong>
+                  {s.scored.version !== null ? ` v${s.scored.version}` : ""}
+                  {s.scored.metric ? ` (${s.scored.metric})` : ""}
+                  {s.scored.forecast?.lastObserved
+                    ? `, after the last observed ${s.scored.forecast.period ?? "period"} ${s.scored.forecast.lastObserved}`
+                    : ""}{" "}
+                  — the forecast, lower and upper columns are the model&apos;s projection and its
+                  interval, not observed values.
+                </>
+              ) : (
+                <>
+                  Scored {s.scored.rowsScored}
+                  {(s.rowCount ?? 0) > s.scored.rowsScored ? ` of ${s.rowCount}` : ""} row
+                  {s.scored.rowsScored === 1 ? "" : "s"} with <strong>{s.scored.model}</strong>
+                  {s.scored.version !== null ? ` v${s.scored.version}` : ""}
+                  {s.scored.metric ? ` (${s.scored.metric})` : ""} — the prediction columns are the
+                  model&apos;s estimates, not observed values.
+                  {s.scored.keys && s.scored.featuresServedFrom
+                    ? ` Features read by key from the model's feature view (${s.scored.featuresServedFrom}).`
+                    : ""}
+                  {s.scored.keysNotFound.length > 0
+                    ? ` Not found in the feature view: ${s.scored.keysNotFound.join(", ")}.`
+                    : ""}
+                  {s.scored.ranked
+                    ? ` Ranked by ${s.scored.ranked.by} (${s.scored.ranked.desc ? "highest" : "lowest"} first)` +
+                      (s.scored.ranked.limit
+                        ? `, top ${s.scored.ranked.limit} of the ${s.scored.ranked.of} scored.`
+                        : ".")
+                    : ""}
+                </>
+              )}
               {s.scored.health ? (
                 <>
                   {" "}
@@ -1794,6 +1834,18 @@ function TurnView({
                 </>
               ) : null}
             </p>
+          )}
+          {/* What the tool said about the model's columns — class meanings, group
+              profiles, the trainer's warnings. The write-up reads the same notes. */}
+          {s.scored?.notes && s.scored.notes.length > 0 && (
+            <details className="text-[10px] text-muted-foreground">
+              <summary className="cursor-pointer">Model notes ({s.scored.notes.length})</summary>
+              <ul className="mt-1 list-disc space-y-0.5 pl-4">
+                {s.scored.notes.map((n, i) => (
+                  <li key={i}>{n}</li>
+                ))}
+              </ul>
+            </details>
           )}
 
           {/* Where the numbers came from. The tables are read out of the SQL

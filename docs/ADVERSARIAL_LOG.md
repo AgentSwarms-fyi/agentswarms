@@ -149,6 +149,111 @@ returns — which `sources` drops by design — is a canvas run: the client
 tracer records every `tool_call` and `tool_result` on the step, so the
 refusal strings can be read from `swarm_run_steps.tool_calls` verbatim.
 
+#### R10 · S1 · Seven questions to the AI Analyst about seven models: twelve findings
+
+A session rather than a feature: one analyst on `openai/gpt-4o-mini` over the
+lakehouse, one question per model kind, every answer read from the DOM and
+from `ml_predictions` and the persisted step rather than from the screen.
+The full transcript is in `docs/UI_TEST_RESULTS.md`. The findings, by
+severity:
+
+- **F1 (S1)** Fifteen scored orders, quoted to the write-up as a summary
+  because fifteen is past the twelve-row quote cap: the writer saw
+  `order_id total=22104` and three per-class maxima and built its findings
+  table out of them — three rows, each with order id 22104. A scored step's
+  rows ARE the answer; they are now quoted in full up to the scoring cap.
+- **F2 (S2)** The same total made the self-check "correct" a correct query
+  ("22104 seems too high for 15 orders"). Identifier columns (`_id`, `_key`,
+  `_code`, …) are no longer totalled in the facts; they are named as
+  identifiers with a distinct count.
+- **F3 (S1)** "Estimate their net_usd with the revenue_facts model" produced
+  a step whose goal named the model and whose plan had no score block; it
+  was written as SQL over the actual values, the reviewer passed it as
+  "accurately estimates … using the model", and the write-up presented a
+  table of actual vs "estimated" with identical numbers. A goal that names a
+  model in scope is now scored by it; the reviewer is told a step not marked
+  as scored did not run the model; the writer is told a step not marked
+  SCORED BY holds observed values only.
+- **F4 (S3)** The scoring goal's "at most 50 rows" overrode the question's
+  own ten, costing a correction round. The goal now says fewer when the goal
+  names a number, and one row per DISTINCT entity (F12 — one customer was
+  scored thirteen times, once per order).
+- **F5 (S2)** Asked what distinguishes each group, the write-up said the
+  distinctions "are not provided in the results" — the cluster profiles, the
+  class meanings and the trainer's warnings the tool already writes as notes
+  were discarded by the analyst's scorer. They now travel with the scored
+  step (a collapsible under the disclosure) and into the write-up.
+- **F6 (S1)** "Which ten orders look most anomalous": the SQL sampled fifty
+  at random (it cannot rank by a score that does not exist yet), the
+  reviewer proposed `ORDER BY anomaly_score` and died on a binder error, and
+  nothing could rank the scored rows. A plan may now ask for
+  `"rank": { "by", "desc", "limit" }` inside `score`; the platform orders
+  the scored rows and the disclosure says so. The planner is told each
+  model's output columns to rank by.
+- **F7 (S2)** The R9 prompt rule ("a correction must not select, filter or
+  sort by the model's columns") did not hold with this model. A correction
+  that reads a model column is now refused in code, with a note saying what
+  it read and that the original result stands.
+- **F8 (S2)** Twice, a correction that failed to run was reported by the
+  write-up as the STEP having failed ("the SQL query failed to execute
+  correctly") over a step that had succeeded and scored fifty rows. The note
+  now says the original result stands, and the writer is told a failed or
+  refused correction means the step did not fail.
+- **F9 (S1)** The two forecast models were invisible to the analyst (they
+  take no rows, so they were filtered out of the scorable list); asked what
+  monthly net_usd will do over the next three months "using a trained
+  forecast model if one fits", the planner scored fifty orders with the
+  regression model and the write-up invented "month 1: 480.89, month 2:
+  480.89, month 3: 480.89" from their mean. Forecast models are now offered
+  as a forecast step — no SQL, the model's projected periods with their
+  interval, through the same runner the agent tool uses — the planner is
+  told a regression model is not a forecast, and the writer is told never
+  to turn per-row estimates into a projection.
+- **F10 (S1)** "Score the customers with the churn model" — there is no
+  churn model — was answered with the clustering model, silently, as "top
+  five at risk". A question naming a model nobody has now stops and asks,
+  naming the models that exist.
+- **F11 (S2)** That same step scored rows carrying one of the model's seven
+  feature columns; the scorer imputed the other six and four of five rows
+  came out identical. Rows missing at least half of a model's features are
+  refused with the missing columns named; fewer missing are scored and named
+  in the notes.
+- **F13 (S2)** Found by the re-run: asked the anomaly and the forecast
+  questions again on the fixed image, the planner returned `{ "score": {
+"model": …, "rank": … } }` and `{ "forecast": { "model": …, "horizon":
+3 } }` — the whole plan collapsed into its one interesting block, both
+  blocks exactly right — and the analyst said "no analysis steps". A bare
+  step-shaped root (or `steps` as one object) is now read as a one-step plan
+  whose goal is the question.
+
+- **F14 (S3)** Rows-mode scoring returned the feature columns and nothing
+  that named the order, so "the ten most anomalous orders" came back as ten
+  unnamed rows. The scoring goal now asks for the entity's identifier beside
+  the features.
+- **F15 (S3)** The forecaster's period is a week; the question said months;
+  the reviewer passed "the next 3 months". It is now told the step's period,
+  horizon and last observed period, and to name a mismatch.
+- **F16 (S2)** "Go with the assumption" re-asks with the assumption appended,
+  and the planner asked the same question again. The planner is now told the
+  user has answered, and if it still asks it is asked once more in plainer
+  words before a second clarify is honoured. Measured after that: the
+  smaller model asked a third time ("Which churn model should I use?") with
+  its own assumption, "the churn model is the one defined in the schema" —
+  there is none — so a plan that reaches for another model under an
+  accepted assumption is now stripped of its scoring and answers from the
+  data alone, with the approach saying so. A model that insists on asking is
+  shown asking; it can no longer substitute.
+
+- **F17 (S3)** With a rank of ten planned, the SQL writer took "ten" as its
+  LIMIT and the ranking ran over ten rows instead of the fifty-row sample.
+  The scoring goal now says the platform keeps the top N after scoring, so
+  the query must not limit to that number (unit-verified; the live re-check
+  is the next session's first question).
+
+Twenty-two mutants, twenty-two caught. The session's analyst and its threads are
+kept on the instance for review, and the same seven questions were asked
+again on the rebuilt image; the before-and-after is in the UI test results.
+
 #### R9 · S2 · The reviewer "corrected" a column that exists in no table, and a caveat built on arithmetic over an id
 
 Two more, from the health rounds, both in what the self-check is told about

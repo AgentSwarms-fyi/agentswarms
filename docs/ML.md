@@ -584,7 +584,13 @@ ends mid-probability), and an error is shown as the error.
 model adds the prediction columns, and the step carries a **scored** badge
 with the model, version, headline metric, rows scored and where the features
 came from. The write-up reports predictions as the model's estimates, never
-as observed values. Details under **Business Intelligence → AI Analyst**.
+as observed values. A forecast model is offered as a **forecast step**
+(`"forecast": { "model": "<name>", "horizon": N }`) — no SQL, the model's
+projected periods with their interval — and a plan may **rank** the scored
+rows by a model output (`"rank": { "by": "anomaly_score", "desc": true,
+"limit": 10 }`), the only way to ask for the most anomalous or most likely
+rows, because a model's columns exist in no table. Details under
+**Business Intelligence → AI Analyst**.
 
 ## Automation
 

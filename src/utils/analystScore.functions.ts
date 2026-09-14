@@ -12,7 +12,11 @@
 import { createServerFn } from "@tanstack/react-start";
 
 import type { ScoredDisclosure } from "@/lib/aiAnalyst";
-import { scorableModelsForUser, scoreRowsForAnalyst } from "@/utils/ml/scoreRows.server";
+import {
+  forecastForAnalyst,
+  scorableModelsForUser,
+  scoreRowsForAnalyst,
+} from "@/utils/ml/scoreRows.server";
 import { userScopedClient } from "@/utils/swarmNodes.server";
 
 export type Cell = string | number | boolean | null;
@@ -56,6 +60,18 @@ export const analystScoreRows = createServerFn({ method: "POST" })
       userId: await requireUserId(data.accessToken),
       model: data.model,
       rows: data.rows,
+    });
+    if (!res.ok) return res;
+    return { ok: true, columns: res.columns, rows: res.rows.map(cellRow), scored: res.scored };
+  });
+
+/** A forecast model's projected periods, as this user — the forecast step's one call. */
+export const analystForecast = createServerFn({ method: "POST" })
+  .inputValidator((d: { accessToken: string; model: string }) => d)
+  .handler(async ({ data }): Promise<WireScoreResult> => {
+    const res = await forecastForAnalyst({
+      userId: await requireUserId(data.accessToken),
+      model: data.model,
     });
     if (!res.ok) return res;
     return { ok: true, columns: res.columns, rows: res.rows.map(cellRow), scored: res.scored };

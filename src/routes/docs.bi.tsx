@@ -116,6 +116,33 @@ function BiPage() {
         numbers it cites.
       </P>
       <P>
+        <strong>Forecasts, rankings and what a model can say.</strong> A trained{" "}
+        <strong>forecast</strong> model in scope is offered to the planner as a forecast step (
+        <C>{'"forecast": { "model": "<name>", "horizon": N }'}</C>): no SQL — the step&apos;s rows
+        are the model&apos;s projected periods with their interval, the badge says{" "}
+        <strong>forecast by</strong>, and the write-up is told the rows are a projection. A
+        regression model is never a forecast: the planner is told so, and the write-up is told a
+        scored regression step gives one estimate per row and is not a series. The{" "}
+        <strong>most, least or top-N by a model&apos;s output</strong> — most anomalous, most likely
+        enterprise, highest predicted value — is decided by the platform on the scored rows (
+        <C>{'"rank": { "by": "<output column>", "desc": true, "limit": N }'}</C> inside <C>score</C>
+        ), never in SQL, where the column does not exist; the disclosure says &quot;ranked by
+        anomaly_score (highest first), top 10 of the 50 scored&quot;. A step whose goal names a
+        model in scope is scored by it even when the planner forgot the block, because naming the
+        model is the request. The tool&apos;s <strong>model notes</strong> — what each class means,
+        each group&apos;s size and typical row, the trainer&apos;s warnings — travel with the scored
+        step (a collapsible under the disclosure) and into the write-up, so it can describe a group
+        rather than say it was not told. And the analyst refuses rather than improvises: a question
+        naming a model nobody has (&quot;the churn model&quot;) stops and asks, naming the models
+        that exist, instead of scoring with another; rows missing most of a model&apos;s feature
+        columns are not scored, and the missing ones are named; a self-review correction that reads
+        a model&apos;s column is refused in code and the original result stands; a correction that
+        fails says so, and the write-up is told the step did not fail. A scored step&apos;s rows are
+        quoted to the write-up in full (up to the fifty the model scored) — summarised, fifteen
+        scored orders became &quot;order_id total=22104&quot; and a findings table built from it —
+        and an identifier column is never totalled in the facts at all.
+      </P>
+      <P>
         <strong>What-if scenarios</strong> ride the same compiler. A compiled step offers the two
         things that can honestly vary — the model&apos;s <strong>declared parameters</strong> and
         the values of filters the step already has — and recompiles the <em>same</em> query with one

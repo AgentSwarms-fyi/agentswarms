@@ -886,9 +886,8 @@ describe("what the write-up is actually shown", () => {
     // Through the one helper that knows which columns a model added.
     expect(lib.match(/stepFacts\(results\[i\], s\)/g) ?? []).toHaveLength(3);
     // And the check is told, per step, which model and which columns.
-    expect(lib).toContain(
-      "scored: s.scored ? { model: s.scored.model, columns: s.scored.columns ?? [] } : undefined,",
-    );
+    expect(lib).toContain("columns: s.scored.columns ?? [],");
+    expect(lib).toContain("period: s.scored?.forecast?.period ?? null,");
   });
 });
 

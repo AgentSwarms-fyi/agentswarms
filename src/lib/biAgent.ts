@@ -962,6 +962,17 @@ export function isPreAggregated(column: string): boolean {
   );
 }
 
+/**
+ * A column that names things rather than measures them: ids, keys, codes.
+ * Summing one is a number with no meaning, and measured live it was worse
+ * than meaningless — the self-check read "order_id total=22104" for fifteen
+ * orders as a sign the query had aggregated wrongly, "corrected" a correct
+ * query, and the write-up built its findings table on the 22104.
+ */
+export function isIdentifierColumn(column: string): boolean {
+  return /(^|_)(id|ids|key|code|uuid|guid|number|no|nr|num)$/i.test(column.trim());
+}
+
 export function describeResultFacts(result: QueryResult): string {
   const rows = result.rows ?? [];
   if (rows.length === 0) return "";
@@ -991,6 +1002,15 @@ export function describeResultFacts(result: QueryResult): string {
   const lines: string[] = [];
   if (truncated) lines.push(truncated.trim());
   for (const c of numeric) {
+    if (isIdentifierColumn(c)) {
+      const distinct = new Set(
+        rows.map((r) => r[c]).filter((v) => v !== null && v !== undefined && v !== ""),
+      ).size;
+      lines.push(
+        `${c}: identifier column, ${distinct} distinct value${distinct === 1 ? "" : "s"} (not a quantity — no total)`,
+      );
+      continue;
+    }
     let sum = 0;
     let count = 0;
     let max = -Infinity;

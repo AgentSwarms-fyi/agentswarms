@@ -509,6 +509,35 @@ drift reading or evaluation verdict, and a scored step's badge and disclosure
 say it — "open drift alert (PSI 3.291 on 2026-09-14)" — so the write-up can
 warn beside the numbers it cites.
 
+**Forecasts, rankings and what a model can say.** A trained **forecast**
+model in scope is offered to the planner as a forecast step (`"forecast":
+{ "model": "<name>", "horizon": N }`): no SQL — the step's rows are the
+model's projected periods with their interval, the badge says **forecast
+by**, and the write-up is told the rows are a projection. A regression
+model is never a forecast: the planner is told so, and the write-up is told
+a scored regression step gives one estimate per row and is not a series.
+The **most, least or top-N by a model's output** — most anomalous, most
+likely enterprise, highest predicted value — is decided by the platform on
+the scored rows (`"rank": { "by": "<output column>", "desc": true,
+"limit": N }` inside `score`), never in SQL, where the column does not
+exist; the disclosure says "ranked by anomaly_score (highest first), top 10
+of the 50 scored". A step whose goal names a model in scope is scored by it
+even when the planner forgot the block, because naming the model is the
+request. The tool's **model notes** — what each class means, each group's
+size and typical row, the trainer's warnings — travel with the scored step
+(a collapsible under the disclosure) and into the write-up, so it can
+describe a group rather than say it was not told. And the analyst refuses
+rather than improvises: a question naming a model nobody has ("the churn
+model") stops and asks, naming the models that exist, instead of scoring
+with another; rows missing most of a model's feature columns are not
+scored, and the missing ones are named; a self-review correction that reads
+a model's column is refused in code and the original result stands; a
+correction that fails says so, and the write-up is told the step did not
+fail. A scored step's rows are quoted to the write-up in full (up to the
+fifty the model scored) — summarised, fifteen scored orders became
+"order_id total=22104" and a findings table built from it — and an
+identifier column is never totalled in the facts at all.
+
 **What-if scenarios** ride on the same compiler. A compiled step gets a
 flask control offering the two things that can honestly vary: the model's
 **declared parameters** (`{{commission_rate}}` in a metric's SQL is an

@@ -444,6 +444,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "scale",
       "scatter",
       "scolumn",
+      "score",
       "shbar",
       "sum",
       "sum(amount)",

@@ -94,7 +94,9 @@ describe("what the planner is told", () => {
     expect(p.systemPrompt).toContain("ADD A SCORED STEP");
     expect(p.systemPrompt).toContain('"score": { "model": "<model name>" }');
     expect(p.systemPrompt).toContain("Never estimate a prediction yourself");
-    expect(p.userPrompt).toContain('"score": { "model": "<model name>" } (optional)');
+    expect(p.userPrompt).toContain(
+      '"score": { "model": "<model name>", "rank": { "by": "<output column>", "desc": true, "limit": N } } (optional; rank optional)',
+    );
   });
 });
 
@@ -169,7 +171,7 @@ function fakeWorld(opts: {
         headline: 0,
       } as T;
     }
-    calls.push("synthesis:" + (/SCORED BY/.test(p) ? "scored" : "plain"));
+    calls.push("synthesis:" + (/\nSCORED BY: /.test(p) ? "scored" : "plain"));
     return { answer: "done", follow_ups: [] } as T;
   };
   const execute = async () => ({
@@ -330,7 +332,7 @@ describe("the write-up is told", () => {
       prior: "",
       steps: [{ goal: "g", facts: "f" }],
     });
-    expect(plain.systemPrompt).not.toContain("SCORED BY");
+    expect(plain.systemPrompt).not.toContain("A step marked SCORED BY carries PREDICTIONS");
   });
 });
 
@@ -357,7 +359,9 @@ describe("the server side", () => {
     expect(codeOnly(LIB)).toContain(
       "const byPrint = keyed ? new Map(predictions.map((p) => [print(p), p])) : null;",
     );
-    expect(code).toContain('(m) => m.production_version_id && m.task !== "forecast"');
+    // Forecast models are listed too (for FORECAST steps) and refused as a scored step.
+    expect(code).toContain(".filter((m) => m.production_version_id)");
+    expect(code).toContain("is a forecast model: it takes no rows");
     // The runner names the third caller and refuses for "this analyst".
     expect(REGISTRY).toContain(
       'via: "agent_tool" | "swarm_tool_node" | "ai_analyst" = "agent_tool"',
@@ -383,7 +387,9 @@ describe("the server side", () => {
   it("the route shows the badge and the disclosure", () => {
     const code = codeOnly(ROUTE);
     expect(code).toContain("{s.scored && (");
-    expect(code).toContain("Scored by the trained model");
+    expect(code).toContain(
+      '${s.scored.task === "forecast" ? "Forecast by" : "Scored by"} the trained model',
+    );
     expect(code).toContain("model&apos;s estimates, not observed values.");
     expect(code).toContain("Not found in the feature view:");
   });
@@ -461,7 +467,9 @@ describe("scoringSqlGoal", () => {
     ]);
     expect(g).toContain("likely plan per order");
     expect(g).toContain('will be scored by the trained model "revenue_facts plan classifier"');
-    expect(g).toContain('the column(s) "order_id" of the entities to score, one row per entity');
+    expect(g).toContain(
+      'the column(s) "order_id" of the entities to score, one row per DISTINCT entity',
+    );
     expect(g).toContain("do NOT read any stored predictions table");
     expect(g).toContain("do NOT compute a prediction yourself");
   });

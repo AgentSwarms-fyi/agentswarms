@@ -370,7 +370,9 @@ One focused guide per topic in [`docs/`](./docs):
   [Schema health check](./docs/SCHEMA_HEALTH_CHECK.md) ·
   [Testing](./docs/TESTING.md) ·
   [Adversarial log](./docs/ADVERSARIAL_LOG.md), the running record of passes
-  that check what the screen says against what the data says
+  that check what the screen says against what the data says ·
+  [UI test results](./docs/UI_TEST_RESULTS.md), the per-round record of what
+  was driven in the browser and what the rows said
 - **Data** — [Data sources & connectors](./docs/DATA_SOURCES.md) ·
   [ETL pipelines](./docs/ETL_PIPELINES.md) · [Workflows](./docs/WORKFLOWS.md) ·
   [Lakehouse](./docs/LAKEHOUSE.md) ·

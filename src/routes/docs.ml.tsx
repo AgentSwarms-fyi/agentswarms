@@ -661,8 +661,14 @@ with agentswarms.start_run("churn-v2", params={"lr": 0.01, "depth": 6}) as run:
         scope (<C>{'"score": { "model": "<name>" }'}</C>): the step&apos;s SQL selects the entities,
         the model adds the prediction columns, and the step carries a <strong>scored</strong> badge
         with the model, version, headline metric, rows scored and where the features came from. The
-        write-up reports predictions as the model&apos;s estimates, never as observed values.
-        Details under <DocLink to="/docs/bi">Business Intelligence → AI Analyst</DocLink>.
+        write-up reports predictions as the model&apos;s estimates, never as observed values. A
+        forecast model is offered as a <strong>forecast step</strong> (
+        <C>{'"forecast": { "model": "<name>", "horizon": N }'}</C>) — no SQL, the model&apos;s
+        projected periods with their interval — and a plan may <strong>rank</strong> the scored rows
+        by a model output (<C>{'"rank": { "by": "anomaly_score", "desc": true, "limit": 10 }'}</C>
+        ), the only way to ask for the most anomalous or most likely rows, because a model&apos;s
+        columns exist in no table. Details under{" "}
+        <DocLink to="/docs/bi">Business Intelligence → AI Analyst</DocLink>.
       </P>
 
       <H2 id="automation">Automation</H2>
