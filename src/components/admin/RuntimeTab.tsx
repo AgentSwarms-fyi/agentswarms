@@ -878,6 +878,12 @@ export function RuntimeTab({
                 onChange={(n) => set("ml_train_mem_limit_mb", n)}
               />
               <NumberField
+                label="Serving sandbox memory (MB)"
+                value={form.ml_serve_mem_limit_mb}
+                onChange={(n) => set("ml_serve_mem_limit_mb", n)}
+                hint="A scorer holds ONE fitted model resident and answers requests; measured at 169 MB against the 8 GB it used to borrow from the training budget. On Kubernetes this is the number a namespace quota counts per copy, so it decides how many copies of a model you may run. The default leaves room for the largest artifact the platform accepts, unpickled."
+              />
+              <NumberField
                 label="Concurrent trainings / user"
                 value={form.ml_max_concurrent_trainings_per_user}
                 onChange={(n) => set("ml_max_concurrent_trainings_per_user", n)}

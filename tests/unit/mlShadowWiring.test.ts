@@ -484,7 +484,12 @@ describe("the gap list no longer claims shadowing is missing", () => {
     for (const gaps of [mdGaps, pageGaps]) {
       expect(gaps).not.toContain("all live on one host");
       // Sentence-initial in the markdown, mid-sentence in the page.
-      expect(gaps).toMatch(/on Kubernetes copies do spread across/i);
+      // "do spread across" became "already spread across" when the bullet
+      // stopped presenting placement as the open question. Checked on both
+      // surfaces because the page had kept the old sentence a full milestone
+      // after the markdown changed.
+      expect(gaps).toMatch(/on Kubernetes copies already spread across/i);
+      expect(gaps).not.toMatch(/copies do spread across/i);
     }
   });
 });

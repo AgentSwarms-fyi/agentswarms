@@ -1767,10 +1767,44 @@ curl -X POST https://your-instance/api/ml/predict/batch \\
         ]}
       />
       <P>
-        Everything in the left column is shipped and tested. What is left, in the order it is
-        usually asked for: <strong>serving across machines</strong> (on Docker every copy is a
-        container on this machine, so the host is the ceiling; on Kubernetes copies do spread across
-        nodes, but nothing grows the cluster itself when they run out of room).
+        Everything in the left column is shipped and tested. What is left:{" "}
+        <strong>growing the cluster itself</strong>. On Kubernetes copies already spread across
+        nodes — each is a pod, placed by the scheduler — and a copy that cannot be placed now says
+        so rather than timing out. What the platform does not do is add a node: that is a cluster
+        autoscaler&apos;s job, and it acts on exactly the pending pod this produces. On Docker every
+        copy is a container on one host by design; spreading them further means running an
+        orchestrator, which is what the Kubernetes deployment is.
+      </P>
+
+      <H3 id="copies">How many copies you can run</H3>
+      <P>
+        A deployed model is one <strong>scorer replica</strong> per copy: a container holding
+        Python, the ML stack and one fitted pipeline, answering requests. Measured on a laptop
+        deployment, a loaded scorer that had just answered a prediction sat at{" "}
+        <strong>169 MB resident</strong> and 0.02% CPU idle, and served in <strong>0.105 s</strong>.
+      </P>
+      <P>
+        Its memory ceiling is <C>ML_SERVE_MEM_LIMIT_MB</C> (2 GB), and that is a different number
+        from the training budget on purpose: training fits a model on up to two million rows;
+        serving holds one finished model. They used to share <C>ML_TRAIN_MEM_LIMIT_MB</C> — 8 GB —
+        which cost nothing on one host, because a Docker limit reserves nothing.
+      </P>
+      <Callout title="On Kubernetes it is the ceiling on how many copies you may run">
+        A namespace <C>ResourceQuota</C> bounds <C>limits.memory</C>, so every scorer spends its
+        ceiling out of the quota whether or not it uses it: at 8 GB apiece, 32 GB of quota buys four
+        copies of a model that would fit forty times over, and a <C>LimitRange</C> with a maximum
+        refuses the pod outright. The default leaves room for the largest artifact the platform
+        accepts (<C>ML_ARTIFACT_MAX_MB</C>, 512 MB) unpickled, and it is a setting under{" "}
+        <strong>Admin → Developer runtime</strong> for anyone serving something unusual.
+      </Callout>
+      <P>
+        <strong>When the cluster is full</strong>, a pod stays <C>Pending</C> — which from outside
+        looks exactly like an image still pulling. Kubernetes writes the difference into the
+        pod&apos;s <C>PodScheduled</C> condition, and the platform repeats it: the deployment
+        reports <em>waiting for room in the cluster</em> with the scheduler&apos;s own message,
+        instead of ending in &quot;the scorer did not become ready&quot;. It stays <em>starting</em>{" "}
+        rather than failing, because a pending pod becomes schedulable the moment a node arrives —
+        which is precisely what a cluster autoscaler does when it sees one.
       </P>
 
       <H2 id="use-cases">Use cases</H2>

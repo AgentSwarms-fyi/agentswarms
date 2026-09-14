@@ -322,7 +322,14 @@ describe("compare and docs", () => {
     // and shadowing closed the mirroring half of the canary bullet. Both
     // admissions are now backend-specific and narrower.
     expect(md).not.toContain("Copies of an endpoint all live on one host");
-    expect(md).toContain("On Docker every copy is a container on this");
+    // ...and moved a third time. "The host is the ceiling" was true of Docker
+    // and is still true, but it was never the thing that limited copies on
+    // Kubernetes — a serving budget borrowed from training was, and the
+    // bullet now admits the one thing the platform genuinely does not do:
+    // add a node. Docker's ceiling is stated as a design choice, not a gap.
+    expect(md).toContain("On Docker every copy is a container on one host by");
+    expect(md).toContain("What the platform does not do is");
+    expect(md).not.toContain("container on this machine, so the host is the ceiling");
     // The canary bullet is gone entirely now that a share of real traffic can
     // be split. What is still admitted is the machines limit below.
     expect(md).not.toContain("- **Canary traffic.**");

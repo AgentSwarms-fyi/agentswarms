@@ -221,12 +221,37 @@ export class K8sOrchestrator implements NotebookOrchestrator {
       status?: {
         phase?: string;
         podIP?: string;
+        conditions?: { type?: string; status?: string; reason?: string; message?: string }[];
         containerStatuses?: { state?: Record<string, unknown> }[];
       };
     };
     const phase = pod.status?.phase;
     if (phase === "Succeeded") return { state: "succeeded" };
     if (phase === "Failed") return { state: "error" };
+
+    // A POD THE CLUSTER CANNOT PLACE IS NOT "STARTING". Pending is how both
+    // "the image is still pulling" and "no node has room for this" look from
+    // the outside, and treating them alike means a full cluster is reported by
+    // a readiness timeout — "the scorer did not become ready", which sends an
+    // operator to look at the scorer. Kubernetes already knows the answer and
+    // puts it in a condition; this repeats what it said.
+    //
+    // Reported as `starting` rather than `error`, deliberately: an
+    // unschedulable pod becomes schedulable the moment the cluster autoscaler
+    // adds a node, and failing the deployment would throw away a copy that was
+    // about to start. The caller's own timeout still bounds the wait — what
+    // changes is that it can say why.
+    const scheduled = pod.status?.conditions?.find((c) => c.type === "PodScheduled");
+    if (scheduled?.status === "False" && scheduled.reason === "Unschedulable") {
+      return {
+        state: "starting",
+        message:
+          `Waiting for room in the cluster: ${scheduled.message ?? "no node can take this pod"}. ` +
+          `A cluster autoscaler adds a node for a pending pod; without one, free capacity or ` +
+          `lower the sandbox's memory (Admin → Developer runtime).`,
+      };
+    }
+
     if (phase === "Running" && pod.status?.podIP) {
       const endpoint = `http://${pod.status.podIP}:8888`;
       // Pod Running != process serving; wait for it to answer on its own path.

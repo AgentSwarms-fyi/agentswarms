@@ -199,7 +199,12 @@ describe("the sandbox it runs in", () => {
   });
 
   it("gets the ML memory budget, not an MCP server's", () => {
-    expect(SERVE).toContain("memLimitMb: limits.mlTrainMemLimitMb");
+    // Its OWN budget now, not training's. The training limit was the wrong
+    // number in the other direction: a scorer measured at 169 MiB was
+    // carrying an 8 GiB ceiling, which on Kubernetes is what a namespace
+    // quota counts per copy. mlServingLimits.test.ts pins every start site.
+    expect(SERVE).toContain("memLimitMb: limits.mlServeMemLimitMb");
+    expect(SERVE).not.toContain("memLimitMb: limits.mlTrainMemLimitMb");
     // startSession only honoured an override for batch before this.
     expect(rd("src/utils/notebookRuntime/service.server.ts")).toContain(
       "((batch || service) && opts.memLimitMb)",

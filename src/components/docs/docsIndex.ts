@@ -2509,6 +2509,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "ML_FAIRNESS_MIN_RATIO",
       "ML_MAX_CONCURRENT_TRAININGS_PER_USER",
       "ML_PREDICT_MAX_ROWS",
+      "ML_SERVE_MEM_LIMIT_MB",
       "ML_SERVE_SCALE_COOLDOWN_SECONDS",
       "ML_SERVE_TARGET_RPM_PER_REPLICA",
       "ML_TRAIN_GPUS",
@@ -2517,6 +2518,8 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "ML_TRAIN_TIME_BUDGET_MINUTES",
       "ML_TRAIN_WORKERS",
       "NOTEBOOK_RUNTIME_IMAGE",
+      "Pending",
+      "PodScheduled",
       "ResourceQuota",
       "SELECT",
       "SUMMARIZE",
@@ -2537,6 +2540,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "key",
       "key@n",
       "keys_not_found",
+      "limits.memory",
       "ml-artifacts/",
       "ml.api_key.denied",
       "ml.decay.alert",
@@ -2839,6 +2843,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "id": "how-this-compares",
         "text": "How this compares",
         "level": 2
+      },
+      {
+        "id": "copies",
+        "text": "How many copies you can run",
+        "level": 3
       },
       {
         "id": "use-cases",

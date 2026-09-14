@@ -34,6 +34,7 @@ export type NbRuntimeSettings = {
   ml_train_max_rows: number;
   ml_train_time_budget_minutes: number;
   ml_train_mem_limit_mb: number;
+  ml_serve_mem_limit_mb: number;
   ml_max_concurrent_trainings_per_user: number;
   ml_predict_max_rows: number;
   ml_train_gpus: number;
@@ -138,6 +139,7 @@ const DEFAULTS: NbRuntimeSettings = {
   ml_train_max_rows: 2000000,
   ml_train_time_budget_minutes: 30,
   ml_train_mem_limit_mb: 8192,
+  ml_serve_mem_limit_mb: 2048,
   ml_max_concurrent_trainings_per_user: 2,
   ml_predict_max_rows: 5000000,
   ml_train_gpus: 0,
@@ -214,6 +216,7 @@ export const nbRuntimeGetState = createServerFn({ method: "POST" })
           ml_train_max_rows: row.ml_train_max_rows ?? 2000000,
           ml_train_time_budget_minutes: row.ml_train_time_budget_minutes ?? 30,
           ml_train_mem_limit_mb: row.ml_train_mem_limit_mb ?? 8192,
+          ml_serve_mem_limit_mb: row.ml_serve_mem_limit_mb ?? 2048,
           ml_max_concurrent_trainings_per_user: row.ml_max_concurrent_trainings_per_user ?? 2,
           ml_predict_max_rows: row.ml_predict_max_rows ?? 5000000,
           ml_train_gpus: row.ml_train_gpus ?? 0,
@@ -318,6 +321,7 @@ export const nbRuntimeUpdateSettings = createServerFn({ method: "POST" })
         ml_train_max_rows: z.number().int().min(1).optional(),
         ml_train_time_budget_minutes: z.number().int().min(1).optional(),
         ml_train_mem_limit_mb: z.number().int().min(1).optional(),
+        ml_serve_mem_limit_mb: z.number().int().min(1).optional(),
         ml_max_concurrent_trainings_per_user: z.number().int().min(1).optional(),
         ml_predict_max_rows: z.number().int().min(1).optional(),
         ml_train_gpus: z.number().int().min(0).max(64).optional(),

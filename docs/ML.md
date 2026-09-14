@@ -1743,9 +1743,43 @@ Where AgentSwarms stands against Databricks ML and SageMaker, honestly:
 Everything in the left column is shipped and tested. What is left, in the
 order it is usually asked for:
 
-- **Serving across machines.** On Docker every copy is a container on this
-  machine, so the host is the ceiling. On Kubernetes copies do spread across
-  nodes, but nothing grows the cluster itself when they run out of room.
+- **Growing the cluster itself.** On Kubernetes copies already spread across
+  nodes — each is a pod, placed by the scheduler — and a copy that cannot be
+  placed now says so rather than timing out. What the platform does not do is
+  ADD a node: that is a cluster autoscaler's job, and it acts on exactly the
+  pending pod this produces. On Docker every copy is a container on one host by
+  design; spreading them further means running an orchestrator, which is what
+  the Kubernetes deployment is.
+
+### How many copies you can run
+
+A deployed model is one **scorer replica** per copy: a container holding Python,
+the ML stack and one fitted pipeline, answering requests. Measured on a laptop
+deployment, a loaded scorer that had just answered a prediction sat at **169 MB
+resident** and 0.02% CPU idle, and served in **0.105 s**.
+
+Its memory ceiling is `ML_SERVE_MEM_LIMIT_MB` (2 GB), and that is a different
+number from the training budget on purpose. Training fits a model on up to two
+million rows; serving holds one finished model. They used to share
+`ML_TRAIN_MEM_LIMIT_MB` — 8 GB — which cost nothing on one host, because a
+Docker limit reserves nothing.
+
+**On Kubernetes it is the ceiling on how many copies you may run.** A namespace
+`ResourceQuota` bounds `limits.memory`, so every scorer spends its ceiling out
+of the quota whether or not it uses it: at 8 GB apiece, 32 GB of quota buys four
+copies of a model that would fit forty times over. A `LimitRange` with a maximum
+refuses the pod outright. The default leaves room for the largest artifact the
+platform accepts (`ML_ARTIFACT_MAX_MB`, 512 MB) unpickled, and it is a setting
+for anyone serving something unusual.
+
+**When the cluster is full**, a pod stays `Pending` — which from outside looks
+exactly like an image still pulling. Kubernetes writes the difference into the
+pod's `PodScheduled` condition, and the platform now repeats it: the deployment
+reports _waiting for room in the cluster_, with the scheduler's own message,
+instead of ending in "the scorer did not become ready". It stays _starting_
+rather than failing, because a pending pod becomes schedulable the moment a
+node arrives — which is precisely what a cluster autoscaler does when it sees
+one.
 
 ## Use cases
 

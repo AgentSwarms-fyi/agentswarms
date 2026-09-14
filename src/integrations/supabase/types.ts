@@ -6043,6 +6043,7 @@ export type Database = {
           mcp_app_id: string | null;
           mem_limit_mb: number | null;
           notebook_id: string | null;
+          pending_reason: string | null;
           result: Json | null;
           started_at: string | null;
           status: string;
@@ -6069,6 +6070,7 @@ export type Database = {
           mcp_app_id?: string | null;
           mem_limit_mb?: number | null;
           notebook_id?: string | null;
+          pending_reason?: string | null;
           result?: Json | null;
           started_at?: string | null;
           status?: string;
@@ -6095,6 +6097,7 @@ export type Database = {
           mcp_app_id?: string | null;
           mem_limit_mb?: number | null;
           notebook_id?: string | null;
+          pending_reason?: string | null;
           result?: Json | null;
           started_at?: string | null;
           status?: string;
@@ -6176,6 +6179,7 @@ export type Database = {
           ml_predict_max_rows: number | null;
           ml_train_gpus: number | null;
           ml_train_max_rows: number | null;
+          ml_serve_mem_limit_mb: number | null;
           ml_train_mem_limit_mb: number | null;
           ml_train_time_budget_minutes: number | null;
           ml_train_workers: number | null;
@@ -6236,6 +6240,7 @@ export type Database = {
           ml_predict_max_rows?: number | null;
           ml_train_gpus?: number | null;
           ml_train_max_rows?: number | null;
+          ml_serve_mem_limit_mb?: number | null;
           ml_train_mem_limit_mb?: number | null;
           ml_train_time_budget_minutes?: number | null;
           ml_train_workers?: number | null;
@@ -6296,6 +6301,7 @@ export type Database = {
           ml_predict_max_rows?: number | null;
           ml_train_gpus?: number | null;
           ml_train_max_rows?: number | null;
+          ml_serve_mem_limit_mb?: number | null;
           ml_train_mem_limit_mb?: number | null;
           ml_train_time_budget_minutes?: number | null;
           ml_train_workers?: number | null;

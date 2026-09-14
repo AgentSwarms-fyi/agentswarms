@@ -397,7 +397,7 @@ export async function ensureDeployment(args: {
     model,
     version,
     userId,
-    memLimitMb: limits.mlTrainMemLimitMb,
+    memLimitMb: limits.mlServeMemLimitMb,
     waitMs: args.waitMs ?? READY_TIMEOUT_MS,
   });
   if (!first.ok) {
@@ -433,7 +433,7 @@ export async function ensureDeployment(args: {
           model,
           version,
           userId,
-          memLimitMb: limits.mlTrainMemLimitMb,
+          memLimitMb: limits.mlServeMemLimitMb,
           waitMs: READY_TIMEOUT_MS,
         });
       }
@@ -585,6 +585,10 @@ async function waitReady(
     if (session.status === "failed" || session.status === "stopped") {
       return { ok: false, error: session.error || "The scorer's sandbox stopped" };
     }
+    // A reason for STILL STARTING beats the generic timeout this would
+    // otherwise end in. On Kubernetes that is usually "no node has room",
+    // which is a fact about the cluster and not about the scorer.
+    if (session.pending_reason) lastError = session.pending_reason;
     const endpoint = await endpointOf(session);
     if (endpoint) {
       try {
@@ -1102,7 +1106,7 @@ export async function autoscaleDeployments(): Promise<{ scaled: number }> {
         model: bundle.model,
         version: bundle.version,
         userId: dep.user_id,
-        memLimitMb: (await getPlatformResources()).mlTrainMemLimitMb,
+        memLimitMb: (await getPlatformResources()).mlServeMemLimitMb,
         waitMs: READY_TIMEOUT_MS,
       });
       await supabaseAdmin
@@ -1455,7 +1459,9 @@ export async function setCandidate(args: {
     model: args.model,
     version: args.version,
     userId: args.userId,
-    memLimitMb: limits.mlTrainMemLimitMb,
+    // A candidate is a scorer too, and was the one replica still starting on
+    // the training budget.
+    memLimitMb: limits.mlServeMemLimitMb,
     waitMs: READY_TIMEOUT_MS,
     role: "candidate",
   });

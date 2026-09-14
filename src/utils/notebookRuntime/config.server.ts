@@ -49,6 +49,7 @@ export type PlatformResourceSettings = {
   mlTrainMaxRows: number;
   mlTrainTimeBudgetMinutes: number;
   mlTrainMemLimitMb: number;
+  mlServeMemLimitMb: number;
   mlMaxConcurrentTrainingsPerUser: number;
   mlPredictMaxRows: number;
   /** GPUs requested per training sandbox; 0 = none. */
@@ -160,7 +161,7 @@ export async function getPlatformResources(): Promise<PlatformResourceSettings> 
   const { data } = await supabaseAdmin
     .from("notebook_runtime_settings")
     .select(
-      "lakehouse_memory_limit, lakehouse_threads, etl_max_concurrent_runs_per_user, etl_pipelines_per_sweep, ml_train_max_rows, ml_train_time_budget_minutes, ml_train_mem_limit_mb, ml_max_concurrent_trainings_per_user, ml_predict_max_rows, ml_train_gpus, ml_train_workers, ml_drift_alert_psi, ml_decay_alert_ratio, ml_fairness_min_ratio, ml_cv_min_holdout_rows, ml_parallel_min_rows, ml_artifact_max_mb, ml_max_deployments_per_user, ml_max_deployments_total, gateway_rate_limit_per_min, gateway_fallback_models, gateway_metrics_max_rows, gateway_cache_similarity, gateway_cache_ttl_hours, gateway_cache_max_temperature, data_monitors_per_sweep, data_monitor_anomaly_sigma, ai_sql_max_calls_per_statement, ai_sql_default_model, ai_sql_cache_ttl_days, document_vision_model, document_vision_max_pages",
+      "lakehouse_memory_limit, lakehouse_threads, etl_max_concurrent_runs_per_user, etl_pipelines_per_sweep, ml_train_max_rows, ml_train_time_budget_minutes, ml_train_mem_limit_mb, ml_serve_mem_limit_mb, ml_max_concurrent_trainings_per_user, ml_predict_max_rows, ml_train_gpus, ml_train_workers, ml_drift_alert_psi, ml_decay_alert_ratio, ml_fairness_min_ratio, ml_cv_min_holdout_rows, ml_parallel_min_rows, ml_artifact_max_mb, ml_max_deployments_per_user, ml_max_deployments_total, gateway_rate_limit_per_min, gateway_fallback_models, gateway_metrics_max_rows, gateway_cache_similarity, gateway_cache_ttl_hours, gateway_cache_max_temperature, data_monitors_per_sweep, data_monitor_anomaly_sigma, ai_sql_max_calls_per_statement, ai_sql_default_model, ai_sql_cache_ttl_days, document_vision_model, document_vision_max_pages",
     )
     .eq("id", true)
     .maybeSingle();
@@ -182,6 +183,14 @@ export async function getPlatformResources(): Promise<PlatformResourceSettings> 
       positive(data?.ml_train_time_budget_minutes) ?? envInt("ML_TRAIN_TIME_BUDGET_MINUTES") ?? 30,
     mlTrainMemLimitMb:
       positive(data?.ml_train_mem_limit_mb) ?? envInt("ML_TRAIN_MEM_LIMIT_MB") ?? 8192,
+    // SERVING IS NOT TRAINING. A scorer holds one fitted model resident and
+    // answers requests — measured at 169 MiB against the 8 GiB it used to
+    // inherit from the training budget. The number matters on Kubernetes,
+    // where a namespace ResourceQuota counts this per copy and therefore
+    // decides how many copies fit. The default leaves room for the largest
+    // artifact the platform accepts (ml_artifact_max_mb, 512 MB) unpickled.
+    mlServeMemLimitMb:
+      positive(data?.ml_serve_mem_limit_mb) ?? envInt("ML_SERVE_MEM_LIMIT_MB") ?? 2048,
     mlMaxConcurrentTrainingsPerUser:
       positive(data?.ml_max_concurrent_trainings_per_user) ??
       envInt("ML_MAX_CONCURRENT_TRAININGS_PER_USER") ??
