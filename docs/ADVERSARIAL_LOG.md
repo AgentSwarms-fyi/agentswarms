@@ -140,6 +140,15 @@ The rule this adds to the method: a transcript is not evidence that a tool
 ran. The row's `sources`, the audit trail, or a string only the server could
 have produced is.
 
+It recurred twice the same day, on the predict-by-key round: a "verbatim"
+scoring result with version 1 (the model is at 7), one probability repeated
+three times and a nonexistent key reported as found, answered in four seconds
+with no `ml_predictions` row; then two error objects in a `{code, message}`
+shape the code has never produced. The evidence path that works for error
+returns — which `sources` drops by design — is a canvas run: the client
+tracer records every `tool_call` and `tool_result` on the step, so the
+refusal strings can be read from `swarm_run_steps.tool_calls` verbatim.
+
 #### R3 · S2 (open) · A headless run's steps record no tool calls
 
 Applying R2's rule to the canvas round exposed a gap in the server executor.

@@ -1933,7 +1933,24 @@ export async function resolveAgentTools(
     );
     if (mlModels.length > 0) {
       enabled.ml = true;
-      const mlList = mlModels.map((m) => `"${m.name}" (${m.task} → ${m.target_column})`).join(", ");
+      // Which models can be scored by KEY: those bound to a feature view. Read
+      // as the platform, not the caller — a shared model's view belongs to the
+      // model's owner, and the REST route resolves it the same way.
+      const { keyedModelViews } = await import("@/utils/featureViews/keyed.server");
+      const keyed = await keyedModelViews(mlModels);
+      const mlList = mlModels
+        .map((m) => {
+          const view = keyed.get(m.id);
+          const byKey = view ? `, by key: ${view.key_columns.join(" + ")}` : "";
+          return `"${m.name}" (${m.task} → ${m.target_column}${byKey})`;
+        })
+        .join(", ");
+      const keysHint =
+        keyed.size > 0
+          ? `Models marked "by key" are bound to a feature view: pass keys (objects with the ` +
+            `named key column(s)) instead of rows and the platform reads the features from the ` +
+            `same table training read — prefer keys for those models, and never send both. `
+          : "";
       tools.push(
         {
           type: "function",
@@ -1954,11 +1971,11 @@ export async function resolveAgentTools(
             name: "ml_predict",
             description:
               `Score rows with a trained ML model from the registry (its production version). ` +
-              `Pass real feature values from ml_list_models — never guessed ones. Returns a ` +
-              `prediction per row (and class probabilities for classifiers); forecast models ` +
-              `return their projected periods; clusterings return the group and its distance; ` +
-              `anomaly detectors return 1/0 with an anomaly_score; recommenders take rows with ` +
-              `the user column and return each user's top items. Models: ${mlList}.`,
+              `Pass real feature values from ml_list_models — never guessed ones. ${keysHint}` +
+              `Returns a prediction per row (and class probabilities for classifiers); forecast ` +
+              `models return their projected periods; clusterings return the group and its ` +
+              `distance; anomaly detectors return 1/0 with an anomaly_score; recommenders take ` +
+              `rows with the user column and return each user's top items. Models: ${mlList}.`,
             parameters: {
               type: "object",
               properties: {
@@ -1966,6 +1983,14 @@ export async function resolveAgentTools(
                 rows: {
                   type: "array",
                   description: "Rows to score: objects keyed by feature column name (max 50)",
+                  items: { type: "object" },
+                },
+                keys: {
+                  type: "array",
+                  description:
+                    "For a model with a feature view: the rows to score named by their key " +
+                    'column(s), e.g. [{"customer_id": "c-1"}] (max 50). The features are read ' +
+                    "from the view; do not send rows as well.",
                   items: { type: "object" },
                 },
               },
@@ -1989,9 +2014,12 @@ export async function resolveAgentTools(
             .select("id, version, algorithm, metrics, feature_schema")
             .in("id", ids);
           const byId = new Map((versions ?? []).map((v) => [v.id, v]));
+          const { keyedModelViews } = await import("@/utils/featureViews/keyed.server");
+          const keyed = await keyedModelViews(models);
           return JSON.stringify({
             models: models.map((m) => {
               const v = byId.get(m.production_version_id as string);
+              const view = keyed.get(m.id) ?? null;
               const schema = (v?.feature_schema ?? []) as {
                 name: string;
                 dtype: string;
@@ -2029,8 +2057,19 @@ export async function resolveAgentTools(
                     categories: e.categories?.slice(0, 20),
                     category_count: e.categories?.length,
                   })),
+                // A model bound to a feature view can be scored by KEY: the
+                // platform reads the features from the table training read,
+                // so the agent has nothing to compute — and nothing to get
+                // subtly wrong. Named here so the agent knows which column(s)
+                // identify a row.
+                feature_view: view ? { name: view.name, key_columns: view.key_columns } : null,
                 notes: [
                   "categories lists a sample of the values seen in training (category_count is the total); pass the real value for any categorical feature, including one not listed - unseen values are handled.",
+                  ...(view
+                    ? [
+                        `Prefer scoring by key: call ml_predict with keys=[{${view.key_columns.map((k) => `"${k}": …`).join(", ")}}] and the features are read from the feature view "${view.name}"; send rows only when a row is not in that table.`,
+                      ]
+                    : []),
                 ],
               };
             }),
@@ -2105,12 +2144,71 @@ export async function resolveAgentTools(
               ],
             });
           }
-          const rows = Array.isArray(a.rows)
+          // Two ways in, the same two the REST route has. `rows` means the
+          // agent computed the features and owns being right about them.
+          // `keys` means it did not: the platform reads them from the model's
+          // feature view — the table training read — so there is nothing left
+          // for the agent to compute differently, which is the whole point.
+          const wantsKeys = a.keys !== undefined;
+          let rows = Array.isArray(a.rows)
             ? (a.rows as Record<string, unknown>[]).slice(0, 50)
             : [];
+          let resolved: {
+            viewName: string;
+            keyColumns: string[];
+            missing: string[];
+            servedFrom: string;
+          } | null = null;
+          if (wantsKeys) {
+            if (rows.length) return JSON.stringify({ error: "Send rows or keys, not both." });
+            if (!model.feature_view_id)
+              return JSON.stringify({
+                error: `"${model.name}" has no feature view, so it cannot be scored by key. Send rows with its feature values (see ml_list_models), or attach a feature view to the model.`,
+              });
+            const keys = Array.isArray(a.keys) ? (a.keys as Record<string, unknown>[]) : [];
+            // Refused rather than trimmed: a key silently dropped is an entity
+            // silently unscored, and the agent would report it as done.
+            if (keys.length > 50)
+              return JSON.stringify({ error: `At most 50 keys per call (got ${keys.length}).` });
+            const { loadFeatureView, lookupFeatures } =
+              await import("@/utils/featureViews/lookup.server");
+            // The view belongs to the model's OWNER, as does the table it
+            // reads — so it is loaded and read as the owner, exactly as the
+            // REST route does for an API-key caller of a shared model.
+            const view = await loadFeatureView(model.feature_view_id, model.user_id);
+            if (!view) return JSON.stringify({ error: "The model's feature view is missing." });
+            const looked = await lookupFeatures({
+              view,
+              keys: keys as never,
+              userId: model.user_id,
+              via: "agent_tool",
+            });
+            if (!looked.ok) return JSON.stringify({ error: looked.error });
+            rows = looked.resolution.rows;
+            resolved = {
+              viewName: view.name,
+              keyColumns: view.key_columns,
+              missing: looked.resolution.missing,
+              servedFrom: looked.servedFrom,
+            };
+            if (!rows.length)
+              return JSON.stringify({
+                model: model.name,
+                version: version.version,
+                task: model.task,
+                feature_view: view.name,
+                keys_not_found: looked.resolution.missing,
+                predictions: [],
+                row_count: 0,
+                notes: [
+                  `No key matched a row in "${view.name}" — nothing was scored. Check the key values, or send rows with the feature values instead.`,
+                ],
+              });
+          }
           if (!rows.length)
             return JSON.stringify({
-              error: "Pass rows to score (objects keyed by feature column).",
+              error:
+                "Pass rows to score (objects keyed by feature column), or keys for a model with a feature view.",
             });
           const { predictRowsSync } = await import("@/utils/ml/predict.server");
           const r = await predictRowsSync({
@@ -2128,6 +2226,10 @@ export async function resolveAgentTools(
           // just the label. Dropping anomaly_score once left an agent saying
           // "not an anomaly" with nothing to back it.
           const keep = [
+            // Scored by key: each prediction carries its key column(s), so the
+            // agent can say WHICH entity got which answer without trusting
+            // the order it asked in.
+            ...(resolved ? resolved.keyColumns : []),
             "prediction",
             "probability",
             "anomaly_score",
@@ -2149,6 +2251,16 @@ export async function resolveAgentTools(
             algorithm: r.algorithm,
             predictions,
             row_count: r.rows.length,
+            // Named whenever keys were used, EVEN WHEN EMPTY: an agent that
+            // asked for three keys and got two predictions must see the third
+            // as "not found", never as a row that scored quietly.
+            ...(resolved
+              ? {
+                  feature_view: resolved.viewName,
+                  keys_not_found: resolved.missing,
+                  features_served_from: resolved.servedFrom,
+                }
+              : {}),
             warnings: r.warnings,
             notes: [
               ...mlPredictionNotes(model.task, version.metrics, predictions),

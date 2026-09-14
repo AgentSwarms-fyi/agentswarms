@@ -525,6 +525,20 @@ Until this picker existed, enabling the tool showed an **API key** field: a
 password box, for a tool that needs no key, with "paste here" in it. It
 accepted a credential and did nothing with it. It is gone.
 
+**Scoring by key.** A model bound to a feature view (Automation → Input on the
+model page) can be scored by naming the row instead of describing it:
+`ml_predict` takes `keys` — `[{"order_id": 1000}]` — and the platform reads
+the features from the same table training read, through the online store when
+the view is served from one. `ml_list_models` marks such models with their
+`feature_view` and key columns, and the tool's own description tells the agent
+to prefer keys for them: an agent that types twenty feature values from a
+conversation is the training–serving skew feature views exist to remove. The
+answer carries the key column(s) on every prediction, `keys_not_found` for any
+key that matched nothing (never a row of nulls scored quietly), and
+`features_served_from` (`online`, `mixed` or `lakehouse`). Rows and keys are
+never accepted together; more than fifty keys is refused rather than trimmed,
+because a key dropped silently is an entity reported as scored.
+
 ## Automation
 
 The model page's **Automation** tab schedules two kinds of work, each

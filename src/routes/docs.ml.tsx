@@ -604,6 +604,20 @@ with agentswarms.start_run("churn-v2", params={"lr": 0.01, "depth": 6}) as run:
         tool that needs no key, with &quot;paste here&quot; in it. It accepted a credential and did
         nothing with it. It is gone.
       </Callout>
+      <P>
+        <strong>Scoring by key.</strong> A model bound to a feature view (Automation → Input on the
+        model page) can be scored by naming the row instead of describing it: <C>ml_predict</C>{" "}
+        takes <C>keys</C> — <C>{'[{"order_id": 1000}]'}</C> — and the platform reads the features
+        from the same table training read, through the online store when the view is served from
+        one. <C>ml_list_models</C> marks such models with their <C>feature_view</C> and key columns,
+        and the tool&apos;s own description tells the agent to prefer keys for them: an agent that
+        types twenty feature values from a conversation is the training–serving skew feature views
+        exist to remove. The answer carries the key column(s) on every prediction,{" "}
+        <C>keys_not_found</C> for any key that matched nothing (never a row of nulls scored
+        quietly), and <C>features_served_from</C> (<C>online</C>, <C>mixed</C> or <C>lakehouse</C>).
+        Rows and keys are never accepted together; more than fifty keys is refused rather than
+        trimmed, because a key dropped silently is an entity reported as scored.
+      </P>
 
       <H2 id="automation">Automation</H2>
       <P>
