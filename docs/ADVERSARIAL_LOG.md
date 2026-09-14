@@ -149,6 +149,24 @@ returns — which `sources` drops by design — is a canvas run: the client
 tracer records every `tool_call` and `tool_result` on the step, so the
 refusal strings can be read from `swarm_run_steps.tool_calls` verbatim.
 
+#### R4 · S3 · An all-miss answer that could never be given
+
+The predict-by-key work gave `ml_predict` its own answer for "no key matched
+a row": a structured result with `predictions: []` and every key named in
+`keys_not_found`, so an agent would see misses rather than nothing. A guard
+pinned it, the docs described it, and the canvas round for the scoring node
+ran it — a key of 999999 — and the node failed with the LOOKUP's message:
+"No features found for order_id=999999 in order_features". `resolutionError`
+already refuses a resolution with no rows, the tool returns that refusal on
+the line above the new branch, and the branch was unreachable. Dead code with
+a passing test and a paragraph of documentation. Removed; the rule is pinned
+where it lives (`resolutionError`: all-miss is an error, a partial miss is
+named beside the rows that scored), and the docs say that instead.
+
+What it took to find: not a mutant, not a review — a value that matched no
+row, pressed through the real path. The guard was green because it read the
+code it was written beside.
+
 #### R3 · S2 (open) · A headless run's steps record no tool calls
 
 Applying R2's rule to the canvas round exposed a gap in the server executor.

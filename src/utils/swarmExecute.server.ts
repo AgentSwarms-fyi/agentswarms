@@ -619,6 +619,7 @@ export async function executeSwarmServer(opts: {
               sql_tables: d.toolConfigs?.sql_table_names,
               mcp_servers: d.toolConfigs?.mcp_server_names,
               web_config: d.toolConfigs?.web_search || d.toolConfigs?.web_browse,
+              ml_model_names: d.toolConfigs?.ml_model_names,
             };
             const res = await withNodeRetry(d, async () => {
               const r = await runToolNodeCore(dataToolCtx(opts.userId, runId), params);

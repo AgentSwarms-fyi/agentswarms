@@ -409,6 +409,196 @@ export function mlModelsAllowed<T extends { name: string }>(
   return models.filter((m) => names.has(m.name));
 }
 
+/**
+ * Score with a registry model — the one implementation behind the agent tool
+ * AND the canvas's deterministic "Score with model" node. `allow` is the
+ * caller's model allow-list (absent = every model the owner can use); `via`
+ * names the caller in the audit trail and on the prediction row.
+ */
+export async function runMlPredict(
+  ctx: AgentToolContext,
+  a: Record<string, unknown>,
+  allow: string[] | undefined,
+  via: "agent_tool" | "swarm_tool_node" = "agent_tool",
+): Promise<string> {
+  const who = via === "agent_tool" ? "this agent" : "this node";
+  try {
+    const owner = ctx.scopeUserId ?? ctx.userId;
+    const { listModelsForUser } = await import("@/utils/ml/access.server");
+    const models = await listModelsForUser(owner);
+    const name = String(a.model ?? "").trim();
+    const model =
+      models.find((m) => m.name === name) ??
+      models.find((m) => m.name.toLowerCase() === name.toLowerCase());
+    if (!model) return JSON.stringify({ error: `No model named "${name}". Call ml_list_models.` });
+    // Enforced HERE, not only in what was advertised: a model can be
+    // named from memory, or from a previous turn before the list was
+    // narrowed, and the list is the owner's decision.
+    if (mlModelsAllowed([model], allow).length === 0)
+      return JSON.stringify({
+        error: `"${model.name}" is not enabled for ${who}. Call ml_list_models for the models it may use.`,
+      });
+    if (!model.production_version_id)
+      return JSON.stringify({ error: `"${model.name}" has no production version yet.` });
+    const { data: version } = await ctx.sb
+      .from("ml_model_versions")
+      .select("*")
+      .eq("id", model.production_version_id)
+      .maybeSingle();
+    if (!version) return JSON.stringify({ error: "Production version not found" });
+    if (model.task === "forecast") {
+      const f = version.forecast as { points?: unknown[] } | null;
+      auditEvent({
+        userId: ctx.userId,
+        action: "ml.predict_query",
+        resourceType: "ml_model",
+        resourceId: model.id,
+        resourceName: model.name,
+        decisionId: ctx.decisionId,
+        detail: {
+          via,
+          agent_id: ctx.agentId ?? null,
+          kind: "forecast",
+          version: version.version,
+          row_count: f?.points?.length ?? 0,
+          result_digest: resultDigest(
+            ["period", "yhat", "lo", "hi"],
+            ((f?.points ?? []) as { period: string; yhat: number; lo: number; hi: number }[]).map(
+              (p) => [p.period, p.yhat, p.lo, p.hi],
+            ) as never[],
+          ),
+        },
+      });
+      const meta =
+        (version.forecast as { meta?: Record<string, unknown> | null } | null)?.meta ?? null;
+      return JSON.stringify({
+        model: model.name,
+        version: version.version,
+        task: "forecast",
+        algorithm: version.algorithm,
+        period: meta?.period ?? null,
+        aggregation: meta?.aggregation ?? null,
+        last_observed_period: meta?.last_period ?? null,
+        forecast: f?.points ?? [],
+        notes: [...forecastNotes(version.algorithm, meta), ...versionCaveats(version.warnings)],
+      });
+    }
+    // Two ways in, the same two the REST route has. `rows` means the
+    // agent computed the features and owns being right about them.
+    // `keys` means it did not: the platform reads them from the model's
+    // feature view — the table training read — so there is nothing left
+    // for the agent to compute differently, which is the whole point.
+    const wantsKeys = a.keys !== undefined;
+    let rows = Array.isArray(a.rows) ? (a.rows as Record<string, unknown>[]).slice(0, 50) : [];
+    let resolved: {
+      viewName: string;
+      keyColumns: string[];
+      missing: string[];
+      servedFrom: string;
+    } | null = null;
+    if (wantsKeys) {
+      if (rows.length) return JSON.stringify({ error: "Send rows or keys, not both." });
+      if (!model.feature_view_id)
+        return JSON.stringify({
+          error: `"${model.name}" has no feature view, so it cannot be scored by key. Send rows with its feature values (see ml_list_models), or attach a feature view to the model.`,
+        });
+      const keys = Array.isArray(a.keys) ? (a.keys as Record<string, unknown>[]) : [];
+      // Refused rather than trimmed: a key silently dropped is an entity
+      // silently unscored, and the agent would report it as done.
+      if (keys.length > 50)
+        return JSON.stringify({ error: `At most 50 keys per call (got ${keys.length}).` });
+      const { loadFeatureView, lookupFeatures } =
+        await import("@/utils/featureViews/lookup.server");
+      // The view belongs to the model's OWNER, as does the table it
+      // reads — so it is loaded and read as the owner, exactly as the
+      // REST route does for an API-key caller of a shared model.
+      const view = await loadFeatureView(model.feature_view_id, model.user_id);
+      if (!view) return JSON.stringify({ error: "The model's feature view is missing." });
+      const looked = await lookupFeatures({
+        view,
+        keys: keys as never,
+        userId: model.user_id,
+        via,
+      });
+      // A key set that matches NOTHING is refused here by the lookup itself
+      // ("No features found for … in <view>"): an all-miss is an error, for
+      // the agent and for the canvas node alike. A partial miss is not — the
+      // rows that matched are scored and the rest are named in keys_not_found.
+      // (A first version carried its own all-miss answer after this line; the
+      // canvas round showed it could never run.)
+      if (!looked.ok) return JSON.stringify({ error: looked.error });
+      rows = looked.resolution.rows;
+      resolved = {
+        viewName: view.name,
+        keyColumns: view.key_columns,
+        missing: looked.resolution.missing,
+        servedFrom: looked.servedFrom,
+      };
+    }
+    if (!rows.length)
+      return JSON.stringify({
+        error:
+          "Pass rows to score (objects keyed by feature column), or keys for a model with a feature view.",
+      });
+    const { predictRowsSync } = await import("@/utils/ml/predict.server");
+    const r = await predictRowsSync({
+      model,
+      version,
+      userId: ctx.userId,
+      rows,
+      via,
+      decisionId: ctx.decisionId ?? null,
+      waitMs: 120_000,
+    });
+    if (!r.ok) return JSON.stringify({ error: r.error, prediction_id: r.predictionId ?? null });
+    // Everything the trainer wrote that a person would ask about — not
+    // just the label. Dropping anomaly_score once left an agent saying
+    // "not an anomaly" with nothing to back it.
+    const keep = [
+      // Scored by key: each prediction carries its key column(s), so the
+      // agent can say WHICH entity got which answer without trusting
+      // the order it asked in.
+      ...(resolved ? resolved.keyColumns : []),
+      "prediction",
+      "probability",
+      "anomaly_score",
+      "distance",
+      "scores",
+      "cold_start",
+      ...r.columns.filter((col) => col.startsWith("proba_")),
+    ];
+    const idx = r.columns.map((col, i) => [col, i] as const).filter(([col]) => keep.includes(col));
+    const predictions = r.rows.map((row) =>
+      Object.fromEntries(idx.map(([col, i]) => [col, row[i]])),
+    );
+    return JSON.stringify({
+      model: model.name,
+      version: version.version,
+      task: model.task,
+      algorithm: r.algorithm,
+      predictions,
+      row_count: r.rows.length,
+      // Named whenever keys were used, EVEN WHEN EMPTY: an agent that
+      // asked for three keys and got two predictions must see the third
+      // as "not found", never as a row that scored quietly.
+      ...(resolved
+        ? {
+            feature_view: resolved.viewName,
+            keys_not_found: resolved.missing,
+            features_served_from: resolved.servedFrom,
+          }
+        : {}),
+      warnings: r.warnings,
+      notes: [
+        ...mlPredictionNotes(model.task, version.metrics, predictions),
+        ...versionCaveats(version.warnings),
+      ],
+    });
+  } catch (e) {
+    return JSON.stringify({ error: e instanceof Error ? e.message : "Prediction failed" });
+  }
+}
+
 async function braveSearch(query: string, limit: number, key: string): Promise<string> {
   try {
     const u = new URL("https://api.search.brave.com/res/v1/web/search");
@@ -2078,199 +2268,7 @@ export async function resolveAgentTools(
           return JSON.stringify({ error: e instanceof Error ? e.message : "Failed" });
         }
       });
-      handlers.set("ml_predict", async (c, a) => {
-        try {
-          const owner = c.scopeUserId ?? c.userId;
-          const { listModelsForUser } = await import("@/utils/ml/access.server");
-          const models = await listModelsForUser(owner);
-          const name = String(a.model ?? "").trim();
-          const model =
-            models.find((m) => m.name === name) ??
-            models.find((m) => m.name.toLowerCase() === name.toLowerCase());
-          if (!model)
-            return JSON.stringify({ error: `No model named "${name}". Call ml_list_models.` });
-          // Enforced HERE, not only in what was advertised: a model can be
-          // named from memory, or from a previous turn before the list was
-          // narrowed, and the list is the owner's decision.
-          if (mlModelsAllowed([model], cfg.ml_model_names).length === 0)
-            return JSON.stringify({
-              error: `"${model.name}" is not enabled for this agent. Call ml_list_models for the models it may use.`,
-            });
-          if (!model.production_version_id)
-            return JSON.stringify({ error: `"${model.name}" has no production version yet.` });
-          const { data: version } = await c.sb
-            .from("ml_model_versions")
-            .select("*")
-            .eq("id", model.production_version_id)
-            .maybeSingle();
-          if (!version) return JSON.stringify({ error: "Production version not found" });
-          if (model.task === "forecast") {
-            const f = version.forecast as { points?: unknown[] } | null;
-            auditEvent({
-              userId: c.userId,
-              action: "ml.predict_query",
-              resourceType: "ml_model",
-              resourceId: model.id,
-              resourceName: model.name,
-              decisionId: c.decisionId,
-              detail: {
-                via: "agent_tool",
-                agent_id: c.agentId ?? null,
-                kind: "forecast",
-                version: version.version,
-                row_count: f?.points?.length ?? 0,
-                result_digest: resultDigest(
-                  ["period", "yhat", "lo", "hi"],
-                  (
-                    (f?.points ?? []) as { period: string; yhat: number; lo: number; hi: number }[]
-                  ).map((p) => [p.period, p.yhat, p.lo, p.hi]) as never[],
-                ),
-              },
-            });
-            const meta =
-              (version.forecast as { meta?: Record<string, unknown> | null } | null)?.meta ?? null;
-            return JSON.stringify({
-              model: model.name,
-              version: version.version,
-              task: "forecast",
-              algorithm: version.algorithm,
-              period: meta?.period ?? null,
-              aggregation: meta?.aggregation ?? null,
-              last_observed_period: meta?.last_period ?? null,
-              forecast: f?.points ?? [],
-              notes: [
-                ...forecastNotes(version.algorithm, meta),
-                ...versionCaveats(version.warnings),
-              ],
-            });
-          }
-          // Two ways in, the same two the REST route has. `rows` means the
-          // agent computed the features and owns being right about them.
-          // `keys` means it did not: the platform reads them from the model's
-          // feature view — the table training read — so there is nothing left
-          // for the agent to compute differently, which is the whole point.
-          const wantsKeys = a.keys !== undefined;
-          let rows = Array.isArray(a.rows)
-            ? (a.rows as Record<string, unknown>[]).slice(0, 50)
-            : [];
-          let resolved: {
-            viewName: string;
-            keyColumns: string[];
-            missing: string[];
-            servedFrom: string;
-          } | null = null;
-          if (wantsKeys) {
-            if (rows.length) return JSON.stringify({ error: "Send rows or keys, not both." });
-            if (!model.feature_view_id)
-              return JSON.stringify({
-                error: `"${model.name}" has no feature view, so it cannot be scored by key. Send rows with its feature values (see ml_list_models), or attach a feature view to the model.`,
-              });
-            const keys = Array.isArray(a.keys) ? (a.keys as Record<string, unknown>[]) : [];
-            // Refused rather than trimmed: a key silently dropped is an entity
-            // silently unscored, and the agent would report it as done.
-            if (keys.length > 50)
-              return JSON.stringify({ error: `At most 50 keys per call (got ${keys.length}).` });
-            const { loadFeatureView, lookupFeatures } =
-              await import("@/utils/featureViews/lookup.server");
-            // The view belongs to the model's OWNER, as does the table it
-            // reads — so it is loaded and read as the owner, exactly as the
-            // REST route does for an API-key caller of a shared model.
-            const view = await loadFeatureView(model.feature_view_id, model.user_id);
-            if (!view) return JSON.stringify({ error: "The model's feature view is missing." });
-            const looked = await lookupFeatures({
-              view,
-              keys: keys as never,
-              userId: model.user_id,
-              via: "agent_tool",
-            });
-            if (!looked.ok) return JSON.stringify({ error: looked.error });
-            rows = looked.resolution.rows;
-            resolved = {
-              viewName: view.name,
-              keyColumns: view.key_columns,
-              missing: looked.resolution.missing,
-              servedFrom: looked.servedFrom,
-            };
-            if (!rows.length)
-              return JSON.stringify({
-                model: model.name,
-                version: version.version,
-                task: model.task,
-                feature_view: view.name,
-                keys_not_found: looked.resolution.missing,
-                predictions: [],
-                row_count: 0,
-                notes: [
-                  `No key matched a row in "${view.name}" — nothing was scored. Check the key values, or send rows with the feature values instead.`,
-                ],
-              });
-          }
-          if (!rows.length)
-            return JSON.stringify({
-              error:
-                "Pass rows to score (objects keyed by feature column), or keys for a model with a feature view.",
-            });
-          const { predictRowsSync } = await import("@/utils/ml/predict.server");
-          const r = await predictRowsSync({
-            model,
-            version,
-            userId: c.userId,
-            rows,
-            via: "agent_tool",
-            decisionId: c.decisionId ?? null,
-            waitMs: 120_000,
-          });
-          if (!r.ok)
-            return JSON.stringify({ error: r.error, prediction_id: r.predictionId ?? null });
-          // Everything the trainer wrote that a person would ask about — not
-          // just the label. Dropping anomaly_score once left an agent saying
-          // "not an anomaly" with nothing to back it.
-          const keep = [
-            // Scored by key: each prediction carries its key column(s), so the
-            // agent can say WHICH entity got which answer without trusting
-            // the order it asked in.
-            ...(resolved ? resolved.keyColumns : []),
-            "prediction",
-            "probability",
-            "anomaly_score",
-            "distance",
-            "scores",
-            "cold_start",
-            ...r.columns.filter((col) => col.startsWith("proba_")),
-          ];
-          const idx = r.columns
-            .map((col, i) => [col, i] as const)
-            .filter(([col]) => keep.includes(col));
-          const predictions = r.rows.map((row) =>
-            Object.fromEntries(idx.map(([col, i]) => [col, row[i]])),
-          );
-          return JSON.stringify({
-            model: model.name,
-            version: version.version,
-            task: model.task,
-            algorithm: r.algorithm,
-            predictions,
-            row_count: r.rows.length,
-            // Named whenever keys were used, EVEN WHEN EMPTY: an agent that
-            // asked for three keys and got two predictions must see the third
-            // as "not found", never as a row that scored quietly.
-            ...(resolved
-              ? {
-                  feature_view: resolved.viewName,
-                  keys_not_found: resolved.missing,
-                  features_served_from: resolved.servedFrom,
-                }
-              : {}),
-            warnings: r.warnings,
-            notes: [
-              ...mlPredictionNotes(model.task, version.metrics, predictions),
-              ...versionCaveats(version.warnings),
-            ],
-          });
-        } catch (e) {
-          return JSON.stringify({ error: e instanceof Error ? e.message : "Prediction failed" });
-        }
-      });
+      handlers.set("ml_predict", (c, a) => runMlPredict(c, a, cfg.ml_model_names));
     }
   }
 

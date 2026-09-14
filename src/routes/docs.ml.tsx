@@ -618,6 +618,21 @@ with agentswarms.start_run("churn-v2", params={"lr": 0.01, "depth": 6}) as run:
         Rows and keys are never accepted together; more than fifty keys is refused rather than
         trimmed, because a key dropped silently is an entity reported as scored.
       </P>
+      <P>
+        <strong>On the canvas without an LLM.</strong> A swarm&apos;s <C>tool</C> node offers{" "}
+        <strong>Score with model</strong> (<C>ml_predict</C>): pick the model, give <C>keys</C> — a
+        JSON array such as <C>{'[{"order_id": {{input}}}]'}</C>, templated from flow state like any
+        tool argument — or <C>rows</C> with the feature values, and the node writes the same JSON
+        the agent tool returns to its output variable. No model decides whether to score, which is
+        the point: when every run should score the same rows the same way, a model choosing to is
+        cost and variance. It runs the same code as the agent tool (one implementation,{" "}
+        <C>runMlPredict</C>), honours the node&apos;s model list, and in a deployed or scheduled run
+        scores as the swarm&apos;s owner. Any error — an unknown model, keys and rows together, a
+        list that is not valid JSON, a key set that matches nothing at all — fails the node rather
+        than flowing downstream as if it were a result. A key that matches nothing{" "}
+        <em>among others</em> is not an error: the rows that matched are scored and it comes back
+        named in <C>keys_not_found</C> beside them.
+      </P>
 
       <H2 id="automation">Automation</H2>
       <P>

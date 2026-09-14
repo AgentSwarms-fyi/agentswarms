@@ -184,8 +184,13 @@ describe("the server", () => {
     // from memory, or from a turn before the list was narrowed.
     const ml = REGISTRY.slice(REGISTRY.indexOf('if (allows("ml_predict"))'));
     expect(ml).toContain("cfg.ml_model_names,\n    );\n    if (mlModels.length > 0) {");
-    expect(ml).toContain("mlModelsAllowed([model], cfg.ml_model_names).length === 0");
-    expect(ml).toContain("is not enabled for this agent");
+    // The handler hands ITS list to the shared runner, and the runner is
+    // where the refusal lives (lifted out for the canvas node — see
+    // mlScoreNode.test.ts), naming the caller it refused for.
+    expect(ml).toMatch(/runMlPredict\(c, a, cfg\.ml_model_names\)/);
+    expect(REGISTRY).toContain("mlModelsAllowed([model], allow).length === 0");
+    expect(REGISTRY).toContain("is not enabled for ${who}");
+    expect(REGISTRY).toContain('via === "agent_tool" ? "this agent" : "this node"');
   });
 
   it("reads the list when the agent is saved, and merges it when it chats", () => {

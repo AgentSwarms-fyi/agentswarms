@@ -369,7 +369,7 @@ Path:    data.id`}</Code>
         rows={[
           [
             <C key="a">toolId</C>,
-            "One of the eight ids this node offers (web_search, web_browse, sql_query, kb_search, calculator, datetime, weather, mcp_call_tool) — a subset of the twelve an agent node can call",
+            "One of the nine ids this node offers (web_search, web_browse, sql_query, kb_search, calculator, datetime, weather, mcp_call_tool, ml_predict) — a subset of the twelve an agent node can call",
           ],
           [
             <C key="b">toolArgs</C>,
@@ -377,6 +377,19 @@ Path:    data.id`}</Code>
           ],
         ]}
       />
+      <P>
+        <strong>Score with model</strong> (<C>ml_predict</C>) scores rows with a registry model and
+        no LLM turn: pick the model, then give <C>keys</C> — a JSON array such as{" "}
+        <C>{'[{"order_id": {{input}}}]'}</C>, for a model bound to a feature view, whose features
+        are read from the view — or <C>rows</C> with the feature values. One or the other, never
+        both. The node writes the same JSON the agent tool returns (predictions with their key
+        columns, <C>keys_not_found</C>, <C>features_served_from</C>) to its output variable, and it{" "}
+        <em>fails</em> on any error — an unknown model, both inputs at once, a list that is not
+        valid JSON, a key set that matches nothing at all — rather than passing an error object
+        downstream as if it were a result. A key that matches nothing <em>among others</em> is not
+        an error: it comes back named in <C>keys_not_found</C> beside the rows that did score.
+        Headless runs score as the swarm&apos;s owner, the same grants the agent tool re-derives.
+      </P>
       <Callout kind="why">
         Use a <C>tool</C> node instead of an <C>agent</C> node whenever the call is not a judgement
         call. If you always want the same query run, having a model decide to run it is pure cost

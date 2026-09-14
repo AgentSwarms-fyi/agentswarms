@@ -1603,6 +1603,7 @@ export async function runSwarm(
               sql_tables: node.data.toolConfigs?.sql_table_names,
               mcp_servers: node.data.toolConfigs?.mcp_server_names,
               web_config: node.data.toolConfigs?.web_search || node.data.toolConfigs?.web_browse,
+              ml_model_names: node.data.toolConfigs?.ml_model_names,
             },
           });
           if (!res.ok) throw new Error(`Tool node failed: ${res.error}`);

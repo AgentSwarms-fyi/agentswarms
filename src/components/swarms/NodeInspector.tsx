@@ -1428,7 +1428,12 @@ export function NodeInspector({
         {data.kind === "http" && <HttpPanel data={data} onChange={onChange} />}
 
         {data.kind === "tool" && (
-          <ToolPanel data={data} onChange={onChange} knowledgeBases={knowledgeBases} />
+          <ToolPanel
+            data={data}
+            onChange={onChange}
+            knowledgeBases={knowledgeBases}
+            mlModels={availableMlModels}
+          />
         )}
 
         {data.kind === "foreach" && <ForEachPanel data={data} onChange={onChange} />}
@@ -2692,16 +2697,29 @@ const TOOL_NODE_OPTIONS: {
       { key: "arguments", placeholder: '{"key": "{{input}}"}', textarea: true },
     ],
   },
+  {
+    // Score rows with a registry model and no LLM turn. The model is a
+    // picker below (toolArgs.model); keys OR rows are JSON arrays that take
+    // {{var}} templating like every other tool argument.
+    id: "ml_predict",
+    label: "Score with model",
+    args: [
+      { key: "keys", placeholder: '[{"order_id": {{input}}}]', textarea: true },
+      { key: "rows", placeholder: '[{"region": "AMER", "net_usd": 120}]', textarea: true },
+    ],
+  },
 ];
 
 function ToolPanel({
   data,
   onChange,
   knowledgeBases,
+  mlModels,
 }: {
   data: SwarmNodeData;
   onChange: (patch: Partial<SwarmNodeData>) => void;
   knowledgeBases: { id: string; name: string }[];
+  mlModels: { id: string; name: string; task: string; production_version_id: string | null }[];
 }) {
   const toolId = (data.toolId as SwarmToolId) || "web_search";
   const opt = TOOL_NODE_OPTIONS.find((o) => o.id === toolId) ?? TOOL_NODE_OPTIONS[0];
@@ -2772,6 +2790,34 @@ function ToolPanel({
               ))}
             </SelectContent>
           </Select>
+        </Section>
+      )}
+      {toolId === "ml_predict" && (
+        <Section label="Model">
+          <Select
+            value={args.model || "__none__"}
+            onValueChange={(v) => setArg("model", v === "__none__" ? "" : v)}
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none__">Pick a model (required)</SelectItem>
+              {mlModels
+                .filter((m) => m.production_version_id)
+                .map((m) => (
+                  <SelectItem key={m.id} value={m.name}>
+                    {m.name} · {m.task}
+                  </SelectItem>
+                ))}
+            </SelectContent>
+          </Select>
+          <p className="text-[10px] text-muted-foreground mt-1">
+            Only models with a production version are listed. Fill <strong>keys</strong> for a model
+            bound to a feature view (its features are read from the view) or <strong>rows</strong>{" "}
+            with the feature values — one or the other. Any error fails this node rather than
+            flowing on as a result.
+          </p>
         </Section>
       )}
     </>

@@ -201,8 +201,11 @@ describe("the agent tool", () => {
   });
 
   it("audits through the prediction service with the turn's decision id", () => {
+    // The scoring lives in runMlPredict now (shared with the canvas's Score
+    // with model node — mlScoreNode.test.ts); the handler hands it the turn's
+    // context, and the function threads the decision id through.
     expect(registry).toContain('via: "agent_tool"');
-    expect(registry).toContain("decisionId: c.decisionId ?? null,");
+    expect(registry).toContain("decisionId: ctx.decisionId ?? null,");
     expect(registry).toContain("ml_predict scores rows with a trained model from the registry");
   });
 
@@ -239,8 +242,10 @@ describe("the UI carries the new controls", () => {
 describe("the agent tool explains what it returns", () => {
   it("keeps every column a person would ask about, not only the label", () => {
     const registry = rd("src/utils/tools/registry.server.ts");
-    const start = registry.indexOf('handlers.set("ml_predict"');
-    const block = registry.slice(start, registry.indexOf("// External warehouse tools", start));
+    // The handler is a one-line delegation; the scoring — and the column
+    // list — live in the exported runMlPredict.
+    const start = registry.indexOf("export async function runMlPredict(");
+    const block = registry.slice(start, registry.indexOf("\nexport ", start + 10));
     for (const col of [
       '"anomaly_score"',
       '"distance"',

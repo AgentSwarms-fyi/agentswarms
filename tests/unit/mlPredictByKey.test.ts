@@ -14,6 +14,7 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
+import { resolutionError } from "@/lib/featureViews";
 import { keyedModelViews } from "@/utils/featureViews/keyed.server";
 
 const rd = (p: string) => readFileSync(p, "utf8");
@@ -26,10 +27,15 @@ const INAPP = rd("src/routes/docs.ml.tsx");
 /** Code with its line comments removed — guards must read code, not prose. */
 const codeOnly = (s: string) => s.replace(/^\s*\/\/.*$/gm, "");
 
-/** The ml_predict handler, from its registration to the next handler's. */
+/**
+ * The scoring implementation. It began life as the inline ml_predict handler
+ * and was lifted into an exported runMlPredict so the canvas's deterministic
+ * node can run the SAME code (mlScoreNode.test.ts); the handler is now a
+ * one-line delegation, so the rules are pinned on the function.
+ */
 const predict = (() => {
-  const from = REGISTRY.indexOf('handlers.set("ml_predict"');
-  const to = REGISTRY.indexOf("handlers.set(", from + 10);
+  const from = REGISTRY.indexOf("export async function runMlPredict(");
+  const to = REGISTRY.indexOf("\nexport ", from + 10);
   expect(from).toBeGreaterThan(0);
   return codeOnly(REGISTRY.slice(from, to > 0 ? to : undefined));
 })();
@@ -123,20 +129,41 @@ describe("the ml_predict handler", () => {
   it("loads and reads the view as the model's owner, exactly as the REST route does", () => {
     expect(predict).toContain("loadFeatureView(model.feature_view_id, model.user_id)");
     expect(predict).toContain("userId: model.user_id,");
-    expect(predict).toContain('via: "agent_tool",');
+    // The lookup is attributed to the caller — the runner's `via` param, which
+    // the agent handler leaves at "agent_tool" and the canvas node sets.
+    expect(predict).toMatch(/lookupFeatures\(\{[^}]*\bvia,/);
     // The REST route is the reference copy of this rule.
     expect(ROUTE).toContain("loadFeatureView(auth.model.feature_view_id, auth.model.user_id)");
     expect(ROUTE).toContain("userId: auth.model.user_id,");
   });
 
-  it("answers an all-miss lookup with the misses named, not with the rows error", () => {
-    const miss = predict.slice(
-      predict.indexOf("if (!rows.length)"),
-      predict.indexOf("if (!rows.length)") + 700,
+  it("lets the lookup refuse an all-miss, and names a partial miss beside what scored", () => {
+    // The lookup itself turns "no key matched" into an error, so the tool
+    // returns that error and never reaches scoring; a first version carried
+    // its own all-miss answer after that line and the canvas round showed it
+    // could never run. The rule lives in ONE place — resolutionError — and is
+    // pinned there rather than restated.
+    expect(predict).toContain("if (!looked.ok) return JSON.stringify({ error: looked.error });");
+    expect(predict).not.toContain("nothing was scored");
+    const view = {
+      id: "v",
+      name: "order_features",
+      schema_name: "analytics",
+      table_name: "t",
+      key_columns: ["order_id"],
+      feature_columns: [],
+      timestamp_column: null,
+    };
+    expect(resolutionError(view, { rows: [], missing: ["order_id=999999"], duplicated: [] })).toBe(
+      "No features found for order_id=999999 in order_features",
     );
-    expect(miss).toContain("keys_not_found: looked.resolution.missing,");
-    expect(miss).toContain("predictions: [],");
-    expect(miss).toContain("nothing was scored");
+    expect(
+      resolutionError(view, {
+        rows: [{ order_id: 1000 }],
+        missing: ["order_id=999999"],
+        duplicated: [],
+      }),
+    ).toBeNull();
   });
 
   it("carries the key columns on every prediction and names what was not found", () => {
