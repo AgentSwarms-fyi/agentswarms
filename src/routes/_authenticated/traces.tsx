@@ -869,20 +869,47 @@ function TracesPage() {
                   {Array.isArray(selected.tool_calls) && selected.tool_calls.length > 0 && (
                     <Section title={`Tool Calls (${selected.tool_calls.length})`}>
                       <div className="space-y-1.5">
-                        {selected.tool_calls.map((tc: any, i: number) => (
-                          <div
-                            key={i}
-                            className="flex items-start gap-2 bg-muted/40 rounded-md p-2"
-                          >
-                            <Wrench className="h-3.5 w-3.5 text-amber-500 mt-0.5 shrink-0" />
-                            <div className="min-w-0 flex-1">
-                              <p className="text-xs font-mono font-semibold break-all">{tc.name}</p>
-                              <pre className="text-[10px] text-muted-foreground font-mono mt-0.5 whitespace-pre-wrap break-all">
-                                {JSON.stringify(tc.arguments, null, 2)}
-                              </pre>
+                        {selected.tool_calls.map((tc: any, i: number) => {
+                          // Two shapes: the agent loop's events — a `tool_call`
+                          // with a JSON `args` string, then a `tool_result` with
+                          // `ok` and a preview — and older rows that kept
+                          // `arguments` as an object.
+                          const isResult = tc?.type === "tool_result";
+                          const body = isResult
+                            ? String(tc.preview ?? "")
+                            : tc?.arguments !== undefined
+                              ? JSON.stringify(tc.arguments, null, 2)
+                              : typeof tc?.args === "string"
+                                ? tc.args
+                                : "";
+                          return (
+                            <div
+                              key={i}
+                              className="flex items-start gap-2 bg-muted/40 rounded-md p-2"
+                            >
+                              <Wrench
+                                className={`h-3.5 w-3.5 mt-0.5 shrink-0 ${
+                                  isResult
+                                    ? tc.ok
+                                      ? "text-emerald-500"
+                                      : "text-destructive"
+                                    : "text-amber-500"
+                                }`}
+                              />
+                              <div className="min-w-0 flex-1">
+                                <p className="text-xs font-mono font-semibold break-all">
+                                  {tc?.name}
+                                  {isResult ? (tc.ok ? " · result" : " · failed") : ""}
+                                </p>
+                                {body && (
+                                  <pre className="text-[10px] text-muted-foreground font-mono mt-0.5 whitespace-pre-wrap break-all">
+                                    {body}
+                                  </pre>
+                                )}
+                              </div>
                             </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </Section>
                   )}

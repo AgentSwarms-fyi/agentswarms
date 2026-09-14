@@ -388,7 +388,10 @@ Path:    data.id`}</Code>
         valid JSON, a key set that matches nothing at all — rather than passing an error object
         downstream as if it were a result. A key that matches nothing <em>among others</em> is not
         an error: it comes back named in <C>keys_not_found</C> beside the rows that did score.
-        Headless runs score as the swarm&apos;s owner, the same grants the agent tool re-derives.
+        Headless runs score as the swarm&apos;s owner, the same grants the agent tool re-derives,
+        and the node&apos;s step records the call and its result — the same two events an
+        agent&apos;s tool use leaves on its step — so a scheduled run&apos;s trace shows what was
+        scored, not only what came out.
       </P>
       <Callout kind="why">
         Use a <C>tool</C> node instead of an <C>agent</C> node whenever the call is not a judgement
@@ -694,7 +697,9 @@ input ──▶ split ┼──▶ legal analysis ─────┼──▶ me
           <strong>Recent runs</strong> — history with inputs and results.
         </li>
         <li>
-          <strong>Traces</strong> — per-node steps with prompts, tool calls, tokens and cost. See{" "}
+          <strong>Traces</strong> — per-node steps with prompts, tool calls, tokens and cost.
+          Headless runs — the deployed API, schedules, evals — record the same tool calls a canvas
+          run does, and a tool node records its own call and result. See{" "}
           <DocLink to="/docs/debugging">Logs &amp; traces</DocLink>.
         </li>
         <li>

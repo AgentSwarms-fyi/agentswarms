@@ -282,7 +282,7 @@ What it took to find: not a mutant, not a review — a value that matched no
 row, pressed through the real path. The guard was green because it read the
 code it was written beside.
 
-#### R3 · S2 (open) · A headless run's steps record no tool calls
+#### R3 · S2 · A headless run's steps record no tool calls
 
 Applying R2's rule to the canvas round exposed a gap in the server executor.
 The same swarm, the same node, the same input, run twice: from the canvas, the
@@ -299,6 +299,18 @@ node will need its calls visible on exactly this path. For this round the
 headless evidence is the run's `swarm_snapshot` (the node's
 `ml_model_names: ["revenue_facts plan classifier"]`) and an output naming that
 one model with "Count: 1", a name the input never mentioned.
+
+**Closed 2026-09-14.** The server read /api/chat's stream for text and the
+`cost` event and dropped every `tool` event; the stream reader is now one
+pure function (`src/lib/chatStream.ts`, `readChatStream`) that hands the
+executor the same events the canvas keeps, the executor collects them per
+node, and the server tracer writes `tool_calls` where the canvas tracer
+does. A tool node and a retrieve node record their own call and result in
+the agent loop's shape (`toolNodeEvents`), an ML result carrying the same
+person-readable table the Playground panel gets, so the Score node's calls
+are visible on exactly this path. The Traces page reads both shapes — the
+loop's `args` string and result preview, and older rows' `arguments`
+object. Ten mutants, ten caught.
 
 ### 2026-08-18 — Modules 30 & 31, IAM (`/admin/iam`) and Developer runtime (`/admin/runtime`)
 

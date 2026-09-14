@@ -20,6 +20,12 @@ type FinishStepArgs = {
   tokensOut?: number;
   costUsd?: number;
   latencyMs?: number;
+  /**
+   * The node's tool events — its agent's calls and results, or a tool
+   * node's own — in the shape the canvas tracer writes, so one Traces
+   * page reads both. Stored as the canvas stores them.
+   */
+  toolCalls?: unknown[];
 };
 
 export type ServerSwarmTracer = {
@@ -116,6 +122,7 @@ export async function createServerSwarmTracer(opts: {
               tokens_out: args.tokensOut ?? 0,
               cost_usd: args.costUsd ?? 0,
               latency_ms: args.latencyMs ?? 0,
+              tool_calls: args.toolCalls ?? [],
               finished_at: new Date().toISOString(),
             } as never)
             .eq("id", stepId);

@@ -49,8 +49,10 @@ import { captureCheckpoint, restoreTracker, type SwarmCheckpoint } from "@/lib/s
 import { commitLevelWrites, type StagedWrites, type StateReducer } from "@/lib/swarmGraph";
 import { clearCheckpoint, loadCheckpoint, saveCheckpoint } from "@/utils/swarmCheckpoint.server";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { readChatStream, toolNodeEvents } from "@/lib/chatStream";
 import { createServerSwarmTracer } from "@/utils/observability/serverTracer.server";
 import { runHttpNodeCore, runToolNodeCore, type ToolNodeParams } from "@/utils/swarmNodes.server";
+import type { ToolEvent } from "@/utils/tools/loop.server";
 import type { AgentToolContext } from "@/utils/tools/registry.server";
 import { internalRunSecret } from "@/utils/internalOrigin.server";
 import {
@@ -133,6 +135,12 @@ async function serverChat(args: {
    * (deployed API, schedules, evals) recorded latency but zero tokens/cost.
    */
   onUsage?: (u: { model?: string; costUsd: number; tokensIn: number; tokensOut: number }) => void;
+  /**
+   * Receives every `tool` event of the turn — a call and its result — the
+   * same events the canvas records on its step. Without this a headless
+   * step said `tool_calls: []` while its agent had called three tools.
+   */
+  onToolEvent?: (e: ToolEvent) => void;
 }): Promise<string> {
   const secret = internalRunSecret();
   if (!secret) {
@@ -175,64 +183,9 @@ async function serverChat(args: {
     const txt = await res.text().catch(() => "");
     throw new Error(`chat failed [${res.status}]: ${txt.slice(0, 300)}`);
   }
-  // Parse the OpenAI-compatible SSE stream → assistant text.
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let text = "";
-  let event = "message";
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    let idx: number;
-    while ((idx = buffer.indexOf("\n")) !== -1) {
-      let line = buffer.slice(0, idx);
-      buffer = buffer.slice(idx + 1);
-      if (line.endsWith("\r")) line = line.slice(0, -1);
-      if (line === "") {
-        event = "message";
-        continue;
-      }
-      if (line.startsWith("event: ")) {
-        event = line.slice(7).trim();
-        continue;
-      }
-      if (!line.startsWith("data: ")) continue;
-      const payload = line.slice(6).trim();
-      if (!payload || payload === "[DONE]") continue;
-      if (event === "cost") {
-        try {
-          const c = JSON.parse(payload) as {
-            model?: string;
-            costUsd?: number;
-            tokensIn?: number;
-            tokensOut?: number;
-          };
-          args.onUsage?.({
-            model: c.model,
-            costUsd: c.costUsd ?? 0,
-            tokensIn: c.tokensIn ?? 0,
-            tokensOut: c.tokensOut ?? 0,
-          });
-        } catch {
-          /* telemetry only — never break the run */
-        }
-        continue;
-      }
-      if (event !== "message") continue;
-      try {
-        const p = JSON.parse(payload) as {
-          choices?: { delta?: { content?: string }; message?: { content?: string } }[];
-        };
-        const delta = p.choices?.[0]?.delta?.content ?? p.choices?.[0]?.message?.content ?? "";
-        if (typeof delta === "string") text += delta;
-      } catch {
-        /* keep-alive */
-      }
-    }
-  }
-  return text.trim();
+  // Text, the `cost` event and every `tool` event, read by the same pure
+  // reader a test can feed bytes to (src/lib/chatStream.ts).
+  return readChatStream(res.body, { usage: args.onUsage, tool: args.onToolEvent });
 }
 
 // Extract a JSON payload from an optionally fenced string.
@@ -361,6 +314,15 @@ export async function executeSwarmServer(opts: {
     { model?: string; costUsd: number; tokensIn: number; tokensOut: number }
   >();
 
+  // Every tool event of a node — its agent's turn, or the node's own call
+  // when it IS a tool — lands on its step, as the canvas tracer records.
+  const nodeToolCalls = new Map<string, unknown[]>();
+  const recordToolEvents = (nodeId: string, events: unknown[]) => {
+    const arr = nodeToolCalls.get(nodeId) ?? [];
+    arr.push(...events);
+    nodeToolCalls.set(nodeId, arr);
+  };
+
   // Inject the conversation history into every LLM node call (chat mode), and
   // record what the call actually cost.
   const chat = (a: Parameters<typeof serverChat>[0]) =>
@@ -381,6 +343,7 @@ export async function executeSwarmServer(opts: {
             tokensOut: prev.tokensOut + u.tokensOut,
           });
         },
+        onToolEvent: (e) => recordToolEvents(a.node.id, [e]),
       }),
     );
 
@@ -623,6 +586,15 @@ export async function executeSwarmServer(opts: {
             };
             const res = await withNodeRetry(d, async () => {
               const r = await runToolNodeCore(dataToolCtx(opts.userId, runId), params);
+              recordToolEvents(
+                node.id,
+                toolNodeEvents({
+                  id: globalThis.crypto.randomUUID(),
+                  name: toolId,
+                  args,
+                  result: r,
+                }),
+              );
               if (!r.ok) throw new Error(`Tool node failed: ${r.error}`);
               return r;
             });
@@ -634,11 +606,21 @@ export async function executeSwarmServer(opts: {
             if (!kbId) throw new Error("Retrieve node has no knowledge base selected.");
             const query = interpolate(d.retrieveQuery || "{{input}}", ctx);
             const res = await withNodeRetry(d, async () => {
+              const args = { query, top_k: String(d.retrieveTopK ?? 5) };
               const r = await runToolNodeCore(dataToolCtx(opts.userId, runId), {
                 tool_id: "kb_search",
-                args: { query, top_k: String(d.retrieveTopK ?? 5) },
+                args,
                 knowledge_base_id: kbId,
               });
+              recordToolEvents(
+                node.id,
+                toolNodeEvents({
+                  id: globalThis.crypto.randomUUID(),
+                  name: "kb_search",
+                  args,
+                  result: r,
+                }),
+              );
               if (!r.ok) throw new Error(`Retrieve node failed: ${r.error}`);
               return r;
             });
@@ -1021,7 +1003,9 @@ export async function executeSwarmServer(opts: {
               tokensOut: used?.tokensOut,
               costUsd: used?.costUsd,
               latencyMs: Date.now() - stepStartedAt,
+              toolCalls: nodeToolCalls.get(node.id) ?? [],
             });
+            nodeToolCalls.delete(node.id);
           }
           // Checkpoint AFTER the node, in `finally`, so a node that failed but
           // was continued past (onError: continue) is still recorded as done —
