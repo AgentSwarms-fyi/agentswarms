@@ -63,6 +63,37 @@ export type AnalystSource =
 export type AnalystCheckVerdict = "pass" | "refined" | "suspect";
 
 /**
+ * The predictive models an analyst may use — its own choice, made in the
+ * same dialog as its reasoning model and its data. `null` (or absent) means
+ * every model the owner can use; a list means exactly those, by name; an
+ * empty list means none, and the planner is not told about scoring at all.
+ * The same rule an agent's ML tool follows, enforced the same way: the
+ * server refuses a model outside the list when a step tries to score with
+ * it, whatever the planner was shown.
+ */
+export function analystModelsAllowed<T extends { name: string }>(
+  models: T[],
+  allow: readonly string[] | null | undefined,
+): T[] {
+  if (!Array.isArray(allow)) return models;
+  const names = new Set(allow.map((n) => n.trim()).filter((n) => n.length > 0));
+  return models.filter((m) => names.has(m.name));
+}
+
+/** What the analyst's card and dialog say about its predictive-model choice. */
+export function describeModelChoice(
+  allow: readonly string[] | null | undefined,
+  total: number,
+): string {
+  if (!Array.isArray(allow)) {
+    return total === 0 ? "No predictive models trained yet" : `Any predictive model (${total})`;
+  }
+  const n = allow.filter((s) => s.trim().length > 0).length;
+  if (n === 0) return "No predictive models — steps are never scored";
+  return `${n} of ${total} predictive model${total === 1 ? "" : "s"}`;
+}
+
+/**
  * Rank the SCORED rows by one of the model's output columns — the only way
  * to answer "the most / least / top N by the model": the output exists on
  * the scored rows and in no table, so no SQL can order by it. Measured
@@ -1700,6 +1731,12 @@ export async function runAnalystTurn(args: {
   scoreRows?: (req: { model: string; rows: Record<string, unknown>[] }) => Promise<ScoreRowsResult>;
   /** A forecast model's projection, server-side like scoreRows. Absent means a forecast step cannot run, and says so. */
   forecast?: (req: { model: string }) => Promise<ForecastResult>;
+  /**
+   * Names of trained models the user could enable for this analyst but has
+   * not — so a question naming one gets "not enabled for this analyst"
+   * rather than "no such model", and points at the setting.
+   */
+  modelsOutsideScope?: string[];
   onUpdate: (turn: AnalystTurn) => void;
 }): Promise<AnalystTurn> {
   const ask: LlmJsonFn = args.llm ?? llmJson;
@@ -1870,13 +1907,42 @@ export async function runAnalystTurn(args: {
     // The question named a model that does not exist and the plan reached
     // for another one: ask, rather than answer "which five are most at risk"
     // with a clustering model standing in for a churn model nobody has.
-    const missing = plan.steps.some((s) => s.score || s.forecast)
-      ? namedModelMissing(args.question, [
-          ...(args.models ?? []).map((m) => m.name),
-          ...catalog.map((c) => c.name),
-        ])
-      : null;
-    if (missing && /Proceed with this assumption:/.test(args.question)) {
+    // A model the user HAS but did not enable for this analyst is named as
+    // exactly that, whether the plan substituted or asked on its own.
+    const missing =
+      plan.steps.some((s) => s.score || s.forecast) || plan.clarify
+        ? namedModelMissing(args.question, [
+            ...(args.models ?? []).map((m) => m.name),
+            ...catalog.map((c) => c.name),
+          ])
+        : null;
+    const outside =
+      missing && !/Proceed with this assumption:/.test(args.question)
+        ? (args.modelsOutsideScope ?? []).find((n) => {
+            const words = missing
+              .toLowerCase()
+              .split(/[\s\u00b7-]+/)
+              .filter(Boolean);
+            return words.every((w) => n.toLowerCase().includes(w));
+          })
+        : undefined;
+    if (outside) {
+      const names = (args.models ?? []).map((m) => `"${m.name}"`).join(", ");
+      plan = {
+        approach: "",
+        steps: [],
+        clarify:
+          `"${outside}" exists but is not enabled for this analyst` +
+          (names
+            ? ` — its predictive models are ${names}.`
+            : " — it has no predictive models enabled.") +
+          " Enable it under the analyst's settings (the pencil on its card), or ask with one it may use.",
+        assumption: "Answer from the data alone, without a trained model",
+      };
+    }
+    if (outside) {
+      // Said above; nothing to strip and nothing more to ask.
+    } else if (missing && /Proceed with this assumption:/.test(args.question)) {
       // The user already chose to go on; a plan that still reaches for
       // another model is stripped of its scoring, never trusted. Measured
       // live: the planner's own second assumption was "the churn model is

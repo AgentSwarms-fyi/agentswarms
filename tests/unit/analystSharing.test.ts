@@ -197,6 +197,8 @@ describe("the wiring", () => {
   });
 
   it("reads user_id so owned and shared can be told apart at all", () => {
-    expect(page).toContain('.select("id, name, model, source, created_at, user_id")');
+    expect(page).toContain(
+      '.select("id, name, model, source, ml_model_names, created_at, user_id")',
+    );
   });
 });

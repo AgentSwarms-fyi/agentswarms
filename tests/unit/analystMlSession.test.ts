@@ -789,13 +789,15 @@ describe("the server, the route and the embed runner carry the same pieces", () 
 
   it("a forecast runs through the same runner as the agent tool, as the analyst", () => {
     expect(scoring).toContain("export async function forecastForAnalyst(");
-    expect(scoring).toContain('runMlPredict(ctx, { model: model.name }, undefined, "ai_analyst")');
+    expect(scoring).toContain(
+      'runMlPredict(ctx, { model: model.name }, args.allow ?? undefined, "ai_analyst")',
+    );
     expect(scoring).toContain('columns: ["period", "forecast", "lower", "upper"],');
     expect(fns).toContain("export const analystForecast = createServerFn");
     expect(route).toContain("const forecastFn = useServerFn(analystForecast);");
     expect(route).toContain("forecast: token");
     expect(embed).toContain(
-      "forecast: (req) => forecastForAnalyst({ userId: args.ownerId, ...req }),",
+      "forecastForAnalyst({ userId: args.ownerId, allow: analyst.ml_model_names, ...req }),",
     );
   });
 

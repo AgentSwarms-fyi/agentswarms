@@ -149,6 +149,30 @@ returns — which `sources` drops by design — is a canvas run: the client
 tracer records every `tool_call` and `tool_result` on the step, so the
 refusal strings can be read from `swarm_run_steps.tool_calls` verbatim.
 
+#### R11 · S2 · The analyst page at a narrow window, and a new analyst with no controls
+
+From the user's screenshot at a small window, reproduced at 1000px: the
+analyst rail kept its 256px, the header's six actions never wrapped, so the
+page container — which hides overflow so the transcript can scroll inside a
+pinned height — held 1173px of content in 744px of room, and focusing the
+question box scrolled the rail clean out of view: the analyst list looked
+cut off at the left and the actions at the right. The header now wraps, its
+labels go icon-only below lg (titles kept), the title input shrinks, the
+model badge and the source label are dropped first, the rail narrows below
+lg, and on a phone it hides behind a button and comes back full-width,
+closing again when an analyst is picked. Verified at 1000, 768 and 375px:
+the container's content fits its width at each.
+
+Two smaller ones from the predictive-model round. The analyst just created
+showed no owner controls (share, edit, delete) until the page was reloaded:
+the insert returned the row without `user_id`, and the card decides
+ownership by it. It returns it now. And the "analyst updated" toast sits at
+the bottom right, over the Ask button; a pointer resting there keeps it alive
+and every click lands on the toast, so three asks went nowhere until the
+pointer moved. Left as is — it is the app-wide toast position and a resting
+pointer, not a code path — but recorded so the next round does not lose
+twenty minutes to it.
+
 #### R10 · S1 · Seven questions to the AI Analyst about seven models: twelve findings
 
 A session rather than a feature: one analyst on `openai/gpt-4o-mini` over the
@@ -247,8 +271,8 @@ severity:
 - **F17 (S3)** With a rank of ten planned, the SQL writer took "ten" as its
   LIMIT and the ranking ran over ten rows instead of the fifty-row sample.
   The scoring goal now says the platform keeps the top N after scoring, so
-  the query must not limit to that number (unit-verified; the live re-check
-  is the next session's first question).
+  the query must not limit to that number (verified live in the R11 round:
+  fifty sampled, the top ten ranked).
 
 Twenty-two mutants, twenty-two caught. The session's analyst and its threads are
 kept on the instance for review, and the same seven questions were asked

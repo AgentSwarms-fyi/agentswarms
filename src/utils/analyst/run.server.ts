@@ -50,7 +50,7 @@ export type AnalystRunOutcome =
 export async function loadEmbeddedAnalyst(analystId: string, ownerId: string) {
   const { data } = await supabaseAdmin
     .from("ai_analysts")
-    .select("id, user_id, name, model, source")
+    .select("id, user_id, name, model, source, ml_model_names")
     .eq("id", analystId)
     .maybeSingle();
   // The embed key names an owner; an analyst belonging to someone else must
@@ -247,9 +247,11 @@ export async function runAnalystTurnServer(args: {
       llm,
       // Scored steps score as the OWNER too — the same models the owner's own
       // analyst may name, through the same helper the browser path reaches.
-      models: await scorableModelsForUser(args.ownerId).catch(() => []),
-      scoreRows: (req) => scoreRowsForAnalyst({ userId: args.ownerId, ...req }),
-      forecast: (req) => forecastForAnalyst({ userId: args.ownerId, ...req }),
+      models: await scorableModelsForUser(args.ownerId, analyst.ml_model_names).catch(() => []),
+      scoreRows: (req) =>
+        scoreRowsForAnalyst({ userId: args.ownerId, allow: analyst.ml_model_names, ...req }),
+      forecast: (req) =>
+        forecastForAnalyst({ userId: args.ownerId, allow: analyst.ml_model_names, ...req }),
       // Governed steps still compile — under the OWNER's id, so their row
       // filters and column masks are applied exactly as they are in the app.
       runSemantic: async (query: SemanticQuery) => {

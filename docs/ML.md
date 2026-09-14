@@ -589,7 +589,10 @@ as observed values. A forecast model is offered as a **forecast step**
 projected periods with their interval — and a plan may **rank** the scored
 rows by a model output (`"rank": { "by": "anomaly_score", "desc": true,
 "limit": 10 }`), the only way to ask for the most anomalous or most likely
-rows, because a model's columns exist in no table. Details under
+rows, because a model's columns exist in no table. Which models an analyst
+may use is its own setting, beside its reasoning model and its data, with
+the same rule as an agent's ML tool — any, exactly these, or none —
+enforced when a step scores. Details under
 **Business Intelligence → AI Analyst**.
 
 ## Automation

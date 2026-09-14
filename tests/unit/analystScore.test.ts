@@ -339,9 +339,9 @@ describe("the write-up is told", () => {
 describe("the server side", () => {
   it("scores through the one implementation, as the analyst, with rows or keys", () => {
     const code = codeOnly(SCORE);
-    expect(code).toContain(
-      'import { runMlPredict, type AgentToolContext } from "@/utils/tools/registry.server";',
-    );
+    expect(code).toContain("mlModelsAllowed,");
+    expect(code).toContain("runMlPredict,");
+    expect(code).toContain('} from "@/utils/tools/registry.server";');
     expect(code).toContain('"ai_analyst",');
     expect(code).toContain("scopeUserId: args.userId,");
     // By key only when EVERY row carries the key column(s); otherwise rows.
@@ -377,10 +377,10 @@ describe("the server side", () => {
     // Rows cross the wire as primitives (cellRow), the way semantic rows do.
     expect(codeOnly(ROUTE)).toContain("rows: req.rows.map(cellRow)");
     expect(codeOnly(RUNNER)).toContain(
-      "models: await scorableModelsForUser(args.ownerId).catch(() => []),",
+      "models: await scorableModelsForUser(args.ownerId, analyst.ml_model_names).catch(() => []),",
     );
     expect(codeOnly(RUNNER)).toContain(
-      "scoreRows: (req) => scoreRowsForAnalyst({ userId: args.ownerId, ...req }),",
+      "scoreRowsForAnalyst({ userId: args.ownerId, allow: analyst.ml_model_names, ...req }),",
     );
   });
 

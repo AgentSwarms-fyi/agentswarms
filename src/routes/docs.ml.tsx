@@ -667,7 +667,9 @@ with agentswarms.start_run("churn-v2", params={"lr": 0.01, "depth": 6}) as run:
         projected periods with their interval — and a plan may <strong>rank</strong> the scored rows
         by a model output (<C>{'"rank": { "by": "anomaly_score", "desc": true, "limit": 10 }'}</C>
         ), the only way to ask for the most anomalous or most likely rows, because a model&apos;s
-        columns exist in no table. Details under{" "}
+        columns exist in no table. Which models an analyst may use is its own setting, beside its
+        reasoning model and its data, with the same rule as an agent&apos;s ML tool — any, exactly
+        these, or none — enforced when a step scores. Details under{" "}
         <DocLink to="/docs/bi">Business Intelligence → AI Analyst</DocLink>.
       </P>
 

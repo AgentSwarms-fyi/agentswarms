@@ -22,7 +22,11 @@ import { keyedModelViews } from "@/utils/featureViews/keyed.server";
 import { healthLine } from "@/lib/mlHealth";
 import { listModelsForUser } from "@/utils/ml/access.server";
 import { modelHealthFor } from "@/utils/ml/health.server";
-import { runMlPredict, type AgentToolContext } from "@/utils/tools/registry.server";
+import {
+  mlModelsAllowed,
+  runMlPredict,
+  type AgentToolContext,
+} from "@/utils/tools/registry.server";
 
 /**
  * The models a plan may use: every usable model with a production version.
@@ -31,8 +35,15 @@ import { runMlPredict, type AgentToolContext } from "@/utils/tools/registry.serv
  * live with them filtered out: "use a trained forecast model if one fits"
  * was answered with the regression model and an invented projection.
  */
-export async function scorableModelsForUser(userId: string): Promise<ScorableModel[]> {
-  const models = (await listModelsForUser(userId)).filter((m) => m.production_version_id);
+export async function scorableModelsForUser(
+  userId: string,
+  /** The analyst's own choice (ai_analysts.ml_model_names): null = every model, a list = exactly those. */
+  allow?: string[] | null,
+): Promise<ScorableModel[]> {
+  const models = mlModelsAllowed(
+    (await listModelsForUser(userId)).filter((m) => m.production_version_id),
+    allow ?? undefined,
+  );
   if (models.length === 0) return [];
   const [keyed, health, { data: versions }] = await Promise.all([
     keyedModelViews(models),
@@ -73,12 +84,17 @@ export async function scoreRowsForAnalyst(args: {
   model: string;
   rows: Record<string, unknown>[];
   decisionId?: string | null;
+  /** The analyst's own choice; a model outside it is refused here, whatever the planner was shown. */
+  allow?: string[] | null;
 }): Promise<ScoreRowsResult> {
   const rows = args.rows.slice(0, ANALYST_SCORE_CAP);
   if (rows.length === 0) return { ok: false, error: "The step returned no rows to score." };
   const models = await listModelsForUser(args.userId);
   const model = models.find((m) => m.name === args.model);
   if (!model) return { ok: false, error: `No model named "${args.model}" is available to you.` };
+  if (mlModelsAllowed([model], args.allow ?? undefined).length === 0) {
+    return { ok: false, error: `"${model.name}" is not enabled for this analyst.` };
+  }
   if (model.task === "forecast") {
     return {
       ok: false,
@@ -141,7 +157,7 @@ export async function scoreRowsForAnalyst(args: {
           keys: rows.map((r) => Object.fromEntries(keyColumns!.map((k) => [k, r[k]]))),
         }
       : { model: model.name, rows },
-    undefined,
+    args.allow ?? undefined,
     "ai_analyst",
   );
   const parsed = JSON.parse(raw) as {
@@ -201,10 +217,15 @@ export async function forecastForAnalyst(args: {
   userId: string;
   model: string;
   decisionId?: string | null;
+  /** The analyst's own choice; a model outside it is refused here. */
+  allow?: string[] | null;
 }): Promise<ForecastResult> {
   const models = await listModelsForUser(args.userId);
   const model = models.find((m) => m.name === args.model);
   if (!model) return { ok: false, error: `No model named "${args.model}" is available to you.` };
+  if (mlModelsAllowed([model], args.allow ?? undefined).length === 0) {
+    return { ok: false, error: `"${model.name}" is not enabled for this analyst.` };
+  }
   if (model.task !== "forecast") {
     return {
       ok: false,
@@ -218,7 +239,7 @@ export async function forecastForAnalyst(args: {
     decisionId: args.decisionId ?? undefined,
   };
   const [raw, { data: version }, modelHealth] = await Promise.all([
-    runMlPredict(ctx, { model: model.name }, undefined, "ai_analyst"),
+    runMlPredict(ctx, { model: model.name }, args.allow ?? undefined, "ai_analyst"),
     supabaseAdmin
       .from("ml_model_versions")
       .select("metrics")

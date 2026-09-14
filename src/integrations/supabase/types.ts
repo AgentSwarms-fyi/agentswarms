@@ -387,6 +387,7 @@ export type Database = {
         Row: {
           created_at: string;
           id: string;
+          ml_model_names: string[] | null;
           model: string;
           name: string;
           source: Json;
@@ -396,6 +397,7 @@ export type Database = {
         Insert: {
           created_at?: string;
           id?: string;
+          ml_model_names?: string[] | null;
           model: string;
           name: string;
           source: Json;
@@ -405,6 +407,7 @@ export type Database = {
         Update: {
           created_at?: string;
           id?: string;
+          ml_model_names?: string[] | null;
           model?: string;
           name?: string;
           source?: Json;

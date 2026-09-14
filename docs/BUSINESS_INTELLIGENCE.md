@@ -424,14 +424,19 @@ PDF instead. Name, page setup and band changes are written to the audit log via
 conversational-analysis surface — the Spotter/conversational-BI equivalent,
 built on this stack's own discipline: every answer shows its work.
 
-An **analyst** is two choices and nothing else: a **reasoning model** (picked
-from your connected providers — the dialog suggests reasoning families like
-o3, GPT-5, Claude Opus, DeepSeek-R1, Gemini 2.5 Pro, and nudges you if the
-pick doesn't look like one) and **the data** it is scoped to (all local
-datasets &amp; uploads, one dataset, or one warehouse connection). Create as
-many analysts as you have jobs for them.
+An **analyst** is three choices and nothing else: a **reasoning model**
+(picked from your connected providers — the dialog suggests reasoning
+families like o3, GPT-5, Claude Opus, DeepSeek-R1, Gemini 2.5 Pro, and nudges
+you if the pick doesn't look like one), **the data** it is scoped to (all
+local datasets &amp; uploads, one dataset, or one warehouse connection), and
+the **predictive models** it may score or forecast with — any trained model
+it can use, or exactly the ones you tick. It chooses among them by the
+question, and a model outside the list is refused even when a plan names it:
+the same allow-list rule as an agent's ML tool, enforced when a step scores,
+not only in what the planner is shown. Create as many analysts as you have
+jobs for them.
 
-Both choices stay **editable** — the pencil on an analyst's card reopens the
+All three choices stay **editable** — the pencil on an analyst's card reopens the
 same dialog, so a model that turns out too slow, or data that moved, is a
 two-click change rather than a new analyst. Editing applies to your next
 question: analyses already on the thread are **not** re-run, and they keep
