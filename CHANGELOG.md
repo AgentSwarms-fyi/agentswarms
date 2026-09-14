@@ -17,6 +17,35 @@ development branch and may be ahead of the latest tag.
 Work on `main` since the 1.4.0 tag. Twenty-nine migrations —
 run `npx supabase db push` after pulling.
 
+### What a knowledge-base answer actually reads
+
+- **A citation carries a document's best few chunks, whole, in reading
+  order.** It was one chunk cut to 560 characters. Measured on a twelve-document
+  policy corpus, that answered "what is the Gold Severity 1 response time" with
+  "the excerpt does not include the table" against a document whose first chunk
+  _is_ the table — the prose about the table outranked it and the collapse kept
+  one. Now three chunks per document (`KB_CHUNKS_PER_DOCUMENT`), up to 1,600
+  characters each (`KB_CITATION_CHARS_PER_CHUNK`), under a 12,000-character
+  budget per turn (`KB_GROUNDING_MAX_CHARS`).
+- **Hybrid retrieval is the default** for a collection that never saved
+  retrieval settings (weighted 0.7 toward meaning). Semantic-only lost the
+  exact-term questions — "Severity 1", "RTO", "HIPAA" — to paragraphs that
+  merely resembled them. A collection that chose semantic keeps it.
+- **Measured on the same set:** eleven of twenty right before, twenty of twenty
+  after, at 2,400 prompt tokens a turn; thirteen tools enabled cost 10,400 a turn
+  for the same answers; a 24-turn conversation stays flat at ~4,000 tokens
+  under the 20-message window. Details in `docs/ADVERSARIAL_LOG.md` (R12).
+
+### The handbook, reorganised
+
+- **Page families.** ML Models is an overview and five pages (Training,
+  Predictions, Serving, Trust, Operations); Install & deploy is an overview and
+  three (Configuration, Kubernetes, Operations). Sub-pages sit under their guide
+  in the sidebar and show only while you are in the family.
+- **A map under every long title**, a rail that lists only the subsections of
+  the section being read, a hover anchor on every heading, back-to-top, and
+  subsections in the BI page's AI Analyst section.
+
 ### Workflows: one graph over four separate clocks
 
 - **Data & BI → Workflows orchestrates work that already exists.** A step is an

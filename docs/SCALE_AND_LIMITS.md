@@ -284,6 +284,13 @@ what an index too large for the database — or one that must survive losing it 
 wants. The chunk text stays in Postgres either way, so keyword search and the
 storage growth below are unchanged.
 
+What one answer reads: each cited document carries up to
+`KB_CHUNKS_PER_DOCUMENT` chunks (**3**) of up to `KB_CITATION_CHARS_PER_CHUNK`
+characters (**1,600**), and the whole turn is capped at
+`KB_GROUNDING_MAX_CHARS` (**12,000**, about 3,000 tokens). Raise the budget for
+a model with a large window and questions that span many documents; lower it
+for a small model. See KNOWLEDGE_BASES.md → What the model reads.
+
 ---
 
 ## What this means in practice

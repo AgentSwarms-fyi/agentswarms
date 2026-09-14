@@ -167,14 +167,23 @@ export type RetrievalSettings = {
   semanticWeight: number;
 };
 
-export const DEFAULT_RETRIEVAL: RetrievalSettings = { mode: "semantic", semanticWeight: 1 };
+/**
+ * A collection that never chose gets hybrid, weighted toward meaning.
+ *
+ * It was semantic-only, on the argument that an upgrade should change no
+ * answers until someone opts in. Measured on a twelve-document evaluation
+ * set (ADVERSARIAL_LOG R12), semantic-only lost the exact-term questions —
+ * "Severity 1", "RTO", "HIPAA" — to boilerplate paragraphs that merely
+ * resembled them, and the keyword pass rescued every one of those it was
+ * allowed to run on. Changing no answers was the wrong thing to protect.
+ */
+export const DEFAULT_RETRIEVAL: RetrievalSettings = { mode: "hybrid", semanticWeight: 0.7 };
 
 /**
  * Read per-KB settings from jsonb.
  *
- * Defaults to pure semantic, which is what the product did before hybrid
- * existed — so an un-migrated KB behaves exactly as it did yesterday rather
- * than silently changing its answers on upgrade.
+ * NULL, {} and an unknown mode all resolve to DEFAULT_RETRIEVAL; a saved
+ * `semantic` or `keyword` is honoured exactly.
  */
 export function resolveRetrievalSettings(raw: unknown): RetrievalSettings {
   if (!raw || typeof raw !== "object") return { ...DEFAULT_RETRIEVAL };
@@ -273,4 +282,140 @@ function normalise(list: Candidate[]): Map<string, number> {
 function clampInt(n: number, lo: number, hi: number): number {
   if (!Number.isFinite(n)) return lo;
   return Math.min(hi, Math.max(lo, Math.floor(n)));
+}
+
+// ── What the model reads ─────────────────────────────────────────────────────
+//
+// Retrieval ranks CHUNKS; the prompt cites DOCUMENTS. Between the two sat a
+// collapse that kept one chunk per document — the best-scoring one — and cut
+// it to 560 characters. Measured on a policy corpus (ADVERSARIAL_LOG R12) that
+// starved the model twice over: the chunk that held the answer (a table of
+// response times) ranked BELOW a paragraph of the same document that merely
+// talked about response times, so the collapse dropped it; and a chunk that
+// did win was shown to the model with its second half missing. The model was
+// honest — "the excerpt does not include the table" — and wrong for the user.
+//
+// So a citation now carries a document's best few chunks in reading order,
+// each whole, and the turn as a whole has a character budget so a wide
+// question cannot flood the prompt. All three are operator settings.
+
+/** Best chunks of one document that a citation may carry. */
+export const CHUNKS_PER_DOCUMENT = 3;
+/** Characters of a flat chunk that reach the prompt. A default chunk is ~1,024 characters. */
+export const CITATION_CHARS_PER_CHUNK = 1600;
+/** Characters of grounding per turn across every citation — about 3,000 tokens. */
+export const GROUNDING_MAX_CHARS = 12_000;
+
+export type CitationPiece = {
+  /** Groups pieces that are the same text — two children of one parent. */
+  key: string;
+  documentId: string;
+  chunkIndex: number;
+  text: string;
+  /** A piece that is already a whole passage (a parent) keeps its own cap. */
+  charsCap?: number;
+};
+
+export type AssembledCitation = { documentId: string; text: string; pieceKeys: string[] };
+
+export type AssembleOptions = {
+  chunksPerDocument?: number;
+  charsPerChunk?: number;
+  /** Documents to cite at most; a document outside the first N is skipped, its chunks with it. */
+  maxDocuments?: number;
+};
+
+/**
+ * From a ranked chunk list to one text per document.
+ *
+ * Documents come out in the order their best chunk ranked. Within a
+ * document the pieces are in READING order, not score order — a table
+ * followed by the paragraph that explains it reads as the author wrote it —
+ * joined directly when adjacent and with an ellipsis when not. A piece
+ * whose key was already taken (a parent both children matched) is not
+ * repeated.
+ */
+export function assembleCitationTexts(
+  ranked: { id: string }[],
+  pieceOf: (id: string) => CitationPiece | undefined,
+  opts: AssembleOptions = {},
+): AssembledCitation[] {
+  const perDoc = clampInt(opts.chunksPerDocument ?? CHUNKS_PER_DOCUMENT, 1, 10);
+  const perChunk = clampInt(opts.charsPerChunk ?? CITATION_CHARS_PER_CHUNK, 100, 20_000);
+  const maxDocs = clampInt(
+    opts.maxDocuments ?? Number.MAX_SAFE_INTEGER,
+    1,
+    Number.MAX_SAFE_INTEGER,
+  );
+  const groups = new Map<string, CitationPiece[]>();
+  for (const r of ranked) {
+    const p = pieceOf(r.id);
+    if (!p) continue;
+    let g = groups.get(p.documentId);
+    if (!g) {
+      if (groups.size >= maxDocs) continue;
+      g = [];
+      groups.set(p.documentId, g);
+    }
+    if (g.length >= perDoc || g.some((x) => x.key === p.key)) continue;
+    g.push(p);
+  }
+  const out: AssembledCitation[] = [];
+  for (const [documentId, pieces] of groups) {
+    const ordered = [...pieces].sort((a, b) => a.chunkIndex - b.chunkIndex);
+    let text = "";
+    let prev = "";
+    for (let i = 0; i < ordered.length; i++) {
+      const cap = clampInt(ordered[i].charsCap ?? perChunk, 100, 100_000);
+      let t = ordered[i].text.replace(/\s+/g, " ").trim().slice(0, cap);
+      if (i === 0) text = t;
+      else if (ordered[i].chunkIndex - ordered[i - 1].chunkIndex === 1) {
+        // Adjacent chunks were cut with an overlap so a sentence is never
+        // lost at a boundary; read back to back, the overlap is the same
+        // sentence twice. Drop it from the second chunk.
+        t = t.slice(overlapLength(prev, t)).trimStart();
+        text += " " + t;
+      } else text += " … " + t;
+      prev = t;
+    }
+    out.push({ documentId, text, pieceKeys: ordered.map((p) => p.key) });
+  }
+  return out;
+}
+
+/**
+ * Characters at the start of `next` that repeat the end of `prev` — the
+ * chunker's overlap, found as the longest suffix of one that is a prefix of
+ * the other. Short matches are ignored: a shared word is not an overlap.
+ */
+export function overlapLength(prev: string, next: string, maxChars = 600, minChars = 24): number {
+  const max = Math.min(maxChars, prev.length, next.length);
+  for (let n = max; n >= minChars; n--) {
+    if (prev.endsWith(next.slice(0, n))) return n;
+  }
+  return 0;
+}
+
+/**
+ * Fit citations to the turn's budget, in rank order: a later citation is
+ * shortened to what is left, and one that would get less than a paragraph
+ * is dropped rather than shown as a stub — a 60-character fragment under a
+ * document's name misleads more than it informs. Earlier citations are
+ * never touched to make room for later ones.
+ */
+export function applyGroundingBudget<T extends { snippet: string }>(
+  citations: T[],
+  maxChars: number = GROUNDING_MAX_CHARS,
+): T[] {
+  const budget = clampInt(maxChars, 500, 1_000_000);
+  const out: T[] = [];
+  let used = 0;
+  for (const c of citations) {
+    const room = budget - used;
+    if (room < 200) break;
+    const snippet = c.snippet.length > room ? c.snippet.slice(0, room) : c.snippet;
+    out.push(snippet === c.snippet ? c : { ...c, snippet });
+    used += snippet.length;
+  }
+  return out;
 }

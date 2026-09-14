@@ -149,6 +149,79 @@ returns — which `sources` drops by design — is a canvas run: the client
 tracer records every `tool_call` and `tool_result` on the step, so the
 refusal strings can be read from `swarm_run_steps.tool_calls` verbatim.
 
+#### R12 · S1 · A knowledge-base answer read one chunk, cut in half: the RAG evaluation
+
+A session on Agent Chat with a knowledge base built to be hard: twelve
+documents about a fictional vendor — a current and an archived SLA that
+disagree on every number, a pricing guide whose discount and support rules
+sit in different tables, a runbook, a regional matrix whose Mumbai date is
+contradicted by a newer report with the correction buried in the middle of
+3,800 words of filler, release notes that raise a limit the product overview
+still states, a glossary, a partner FAQ — and twenty questions with an answer
+key: current-version, version-diff, multi-step arithmetic, an exception,
+multi-hop, a recency conflict, a buried fact, an absent product, an
+aggregation, an acronym across documents, a capped credit, an exclusion,
+another domain, a follow-up that depends on the previous turn. One agent on
+`openai/gpt-5.2`, the knowledge base alone. Every answer read from the
+stream, two of them typed into the real chat and read back from the DOM and
+from `messages.metadata.sources`. `docs/UI_TEST_RESULTS.md` has the tables.
+
+- **F1 (S1)** Eleven of twenty right, and the model was honest every time it
+  was wrong: "the retrieved excerpt does not include the response-time
+  table". It did not. Citations were one chunk per document — the
+  best-scoring one — cut to 560 characters. On the SLA the paragraph that
+  merely talks about response times outranked the table that holds them
+  (both are in the same document), the collapse kept the paragraph, and
+  even the document whose first chunk won was shown with its second half
+  missing: the runbook's RTO sits past character 560 of chunk 0. A citation
+  now carries a document's best three chunks in reading order, each whole
+  (1,600 characters), under a 12,000-character budget per turn; all three
+  are settings (`KB_CHUNKS_PER_DOCUMENT`, `KB_CITATION_CHARS_PER_CHUNK`,
+  `KB_GROUNDING_MAX_CHARS`). Same questions, same model: twenty of twenty,
+  the grounding 2,400 prompt tokens a turn instead of 700, and the answers
+  faster (6.5 s against 9.8 s) because the model no longer reasons about
+  what it was not given. The recency conflict (512 or 768 nodes) is
+  answered with both figures and the condition; the credit is capped; the
+  buried Mumbai date wins over the matrix.
+- **F2 (S2)** A collection that never saved retrieval settings searched by
+  vectors only, on the argument that an upgrade should change no answers.
+  Measured on the same twenty questions: semantic-only lost the exact-term
+  ones — "Severity 1", "RTO", "HIPAA" — to look-alike paragraphs, and the
+  keyword pass rescued each one it was allowed to run on ("What is the
+  Severity 1 response time for Gold support" ranks the two SLA tables first
+  and second by keyword and neither by vector). Hybrid, weighted 0.7 toward
+  meaning, is the default for the undecided; a saved `semantic` is kept.
+- **F3 (S3)** Adjacent chunks are cut with an overlap so no sentence is lost
+  at a boundary; joined back to back the overlap read twice ("## Do not
+  affic forwarding across the whole fabric … ## Do not Never restart"). The
+  second chunk now starts where the first ended (`overlapLength`).
+
+Measured and recorded rather than changed:
+
+- **Tool bloat.** The same agent with thirteen built-in tools enabled (web
+  search and browse, graph search, SQL, metrics, data health, ML, calculator,
+  date, weather, n8n, MCP, notifications): still twenty of twenty, never the
+  wrong tool — the routing guidance holds — but 10,400 prompt tokens a turn
+  against 2,400, because every tool's schema rides on every request. The
+  credit question went round the calculator three times for arithmetic the
+  model had already done in prose: 37,000 tokens and 18 s for an answer the
+  bare agent gave in 8.8 s. The four tool-shaped questions (weather, date,
+  local tables, a product) each called the right tool once. Prompt caching
+  reported zero cached tokens on every request. The handbook's "three tools
+  is a good number; eight is not" now carries these figures.
+- **Context bloat.** A 24-turn conversation, the page's whole history sent
+  each turn: prompt tokens plateaued at 3,200–4,200 (the 20-message window),
+  latency stayed 5–13 s, every answer stayed right. The rolling summary is
+  folded from persisted rows, so a caller that does not persist its turns
+  gets a windowed history with no summary and the model names the wrong
+  "first question" with confidence; with the rows persisted the fifth turn
+  carried `memory_used {summaryUsed: true}` and the model listed the folded
+  questions while saying it could only paraphrase them. A 36,000-character
+  question was answered correctly at 10,108 prompt tokens — the query
+  embedding did not fail — and the 4,000-character input guardrail is off by
+  default. Retrieval runs on every turn, "what is the weather in Frankfurt"
+  included: five citations fetched and discarded.
+
 #### R11 · S2 · The analyst page at a narrow window, and a new analyst with no controls
 
 From the user's screenshot at a small window, reproduced at 1000px: the

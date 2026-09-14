@@ -433,7 +433,10 @@ If the customer is angry, or asks for a refund above $500, reply only:
         many it pattern-matches on whichever description sounds richest and runs SQL against a table
         that cannot answer the question instead of searching the web. If an agent seems to need
         eight tools, it probably wants to be a <DocLink to="/docs/swarms">swarm</DocLink> of three
-        narrow ones.
+        narrow ones. Measured: the same twenty knowledge-base questions cost about 2,400 prompt
+        tokens a turn with the knowledge base alone and 10,400 with thirteen tools enabled — the
+        answers were identical, the bill was not — and a question with a percentage in it went round
+        the calculator three times, four times the tokens and twice the wait.
       </Callout>
 
       {/* ── WORKED EXAMPLE ── */}

@@ -409,13 +409,10 @@ question ──▶ embed ──▶ nearest chunks ──▶ pasted into the prom
       <Table
         headers={["Mode", "What runs"]}
         rows={[
-          [
-            "Semantic",
-            "Vector search only. The default, and what every collection did before this existed.",
-          ],
+          ["Semantic", "Vector search only. What every collection did before hybrid existed."],
           [
             "Hybrid",
-            "Vector and Postgres full-text search over the same chunks, merged by weight.",
+            "Vector and Postgres full-text search over the same chunks, merged by weight. The default for a collection that has never saved retrieval settings, weighted 0.7 toward meaning — measured: semantic-only lost exact-term questions to look-alike paragraphs.",
           ],
           ["Keyword", "Full-text search only."],
         ]}
@@ -451,7 +448,25 @@ question ──▶ embed ──▶ nearest chunks ──▶ pasted into the prom
             "top-K",
             "5",
             "1 – 8 (hard cap)",
-            "How many chunks are retrieved and pasted into the prompt. Asking for more than 8 is clamped.",
+            "How many documents are cited per turn. Asking for more than 8 is clamped.",
+          ],
+          [
+            "Chunks per document",
+            "3",
+            "1 – 10 (KB_CHUNKS_PER_DOCUMENT)",
+            "Each cited document carries its best few chunks in reading order — adjacent ones joined, gaps marked with an ellipsis. One chunk was not enough: a policy's table and the prose about it rank separately, and the prose won.",
+          ],
+          [
+            "Characters per chunk",
+            "1,600",
+            "100 – 20,000 (KB_CITATION_CHARS_PER_CHUNK)",
+            "A flat chunk reaches the prompt whole; a default chunk is about 1,024 characters. Parent passages keep their own 4,000-character budget.",
+          ],
+          [
+            "Grounding budget",
+            "12,000 characters",
+            "500 – 1,000,000 (KB_GROUNDING_MAX_CHARS)",
+            "Per turn, across every citation, applied in rank order: a later citation is shortened, then dropped; an earlier one is never trimmed to make room.",
           ],
           [
             "Candidate pool (over-fetch)",
@@ -469,7 +484,7 @@ question ──▶ embed ──▶ nearest chunks ──▶ pasted into the prom
             "Snippet radius",
             "280 characters",
             "—",
-            "How much text either side of a match is shown in the citation snippet under the answer.",
+            "Either side of a keyword match in a document that has no embeddings yet — the fallback while indexing is incomplete.",
           ],
         ]}
       />

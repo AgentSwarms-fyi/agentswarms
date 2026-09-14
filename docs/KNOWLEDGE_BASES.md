@@ -130,8 +130,11 @@ and rebuilds its rows. Documents added after the change use it already.
 ### Retrieval mode — per knowledge base
 
 `knowledge_bases.retrieval_settings` holds `{"mode": "...", "semantic_weight":
-0..1}`. `NULL` means semantic-only, which is what every collection did before
-this existed — upgrading changes no answers until someone opts in.
+0..1}`. `NULL` means **hybrid, weighted 0.7 toward meaning**. It meant
+semantic-only until the R12 evaluation (ADVERSARIAL_LOG) showed semantic-only
+losing exact-term questions — "Severity 1", "RTO", "HIPAA" — to paragraphs
+that merely resembled them, and the keyword pass rescuing each one it was
+allowed to run on. A collection that saved `semantic` keeps it.
 
 | Mode       | Runs                                                      |
 | ---------- | --------------------------------------------------------- |
@@ -170,9 +173,28 @@ index is queried, not how it was built.
   database — see below. `match_kb_chunks_v2`, which did both, and the original
   `match_kb_chunks` are left in place for compatibility.
 
-Parent citations get a 4,000-character budget rather than the 560 used for
-ordinary snippets — reusing the smaller cap would trim a parent down to about
-14% of itself and quietly deliver flat chunking under a different name.
+Parent citations get a 4,000-character budget of their own — reusing the
+per-chunk cap would trim a parent down to a fragment and quietly deliver flat
+chunking under a different name.
+
+### What the model reads
+
+Retrieval ranks chunks; the prompt cites documents. Each cited document
+carries its **best few chunks in reading order** — three by default, each
+whole (up to 1,600 characters; a default chunk is about 1,024), adjacent
+chunks joined directly and gaps marked with an ellipsis — and the turn as a
+whole is capped at **12,000 characters** of grounding, applied in rank order
+(a later citation is shortened, then dropped; an earlier one is never trimmed
+to make room). Before this a citation was one chunk cut to 560 characters,
+which is how a question about a policy's table was answered "the excerpt does
+not include the table" against a document whose first chunk is the table: the
+prose about the table outranked it, and the collapse kept one chunk.
+
+| Setting                       | Default | Range           |
+| ----------------------------- | ------- | --------------- |
+| `KB_CHUNKS_PER_DOCUMENT`      | 3       | 1 – 10          |
+| `KB_CITATION_CHARS_PER_CHUNK` | 1600    | 100 – 20,000    |
+| `KB_GROUNDING_MAX_CHARS`      | 12000   | 500 – 1,000,000 |
 
 ### Where the vectors are searched
 

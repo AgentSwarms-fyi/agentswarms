@@ -8,7 +8,12 @@ import type { Database } from "@/integrations/supabase/types";
 import { embedTexts } from "./embedding.server";
 import { vectorStore } from "@/utils/vector/store.server";
 import {
+  applyGroundingBudget,
+  assembleCitationTexts,
+  CHUNKS_PER_DOCUMENT,
+  CITATION_CHARS_PER_CHUNK,
   fuseHybrid,
+  GROUNDING_MAX_CHARS,
   resolveRetrievalSettings,
   type Candidate,
   type RetrievalSettings,
@@ -244,19 +249,34 @@ const STOP = new Set([
 ]);
 
 const SNIPPET_RADIUS = 280;
-const SNIPPET_MAX = 560;
+
+/**
+ * What the model reads per turn — operator settings, defaults in kbRag.ts
+ * (which is where the reasoning lives). Read per call so a running instance
+ * picks up a change without a restart of anything but the process.
+ */
+function envInt(name: string, fallback: number, lo: number, hi: number): number {
+  const raw = process.env[name];
+  const n = raw === undefined || raw === "" ? NaN : Number(raw);
+  return Number.isFinite(n) ? Math.min(hi, Math.max(lo, Math.floor(n))) : fallback;
+}
+const chunksPerDocument = () => envInt("KB_CHUNKS_PER_DOCUMENT", CHUNKS_PER_DOCUMENT, 1, 10);
+const citationCharsPerChunk = () =>
+  envInt("KB_CITATION_CHARS_PER_CHUNK", CITATION_CHARS_PER_CHUNK, 100, 20_000);
+const groundingMaxChars = () =>
+  envInt("KB_GROUNDING_MAX_CHARS", GROUNDING_MAX_CHARS, 500, 1_000_000);
 /**
  * Parent-expanded citations get a much larger budget than a child snippet.
  *
- * The 560-char cap exists to stop one runaway chunk from eating the prompt. A
+ * The per-chunk cap exists to stop one runaway chunk from eating the prompt. A
  * parent is deliberately large — that is the whole reason to retrieve one — so
- * reusing the child cap here would trim a 4,000-character parent down to 560
- * and quietly deliver flat chunking under a different name.
+ * reusing the child cap here would trim a 4,000-character parent down to a
+ * fragment and quietly deliver flat chunking under a different name.
  */
 const PARENT_SNIPPET_MAX = 4000;
 
 function trimSnippet(s: string): string {
-  return s.replace(/\s+/g, " ").trim().slice(0, SNIPPET_MAX);
+  return s.replace(/\s+/g, " ").trim().slice(0, citationCharsPerChunk());
 }
 
 /**
@@ -543,22 +563,37 @@ export async function retrieveCitationsServer(opts: {
       ]);
       const kbMap = new Map((kbs ?? []).map((k) => [k.id, k.name]));
       const docMap = new Map((docs ?? []).map((d) => [d.id, d.name]));
-      const seenDocs = new Set<string>();
-      const out: Citation[] = [];
-      for (const f of fused) {
-        const row = byId.get(f.id);
-        if (!row || seenDocs.has(row.document_id)) continue;
-        seenDocs.add(row.document_id);
-        out.push({
-          index: out.length + 1,
-          documentId: row.document_id,
-          documentName: docMap.get(row.document_id) ?? "Document",
-          knowledgeBaseId: row.knowledge_base_id,
-          knowledgeBaseName: kbMap.get(row.knowledge_base_id) ?? "Knowledge Base",
-          snippet: citationText(row),
-        });
-      }
-      fusedCits = out;
+      // One citation per document, carrying that document's best few chunks
+      // in reading order. One chunk was not enough: a policy's table and the
+      // prose about it rank separately, and the prose won (kbRag.ts says why).
+      const kbOfDoc = new Map<string, string>();
+      for (const r of byId.values()) kbOfDoc.set(r.document_id, r.knowledge_base_id);
+      const assembled = assembleCitationTexts(
+        fused,
+        (id) => {
+          const row = byId.get(id);
+          if (!row) return undefined;
+          return {
+            key: row.parent_id ?? row.id,
+            documentId: row.document_id,
+            chunkIndex: row.chunk_index,
+            text: citationText(row),
+            charsCap: row.parent_content ? PARENT_SNIPPET_MAX : undefined,
+          };
+        },
+        { chunksPerDocument: chunksPerDocument(), charsPerChunk: citationCharsPerChunk() },
+      );
+      fusedCits = assembled.map((a, i) => {
+        const kbId = kbOfDoc.get(a.documentId) ?? kbIds[0];
+        return {
+          index: i + 1,
+          documentId: a.documentId,
+          documentName: docMap.get(a.documentId) ?? "Document",
+          knowledgeBaseId: kbId,
+          knowledgeBaseName: kbMap.get(kbId) ?? "Knowledge Base",
+          snippet: a.text,
+        };
+      });
     }
   }
 
@@ -746,9 +781,13 @@ export async function retrieveCitationsServer(opts: {
       candidates: merged,
       topK,
     });
-    if (ranked) return ranked;
+    if (ranked) return applyGroundingBudget(ranked, groundingMaxChars());
   }
-  return merged.slice(0, topK).map((c, i) => ({ ...c, index: i + 1 }));
+  // The turn's budget, applied last so it counts what the model will read.
+  return applyGroundingBudget(
+    merged.slice(0, topK).map((c, i) => ({ ...c, index: i + 1 })),
+    groundingMaxChars(),
+  );
 }
 
 /** Cohere/Jina-style POST {base}/rerank — supported by NVIDIA NIM, vLLM,
