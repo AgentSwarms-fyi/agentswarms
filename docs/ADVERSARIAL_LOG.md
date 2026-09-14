@@ -149,6 +149,39 @@ returns — which `sources` drops by design — is a canvas run: the client
 tracer records every `tool_call` and `tool_result` on the step, so the
 refusal strings can be read from `swarm_run_steps.tool_calls` verbatim.
 
+#### R9 · S2 · The reviewer "corrected" a column that exists in no table, and a caveat built on arithmetic over an id
+
+Two more, from the health rounds, both in what the self-check is told about
+a scored step. A scored step's facts carry the model's columns beside the
+SQL's — `order_id | prediction | probability | proba_*` — and nothing said
+which was which. The reviewer "corrected" the step with `SELECT order_id,
+prediction, probability, proba__unknown_, …` and the rewrite died on
+`Binder Error: Referenced column "prediction" not found in FROM clause` —
+the model had written that column onto the rows after the query ran. The
+original result survived and the step was flagged, so nothing wrong was
+shown; but "correction failed" now stood over a correct step.
+
+The second is worse. The contribution detector recognises a two-period
+breakdown by shape — a label column and two numeric ones — and read that
+same table as a breakdown by `prediction` with `order_id` as the previous
+period and `probability` as the current, and computed it. The reviewer
+repeated the result as a concern ("a total change of -11,054.852, which is
+not consistent with the expected scale of changes based on the order_id
+range"), and the write-up listed it under Caveats, beside the real one
+about drift. A fabricated caveat is one nobody can act on, and it makes
+the true one next to it read as noise.
+
+Now the disclosure records which columns the model added (`columns`, named
+as they land on the table, prefixed when they collide); the check's step
+block says "SCORED AFTER THE QUERY by <model>: the column(s) prediction,
+probability are the model's estimates … they exist in no table"; the
+reviewer's rules say a correction returns the same key column(s) and is
+scored again on its own; and the facts every prompt reads come through one
+helper that keeps the model's columns out of the contribution and series
+arithmetic and marks them "(model estimate)" on the columns line. Nine
+mutants, nine caught — including the one where the loop simply stops
+telling the check which step was scored.
+
 #### R8 · S2 · "Produced no write-up" over a finished analysis, and a rule that never reached the writer
 
 Two more from the same two live rounds. The findings panel said "The

@@ -521,6 +521,22 @@ node on the swarm canvas, and importing an agent into a node carries its
 selection across — including an empty one, which means _no models_ and must
 not turn into _all of them_ on the way.
 
+**The model's health travels with it.** The platform already notices a
+model's rows drifting from what it learned on (a PSI on every prediction run,
+an alert past `ML_DRIFT_ALERT_PSI`) and its accuracy decaying against
+outcomes that arrived later (an evaluation with a verdict) — and told the
+owner. Now every place a model is offered carries the latest reading of each
+as one sentence: `ml_list_models` returns a `health` block per model and,
+when an alert is open, a note telling the agent to say so beside any
+prediction it reports; `ml_predict` appends the alerts to its notes, so a
+prediction never arrives without them; the AI Analyst's planner sees the
+health beside each scorable model and a scored step's badge and disclosure
+carry it; the Playground's model list marks an alert. "Drift: the rows scored
+on 2026-09-14 differ from the training data (PSI 3.291 against the alert
+threshold 0.25); consider retraining before trusting new predictions." Below
+the threshold and stable, it still says what was measured and when — "no
+alert" and "never measured" are different facts.
+
 Until this picker existed, enabling the tool showed an **API key** field: a
 password box, for a tool that needs no key, with "paste here" in it. It
 accepted a credential and did nothing with it. It is gone.

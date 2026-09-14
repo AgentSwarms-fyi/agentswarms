@@ -599,6 +599,20 @@ with agentswarms.start_run("churn-v2", params={"lr": 0.01, "depth": 6}) as run:
         selection across — including an empty one, which means <em>no models</em> and must not turn
         into <em>all of them</em> on the way.
       </P>
+      <P>
+        <strong>The model&apos;s health travels with it.</strong> The platform already notices a
+        model&apos;s rows drifting from what it learned on (a PSI on every prediction run, an alert
+        past <C>ML_DRIFT_ALERT_PSI</C>) and its accuracy decaying against outcomes that arrived
+        later (an evaluation with a verdict) — and told the owner. Now every place a model is
+        offered carries the latest reading of each as one sentence: <C>ml_list_models</C> returns a{" "}
+        <C>health</C> block per model and, when an alert is open, a note telling the agent to say so
+        beside any prediction it reports; <C>ml_predict</C> appends the alerts to its notes, so a
+        prediction never arrives without them; the AI Analyst&apos;s planner sees the health beside
+        each scorable model and a scored step&apos;s badge and disclosure carry it; the
+        Playground&apos;s model list marks an alert. Below the threshold and stable, it still says
+        what was measured and when — &quot;no alert&quot; and &quot;never measured&quot; are
+        different facts.
+      </P>
       <Callout title="There is no key to paste">
         Until this picker existed, enabling the tool showed an API key field: a password box, for a
         tool that needs no key, with &quot;paste here&quot; in it. It accepted a credential and did

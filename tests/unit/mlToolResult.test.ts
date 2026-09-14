@@ -137,8 +137,25 @@ describe("mlToolData", () => {
       feature_view: { name: "order_features", key_columns: ["order_id"] },
       features: 2,
       metric: "accuracy 0.94",
+      health: null,
     });
     expect(d.models[1].metric).toBe("r2 0.81");
+    // The tool's health block becomes the one-line summary the list shows.
+    const h = mlToolData(
+      "ml_list_models",
+      JSON.stringify({
+        models: [
+          {
+            name: "plan",
+            task: "classification",
+            health: { alerts: ["Drift: …"], summary: "open drift alert (PSI 3.291 on 2026-09-14)" },
+          },
+        ],
+      }),
+    );
+    expect(h?.kind === "models" && h.models[0].health).toBe(
+      "open drift alert (PSI 3.291 on 2026-09-14)",
+    );
     expect(d.models[1].feature_view).toBeNull();
   });
 

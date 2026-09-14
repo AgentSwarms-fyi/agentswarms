@@ -1945,6 +1945,19 @@ function MlToolResultView({ data }: { data: MlToolData }) {
                 {m.metric ? ` · ${m.metric}` : ""}
                 {m.feature_view ? ` · by key: ${m.feature_view.key_columns.join(" + ")}` : ""}
               </span>
+              {m.health && (
+                <span
+                  className={
+                    /alert|degraded|suspiciously/.test(m.health)
+                      ? "text-amber-400"
+                      : "text-muted-foreground"
+                  }
+                >
+                  {" · "}
+                  {/alert|degraded|suspiciously/.test(m.health) ? "⚠ " : ""}
+                  {m.health}
+                </span>
+              )}
             </li>
           ))}
         </ul>

@@ -447,6 +447,12 @@ export async function runMlPredict(
       .eq("id", model.production_version_id)
       .maybeSingle();
     if (!version) return JSON.stringify({ error: "Production version not found" });
+    // A prediction never arrives without the model's health beside it: the
+    // latest drift reading and evaluation, as the owner already heard them.
+    const { modelHealthFor } = await import("@/utils/ml/health.server");
+    const { healthLine } = await import("@/lib/mlHealth");
+    const healthNote = healthLine((await modelHealthFor([model])).get(model.id));
+    const healthNotes = healthNote ? [healthNote] : [];
     if (model.task === "forecast") {
       const f = version.forecast as { points?: unknown[] } | null;
       auditEvent({
@@ -481,7 +487,11 @@ export async function runMlPredict(
         aggregation: meta?.aggregation ?? null,
         last_observed_period: meta?.last_period ?? null,
         forecast: f?.points ?? [],
-        notes: [...forecastNotes(version.algorithm, meta), ...versionCaveats(version.warnings)],
+        notes: [
+          ...forecastNotes(version.algorithm, meta),
+          ...versionCaveats(version.warnings),
+          ...healthNotes,
+        ],
       });
     }
     // Two ways in, the same two the REST route has. `rows` means the
@@ -593,6 +603,7 @@ export async function runMlPredict(
       notes: [
         ...mlPredictionNotes(model.task, version.metrics, predictions),
         ...versionCaveats(version.warnings),
+        ...healthNotes,
       ],
     });
   } catch (e) {
@@ -2207,10 +2218,17 @@ export async function resolveAgentTools(
           const byId = new Map((versions ?? []).map((v) => [v.id, v]));
           const { keyedModelViews } = await import("@/utils/featureViews/keyed.server");
           const keyed = await keyedModelViews(models);
+          // The latest drift reading and evaluation per model, as the one
+          // sentence the agent should repeat beside any prediction it reports.
+          const { modelHealthFor } = await import("@/utils/ml/health.server");
+          const { healthLine } = await import("@/lib/mlHealth");
+          const health = await modelHealthFor(models);
           return JSON.stringify({
             models: models.map((m) => {
               const v = byId.get(m.production_version_id as string);
               const view = keyed.get(m.id) ?? null;
+              const h = health.get(m.id) ?? null;
+              const healthNote = h ? healthLine(h) : null;
               const schema = (v?.feature_schema ?? []) as {
                 name: string;
                 dtype: string;
@@ -2254,12 +2272,19 @@ export async function resolveAgentTools(
                 // subtly wrong. Named here so the agent knows which column(s)
                 // identify a row.
                 feature_view: view ? { name: view.name, key_columns: view.key_columns } : null,
+                // The model's latest drift reading and evaluation, as the
+                // owner already heard them — so an answer resting on this
+                // model can say what its owner was told.
+                health: h ? { alerts: h.alerts, summary: h.summary } : null,
                 notes: [
                   "categories lists a sample of the values seen in training (category_count is the total); pass the real value for any categorical feature, including one not listed - unseen values are handled.",
                   ...(view
                     ? [
                         `Prefer scoring by key: call ml_predict with keys=[{${view.key_columns.map((k) => `"${k}": …`).join(", ")}}] and the features are read from the feature view "${view.name}"; send rows only when a row is not in that table.`,
                       ]
+                    : []),
+                  ...(h && h.alerts.length && healthNote
+                    ? [`${healthNote} Say so beside any prediction you report from this model.`]
                     : []),
                 ],
               };

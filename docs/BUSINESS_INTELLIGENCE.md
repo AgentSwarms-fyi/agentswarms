@@ -495,7 +495,19 @@ rows will be scored afterwards and what they must carry — the model's key
 column(s) from the source table, at most fifty rows, no stored predictions
 table and no prediction of its own. And a write-up that comes back as data
 rather than prose (an object of rows under `answer`, with `caveats`) is
-rendered as a table with its caveats, not reported as "no write-up".
+rendered as a table with its caveats, not reported as "no write-up". The
+self-check is told which columns the model added and that they exist in no
+table — it judges the SQL by the rows it was asked to return, and a
+correction it writes never selects the model's columns (live, one did, and
+died on a binder error); and the contribution and trend arithmetic the check
+and the write-up are handed reads only the observed columns, never the
+estimates (live, a table of `order_id`, `prediction`, `probability` was read
+as a two-period breakdown by prediction, and the write-up listed the
+resulting "total change" as a caveat beside the real one). The
+model's **health** rides along: the planner sees each scorable model's latest
+drift reading or evaluation verdict, and a scored step's badge and disclosure
+say it — "open drift alert (PSI 3.291 on 2026-09-14)" — so the write-up can
+warn beside the numbers it cites.
 
 **What-if scenarios** ride on the same compiler. A compiled step gets a
 flask control offering the two things that can honestly vary: the model's

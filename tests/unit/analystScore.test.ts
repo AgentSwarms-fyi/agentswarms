@@ -56,6 +56,7 @@ const plan: ScorableModel = {
   metric: "accuracy 0.94",
   keyColumns: ["order_id"],
   features: ["region", "net_usd"],
+  health: "Health: open drift alert (PSI 3.291 on 2026-09-14).",
 };
 const reg: ScorableModel = {
   name: "revenue_facts model",
@@ -66,6 +67,7 @@ const reg: ScorableModel = {
   metric: "r2 0.81",
   keyColumns: null,
   features: ["region", "seats"],
+  health: null,
 };
 
 describe("what the planner is told", () => {
@@ -84,6 +86,10 @@ describe("what the planner is told", () => {
     expect(v).toContain('score by key — the step\'s SQL must return "order_id"');
     expect(v).toContain("the step's SQL must return the feature columns: region, seats");
     expect(v).toContain("an estimate, never an observed value");
+    // The owner's warning rides beside the model, where the planner decides
+    // whether to lean on it; a model with nothing measured carries no line.
+    expect(v).toContain("\n  Health: open drift alert (PSI 3.291 on 2026-09-14).");
+    expect(v.split("Health:").length - 1).toBe(1);
     const p = buildAnalysisPlanPrompt({ schema: "S", question: "q", prior: "", models: [plan] });
     expect(p.systemPrompt).toContain("ADD A SCORED STEP");
     expect(p.systemPrompt).toContain('"score": { "model": "<model name>" }');
@@ -143,6 +149,17 @@ function fakeWorld(opts: {
       // "prediction=pro"; when only the step's display rows were updated,
       // the check (and the write-up after it) would be judging unscored rows.
       calls.push("check:" + (/prediction=pro/.test(p) ? "scored" : "plain"));
+      // And it is TOLD which columns the model added — live, a correction
+      // it wrote selected `prediction` and died on a binder error, because
+      // that column exists in no table.
+      if (
+        /SCORED AFTER THE QUERY by the trained model "revenue_facts plan classifier": the column\(s\) prediction, probability are the model's estimates/.test(
+          p,
+        ) &&
+        /A STEP MARKED SCORED AFTER THE QUERY/.test(p) &&
+        /columns: order_id, prediction \(model estimate\), probability \(model estimate\)/.test(p)
+      )
+        calls.push("check:told");
       return {
         checks: [
           opts.refine
@@ -181,6 +198,8 @@ function fakeWorld(opts: {
           featuresServedFrom: "online",
           rowsScored: 2,
           keysNotFound: ["order_id=999999"],
+          columns: ["prediction", "probability"],
+          health: null,
         },
       };
     });
@@ -216,6 +235,9 @@ describe("the loop", () => {
     expect(w.calls).toContain("synthesis:scored");
     // The self-check judged the SCORED rows, not the pre-scoring ones.
     expect(w.calls).toContain("check:scored");
+    // And was told which columns the model added, in the step block, in
+    // the rule, and on the columns line of the facts.
+    expect(w.calls).toContain("check:told");
     // And the SQL writer was told what a scored step must return.
     expect(w.calls).toContain("sql:hinted");
   });
@@ -329,6 +351,9 @@ describe("the server side", () => {
     // never by position — and the server hands it the key columns only when
     // the rows were actually scored by key.
     expect(code).toContain("joinPredictions(rows, predictions, byKey ? keyColumns : null)");
+    // The disclosure records which columns the model added, so the check
+    // and the write-up can be told which are estimates.
+    expect(code).toContain("columns: joined.added,");
     expect(codeOnly(LIB)).toContain(
       "const byPrint = keyed ? new Map(predictions.map((p) => [print(p), p])) : null;",
     );
@@ -389,6 +414,7 @@ describe("joinPredictions", () => {
     ];
     const out = joinPredictions(rows, preds, ["order_id"]);
     expect(out.columns).toEqual(["order_id", "prediction", "probability"]);
+    expect(out.added).toEqual(["prediction", "probability"]);
     expect(out.rows).toEqual([
       { order_id: 1000, prediction: "pro", probability: 0.95 },
       { order_id: 1001, prediction: "enterprise", probability: 0.97 },
@@ -416,6 +442,8 @@ describe("joinPredictions", () => {
       "predicted_prediction",
       "predicted_probability",
     ]);
+    // The added columns are named as they land on the table — prefixed.
+    expect(out.added).toEqual(["predicted_prediction", "predicted_probability"]);
     expect(out.rows[0]).toEqual({
       order_id: 1000,
       prediction: "free",

@@ -35,6 +35,7 @@ import {
   priorContext,
   QUOTE_ROWS_UP_TO,
   describeStepResult,
+  stepFacts,
   rerunStep,
   withStaleAnswer,
   trimStepForStorage,
@@ -276,6 +277,34 @@ describe("the prompts say what the loop relies on", () => {
     expect(p.systemPrompt).toContain("refined_sql");
     expect(p.userPrompt).toContain("STEP 1: g1");
     expect(p.userPrompt).toContain("headline");
+  });
+
+  it("check: a scored step names the model's columns, and the reviewer is told they exist in no table", () => {
+    // Measured live: the reviewer "corrected" a scored step with
+    // `SELECT order_id, prediction, probability, …` and the rewrite died on
+    // `Binder Error: Referenced column "prediction" not found` — the model
+    // had written that column onto the rows after the query ran.
+    const p = buildCheckPrompt({
+      question: "which plan is each order likely on",
+      steps: [
+        {
+          goal: "score the orders",
+          sql: "SELECT order_id FROM t",
+          facts: "3 rows",
+          scored: { model: "plan classifier", columns: ["prediction", "probability"] },
+        },
+      ],
+    });
+    expect(p.userPrompt).toContain(
+      'SCORED AFTER THE QUERY by the trained model "plan classifier": the column(s) prediction, probability are the model\'s estimates',
+    );
+    expect(p.userPrompt).toContain("they exist in no table");
+    expect(p.systemPrompt).toContain("A STEP MARKED SCORED AFTER THE QUERY");
+    expect(p.systemPrompt).toMatch(/refined_sql must not select, filter or sort by them/);
+    expect(p.systemPrompt).toMatch(/scored again automatically/);
+    const plain = buildCheckPrompt({ question: "q", steps: [{ goal: "g", facts: "f" }] });
+    expect(plain.systemPrompt).not.toContain("SCORED AFTER THE QUERY");
+    expect(plain.userPrompt).not.toContain("SCORED AFTER THE QUERY");
   });
 
   it("synthesis: numbers only from step results, cited by step", () => {
@@ -854,7 +883,12 @@ describe("what the write-up is actually shown", () => {
     // the query returned.
     const { readFileSync } = await import("node:fs");
     const lib = readFileSync("src/lib/aiAnalyst.ts", "utf8");
-    expect(lib.match(/describeStepResult\(results\[i\]!\)/g) ?? []).toHaveLength(3);
+    // Through the one helper that knows which columns a model added.
+    expect(lib.match(/stepFacts\(results\[i\], s\)/g) ?? []).toHaveLength(3);
+    // And the check is told, per step, which model and which columns.
+    expect(lib).toContain(
+      "scored: s.scored ? { model: s.scored.model, columns: s.scored.columns ?? [] } : undefined,",
+    );
   });
 });
 
@@ -949,6 +983,58 @@ describe("Tier 2 — the analysis the model is not trusted to do", () => {
     expect(text).toContain("CONTRIBUTION ANALYSIS");
     expect(text).toContain("DRIVERS");
     expect(text).toContain("OFFSETS"); // AMER moved against the fall
+  });
+
+  it("never runs the arithmetic over a model's columns, and marks them as estimates", () => {
+    // The live shape: a scored step's SQL returned order_id, and the model
+    // added prediction and probability. Read as observed data that is "a
+    // two-period breakdown by prediction" — order_id -> probability — and
+    // the reviewer repeated the resulting "-11,054.852 total change" as a
+    // concern the write-up then listed as a caveat.
+    const scored = res(
+      ["order_id", "prediction", "probability"],
+      [
+        { order_id: 1000, prediction: "pro", probability: 0.9479 },
+        { order_id: 1001, prediction: "enterprise", probability: 0.9678 },
+        { order_id: 1002, prediction: "free", probability: 0.9445 },
+      ],
+    );
+    // Not told, the detector fires — that is the trap.
+    expect(describeStepResult(scored)).toContain("CONTRIBUTION ANALYSIS");
+    const told = describeStepResult(scored, QUOTE_ROWS_UP_TO, ["prediction", "probability"]);
+    expect(told).not.toContain("CONTRIBUTION ANALYSIS");
+    expect(told).toContain(
+      "columns: order_id, prediction (model estimate), probability (model estimate)",
+    );
+    expect(told).toContain("prediction=pro"); // the rows are still quoted in full
+    // An estimate the result does not carry is ignored, not invented.
+    expect(describeStepResult(scored, QUOTE_ROWS_UP_TO, ["nope"])).not.toContain("model estimate");
+  });
+
+  it("says which columns are estimates on a summarised result too", () => {
+    const rows = Array.from({ length: QUOTE_ROWS_UP_TO + 1 }, (_, i) => ({
+      order_id: 1000 + i,
+      prediction: i % 2 ? "pro" : "free",
+      probability: 0.9,
+    }));
+    const text = describeStepResult(
+      res(["order_id", "prediction", "probability"], rows),
+      QUOTE_ROWS_UP_TO,
+      ["prediction", "probability"],
+    );
+    expect(text).toContain(
+      "MODEL ESTIMATES (added to the rows after the query; in no table): prediction, probability",
+    );
+    expect(text).not.toContain("CONTRIBUTION ANALYSIS");
+  });
+
+  it("stepFacts carries a scored step's columns, and reads an unscored step plainly", () => {
+    const r = res(["order_id", "prediction"], [{ order_id: 1, prediction: "pro" }]);
+    expect(stepFacts(r, { scored: undefined })).toContain("columns: order_id, prediction\n");
+    expect(stepFacts(r, { scored: { columns: ["prediction"] } as never })).toContain(
+      "prediction (model estimate)",
+    );
+    expect(stepFacts(null, { scored: undefined })).toBe("(no result)");
   });
 
   it("leaves an ordinary breakdown alone", () => {

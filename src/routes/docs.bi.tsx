@@ -103,7 +103,17 @@ function BiPage() {
         table, at most fifty rows, no stored predictions table and no prediction of its own. And a
         write-up that comes back as data rather than prose (an object of rows under <C>answer</C>,
         with <C>caveats</C>) is rendered as a table with its caveats, not reported as &quot;no
-        write-up&quot;.
+        write-up&quot;. The self-check is told which columns the model added and that they exist in
+        no table — it judges the SQL by the rows it was asked to return, and a correction it writes
+        never selects the model&apos;s columns (live, one did, and died on a binder error); and the
+        contribution and trend arithmetic the check and the write-up are handed reads only the
+        observed columns, never the estimates (live, a table of <C>order_id</C>, <C>prediction</C>,{" "}
+        <C>probability</C> was read as a two-period breakdown by prediction, and the write-up listed
+        the resulting &quot;total change&quot; as a caveat beside the real one). The model&apos;s{" "}
+        <strong>health</strong> rides along: the planner sees each scorable model&apos;s latest
+        drift reading or evaluation verdict, and a scored step&apos;s badge and disclosure say it —
+        {'"open drift alert (PSI 3.291 on 2026-09-14)"'} — so the write-up can warn beside the
+        numbers it cites.
       </P>
       <P>
         <strong>What-if scenarios</strong> ride the same compiler. A compiled step offers the two

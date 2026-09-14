@@ -152,6 +152,8 @@ export type ScorableModel = {
   /** Set when the model is bound to a feature view: rows are scored by key. */
   keyColumns: string[] | null;
   features: string[];
+  /** The model's health line ("Health: …") — an open drift or decay alert, or what was last measured. */
+  health: string | null;
 };
 
 /** What scoring actually did — the disclosure half of `score`. */
@@ -166,6 +168,15 @@ export type ScoredDisclosure = {
   featuresServedFrom: string | null;
   rowsScored: number;
   keysNotFound: string[];
+  /**
+   * The columns the model ADDED to the rows, as named on the table (after
+   * any `predicted_` prefix) — so the self-check and the write-up can be
+   * told which columns are estimates and which the SQL returned. Absent on
+   * steps scored before it was recorded.
+   */
+  columns?: string[];
+  /** The model's health line at scoring time, so the badge and the write-up can say it. */
+  health: string | null;
 };
 
 export type ScoreRowsResult =
@@ -199,7 +210,7 @@ export function joinPredictions(
   rows: Record<string, unknown>[],
   predictions: Record<string, unknown>[],
   keyColumns: string[] | null,
-): { columns: string[]; rows: Record<string, unknown>[] } {
+): { columns: string[]; rows: Record<string, unknown>[]; added: string[] } {
   const inputColumns = rows.length ? Object.keys(rows[0]) : [];
   const keyed = !!keyColumns && keyColumns.length > 0;
   const print = (r: Record<string, unknown>) =>
@@ -216,7 +227,8 @@ export function joinPredictions(
     for (const c of predColumns) out[outName(c)] = p ? (p[c] ?? null) : null;
     return out;
   });
-  return { columns: [...inputColumns, ...predColumns.map(outName)], rows: joined };
+  const added = predColumns.map(outName);
+  return { columns: [...inputColumns, ...added], rows: joined, added };
 }
 
 export type GovernedModelFields = {
@@ -488,7 +500,9 @@ export function describeScorableModels(models: ScorableModel[]): string {
       (m.target ? ` → ${m.target}` : "") +
       (m.version !== null ? `, v${m.version}` : "") +
       (m.metric ? `, ${m.metric}` : "");
-    return `${head}\n  ${by}`;
+    // The owner's warning, where the planner decides whether to lean on it.
+    const health = m.health ? `\n  ${m.health}` : "";
+    return `${head}\n  ${by}${health}`;
   });
   return (
     "\n\nTRAINED MODELS YOU CAN SCORE ROWS WITH (a prediction per row — an estimate, " +
@@ -591,10 +605,33 @@ export function buildAnalysisPlanPrompt(args: {
 
 export function buildCheckPrompt(args: {
   question: string;
-  steps: Array<{ goal: string; sql?: string; facts: string; error?: string }>;
+  steps: Array<{
+    goal: string;
+    sql?: string;
+    facts: string;
+    error?: string;
+    /** A trained model scored this step's rows after the SQL ran; these are the columns it added. */
+    scored?: { model: string; columns: string[] };
+  }>;
   /** Governed models in scope — named so the reviewer cannot mistake one for a table. */
   catalog?: GovernedModelFields[];
 }): { systemPrompt: string; userPrompt: string } {
+  // A scored step's facts carry the model's columns beside the SQL's, and
+  // nothing said which was which. Measured live: the reviewer "corrected"
+  // a scored step with `SELECT order_id, prediction, probability, …` and
+  // the rewrite died on `Binder Error: Referenced column "prediction" not
+  // found` — the prediction exists in no table; the model wrote it onto the
+  // rows after the query. The reviewer is now told which columns are the
+  // model's, that they are not in any table, and that a correction returns
+  // the same key column(s) and is scored again on its own.
+  const scoredRule = args.steps.some((s) => s.scored)
+    ? "\n\nA STEP MARKED SCORED AFTER THE QUERY had its rows scored by a trained model once " +
+      "the SQL had run. Judge only whether the SQL returned the right rows to score — the " +
+      "entities its goal names — and never the predictions themselves: the model's columns " +
+      "exist in no table, so a refined_sql must not select, filter or sort by them; it " +
+      "returns the same key column(s) from the source table, and its rows are scored again " +
+      "automatically."
+    : "";
   // A step that FELL BACK to hand-written SQL still carries a goal phrased
   // around the governed model ("From saas_sales_model, compute total_sales…").
   // Measured live: the reviewer read that as a table name, "corrected" correct
@@ -615,6 +652,11 @@ export function buildCheckPrompt(args: {
     .map(
       (s, i) =>
         `STEP ${i + 1}: ${s.goal}\nSQL: ${s.sql ?? "(none)"}\n` +
+        (s.scored
+          ? `SCORED AFTER THE QUERY by the trained model "${s.scored.model}": the column(s) ` +
+            `${s.scored.columns.join(", ")} are the model's estimates, added to the rows after ` +
+            `the SQL ran — they exist in no table.\n`
+          : "") +
         (s.error ? `ENGINE ERROR: ${s.error}` : `RESULT FACTS: ${s.facts}`),
     )
     .join("\n\n");
@@ -629,7 +671,8 @@ export function buildCheckPrompt(args: {
       "with a corrected single SELECT statement — it will be re-executed and replace the " +
       "result. Be specific in notes: name the number or shape that concerns you. Never " +
       "invent data." +
-      modelsAreNotTables,
+      modelsAreNotTables +
+      scoredRule,
     userPrompt:
       `QUESTION: ${args.question}\n\n${stepBlocks}\n\n` +
       `Return JSON: { "checks": [ { "verdict": "pass|suspect", "note": "one sentence", ` +
@@ -1075,20 +1118,41 @@ export function driversForStep(step: {
  *
  * So: quote small results in full, summarise big ones, and say which.
  */
-export function describeStepResult(result: QueryResult, maxRows = QUOTE_ROWS_UP_TO): string {
+export function describeStepResult(
+  result: QueryResult,
+  maxRows = QUOTE_ROWS_UP_TO,
+  /** Columns a trained model added to the rows — listed as estimates, never fed to the arithmetic. */
+  estimates: string[] = [],
+): string {
   // Two shapes get arithmetic attached before the model ever sees them, so
   // the write-up cites computed values instead of eyeballing columns: a
   // two-period breakdown gets contribution analysis, and a time series gets
   // its trend, outliers and (only when the history supports one) a labelled
   // projection.
-  const drivers = driversForStep({ columns: result.columns, rows: result.rows });
+  //
+  // The arithmetic reads OBSERVED columns only. A scored step's rows carry
+  // the model's columns too, and measured live the driver detector read
+  // `order_id | prediction | probability` as a two-period breakdown by
+  // prediction, computed the "contribution" of order_id -> probability, and
+  // the reviewer repeated its "-11,054.852 total change" as a concern that
+  // the write-up then listed as a caveat. An estimate is quoted in the rows,
+  // marked as one; it is never a period, a series or a driver.
+  const estimated = estimates.filter((c) => result.columns.includes(c));
+  const observed = {
+    columns: result.columns.filter((c) => !estimated.includes(c)),
+    rows: result.rows,
+  };
+  const drivers = driversForStep(observed);
   const driverBlock = drivers ? `\n\nCONTRIBUTION ANALYSIS:\n${describeDrivers(drivers)}` : "";
-  const series = seriesFrom(result.columns, result.rows);
+  const series = seriesFrom(observed.columns, result.rows);
   const reading = series ? readSeries(series) : null;
   const seriesBlock = reading ? `\n\n${describeSeries(reading, forecastSeries(series!))}` : "";
   const extra = driverBlock + seriesBlock;
+  const estimateNote = estimated.length
+    ? `\nMODEL ESTIMATES (added to the rows after the query; in no table): ${estimated.join(", ")}`
+    : "";
   if (result.rows.length === 0 || result.rows.length > maxRows) {
-    return describeResultFacts(result) + extra;
+    return describeResultFacts(result) + estimateNote + extra;
   }
   const cell = (v: unknown) => {
     if (v === null || v === undefined) return "null";
@@ -1098,10 +1162,23 @@ export function describeStepResult(result: QueryResult, maxRows = QUOTE_ROWS_UP_
   const rows = result.rows
     .map((r) => result.columns.map((c) => `${c}=${cell(r[c])}`).join(" | "))
     .join("\n");
+  const name = (c: string) => (estimated.includes(c) ? `${c} (model estimate)` : c);
   return (
     `${result.rows.length} row${result.rows.length === 1 ? "" : "s"}, ` +
-    `columns: ${result.columns.join(", ")}\n${rows}${extra}`
+    `columns: ${result.columns.map(name).join(", ")}\n${rows}${extra}`
   );
+}
+
+/**
+ * What the check and the write-up are told a step returned: the result,
+ * with the columns a model added marked as estimates and kept out of the
+ * arithmetic. One helper so the three prompts that read a result cannot
+ * disagree about which columns the SQL produced.
+ */
+export function stepFacts(result: QueryResult | null, step: Pick<AnalystStep, "scored">): string {
+  return result
+    ? describeStepResult(result, QUOTE_ROWS_UP_TO, step.scored?.columns ?? [])
+    : "(no result)";
 }
 
 /**
@@ -1526,8 +1603,9 @@ export async function runAnalystTurn(args: {
       steps: turn.steps.map((s, i) => ({
         goal: s.goal,
         sql: s.sql,
-        facts: results[i] ? describeStepResult(results[i]!) : "(no result)",
+        facts: stepFacts(results[i], s),
         error: s.error,
+        scored: s.scored ? { model: s.scored.model, columns: s.scored.columns ?? [] } : undefined,
       })),
       catalog,
     });
@@ -1642,12 +1720,12 @@ export async function runAnalystTurn(args: {
       prior,
       steps: turn.steps.map((s, i) => ({
         goal: s.goal,
-        facts: results[i] ? describeStepResult(results[i]!) : "(no result)",
+        facts: stepFacts(results[i], s),
         verdict: s.check?.verdict,
         note: s.check?.note,
         error: s.error,
         scored: s.scored
-          ? `${s.scored.model} v${s.scored.version ?? "?"}${s.scored.metric ? ` (${s.scored.metric})` : ""}`
+          ? `${s.scored.model} v${s.scored.version ?? "?"}${s.scored.metric ? ` (${s.scored.metric})` : ""}${s.scored.health ? `; ${s.scored.health}` : ""}`
           : undefined,
       })),
     });
@@ -1759,12 +1837,12 @@ export async function resynthesizeTurn(args: {
       prior: priorContext(args.priorTurns),
       steps: turn.steps.map((s, i) => ({
         goal: s.goal,
-        facts: results[i] ? describeStepResult(results[i]!) : "(no result)",
+        facts: stepFacts(results[i], s),
         verdict: s.check?.verdict,
         note: s.check?.note,
         error: s.error,
         scored: s.scored
-          ? `${s.scored.model} v${s.scored.version ?? "?"}${s.scored.metric ? ` (${s.scored.metric})` : ""}`
+          ? `${s.scored.model} v${s.scored.version ?? "?"}${s.scored.metric ? ` (${s.scored.metric})` : ""}${s.scored.health ? `; ${s.scored.health}` : ""}`
           : undefined,
       })),
     });

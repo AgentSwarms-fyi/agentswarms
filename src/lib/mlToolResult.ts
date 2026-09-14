@@ -40,6 +40,8 @@ export type MlModelsData = {
     features: number;
     /** One headline metric, named, e.g. "accuracy 0.94" — or null. */
     metric: string | null;
+    /** The model's health summary ("open drift alert (PSI 3.29 on …)"), or null. */
+    health: string | null;
   }[];
 };
 
@@ -122,6 +124,7 @@ export function mlToolData(toolName: string, result: string): MlToolData | null 
             : null,
           features: Array.isArray(m.features) ? m.features.length : 0,
           metric: headlineMetric(task, m.metrics),
+          health: isObj(m.health) ? str(m.health.summary) : null,
         };
       }),
     };

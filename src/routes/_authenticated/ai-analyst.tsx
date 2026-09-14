@@ -1536,7 +1536,8 @@ function TurnView({
                       ? `Scored by key; the features were read from the model's feature view` +
                         (s.scored.featuresServedFrom ? ` (${s.scored.featuresServedFrom})` : "") +
                         "."
-                      : "Scored from the row's own feature columns.")
+                      : "Scored from the row's own feature columns.") +
+                    (s.scored.health ? ` ${s.scored.health}` : "")
                   }
                 >
                   <Sparkles className="mr-0.5 inline h-2.5 w-2.5" />
@@ -1776,6 +1777,22 @@ function TurnView({
               {s.scored.keysNotFound.length > 0
                 ? ` Not found in the feature view: ${s.scored.keysNotFound.join(", ")}.`
                 : ""}
+              {s.scored.health ? (
+                <>
+                  {" "}
+                  <span
+                    className={
+                      s.scored.health.includes("alert") ||
+                      s.scored.health.includes("Decay") ||
+                      s.scored.health.includes("Drift")
+                        ? "text-amber-500"
+                        : ""
+                    }
+                  >
+                    {s.scored.health}
+                  </span>
+                </>
+              ) : null}
             </p>
           )}
 

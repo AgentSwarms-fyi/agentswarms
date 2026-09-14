@@ -18,7 +18,9 @@ import {
 } from "@/lib/aiAnalyst";
 import { headlineMetric } from "@/lib/mlToolResult";
 import { keyedModelViews } from "@/utils/featureViews/keyed.server";
+import { healthLine } from "@/lib/mlHealth";
 import { listModelsForUser } from "@/utils/ml/access.server";
+import { modelHealthFor } from "@/utils/ml/health.server";
 import { runMlPredict, type AgentToolContext } from "@/utils/tools/registry.server";
 
 /** The models a plan may score with: usable, with a production version, and not a forecast (which takes no rows). */
@@ -27,8 +29,9 @@ export async function scorableModelsForUser(userId: string): Promise<ScorableMod
     (m) => m.production_version_id && m.task !== "forecast",
   );
   if (models.length === 0) return [];
-  const [keyed, { data: versions }] = await Promise.all([
+  const [keyed, health, { data: versions }] = await Promise.all([
     keyedModelViews(models),
+    modelHealthFor(models),
     supabaseAdmin
       .from("ml_model_versions")
       .select("id, version, algorithm, metrics, feature_schema")
@@ -50,6 +53,7 @@ export async function scorableModelsForUser(userId: string): Promise<ScorableMod
       metric: headlineMetric(m.task, v?.metrics ?? null),
       keyColumns: keyed.get(m.id)?.key_columns ?? null,
       features: schema.filter((e) => e.role === "feature").map((e) => e.name),
+      health: healthLine(health.get(m.id)),
     };
   });
 }
@@ -111,11 +115,14 @@ export async function scoreRowsForAnalyst(args: {
   // prediction column that collides with one the SQL returned is kept under
   // a prefix — the pure rule is in joinPredictions, where a test can reach it.
   const joined = joinPredictions(rows, predictions, byKey ? keyColumns : null);
-  const { data: version } = await supabaseAdmin
-    .from("ml_model_versions")
-    .select("metrics")
-    .eq("id", model.production_version_id as string)
-    .maybeSingle();
+  const [{ data: version }, modelHealth] = await Promise.all([
+    supabaseAdmin
+      .from("ml_model_versions")
+      .select("metrics")
+      .eq("id", model.production_version_id as string)
+      .maybeSingle(),
+    modelHealthFor([model]),
+  ]);
   return {
     ok: true,
     columns: joined.columns,
@@ -133,6 +140,8 @@ export async function scoreRowsForAnalyst(args: {
       keysNotFound: Array.isArray(parsed.keys_not_found)
         ? parsed.keys_not_found.filter((k): k is string => typeof k === "string")
         : [],
+      columns: joined.added,
+      health: healthLine(modelHealth.get(model.id)),
     },
   };
 }
