@@ -133,7 +133,7 @@ function PlaygroundDoc() {
           ["Edit & resend", "Rewrite your message and rerun from that point."],
           [
             "Inspector",
-            "Live thinking, tool calls, and the full request/response for the last turn.",
+            "Live thinking, tool calls, and the full request/response for the last turn. A tool call shows its arguments and a result preview; the ML tools show their result as a person reads it — a prediction table (key columns first, model and version, keys not found, where the features came from) or the model list — and an error as the error.",
           ],
         ]}
       />

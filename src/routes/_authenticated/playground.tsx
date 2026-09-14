@@ -16,6 +16,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import { formatNumber, type MlToolData } from "@/lib/mlToolResult";
 import {
   Send,
   Download,
@@ -147,7 +148,16 @@ type PendingDoc = { kind: "doc"; name: string; text: string };
 type PendingAttachment = PendingImage | PendingDoc;
 type ToolUiEvent =
   | { type: "tool_call"; name: string; args: string; id: string }
-  | { type: "tool_result"; name: string; id: string; ok: boolean; preview: string };
+  | {
+      type: "tool_result";
+      name: string;
+      id: string;
+      ok: boolean;
+      preview: string;
+      // The ML tools' result as a table / model list / error, built server-side
+      // from the full JSON (the preview is a 400-char slice). Absent otherwise.
+      data?: MlToolData;
+    };
 
 // Image models can fail mid-conversation when the context grows past their
 // token budget — Gemini image models are especially prone to this. When that
@@ -1898,6 +1908,168 @@ function InspectorPanel({
   );
 }
 
+/**
+ * An ML tool's result as a person reads it: a prediction table with the key
+ * columns first, the model and version above it, what was not found and
+ * where the features came from beside it; the model list; or the error.
+ * Built server-side from the full JSON (src/lib/mlToolResult.ts) — the
+ * 400-char preview cut a prediction off mid-probability.
+ */
+function MlToolResultView({ data }: { data: MlToolData }) {
+  const label = (
+    <p className="text-[9px] uppercase tracking-wider text-muted-foreground mb-1">Result</p>
+  );
+  if (data.kind === "error") {
+    return (
+      <div>
+        {label}
+        <p className="text-[11px] text-destructive break-words">{data.error}</p>
+      </div>
+    );
+  }
+  if (data.kind === "models") {
+    return (
+      <div>
+        <p className="text-[9px] uppercase tracking-wider text-muted-foreground mb-1">
+          {data.models.length} model{data.models.length === 1 ? "" : "s"}
+        </p>
+        <ul className="space-y-1">
+          {data.models.map((m) => (
+            <li key={m.name} className="text-[10px] leading-snug break-words">
+              <span className="font-mono">{m.name}</span>
+              <span className="text-muted-foreground">
+                {" · "}
+                {m.task}
+                {m.target ? ` → ${m.target}` : ""}
+                {m.version !== null ? ` · v${m.version}` : ""}
+                {m.metric ? ` · ${m.metric}` : ""}
+                {m.feature_view ? ` · by key: ${m.feature_view.key_columns.join(" + ")}` : ""}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    );
+  }
+  const cell = (v: unknown): string =>
+    v === null || v === undefined
+      ? "—"
+      : typeof v === "number"
+        ? formatNumber(v)
+        : typeof v === "object"
+          ? JSON.stringify(v)
+          : String(v);
+  const missing = data.keys_not_found.length;
+  return (
+    <div className="space-y-1.5">
+      {label}
+      <p className="text-[10px] leading-snug break-words">
+        <span className="font-mono">{data.model}</span>
+        <span className="text-muted-foreground">
+          {data.version !== null ? ` · v${data.version}` : ""}
+          {` · ${data.task}`}
+          {data.algorithm ? ` · ${data.algorithm}` : ""}
+        </span>
+      </p>
+      <div className="flex flex-wrap gap-1">
+        <Badge variant="outline" className="text-[9px]">
+          {data.forecast.length > 0
+            ? `${data.forecast.length} period${data.forecast.length === 1 ? "" : "s"}`
+            : `${data.row_count} row${data.row_count === 1 ? "" : "s"}`}
+        </Badge>
+        {data.features_served_from && (
+          <Badge variant="outline" className="text-[9px]">
+            features from {data.features_served_from}
+            {data.feature_view ? ` · ${data.feature_view}` : ""}
+          </Badge>
+        )}
+        {missing > 0 && (
+          <Badge variant="outline" className="text-[9px] border-amber-400/40 text-amber-400">
+            {missing} key{missing === 1 ? "" : "s"} not found
+          </Badge>
+        )}
+      </div>
+      {data.forecast.length > 0 ? (
+        <div className="max-h-48 overflow-auto rounded border border-border/60 bg-background/40">
+          <table className="w-full text-[10px] font-mono">
+            <thead>
+              <tr>
+                {["period", "yhat", "lo", "hi"].map((c) => (
+                  <th
+                    key={c}
+                    className="px-1.5 py-1 text-left font-medium text-muted-foreground whitespace-nowrap"
+                  >
+                    {c}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {data.forecast.map((p, i) => (
+                <tr key={p.period + i} className="border-t border-border/40">
+                  <td className="px-1.5 py-0.5 whitespace-nowrap">{p.period}</td>
+                  <td className="px-1.5 py-0.5 whitespace-nowrap">{formatNumber(p.yhat)}</td>
+                  <td className="px-1.5 py-0.5 whitespace-nowrap">{cell(p.lo)}</td>
+                  <td className="px-1.5 py-0.5 whitespace-nowrap">{cell(p.hi)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : data.rows.length > 0 ? (
+        <div className="max-h-48 overflow-auto rounded border border-border/60 bg-background/40">
+          <table className="w-full text-[10px] font-mono">
+            <thead>
+              <tr>
+                {data.columns.map((c) => (
+                  <th
+                    key={c}
+                    className="px-1.5 py-1 text-left font-medium text-muted-foreground whitespace-nowrap"
+                  >
+                    {c}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {data.rows.map((row, i) => (
+                <tr key={i} className="border-t border-border/40">
+                  {data.columns.map((c) => (
+                    <td key={c} className="px-1.5 py-0.5 whitespace-nowrap">
+                      {cell(row[c])}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="text-[10px] text-muted-foreground">No rows scored.</p>
+      )}
+      {missing > 0 && (
+        <p className="text-[10px] text-muted-foreground break-words">
+          Not found: {data.keys_not_found.join(", ")}
+        </p>
+      )}
+      {(data.warnings.length > 0 || data.notes.length > 0) && (
+        <ul className="space-y-0.5 max-h-24 overflow-auto">
+          {data.warnings.map((w, i) => (
+            <li key={`w${i}`} className="text-[10px] text-amber-400 break-words">
+              {w}
+            </li>
+          ))}
+          {data.notes.map((n, i) => (
+            <li key={`n${i}`} className="text-[10px] text-muted-foreground break-words">
+              {n}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function ToolEventsPanel({ events, thinking }: { events: ToolUiEvent[]; thinking: boolean }) {
   // Pair tool_call with its matching tool_result by id so the user sees
   // input + output side by side as the loop progresses.
@@ -1988,15 +2160,19 @@ function ToolEventsPanel({ events, thinking }: { events: ToolUiEvent[]; thinking
                       {prettyArgs || "(none)"}
                     </pre>
                   </div>
-                  {r && (
-                    <div>
-                      <p className="text-[9px] uppercase tracking-wider text-muted-foreground mb-1">
-                        Result preview
-                      </p>
-                      <pre className="text-[10px] font-mono whitespace-pre-wrap break-all bg-background/40 rounded p-1.5 max-h-32 overflow-auto">
-                        {r.preview || "(empty)"}
-                      </pre>
-                    </div>
+                  {r?.data ? (
+                    <MlToolResultView data={r.data} />
+                  ) : (
+                    r && (
+                      <div>
+                        <p className="text-[9px] uppercase tracking-wider text-muted-foreground mb-1">
+                          Result preview
+                        </p>
+                        <pre className="text-[10px] font-mono whitespace-pre-wrap break-all bg-background/40 rounded p-1.5 max-h-32 overflow-auto">
+                          {r.preview || "(empty)"}
+                        </pre>
+                      </div>
+                    )
                   )}
                 </div>
               </div>

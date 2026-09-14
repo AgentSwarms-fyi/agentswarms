@@ -13,6 +13,7 @@
 
 import type { ToolDef, ToolHandler, AgentToolContext } from "./registry.server";
 import { extractToolSources, type RawSource } from "./sources";
+import { mlToolData, type MlToolData } from "@/lib/mlToolResult";
 import { providerReportedCost, usageReportingBody } from "@/utils/observability/providerCost";
 
 type GatewayMessage = {
@@ -330,6 +331,13 @@ export type ToolEvent =
        * 400-char preview downstream.
        */
       sources?: RawSource[];
+      /**
+       * The ML tools' result as a person reads it — a prediction table, the
+       * model list, or the error — built here for the same reason sources
+       * are: a preview cut off mid-probability is not a result anyone can
+       * read. Absent for every other tool, and when the result is not JSON.
+       */
+      data?: MlToolData;
     };
 
 // Run the tool-call loop and return the FINAL response (a streaming Response
@@ -540,13 +548,18 @@ export async function streamChatWithTools(opts: {
             result = JSON.stringify({ error: e instanceof Error ? e.message : String(e) });
           }
         }
+        const data = mlToolData(tc.function.name, result) ?? undefined;
         opts.onToolEvent?.({
           type: "tool_result",
           name: tc.function.name,
           id: tc.id,
-          ok,
+          // An ML tool answers an error as JSON rather than throwing, so the
+          // call "succeeded" while its result says it did not. The badge a
+          // person reads says error.
+          ok: ok && data?.kind !== "error",
           preview: result.slice(0, 400),
           sources: ok ? extractToolSources(tc.function.name, tc.function.arguments, result) : [],
+          data,
         });
         return { tc, result: capToolResult(frameUntrustedResult(tc.function.name, result)) };
       }),

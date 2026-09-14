@@ -633,6 +633,15 @@ with agentswarms.start_run("churn-v2", params={"lr": 0.01, "depth": 6}) as run:
         <em>among others</em> is not an error: the rows that matched are scored and it comes back
         named in <C>keys_not_found</C> beside them.
       </P>
+      <P>
+        <strong>What the Playground shows.</strong> The inspector&apos;s Tool Calls panel shows a
+        prediction as a table — key columns first, then the prediction and its probabilities — with
+        the model and version above it and, beside it, how many rows were scored, where the features
+        came from and which keys were not found; <C>ml_list_models</C> shows the models with their
+        task, version, headline metric and key columns. The table is built on the server from the
+        tool&apos;s full result (the panel&apos;s generic preview is a 400-character slice, which
+        for a prediction ends mid-probability), and an error is shown as the error.
+      </P>
 
       <H2 id="automation">Automation</H2>
       <P>

@@ -149,6 +149,24 @@ returns — which `sources` drops by design — is a canvas run: the client
 tracer records every `tool_call` and `tool_result` on the step, so the
 refusal strings can be read from `swarm_run_steps.tool_calls` verbatim.
 
+#### R5 · S2 · A refused call badged "ok"
+
+Found while giving the Tool Calls panel a prediction table (the panel had
+shown every result as its first 400 characters, which for a prediction ends
+mid-probability). The ML tools answer an error as JSON rather than throwing —
+`{"error": "Send rows or keys, not both."}` — so the loop's `ok` was true, the
+panel's badge said **ok** in green, and beneath it the result said the call
+had been refused. Two facts on one card, contradicting each other, with the
+green one on top. The badge now reads the result: ok only when the call
+succeeded and an ML result is not an error. Same round, smaller: a forecast
+returns periods, not rows, and the count badge over a table of three weeks
+read "0 rows". Both were visible only with the real panel open over a real
+call; the parser's tests were green throughout.
+
+R2 recurred a third time here — "8 periods returned (2025-01-01 through
+2025-08-01)" with no call behind it; the real call, forced, returned three
+weeks starting 2026-04-05.
+
 #### R4 · S3 · An all-miss answer that could never be given
 
 The predict-by-key work gave `ml_predict` its own answer for "no key matched

@@ -554,6 +554,15 @@ downstream as if it were a result. A key that matches nothing _among others_
 is not an error: the rows that matched are scored and it comes back named in
 `keys_not_found` beside them.
 
+**What the Playground shows.** The inspector's Tool Calls panel shows a
+prediction as a table — key columns first, then the prediction and its
+probabilities — with the model and version above it and, beside it, how many
+rows were scored, where the features came from and which keys were not found;
+`ml_list_models` shows the models with their task, version, headline metric
+and key columns. The table is built on the server from the tool's full result
+(the panel's generic preview is a 400-character slice, which for a prediction
+ends mid-probability), and an error is shown as the error.
+
 ## Automation
 
 The model page's **Automation** tab schedules two kinds of work, each

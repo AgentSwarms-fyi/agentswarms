@@ -14,7 +14,12 @@ grounded in your own data.
    knowledge base and model.
 3. The right-hand **inspector** shows the live thinking, tool calls, and the
    full request/response for the last turn; everything is also recorded in
-   **Traces**.
+   **Traces**. A tool call shows its arguments and a preview of its result —
+   except the ML tools, whose results are shown as a person reads them: a
+   prediction table with the key columns first, the model and version above
+   it, which keys were not found and where the features came from beside it
+   (`ml_predict`), or the list of models with task, version, headline metric
+   and key columns (`ml_list_models`). An error shows as the error.
 
 You can override the model per session, edit/regenerate messages, and attach
 files. Conversations are saved per agent.
