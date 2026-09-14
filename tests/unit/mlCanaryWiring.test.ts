@@ -16,6 +16,7 @@
 import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
+import { docsFamily } from "./docsPages";
 
 const rd = (p: string) => readFileSync(p, "utf8");
 const SERVE = rd("src/utils/ml/serve.server.ts");
@@ -25,7 +26,7 @@ const PANEL = rd("src/components/ml/DeploymentPanel.tsx");
 const MIGRATION = rd("supabase/migrations/20260911000000_ml_canary_traffic.sql");
 const LIB = rd("src/lib/mlCanary.ts");
 const MD = rd("docs/ML.md");
-const PAGE = rd("src/routes/docs.ml.tsx");
+const PAGE = docsFamily("ml");
 
 const warm = () => SERVE.slice(SERVE.indexOf("export async function scoreWarm"));
 

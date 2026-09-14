@@ -68,6 +68,7 @@ function BiPage() {
         their time goes on thinking rather than output — sized for chat models, the analyst&apos;s
         required model class was the one that timed out.
       </P>
+      <H3 id="analyst-governed">Governed steps</H3>
       <P>
         <strong>Governed steps are compiled, not described.</strong> When a step&apos;s numbers come
         from a governed semantic model, the plan names the model, its metrics and its dimensions,
@@ -82,6 +83,7 @@ function BiPage() {
         the result, the step says so in words. Past analyses are all reachable from the picker
         beside <strong>New analysis</strong>.
       </P>
+      <H3 id="analyst-predictions">Predictions from trained models</H3>
       <P>
         <strong>Scored steps predict; the analyst never estimates.</strong> When a question asks
         what <em>will</em> happen, which rows are <em>likely</em> something, or for a predicted
@@ -145,6 +147,7 @@ function BiPage() {
         scored orders became &quot;order_id total=22104&quot; and a findings table built from it —
         and an identifier column is never totalled in the facts at all.
       </P>
+      <H3 id="analyst-what-if">What-if scenarios</H3>
       <P>
         <strong>What-if scenarios</strong> ride the same compiler. A compiled step offers the two
         things that can honestly vary — the model&apos;s <strong>declared parameters</strong> and
@@ -157,6 +160,7 @@ function BiPage() {
         identical query under a &ldquo;scenario&rdquo; heading invites the reader to conclude a
         change was tested and made no difference.
       </P>
+      <H3 id="analyst-verified">Verified answers and the self-check</H3>
       <P>
         <strong>Verified answers.</strong> Mark a finished analysis verified, or flag it wrong with
         a reason — a flag without one leaves the next reader where they started. The verdict records
@@ -174,6 +178,7 @@ function BiPage() {
         Analyses persist per analyst, follow-up questions see the earlier answers, and the whole
         trace exports as a <strong>PDF</strong>.
       </P>
+      <H3 id="analyst-charts">Charts, pinning and computed reasoning</H3>
       <P>
         <strong>Every step that has something to show gets its own chart</strong>, so a three-query
         answer arrives as three visuals rather than one headline picture. Any step can be{" "}
@@ -199,6 +204,7 @@ function BiPage() {
         ways — it <strong>asks before querying</strong>, offering the assumption it would otherwise
         make so accepting takes one click.
       </P>
+      <H3 id="analyst-runs">Concurrency and schedules</H3>
       <P>
         <strong>Steps run concurrently</strong> — a three-query analysis issues its queries at once,
         bounded so one question cannot become everyone&apos;s rate limit. That is safe because no
@@ -222,6 +228,7 @@ function BiPage() {
         rows between runs would invent findings — and says so plainly when nothing changed.{" "}
         <strong>Run now</strong> takes the identical path.
       </P>
+      <H3 id="analyst-sharing">Sharing an analyst</H3>
       <P>
         <strong>Sharing an analyst shares the analyst, not your data access.</strong> Grant it to
         IAM groups and recipients can open it and ask their own questions — but every query they run
@@ -234,6 +241,7 @@ function BiPage() {
         owner-only. A grant is refused outright if the recipients&apos; IAM model rules do not allow
         the analyst&apos;s model.
       </P>
+      <H3 id="analyst-provenance">Provenance and export</H3>
       <P>
         Every step that ran a query carries a <strong>Where these numbers came from</strong>{" "}
         disclosure. The tables it names come from <em>the SQL that actually ran</em>, never from the

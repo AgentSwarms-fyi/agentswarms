@@ -15,6 +15,27 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-14 — Handbook reorganisation: page families, subsections, the map and the rail
+
+**Driven.** The rebuilt image, public docs routes, no sign-in. Read from the
+DOM at 1400px (the rail), the pane's default 1223px, 768px and 375px; two
+screenshots kept in the session, everything else read from the page.
+
+| What                            | Read from                                     | Result                                                                                                                                                                                                                                                                                                                         |
+| ------------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| The ML guide is a family        | sidebar anchors on /docs/ml                   | ML Models followed by Training, Predictions, Serving, Trust, Operations; the overview's card grid links the same five; "In this guide · 5 sections" pills: What it is, In this guide, Tasks, Use cases, How this compares                                                                                                        |
+| A sub-page knows where it is    | /docs/ml/training at 1400px                   | title "ML Models · Training"; sidebar: ML Models marked, Training `aria-current=page` and indented, the four siblings indented and quiet; six H2 ids (prepare … experiments); 15 heading anchors (`aria-label="Link to this section"`); back-to-top absent at the top                                                          |
+| The rail follows the reader     | same page, jumped to `#results`               | scrollY 2239; the rail lists the six sections and, under the active "Read the results", its one subsection "What the trainer warns about" — no other section's subsections; back-to-top present (screenshot)                                                                                                                    |
+| A one-section page still maps   | /docs/self-hosting/kubernetes                 | "In this guide · 7 headings": Kubernetes, Kubernetes in detail, EKS, GKE, AKS, OKE, After any of them; eyebrow SELF-HOSTING; sidebar family Install & deploy → Configuration, Kubernetes (current), Operations                                                                                                                    |
+| The moved anchor lands          | /docs/ml/predictions#api                      | `#api` exists ("Public API"), top at 96px after load, scrollY 3300 — the API page's link followed the section                                                                                                                                                                                                                    |
+| Families close elsewhere        | /docs/etl                                     | 34 sidebar links; of the two families only /docs/ml and /docs/self-hosting are present                                                                                                                                                                                                                                         |
+| Tablet                          | /docs/ml/training at 768px                    | document scrollWidth 762 ≤ 768 (no sideways scroll); the sidebar collapses to the page picker showing "Training"; six pills wrap to 84px; compact "On this page (15)"                                                                                                                                                             |
+| Phone                           | /docs/ml/training at 375px, scrolled 1500px   | scrollWidth 375 (no sideways scroll); pills wrap to 117px; back-to-top button at (314, 750) bottom-right; compact "On this page (15)"                                                                                                                                                                                             |
+| Search reaches a sub-page       | docs search, "EKS"                            | two results: the page "Install & deploy · Kubernetes" and its heading "Amazon EKS, step by step" (index rebuilt for 43 pages, 586 headings)                                                                                                                                                                                       |
+
+Nothing to keep or clean up: the round created no rows.
+
+
 ## 2026-09-14 — Predictive-model chooser and the narrow window, ADVERSARIAL_LOG R11
 
 **Driven.** AI Analyst → New: the dialog's new **Predictive models** section

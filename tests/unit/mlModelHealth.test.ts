@@ -12,6 +12,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import { describeModelHealth, healthLine } from "@/lib/mlHealth";
+import { docsFamily } from "./docsPages";
 
 const rd = (p: string) => readFileSync(p, "utf8");
 const codeOnly = (s: string) => s.replace(/^\s*\/\/.*$/gm, "").replace(/\{\/\*[\s\S]*?\*\/\}/g, "");
@@ -169,7 +170,7 @@ describe("the sentence travels with the model", () => {
   });
 
   it("the docs say so, in the repo and in the app", () => {
-    for (const d of [rd("docs/ML.md"), rd("src/routes/docs.ml.tsx")]) {
+    for (const d of [rd("docs/ML.md"), docsFamily("ml")]) {
       expect(d).toMatch(/health travels with it/);
       expect(d).toMatch(/never measured/);
     }

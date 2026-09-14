@@ -17,6 +17,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import { TOOL_NODE_IDS } from "@/utils/swarmNodes.server";
+import { docsFamily } from "./docsPages";
 
 const rd = (p: string) => readFileSync(p, "utf8");
 const NODES = rd("src/utils/swarmNodes.server.ts");
@@ -27,7 +28,7 @@ const REGISTRY = rd("src/utils/tools/registry.server.ts");
 const INSPECTOR = rd("src/components/swarms/NodeInspector.tsx");
 const DOCS_SWARMS = rd("src/routes/docs.swarms.tsx");
 const DOCS_ML = rd("docs/ML.md");
-const DOCS_ML_APP = rd("src/routes/docs.ml.tsx");
+const DOCS_ML_APP = docsFamily("ml");
 
 /** Code with its line comments removed — guards read code, not prose. */
 const codeOnly = (s: string) => s.replace(/^\s*\/\/.*$/gm, "");

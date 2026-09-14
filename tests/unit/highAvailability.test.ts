@@ -4,6 +4,7 @@
 import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
+import { docsFamily } from "./docsPages";
 
 const rd = (p: string) => readFileSync(p, "utf8");
 
@@ -252,7 +253,7 @@ describe("the documentation says how", () => {
   });
 
   it("and the in-app page carries the same guidance", () => {
-    const page = rd("src/routes/docs.self-hosting.tsx");
+    const page = docsFamily("self-hosting");
     expect(page).toContain('id="high-availability"');
     expect(page).toContain("PodDisruptionBudget");
     expect(page).toContain("kubectl -n agentswarms get deploy,statefulset,pdb");

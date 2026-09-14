@@ -17,6 +17,7 @@ import {
   mlKeyPrefix,
 } from "@/utils/mlApiKeys";
 import { TRAIN_PY } from "@/utils/ml/pyTrain";
+import { docsFamily } from "./docsPages";
 
 const REPO = path.resolve(__dirname, "../..");
 const rd = (p: string) => readFileSync(path.join(REPO, p), "utf8");
@@ -169,20 +170,16 @@ describe("the service", () => {
 
 describe("the docs", () => {
   it("name every endpoint on the page and in the guide, and the rate-limit knob everywhere", () => {
-    const page = rd("src/routes/docs.ml.tsx");
+    const page = docsFamily("ml");
     const md = rd("docs/ML.md");
     for (const endpoint of Object.keys(ENDPOINTS)) {
       expect(page, endpoint).toContain(endpoint);
       expect(md, endpoint).toContain(endpoint);
     }
-    for (const f of [
-      ".env.example",
-      "docs/SCALE_AND_LIMITS.md",
-      "docs/ML.md",
-      "src/routes/docs.ml.tsx",
-    ]) {
+    for (const f of [".env.example", "docs/SCALE_AND_LIMITS.md", "docs/ML.md"]) {
       expect(rd(f), f).toContain("ML_API_RATE_LIMIT_PER_MIN");
     }
+    expect(page, "the in-app ML guide").toContain("ML_API_RATE_LIMIT_PER_MIN");
     // The API page no longer claims to be a single endpoint.
     expect(rd("src/routes/docs.api.tsx")).toContain("/docs/ml");
   });

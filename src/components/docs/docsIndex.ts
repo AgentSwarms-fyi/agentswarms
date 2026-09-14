@@ -464,6 +464,46 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "level": 2
       },
       {
+        "id": "analyst-governed",
+        "text": "Governed steps",
+        "level": 3
+      },
+      {
+        "id": "analyst-predictions",
+        "text": "Predictions from trained models",
+        "level": 3
+      },
+      {
+        "id": "analyst-what-if",
+        "text": "What-if scenarios",
+        "level": 3
+      },
+      {
+        "id": "analyst-verified",
+        "text": "Verified answers and the self-check",
+        "level": 3
+      },
+      {
+        "id": "analyst-charts",
+        "text": "Charts, pinning and computed reasoning",
+        "level": 3
+      },
+      {
+        "id": "analyst-runs",
+        "text": "Concurrency and schedules",
+        "level": 3
+      },
+      {
+        "id": "analyst-sharing",
+        "text": "Sharing an analyst",
+        "level": 3
+      },
+      {
+        "id": "analyst-provenance",
+        "text": "Provenance and export",
+        "level": 3
+      },
+      {
         "id": "build",
         "text": "Building a dashboard",
         "level": 2
@@ -2489,116 +2529,8 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     "title": "ML Models",
     "description": "Train a model on a lakehouse table without writing code, keep every version with its metrics and the snapshot it learned from, score rows back into the lakehouse, let agents predict with it, and draw its forecasts on a dashboard — all on your own infrastructure.",
     "terms": [
-      "/api/ml/experiments/artifact",
-      "/api/ml/experiments/register",
-      "/api/ml/predict/status",
-      "401",
-      "403",
-      "404",
-      "409",
-      "429",
-      "CalibratedClassifierCV",
-      "FEATURE_STORE_MAX_KEYS",
-      "FEATURE_STORE_STALE_MINUTES",
-      "FEATURE_STORE_URL",
-      "LimitRange",
-      "ML_API_RATE_LIMIT_PER_MIN",
-      "ML_ARTIFACT_MAX_MB",
-      "ML_ASSIST_MODEL",
-      "ML_CV_MIN_HOLDOUT_ROWS",
-      "ML_DECAY_ALERT_RATIO",
-      "ML_DRIFT_ALERT_PSI",
-      "ML_EVALUATIONS_PER_SWEEP",
-      "ML_EXPLAIN_BATCH_MAX_ROWS",
-      "ML_EXPLAIN_BATCH_TOP_K",
-      "ML_EXPLAIN_MAX_ROWS",
-      "ML_EXPLAIN_TOP_K",
-      "ML_FAIRNESS_MIN_RATIO",
-      "ML_MAX_CONCURRENT_TRAININGS_PER_USER",
-      "ML_PREDICT_MAX_ROWS",
-      "ML_SERVE_MEM_LIMIT_MB",
-      "ML_SERVE_SCALE_COOLDOWN_SECONDS",
-      "ML_SERVE_TARGET_RPM_PER_REPLICA",
-      "ML_TRAIN_GPUS",
-      "ML_TRAIN_MAX_ROWS",
-      "ML_TRAIN_MEM_LIMIT_MB",
-      "ML_TRAIN_TIME_BUDGET_MINUTES",
-      "ML_TRAIN_WORKERS",
-      "NOTEBOOK_RUNTIME_IMAGE",
-      "Pending",
-      "PodScheduled",
-      "ResourceQuota",
-      "SELECT",
       "SUMMARIZE",
-      "TimeSeriesSplit",
-      "WHERE",
-      "_model_version",
-      "_predict",
-      "_predicted_at",
-      "approved_by",
-      "argmax",
-      "artifact_sha256",
-      "artifact_uri",
-      "churned",
-      "classes",
-      "f1_macro",
-      "feature_view",
-      "features",
-      "features_served_from",
-      "finish",
-      "health",
-      "key",
-      "key@n",
-      "keys",
-      "keys_not_found",
-      "lakehouse",
-      "limits.memory",
-      "mixed",
-      "ml-artifacts/",
-      "ml.api_key.denied",
-      "ml.decay.alert",
-      "ml.drift.alert",
-      "ml.experiment.promote",
-      "ml.fairness.check",
-      "ml.fairness.narrate",
-      "ml.fairness.review",
-      "ml.fairness.suggest",
-      "ml.predict_query",
-      "ml.scale",
-      "ml.schedule.failed",
-      "ml.schedule.run",
-      "ml.threshold.set",
-      "ml.train.start",
-      "ml.train.succeeded",
-      "ml.version.promote",
-      "ml.version.promote.requested",
-      "ml_list_models",
-      "ml_model.create",
-      "ml_model.delete",
-      "ml_model.update",
-      "ml_predict",
-      "mlk_…",
-      "nvidia.com/gpu",
-      "online",
-      "pipeline",
-      "predict",
-      "predict_proba",
-      "prediction",
-      "proba_&lt;class&gt;",
-      "probability",
-      "read",
-      "retained",
-      "rmse",
-      "rows",
-      "runMlPredict",
-      "served",
-      "start_run",
-      "start_run()",
-      "task",
-      "threshold_applied",
-      "tool",
-      "train",
-      "unique"
+      "ml_predict"
     ],
     "headings": [
       {
@@ -2607,10 +2539,293 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "level": 2
       },
       {
+        "id": "guide",
+        "text": "In this guide",
+        "level": 2
+      },
+      {
         "id": "tasks",
         "text": "Tasks",
         "level": 2
       },
+      {
+        "id": "use-cases",
+        "text": "Use cases",
+        "level": 2
+      },
+      {
+        "id": "use-case-plan",
+        "text": "Which plan will a customer end up on?",
+        "level": 3
+      },
+      {
+        "id": "use-case-order",
+        "text": "How much is this order worth?",
+        "level": 3
+      },
+      {
+        "id": "use-case-forecast",
+        "text": "Next quarter&apos;s revenue, on the dashboard",
+        "level": 3
+      },
+      {
+        "id": "how-this-compares",
+        "text": "How this compares",
+        "level": 2
+      }
+    ]
+  },
+  {
+    "route": "/docs/ml/operations",
+    "title": "ML Models · Operations",
+    "description": "Sharing and governance, the configurable limits, day-to-day operations, and what to do when something reads wrong.",
+    "terms": [
+      "LimitRange",
+      "ML_API_RATE_LIMIT_PER_MIN",
+      "ML_DRIFT_ALERT_PSI",
+      "ML_MAX_CONCURRENT_TRAININGS_PER_USER",
+      "ML_PREDICT_MAX_ROWS",
+      "ML_TRAIN_GPUS",
+      "ML_TRAIN_MAX_ROWS",
+      "ML_TRAIN_MEM_LIMIT_MB",
+      "ML_TRAIN_TIME_BUDGET_MINUTES",
+      "NOTEBOOK_RUNTIME_IMAGE",
+      "ResourceQuota",
+      "ml-artifacts/",
+      "ml.predict_query",
+      "ml.train.start",
+      "ml.train.succeeded",
+      "ml.version.promote",
+      "ml_model.create",
+      "ml_model.delete",
+      "ml_model.update",
+      "nvidia.com/gpu"
+    ],
+    "headings": [
+      {
+        "id": "sharing",
+        "text": "Sharing and governance",
+        "level": 2
+      },
+      {
+        "id": "limits",
+        "text": "Limits",
+        "level": 2
+      },
+      {
+        "id": "operations",
+        "text": "Operations",
+        "level": 2
+      },
+      {
+        "id": "troubleshooting",
+        "text": "Troubleshooting",
+        "level": 2
+      }
+    ]
+  },
+  {
+    "route": "/docs/ml/predictions",
+    "title": "ML Models · Predictions",
+    "description": "Scoring rows on demand and in batch, letting agents and the AI Analyst predict, the public API, forecasts on dashboards, and feature views that serve a model's features by key.",
+    "terms": [
+      "401",
+      "403",
+      "404",
+      "409",
+      "429",
+      "FEATURE_STORE_MAX_KEYS",
+      "FEATURE_STORE_STALE_MINUTES",
+      "FEATURE_STORE_URL",
+      "ML_API_RATE_LIMIT_PER_MIN",
+      "ML_DRIFT_ALERT_PSI",
+      "ML_PREDICT_MAX_ROWS",
+      "_model_version",
+      "_predicted_at",
+      "classes",
+      "feature_view",
+      "features",
+      "features_served_from",
+      "health",
+      "keys",
+      "keys_not_found",
+      "lakehouse",
+      "mixed",
+      "ml.api_key.denied",
+      "ml.predict_query",
+      "ml.schedule.failed",
+      "ml.schedule.run",
+      "ml_list_models",
+      "ml_predict",
+      "mlk_…",
+      "online",
+      "pipeline",
+      "predict",
+      "predict_proba",
+      "prediction",
+      "proba_&lt;class&gt;",
+      "probability",
+      "read",
+      "rows",
+      "runMlPredict",
+      "task",
+      "tool",
+      "train",
+      "unique"
+    ],
+    "headings": [
+      {
+        "id": "predictions",
+        "text": "Predictions",
+        "level": 2
+      },
+      {
+        "id": "try-it",
+        "text": "Try it",
+        "level": 3
+      },
+      {
+        "id": "batch",
+        "text": "Batch prediction",
+        "level": 3
+      },
+      {
+        "id": "agents",
+        "text": "Agents",
+        "level": 3
+      },
+      {
+        "id": "automation",
+        "text": "Automation",
+        "level": 2
+      },
+      {
+        "id": "api",
+        "text": "Public API",
+        "level": 2
+      },
+      {
+        "id": "external-models",
+        "text": "Bring your own model",
+        "level": 3
+      },
+      {
+        "id": "forecast-period",
+        "text": "What a forecast period is",
+        "level": 3
+      },
+      {
+        "id": "forecasting",
+        "text": "Forecasting in BI",
+        "level": 2
+      },
+      {
+        "id": "features",
+        "text": "Feature views",
+        "level": 2
+      },
+      {
+        "id": "online-store",
+        "text": "Serving them in milliseconds",
+        "level": 3
+      },
+      {
+        "id": "point-in-time",
+        "text": "Point-in-time training sets",
+        "level": 3
+      }
+    ]
+  },
+  {
+    "route": "/docs/ml/serving",
+    "title": "ML Models · Serving",
+    "description": "Warm endpoints for low-latency prediction: copies and autoscaling, what a copy can and cannot do, trying a version on real traffic as a shadow or a canary, and training past what one container holds.",
+    "terms": [
+      "LimitRange",
+      "ML_ARTIFACT_MAX_MB",
+      "ML_SERVE_MEM_LIMIT_MB",
+      "ML_SERVE_SCALE_COOLDOWN_SECONDS",
+      "ML_SERVE_TARGET_RPM_PER_REPLICA",
+      "ML_TRAIN_MEM_LIMIT_MB",
+      "Pending",
+      "PodScheduled",
+      "ResourceQuota",
+      "_predict",
+      "limits.memory",
+      "ml.predict_query",
+      "ml.scale",
+      "served"
+    ],
+    "headings": [
+      {
+        "id": "warm",
+        "text": "Warm endpoints",
+        "level": 2
+      },
+      {
+        "id": "replicas",
+        "text": "More than one copy",
+        "level": 3
+      },
+      {
+        "id": "replicas-scaling",
+        "text": "When copies are added and removed",
+        "level": 3
+      },
+      {
+        "id": "replicas-limits",
+        "text": "What a copy actually is, and how far it gets you",
+        "level": 3
+      },
+      {
+        "id": "shadow",
+        "text": "Trying a version on real traffic",
+        "level": 3
+      },
+      {
+        "id": "canary",
+        "text": "Giving it a share of real traffic",
+        "level": 3
+      },
+      {
+        "id": "data-parallel",
+        "text": "More rows than one container holds",
+        "level": 3
+      },
+      {
+        "id": "copies",
+        "text": "How many copies you can run",
+        "level": 3
+      }
+    ]
+  },
+  {
+    "route": "/docs/ml/training",
+    "title": "ML Models · Training",
+    "description": "From a lakehouse table to a versioned model: preparing the training set, the trainer's search, reading the results and its warnings, how the winner is chosen, versions, and experiments run from a notebook.",
+    "terms": [
+      "/api/ml/experiments/artifact",
+      "/api/ml/experiments/register",
+      "ML_ARTIFACT_MAX_MB",
+      "ML_CV_MIN_HOLDOUT_ROWS",
+      "ML_TRAIN_WORKERS",
+      "SELECT",
+      "TimeSeriesSplit",
+      "WHERE",
+      "approved_by",
+      "artifact_sha256",
+      "artifact_uri",
+      "finish",
+      "key",
+      "key@n",
+      "ml-artifacts/",
+      "ml.experiment.promote",
+      "ml.version.promote",
+      "ml.version.promote.requested",
+      "start_run",
+      "start_run()"
+    ],
+    "headings": [
       {
         "id": "prepare",
         "text": "Prepare a training set",
@@ -2685,32 +2900,42 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "id": "promotion-approval",
         "text": "Who signs off a promotion",
         "level": 3
-      },
-      {
-        "id": "predictions",
-        "text": "Predictions",
-        "level": 2
-      },
-      {
-        "id": "try-it",
-        "text": "Try it",
-        "level": 3
-      },
-      {
-        "id": "batch",
-        "text": "Batch prediction",
-        "level": 3
-      },
-      {
-        "id": "agents",
-        "text": "Agents",
-        "level": 3
-      },
-      {
-        "id": "automation",
-        "text": "Automation",
-        "level": 2
-      },
+      }
+    ]
+  },
+  {
+    "route": "/docs/ml/trust",
+    "title": "ML Models · Trust",
+    "description": "Whether a model can be believed today: drift, per-row explanations and reason codes, accuracy against outcomes that arrived later, calibration, the decision threshold, and how groups are treated.",
+    "terms": [
+      "/api/ml/predict/status",
+      "CalibratedClassifierCV",
+      "ML_ASSIST_MODEL",
+      "ML_DECAY_ALERT_RATIO",
+      "ML_DRIFT_ALERT_PSI",
+      "ML_EVALUATIONS_PER_SWEEP",
+      "ML_EXPLAIN_BATCH_MAX_ROWS",
+      "ML_EXPLAIN_BATCH_TOP_K",
+      "ML_EXPLAIN_MAX_ROWS",
+      "ML_EXPLAIN_TOP_K",
+      "ML_FAIRNESS_MIN_RATIO",
+      "argmax",
+      "churned",
+      "f1_macro",
+      "ml.decay.alert",
+      "ml.drift.alert",
+      "ml.fairness.check",
+      "ml.fairness.narrate",
+      "ml.fairness.review",
+      "ml.fairness.suggest",
+      "ml.threshold.set",
+      "predict",
+      "predict_proba",
+      "retained",
+      "rmse",
+      "threshold_applied"
+    ],
+    "headings": [
       {
         "id": "drift",
         "text": "Drift",
@@ -2770,126 +2995,6 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "id": "fairness-agent",
         "text": "Where the agent layer helps, and where it does not",
         "level": 3
-      },
-      {
-        "id": "api",
-        "text": "Public API",
-        "level": 2
-      },
-      {
-        "id": "external-models",
-        "text": "Bring your own model",
-        "level": 3
-      },
-      {
-        "id": "forecast-period",
-        "text": "What a forecast period is",
-        "level": 3
-      },
-      {
-        "id": "features",
-        "text": "Feature views",
-        "level": 2
-      },
-      {
-        "id": "online-store",
-        "text": "Serving them in milliseconds",
-        "level": 3
-      },
-      {
-        "id": "point-in-time",
-        "text": "Point-in-time training sets",
-        "level": 3
-      },
-      {
-        "id": "warm",
-        "text": "Warm endpoints",
-        "level": 2
-      },
-      {
-        "id": "replicas",
-        "text": "More than one copy",
-        "level": 3
-      },
-      {
-        "id": "replicas-scaling",
-        "text": "When copies are added and removed",
-        "level": 3
-      },
-      {
-        "id": "replicas-limits",
-        "text": "What a copy actually is, and how far it gets you",
-        "level": 3
-      },
-      {
-        "id": "shadow",
-        "text": "Trying a version on real traffic",
-        "level": 3
-      },
-      {
-        "id": "canary",
-        "text": "Giving it a share of real traffic",
-        "level": 3
-      },
-      {
-        "id": "data-parallel",
-        "text": "More rows than one container holds",
-        "level": 3
-      },
-      {
-        "id": "forecasting",
-        "text": "Forecasting in BI",
-        "level": 2
-      },
-      {
-        "id": "sharing",
-        "text": "Sharing and governance",
-        "level": 2
-      },
-      {
-        "id": "limits",
-        "text": "Limits",
-        "level": 2
-      },
-      {
-        "id": "operations",
-        "text": "Operations",
-        "level": 2
-      },
-      {
-        "id": "how-this-compares",
-        "text": "How this compares",
-        "level": 2
-      },
-      {
-        "id": "copies",
-        "text": "How many copies you can run",
-        "level": 3
-      },
-      {
-        "id": "use-cases",
-        "text": "Use cases",
-        "level": 2
-      },
-      {
-        "id": "use-case-plan",
-        "text": "Which plan will a customer end up on?",
-        "level": 3
-      },
-      {
-        "id": "use-case-order",
-        "text": "How much is this order worth?",
-        "level": 3
-      },
-      {
-        "id": "use-case-forecast",
-        "text": "Next quarter&apos;s revenue, on the dashboard",
-        "level": 3
-      },
-      {
-        "id": "troubleshooting",
-        "text": "Troubleshooting",
-        "level": 2
       }
     ]
   },
@@ -3275,41 +3380,73 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     "title": "Install & deploy",
     "description": "Run the whole platform on your own infrastructure. You need a Supabase project for the database and auth, and either Docker or Node.",
     "terms": [
-      "&quot;https://…&quot;",
       "--all",
-      "--cpus=2",
       "--dev",
       "--docgen",
       "--notebooks",
       "--sandbox",
-      "./docker/notebook-runtime",
-      "./services/notebook-gateway",
       ".env",
       ".env.example",
       "/api/health",
       "/api/health/ready",
-      "/tmp",
+      "SPARK_CONNECT_URL",
+      "VECTOR_STORE",
+      "deploy/k8s/app/",
+      "deploy/k8s/notebooks/",
+      "docs/INSTALL.md",
+      "http://localhost:8080",
+      "resources.limits.cpu"
+    ],
+    "headings": [
+      {
+        "id": "quick",
+        "text": "One-command setup",
+        "level": 2
+      },
+      {
+        "id": "guide",
+        "text": "In this guide",
+        "level": 2
+      },
+      {
+        "id": "manual",
+        "text": "Manual setup",
+        "level": 2
+      },
+      {
+        "id": "optional-services",
+        "text": "Optional services",
+        "level": 2
+      },
+      {
+        "id": "deploy-targets",
+        "text": "Deployment targets",
+        "level": 2
+      }
+    ]
+  },
+  {
+    "route": "/docs/self-hosting/configuration",
+    "title": "Install & deploy · Configuration",
+    "description": "Every environment variable, grouped by what it configures, and the settings that fit each way of running the platform — a laptop, one team, public embeds, a regulated network, a fleet behind a load balancer.",
+    "terms": [
+      ".env",
       "ADMIN_EMAIL",
       "ALLOW_PRIVATE_NETWORK_FETCH",
-      "APP_ROLE=analytics",
       "AUDIT_ARCHIVE_ON_PURGE",
       "BI_CRON_TOKEN",
       "BI_DIRECT_QUERY_RATE_PER_MIN",
       "BLOCK_PRIVATE_NETWORK_FETCH",
       "BUDGET_FAIL_CLOSED",
-      "BackendConfig",
       "CONNECTION_HEALTH_HOURS",
       "CONNECTOR_MAX_RETRIES",
       "CONNECTOR_RETRY_500",
       "CONNECTOR_RETRY_BASE_MS",
       "CONNECTOR_RETRY_MAX_MS",
       "CREDENTIAL_MAX_AGE_DAYS",
-      "CronJob",
-      "DENIED",
       "DISABLE_INPROCESS_SCHEDULER",
       "DOCGEN_SERVICE_URL",
       "DOCGEN_TOKEN",
-      "Deployment",
       "EMAIL_FROM",
       "ENFORCE_BUDGET_CAP",
       "FIRECRAWL_API_KEY",
@@ -3317,7 +3454,6 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "HTTP_PROXY",
       "INTEGRATION_TEST_PER_MINUTE",
       "INTERNAL_RUN_SECRET",
-      "ImagePullBackOff",
       "JS_SANDBOX_MAX_BODY_BYTES",
       "JS_SANDBOX_MAX_CONCURRENT",
       "JS_SANDBOX_MAX_TIMEOUT_MS",
@@ -3325,18 +3461,12 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "JS_SANDBOX_URL",
       "KMS_KEY_REF",
       "KMS_PROVIDER=vault",
-      "LAKEHOUSE_CATALOG_PASSWORD",
-      "LAKEHOUSE_MEMORY_LIMIT=16GB",
-      "LAKEHOUSE_S3_ENDPOINT",
-      "LAKEHOUSE_S3_URL_STYLE=path",
       "LOCAL_ENGINE_MEMORY_MB",
       "LOCAL_ENGINE_THREADS",
       "LOCAL_ENGINE_TIMEOUT_MS",
-      "LoadBalancer",
       "MCP_MAX_CONCURRENT_PER_SERVER",
       "METRICS_TOKEN",
       "MIRROR_BUDGET_BYTES",
-      "ManagedCertificate",
       "NOTEBOOK_CELL_TIMEOUT_SECONDS",
       "NOTEBOOK_CRON_TOKEN",
       "NOTEBOOK_GATEWAY_URL",
@@ -3344,7 +3474,6 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "NOTEBOOK_RUNTIME_ENABLED",
       "NOTEBOOK_RUNTIME_IMAGE",
       "NOTEBOOK_RUNTIME_SECRET",
-      "NetworkPolicy",
       "OPENROUTER_API_KEY",
       "OPENROUTER_BASE_URL",
       "OPENROUTER_DEFAULT_MODEL",
@@ -3361,7 +3490,6 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "PROVIDER_CREDS_SECRET",
       "PROVIDER_CREDS_SECRET_OLD",
       "PUBLIC_APP_URL",
-      "Provisioning",
       "RESEND_API_KEY",
       "SITE_URL",
       "SMTP_HOST",
@@ -3369,8 +3497,6 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "SMTP_PORT",
       "SMTP_SECURE",
       "SMTP_USER",
-      "SPARK_CONNECT_URL",
-      "SUPABASE_CHART_VERSION",
       "SUPABASE_PUBLISHABLE_KEY",
       "SUPABASE_SERVICE_ROLE_KEY",
       "SUPABASE_URL",
@@ -3378,13 +3504,9 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "SWARM_RUN_MAX_CONCURRENT",
       "SWARM_RUN_RATE_LIMIT_PER_MIN",
       "SWARM_RUN_TIMEOUT_MS",
-      "Service",
-      "StatefulSet",
-      "StorageClass",
       "TRUSTED_PROXY_HOPS",
       "UPLOAD_PER_MINUTE",
       "VAULT_*",
-      "VECTOR_STORE",
       "VITE_ADMIN_EMAIL",
       "VITE_SUPABASE_PUBLISHABLE_KEY",
       "VITE_SUPABASE_URL",
@@ -3399,60 +3521,21 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "WAREHOUSE_POOL_TTL_MS",
       "WAREHOUSE_QUERY_TIMEOUT_MS",
       "WAREHOUSE_QUEUE_TIMEOUT_MS",
-      "WEB_CONCURRENCY",
       "X-Forwarded-For",
-      "agentswarms-docgen",
-      "anon",
-      "authenticator",
-      "aws",
-      "baseline",
-      "change-me",
-      "deploy/k8s/app/",
-      "deploy/k8s/app/agentswarms.yaml",
-      "deploy/k8s/app/services.yaml",
-      "deploy/k8s/notebooks/",
-      "docker-compose.yml",
-      "docs/DEPLOYMENT.md",
-      "docs/INSTALL.md",
       "docs/KEY_MANAGEMENT.md",
-      "eksctl",
       "email_send_log",
-      "emptyDir",
       "function",
-      "gp3",
-      "helm",
       "http://127.0.0.1:8091",
       "http://js-sandbox:8091",
-      "http://localhost:8080",
-      "kubectl",
       "max_connections",
       "noreply@example.com",
-      "oci-bv",
       "off",
       "onboarding@resend.dev",
-      "region",
-      "resources.limits.cpu",
-      "restricted",
-      "runAsNonRoot",
-      "storage.googleapis.com",
-      "supabase/postgres",
-      "supabase_auth_admin",
-      "svc/agentswarms",
       "true",
       "web_browse",
       "yes"
     ],
     "headings": [
-      {
-        "id": "quick",
-        "text": "One-command setup",
-        "level": 2
-      },
-      {
-        "id": "manual",
-        "text": "Manual setup",
-        "level": 2
-      },
       {
         "id": "env",
         "text": "Environment reference",
@@ -3542,15 +3625,72 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "id": "recipe-fleet",
         "text": "Autoscaled behind a load balancer",
         "level": 3
-      },
+      }
+    ]
+  },
+  {
+    "route": "/docs/self-hosting/kubernetes",
+    "title": "Install & deploy · Kubernetes",
+    "description": "Running the platform on Kubernetes: what each manifest is for, then Amazon EKS, Google GKE, Azure AKS and Oracle OKE step by step, and how to verify any of them.",
+    "terms": [
+      "&quot;https://…&quot;",
+      "./docker/notebook-runtime",
+      "./services/notebook-gateway",
+      ".env",
+      "/api/health",
+      "/api/health/ready",
+      "/tmp",
+      "APP_ROLE=analytics",
+      "BI_CRON_TOKEN",
+      "BackendConfig",
+      "CronJob",
+      "DENIED",
+      "Deployment",
+      "INTERNAL_RUN_SECRET",
+      "ImagePullBackOff",
+      "LAKEHOUSE_CATALOG_PASSWORD",
+      "LAKEHOUSE_S3_ENDPOINT",
+      "LAKEHOUSE_S3_URL_STYLE=path",
+      "LoadBalancer",
+      "ManagedCertificate",
+      "NOTEBOOK_RUNTIME_IMAGE",
+      "NetworkPolicy",
+      "PUBLIC_APP_URL",
+      "Provisioning",
+      "SUPABASE_CHART_VERSION",
+      "SUPABASE_URL",
+      "Service",
+      "StatefulSet",
+      "StorageClass",
+      "agentswarms-docgen",
+      "anon",
+      "authenticator",
+      "aws",
+      "baseline",
+      "change-me",
+      "deploy/k8s/app/agentswarms.yaml",
+      "deploy/k8s/app/services.yaml",
+      "deploy/k8s/notebooks/",
+      "docker-compose.yml",
+      "docs/DEPLOYMENT.md",
+      "eksctl",
+      "emptyDir",
+      "gp3",
+      "helm",
+      "kubectl",
+      "oci-bv",
+      "resources.limits.cpu",
+      "restricted",
+      "runAsNonRoot",
+      "storage.googleapis.com",
+      "supabase/postgres",
+      "supabase_auth_admin",
+      "svc/agentswarms"
+    ],
+    "headings": [
       {
-        "id": "optional-services",
-        "text": "Optional services",
-        "level": 2
-      },
-      {
-        "id": "deploy-targets",
-        "text": "Deployment targets",
+        "id": "kubernetes-overview",
+        "text": "Kubernetes",
         "level": 2
       },
       {
@@ -3582,7 +3722,29 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "id": "k8s-verify",
         "text": "After any of them",
         "level": 3
-      },
+      }
+    ]
+  },
+  {
+    "route": "/docs/self-hosting/operations",
+    "title": "Install & deploy · Operations",
+    "description": "Scaling from one machine to many, keeping every service available, data residency, and the checks to make before exposing an instance.",
+    "terms": [
+      "--cpus=2",
+      "/api/health",
+      "/api/health/ready",
+      "APP_ROLE=analytics",
+      "DISABLE_INPROCESS_SCHEDULER",
+      "ENFORCE_BUDGET_CAP",
+      "LAKEHOUSE_MEMORY_LIMIT=16GB",
+      "PROVIDER_CREDS_SECRET",
+      "SUPABASE_URL",
+      "TRUSTED_PROXY_HOPS",
+      "WEB_CONCURRENCY",
+      "docs/DEPLOYMENT.md",
+      "region"
+    ],
+    "headings": [
       {
         "id": "scaling",
         "text": "Scaling",

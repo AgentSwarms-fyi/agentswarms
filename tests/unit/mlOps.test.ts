@@ -13,6 +13,7 @@ import { TRAIN_PY } from "@/utils/ml/pyTrain";
 import { beatsProduction, nextMlRunAt } from "@/utils/ml/schedule.server";
 import { buildModelCard } from "@/utils/ml/modelCard.server";
 import type { MlModelRow, MlVersionRow } from "@/utils/ml/access.server";
+import { docsFamily } from "./docsPages";
 
 const REPO = path.resolve(__dirname, "../..");
 const rd = (p: string) => readFileSync(path.join(REPO, p), "utf8");
@@ -287,7 +288,7 @@ describe("compare and docs", () => {
 
   it("describe automation, drift, the card, GPUs and how this compares, with every knob", () => {
     const md = rd("docs/ML.md");
-    const page = rd("src/routes/docs.ml.tsx");
+    const page = docsFamily("ml");
     for (const phrase of [
       "## Automation",
       "## Drift",
@@ -301,14 +302,10 @@ describe("compare and docs", () => {
     for (const id of ['id="automation"', 'id="drift"', 'id="how-this-compares"'])
       expect(page).toContain(id);
     for (const knob of ["ML_TRAIN_GPUS", "ML_DRIFT_ALERT_PSI"]) {
-      for (const f of [
-        ".env.example",
-        "docs/SCALE_AND_LIMITS.md",
-        "docs/ML.md",
-        "src/routes/docs.ml.tsx",
-      ]) {
+      for (const f of [".env.example", "docs/SCALE_AND_LIMITS.md", "docs/ML.md"]) {
         expect(rd(f), `${knob} in ${f}`).toContain(knob);
       }
+      expect(page, `${knob} in the in-app ML guide`).toContain(knob);
     }
     // The comparison is honest about the gaps — and about which ones have
     // closed. Warm endpoints scale across copies now, so the old admission

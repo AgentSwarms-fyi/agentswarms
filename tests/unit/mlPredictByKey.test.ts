@@ -16,13 +16,14 @@ import { describe, expect, it } from "vitest";
 
 import { resolutionError } from "@/lib/featureViews";
 import { keyedModelViews } from "@/utils/featureViews/keyed.server";
+import { docsFamily } from "./docsPages";
 
 const rd = (p: string) => readFileSync(p, "utf8");
 const REGISTRY = rd("src/utils/tools/registry.server.ts");
 const ROUTE = rd("src/routes/api/ml.predict.ts");
 const KEYED = rd("src/utils/featureViews/keyed.server.ts");
 const DOCS = rd("docs/ML.md");
-const INAPP = rd("src/routes/docs.ml.tsx");
+const INAPP = docsFamily("ml");
 
 /** Code with its line comments removed — guards must read code, not prose. */
 const codeOnly = (s: string) => s.replace(/^\s*\/\/.*$/gm, "");

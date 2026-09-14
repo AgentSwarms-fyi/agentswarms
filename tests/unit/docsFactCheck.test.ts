@@ -202,12 +202,18 @@ describe("the trust pages describe the software that exists", () => {
     // and were absent from the index that presents itself as the map. A page
     // nobody links is a page nobody finds from the handbook's front door.
     const index = readFileSync("src/routes/docs.index.tsx", "utf8");
-    const linked = new Set([...index.matchAll(/"\/docs\/([a-z-]+)"/g)].map((m) => m[1]));
+    const linked = new Set([...index.matchAll(/"\/docs\/([a-z/-]+)"/g)].map((m) => m[1]));
     const pages = readdirSync("src/routes")
       .filter((f) => f.startsWith("docs.") && f.endsWith(".tsx"))
-      .map((f) => f.slice("docs.".length, -".tsx".length))
+      // docs.ml_.training.tsx is /docs/ml/training, a page of the ML guide.
+      .map((f) => f.slice("docs.".length, -".tsx".length).replace(/_\./g, "/"))
       .filter((n) => n && n !== "index");
-    const missing = pages.filter((n) => !linked.has(n));
+    // A guide's sub-page is reached through the guide: the index links the
+    // overview, and the overview's own map links every sub-page (that map is
+    // guarded in docsCurrency, where the sidebar must link each of them).
+    const reached = (n: string) =>
+      linked.has(n) || (n.includes("/") && linked.has(n.split("/")[0]));
+    const missing = pages.filter((n) => !reached(n));
     expect(missing, `docs.index.tsx links no page for: ${missing.join(", ")}`).toEqual([]);
   });
 

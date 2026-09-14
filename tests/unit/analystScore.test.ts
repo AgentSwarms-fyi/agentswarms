@@ -30,6 +30,7 @@ import {
   type ScorableModel,
   type ScoreRowsResult,
 } from "@/lib/aiAnalyst";
+import { docsFamily } from "./docsPages";
 
 const rd = (p: string) => readFileSync(p, "utf8");
 const LIB = rd("src/lib/aiAnalyst.ts");
@@ -42,7 +43,7 @@ const DOCS = [
   rd("docs/BUSINESS_INTELLIGENCE.md"),
   rd("src/routes/docs.bi.tsx"),
   rd("docs/ML.md"),
-  rd("src/routes/docs.ml.tsx"),
+  docsFamily("ml"),
 ];
 
 const codeOnly = (s: string) => s.replace(/^\s*\/\/.*$/gm, "").replace(/\{\/\*[\s\S]*?\*\/\}/g, "");

@@ -13,6 +13,7 @@ import {
   type FeatureView,
   type TrainingSpine,
 } from "@/lib/featureViews";
+import { docsFamily } from "./docsPages";
 
 const rd = (p: string) => readFileSync(p, "utf8");
 
@@ -173,6 +174,6 @@ describe("the wiring", () => {
 
   it("is documented in both doc sets", () => {
     expect(rd("docs/ML.md")).toContain("Point-in-time training sets");
-    expect(rd("src/routes/docs.ml.tsx")).toContain("point-in-time");
+    expect(docsFamily("ml")).toContain("point-in-time");
   });
 });

@@ -14,6 +14,7 @@ import path from "node:path";
 import { TRAIN_PY } from "@/utils/ml/pyTrain";
 import { ML_PERIODS, ML_PERIOD_LABEL, ML_PERIOD_PLURAL } from "@/utils/ml/types";
 import { forecastNotes } from "@/utils/tools/registry.server";
+import { docsFamily } from "./docsPages";
 
 const REPO = path.resolve(__dirname, "../..");
 const rd = (p: string) => readFileSync(path.join(REPO, p), "utf8");
@@ -105,9 +106,12 @@ describe("every surface names the period", () => {
   });
 
   it("the docs explain automatic periods, the dropped last period and the flat baselines", () => {
-    for (const f of ["docs/ML.md", "src/routes/docs.ml.tsx"]) {
+    for (const [f, text] of [
+      ["docs/ML.md", rd("docs/ML.md")],
+      ["the in-app ML guide", docsFamily("ml")],
+    ]) {
       // Prose wraps, so a phrase may straddle a line break.
-      const doc = rd(f).toLowerCase().replace(/\s+/g, " ");
+      const doc = text.toLowerCase().replace(/\s+/g, " ");
       expect(doc, f).toContain("moving average");
       expect(doc, f).toContain("left out");
       expect(doc, f).toContain("flat line");

@@ -19,6 +19,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import yaml from "js-yaml";
+import { docsFamilyFiles } from "./docsPages";
 
 const rd = (p: string) => readFileSync(p, "utf8");
 
@@ -152,7 +153,7 @@ describe("every optional profile is documented where somebody would look", () =>
     "docs/DEPLOYMENT.md",
     "docs/INSTALL.md",
     "docs/SYSTEM_REQUIREMENTS.md",
-    "src/routes/docs.self-hosting.tsx",
+    ...docsFamilyFiles("self-hosting"),
   ];
 
   it.each(COUNTED)("%s never states a profile count that is out of date", (file) => {

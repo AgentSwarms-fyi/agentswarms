@@ -19,6 +19,7 @@ import {
   prepWarehouseBinding,
   type PrepFlowConfig,
 } from "@/lib/dataPrepCore";
+import { docsFamily } from "./docsPages";
 
 const REPO = path.resolve(__dirname, "../..");
 const rd = (p: string) => readFileSync(path.join(REPO, p), "utf8");
@@ -191,6 +192,6 @@ describe("the tab and the docs", () => {
     expect(rd("src/routes/docs.data-prep.tsx")).toContain('<H2 id="lakehouse">');
     expect(rd("docs/BUSINESS_INTELLIGENCE.md")).toContain("- **Lakehouse tables in and out**");
     expect(rd("docs/ML.md")).toContain("## Prepare a training set");
-    expect(rd("src/routes/docs.ml.tsx")).toContain('<H2 id="prepare">');
+    expect(docsFamily("ml")).toContain('<H2 id="prepare">');
   });
 });

@@ -23,6 +23,7 @@ import {
   scoreKeys,
   varyingParams,
 } from "@/lib/experiments";
+import { docsFamily } from "./docsPages";
 
 const REPO = path.resolve(__dirname, "../..");
 const rd = (p: string) => readFileSync(path.join(REPO, p), "utf8");
@@ -259,6 +260,6 @@ describe("the wiring", () => {
 
   it("is documented in both doc sets", () => {
     expect(rd("docs/ML.md")).toContain("## Experiments");
-    expect(rd("src/routes/docs.ml.tsx")).toContain('id="experiments"');
+    expect(docsFamily("ml")).toContain('id="experiments"');
   });
 });

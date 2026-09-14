@@ -17,6 +17,7 @@ import {
   headlineMetric,
   mlToolData,
 } from "@/lib/mlToolResult";
+import { docsFamily } from "./docsPages";
 
 const rd = (p: string) => readFileSync(p, "utf8");
 const LOOP = rd("src/utils/tools/loop.server.ts");
@@ -24,7 +25,7 @@ const PANEL = rd("src/routes/_authenticated/playground.tsx");
 const DOCS = [
   rd("docs/AGENT_CHAT.md"),
   rd("docs/ML.md"),
-  rd("src/routes/docs.ml.tsx"),
+  docsFamily("ml"),
   rd("src/routes/docs.playground.tsx"),
 ];
 

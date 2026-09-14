@@ -18,6 +18,7 @@
 import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
+import { docsFamily } from "./docsPages";
 
 const rd = (p: string) => readFileSync(p, "utf8");
 const SERVE = rd("src/utils/ml/serve.server.ts");
@@ -30,7 +31,7 @@ const MIGRATION = rd("supabase/migrations/20260909000000_ml_shadow_candidate.sql
 const COUNTER = rd("supabase/migrations/20260910000000_ml_shadow_counter.sql");
 const LIB = rd("src/lib/mlShadow.ts");
 const MD = rd("docs/ML.md");
-const PAGE = rd("src/routes/docs.ml.tsx");
+const PAGE = docsFamily("ml");
 
 describe("a candidate never answers a caller", () => {
   it("the candidate side is reachable ONLY through the canary decision", () => {

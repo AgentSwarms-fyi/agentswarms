@@ -17,6 +17,7 @@ import {
   ML_TASK_LABEL,
 } from "@/utils/ml/types";
 import { TRAIN_PY } from "@/utils/ml/pyTrain";
+import { docsFamily } from "./docsPages";
 
 const REPO = path.resolve(__dirname, "../..");
 const rd = (p: string) => readFileSync(path.join(REPO, p), "utf8");
@@ -273,7 +274,7 @@ describe("the wizard and the pages", () => {
 describe("the docs", () => {
   it("describe every task in the guide and on the page", () => {
     const md = rd("docs/ML.md");
-    const page = rd("src/routes/docs.ml.tsx");
+    const page = docsFamily("ml");
     for (const t of ML_TASKS) {
       expect(md).toContain(ML_TASK_LABEL[t]);
       expect(page).toContain(ML_TASK_LABEL[t]);

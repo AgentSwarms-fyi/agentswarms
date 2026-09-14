@@ -109,7 +109,7 @@ describe("no page promises a setting the code does not read", () => {
     // from its table row into surrounding prose within this same section. That
     // survives, and it should — the setting is still documented where someone
     // would look. Removing it from the page altogether is caught.
-    const selfHosting = readFileSync("src/routes/docs.self-hosting.tsx", "utf8");
+    const selfHosting = readFileSync("src/routes/docs.self-hosting_.configuration.tsx", "utf8");
     const reference = selfHosting.slice(
       selfHosting.indexOf('id="env"'),
       selfHosting.indexOf('id="recipes"'),
@@ -175,7 +175,16 @@ describe("every internal link goes somewhere", () => {
     for (const f of readdirSync("src/routes")) {
       if (!f.endsWith(".tsx")) continue;
       const base = f.replace(/\.tsx$/, "");
-      if (base.startsWith("docs.")) add("/docs/" + base.slice(5).replace(/^index$/, ""));
+      // docs.ml_.training.tsx is /docs/ml/training: the `_` escapes the dot so
+      // the page is a sibling route, not one nested inside docs.ml.tsx.
+      if (base.startsWith("docs."))
+        add(
+          "/docs/" +
+            base
+              .slice(5)
+              .replace(/^index$/, "")
+              .replace(/_\./g, "/"),
+        );
       else if (!base.startsWith("_") && !base.startsWith("api.")) add("/" + base);
     }
     for (const dir of ["src/routes/_authenticated"]) {
@@ -227,7 +236,7 @@ describe("every internal link goes somewhere", () => {
 });
 
 describe("the configuration recipes are usable", () => {
-  const selfHosting = readFileSync("src/routes/docs.self-hosting.tsx", "utf8");
+  const selfHosting = readFileSync("src/routes/docs.self-hosting_.configuration.tsx", "utf8");
 
   it("covers the deployment shapes an operator actually has", () => {
     // A reference table lists every knob; it does not tell you which ones go

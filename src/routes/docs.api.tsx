@@ -451,7 +451,7 @@ function verify(rawBody, headers, secret) {
         then <C>POST /api/ml/predict</C> with rows, <C>POST /api/ml/predict/batch</C> with a
         lakehouse table, or <C>POST /api/ml/train</C> to start a version; a model trained elsewhere
         is registered with <C>POST /api/ml/models/register</C>. Every endpoint, body and status code
-        is in <DocLink to="/docs/ml#api">the ML guide&apos;s API section</DocLink>.
+        is in <DocLink to="/docs/ml/predictions#api">the ML guide&apos;s API section</DocLink>.
       </P>
 
       <H2 id="scim">Provisioning users from the identity provider</H2>

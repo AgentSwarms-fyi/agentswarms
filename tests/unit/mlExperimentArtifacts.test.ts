@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import { EXTERNAL_TASKS, artifactFileName } from "@/lib/experiments";
 import { experimentArtifactKey } from "@/utils/ml/experimentArtifacts.server";
+import { docsFamily } from "./docsPages";
 
 const rd = (p: string) => readFileSync(p, "utf8");
 
@@ -160,7 +161,7 @@ describe("the wiring", () => {
   it("is documented in both doc sets", () => {
     expect(rd("docs/ML.md")).toContain("run.save_model(");
     expect(rd("docs/ML.md")).toContain("ML_ARTIFACT_MAX_MB");
-    expect(rd("src/routes/docs.ml.tsx")).toContain("save_model");
+    expect(docsFamily("ml")).toContain("save_model");
     expect(rd("src/components/ml/ExperimentsPanel.tsx")).toContain("save_model");
   });
 });

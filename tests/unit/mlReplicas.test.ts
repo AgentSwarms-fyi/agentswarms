@@ -14,6 +14,7 @@
 import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
+import { docsFamily } from "./docsPages";
 
 const rd = (p: string) => readFileSync(p, "utf8");
 const SERVE = rd("src/utils/ml/serve.server.ts");
@@ -199,7 +200,7 @@ describe("the reaper understands copies", () => {
 
 describe("the docs say what a copy actually lands on", () => {
   const MD = rd("docs/ML.md");
-  const PAGE = rd("src/routes/docs.ml.tsx");
+  const PAGE = docsFamily("ml");
 
   it("names the backend, because a copy is a container or a Pod", () => {
     // startReplica goes through startSession -> getOrchestrator, so the answer

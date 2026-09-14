@@ -41,19 +41,34 @@ const docRoutes = new Set(
         f
           .replace(/^docs\./, "")
           .replace(/\.tsx$/, "")
+          // docs.ml_.training.tsx is /docs/ml/training (the `_` escape).
+          .replace(/_\./g, ".")
           .replace(/\./g, "/"),
   ),
 );
 
 const idsOf = (route) => {
-  const file =
+  // A sub-page's file carries the `_` escape (docs.ml_.training.tsx); a
+  // top-level page's does not. Try the escaped spelling first.
+  const segments = route
+    .replace(/^\/docs\/?/, "")
+    .split("/")
+    .filter(Boolean);
+  const candidates =
     route === "/docs"
-      ? "docs.index.tsx"
-      : "docs." + route.replace(/^\/docs\//, "").replace(/\//g, ".") + ".tsx";
-  const p = path.join(ROUTES, file);
-  return fs.existsSync(p)
-    ? new Set([...read(p).matchAll(/<H[23]\s+id="([^"]+)"/g)].map((m) => m[1]))
-    : null;
+      ? ["docs.index.tsx"]
+      : segments.length > 1
+        ? [
+            "docs." + segments.slice(0, -1).join("_.") + "_." + segments.at(-1) + ".tsx",
+            "docs." + segments.join(".") + ".tsx",
+          ]
+        : ["docs." + segments.join(".") + ".tsx"];
+  for (const file of candidates) {
+    const p = path.join(ROUTES, file);
+    if (fs.existsSync(p))
+      return new Set([...read(p).matchAll(/<H[23]\s+id="([^"]+)"/g)].map((m) => m[1]));
+  }
+  return null;
 };
 
 /** Sidebar groups, read from the shell so the docs' own nav is the source. */
@@ -181,6 +196,7 @@ for (const f of DOCS) {
           f
             .replace(/^docs\./, "")
             .replace(/\.tsx$/, "")
+            .replace(/_\./g, ".")
             .replace(/\./g, "/");
     const eyebrow = src.match(/eyebrow="([^"]+)"/)?.[1];
     const group = groupOfRoute.get(route);

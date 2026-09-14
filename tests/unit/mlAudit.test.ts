@@ -8,6 +8,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { TRAIN_PY } from "@/utils/ml/pyTrain";
 import { versionCaveats } from "@/utils/tools/registry.server";
+import { docsFamily } from "./docsPages";
 
 const REPO = path.resolve(__dirname, "../..");
 const rd = (p: string) => readFileSync(path.join(REPO, p), "utf8");
@@ -152,8 +153,11 @@ describe("the warnings reach every surface, not only the promoted version", () =
 
 describe("the docs explain every warning", () => {
   it("in the repo docs and the in-app page, with a troubleshooting row for each symptom", () => {
-    for (const f of ["docs/ML.md", "src/routes/docs.ml.tsx"]) {
-      const doc = rd(f).replace(/\s+/g, " ");
+    for (const [f, text] of [
+      ["docs/ML.md", rd("docs/ML.md")],
+      ["the in-app ML guide", docsFamily("ml")],
+    ]) {
+      const doc = text.replace(/\s+/g, " ");
       expect(doc, f).toContain("What the trainer warns about");
       for (const phrase of [
         "Possible leakage",

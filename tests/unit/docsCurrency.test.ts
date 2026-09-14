@@ -25,16 +25,29 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
+import { docsFamily } from "./docsPages";
 
 const root = resolve(__dirname, "../..");
 const read = (rel: string) => readFileSync(resolve(root, rel), "utf8");
+// A guide that was split into sub-pages is read whole: a capability may be
+// documented on any of them, and the guard is that it is documented at all.
+const readDoc = (doc: string) => {
+  const m = doc.match(/^src\/routes\/docs\.([a-z-]+)\.tsx \(and its sub-pages\)$/);
+  return m ? docsFamily(m[1]) : read(doc);
+};
 const has = (rel: string) => existsSync(resolve(root, rel));
 
 /** Every docs page slug on disk, excluding the index and the layout. */
 const docPageSlugs = (): string[] =>
   readdirSync(resolve(root, "src/routes"))
     .filter((f) => /^docs\..+\.tsx$/.test(f) && f !== "docs.index.tsx")
-    .map((f) => f.replace(/^docs\./, "").replace(/\.tsx$/, ""));
+    // docs.ml_.training.tsx is the sibling route /docs/ml/training.
+    .map((f) =>
+      f
+        .replace(/^docs\./, "")
+        .replace(/\.tsx$/, "")
+        .replace(/_\./g, "/"),
+    );
 
 type Currency = {
   /** What shipped. */
@@ -125,28 +138,28 @@ const CASES: Currency[] = [
     capability: "Models train in a sandbox and explain themselves by permutation importance",
     code: "src/utils/ml/pyTrain.ts",
     codeContains: "permutation_importance(",
-    doc: "src/routes/docs.ml.tsx",
+    doc: "src/routes/docs.ml.tsx (and its sub-pages)",
     docMentions: [/permutation importance/i],
   },
   {
     capability: "A prediction is audited as a data read with a digest",
     code: "src/utils/ml/predict.server.ts",
     codeContains: "ml.predict_query",
-    doc: "src/routes/docs.ml.tsx",
+    doc: "src/routes/docs.ml.tsx (and its sub-pages)",
     docMentions: [/ml\.predict_query/],
   },
   {
     capability: "Clustering, anomaly detection and recommendation are trained by the same program",
     code: "src/utils/ml/pyTrain.ts",
     codeContains: "def _train_recommendation(",
-    doc: "src/routes/docs.ml.tsx",
+    doc: "src/routes/docs.ml.tsx (and its sub-pages)",
     docMentions: [/item-item cosine similarity/i, /isolation forest/i, /silhouette/i],
   },
   {
     capability: "A model can be published as an API with per-key scopes",
     code: "src/utils/ml/api.server.ts",
     codeContains: "export async function authenticateMlApiKey(",
-    doc: "src/routes/docs.ml.tsx",
+    doc: "src/routes/docs.ml.tsx (and its sub-pages)",
     docMentions: [/\/api\/ml\/predict/, /ml\.api_key\.denied/],
   },
   {
@@ -160,21 +173,21 @@ const CASES: Currency[] = [
     capability: "Models retrain and score on a schedule, on the platform's one clock",
     code: "src/utils/ml/schedule.server.ts",
     codeContains: "export async function processDueMlSchedules(",
-    doc: "src/routes/docs.ml.tsx",
+    doc: "src/routes/docs.ml.tsx (and its sub-pages)",
     docMentions: [/promote when better/i, /ml\.schedule\.run/],
   },
   {
     capability: "Every batch prediction measures drift against the training distribution",
     code: "src/utils/ml/predict.server.ts",
     codeContains: 'action: "ml.drift.alert"',
-    doc: "src/routes/docs.ml.tsx",
+    doc: "src/routes/docs.ml.tsx (and its sub-pages)",
     docMentions: [/population stability index/i, /ML_DRIFT_ALERT_PSI/],
   },
   {
     capability: "One forecaster for charts, the Analyst and alerts",
     code: "src/lib/mlForecast.ts",
     codeContains: "export function forecastValues",
-    doc: "src/routes/docs.ml.tsx",
+    doc: "src/routes/docs.ml.tsx (and its sub-pages)",
     docMentions: [/cannot\s+disagree/],
   },
   {
@@ -232,7 +245,7 @@ describe("the in-app handbook describes what shipped", () => {
       });
 
       it(`is documented in ${c.doc.split("/").pop()}`, () => {
-        const page = read(c.doc);
+        const page = readDoc(c.doc);
         for (const phrase of c.docMentions) {
           expect(
             page,
@@ -262,7 +275,7 @@ describe("every handbook page is reachable", () => {
     // The other direction: a nav entry for a deleted page is a 404 wearing a
     // menu item.
     const shell = read("src/components/docs/DocsShell.tsx");
-    const linked = [...shell.matchAll(/"\/docs\/([a-z-]+)"/g)].map((m) => m[1]);
+    const linked = [...shell.matchAll(/"\/docs\/([a-z/-]+)"/g)].map((m) => m[1]);
     const slugs = new Set(docPageSlugs());
     const dangling = [...new Set(linked)].filter((s) => !slugs.has(s));
     expect(dangling, `sidebar links with no page: ${dangling.join(", ")}`).toEqual([]);

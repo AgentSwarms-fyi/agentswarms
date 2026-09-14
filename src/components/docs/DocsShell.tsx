@@ -1,10 +1,11 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useLocation } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import {
   Activity,
   AlertTriangle,
   ArrowLeft,
   ArrowRight,
+  ArrowUp,
   Blocks,
   BookOpen,
   Bot,
@@ -49,6 +50,14 @@ export type DocItem = {
   to: string;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
+  /**
+   * A sub-page of a longer guide: the route of the page it belongs to. It
+   * sits indented under that page in the sidebar, shown only while the
+   * reader is inside the family, so the rail stays as short as it was
+   * before the guides were split. Kept flat (no nested arrays) because
+   * scripts/check-docs.mjs reads the groups from this file with a regex.
+   */
+  parent?: string;
 };
 
 export type DocGroup = {
@@ -90,6 +99,11 @@ export const DOCS_GROUPS: DocGroup[] = [
       { to: "/docs/semantics", label: "Semantic Layer", icon: Layers },
       { to: "/docs/bi", label: "BI Workspace", icon: PieChart },
       { to: "/docs/ml", label: "ML Models", icon: Brain },
+      { to: "/docs/ml/training", label: "Training", icon: Brain, parent: "/docs/ml" },
+      { to: "/docs/ml/predictions", label: "Predictions", icon: Brain, parent: "/docs/ml" },
+      { to: "/docs/ml/serving", label: "Serving", icon: Brain, parent: "/docs/ml" },
+      { to: "/docs/ml/trust", label: "Trust", icon: Brain, parent: "/docs/ml" },
+      { to: "/docs/ml/operations", label: "Operations", icon: Brain, parent: "/docs/ml" },
       { to: "/docs/workflows", label: "Workflows", icon: Workflow },
       { to: "/docs/data-monitors", label: "Data monitors", icon: HeartPulse },
       { to: "/docs/ai-sql", label: "AI in SQL", icon: Sparkles },
@@ -120,7 +134,27 @@ export const DOCS_GROUPS: DocGroup[] = [
   },
   {
     label: "Self-hosting",
-    items: [{ to: "/docs/self-hosting", label: "Install & deploy", icon: Server }],
+    items: [
+      { to: "/docs/self-hosting", label: "Install & deploy", icon: Server },
+      {
+        to: "/docs/self-hosting/configuration",
+        label: "Configuration",
+        icon: Server,
+        parent: "/docs/self-hosting",
+      },
+      {
+        to: "/docs/self-hosting/kubernetes",
+        label: "Kubernetes",
+        icon: Server,
+        parent: "/docs/self-hosting",
+      },
+      {
+        to: "/docs/self-hosting/operations",
+        label: "Operations",
+        icon: Server,
+        parent: "/docs/self-hosting",
+      },
+    ],
   },
 ];
 
@@ -138,6 +172,13 @@ function SidebarLinks({ current }: { current: string }) {
           <ul className="space-y-0.5">
             {group.items.map((item) => {
               const active = item.to === current;
+              // A family is open while the reader is on the parent or any
+              // of its sub-pages; a parent with the reader inside it is
+              // marked lightly so the highlighted child has context.
+              const inFamily = (parent: string) =>
+                current === parent || current.startsWith(`${parent}/`);
+              if (item.parent && !inFamily(item.parent)) return null;
+              const parentOfCurrent = !item.parent && current !== item.to && inFamily(item.to);
               return (
                 <li key={item.to}>
                   {/* TanStack's Link sets aria-current="page" itself, and by
@@ -150,12 +191,15 @@ function SidebarLinks({ current }: { current: string }) {
                     activeOptions={{ exact: true }}
                     className={
                       "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition " +
+                      (item.parent ? "ml-5 border-l border-border/60 pl-3 text-[13px] " : "") +
                       (active
                         ? "bg-primary/15 text-foreground font-medium"
-                        : "text-muted-foreground hover:bg-primary/10 hover:text-foreground")
+                        : parentOfCurrent
+                          ? "text-foreground"
+                          : "text-muted-foreground hover:bg-primary/10 hover:text-foreground")
                     }
                   >
-                    <item.icon className="h-3.5 w-3.5" />
+                    {item.parent ? null : <item.icon className="h-3.5 w-3.5" />}
                     <span>{item.label}</span>
                   </Link>
                 </li>
@@ -301,10 +345,35 @@ function useHeadings(pathname: string): { headings: Heading[]; activeId: string 
  * the difference between a rail that navigates the page and one that lists its
  * chapter titles: /docs/swarms has 11 H2s and 19 H3s.
  */
+/**
+ * The H2 whose section holds the active heading — the active H3's parent,
+ * or the active H2 itself. The rail expands only that section's H3s: with
+ * every H3 shown, the ML guide's rail ran to fifty-eight entries and read
+ * as a second page rather than a map of the first.
+ */
+export function activeSectionOf(
+  headings: { id: string; level: number }[],
+  activeId: string | null,
+): string | null {
+  if (!activeId) return null;
+  let section: string | null = null;
+  for (const h of headings) {
+    if (h.level === 2) section = h.id;
+    if (h.id === activeId) return section;
+  }
+  return null;
+}
+
 export function DocsToc({ pathname }: { pathname: string }) {
   const { headings, activeId } = useHeadings(pathname);
 
   if (headings.length < 2) return null;
+  const section = activeSectionOf(headings, activeId);
+  let current: string | null = null;
+  const shown = headings.filter((h) => {
+    if (h.level === 2) current = h.id;
+    return h.level === 2 || current === section;
+  });
 
   return (
     <nav aria-label="On this page" className="text-sm">
@@ -312,7 +381,7 @@ export function DocsToc({ pathname }: { pathname: string }) {
         On this page
       </p>
       <ul className="space-y-1 border-l border-border/60">
-        {headings.map((h) => (
+        {shown.map((h) => (
           <li key={h.id}>
             <a
               href={`#${h.id}`}
@@ -416,22 +485,121 @@ export function DocsHeader({
       {description && (
         <p className="mt-3 text-base leading-relaxed text-muted-foreground">{description}</p>
       )}
+      <DocsContents />
     </header>
+  );
+}
+
+/** A page is long enough to want a map at the top from this many sections. */
+export const CONTENTS_FROM_SECTIONS = 5;
+
+/**
+ * "In this guide": the page's sections as a row of links under the title,
+ * on pages with CONTENTS_FROM_SECTIONS or more. The rail on the right does
+ * the same job from xl up, but a reader arriving on a long page sees the
+ * title, a paragraph, and no idea what the next two thousand lines hold;
+ * below xl the rail is a collapsed disclosure. Rendered from the headings
+ * in the DOM, so it cannot drift from the page.
+ */
+/**
+ * What the map lists: the sections, when the page has enough of them;
+ * otherwise sections and subsections together, for a page that is one or
+ * two sections deep in subsections (the Kubernetes walk-through is one
+ * section with a cloud per subsection). Nothing on a short page.
+ */
+export function contentsEntries<T extends { level: number }>(headings: T[]): T[] {
+  const sections = headings.filter((h) => h.level === 2);
+  if (sections.length >= CONTENTS_FROM_SECTIONS) return sections;
+  const all = headings.filter((h) => h.level === 2 || h.level === 3);
+  return all.length >= CONTENTS_FROM_SECTIONS ? all : [];
+}
+
+export function DocsContents() {
+  const { pathname } = useLocation();
+  const { headings } = useHeadings(pathname.replace(/\/$/, "") || "/docs");
+  const entries = contentsEntries(headings);
+  if (entries.length === 0) return null;
+  const onlySections = entries.every((h) => h.level === 2);
+  return (
+    <nav aria-label="In this guide" className="mt-5 print:hidden">
+      <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+        In this guide · {entries.length} {onlySections ? "sections" : "headings"}
+      </p>
+      <ol className="mt-2 flex flex-wrap gap-1.5">
+        {entries.map((h) => (
+          <li key={h.id}>
+            <a
+              href={`#${h.id}`}
+              className="inline-block rounded-full border border-border/60 bg-card/40 px-2.5 py-1 text-[12px] leading-snug text-muted-foreground transition hover:border-primary/50 hover:text-foreground"
+            >
+              {h.text}
+            </a>
+          </li>
+        ))}
+      </ol>
+    </nav>
+  );
+}
+
+/**
+ * Back to the top of a long page, shown once the reader is well into it.
+ * The sticky rails are hidden below xl and lg, which is where the button
+ * earns its place: a phone reader two thousand lines down has no other way
+ * back to the map than scrolling.
+ */
+export function BackToTop() {
+  const [shown, setShown] = useState(false);
+  useEffect(() => {
+    const onScroll = () => setShown(window.scrollY > 600);
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+  if (!shown) return null;
+  return (
+    <button
+      type="button"
+      onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+      aria-label="Back to top"
+      title="Back to top"
+      className="fixed bottom-6 right-6 z-40 rounded-full border border-border/60 bg-card/90 p-2.5 text-muted-foreground shadow-md backdrop-blur transition hover:border-primary/50 hover:text-foreground print:hidden"
+    >
+      <ArrowUp className="h-4 w-4" />
+    </button>
+  );
+}
+
+/** A hover anchor on a heading: the section's link, one click away, no id-hunting. */
+function Anchor({ id }: { id?: string }) {
+  if (!id) return null;
+  return (
+    <a
+      href={`#${id}`}
+      aria-label="Link to this section"
+      className="ml-2 text-primary/50 opacity-0 transition hover:text-primary focus:opacity-100 group-hover:opacity-100 motion-reduce:transition-none print:hidden"
+    >
+      #
+    </a>
   );
 }
 
 export function H2({ id, children }: { id?: string; children: React.ReactNode }) {
   return (
-    <h2 id={id} className="scroll-mt-24 mt-12 text-2xl font-bold tracking-tight text-foreground">
+    <h2
+      id={id}
+      className="group scroll-mt-24 mt-12 text-2xl font-bold tracking-tight text-foreground"
+    >
       {children}
+      <Anchor id={id} />
     </h2>
   );
 }
 
 export function H3({ id, children }: { id?: string; children: React.ReactNode }) {
   return (
-    <h3 id={id} className="scroll-mt-24 mt-8 text-lg font-semibold text-foreground">
+    <h3 id={id} className="group scroll-mt-24 mt-8 text-lg font-semibold text-foreground">
       {children}
+      <Anchor id={id} />
     </h3>
   );
 }

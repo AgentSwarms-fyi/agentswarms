@@ -22,6 +22,7 @@ import {
   withDatabase,
   checkCatalogDump,
 } from "../../scripts/lib/backup-core.mjs";
+import { docsFamily } from "./docsPages";
 
 const REPO = path.resolve(__dirname, "../..");
 const rd = (p: string) => readFileSync(path.join(REPO, p), "utf8");
@@ -207,7 +208,7 @@ describe("backup core: SigV4", () => {
 describe("backup & restore: scripts and docs agree", () => {
   const pkg = JSON.parse(rd("package.json"));
   const deployment = rd("docs/DEPLOYMENT.md");
-  const inApp = rd("src/routes/docs.self-hosting.tsx");
+  const inApp = docsFamily("self-hosting");
   const backup = rd("scripts/backup.mjs");
   const restore = rd("scripts/restore.mjs");
 
