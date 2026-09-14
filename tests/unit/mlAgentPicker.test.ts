@@ -190,7 +190,7 @@ describe("the server", () => {
     expect(ml).toMatch(/runMlPredict\(c, a, cfg\.ml_model_names\)/);
     expect(REGISTRY).toContain("mlModelsAllowed([model], allow).length === 0");
     expect(REGISTRY).toContain("is not enabled for ${who}");
-    expect(REGISTRY).toContain('via === "agent_tool" ? "this agent" : "this node"');
+    expect(REGISTRY).toContain('via === "agent_tool" ? "this agent" : via === "ai_analyst"');
   });
 
   it("reads the list when the agent is saved, and merges it when it chats", () => {

@@ -642,6 +642,14 @@ with agentswarms.start_run("churn-v2", params={"lr": 0.01, "depth": 6}) as run:
         tool&apos;s full result (the panel&apos;s generic preview is a 400-character slice, which
         for a prediction ends mid-probability), and an error is shown as the error.
       </P>
+      <P>
+        <strong>In the AI Analyst.</strong> A plan may score a step&apos;s rows with a model in
+        scope (<C>{'"score": { "model": "<name>" }'}</C>): the step&apos;s SQL selects the entities,
+        the model adds the prediction columns, and the step carries a <strong>scored</strong> badge
+        with the model, version, headline metric, rows scored and where the features came from. The
+        write-up reports predictions as the model&apos;s estimates, never as observed values.
+        Details under <DocLink to="/docs/bi">Business Intelligence → AI Analyst</DocLink>.
+      </P>
 
       <H2 id="automation">Automation</H2>
       <P>

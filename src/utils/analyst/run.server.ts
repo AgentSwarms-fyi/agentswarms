@@ -31,6 +31,7 @@ import { parseModelChoice } from "@/utils/providers/modelChoice";
 import { llmJsonServer } from "@/utils/bi/llmJson.server";
 import { runLocalSqlForUser } from "@/utils/bi/refresh.server";
 import { runSemanticQuery } from "@/utils/semantic/query.server";
+import { scorableModelsForUser, scoreRowsForAnalyst } from "@/utils/ml/scoreRows.server";
 import type { DatasetMeta, QueryResult } from "@/lib/sqlEngine";
 import type { SemanticQuery } from "@/lib/semanticLayer";
 
@@ -240,6 +241,10 @@ export async function runAnalystTurnServer(args: {
       execute: executor.execute,
       dialect: executor.dialect,
       llm,
+      // Scored steps score as the OWNER too — the same models the owner's own
+      // analyst may name, through the same helper the browser path reaches.
+      models: await scorableModelsForUser(args.ownerId).catch(() => []),
+      scoreRows: (req) => scoreRowsForAnalyst({ userId: args.ownerId, ...req }),
       // Governed steps still compile — under the OWNER's id, so their row
       // filters and column masks are applied exactly as they are in the app.
       runSemantic: async (query: SemanticQuery) => {

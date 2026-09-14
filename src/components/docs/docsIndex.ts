@@ -393,6 +393,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     "terms": [
       "2.6×",
       "VITE_BI_SNAPSHOT_ROWS_CAP",
+      "answer",
       "area",
       "avg",
       "bar",
@@ -400,6 +401,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "between",
       "boxplot",
       "bubblemap",
+      "caveats",
       "columnFormats",
       "combo",
       "compare",
@@ -431,6 +433,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "nightingale",
       "ontology",
       "pie",
+      "predicted_",
       "radar",
       "rules",
       "running",

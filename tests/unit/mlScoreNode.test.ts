@@ -62,7 +62,8 @@ describe("one implementation", () => {
   });
 
   it("names its caller in the audit trail and on the prediction row", () => {
-    expect(runner).toContain('via: "agent_tool" | "swarm_tool_node" = "agent_tool"');
+    // Three callers now: the agent tool, the canvas node, the AI Analyst.
+    expect(runner).toContain('via: "agent_tool" | "swarm_tool_node" | "ai_analyst" = "agent_tool"');
     // Every place the handler used to write the literal now writes the param
     // (the literal with its trailing comma is the old call-site form; the
     // signature's default value is the one place the literal belongs).
@@ -70,7 +71,9 @@ describe("one implementation", () => {
     expect(runner.match(/\bvia,/g)?.length).toBe(3);
     // And the refusal names the right thing — "this agent" on a chat turn,
     // "this node" on the canvas.
-    expect(runner).toContain('const who = via === "agent_tool" ? "this agent" : "this node";');
+    expect(runner).toMatch(
+      /const who =\s*via === "agent_tool" \? "this agent" : via === "ai_analyst" \? "this analyst" : "this node";/,
+    );
     expect(runner).toContain("is not enabled for ${who}.");
   });
 });

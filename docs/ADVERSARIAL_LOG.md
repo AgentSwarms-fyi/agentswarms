@@ -149,6 +149,70 @@ returns — which `sources` drops by design — is a canvas run: the client
 tracer records every `tool_call` and `tool_result` on the step, so the
 refusal strings can be read from `swarm_run_steps.tool_calls` verbatim.
 
+#### R8 · S2 · "Produced no write-up" over a finished analysis, and a rule that never reached the writer
+
+Two more from the same two live rounds. The findings panel said "The
+analysis completed but produced no write-up — the step results above stand
+on their own", twice, while the ASK NEXT list had three follow-ups from the
+same reply. `execution_traces` held the reply: `{ "answer": { "orders": [
+{ "order_id": 1000, "predicted_plan": "pro", "probability": 0.9479 }, … ] },
+"caveats": [...], "follow_ups": [...] }` — the write-up, as data. The parser
+accepted a string under `answer` and nothing else; a perfectly good answer
+became "no write-up" because it arrived as a table. It is rendered now — an
+array of flat objects as a Markdown table, an object as a list, caveats
+appended — and a string answer is untouched.
+
+The second: the planner was told, at length, what a scored step's SQL must
+return. The SQL is written in a separate call that sees only the step's
+goal, so the rule never reached the writer, and both rounds it reached for
+`analytics.revenue_facts_plan_classifier_predictions`, a stored table whose
+columns looked like the answer. The goal a scored step hands the writer now
+carries the requirement — the model's key column(s), from the source table,
+no stored predictions, no prediction of its own — and the test reads the
+writer's prompt for it. Prompts are not a chain: what one call is told, the
+next is not, unless the text is carried across by hand.
+
+#### R7 · S2 · The model's answer vanished behind the badge that said the model had answered
+
+The first live question to a scored analyst step. The plan asked to score
+orders 1000–1010 with the plan classifier; the SQL generator, reading the
+lakehouse schema, reached for `analytics.revenue_facts_plan_classifier_predictions`
+— a batch-prediction table from an earlier run — so the step's rows already
+carried `prediction` and `probability` before the model ran. Scoring ran (an
+`ml_predictions` row via `ai_analyst`, four rows, succeeded), and the join
+kept the SQL's columns and left the model's out, because it only appended
+columns the input did not have. The table showed the stored table's numbers
+under a badge saying the model had scored these rows.
+
+Then the self-check narrowed the SQL, and under the first rule a refined step
+dropped its predictions and told the reader to "ask again to score them" —
+the honest sentence for a governed compile, which cannot be re-run on
+hand-written SQL, and the wrong one for scoring, which can simply run again
+on whatever the correction returned. Both changed: a colliding prediction
+column is kept under a `predicted_` prefix (`joinPredictions`, pure, with the
+key-identity join and a null for a key that matched nothing), and a refined
+scored step is scored again and says so. Neither was reachable by the unit
+test until the live round produced the collision.
+
+#### R6 · S2 · The self-check overwrote what the step had already said about itself
+
+Found by a unit test, not a screen, while giving the AI Analyst a scored
+step: a scoring that failed wrote `check = { suspect, "Could not score with
+… — the rows below are unscored" }`, and the assertion found `pass` with
+"ok". The self-check stage, which runs after every step, assigned its verdict
+over whatever `check` held. That was not new to scoring: a governed step
+whose compile fails falls back to written SQL and writes "The governed model
+could not answer this step … so the SQL below was written by the analyst
+instead of compiled" into the same field, before the same check — and had
+been losing it to a green **pass** since governed steps shipped. The reader
+saw a passed step and no badge, and nothing said a compile had been tried.
+
+Two facts, two authors: how the step was produced (written before the check)
+and whether its SQL holds (the check). Both are kept now — a pre-check note
+survives as a suspect verdict with the check's own verdict appended, and a
+refinement's note is prefixed with it. Pinned by the scoring test; the
+governed fallback rides the same line.
+
 #### R5 · S2 · A refused call badged "ok"
 
 Found while giving the Tool Calls panel a prediction table (the panel had

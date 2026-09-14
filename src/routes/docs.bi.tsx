@@ -80,6 +80,32 @@ function BiPage() {
         beside <strong>New analysis</strong>.
       </P>
       <P>
+        <strong>Scored steps predict; the analyst never estimates.</strong> When a question asks
+        what <em>will</em> happen, which rows are <em>likely</em> something, or for a predicted
+        value, and a trained model from ML Models is in scope, the plan may add{" "}
+        <C>{'"score": { "model": "<name>" }'}</C> to a step. The step&apos;s SQL selects the
+        entities — the model&apos;s key column(s) when it is bound to a feature view, so the
+        features are read from the view, or its feature columns otherwise — and the model supplies
+        the prediction columns, joined onto the step&apos;s rows (at most fifty, the agent
+        tool&apos;s cap). The step carries a <strong>scored</strong> badge naming the model, and
+        under its table says how many rows were scored, the model&apos;s version and headline
+        metric, where the features came from and which keys were not found. Every name is checked
+        against the models the analyst actually loaded; a step naming anything else is simply not
+        scored. A scoring that fails leaves the rows unscored and says so in the self-check note.
+        The write-up is told which steps were scored and must report predictions as what the model
+        estimates, naming it, never as something observed. A step whose SQL the self-check corrects
+        is scored again on the corrected rows, and its note says so; a step re-run by hand loses its
+        predictions with the badge — they belonged to the old rows — until the question is asked
+        again. A prediction column that collides with one the SQL already returned is kept under a{" "}
+        <C>predicted_</C> prefix, so the model&apos;s numbers are the ones on the table the badge
+        vouches for. The SQL writer is told, in the step&apos;s own goal, that the rows will be
+        scored afterwards and what they must carry — the model&apos;s key column(s) from the source
+        table, at most fifty rows, no stored predictions table and no prediction of its own. And a
+        write-up that comes back as data rather than prose (an object of rows under <C>answer</C>,
+        with <C>caveats</C>) is rendered as a table with its caveats, not reported as &quot;no
+        write-up&quot;.
+      </P>
+      <P>
         <strong>What-if scenarios</strong> ride the same compiler. A compiled step offers the two
         things that can honestly vary — the model&apos;s <strong>declared parameters</strong> and
         the values of filters the step already has — and recompiles the <em>same</em> query with one

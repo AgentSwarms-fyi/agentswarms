@@ -563,6 +563,13 @@ and key columns. The table is built on the server from the tool's full result
 (the panel's generic preview is a 400-character slice, which for a prediction
 ends mid-probability), and an error is shown as the error.
 
+**In the AI Analyst.** A plan may score a step's rows with a model in scope
+(`"score": { "model": "<name>" }`): the step's SQL selects the entities, the
+model adds the prediction columns, and the step carries a **scored** badge
+with the model, version, headline metric, rows scored and where the features
+came from. The write-up reports predictions as the model's estimates, never
+as observed values. Details under **Business Intelligence → AI Analyst**.
+
 ## Automation
 
 The model page's **Automation** tab schedules two kinds of work, each

@@ -38,6 +38,7 @@ import {
   Sheet,
   Trash2,
   ShieldCheck,
+  Sparkles,
   Users,
   Wrench,
 } from "lucide-react";
@@ -84,6 +85,7 @@ import {
   type AnalystStep,
   type AnalystTurn,
   type GovernedModelFields,
+  type ScorableModel,
 } from "@/lib/aiAnalyst";
 import { analystWorkbook, workbookFilename } from "@/lib/analystExport";
 import { describeLineage, stepLineage } from "@/lib/analystLineage";
@@ -117,6 +119,7 @@ import {
   type SemanticEntry,
 } from "@/lib/biAgent";
 import { semanticRunQuery } from "@/utils/semantic.functions";
+import { analystScorableModels, analystScoreRows, cellRow } from "@/utils/analystScore.functions";
 import {
   appendWidgetToDashboard,
   listDashboards,
@@ -203,6 +206,12 @@ function AiAnalystPage() {
   // Compilation happens SERVER-side: that is where the full model, its row
   // filters and its column masks are. The browser only ever sees field names.
   const runSemanticFn = useServerFn(semanticRunQuery);
+  const scorableModelsFn = useServerFn(analystScorableModels);
+  const scoreRowsFn = useServerFn(analystScoreRows);
+  // Trained models a plan may score rows with — loaded like the governed
+  // catalog, once a session exists. Empty means no step can be scored, and
+  // the planner is not told about scoring at all.
+  const [scorable, setScorable] = useState<ScorableModel[]>([]);
 
   // ── Data the analysts can be scoped to ──────────────────────────────
   const [datasets, setDatasets] = useState<DatasetMeta[]>([]);
@@ -277,7 +286,12 @@ function AiAnalystPage() {
     listWarehousesFn({ data: { access_token: token } }).then((res) => {
       if (res.ok) setWarehouses(res.connections.filter((c) => c.is_active));
     });
-  }, [token, listWarehousesFn]);
+    // A failed read leaves the list empty, which only means "no scored
+    // steps this session" — the analyst still answers, unscored.
+    scorableModelsFn({ data: { accessToken: token } })
+      .then((models) => setScorable(models))
+      .catch(() => setScorable([]));
+  }, [token, listWarehousesFn, scorableModelsFn]);
 
   // ── Analysts (RLS owner-only) ───────────────────────────────────────
   const [analysts, setAnalysts] = useState<AnalystRow[] | null>(null);
@@ -492,6 +506,15 @@ function AiAnalystPage() {
           // empty catalog — no step could be governed, and nothing would say
           // why.
           catalog,
+          // Trained models the plan may score with, and the scoring itself —
+          // server-side, under this session, like governed compilation.
+          models: scorable,
+          scoreRows: token
+            ? async (req) =>
+                scoreRowsFn({
+                  data: { accessToken: token, model: req.model, rows: req.rows.map(cellRow) },
+                })
+            : undefined,
           runSemantic: token
             ? async (query) => {
                 const res = await runSemanticFn({ data: { accessToken: token, query } });
@@ -606,7 +629,7 @@ function AiAnalystPage() {
         toast.error(`The scenario could not be compiled: ${(e as Error).message}`);
       }
     },
-    [thread, resolveScope, persistTurns, runSemanticFn, token],
+    [thread, resolveScope, persistTurns, runSemanticFn, scoreRowsFn, scorable, token],
   );
 
   /** Record a human verdict on a finished analysis. */
@@ -1499,6 +1522,27 @@ function TurnView({
                   {s.governed.model}
                 </Badge>
               )}
+              {s.scored && (
+                <Badge
+                  variant="outline"
+                  className="ml-1.5 border-violet-500/40 bg-violet-500/5 text-[9px] text-violet-500"
+                  title={
+                    `Scored by the trained model "${s.scored.model}"` +
+                    (s.scored.version !== null ? ` v${s.scored.version}` : "") +
+                    ` (${s.scored.task}${s.scored.algorithm ? `, ${s.scored.algorithm}` : ""}` +
+                    `${s.scored.metric ? `, ${s.scored.metric}` : ""}) — the prediction columns ` +
+                    `are the model's estimates, not observed values. ` +
+                    (s.scored.keys
+                      ? `Scored by key; the features were read from the model's feature view` +
+                        (s.scored.featuresServedFrom ? ` (${s.scored.featuresServedFrom})` : "") +
+                        "."
+                      : "Scored from the row's own feature columns.")
+                  }
+                >
+                  <Sparkles className="mr-0.5 inline h-2.5 w-2.5" />
+                  {s.scored.model}
+                </Badge>
+              )}
             </p>
             {s.status === "done" && s.rows && s.columns && (
               <div className="flex shrink-0 items-center gap-1">
@@ -1712,6 +1756,26 @@ function TurnView({
                 </>
               )}
               {s.governed.accessNote}
+            </p>
+          )}
+
+          {/* A scored step's numbers are two kinds: what the query returned
+              and what a model estimated. The badge names the model; this says
+              how many rows it scored, from where, and what it could not find. */}
+          {s.scored && (
+            <p className="text-[10px] leading-relaxed text-muted-foreground">
+              Scored {s.scored.rowsScored}
+              {(s.rowCount ?? 0) > s.scored.rowsScored ? ` of ${s.rowCount}` : ""} row
+              {s.scored.rowsScored === 1 ? "" : "s"} with <strong>{s.scored.model}</strong>
+              {s.scored.version !== null ? ` v${s.scored.version}` : ""}
+              {s.scored.metric ? ` (${s.scored.metric})` : ""} — the prediction columns are the
+              model&apos;s estimates, not observed values.
+              {s.scored.keys && s.scored.featuresServedFrom
+                ? ` Features read by key from the model's feature view (${s.scored.featuresServedFrom}).`
+                : ""}
+              {s.scored.keysNotFound.length > 0
+                ? ` Not found in the feature view: ${s.scored.keysNotFound.join(", ")}.`
+                : ""}
             </p>
           )}
 

@@ -419,9 +419,10 @@ export async function runMlPredict(
   ctx: AgentToolContext,
   a: Record<string, unknown>,
   allow: string[] | undefined,
-  via: "agent_tool" | "swarm_tool_node" = "agent_tool",
+  via: "agent_tool" | "swarm_tool_node" | "ai_analyst" = "agent_tool",
 ): Promise<string> {
-  const who = via === "agent_tool" ? "this agent" : "this node";
+  const who =
+    via === "agent_tool" ? "this agent" : via === "ai_analyst" ? "this analyst" : "this node";
   try {
     const owner = ctx.scopeUserId ?? ctx.userId;
     const { listModelsForUser } = await import("@/utils/ml/access.server");

@@ -469,6 +469,34 @@ refusal to answer: the step falls back to hand-written SQL and is shown
 the compile itself fails, the step says so and loses the claim rather than
 keeping a badge it can no longer justify.
 
+**Scored steps predict; the analyst never estimates.** When a question asks
+what _will_ happen, which rows are _likely_ something, or for a predicted
+value, and a trained model from **ML Models** is in scope, the plan may add
+`"score": { "model": "<name>" }` to a step. The step's SQL selects the
+entities — the model's key column(s) when it is bound to a feature view, so
+the features are read from the view, or its feature columns otherwise — and
+the model supplies the prediction columns, joined onto the step's rows (at
+most fifty, the same cap the agent tool has). The step carries a **scored**
+badge naming the model, and under its table says how many rows were scored,
+the model's version and headline metric, where the features came from and
+which keys were not found. Every name is checked against the models the
+analyst actually loaded; a step naming anything else simply is not scored. A
+scoring that fails leaves the rows unscored and says so in the self-check
+note — the analyst does not fill a prediction in itself. The write-up is told
+which steps were scored and must report predictions as what the model
+estimates, naming it, never as something observed. A step whose SQL the
+self-check corrects is scored again on the corrected rows, and its note says
+so; a step re-run by hand loses its predictions along with the badge — they
+belonged to the old rows — until the question is asked again. A prediction
+column that collides with one the SQL already returned is kept under a
+`predicted_` prefix, so the model's numbers are the ones on the table the
+badge vouches for. The SQL writer is told, in the step's own goal, that the
+rows will be scored afterwards and what they must carry — the model's key
+column(s) from the source table, at most fifty rows, no stored predictions
+table and no prediction of its own. And a write-up that comes back as data
+rather than prose (an object of rows under `answer`, with `caveats`) is
+rendered as a table with its caveats, not reported as "no write-up".
+
 **What-if scenarios** ride on the same compiler. A compiled step gets a
 flask control offering the two things that can honestly vary: the model's
 **declared parameters** (`{{commission_rate}}` in a metric's SQL is an
