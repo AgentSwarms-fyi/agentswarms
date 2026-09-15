@@ -148,7 +148,11 @@ services:
     # Fixed name so the app can locate and restart it when an administrator
     # saves a new egress allow-list (squid re-reads ACL files only on start,
     # and the docker socket proxy deliberately denies `exec`).
-    container_name: agentswarms-notebook-egress
+    #
+    # The SAME variable the app reads (egressApply.server.ts), so the two agree
+    # by construction. A fixed literal here meant two instances on one host
+    # collided on the name — found running a second install beside a first.
+    container_name: ${NOTEBOOK_EGRESS_CONTAINER:-agentswarms-notebook-egress}
     volumes:
       - ./deploy/notebooks/egress/squid.conf:/etc/squid/squid.conf:ro
       # The DIRECTORY, not the two ACL files individually. allowed_domains and
