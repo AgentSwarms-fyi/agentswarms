@@ -78,42 +78,54 @@ if (pwsh) {
   note(`${ps1.length} PowerShell script(s) parse`);
 } else skip("PowerShell not available: .ps1 not parsed");
 
-// ── 3. the installers agree with the compose file ───────────────────────────
-// Every compose profile (besides `all`) must be a flag of both installers, and
-// --all / -All must request every one of them.
+// ── 3. every service starts, and the installers do not gate any of them ─────
+// Compose profiles are gone: one command installs the product. What can break
+// that is a `profiles:` line creeping back in, or an installer learning a flag
+// that skips something.
 const compose = yaml.load(rd("docker-compose.yml"));
-const profiles = new Set();
-for (const svc of Object.values(compose.services ?? {}))
-  for (const p of svc.profiles ?? []) profiles.add(p);
-profiles.delete("all");
+const profiled = Object.entries(compose.services ?? {})
+  .filter(([, s]) => Array.isArray(s.profiles) && s.profiles.length > 0)
+  .map(([n]) => n);
+for (const n of profiled)
+  problem(
+    `docker-compose.yml: ${n} is behind a profile, so a plain \`docker compose up -d\` skips it`,
+  );
 const setupSh = rd("scripts/setup.sh");
 const setupPs = rd("scripts/setup.ps1");
-for (const p of profiles) {
-  if (!setupSh.includes(`--${p}) `))
-    problem(`scripts/setup.sh: no --${p} flag for compose profile "${p}"`);
-  if (!new RegExp(`add_profile ${p}\\b`).test(setupSh.split("--all)")[1]?.split(";;")[0] ?? ""))
-    problem(`scripts/setup.sh: --all does not request profile "${p}"`);
-  const sw = p[0].toUpperCase() + p.slice(1);
-  if (!setupPs.includes(`[switch]$${sw}`))
-    problem(`scripts/setup.ps1: no -${sw} switch for compose profile "${p}"`);
-  if (!new RegExp(`if \\(\\$All\\) \\{[^}]*\\$${sw} = \\$true`).test(setupPs))
-    problem(`scripts/setup.ps1: -All does not set -${sw}`);
-  if (!setupSh.includes(`--${p}`) || !/^#\s+bash scripts\/setup\.sh --/m.test(setupSh)) continue;
-  if (!new RegExp(`^#\\s+bash scripts/setup\\.sh --${p}\\b`, "m").test(setupSh))
-    problem(`scripts/setup.sh: --help does not list --${p}`);
-}
-note(`${profiles.size} compose profiles, each a flag of both installers and part of --all`);
-const count = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"][
-  profiles.size
-];
-for (const [file, text] of [
-  ["scripts/setup.sh", setupSh],
-  ["scripts/setup.ps1", setupPs],
+if (!setupSh.includes("docker compose up -d --build"))
+  problem("scripts/setup.sh no longer starts the stack with a plain compose command");
+if (!setupPs.includes("docker compose up -d --build"))
+  problem("scripts/setup.ps1 no longer starts the stack with a plain compose command");
+// The flags in people's notes must still work, and still change nothing.
+for (const flag of [
+  "all",
+  "docgen",
+  "notebooks",
+  "sandbox",
+  "lakehouse",
+  "spark",
+  "vectors",
+  "featurestore",
 ]) {
-  const m = text.match(/the same (\w+) profiles/);
-  if (m && m[1] !== count)
-    problem(`${file}: says "the same ${m[1]} profiles" but the compose file has ${count}`);
+  if (!new RegExp(`--${flag}\\b`).test(setupSh))
+    problem(`scripts/setup.sh rejects --${flag}, which older docs and habits still use`);
+  const sw = flag[0].toUpperCase() + flag.slice(1);
+  if (!setupPs.includes(`[switch]$${sw}`))
+    problem(`scripts/setup.ps1 rejects -${sw}, which older docs and habits still use`);
 }
+// Every service a host-run app must reach publishes a loopback port, or --dev
+// silently runs without it.
+for (const name of ["qdrant", "valkey", "lakehouse-catalog", "spark-connect", "minio"]) {
+  const ports = compose.services?.[name]?.ports ?? [];
+  if (ports.length === 0)
+    problem(`docker-compose.yml: ${name} publishes no port, so \`setup.sh --dev\` cannot reach it`);
+  for (const p of ports)
+    if (!String(p).startsWith("127.0.0.1:"))
+      problem(`docker-compose.yml: ${name} publishes ${p} beyond loopback`);
+}
+note(
+  `${Object.keys(compose.services ?? {}).length} compose services, none profiled; both installers start them all`,
+);
 
 // ── 4. Kubernetes manifests: what a cluster would reject or silently ignore ──
 const manifests = tracked.filter((t) => /^deploy\/k8s\/.*\.ya?ml$/.test(t.file)).map((t) => t.file);

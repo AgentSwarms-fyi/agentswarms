@@ -29,34 +29,22 @@ describe("what R13 found stays fixed", () => {
     for (const [mode, , , file] of scripts) expect(mode, `${file} is ${mode}`).toBe("100755");
   });
 
-  it("setup.sh's help lists every compose profile and the installers agree on the count", () => {
-    const setup = rd("scripts/setup.sh");
-    for (const p of [
-      "docgen",
-      "notebooks",
-      "sandbox",
-      "lakehouse",
-      "spark",
-      "vectors",
-      "featurestore",
-    ]) {
-      expect(setup, `--${p} in the help`).toMatch(
-        new RegExp(`^#\\s+bash scripts/setup\\.sh --${p}\\b`, "m"),
-      );
-    }
-    expect(setup).toContain("the same seven profiles");
-    expect(rd("scripts/setup.ps1")).toContain("the same seven profiles");
-    // --help prints the header up to `set -euo pipefail`, so the header must be
+  it("every installer's help prints its whole header, and says everything installs", () => {
+    // --help prints from line 2 to `set -euo pipefail`, so the header must be
     // comments all the way down — a line range drifted every time it grew.
     for (const f of ["scripts/setup.sh", "scripts/setup-selfhosted.sh", "scripts/setup-k8s.sh"]) {
       const src = rd(f);
       expect(src, f).toContain(
         "-h|--help) sed -n '2,/^set -euo pipefail/p' \"$0\" | sed '$d'; exit 0 ;;",
       );
-      const before = src.split("\n").slice(1, src.split("\n").indexOf("set -euo pipefail"));
+      const lines = src.split("\n");
+      const before = lines.slice(1, lines.indexOf("set -euo pipefail"));
       expect(before.length, `${f} header`).toBeGreaterThan(3);
       for (const line of before) expect(line.startsWith("#"), `${f}: ${line}`).toBe(true);
     }
+    // The claim a reader acts on: there is nothing to opt into.
+    expect(rd("scripts/setup.sh")).toContain("EVERY SERVICE IS INSTALLED AND WIRED");
+    expect(rd("scripts/setup.ps1")).toContain("EVERY SERVICE IS INSTALLED AND WIRED");
   });
 
   it("the runtime verifier reaches a containerised app by service name, like the product", () => {
@@ -81,7 +69,7 @@ describe("what R13 found stays fixed", () => {
   it("the in-app install page runs the installer the way every other doc does", () => {
     const page = rd("src/routes/docs.self-hosting.tsx");
     expect(page).not.toContain("./scripts/setup.sh");
-    expect(page).toContain("bash scripts/setup.sh --all");
+    expect(page).toContain("bash scripts/setup.sh");
   });
 
   it("the Kubernetes installer and the PowerShell installer answer --help / -Help", () => {

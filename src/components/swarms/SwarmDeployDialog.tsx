@@ -426,15 +426,11 @@ export function SwarmDeployDialog({
                   {sandbox?.configured ? (
                     <>
                       JS_SANDBOX_URL is set but the service did not respond — check that{" "}
-                      <code className="font-mono">docker compose --profile sandbox up -d</code> is
-                      running.
+                      <code className="font-mono">docker compose up -d</code> is running.
                     </>
                   ) : (
                     <>
-                      Enable it with{" "}
-                      <code className="font-mono">
-                        docker compose --profile sandbox up -d --build
-                      </code>
+                      Enable it with <code className="font-mono">docker compose up -d --build</code>
                       . Until then these nodes work on the canvas only.
                     </>
                   )}

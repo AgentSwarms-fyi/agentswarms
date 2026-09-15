@@ -1,7 +1,7 @@
 // Monitoring — service health probes and hardware utilisation.
 //
 // Superadmin-only: this reports infrastructure detail (hostnames, container
-// limits, which optional services exist) that ordinary users have no reason
+// limits, which services are running) that ordinary users have no reason
 // to see.
 //
 // Both functions are read-only and best-effort. A probe that fails is a
@@ -21,8 +21,6 @@ async function probeOne(entry: (typeof SERVICE_CATALOGUE)[number]): Promise<Serv
     id: entry.id,
     label: entry.label,
     purpose: entry.purpose,
-    profile: entry.profile,
-    optional: entry.optional,
   };
   let lastEndpoint: string | null = null;
   // Distinguish "the name did not resolve" (we are outside the Compose
@@ -147,9 +145,9 @@ async function probeOne(entry: (typeof SERVICE_CATALOGUE)[number]): Promise<Serv
     status: "down",
     latencyMs: null,
     endpoint: lastEndpoint,
-    message: entry.optional
-      ? `Not answering. Start it with \`docker compose --profile ${entry.profile} up -d\` if you want it.`
-      : "Not answering.",
+    // Every service ships with every install, so this is an outage rather
+    // than a service somebody chose not to start: say what brings it back.
+    message: `Not answering. \`docker compose up -d\` starts it; \`docker compose logs ${entry.id}\` says why it stopped.`,
   };
 }
 
@@ -159,7 +157,7 @@ export const serviceHealth = createServerFn({ method: "POST" })
     const guard = await requireSuperadmin(data.access_token);
     if (!guard.ok) throw new Error(guard.error);
 
-    // The app itself and the database are not optional, so they get bespoke
+    // The app itself and the database are probed differently, so they get bespoke
     // probes rather than catalogue entries.
     const appProbe = async (): Promise<ServiceProbe> => {
       const started = Date.now();
@@ -172,8 +170,6 @@ export const serviceHealth = createServerFn({ method: "POST" })
           id: "app",
           label: "Application server",
           purpose: "Serves the UI, the API and every background schedule.",
-          profile: null,
-          optional: false,
           status: res.ok && body?.status === "ok" ? "up" : "degraded",
           latencyMs: Date.now() - started,
           endpoint: resolveInternalOrigin(),
@@ -183,8 +179,6 @@ export const serviceHealth = createServerFn({ method: "POST" })
           id: "app",
           label: "Application server",
           purpose: "Serves the UI, the API and every background schedule.",
-          profile: null,
-          optional: false,
           status: "degraded",
           latencyMs: null,
           endpoint: resolveInternalOrigin(),
@@ -209,8 +203,6 @@ export const serviceHealth = createServerFn({ method: "POST" })
           id: "database",
           label: "Supabase",
           purpose: "Postgres, authentication, storage and vector search.",
-          profile: null,
-          optional: false,
           status: res.ok ? "up" : "degraded",
           latencyMs: Date.now() - started,
           endpoint: url,
@@ -221,8 +213,6 @@ export const serviceHealth = createServerFn({ method: "POST" })
           id: "database",
           label: "Supabase",
           purpose: "Postgres, authentication, storage and vector search.",
-          profile: null,
-          optional: false,
           status: "down",
           latencyMs: null,
           endpoint: url ?? null,

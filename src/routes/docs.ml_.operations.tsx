@@ -86,10 +86,9 @@ function MlOperationsPage() {
       <H2 id="operations">Operations</H2>
       <UL>
         <li>
-          Training and inference need the notebook runtime services:{" "}
-          <C>docker compose --profile notebooks up -d</C>. The runtime image bakes scikit-learn,
-          LightGBM, statsmodels, DuckDB, pyarrow and s3fs; an older image installs them at job
-          start.
+          Training and inference need the notebook runtime services: <C>docker compose up -d</C>.
+          The runtime image bakes scikit-learn, LightGBM, statsmodels, DuckDB, pyarrow and s3fs; an
+          older image installs them at job start.
         </li>
         <li>
           The sandbox reads Parquet through the egress proxy; its allow-list is brought up to date
@@ -120,7 +119,7 @@ function MlOperationsPage() {
         rows={[
           [
             "Cannot reach the Docker socket-proxy",
-            'Read the rest of the message: "start the runtime services" means the proxy is down (docker compose --profile notebooks up -d); "did not answer" means the Docker daemon is busy or the proxy wedged — retry, then restart notebook-docker-proxy.',
+            'Read the rest of the message: "start the runtime services" means the proxy is down (docker compose up -d); "did not answer" means the Docker daemon is busy or the proxy wedged — retry, then restart notebook-docker-proxy.',
           ],
           [
             "egress proxy refused the lake endpoint (HTTP 403)",

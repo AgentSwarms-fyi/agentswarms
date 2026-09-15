@@ -1,7 +1,7 @@
 // /monitoring — service health and hardware utilisation.
 //
 // Superadmin-only, and deliberately honest about what it does and does not
-// know: an optional service that was never started reads "Not running", not a
+// know: every service ships with the install, so "down" is an outage and reads as
 // red "Down", and memory says whether the total is the container's limit or
 // the host's RAM. A monitoring page that cries wolf is a page people stop
 // opening.
@@ -119,11 +119,6 @@ function ServiceRow({ s }: { s: ServiceProbe }) {
           <Badge className={cn("border-0 text-[10px] font-medium", TONE_CLASSES[tone])}>
             {label}
           </Badge>
-          {s.optional && s.profile && (
-            <span className="font-mono text-[10px] text-muted-foreground">
-              --profile {s.profile}
-            </span>
-          )}
         </div>
         <p className="mt-0.5 text-xs text-muted-foreground">{s.purpose}</p>
         {s.message && (
@@ -216,9 +211,7 @@ function MonitoringPage() {
   const memPct = metrics ? pct(metrics.memory.usedBytes, metrics.memory.totalBytes) : null;
   const diskPct = metrics?.disk ? pct(metrics.disk.usedBytes, metrics.disk.totalBytes) : null;
   const cpuPct = metrics?.cpu.usage === null || !metrics ? null : metrics.cpu.usage * 100;
-  const unhealthy = services.filter(
-    (s) => s.status === "degraded" || (s.status === "down" && !s.optional),
-  );
+  const unhealthy = services.filter((s) => s.status === "degraded" || s.status === "down");
 
   return (
     <main className="mx-auto w-full max-w-[1400px] px-4 py-6 md:px-8">

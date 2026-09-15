@@ -5,7 +5,7 @@
 // cluster, the vector store — and each time, some of the places that describe
 // the shipped system were updated and some were not. The result is the worst
 // kind of documentation: confident, specific, and wrong. INSTALL.md said "five
-// more services" while compose had six profiles; the in-app self-hosting page
+// more services" while compose had six of them; the in-app self-hosting page
 // listed three and had not been touched since; the sizing guide's table of
 // what consumes resources never learned that a vector index wants RAM.
 //
@@ -32,17 +32,18 @@ const compose = yaml.load(rd("docker-compose.yml")) as ComposeFile;
  * Services that never actually run.
  *
  * `notebook-runtime-image` exists so `--build` produces the kernel image the
- * orchestrator launches; its entrypoint exits immediately. Nothing to
- * document, nothing to monitor, nothing to deploy.
+ * orchestrator launches; its entrypoint exits immediately. `minio-init`
+ * creates the lakehouse bucket and exits. Nothing to document, nothing to
+ * monitor, nothing to size.
  */
-const BUILD_ONLY = new Set(["notebook-runtime-image"]);
+const ONE_SHOT = new Set(["notebook-runtime-image", "minio-init"]);
 
 const runnable = Object.entries(compose.services)
-  .filter(([name]) => !BUILD_ONLY.has(name))
-  .map(([name, s]) => ({ name, profiles: (s.profiles ?? []).filter((p) => p !== "all") }));
+  .filter(([name]) => !ONE_SHOT.has(name))
+  .map(([name]) => ({ name }));
 
-/** Every optional profile compose offers, which is the list docs must match. */
-const PROFILES = [...new Set(runnable.flatMap((s) => s.profiles))].sort();
+/** Every service compose starts — which is all of them; there are no profiles. */
+const SERVICES = runnable.map((s) => s.name).sort();
 
 const K8S_FILES = [
   "deploy/k8s/app/agentswarms.yaml",
@@ -105,49 +106,49 @@ describe("every service that ships is deployable on Kubernetes", () => {
   });
 });
 
-describe("every optional profile is documented where somebody would look", () => {
+describe("every service is documented where somebody would look", () => {
   const installSection = (() => {
     const s = rd("docs/INSTALL.md");
-    const i = s.indexOf("## 7. Optional services");
+    const i = s.indexOf("## 7. The services");
     return s.slice(i, s.indexOf("\n## ", i + 1));
   })();
 
   const appSection = (() => {
     const s = rd("src/routes/docs.self-hosting.tsx");
-    const i = s.indexOf('<H2 id="optional-services">');
+    const i = s.indexOf('<H2 id="services">');
     return s.slice(i, s.indexOf("<H2", i + 1));
   })();
 
-  it.each(PROFILES)("INSTALL.md lists the %s profile", (profile) => {
-    expect(installSection, `INSTALL.md's optional-services table has no \`${profile}\``).toContain(
-      profile,
-    );
+  /** How each compose service is spelled where operators read about it. */
+  const IN_PROSE: Record<string, RegExp> = {
+    agentswarms: /app|application/i,
+    docgen: /docgen|document renderer|doc-gen/i,
+    "js-sandbox": /js.sandbox|javascript sandbox/i,
+    "notebook-gateway": /notebook|developer.workspace/i,
+    "notebook-egress": /notebook|egress/i,
+    "notebook-docker-proxy": /notebook|docker/i,
+    "lakehouse-catalog": /lakehouse.catalog/i,
+    minio: /minio|object store/i,
+    qdrant: /qdrant|vector store/i,
+    valkey: /valkey|feature store/i,
+    "spark-connect": /spark/i,
+  };
+
+  it.each(SERVICES)("INSTALL.md's service table covers %s", (name) => {
+    const pattern = IN_PROSE[name];
+    expect(pattern, `${name} has no prose spelling — add one with the service`).toBeTruthy();
+    expect(pattern.test(installSection), `INSTALL.md §7 does not cover ${name}`).toBe(true);
   });
 
-  it.each(PROFILES)("the in-app self-hosting page lists the %s profile", (profile) => {
-    expect(appSection, `the in-app optional-services table has no \`${profile}\``).toContain(
-      profile,
-    );
+  it.each(SERVICES)("the in-app self-hosting page covers %s", (name) => {
+    const pattern = IN_PROSE[name];
+    expect(pattern.test(appSection), `the in-app services table does not cover ${name}`).toBe(true);
   });
 
-  const WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
-
-  it("counts them correctly in prose", () => {
-    // "Five more services are optional profiles" survived the sixth being
-    // added. A number in prose is a claim like any other.
-    const word = WORDS[PROFILES.length];
-    expect(
-      installSection.toLowerCase(),
-      `INSTALL.md should say "${word}" optional profiles, not something else`,
-    ).toContain(`${word} more services`);
-  });
-
-  // Everywhere ELSE that counts them. The check above was written for one
-  // section of one file, and the same sentence had gone stale twice more
-  // outside it: DEPLOYMENT.md said "--all turns on the five optional
-  // profiles" and enumerated five, README.md enumerated the same five — both
-  // written before the vector store and neither updated with it. An operator
-  // reading either would not know a service existed.
+  // NOTHING may still call these optional. The word was true when seven of
+  // them sat behind compose profiles; now it tells a reader they can skip a
+  // service the product assumes is there — and the installers no longer offer
+  // any way to skip one.
   const COUNTED = [
     "README.md",
     "docs/DEPLOYMENT.md",
@@ -156,60 +157,17 @@ describe("every optional profile is documented where somebody would look", () =>
     ...docsFamilyFiles("self-hosting"),
   ];
 
-  it.each(COUNTED)("%s never states a profile count that is out of date", (file) => {
-    const word = WORDS[PROFILES.length];
-    const wrong: string[] = [];
+  it.each(COUNTED)("%s does not describe the services as optional", (file) => {
     const text = rd(file);
-    for (const m of text.matchAll(
-      /\b(zero|one|two|three|four|five|six|seven|eight|nine|[0-9]+)\s+(?:more\s+)?(?:optional\s+)?(profiles?|services?)\b/gi,
-    )) {
-      const said = m[1].toLowerCase();
-      const about = text.slice(Math.max(0, m.index - 90), m.index + 90).toLowerCase();
-      // Only counts that are ABOUT the optional profiles. "two services" in a
-      // sentence about two particular services is not a claim about the set.
-      if (!/optional|--all|profile all|--profile/.test(about)) continue;
-      if (said !== word && said !== String(PROFILES.length)) wrong.push(`"${m[0]}"`);
-    }
-    expect(
-      wrong,
-      `${file} counts the optional profiles as ${wrong.join(", ")}; there are ${PROFILES.length} (${PROFILES.join(", ")})`,
-    ).toEqual([]);
-  });
-
-  // A count is only half the claim. Both stale sentences also LISTED the
-  // services, and a reader trusts the list over the number.
-  // Whitespace-tolerant rather than a literal space in every one of these: the
-  // formatter wraps prose at 80 columns, so "the JS sandbox" arrives split
-  // across two lines about half the time. The first version matched a literal
-  // space and reported a service as missing from a sentence that names it.
-  const IN_PROSE: Record<string, RegExp> = {
-    docgen: /document\s+renderer|docgen/i,
-    sandbox: /js\s+sandbox|javascript\s+sandbox/i,
-    notebooks: /notebook\s+runtime|developer.workspace\s+runtime|python\s+kernels/i,
-    lakehouse: /catalog\s+postgres|lakehouse\s+catalog/i,
-    spark: /spark/i,
-    vectors: /vector\s+store|qdrant/i,
-    featurestore: /online\s+feature\s+store|feature\s+store|valkey/i,
-  };
-
-  it.each(COUNTED)("%s names every profile wherever it enumerates them", (file) => {
-    const text = rd(file);
-    const missing: string[] = [];
-    for (const m of text.matchAll(
-      /\b(?:six|seven|eight|[0-9]+)\s+optional\s+(?:profiles|services)/gi,
-    )) {
-      // The enumeration follows the count, within a sentence or two.
-      const after = text.slice(m.index, m.index + 500);
-      for (const profile of PROFILES) {
-        const pattern = IN_PROSE[profile];
-        expect(pattern, `${profile} has no prose spelling — add one with the service`).toBeTruthy();
-        if (!pattern.test(after)) missing.push(`${profile} (after "${m[0]}")`);
-      }
-    }
-    expect(
-      missing,
-      `${file} counts the profiles and then leaves out: ${missing.join(", ")}`,
-    ).toEqual([]);
+    const claims = [
+      ...text.matchAll(
+        /\b(?:zero|one|two|three|four|five|six|seven|eight|nine|[0-9]+)\s+(?:more\s+)?optional\s+(?:profiles?|services?)\b/gi,
+      ),
+      ...text.matchAll(/\boptional\s+(?:compose\s+)?profiles?\b/gi),
+    ].map((m) => `"${m[0]}"`);
+    expect(claims, `${file} still calls shipped services optional: ${claims.join(", ")}`).toEqual(
+      [],
+    );
   });
 
   it("the in-app page does not claim a count of its own", () => {
@@ -242,6 +200,7 @@ describe("the sizing guide knows what each service costs", () => {
     "spark-connect": /Spark/,
     qdrant: /[Vv]ector store|Qdrant/,
     valkey: /[Oo]nline feature store|[Vv]alkey/,
+    minio: /[Oo]bject store|MinIO/,
   };
 
   /**

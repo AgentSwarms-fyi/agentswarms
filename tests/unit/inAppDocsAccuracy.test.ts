@@ -85,6 +85,17 @@ describe("no page promises a setting the code does not read", () => {
   /** Read by a sibling service rather than the app — still real settings. */
   const EXTERNAL_READERS = new Set(["HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"]);
 
+  /**
+   * Settings the COMPOSE FILE reads, which the app never sees: they configure
+   * a bundled container. Read from docker-compose.yml rather than listed, so
+   * removing the service removes the exemption with it.
+   */
+  const composeReads = new Set(
+    [...readFileSync("docker-compose.yml", "utf8").matchAll(/\$\{([A-Z][A-Z0-9_]{2,})[:}]/g)].map(
+      (m) => m[1],
+    ),
+  );
+
   it("found the declared settings", () => {
     expect(declared.length).toBeGreaterThan(50);
   });
@@ -92,7 +103,9 @@ describe("no page promises a setting the code does not read", () => {
   it("declares only settings something actually reads", () => {
     // A variable in .env.example that nothing reads is an operator setting it
     // and believing it took effect.
-    const dead = declared.filter((v) => !code.has(v) && !EXTERNAL_READERS.has(v)).sort();
+    const dead = declared
+      .filter((v) => !code.has(v) && !EXTERNAL_READERS.has(v) && !composeReads.has(v))
+      .sort();
     expect(dead, `declared in .env.example but read by nothing: ${dead.join(", ")}`).toEqual([]);
   });
 

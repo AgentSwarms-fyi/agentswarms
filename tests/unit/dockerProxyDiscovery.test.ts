@@ -74,9 +74,7 @@ describe("socket-proxy discovery", () => {
     const { dockerBase } = await fresh();
     const err = await dockerBase().catch((e: Error) => e);
     const msg = (err as Error).message;
-    expect(msg).toContain(
-      "Start the runtime services with:  docker compose --profile notebooks up -d --build",
-    );
+    expect(msg).toContain("Start the runtime services with:  docker compose up -d --build");
     expect(msg).toContain("fetch failed");
     expect(msg).not.toContain("accepted the connection");
   });

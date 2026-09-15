@@ -1,43 +1,37 @@
 <#
   AgentSwarms one-command setup (Windows PowerShell).
 
-    powershell -ExecutionPolicy Bypass -File scripts\setup.ps1            # Docker stack
-    powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -Dev       # local dev server
-    powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -All       # EVERY service (recommended for a full install)
-    powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -Docgen    # + server-side PPTX/Word/Excel renderer
-    powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -Notebooks # + Developer-workspace runtime
-    powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -Sandbox   # + JS sandbox (custom code in deployed runs)
-    powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -Lakehouse # + a catalog Postgres for the lakehouse
-    powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -Spark     # + a Spark Connect cluster for the ETL engine
-    powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -Vectors   # + Qdrant, for knowledge-base vectors
-    powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -Featurestore # + valkey, for millisecond feature lookups
+    powershell -ExecutionPolicy Bypass -File scripts\setup.ps1         # everything, in Docker
+    powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -Dev    # everything, app on the host
     powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -SkipMigrations
 
-  Scaffolds .env, generates the encryption secrets, installs deps (dev mode),
+  EVERY SERVICE IS INSTALLED AND WIRED. There is nothing to opt into: the
+  Developer-workspace Python runtime and its egress proxy, the lakehouse catalog
+  and its object store, the vector store, the feature store, the Spark cluster,
+  the Office renderer and the JS sandbox all start, and this script points .env
+  at every one of them. The old per-service switches (-All, -Docgen, -Notebooks,
+  -Sandbox, -Lakehouse, -Spark, -Vectors, -Featurestore) are still accepted and
+  now do nothing: a product whose features depend on which flag an installer was
+  given is a product most installs never see.
+
+  What that costs: about 5 GB of images and roughly 8 GB of RAM
+  (docs/SYSTEM_REQUIREMENTS.md). -Dev runs the app on this host with npm run dev
+  and starts the same services beside it, reached on loopback.
+
+  Scaffolds .env, generates the encryption secrets and the catalog password,
   applies DB migrations, and starts the stack. You still fill your Supabase keys
   in .env once (it tells you which).
 #>
 param(
   [switch]$Dev,
-  # -All is the whole product - the same seven profiles `docker compose --profile
-  # all` starts; the individual switches exist because each optional profile
-  # costs something (LibreOffice image size, Docker socket access for notebook
-  # kernels, a Postgres of its own, a ~1 GB Spark image). See docs/DEPLOYMENT.md.
-  [switch]$All,
-  [switch]$Docgen,
-  [switch]$Notebooks,
-  [switch]$Sandbox,
-  [switch]$Lakehouse,
-  [switch]$Spark,
-  # Qdrant. Started, but not USED until .env sets VECTOR_STORE=qdrant -
-  # retrieval stays on pgvector until it does.
-  [switch]$Vectors,
-  [switch]$Featurestore,
   [switch]$SkipMigrations,
-  [switch]$Help
+  [switch]$Help,
+  # Accepted and ignored: every service installs either way. Kept so the
+  # commands in older docs and muscle memory still work.
+  [switch]$All, [switch]$Docgen, [switch]$Notebooks, [switch]$Sandbox,
+  [switch]$Lakehouse, [switch]$Spark, [switch]$Vectors, [switch]$Featurestore
 )
-if ($Help) { Get-Content $PSCommandPath | Select-Object -Skip 1 -First 17; exit 0 }
-if ($All) { $Docgen = $true; $Notebooks = $true; $Sandbox = $true; $Lakehouse = $true; $Spark = $true; $Vectors = $true; $Featurestore = $true }
+if ($Help) { Get-Content $PSCommandPath | Select-Object -Skip 1 -First 22; exit 0 }
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
@@ -92,6 +86,31 @@ function New-Secret {
 
 if ([string]::IsNullOrEmpty((Get-EnvVar "PROVIDER_CREDS_SECRET"))) { Say "Generating PROVIDER_CREDS_SECRET"; Set-EnvVar "PROVIDER_CREDS_SECRET" (New-Secret) }
 if ([string]::IsNullOrEmpty((Get-EnvVar "INTERNAL_RUN_SECRET")))   { Set-EnvVar "INTERNAL_RUN_SECRET" (New-Secret) }
+
+# The lakehouse catalog's password lives in TWO places that must agree: the
+# container reads LAKEHOUSE_CATALOG_PASSWORD, the app reads it inside
+# LAKEHOUSE_CATALOG_URL. Replace both together, once, on a fresh .env — halves
+# that disagree authenticate nobody and read as a lakehouse outage.
+$lhPw = Get-EnvVar "LAKEHOUSE_CATALOG_PASSWORD"
+if ([string]::IsNullOrEmpty($lhPw) -or $lhPw -eq "change-me") {
+  Say "Generating the lakehouse catalog password"
+  $lhPw = New-Secret
+  Set-EnvVar "LAKEHOUSE_CATALOG_PASSWORD" $lhPw
+  Set-EnvVar "LAKEHOUSE_CATALOG_URL" "postgres://lakehouse:$lhPw@lakehouse-catalog:5432/lakehouse_catalog"
+}
+
+# The app runs on the HOST in -Dev, where compose service names do not resolve.
+# Every service publishes its port on loopback for exactly this, so development
+# gets the same product rather than a subset of it.
+if ($Dev) {
+  Say "Pointing .env at the services on loopback (the app runs on this host)"
+  Set-EnvVar "QDRANT_URL" "http://127.0.0.1:6333"
+  Set-EnvVar "FEATURE_STORE_URL" "redis://127.0.0.1:6379"
+  Set-EnvVar "SPARK_CONNECT_URL" "sc://127.0.0.1:15002"
+  Set-EnvVar "LAKEHOUSE_S3_ENDPOINT" "127.0.0.1:9000"
+  Set-EnvVar "JS_SANDBOX_URL" "http://127.0.0.1:8091"
+  Set-EnvVar "LAKEHOUSE_CATALOG_URL" "postgres://lakehouse:$lhPw@127.0.0.1:55432/lakehouse_catalog"
+}
 # DOCGEN_SERVICE_URL is deliberately NOT set here: the app probes both the
 # in-network (`docgen:8099`) and published-loopback (`localhost:8099`) addresses,
 # so the renderer is found in either run mode without a mode-specific value that
@@ -128,62 +147,26 @@ if (-not $SkipMigrations) {
 }
 
 # ── 5. run ────────────────────────────────────────────────────────────────────
-if ($Dev) {
-  Say "Starting dev server (Ctrl+C to stop). Open http://localhost:8080"
-  npm run dev
-} else {
-  $profiles = @()
-  if ($Docgen)    { $profiles += @("--profile","docgen") }
-  if ($Notebooks) { $profiles += @("--profile","notebooks") }
-  if ($Sandbox)   { $profiles += @("--profile","sandbox") }
-  if ($Lakehouse) { $profiles += @("--profile","lakehouse") }
-  if ($Spark)     { $profiles += @("--profile","spark") }
-  if ($Vectors)   { $profiles += @("--profile","vectors") }
-  if ($Featurestore) { $profiles += @("--profile","featurestore") }
-  Say "Starting Docker stack"
-  docker compose @profiles up -d --build
-  Say "Up. Open http://localhost:8080"
-  Write-Host "  Verify every service: sign in as the admin and open Observability -> Monitoring."
-  if ($Notebooks) {
-    Write-Host "  Developer-workspace runtime: containers are up, but the feature stays OFF until"
-    Write-Host "    an admin flips it on in Admin -> Developer runtime (then 'Run preflight')."
-  }
-  if ($Lakehouse -and -not (Get-EnvVar "LAKEHOUSE_CATALOG_URL")) {
-    Write-Host "  Lakehouse catalog: a Postgres is up, but the lakehouse stays OFF until .env names"
-    Write-Host "    it - uncomment LAKEHOUSE_CATALOG_URL and the LAKEHOUSE_DATA_URL / S3 lines, then"
-    Write-Host "    'docker compose up -d agentswarms'. See docs/LAKEHOUSE.md."
-  }
-  if ($Vectors -and (Get-EnvVar "VECTOR_STORE") -ne "qdrant") {
-    Write-Host "  Vector store: Qdrant is up, but retrieval stays on pgvector until .env sets"
-    Write-Host "    VECTOR_STORE=qdrant and QDRANT_URL=http://qdrant:6333 (then"
-    Write-Host "    'docker compose up -d agentswarms'). Existing collections need one"
-    Write-Host "    Re-index in Admin -> Developer runtime -> AI services. See docs/KNOWLEDGE_BASES.md."
-  }
-  if ($Spark -and -not (Get-EnvVar "SPARK_CONNECT_URL")) {
-    Write-Host "  Spark cluster: up, but no pipeline uses it until .env sets"
-    Write-Host "    SPARK_CONNECT_URL=""sc://spark-connect:15002"" (then 'docker compose up -d agentswarms')."
-    Write-Host "    Its first run downloads the connector jars. See docs/ETL_PIPELINES.md."
-  }
-  if ($Sandbox) {
-    Write-Host "  JS sandbox: custom-code nodes now run in DEPLOYED and SCHEDULED swarm runs too."
-    # Report what the service actually says rather than assuming it is healthy.
-    # Ask the container itself: js-sandbox sits on an internal network, which
-    # publishes no host port, so probing a loopback port here would report
-    # "unhealthy" for a service that is perfectly fine. Its image is
-    # dependency-free Node, so node is the client it has.
-    $probe = "fetch('http://127.0.0.1:8091/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
-    docker compose @profiles exec -T js-sandbox node -e $probe *> $null
-    if ($LASTEXITCODE -eq 0) {
-      Write-Host "    health: OK (reached in-network at js-sandbox:8091)"
-    } else {
-      Write-Host "    health: not answering yet - give it a few seconds, then:"
-      Write-Host "      docker compose --profile sandbox exec -T js-sandbox node -e ""fetch('http://127.0.0.1:8091/health').then(r=>r.text()).then(console.log)"""
-    }
-    Write-Host "    Running the app with 'npm run dev' instead of in Compose? The container"
-    Write-Host "      publishes no host port (its network is internal: true), so run the"
-    Write-Host "      service on the host instead - it is dependency-free Node:"
-    Write-Host "        `$env:INTERNAL_RUN_SECRET=""<same value as .env>""; node services/js-sandbox/server.mjs"
-    Write-Host "      then set JS_SANDBOX_URL=""http://127.0.0.1:8091"" in .env. Note a host"
-    Write-Host "      process has none of the container's isolation - keep it to dev."
-  }
+Say "Starting every service (first run builds images and pulls ~5 GB)"
+docker compose up -d --build
+
+if ($Dev) { Say "Services up. Starting the dev server (Ctrl+C to stop). Open http://localhost:8080" }
+else { Say "Up. Open http://localhost:8080" }
+Write-Host "  Verify every service: sign in as the admin and open Observability -> Monitoring."
+Write-Host "  Office renderer (PPTX/Word/Excel): set OPENROUTER_API_KEY in .env for its verify loop."
+Write-Host "  Lakehouse: the catalog and MinIO are wired in .env; the console is http://localhost:9001"
+Write-Host "  Developer-workspace runtime: the containers are up, but running people-authored code"
+Write-Host "    stays OFF until an admin turns it on in Admin -> Developer runtime ('Run preflight')."
+Write-Host "  Spark: the first pipeline run downloads the connector jars. See docs/ETL_PIPELINES.md."
+
+# Ask the sandbox container itself: it sits on an internal network with no
+# published port, and its image is dependency-free Node.
+$probe = "fetch('http://127.0.0.1:8091/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+docker compose exec -T js-sandbox node -e $probe *> $null
+if ($LASTEXITCODE -eq 0) { Write-Host "  JS sandbox health: OK (reached in-network at js-sandbox:8091)" }
+else {
+  Write-Host "  JS sandbox health: not answering yet - give it a few seconds, then:"
+  Write-Host '    docker compose exec -T js-sandbox node -e "fetch(''http://127.0.0.1:8091/health'').then(r=>r.text()).then(console.log)"'
 }
+
+if ($Dev) { npm run dev }

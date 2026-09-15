@@ -231,7 +231,7 @@ function NotebooksDoc() {
         an administrator enables the server runtime, opening a notebook shows a "runtime required"
         panel with the command to run rather than a half-working editor.
       </P>
-      <Code lang="bash">{`docker compose --profile notebooks up -d --build`}</Code>
+      <Code lang="bash">{`docker compose up -d --build`}</Code>
       <P>
         Then turn it on under <strong>Admin → Developer runtime</strong>. Enabling it mints the
         signing secret automatically.

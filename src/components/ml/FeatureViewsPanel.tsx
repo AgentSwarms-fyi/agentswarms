@@ -117,7 +117,7 @@ function OnlineStrip({
       <div className="rounded-md border border-dashed bg-muted/20 p-2 text-xs text-muted-foreground">
         <Zap className="mr-1 inline h-3 w-3" />
         Lookups read the lakehouse. For millisecond serving, start the online feature store (
-        <code className="font-mono">--profile online-store</code>) and set{" "}
+        <code className="font-mono">the valkey service</code>) and set{" "}
         <code className="font-mono">FEATURE_STORE_URL</code>.
       </div>
     );

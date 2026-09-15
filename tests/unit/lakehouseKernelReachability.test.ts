@@ -57,12 +57,12 @@ describe("the lakehouse catalog is reachable from kernels", () => {
     ).toContain("nb-internal");
   });
 
-  it("is in the same profiles as the runtime that needs it", () => {
-    // `--profile all` must bring up a working combination; a catalog that only
-    // appears under a profile the notebook runtime does not share would
-    // reintroduce the same failure by a different route.
-    const catalog = compose.services["lakehouse-catalog"]?.profiles ?? [];
-    expect(catalog).toContain("all");
+  it("starts whenever the runtime that needs it starts", () => {
+    // Both are unprofiled, so `docker compose up -d` brings up a working
+    // combination. A catalog behind a flag the notebook runtime did not share
+    // reintroduced this failure by a different route, twice.
+    expect(compose.services["lakehouse-catalog"]?.profiles ?? []).toEqual([]);
+    expect(compose.services["notebook-gateway"]?.profiles ?? []).toEqual([]);
   });
 
   it("the egress proxy is on the kernel network too", () => {

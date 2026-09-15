@@ -223,10 +223,15 @@ describe("the service ships the way the rest of the stack does", () => {
     expect(JSON.stringify(valkey.command ?? [])).toContain("allkeys-lru");
   });
 
-  it("is not published to the host", () => {
-    // A feature store on a laptop's loopback is one anybody on that laptop can
-    // read, and it holds whatever the feature table holds.
-    expect(valkey.ports).toBeUndefined();
+  it("is published on loopback only", () => {
+    // It was published nowhere, on the argument that a feature store on a
+    // laptop's loopback is one anybody on that laptop can read. That argument
+    // lost to a larger one: every service now installs and is WIRED, and an
+    // app run with `setup.sh --dev` lives on the host — unpublished, the
+    // feature store would be installed and unusable there, which is the
+    // optional-by-accident state this release removed. Loopback, never
+    // 0.0.0.0: the machine's own processes, not its network.
+    expect(valkey.ports).toEqual(["127.0.0.1:6379:6379"]);
   });
 
   it("restarts by itself and answers a health check with its own client", () => {
@@ -234,9 +239,8 @@ describe("the service ships the way the rest of the stack does", () => {
     expect(JSON.stringify(valkey.healthcheck)).toContain("valkey-cli");
   });
 
-  it("and carries the `all` profile like every other optional service", () => {
-    expect(valkey.profiles).toContain("featurestore");
-    expect(valkey.profiles).toContain("all");
+  it("starts with every install, like every other service", () => {
+    expect(valkey.profiles ?? []).toEqual([]);
   });
 
   it("the Kubernetes workload claims no volume either", () => {

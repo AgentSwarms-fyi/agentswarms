@@ -17,6 +17,36 @@ development branch and may be ahead of the latest tag.
 Work on `main` since the 1.4.0 tag. Twenty-nine migrations —
 run `npx supabase db push` after pulling.
 
+### Every service, on every install
+
+- **There are no compose profiles any more.** `docker compose up -d --build`,
+  `bash scripts/setup.sh`, `setup.ps1` and `setup-k8s.sh` each install the whole
+  product: the Office renderer, the JS sandbox, the Developer-workspace Python
+  runtime and its egress proxy, the lakehouse catalog, the vector store, the
+  feature store, the Spark cluster — and a **MinIO object store**, which is new,
+  because a lakehouse catalog with nowhere to write its Parquet is a lakehouse
+  that fails on its first table. About 5 GB of images and roughly 8 GB of RAM
+  (docs/SYSTEM_REQUIREMENTS.md).
+- **Installed and wired, not merely installed.** `.env.example` and both
+  installers now point the app at every service — `VECTOR_STORE=qdrant`,
+  `FEATURE_STORE_URL`, `LAKEHOUSE_CATALOG_URL` and `LAKEHOUSE_S3_*`,
+  `SPARK_CONNECT_URL` — and the installers generate the catalog password in the
+  two places that must carry the same value. The Kubernetes installer applies
+  the notebook and Spark manifests too, and writes the same wiring into
+  `agentswarms-env`.
+- **`--dev` gets the same product.** Every service publishes its port on
+  loopback (the catalog on 55432, so a developer's own Postgres keeps 5432), and
+  `setup.sh --dev` / `setup.ps1 -Dev` rewrite `.env` to reach them from the host.
+- **The old flags still work and now do nothing.** `--all`, `--docgen`,
+  `--notebooks`, `--sandbox`, `--lakehouse`, `--spark`, `--vectors`,
+  `--featurestore` and their PowerShell twins are accepted so older notes and
+  scripts keep running.
+- **Nothing is "optional" on the status page either.** Every service in the
+  monitoring catalogue is required, so a service that is not answering reads
+  **Down** rather than a grey "Not running" that made an outage look deliberate,
+  and every message that told somebody to start a profile now names the one
+  command that starts everything.
+
 ### What a knowledge-base answer actually reads
 
 - **A citation carries a document's best few chunks, whole, in reading

@@ -506,8 +506,6 @@ describe("an operator can see whether the store is answering", () => {
     const entry = SERVICE_CATALOGUE.find((s) => s.id === "qdrant");
     expect(entry, "qdrant is not in the monitoring catalogue").toBeTruthy();
     expect(entry!.path).toBe("/readyz");
-    expect(entry!.profile).toBe("vectors");
-    expect(entry!.optional).toBe(true);
     // In-network name first, host loopback last — the same discovery order
     // every other service here uses.
     expect(entry!.candidates[0]).toContain("qdrant:6333");

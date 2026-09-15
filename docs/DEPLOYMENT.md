@@ -101,24 +101,24 @@ The setup script is the shortest path — it scaffolds `.env`, generates the
 encryption secrets, applies the migrations and starts **every** service:
 
 ```bash
-bash scripts/setup.sh --all
+bash scripts/setup.sh
 ```
 
 On Windows:
 
 ```bash
-powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -All
+powershell -ExecutionPolicy Bypass -File scripts\setup.ps1
 ```
 
 It cannot create your Supabase project or guess its keys: it writes the `.env`
 and tells you which values to fill in, then you re-run it. Open
 **http://localhost:8080** when it finishes.
 
-`--all` turns on the seven optional profiles — the document renderer, the JS
+Every install starts all of them — the document renderer, the JS
 sandbox, the notebook runtime, a catalog Postgres for the lakehouse, a Spark
 Connect cluster, the Qdrant vector store and the online feature store — exactly
 what the Compose equivalent,
-`docker compose --profile all up -d --build`, starts. Plain
+`docker compose up -d --build`, starts. Plain
 `docker compose up --build` starts the app alone — enough to try it, but
 notebooks, Deep-mode documents, headless custom code and the lakehouse stay
 unavailable. The catalog and Spark stay idle until `.env` points at them
@@ -131,14 +131,14 @@ starts one that nothing names yet.
   `npm install && npm run dev` — see [INSTALL.md](./INSTALL.md).
 - Want notebooks to run real Python (and ETL pipelines to run at all)? Add
   the optional runtime with
-  `docker compose --profile notebooks up -d --build` — see
+  `docker compose up -d --build` — see
   [Developer-workspace runtime](#developer-workspace-python-runtime).
 - Want **Deep-mode** document generation? Add the renderer with
-  `docker compose --profile docgen up -d --build` — see
+  `docker compose up -d --build` — see
   [Document renderer](#document-renderer-deep-mode-office-exports).
 - Want **Function / custom-component nodes to run in deployed and scheduled
   swarms** (not just on the canvas)? Add the sandbox with
-  `docker compose --profile sandbox up -d --build` — see
+  `docker compose up -d --build` — see
   [JS sandbox](#js-sandbox-custom-code-in-deployed-runs).
 
 ## B. Single cloud VM (recommended)
@@ -1458,7 +1458,7 @@ rules, or a genuinely air-gapped network — run Supabase yourself. The app does
 not care which one it talks to: it needs a URL and two keys.
 
 > [!TIP]
-> **Every step in this section is scripted.** `bash scripts/setup-selfhosted.sh --all`
+> **Every step in this section is scripted.** `bash scripts/setup-selfhosted.sh`
 > downloads and starts the stack, generates all secrets and keys, waits out the
 > storage-boot caveat below, runs the extension preflight, applies the schema,
 > creates your admin user, writes the app's `.env`, and starts the app — see
@@ -2445,7 +2445,7 @@ required. Order matters:
 Take a backup on the old host with a database credential so nothing is
 skipped, copy the backup directory and your secret-manager values across,
 bring up the stack on the new host (`docker compose up -d --build`, then
-`--profile lakehouse` if you use it), restore in the order above, and run
+the lakehouse catalog and its object store included), restore in the order above, and run
 the drill against the same backup on the new host to prove the catalog and
 lake it now serves match what you moved. Only then repoint DNS.
 
@@ -2462,10 +2462,10 @@ fast** builds them in the browser and works on every deployment with nothing
 extra installed. **Deep · slow** uses a server-side renderer for native Office
 output — editable charts, real tables — plus an AI visual review pass.
 
-The renderer is an optional Compose profile:
+The renderer is one of the services every install starts:
 
 ```bash
-docker compose --profile docgen up -d --build
+docker compose up -d --build
 ```
 
 It listens on `8099`, published to loopback only (`127.0.0.1:8099`). The app
@@ -2487,8 +2487,8 @@ memory and disk for the machine running the app.
 
 Two behaviours worth knowing before you rely on it:
 
-- **Optional services that were never started read "Not running" in grey**, with
-  the `docker compose --profile … up -d` command that would start them. They are
+- **A service that is not running reads "Not running" in grey**, with the
+  `docker compose up -d` command that would start it. They are
   not counted as problems — only a required service failing, or any service
   answering incorrectly, is.
 - **Memory reports the container's limit when there is one** (read from cgroups),
@@ -2509,7 +2509,7 @@ rather than executing it next to those secrets.
 Enable it and those nodes work unattended too:
 
 ```bash
-docker compose --profile sandbox up -d --build
+docker compose up -d --build
 ```
 
 No address to configure inside Compose: the app defaults to `js-sandbox:8091`.
@@ -2557,7 +2557,7 @@ _inside_ the sandbox realm and passes only JSON strings across the boundary.
 **Verify it after deploying:**
 
 ```bash
-docker compose --profile sandbox exec -T js-sandbox \
+docker compose exec -T js-sandbox \
   node -e "fetch('http://127.0.0.1:8091/health').then(r=>r.text()).then(console.log)"
 ```
 
@@ -2579,7 +2579,7 @@ Optional, off by default. Enable the containers, then flip it on in
 **Admin → Developer runtime**:
 
 ```bash
-docker compose --profile notebooks up -d --build
+docker compose up -d --build
 ```
 
 Validate the whole chain end-to-end:
@@ -2605,7 +2605,7 @@ shows as `unhealthy` in `docker compose ps` and on Observability →
 Monitoring; the fix is a restart:
 
 ```bash
-docker compose --profile notebooks restart notebook-docker-proxy
+docker compose restart notebook-docker-proxy
 ```
 
 ### Upgrades

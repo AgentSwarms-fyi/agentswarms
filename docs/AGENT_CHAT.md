@@ -327,7 +327,7 @@ A sales lead asks an agent for revenue by region this quarter.
 
 1. Ask for _a five-slide summary of the quarter as PowerPoint_. The document
    is generated from the answer's data, with native editable charts and tables
-   when the optional server-side renderer is running (`--profile docgen`) and
+   when the server-side renderer is running (it is, on every install) and
    in-browser generation otherwise.
 2. Choose **full data** when the deck must carry every row, and **sample**
    when the point is the shape. Excel exports can carry live formulas that

@@ -51,13 +51,16 @@ function SelfHostingPage() {
         The setup script scaffolds <C>.env</C>, generates the encryption secrets, applies database
         migrations and starts the stack.
       </P>
-      <Code lang="bash">{`bash scripts/setup.sh --all`}</Code>
-      <Code lang="powershell">{`powershell -ExecutionPolicy Bypass -File scripts\\setup.ps1 -All`}</Code>
+      <Code lang="bash">{`bash scripts/setup.sh`}</Code>
+      <Code lang="powershell">{`powershell -ExecutionPolicy Bypass -File scripts\\setup.ps1`}</Code>
       <P>
-        <C>--all</C> brings up <em>every</em> service and is the right default for a full install.
-        Without it you get the app alone: add <C>--docgen</C> for the server-side Office renderer,{" "}
-        <C>--notebooks</C> for the Developer-workspace Python runtime, or <C>--sandbox</C> for
-        custom code in deployed swarms. <C>--dev</C> runs a local dev server instead of containers.
+        <strong>Every service is installed and wired</strong> — the Office renderer, the JS sandbox,
+        the Developer-workspace Python runtime and its egress proxy, the lakehouse catalog and its
+        object store, the vector store, the feature store and the Spark cluster — and <C>.env</C>{" "}
+        points at all of them. There are no profiles and nothing to opt into: a feature that depends
+        on which flag an installer was given is a feature most installs never see. Budget about 5 GB
+        of images and 8 GB of RAM. <C>--dev</C> runs the app on this host with a dev server and
+        starts the same services beside it, reached on loopback.
       </P>
       <P>
         It cannot create your Supabase project or guess its keys — it writes the <C>.env</C>, tells
@@ -129,51 +132,56 @@ function SelfHostingPage() {
         setting has nowhere to save. After any upgrade, run <C>npx supabase db push</C> before
         concluding a feature is broken.
       </Callout>
-      <H2 id="optional-services">Optional services</H2>
+      <H2 id="services">The services</H2>
       <Table
-        headers={["Service", "Profile", "What it adds"]}
+        headers={["Service", "Container", "What it adds"]}
         rows={[
           [
             "Doc-gen renderer",
-            <C key="p1">--profile docgen</C>,
+            <C key="p1">docgen</C>,
             'Server-side PowerPoint/Word/Excel via python-pptx, python-docx, openpyxl and LibreOffice — the "Deep" generation mode.',
           ],
           [
             "Notebook runtime",
-            <C key="p2">--profile notebooks</C>,
+            <C key="p2">notebook-gateway</C>,
             "Real Python kernels for the Developer workspace, with a gateway and a default-deny egress proxy.",
           ],
           [
             "JS sandbox",
-            <C key="p3">--profile sandbox</C>,
+            <C key="p3">js-sandbox</C>,
             "Runs Function nodes and custom components in deployed and scheduled swarms, in a locked-down container instead of next to the app's credentials.",
           ],
           [
             "Lakehouse catalog",
-            <C key="p4">--profile lakehouse</C>,
+            <C key="p4">lakehouse-catalog</C>,
             "A Postgres of its own holding the lakehouse's table definitions. Without one — this, or your own in LAKEHOUSE_CATALOG_URL — the lakehouse, SQL models and ML stay off.",
           ],
           [
+            "Object store",
+            <C key="p8">minio</C>,
+            "Where the lakehouse Parquet files live. Replace it with S3, R2 or GCS by pointing LAKEHOUSE_S3_* at them.",
+          ],
+          [
             "Spark cluster",
-            <C key="p5">--profile spark</C>,
+            <C key="p5">spark-connect</C>,
             "A Spark Connect endpoint for the ETL Spark engine and lakehouse queries on Spark. Idle until SPARK_CONNECT_URL names it; the image is about a gigabyte and it downloads its connector jars on first use.",
           ],
           [
             "Vector store",
-            <C key="p6">--profile vectors</C>,
+            <C key="p6">qdrant</C>,
             "Qdrant, for deployments whose knowledge-base index has outgrown the application database. Idle until VECTOR_STORE=qdrant names it, and retrieval stays on pgvector until it does.",
           ],
           [
             "Online feature store",
-            <C key="p7">--profile featurestore</C>,
+            <C key="p7">valkey</C>,
             "Valkey, holding a feature view's latest row per key so a prediction answers in milliseconds instead of reading the lakehouse. Idle until FEATURE_STORE_URL names it; every lookup reads the lakehouse until it does, which is correct and about sixty times slower.",
           ],
         ]}
       />
-      <Code lang="bash">{`docker compose --profile all up -d --build`}</Code>
+      <Code lang="bash">{`docker compose up -d --build`}</Code>
       <P>
-        Or let the setup script start everything: <C>bash scripts/setup.sh --all</C> (
-        <C>powershell -File scripts\setup.ps1 -All</C> on Windows).
+        Or let the setup script start everything: <C>bash scripts/setup.sh</C> (
+        <C>powershell -File scripts\setup.ps1</C> on Windows).
       </P>
       <P>
         Every one is optional, and each degrades to something rather than breaking. Without the
@@ -196,7 +204,7 @@ function SelfHostingPage() {
         items={[
           {
             name: "Docker Compose",
-            body: "The default. One app container plus whichever optional profiles you enable. Good to a substantial team on one host.",
+            body: "The default. Every service on one host, started by one command. Good to a substantial team on one host.",
           },
           {
             name: "Node behind a reverse proxy",

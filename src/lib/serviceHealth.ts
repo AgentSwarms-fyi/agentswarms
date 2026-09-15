@@ -16,7 +16,8 @@ export type ServiceId =
   | "lakehouse-catalog"
   | "spark-connect"
   | "qdrant"
-  | "valkey";
+  | "valkey"
+  | "minio";
 
 export type ServiceStatus =
   /** Answered, and answered correctly. */
@@ -45,9 +46,6 @@ export type ServiceProbe = {
   label: string;
   /** What breaks if this is down, in the operator's terms. */
   purpose: string;
-  /** Compose profile that starts it, or null for always-on pieces. */
-  profile: string | null;
-  optional: boolean;
   status: ServiceStatus;
   latencyMs: number | null;
   /** Endpoint that answered (or the last one tried). */
@@ -67,8 +65,6 @@ export const SERVICE_CATALOGUE: {
   id: ServiceId;
   label: string;
   purpose: string;
-  profile: string | null;
-  optional: boolean;
   candidates: string[];
   /**
    * Whether compose publishes a host port. When false, only an app running
@@ -86,8 +82,6 @@ export const SERVICE_CATALOGUE: {
     label: "Document renderer",
     purpose:
       "Deep-mode PowerPoint / Word / Excel exports. Without it, Agent Chat falls back to the in-browser builder.",
-    profile: "docgen",
-    optional: true,
     candidates: ["http://docgen:8099", "http://127.0.0.1:8099"],
     path: "/health",
     expect: "json-ok",
@@ -98,8 +92,6 @@ export const SERVICE_CATALOGUE: {
     label: "JS sandbox",
     purpose:
       "Function and custom-component nodes in deployed and scheduled swarm runs. Without it, those nodes are canvas-only.",
-    profile: "sandbox",
-    optional: true,
     candidates: ["http://js-sandbox:8091", "http://127.0.0.1:8091"],
     path: "/health",
     expect: "json-ok",
@@ -109,8 +101,6 @@ export const SERVICE_CATALOGUE: {
     hostPublished: true,
     label: "Notebook gateway",
     purpose: "Websocket bridge between the notebook editor and per-session Python kernels.",
-    profile: "notebooks",
-    optional: true,
     candidates: ["http://notebook-gateway:8090", "http://127.0.0.1:8090"],
     path: "/",
     expect: "any-2xx",
@@ -120,8 +110,6 @@ export const SERVICE_CATALOGUE: {
     hostPublished: false,
     label: "Notebook egress proxy",
     purpose: "The kernels' only route to the internet, default-deny with an allow-list.",
-    profile: "notebooks",
-    optional: true,
     // Squid answers HTTP on 3128; a request it refuses to proxy still proves
     // the process is alive, which is all this probe claims.
     // Both names: compose sets container_name for this one, and the service
@@ -136,25 +124,23 @@ export const SERVICE_CATALOGUE: {
   },
   {
     id: "lakehouse-catalog",
-    hostPublished: false,
+    hostPublished: true,
     label: "Lakehouse catalog",
     purpose:
       "DuckLake's transactional catalog (schemas, snapshots, file manifests). Without it, the Lakehouse page says it is not configured.",
-    profile: "lakehouse",
-    optional: true,
     // Postgres speaks no HTTP — an open TCP socket is the whole claim.
-    candidates: ["tcp://lakehouse-catalog:5432", "tcp://127.0.0.1:5432"],
+    // 55432 on the host: a developer's own Postgres usually holds 5432, and
+    // probing that would report somebody else's database as this one.
+    candidates: ["tcp://lakehouse-catalog:5432", "tcp://127.0.0.1:55432"],
     path: "",
     expect: "tcp-open",
   },
   {
     id: "spark-connect",
-    hostPublished: false,
+    hostPublished: true,
     label: "Spark Connect",
     purpose:
       "The shared Spark cluster for ETL pipelines on the Spark engine. Without it those runs fail to connect; pipelines on the default engine are unaffected.",
-    profile: "spark",
-    optional: true,
     // gRPC over HTTP/2 with no unauthenticated health path — an open socket is
     // the whole claim, as for the catalog's Postgres.
     candidates: ["tcp://spark-connect:15002", "tcp://127.0.0.1:15002"],
@@ -166,8 +152,6 @@ export const SERVICE_CATALOGUE: {
     hostPublished: true,
     label: "Docker API proxy",
     purpose: "Least-privilege container control used to start notebook kernels.",
-    profile: "notebooks",
-    optional: true,
     candidates: ["http://notebook-docker-proxy:2375", "http://127.0.0.1:2375"],
     path: "/_ping",
     expect: "docker-ping",
@@ -177,12 +161,10 @@ export const SERVICE_CATALOGUE: {
     // Not published to the host, for the reason the vector store is not: a
     // feature store reachable on a laptop's loopback is one anybody on that
     // laptop can read, and it holds whatever the feature table holds.
-    hostPublished: false,
+    hostPublished: true,
     label: "Online feature store",
     purpose:
       "Where a feature view's latest row per key is served from. Without it, every lookup reads the lakehouse instead — correct, and about sixty times slower.",
-    profile: "featurestore",
-    optional: true,
     // RESP is not HTTP, so an open socket is the whole claim — as for the
     // catalog's Postgres and Spark's gRPC.
     candidates: ["tcp://valkey:6379", "tcp://127.0.0.1:6379"],
@@ -194,16 +176,28 @@ export const SERVICE_CATALOGUE: {
     // Not published to the host: on the Compose network the app reaches it by
     // service name, and a vector store on a laptop's loopback is a vector
     // store anyone on that laptop can read.
-    hostPublished: false,
+    hostPublished: true,
     label: "Vector store (Qdrant)",
     purpose:
       "Where knowledge-base embeddings are searched when VECTOR_STORE=qdrant. Without it, retrieval falls back to keyword search over the same chunks — the text never leaves Postgres.",
-    profile: "vectors",
-    optional: true,
     candidates: ["http://qdrant:6333", "http://127.0.0.1:6333"],
     // /readyz, not /livez: "the process is up" is not the same claim as "it
     // can answer a search", and this page exists to tell them apart.
     path: "/readyz",
+    expect: "any-2xx",
+  },
+  {
+    id: "minio",
+    // Published on loopback so a host-run app probes the same store the
+    // containerised one writes to.
+    hostPublished: true,
+    label: "Object store (MinIO)",
+    purpose:
+      "Where the lakehouse's Parquet files live. Without it the catalog has nowhere to write and every table operation fails.",
+    candidates: ["http://minio:9000", "http://127.0.0.1:9000"],
+    // /ready, not /live: this page exists to tell "the process is up" from
+    // "it can serve an object".
+    path: "/minio/health/ready",
     expect: "any-2xx",
   },
 ];
@@ -290,11 +284,13 @@ export function utilisationTone(percent: number): "ok" | "warn" | "critical" {
 /**
  * How a service's state should read to an operator.
  *
- * An optional service that is simply not running is NOT an incident: it means
- * the profile was never started. Saying "down" there trains people to ignore
- * the page, so it gets its own wording and its own colour.
+ * Every service in the catalogue is installed by every install — there are no
+ * profiles and nothing to opt into — so "down" means down. It used to read
+ * "Not running" in grey for anything behind a profile, which was right when a
+ * service could legitimately have never been started and is now a way to make
+ * a real outage look deliberate.
  */
-export function statusTone(p: Pick<ServiceProbe, "status" | "optional">): {
+export function statusTone(p: Pick<ServiceProbe, "status">): {
   tone: "ok" | "warn" | "critical" | "muted";
   label: string;
 } {
@@ -302,7 +298,7 @@ export function statusTone(p: Pick<ServiceProbe, "status" | "optional">): {
   if (p.status === "degraded") return { tone: "warn", label: "Degraded" };
   if (p.status === "not-deployed") return { tone: "muted", label: "Not deployed" };
   if (p.status === "unreachable") return { tone: "muted", label: "Can't check from here" };
-  return p.optional ? { tone: "muted", label: "Not running" } : { tone: "critical", label: "Down" };
+  return { tone: "critical", label: "Down" };
 }
 
 // The one-line summary above the services table.

@@ -295,9 +295,9 @@ function EtlDocsPage() {
         <strong>Where the cluster comes from</strong> is one choice for the deployment, in Admin →
         Developer runtime → Spark engine. <strong>An endpoint you run</strong> is the default: one
         Spark Connect endpoint shared by every run, set there or as <C>SPARK_CONNECT_URL</C> — and
-        until it is set the engine picker says so. Locally,{" "}
-        <C>docker compose --profile spark up -d</C> gives you one at <C>sc://spark-connect:15002</C>{" "}
-        with the S3A, Delta and JDBC connectors already on it.
+        until it is set the engine picker says so. Locally, <C>docker compose up -d</C> gives you
+        one at <C>sc://spark-connect:15002</C> with the S3A, Delta and JDBC connectors already on
+        it.
       </P>
       <P>
         <strong>One cluster per run, on Kubernetes</strong> is the other, available when the app

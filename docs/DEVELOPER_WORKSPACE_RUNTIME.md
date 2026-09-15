@@ -317,7 +317,7 @@ Reuse the existing pieces: `getEffectiveModelRules`/`isModelAllowed` (IAM gate),
 
 ### 9.1 Single-host (dev & small teams) — Docker Compose
 
-Adds four services to `docker-compose.yml`, all opt-in behind a compose profile `notebooks`:
+Adds four services to `docker-compose.yml`, all opt-in behind a compose service `notebooks`:
 
 ```
 notebook-runtime-image  # builds the kernel image, then exits
@@ -446,14 +446,14 @@ Automate S1–S13 as a pytest that drives a real session through the gateway and
 - [ ] Model/KB calls from Server runtime enforce IAM rules, count toward budgets, and appear in Traces (parity with Pyodide).
 - [ ] Idle/expired/over-cap sessions are reaped with zero leaked containers.
 - [ ] Feature is **off by default** (`server_runtime_enabled=false`) and gated by an IAM capability when on.
-- [ ] Docs (INSTALL/DEPLOYMENT/SECURITY/in-app) updated; `docker-compose --profile notebooks up` brings the stack up cleanly.
+- [ ] Docs (INSTALL/DEPLOYMENT/SECURITY/in-app) updated; `docker compose up -d` brings the stack up cleanly.
 
 ---
 
 ## 14. Risks & open questions
 
 - **Websockets through the stack.** Confirmed approach keeps live kernel websockets in the dedicated gateway (not vinxi). Validate the gateway ↔ JKG protocol early in phase 1.
-- **Operational weight for tiny deploys.** Mitigation: everything is behind the `notebooks` compose profile and `server_runtime_enabled=false` — a hobby operator is unaffected until they opt in.
+- **Operational weight for tiny deploys.** Mitigation: everything is behind the compose `notebooks` service and `server_runtime_enabled=false` — a hobby operator is unaffected until they opt in.
 - **pip supply-chain.** The audited egress proxy constrains what can be pulled; a `pip_allowlist` column was designed and is **not built**. Document the residual risk.
 - **Base-image size** (frameworks are heavy). Mitigation: multi-stage build, prune, and pin versions; publish the image so operators don't build it.
 - **gVisor syscall gaps.** Some native libs misbehave under runsc; keep Tier A the default and Tier B opt-in.

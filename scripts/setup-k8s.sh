@@ -31,14 +31,18 @@
 #   3. installs the Supabase chart and waits for Postgres and the API gateway
 #   4. applies the AgentSwarms schema
 #   5. creates your admin user, confirmed and ready to sign in
-#   6. starts the app and its services, pointed at the in-cluster Supabase
+#   6. starts the app and EVERY service, pointed at the in-cluster Supabase —
+#      the Office renderer, the JS sandbox, the lakehouse catalog and its
+#      object store, the vector store, the feature store, the Developer-
+#      workspace runtime and the Spark namespace. Nothing is opt-in.
 #
 # Re-running is safe: secrets are generated once and reused, `helm upgrade
 # --install` is idempotent, and the schema applies cleanly a second time.
 #
 # Settings, all optional: NAMESPACE, RELEASE, SUPABASE_CHART_VERSION,
-# AGENTSWARMS_IMAGE, DOCGEN_IMAGE, JS_SANDBOX_IMAGE, ADMIN_EMAIL, ADMIN_PASSWORD,
-# INTERNAL_RUN_SECRET, PROVIDER_CREDS_SECRET, SKIP_IMAGE_CHECK.
+# AGENTSWARMS_IMAGE, DOCGEN_IMAGE, JS_SANDBOX_IMAGE, NOTEBOOK_GATEWAY_IMAGE,
+# NOTEBOOK_RUNTIME_IMAGE, ADMIN_EMAIL, ADMIN_PASSWORD, INTERNAL_RUN_SECRET,
+# PROVIDER_CREDS_SECRET, SKIP_IMAGE_CHECK.
 set -euo pipefail
 for arg in "$@"; do
   case "$arg" in
@@ -59,6 +63,8 @@ IMAGE="${AGENTSWARMS_IMAGE:-agentswarms:latest}"
 #   JS_SANDBOX_IMAGE=ghcr.io/you/js-sandbox:1.2.3 bash scripts/setup-k8s.sh
 DOCGEN_IMAGE="${DOCGEN_IMAGE:-agentswarms/docgen:latest}"
 JS_SANDBOX_IMAGE="${JS_SANDBOX_IMAGE:-agentswarms/js-sandbox:latest}"
+NOTEBOOK_GATEWAY_IMAGE="${NOTEBOOK_GATEWAY_IMAGE:-agentswarms/notebook-gateway:latest}"
+NOTEBOOK_RUNTIME_IMAGE="${NOTEBOOK_RUNTIME_IMAGE:-agentswarms/notebook-runtime:latest}"
 ADMIN_EMAIL="${ADMIN_EMAIL:-}"
 ADMIN_PASSWORD="${ADMIN_PASSWORD:-}"
 
@@ -130,6 +136,7 @@ if kubectl -n "$NS" get secret agentswarms-bootstrap >/dev/null 2>&1; then
   MINIO_PW=$(get MINIO_PASSWORD); LOGFLARE_PUB=$(get LOGFLARE_PUBLIC); LOGFLARE_PRIV=$(get LOGFLARE_PRIVATE)
   INTERNAL_RUN_SECRET=$(get INTERNAL_RUN_SECRET); PROVIDER_CREDS_SECRET=$(get PROVIDER_CREDS_SECRET)
   BI_CRON_TOKEN=$(get BI_CRON_TOKEN); LAKEHOUSE_PW=$(get LAKEHOUSE_CATALOG_PASSWORD)
+  LAKE_S3_SECRET=$(get LAKE_S3_SECRET)
 else
   say "Generating secrets"
   JWT_SECRET=$(openssl rand -hex 32)
@@ -152,7 +159,7 @@ else
   INTERNAL_RUN_SECRET="${INTERNAL_RUN_SECRET:-$(openssl rand -hex 32)}"
   PROVIDER_CREDS_SECRET="${PROVIDER_CREDS_SECRET:-$(openssl rand -hex 32)}"
   BI_CRON_TOKEN="${BI_CRON_TOKEN:-$(gen)}"
-  LAKEHOUSE_PW=$(gen)
+  LAKEHOUSE_PW=$(gen); LAKE_S3_SECRET=$(gen)
   kubectl -n "$NS" create secret generic agentswarms-bootstrap \
     --from-literal=JWT_SECRET="$JWT_SECRET" \
     --from-literal=ANON_KEY="$ANON_KEY" \
@@ -165,6 +172,7 @@ else
     --from-literal=S3_KEY_ID="$S3_KEY_ID" \
     --from-literal=S3_ACCESS_KEY="$S3_ACCESS_KEY" \
     --from-literal=MINIO_PASSWORD="$MINIO_PW" \
+    --from-literal=LAKE_S3_SECRET="$LAKE_S3_SECRET" \
     --from-literal=LOGFLARE_PUBLIC="$LOGFLARE_PUB" \
     --from-literal=LOGFLARE_PRIVATE="$LOGFLARE_PRIV" \
     --from-literal=INTERNAL_RUN_SECRET="$INTERNAL_RUN_SECRET" \
@@ -302,6 +310,19 @@ kubectl -n "$NS" create secret generic agentswarms-env \
   --from-literal=DOCGEN_TOKEN="$(gen 16)" \
   --from-literal=LAKEHOUSE_CATALOG_PASSWORD="$LAKEHOUSE_PW" \
   --from-literal=LAKEHOUSE_CATALOG_URL="postgres://lakehouse:${LAKEHOUSE_PW}@lakehouse-catalog:5432/lakehouse_catalog" \
+  --from-literal=LAKEHOUSE_DATA_URL="s3://lakehouse/main" \
+  --from-literal=LAKEHOUSE_S3_ENDPOINT="minio:9000" \
+  --from-literal=LAKEHOUSE_S3_KEY_ID="agentswarms" \
+  --from-literal=LAKEHOUSE_S3_SECRET="$LAKE_S3_SECRET" \
+  --from-literal=LAKEHOUSE_S3_REGION="us-east-1" \
+  --from-literal=LAKEHOUSE_S3_USE_SSL="false" \
+  --from-literal=LAKEHOUSE_S3_URL_STYLE="path" \
+  --from-literal=VECTOR_STORE="qdrant" \
+  --from-literal=QDRANT_URL="http://qdrant:6333" \
+  --from-literal=FEATURE_STORE_URL="redis://valkey:6379" \
+  --from-literal=NOTEBOOK_RUNTIME_BACKEND="k8s" \
+  --from-literal=NOTEBOOK_RUNTIME_IMAGE="$NOTEBOOK_RUNTIME_IMAGE" \
+  --from-literal=SPARK_PROVIDER="k8s" \
   --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 
 # SUBSTITUTE THE IMAGE REFERENCES ON THE WAY IN.
@@ -315,10 +336,17 @@ kubectl -n "$NS" create secret generic agentswarms-env \
 with_images() {
   sed -e "s#image: agentswarms:latest#image: ${IMAGE}#g" \
       -e "s#image: agentswarms/docgen:latest#image: ${DOCGEN_IMAGE}#g" \
-      -e "s#image: agentswarms/js-sandbox:latest#image: ${JS_SANDBOX_IMAGE}#g" "$1"
+      -e "s#image: agentswarms/js-sandbox:latest#image: ${JS_SANDBOX_IMAGE}#g" \
+      -e "s#image: agentswarms/notebook-gateway:latest#image: ${NOTEBOOK_GATEWAY_IMAGE}#g" \
+      -e "s#image: agentswarms/notebook-runtime:latest#image: ${NOTEBOOK_RUNTIME_IMAGE}#g" "$1"
 }
 with_images "$REPO_ROOT/deploy/k8s/app/agentswarms.yaml" | kubectl apply -f - >/dev/null
 with_images "$REPO_ROOT/deploy/k8s/app/services.yaml" | kubectl apply -f - >/dev/null
+# The Developer-workspace runtime and the Spark namespace ship with the install
+# for the same reason every compose service does: a capability that needs a
+# later `kubectl apply` is one most clusters never get.
+with_images "$REPO_ROOT/deploy/k8s/notebooks/notebook-runtime.yaml" | kubectl apply -f - >/dev/null
+kubectl apply -f "$REPO_ROOT/deploy/k8s/spark/spark-runtime.yaml" >/dev/null
 kubectl -n "$NS" rollout status deployment/agentswarms-web --timeout=600s
 
 cat <<EOF

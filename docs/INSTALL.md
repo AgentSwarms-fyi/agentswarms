@@ -133,13 +133,13 @@ automatically, and then installs and starts the app itself:
 ```bash
 git clone https://github.com/AgentSwarms-fyi/agentswarms.git
 cd agentswarms
-bash scripts/setup-selfhosted.sh --all     # → app on :8080, Supabase on :8000
+bash scripts/setup-selfhosted.sh     # → app on :8080, Supabase on :8000
 ```
 
 Prompts for your admin email and password (or pass them non-interactively):
 
 ```bash
-ADMIN_EMAIL=you@corp.com ADMIN_PASSWORD='a-strong-one' bash scripts/setup-selfhosted.sh --all
+ADMIN_EMAIL=you@corp.com ADMIN_PASSWORD='a-strong-one' bash scripts/setup-selfhosted.sh
 ```
 
 What the script does, in order — each step is the automated version of the
@@ -447,35 +447,37 @@ browser.
 
 Product documentation for every feature ships inside the app at `/docs`.
 
-## 7. Optional services (and how to start all of them)
+## 7. The services (all of them, on every install)
 
-The core stack is one container: the app. Seven more services are optional
-profiles, off unless you ask for them.
+Every install starts all nine services — there are no profiles and nothing to
+opt into. The table says what each one does, so you know what a stopped
+container costs you.
 
-| Service                     | Profile        | What you lose without it                                                                                                                                    |
-| --------------------------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Document renderer           | `docgen`       | Deep-mode exports fall back to the in-browser builder (no native charts/tables)                                                                             |
-| JS sandbox                  | `sandbox`      | Function and custom-component nodes work on the canvas but fail in deployed / scheduled swarm runs                                                          |
-| Developer-workspace runtime | `notebooks`    | **Notebooks cannot run at all** — the editor shows a panel asking an admin to enable the runtime. ETL runs, ML training and MCP servers need it too         |
-| Lakehouse catalog           | `lakehouse`    | A Postgres for the lakehouse's catalog; without one (this, or your own in `LAKEHOUSE_CATALOG_URL`) the lakehouse, SQL models and ML stay off                |
-| Spark cluster               | `spark`        | A Spark Connect endpoint for the ETL Spark engine and lakehouse queries on Spark; idle until `SPARK_CONNECT_URL` names it, ~1 GB image, jars on first use   |
-| Vector store (Qdrant)       | `vectors`      | Somewhere other than Postgres to search knowledge-base embeddings; idle until `VECTOR_STORE=qdrant` names it, and retrieval stays on pgvector until it does |
-| Online feature store        | `featurestore` | Millisecond feature lookups for serving; idle until `FEATURE_STORE_URL` names it, and every lookup reads the lakehouse until it does — correct, ~60x slower |
+| Service                     | Container           | What you lose without it                                                                                                                                    |
+| --------------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Document renderer           | `docgen`            | Deep-mode exports fall back to the in-browser builder (no native charts/tables)                                                                             |
+| JS sandbox                  | `js-sandbox`        | Function and custom-component nodes work on the canvas but fail in deployed / scheduled swarm runs                                                          |
+| Developer-workspace runtime | `notebook-*`        | **Notebooks cannot run at all** — the editor shows a panel asking an admin to enable the runtime. ETL runs, ML training and MCP servers need it too         |
+| Lakehouse catalog           | `lakehouse-catalog` | A Postgres for the lakehouse's catalog; without one (this, or your own in `LAKEHOUSE_CATALOG_URL`) the lakehouse, SQL models and ML stay off                |
+| Object store (MinIO)        | `minio`             | Where lakehouse Parquet files live; without one (this, or your own in `LAKEHOUSE_S3_*`) a table has nowhere to write                                        |
+| Spark cluster               | `spark-connect`     | A Spark Connect endpoint for the ETL Spark engine and lakehouse queries on Spark; idle until `SPARK_CONNECT_URL` names it, ~1 GB image, jars on first use   |
+| Vector store (Qdrant)       | `qdrant`            | Somewhere other than Postgres to search knowledge-base embeddings; idle until `VECTOR_STORE=qdrant` names it, and retrieval stays on pgvector until it does |
+| Online feature store        | `valkey`            | Millisecond feature lookups for serving; idle until `FEATURE_STORE_URL` names it, and every lookup reads the lakehouse until it does — correct, ~60x slower |
 
-**Start everything:**
+**Start it:**
 
 ```bash
-bash scripts/setup.sh --all
+bash scripts/setup.sh
 ```
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -All
+powershell -ExecutionPolicy Bypass -File scripts\setup.ps1
 ```
 
 Or with Compose directly:
 
 ```bash
-docker compose --profile all up -d --build
+docker compose up -d --build
 ```
 
 Why they are opt-in rather than always on: the renderer image carries
@@ -497,7 +499,7 @@ short "runtime required" panel until an admin turns it on. To enable it:
 
 1. Start the runtime services (one command, no env editing):
    ```bash
-   docker compose --profile notebooks up -d --build
+   docker compose up -d --build
    ```
 2. Sign in as the admin and open **Admin → Developer runtime** (in the sidebar).
    Flip **Enable server runtime** on — that's it. The app generates its own

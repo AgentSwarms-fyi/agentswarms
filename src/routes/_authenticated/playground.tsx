@@ -2881,7 +2881,7 @@ function notifyDeepFallback() {
   // an info toast reads as "fine" to someone wondering why Deep changed nothing.
   toast.warning("Deep mode unavailable — built in the browser instead", {
     description:
-      "This document is identical to Browser · fast. Start the renderer with `docker compose --profile docgen up -d --build`.",
+      "This document is identical to Browser · fast. Start the renderer with `docker compose up -d --build`.",
     duration: 12000,
   });
 }

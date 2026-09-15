@@ -3382,11 +3382,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     "title": "Install & deploy",
     "description": "Run the whole platform on your own infrastructure. You need a Supabase project for the database and auth, and either Docker or Node.",
     "terms": [
-      "--all",
       "--dev",
-      "--docgen",
-      "--notebooks",
-      "--sandbox",
       ".env",
       ".env.example",
       "/api/health",
@@ -3395,9 +3391,17 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "VECTOR_STORE",
       "deploy/k8s/app/",
       "deploy/k8s/notebooks/",
+      "docgen",
       "docs/INSTALL.md",
       "http://localhost:8080",
-      "resources.limits.cpu"
+      "js-sandbox",
+      "lakehouse-catalog",
+      "minio",
+      "notebook-gateway",
+      "qdrant",
+      "resources.limits.cpu",
+      "spark-connect",
+      "valkey"
     ],
     "headings": [
       {
@@ -3416,8 +3420,8 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "level": 2
       },
       {
-        "id": "optional-services",
-        "text": "Optional services",
+        "id": "services",
+        "text": "The services",
         "level": 2
       },
       {

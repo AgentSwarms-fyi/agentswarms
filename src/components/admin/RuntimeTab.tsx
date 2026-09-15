@@ -355,9 +355,9 @@ export function RuntimeTab({
           <p>
             <strong>Runtime not fully set up yet.</strong> Enabling it below mints a signing secret
             automatically — no env var needed. To actually start kernels you also need the runtime
-            services running (<code>docker compose --profile notebooks up -d --build</code>). Only
-            set <code>NOTEBOOK_RUNTIME_SECRET</code> yourself if you run replicas that don&apos;t
-            share a database. See docs/DEVELOPER_WORKSPACE_RUNTIME.md.
+            services running (<code>docker compose up -d --build</code>). Only set{" "}
+            <code>NOTEBOOK_RUNTIME_SECRET</code> yourself if you run replicas that don&apos;t share
+            a database. See docs/DEVELOPER_WORKSPACE_RUNTIME.md.
           </p>
         </div>
       )}

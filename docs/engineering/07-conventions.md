@@ -156,10 +156,12 @@ without its prerequisite is a tool that always fails.
 `src/utils/swarmExecute.server.ts`. Pure graph logic goes in the shared helpers;
 only IO differs.
 
-**A Compose service.** Give it a profile _and_ `all`, or
-`tests/unit/composeProfiles.test.ts` fails — a service that misses `all` breaks
-nothing and errors nowhere, it just quietly makes `--profile all` mean "all
-except that one".
+**A Compose service.** Do NOT give it a profile: every service starts with every
+install, and the compose-services guard in `tests/unit` fails if one is gated. It also
+needs a loopback port (so `setup.sh --dev` reaches it), a row in the monitoring
+catalogue, a Kubernetes workload or a stated exemption, and a line in INSTALL.md
+§7, the in-app services table and the sizing guide —
+the service-coverage guard enumerates those for you by failing.
 
 **Anything that reads a new environment variable.** Add it to `.env.example` and
 document it, or `docsFreshness` fails. That test has caught its own authors more

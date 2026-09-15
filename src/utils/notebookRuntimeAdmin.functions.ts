@@ -472,7 +472,7 @@ export const nbRuntimePreflight = createServerFn({ method: "POST" })
               status: img.ok ? "pass" : "fail",
               detail: img.ok
                 ? `${image} present`
-                : `${image} not found — build it: docker compose --profile notebooks up -d --build`,
+                : `${image} not found — build it: docker compose up -d --build`,
             });
           } catch {
             checks.push({

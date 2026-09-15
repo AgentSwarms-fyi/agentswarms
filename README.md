@@ -266,10 +266,10 @@ bringing up the stack):
 
 ```bash
 cp .env.example .env      # fill in your Supabase keys, then:
-bash scripts/setup.sh --all           # EVERYTHING  →  http://localhost:8080
+bash scripts/setup.sh           # EVERYTHING  →  http://localhost:8080
 # bash scripts/setup.sh               # core stack only (the app; optional services off)
 # bash scripts/setup.sh --dev         # local dev server instead
-# Windows PowerShell:  powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -All
+# Windows PowerShell:  powershell -ExecutionPolicy Bypass -File scripts\setup.ps1
 ```
 
 **No Supabase account at all?** One command deploys the entire solution —
@@ -280,8 +280,8 @@ the API keys signed from it), applies the schema, creates your admin user, and
 writes all of it into `.env` automatically before bringing up the app:
 
 ```bash
-bash scripts/setup-selfhosted.sh --all      # Supabase + EVERYTHING  →  http://localhost:8080
-# ADMIN_EMAIL=you@corp.com bash scripts/setup-selfhosted.sh --all   # non-interactive
+bash scripts/setup-selfhosted.sh      # Supabase + EVERYTHING  →  http://localhost:8080
+# ADMIN_EMAIL=you@corp.com bash scripts/setup-selfhosted.sh   # non-interactive
 # Windows: run it in WSL or Git Bash, with Docker Desktop running
 ```
 
@@ -323,21 +323,21 @@ Self-host with Docker (any Node-capable host — VPS, Fly, Railway, Render, K8s)
 
 ```bash
 cp .env.example .env   # fill in Supabase + keys, apply migrations once
-docker compose --profile all up --build
-# → http://localhost:8080   (plain `docker compose up --build` starts the app alone)
+docker compose up --build
+# → http://localhost:8080   (every service; there are no profiles)
 ```
 
-`--profile all` (or the setup script's `--all`) brings up the optional services too: the
+One command brings up every service: the
 **document renderer** (native PowerPoint/Word/Excel), the **JS sandbox** (custom
 code in deployed swarm runs), the **Developer-workspace runtime** (real Python
 kernels), a **catalog Postgres** for the lakehouse, a **Spark Connect cluster**
 for the ETL engine, the **Qdrant vector store** for knowledge bases that
-have outgrown pgvector and the **online feature store** that answers a model's
-feature lookups in milliseconds. They are separate profiles because each costs
-something — LibreOffice is a large image, the notebook runtime needs
-Docker-socket access through a least-privilege proxy, and Spark is a ~1 GB
-image. The last two stay idle until `.env` points at them
-(`LAKEHOUSE_CATALOG_URL`, `SPARK_CONNECT_URL`). Once up, **Observability →
+have outgrown pgvector, the **online feature store** that answers a model's
+feature lookups in milliseconds, and the **object store** the lakehouse writes
+its Parquet files to. Nothing is opt-in and nothing is left unwired: `.env`
+points at every one of them, so the features that need them work the minute
+the install ends. It costs about 5 GB of images and roughly 8 GB of RAM
+(docs/SYSTEM_REQUIREMENTS.md). Once up, **Observability →
 Monitoring** shows every service's health in one place.
 
 First time? Follow **[the full installation guide](./docs/INSTALL.md)** — it

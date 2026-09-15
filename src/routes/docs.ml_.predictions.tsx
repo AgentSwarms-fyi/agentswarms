@@ -416,11 +416,10 @@ curl -X POST https://your-instance/api/ml/predict/batch \\
       <P>
         The panel reports where lookups are <strong>actually</strong> answered from rather than what
         the switch is set to: a view that is on but stale is being served from the lakehouse, and
-        that is the moment the difference matters. Start one with{" "}
-        <C>docker compose --profile featurestore up -d</C> and point <C>FEATURE_STORE_URL</C> at it.
-        It is valkey rather than Redis for a licensing reason — Redis moved to RSALv2/SSPL, which
-        this project cannot ship in its own stack — and the protocol is the same, so that variable
-        may name a Redis you already run.
+        that is the moment the difference matters. Start one with <C>docker compose up -d</C> and
+        point <C>FEATURE_STORE_URL</C> at it. It is valkey rather than Redis for a licensing reason
+        — Redis moved to RSALv2/SSPL, which this project cannot ship in its own stack — and the
+        protocol is the same, so that variable may name a Redis you already run.
       </P>
 
       <H3 id="point-in-time">Point-in-time training sets</H3>

@@ -141,7 +141,7 @@ describe("headless custom code", () => {
   it("refuses with a single shared message when the sandbox is not deployed", () => {
     expect(EXECUTOR).toContain("JS_SANDBOX_UNAVAILABLE");
     const client = codeOnly(readFileSync(resolve("src/utils/jsSandbox.server.ts"), "utf-8"));
-    expect(client).toContain("--profile sandbox");
+    expect(client).toContain("docker compose up -d --build");
   });
 
   it("checks required component params before running, like the canvas does", () => {

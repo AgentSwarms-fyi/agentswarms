@@ -293,6 +293,8 @@ describe("Pod Security Standards", () => {
       "StatefulSet/lakehouse-catalog",
       "Deployment/agentswarms-valkey",
       "StatefulSet/qdrant",
+      "StatefulSet/minio",
+      "Job/minio-bucket",
     ]);
   });
 

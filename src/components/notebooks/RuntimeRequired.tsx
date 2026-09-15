@@ -9,7 +9,7 @@ import { Check, Copy, Server, ShieldCheck, Terminal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useIsSuperadmin } from "@/hooks/use-iam";
 
-const COMPOSE_CMD = "docker compose --profile notebooks up -d --build";
+const COMPOSE_CMD = "docker compose up -d --build";
 const VERIFY_CMD = "bash deploy/notebooks/test/verify-runtime.sh";
 
 function CommandRow({ cmd }: { cmd: string }) {

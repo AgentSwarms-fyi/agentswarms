@@ -111,7 +111,7 @@ The run sequence:
    replaced wholesale per pipeline so renamed targets never strand old edges);
    notifies the owner on failure.
 
-**The runtime must be enabled** (Admin → Developer runtime; `--profile notebooks` on
+**The runtime must be enabled** (Admin → Developer runtime; its containers start with every install; on
 Compose). Without it, runs fail immediately with a message saying exactly that.
 
 ## Engines: the sandbox, or a Spark cluster
@@ -186,7 +186,7 @@ runs a single-host Spark 4.2 Connect server with the S3A, Delta and JDBC
 connectors already on it:
 
 ```bash
-docker compose --profile spark up -d
+docker compose up -d
 ```
 
 and `sc://spark-connect:15002` is the endpoint. The first start downloads the
@@ -876,7 +876,7 @@ The run engine owns the operational behaviours a mature ETL tool is judged on:
 - **Live logs** — the batch runner streams captured stdout to the result
   callback every 5 s (`{"partial": true}`); the run row's logs update while
   running and the Logs dialog tails them. **Changing the runner requires an
-  image rebuild**: `docker compose --profile notebooks build`.
+  image rebuild**: `docker compose build`.
 
 Verified live (no sandbox required for most of it): the retry ladder walked to
 exhaustion with correct attempt counts and audit events

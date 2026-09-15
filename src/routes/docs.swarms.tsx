@@ -761,11 +761,11 @@ input ──▶ split ┼──▶ legal analysis ─────┼──▶ me
       </Callout>
       <Callout kind="warn">
         The sandbox is an <strong>opt-in service</strong>:{" "}
-        <code className="font-mono">docker compose --profile sandbox up -d --build</code>. Until an
-        operator starts it, deployed and scheduled runs refuse custom code rather than executing it
-        beside the server&rsquo;s credentials — and the Deploy dialog tells you so, for this
-        instance specifically, before you deploy. Custom code never runs in the application process
-        either way.
+        <code className="font-mono">docker compose up -d --build</code>. Until an operator starts
+        it, deployed and scheduled runs refuse custom code rather than executing it beside the
+        server&rsquo;s credentials — and the Deploy dialog tells you so, for this instance
+        specifically, before you deploy. Custom code never runs in the application process either
+        way.
       </Callout>
 
       <H2 id="file-inputs">File inputs</H2>

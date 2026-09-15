@@ -67,8 +67,8 @@ export async function dockerBase(): Promise<string> {
   const advice = stalled
     ? "The proxy accepted the connection but did not answer: the Docker daemon is busy " +
       "(a build or pull in progress?) or the proxy has wedged. Try again in a minute; if it " +
-      "persists:  docker compose --profile notebooks restart notebook-docker-proxy  "
-    : "Start the runtime services with:  docker compose --profile notebooks up -d --build  ";
+      "persists:  docker compose restart notebook-docker-proxy  "
+    : "Start the runtime services with:  docker compose up -d --build  ";
   throw new Error(
     "Cannot reach the Docker socket-proxy, so no kernel can be started. " +
       advice +
