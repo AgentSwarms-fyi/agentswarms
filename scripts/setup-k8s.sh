@@ -35,7 +35,17 @@
 #
 # Re-running is safe: secrets are generated once and reused, `helm upgrade
 # --install` is idempotent, and the schema applies cleanly a second time.
+#
+# Settings, all optional: NAMESPACE, RELEASE, SUPABASE_CHART_VERSION,
+# AGENTSWARMS_IMAGE, DOCGEN_IMAGE, JS_SANDBOX_IMAGE, ADMIN_EMAIL, ADMIN_PASSWORD,
+# INTERNAL_RUN_SECRET, PROVIDER_CREDS_SECRET, SKIP_IMAGE_CHECK.
 set -euo pipefail
+for arg in "$@"; do
+  case "$arg" in
+    -h|--help) sed -n '2,/^set -euo pipefail/p' "$0" | sed '$d'; exit 0 ;;
+    *) echo "Unknown option: $arg (this script takes no flags; see --help for its settings)"; exit 1 ;;
+  esac
+done
 
 NS="${NAMESPACE:-agentswarms}"
 RELEASE="${RELEASE:-supabase}"

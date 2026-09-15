@@ -47,6 +47,25 @@ run `npx supabase db push` after pulling.
   every turn of every agent with the tool enabled — the largest single item of
   a thirteen-tool prompt. The Data & SQL page's assistant uses the same listing.
 
+### The installers and deployment assets, verified and kept that way
+
+- **`npm run check:infra`** (in the gate and in CI): every tracked shell script
+  is executable and parses, the PowerShell installer parses, every compose
+  profile is a flag of both installers and part of `--all`, the Kubernetes
+  manifests' selectors, images, resource requests and secret references
+  resolve, compose renders with and without `--profile all`, and every
+  Dockerfile build arg is passed. `check:doc-commands` runs in CI too.
+- **Found by it, fixed:** none of the six shell scripts was executable in git
+  (`./scripts/setup.sh` was "Permission denied" on a fresh Linux or macOS
+  clone); `setup.sh --help` had lost `--featurestore`; both installers said
+  "six profiles" of seven. `setup-k8s.sh` and `setup.ps1` gained `--help` /
+  `-Help`.
+- **The runtime verifier** (`deploy/notebooks/test/verify-runtime.sh`) pointed
+  its test kernel at the Docker host gateway even when the app runs in
+  compose, where the kernel's network is internal and has no such route, and
+  reported a healthy install as failing. It now mirrors the product's own
+  callback URL. `docker build --check` is clean for all five Dockerfiles.
+
 ### The handbook, reorganised
 
 - **Page families.** ML Models is an overview and five pages (Training,

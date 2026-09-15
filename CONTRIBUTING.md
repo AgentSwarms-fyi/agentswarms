@@ -18,7 +18,7 @@ environment variables).
 
    ```bash
    npm run lint
-   npm run check     # what CI runs: typecheck, lint, tests, build
+   npm run check     # what CI runs: typecheck, lint, docs and infra checks, tests, build
    npm run format
    npm run typecheck
    npm run test

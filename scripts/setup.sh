@@ -11,9 +11,10 @@
 #   bash scripts/setup.sh --lakehouse     # + a catalog Postgres for the lakehouse
 #   bash scripts/setup.sh --spark         # + a Spark Connect cluster for the ETL engine
 #   bash scripts/setup.sh --vectors       # + Qdrant, for knowledge-base vectors
+#   bash scripts/setup.sh --featurestore  # + Valkey, for millisecond feature lookups
 #   bash scripts/setup.sh --skip-migrations
 #
-# --all is the whole product — the same six profiles `docker compose --profile
+# --all is the whole product — the same seven profiles `docker compose --profile
 # all` starts. They are separate because each costs something: the renderer
 # pulls LibreOffice (~1 GB), the notebook runtime mounts the Docker socket into
 # a least-privilege proxy so it can start kernel containers, the catalog is a
@@ -37,6 +38,7 @@ NOTEBOOKS=0
 LAKEHOUSE=0
 SPARK=0
 VECTORS=0
+FEATURESTORE=0
 SKIP_MIGRATIONS=0
 
 add_profile() {
@@ -62,7 +64,7 @@ for arg in "$@"; do
     --vectors) VECTORS=1; add_profile vectors ;;
     --featurestore) FEATURESTORE=1; add_profile featurestore ;;
     --skip-migrations) SKIP_MIGRATIONS=1 ;;
-    -h|--help) sed -n '2,21p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,/^set -euo pipefail/p' "$0" | sed '$d'; exit 0 ;;
     *) echo "Unknown option: $arg (try --help)"; exit 1 ;;
   esac
 done

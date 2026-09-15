@@ -19,7 +19,7 @@
 #>
 param(
   [switch]$Dev,
-  # -All is the whole product - the same six profiles `docker compose --profile
+  # -All is the whole product - the same seven profiles `docker compose --profile
   # all` starts; the individual switches exist because each optional profile
   # costs something (LibreOffice image size, Docker socket access for notebook
   # kernels, a Postgres of its own, a ~1 GB Spark image). See docs/DEPLOYMENT.md.
@@ -33,8 +33,10 @@ param(
   # retrieval stays on pgvector until it does.
   [switch]$Vectors,
   [switch]$Featurestore,
-  [switch]$SkipMigrations
+  [switch]$SkipMigrations,
+  [switch]$Help
 )
+if ($Help) { Get-Content $PSCommandPath | Select-Object -Skip 1 -First 17; exit 0 }
 if ($All) { $Docgen = $true; $Notebooks = $true; $Sandbox = $true; $Lakehouse = $true; $Spark = $true; $Vectors = $true; $Featurestore = $true }
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot

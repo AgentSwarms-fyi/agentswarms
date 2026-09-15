@@ -1,3 +1,8 @@
+# check=skip=SecretsUsedInArgOrEnv
+# ^ `docker build --check` flags VITE_SUPABASE_PUBLISHABLE_KEY below as a secret
+#   in ENV. It is Supabase's anon (publishable) key: it ships in every browser
+#   bundle by design and RLS is what guards the data. No server-side secret —
+#   not the service-role key, not a provider key — is a build arg or an ENV here.
 # AgentSwarms — self-hosted image (Node).
 #
 # The client bundle needs the VITE_* Supabase values at BUILD time (they are

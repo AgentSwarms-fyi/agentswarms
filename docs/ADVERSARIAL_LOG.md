@@ -149,6 +149,56 @@ returns — which `sources` drops by design — is a canvas run: the client
 tracer records every `tool_call` and `tool_result` on the step, so the
 refusal strings can be read from `swarm_run_steps.tool_calls` verbatim.
 
+#### R13 · S2 · The installers, the compose file and the manifests, checked for the first time
+
+Every installation and deployment asset, verified rather than read: the
+three shell installers and the PowerShell one, the backup and restore
+scripts, the five Dockerfiles, the compose file with and without every
+profile, the four Kubernetes manifests, the runtime verifier and the
+hardening suite, and the commands the handbook tells an operator to type.
+Static where a cluster is not needed, live against the running stack where
+it is. `docs/UI_TEST_RESULTS.md` has the table.
+
+- **F1 (S2)** Not one of the six tracked shell scripts was executable:
+  100644 in git for `setup.sh`, `setup-selfhosted.sh`, `setup-k8s.sh`, the
+  two runtime test scripts and the notebook image's entrypoint. The in-app
+  install page said `./scripts/setup.sh --all`, which on a fresh Linux or
+  macOS clone is "Permission denied" (every Markdown doc said `bash
+scripts/setup.sh`, which works either way; the Dockerfile chmods the
+  entrypoint, so images were never affected). Modes fixed, the page reads
+  like the rest, and the check pins the mode.
+- **F2 (S3)** `setup.sh --help` printed a usage block that had lost the
+  seventh profile — `--featurestore` worked, the help did not know it — and
+  both installers' comments said "the same six profiles" of seven. The
+  check now derives the count from the compose file and demands each
+  profile in both installers' flags, in `--all`, and in the help.
+- **F3 (S2)** `verify-runtime.sh` tier 4 ("the kernel reaches the platform")
+  pointed its test kernel at `host.docker.internal` whenever the app URL
+  was localhost — including when the app runs in compose, where the kernel
+  sits on an `internal` network with no route to the host. A healthy
+  install reported "All connection attempts failed"; 15 of 16 checks
+  passed and the one that failed was the verifier. It now mirrors
+  `internalAppUrl()`: the service name inside compose, the host gateway for
+  a host-run app, `NOTEBOOK_APP_INTERNAL_URL` when set.
+- **F4 (S3)** `docker build --check` warned about the publishable Supabase
+  key in ENV in the app image. It is the anon key, shipped in every browser
+  bundle by design; the directive skips the rule with that reasoning, and
+  the other four Dockerfiles were clean already.
+- **The gap behind all four:** nothing ran any of this. CI built the app and
+  ran the unit tests; `check:doc-commands` existed and ran nowhere. Both
+  checks are in `npm run check` and in CI now.
+
+Verified working, no change needed: the compose file renders with and
+without every profile; 47 Kubernetes documents with consistent selectors,
+images and secret references (the notebooks namespace's LimitRange fills
+the requests two Deployments omit); 73 documents' commands resolve; 83
+routes load without a server error; a real backup (the catalog dump, 79
+lake objects, all 25 catalog-referenced files present) and the documented
+restore drill (scratch database restored to snapshot 460 and dropped, 25
+objects re-uploaded and verified, prefix removed); the self-hosted
+installer's ordering (wait for auth, then for the storage schema, then the
+five extensions, then the push, then the admin user, then the app).
+
 #### R12 · S1 · A knowledge-base answer read one chunk, cut in half: the RAG evaluation
 
 A session on Agent Chat with a knowledge base built to be hard: twelve

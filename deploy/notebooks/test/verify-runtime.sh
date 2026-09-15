@@ -182,8 +182,16 @@ const {createHmac}=require('crypto');const n=Math.floor(Date.now()/1000);
 const h=Buffer.from(JSON.stringify({alg:'HS256',typ:'nbr'})).toString('base64url');
 const p=Buffer.from(JSON.stringify({sub:'$USER_ID',sid:'$SID',scope:'notebook-runtime',iat:n,exp:n+900})).toString('base64url');
 process.stdout.write(h+'.'+p+'.'+createHmac('sha256','$SECRET').update(h+'.'+p).digest('base64url'));" 2>/dev/null)
-    # Kernels reach a host-run app through the Docker host gateway.
-    ORIGIN="$APP_URL"; [[ "$APP_URL" == *"127.0.0.1"* || "$APP_URL" == *"localhost"* ]] && ORIGIN="http://host.docker.internal:${APP_URL##*:}"
+    # Mirror internalAppUrl() in src/utils/notebookRuntime/service.server.ts:
+    # inside compose the app is a service on the kernel's network, reached by
+    # name; a host-run app is only reachable through the Docker host gateway.
+    # An `internal` network has no route to the host at all, which is how this
+    # check reported "All connection attempts failed" on a healthy install.
+    NB_INTERNAL=$(grep -E '^NOTEBOOK_APP_INTERNAL_URL=' "$ENVF" 2>/dev/null | cut -d'"' -f2)
+    ORIGIN="$APP_URL"
+    if [ -n "${NOTEBOOK_APP_INTERNAL_URL:-$NB_INTERNAL}" ]; then ORIGIN="${NOTEBOOK_APP_INTERNAL_URL:-$NB_INTERNAL}"
+    elif [ -n "$APP_IN_DOCKER" ]; then ORIGIN="http://agentswarms:${APP_URL##*:}"
+    elif [[ "$APP_URL" == *"127.0.0.1"* || "$APP_URL" == *"localhost"* ]]; then ORIGIN="http://host.docker.internal:${APP_URL##*:}"; fi
     "$DOCKER" rm -f "$KERNEL-cb" >/dev/null 2>&1
     "$DOCKER" run -d --name "$KERNEL-cb" --network "$NET" --add-host=host.docker.internal:host-gateway \
       --user 1000:1000 --read-only --cap-drop=ALL \

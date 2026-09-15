@@ -74,6 +74,15 @@ jobs:
       - name: Check documentation against the code
         run: npm run check:docs && npm run check:md-docs
 
+      # The install scripts, the compose file and the Kubernetes manifests were
+      # verified by nothing until R13 (docs/ADVERSARIAL_LOG.md): six shell
+      # scripts nobody could execute after a fresh clone, a --help that had
+      # lost a profile. Parse, exec bits, profile parity, manifest selectors
+      # and secrets, compose rendering — and every `bash scripts/…` a page
+      # names must exist.
+      - name: Check installers, compose and manifests
+        run: npm run check:doc-commands && npm run check:infra
+
       - name: Test
         run: npm run test
 

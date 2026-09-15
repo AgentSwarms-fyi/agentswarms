@@ -48,7 +48,7 @@ WAIT_SECS="${SUPABASE_WAIT_SECS:-240}"
 APP_FLAGS=()
 for arg in "$@"; do
   case "$arg" in
-    -h|--help) sed -n '2,31p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,/^set -euo pipefail/p' "$0" | sed '$d'; exit 0 ;;
     *) APP_FLAGS+=("$arg") ;;    # everything else is forwarded to setup.sh
   esac
 done

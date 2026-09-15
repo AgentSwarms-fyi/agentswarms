@@ -51,7 +51,7 @@ function SelfHostingPage() {
         The setup script scaffolds <C>.env</C>, generates the encryption secrets, applies database
         migrations and starts the stack.
       </P>
-      <Code lang="bash">{`./scripts/setup.sh --all`}</Code>
+      <Code lang="bash">{`bash scripts/setup.sh --all`}</Code>
       <Code lang="powershell">{`powershell -ExecutionPolicy Bypass -File scripts\\setup.ps1 -All`}</Code>
       <P>
         <C>--all</C> brings up <em>every</em> service and is the right default for a full install.
