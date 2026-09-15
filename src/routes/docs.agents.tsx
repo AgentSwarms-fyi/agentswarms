@@ -436,7 +436,10 @@ If the customer is angry, or asks for a refund above $500, reply only:
         narrow ones. Measured: the same twenty knowledge-base questions cost about 2,400 prompt
         tokens a turn with the knowledge base alone and 10,400 with thirteen tools enabled — the
         answers were identical, the bill was not — and a question with a percentage in it went round
-        the calculator three times, four times the tokens and twice the wait.
+        the calculator three times, four times the tokens and twice the wait. Most tools cost
+        150–700 prompt tokens before they are called; SQL Query is the exception, because its
+        description carries your tables and their columns — budgeted at 4,000 characters (
+        <C>SQL_TOOL_SCHEMA_MAX_CHARS</C>), the rest by name for <C>list_data_tables</C> to fill in.
       </Callout>
 
       {/* ── WORKED EXAMPLE ── */}

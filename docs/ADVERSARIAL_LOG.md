@@ -208,7 +208,20 @@ Measured and recorded rather than changed:
   bare agent gave in 8.8 s. The four tool-shaped questions (weather, date,
   local tables, a product) each called the right tool once. Prompt caching
   reported zero cached tokens on every request. The handbook's "three tools
-  is a good number; eight is not" now carries these figures.
+  is a good number; eight is not" now carries these figures. Measured per
+  tool afterwards (each enabled alone, same question, prompt tokens over the
+  bare request): `sql_query` 5,240, `ml_predict` 701, `kb_graph_search` 508,
+  `data_health` 264, `weather` 185, `web_browse` 185, `calculator` 162,
+  `datetime` 154; n8n, MCP and notifications cost nothing until something
+  is connected. The SQL tool's description carried fifteen tables with
+  every column — 17,000 characters — so it now has a budget
+  (`SQL_TOOL_SCHEMA_MAX_CHARS`, 4,000): columns until it is spent, names
+  after, `list_data_tables` for the rest. Two things the per-tool round also
+  showed: with web search as the only tool the model searched the web twice
+  for a question the grounding answered (adding kb_search beside it, it did
+  not), and an explicit `enabledTools` list without `kb_search` switches
+  auto-RAG off by design — documented at the gate in chat.ts, easy to trip
+  over from the API.
 - **Context bloat.** A 24-turn conversation, the page's whole history sent
   each turn: prompt tokens plateaued at 3,200–4,200 (the 20-message window),
   latency stayed 5–13 s, every answer stayed right. The rolling summary is

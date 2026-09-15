@@ -21,6 +21,7 @@ import {
   scopeToVisibleTables,
   sqlQueryTool,
 } from "./sql.server";
+import { SQL_SCHEMA_SUMMARY_MAX_CHARS, summarizeTablesForPrompt } from "@/lib/sqlSchemaSummary";
 import { metricQueryTool, runMetricQuery, semanticCatalogForCtx } from "./metric.server";
 import { auditEvent } from "@/utils/audit.server";
 import { resultDigest } from "@/utils/provenance/canonical";
@@ -1992,19 +1993,23 @@ export async function resolveAgentTools(
         ? (dt ?? []).filter((t) => allowedTableNames.includes(t.name))
         : (dt ?? []);
     if (visible.length > 0) {
-      const summary = visible
-        .map((t) => {
-          const cols = Array.isArray(t.columns)
+      // Budgeted (R12): fifteen tables of forty columns were 4,300 prompt
+      // tokens on every turn. Columns while the budget lasts, names after,
+      // list_data_tables for the rest — sqlSchemaSummary.ts says why.
+      const summary = summarizeTablesForPrompt(
+        visible.map((t) => ({
+          name: t.name,
+          columns: Array.isArray(t.columns)
             ? (t.columns as Array<{ name: string; type: string }>)
-            : [];
-          return `${t.name}(${cols.map((c) => `${c.name}:${c.type}`).join(", ")})`;
-        })
-        .join("; ");
+            : [],
+        })),
+        intFrom(process.env.SQL_TOOL_SCHEMA_MAX_CHARS, SQL_SCHEMA_SUMMARY_MAX_CHARS),
+      );
       const sqlTool: ToolDef = {
         ...sqlQueryTool,
         function: {
           ...sqlQueryTool.function,
-          description: `${sqlQueryTool.function.description}\n\nAvailable tables: ${summary}`,
+          description: `${sqlQueryTool.function.description}\n\nAvailable tables: ${summary.text}`,
         },
       };
       const allowSet = allowedTableNames.length > 0 ? new Set(allowedTableNames) : null;
@@ -2435,6 +2440,12 @@ export async function resolveAgentTools(
  * WHEN-to-use rules for the enabled sources. Kept short (a few lines) so it
  * steers routing without crowding out the agent's own system prompt.
  */
+/** An integer operator setting, or the fallback when unset or unparsable. */
+function intFrom(raw: string | undefined, fallback: number): number {
+  const n = raw === undefined || raw === "" ? NaN : Number(raw);
+  return Number.isFinite(n) ? Math.floor(n) : fallback;
+}
+
 function buildRoutingGuidance(enabled: ResolvedTools["enabled"], tools: ToolDef[]): string {
   const has = (name: string) => tools.some((t) => t.function.name === name);
   const lines: string[] = [];

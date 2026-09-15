@@ -1,6 +1,7 @@
 // Main IDE route for /data-sql.
 // 3-pane layout: Database Explorer · SQL Editor (light) + Results · Agent Chat
 import { createFileRoute } from "@tanstack/react-router";
+import { summarizeTablesForPrompt } from "@/lib/sqlSchemaSummary";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -758,9 +759,8 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
     setChatBusy(true);
     try {
       const { data: sessionData } = await supabase.auth.getSession();
-      const tableSummary = datasets
-        .map((d) => `${d.name}(${d.columns.map((c) => `${c.name}:${c.type}`).join(", ")})`)
-        .join("; ");
+      // The same budgeted listing the agent tool carries (sqlSchemaSummary.ts).
+      const tableSummary = summarizeTablesForPrompt(datasets).text;
       const resp = await fetch("/api/chat", {
         method: "POST",
         headers: {

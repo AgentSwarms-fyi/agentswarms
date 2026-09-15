@@ -35,6 +35,11 @@ run `npx supabase db push` after pulling.
   after, at 2,400 prompt tokens a turn; thirteen tools enabled cost 10,400 a turn
   for the same answers; a 24-turn conversation stays flat at ~4,000 tokens
   under the 20-message window. Details in `docs/ADVERSARIAL_LOG.md` (R12).
+- **The SQL tool's table listing has a budget** (`SQL_TOOL_SCHEMA_MAX_CHARS`,
+  4,000 characters): columns until it is spent, names after, `list_data_tables`
+  for the rest. Fifteen tables of forty columns were 4,300 prompt tokens on
+  every turn of every agent with the tool enabled — the largest single item of
+  a thirteen-tool prompt. The Data & SQL page's assistant uses the same listing.
 
 ### The handbook, reorganised
 
@@ -45,6 +50,44 @@ run `npx supabase db push` after pulling.
 - **A map under every long title**, a rail that lists only the subsections of
   the section being read, a hover anchor on every heading, back-to-top, and
   subsections in the BI page's AI Analyst section.
+
+### Trained models reach agents, the canvas and the AI Analyst
+
+- **An agent's ML tool says which models it may use.** Enabling ML
+  Predictions showed an API-key field for a tool that needs none; it shows a
+  model picker now (`agents.tools.toolConfigs.ml_model_names` — absent means
+  every model the owner can reach, a list means exactly those), enforced
+  server-side on every call.
+- **Score by key.** The agent tool takes the model's key columns when the
+  model is bound to a feature view and reads the features from the table the
+  training read, instead of typing twenty feature values out of a
+  conversation — the training–serving skew feature views exist to remove.
+- **Score with model on the canvas.** A deterministic tool node scores rows
+  without spending an LLM turn on the decision; the same rows score the same
+  way on every run.
+- **A prediction in the Playground is a table**, not the first 400 characters
+  of JSON ending mid-probability.
+- **The AI Analyst scores a step's rows with a trained model, and says it
+  did**: a scored badge naming the model, a disclosure under the table (rows
+  scored, version, headline metric, where the features came from, keys not
+  found), ranking by the model's output done by the platform rather than in
+  SQL, forecast steps for forecast models, model notes carried into the
+  write-up, refusals rather than substitutions when a question names a model
+  nobody has.
+- **A model's health travels with it.** The latest drift reading or
+  evaluation verdict reaches the agent's model list, the Playground panel and
+  the analyst's badge and disclosure, so an answer can warn beside the number
+  it cites.
+- **A headless swarm step records its tool calls**, as the canvas already did
+  (`swarm_run_steps.tool_calls` on scheduled runs), so the Swarm Traces page
+  no longer shows a deployed run as if its agents never used a tool.
+- **An analyst is three choices**: the reasoning model, the data, and the
+  predictive models it may score or forecast with (`ai_analysts.ml_model_names`
+  — null for any, a list for exactly those, empty for none), enforced on the
+  server; the analyst page wraps and stays usable at 1000, 768 and 375px.
+- **Seventeen findings from driving the analyst against seven models** are
+  fixed and recorded (ADVERSARIAL_LOG R10 and R11; the new
+  `docs/UI_TEST_RESULTS.md` keeps the before and after).
 
 ### Workflows: one graph over four separate clocks
 

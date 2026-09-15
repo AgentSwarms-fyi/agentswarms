@@ -48,10 +48,12 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     "title": "Agent Builder",
     "description": "A complete reference for every field on an agent. Open Build → Agent Builder → New Agent; the form has six tabs, and nothing is saved until you press Save.",
     "terms": [
+      "SQL_TOOL_SCHEMA_MAX_CHARS",
       "calculator",
       "datetime",
       "kb_graph_search",
       "kb_search",
+      "list_data_tables",
       "llama-nemotron-rerank-vl-1b-v2",
       "mcp_call_tool",
       "metric_query",
