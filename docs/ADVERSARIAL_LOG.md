@@ -232,8 +232,14 @@ Measured and recorded rather than changed:
   questions while saying it could only paraphrase them. A 36,000-character
   question was answered correctly at 10,108 prompt tokens — the query
   embedding did not fail — and the 4,000-character input guardrail is off by
-  default. Retrieval runs on every turn, "what is the weather in Frankfurt"
-  included: five citations fetched and discarded.
+  default. Retrieval ran on every turn, "what is the weather in Frankfurt"
+  included: five citations fetched and discarded. Measured afterwards on
+  the same collection (text-embedding-3-small): the best chunk of every
+  document question scored 0.38–0.75, of every off-topic question 0.10–0.32
+  ("how many local data tables" the closest at 0.32), and no off-topic
+  question had a keyword hit. A floor (`KB_MIN_SIMILARITY`, 0.3; a keyword
+  hit always passes; the tool is never floored) now leaves such a turn
+  ungrounded, with the model told the search found nothing.
 
 #### R11 · S2 · The analyst page at a narrow window, and a new analyst with no controls
 

@@ -12,8 +12,10 @@ import {
   assembleCitationTexts,
   CHUNKS_PER_DOCUMENT,
   CITATION_CHARS_PER_CHUNK,
+  DEFAULT_MIN_SIMILARITY,
   fuseHybrid,
   GROUNDING_MAX_CHARS,
+  groundingPasses,
   resolveRetrievalSettings,
   type Candidate,
   type RetrievalSettings,
@@ -265,6 +267,17 @@ const citationCharsPerChunk = () =>
   envInt("KB_CITATION_CHARS_PER_CHUNK", CITATION_CHARS_PER_CHUNK, 100, 20_000);
 const groundingMaxChars = () =>
   envInt("KB_GROUNDING_MAX_CHARS", GROUNDING_MAX_CHARS, 500, 1_000_000);
+
+/**
+ * The auto-RAG similarity floor (kbRag.ts explains the rule and the numbers).
+ * Read by the chat routes and passed as `minSimilarity`; the kb_search TOOL
+ * passes nothing, because a model that asked to search gets what matched.
+ */
+export function autoRagMinSimilarity(): number {
+  const raw = process.env.KB_MIN_SIMILARITY;
+  const n = raw === undefined || raw === "" ? NaN : Number(raw);
+  return Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : DEFAULT_MIN_SIMILARITY;
+}
 /**
  * Parent-expanded citations get a much larger budget than a child snippet.
  *
@@ -325,6 +338,11 @@ export async function retrieveCitationsServer(opts: {
    * which errs toward deny — never toward a leak.
    */
   principal?: RetrievalPrincipal;
+  /**
+   * Below this best vector similarity, with no keyword hit, the turn is not
+   * grounded (groundingPasses). Unset or 0 = every match grounds.
+   */
+  minSimilarity?: number;
 }): Promise<Citation[]> {
   const { sb } = opts;
   const topK = Math.max(1, Math.min(opts.topK ?? 5, 8));
@@ -583,7 +601,16 @@ export async function retrieveCitationsServer(opts: {
         },
         { chunksPerDocument: chunksPerDocument(), charsPerChunk: citationCharsPerChunk() },
       );
-      fusedCits = assembled.map((a, i) => {
+      // Nothing here resembles the question: ground on nothing rather than
+      // on the least-unrelated document (kbRag.ts, groundingPasses).
+      const bestSimilarity = vectorSearchFailed
+        ? null
+        : vectorScores.reduce<number | null>(
+            (m, c) => (m === null || c.score > m ? c.score : m),
+            null,
+          );
+      const grounded = groundingPasses(bestSimilarity, keywordRows.length, opts.minSimilarity ?? 0);
+      fusedCits = (grounded ? assembled : []).map((a, i) => {
         const kbId = kbOfDoc.get(a.documentId) ?? kbIds[0];
         return {
           index: i + 1,

@@ -13,7 +13,9 @@ import {
   chunkParentChild,
   CHUNKS_PER_DOCUMENT,
   CITATION_CHARS_PER_CHUNK,
+  DEFAULT_MIN_SIMILARITY,
   fuseHybrid,
+  groundingPasses,
   GROUNDING_MAX_CHARS,
   parseQaPairs,
   resolveRetrievalSettings,
@@ -685,5 +687,61 @@ describe("retrieval wiring — what the model reads", () => {
       expect(KB).toMatch(new RegExp(`envInt\\("${name}", ${fallback},`));
       expect(readFileSync(resolve(".env.example"), "utf8")).toContain(name);
     }
+  });
+});
+
+describe("groundingPasses — a turn is grounded only on something that resembles it", () => {
+  // R12: document questions' best chunk 0.38–0.75, off-topic 0.10–0.32, no
+  // keyword hit on any off-topic question. The floor sits under the lowest
+  // document question with room for a different embedding model.
+  it("passes at or above the floor and fails below it", () => {
+    expect(groundingPasses(0.383, 0)).toBe(true);
+    expect(groundingPasses(0.3, 0)).toBe(true);
+    expect(groundingPasses(0.299, 0)).toBe(false);
+    expect(groundingPasses(0.104, 0)).toBe(false);
+  });
+
+  it("a keyword hit always passes — an exact term is evidence whatever the vector says", () => {
+    expect(groundingPasses(0.1, 1)).toBe(true);
+  });
+
+  it("no vector score is unknown, not unrelated", () => {
+    expect(groundingPasses(null, 0)).toBe(true);
+    expect(groundingPasses(Number.NaN, 0)).toBe(true);
+  });
+
+  it("a floor of 0 (or below) disables the rule", () => {
+    expect(groundingPasses(0.01, 0, 0)).toBe(true);
+    expect(groundingPasses(0.01, 0, -1)).toBe(true);
+    // Cosine similarity can be negative; off means off for those too.
+    expect(groundingPasses(-0.2, 0, 0)).toBe(true);
+  });
+
+  it("the default is the documented one", () => {
+    expect(DEFAULT_MIN_SIMILARITY).toBe(0.3);
+  });
+});
+
+describe("the floor applies to auto-RAG and never to the kb_search tool", () => {
+  const KB = readFileSync(resolve("src/utils/tools/kb.server.ts"), "utf8");
+  const CHAT = readFileSync(resolve("src/routes/api/chat.ts"), "utf8");
+  const EMBED = readFileSync(resolve("src/routes/api/embed.chat.ts"), "utf8");
+  const REG = readFileSync(resolve("src/utils/tools/registry.server.ts"), "utf8");
+
+  it("the retrieval gates the fused citations by groundingPasses with the caller's floor", () => {
+    expect(KB).toMatch(
+      /groundingPasses\(\s*bestSimilarity,\s*keywordRows\.length,\s*opts\.minSimilarity \?\? 0,?\s*\)/,
+    );
+    expect(KB).toContain("fusedCits = (grounded ? assembled : []).map(");
+    expect(KB).toContain("process.env.KB_MIN_SIMILARITY");
+  });
+
+  it("both chat routes pass the operator's floor; the tool passes none", () => {
+    expect(CHAT).toContain("minSimilarity: autoRagMinSimilarity(),");
+    expect(EMBED).toContain("minSimilarity: autoRagMinSimilarity(),");
+    const at = REG.indexOf("const cits = await retrieveCitationsServer({");
+    const toolCall = REG.slice(at, REG.indexOf("});", at));
+    expect(toolCall).not.toContain("minSimilarity");
+    expect(readFileSync(resolve(".env.example"), "utf8")).toContain("KB_MIN_SIMILARITY");
   });
 });

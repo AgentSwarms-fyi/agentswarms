@@ -1665,7 +1665,7 @@ export const Route = createFileRoute("/api/chat")({
               try {
                 const sbAuto = getServerSupabase(authToken);
                 if (sbAuto) {
-                  const { retrieveCitationsServer, buildGroundingPrompt } =
+                  const { retrieveCitationsServer, buildGroundingPrompt, autoRagMinSimilarity } =
                     await import("@/utils/tools/kb.server");
                   // The asker's email, for matching provider-mirrored ACLs on
                   // connector documents (source_acl scope). Absent claim →
@@ -1687,6 +1687,7 @@ export const Route = createFileRoute("/api/chat")({
                     userId,
                     reranker: bodyReranker,
                     principal: { email: principalEmail },
+                    minSimilarity: autoRagMinSimilarity(),
                   });
                   // Audited for the same reason it is called unconditionally:
                   // the search happened, and a provenance record that omits it

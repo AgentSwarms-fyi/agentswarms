@@ -195,6 +195,16 @@ prose about the table outranked it, and the collapse kept one chunk.
 | `KB_CHUNKS_PER_DOCUMENT`      | 3       | 1 – 10          |
 | `KB_CITATION_CHARS_PER_CHUNK` | 1600    | 100 – 20,000    |
 | `KB_GROUNDING_MAX_CHARS`      | 12000   | 500 – 1,000,000 |
+| `KB_MIN_SIMILARITY`           | 0.3     | 0 – 1 (0 = off) |
+
+Retrieval runs on every turn of an agent with a collection attached, the
+off-topic ones included. Below `KB_MIN_SIMILARITY` on the best chunk, with no
+keyword hit, the turn is not grounded and the model is told the search found
+nothing, instead of being handed five documents to ignore. Measured with
+`text-embedding-3-small` on the R12 collection: every document question's
+best chunk scored 0.38–0.75, every off-topic question's 0.10–0.32. A keyword
+hit always grounds. The `kb_search` tool is never floored — a model that
+asked to search gets what matched.
 
 ### Where the vectors are searched
 

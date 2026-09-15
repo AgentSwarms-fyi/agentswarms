@@ -289,7 +289,9 @@ What one answer reads: each cited document carries up to
 characters (**1,600**), and the whole turn is capped at
 `KB_GROUNDING_MAX_CHARS` (**12,000**, about 3,000 tokens). Raise the budget for
 a model with a large window and questions that span many documents; lower it
-for a small model. See KNOWLEDGE_BASES.md → What the model reads.
+for a small model. Below `KB_MIN_SIMILARITY` (**0.3**) on the best chunk, with
+no keyword hit, a turn is not grounded at all. See KNOWLEDGE_BASES.md → What
+the model reads.
 
 What a tool costs before it is called: every enabled tool's schema rides on
 every request. Most are 150–700 tokens; the `sql_query` description carries the

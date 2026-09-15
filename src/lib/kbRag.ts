@@ -403,6 +403,36 @@ export function overlapLength(prev: string, next: string, maxChars = 600, minCha
  * document's name misleads more than it informs. Earlier citations are
  * never touched to make room for later ones.
  */
+/**
+ * Whether a turn's retrieval is worth grounding on at all.
+ *
+ * Retrieval runs on every turn of an agent with a collection attached —
+ * "what is the weather in Frankfurt" included — and until now every turn
+ * was grounded on whatever ranked first, five documents and ~2,400 prompt
+ * tokens the model then had to ignore. Measured on the R12 collection with
+ * text-embedding-3-small: every document question's best chunk scored
+ * 0.38–0.75, every off-topic question's 0.10–0.32, and no off-topic question
+ * had a keyword hit. So: below the floor with no keyword evidence, the
+ * turn is not grounded and the model is told the search found nothing.
+ * A keyword hit always passes — an exact term is evidence whatever the
+ * vector thinks — and a floor of 0 disables the rule. Different embedding
+ * models score differently; the default is set low for that reason.
+ */
+export const DEFAULT_MIN_SIMILARITY = 0.3;
+
+export function groundingPasses(
+  bestSimilarity: number | null,
+  keywordHits: number,
+  floor: number = DEFAULT_MIN_SIMILARITY,
+): boolean {
+  if (!(floor > 0)) return true;
+  if (keywordHits > 0) return true;
+  // No vector score at all (the store failed, or there were no chunks) is
+  // not "unrelated" — it is unknown, and the keyword paths decide.
+  if (bestSimilarity === null || !Number.isFinite(bestSimilarity)) return true;
+  return bestSimilarity >= floor;
+}
+
 export function applyGroundingBudget<T extends { snippet: string }>(
   citations: T[],
   maxChars: number = GROUNDING_MAX_CHARS,

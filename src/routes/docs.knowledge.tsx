@@ -469,6 +469,12 @@ question ──▶ embed ──▶ nearest chunks ──▶ pasted into the prom
             "Per turn, across every citation, applied in rank order: a later citation is shortened, then dropped; an earlier one is never trimmed to make room.",
           ],
           [
+            "Similarity floor",
+            "0.3",
+            "0 – 1 (KB_MIN_SIMILARITY; 0 = off)",
+            "Below this best-chunk similarity with no keyword hit, the turn is not grounded and the model is told the search found nothing — an off-topic question stops carrying five documents to ignore. Measured with text-embedding-3-small: document questions 0.38–0.75, off-topic 0.10–0.32. Never applied to the kb_search tool.",
+          ],
+          [
             "Candidate pool (over-fetch)",
             "3 × top-K, capped at 30",
             "—",

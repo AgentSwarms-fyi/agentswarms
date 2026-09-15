@@ -35,6 +35,12 @@ run `npx supabase db push` after pulling.
   after, at 2,400 prompt tokens a turn; thirteen tools enabled cost 10,400 a turn
   for the same answers; a 24-turn conversation stays flat at ~4,000 tokens
   under the 20-message window. Details in `docs/ADVERSARIAL_LOG.md` (R12).
+- **An off-topic turn is not grounded.** Retrieval runs on every turn of an
+  agent with a collection attached; below `KB_MIN_SIMILARITY` (0.3) on the
+  best chunk, with no keyword hit, the model is told the search found nothing
+  instead of being handed five documents to ignore. Measured: document
+  questions 0.38–0.75, off-topic 0.10–0.32; the `kb_search` tool is never
+  floored.
 - **The SQL tool's table listing has a budget** (`SQL_TOOL_SCHEMA_MAX_CHARS`,
   4,000 characters): columns until it is spent, names after, `list_data_tables`
   for the rest. Fifteen tables of forty columns were 4,300 prompt tokens on
