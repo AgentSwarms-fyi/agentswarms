@@ -758,7 +758,7 @@ spec:
         seccompProfile: { type: RuntimeDefault }
       containers:
         - name: minio
-          image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+          image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
           args: ["server", "/data", "--console-address", ":9001"]
           env:
             - name: MINIO_ROOT_USER
@@ -824,7 +824,7 @@ spec:
         seccompProfile: { type: RuntimeDefault }
       containers:
         - name: mc
-          image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+          image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
           env:
             - name: S3_KEY_ID
               valueFrom:

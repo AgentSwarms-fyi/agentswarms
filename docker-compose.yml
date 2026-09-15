@@ -225,11 +225,16 @@ services:
   # themselves live here. Both are needed, which is why both start: a catalog
   # with nowhere to write is a lakehouse that fails on its first table.
   #
+  # quay.io, not Docker Hub: MinIO's Docker Hub repository is not publicly
+  # pullable (`pull access denied for minio/minio`), and quay.io is where they
+  # publish. Measured, not assumed — the first version of this file named the
+  # Hub and every install would have failed on the pull.
+  #
   # Any S3-compatible store replaces it — AWS S3, R2, GCS — by pointing
   # LAKEHOUSE_S3_* at that instead. This one is here so an install has a
   # working lakehouse without an account anywhere.
   minio:
-    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
@@ -253,15 +258,16 @@ services:
   # bucket surfaces as a write error on the first table, which is a poor way to
   # learn that a container never ran.
   minio-init:
-    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
     depends_on:
       minio: { condition: service_healthy }
-    entrypoint: >
-      /bin/sh -c "
-      mc alias set lake http://minio:9000 \
-        $${LAKEHOUSE_S3_KEY_ID:-agentswarms} $${LAKEHOUSE_S3_SECRET:-agentswarms-lake-dev} &&
-      mc mb --ignore-existing lake/lakehouse &&
-      echo 'bucket lakehouse ready'"
+    # MC_HOST_<alias> is mc's own way to carry a target's credentials. The first
+    # version ran `mc alias set …` through a folded shell string, where YAML
+    # turned the line continuations into spaces and mc read the access key as a
+    # command: "agentswarms: command not found", and no bucket.
+    environment:
+      MC_HOST_lake: http://${LAKEHOUSE_S3_KEY_ID:-agentswarms}:${LAKEHOUSE_S3_SECRET:-agentswarms-lake-dev}@minio:9000
+    entrypoint: ["mc", "mb", "--ignore-existing", "lake/lakehouse"]
     restart: "no"
 
   qdrant:
