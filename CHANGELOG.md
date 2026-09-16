@@ -14,8 +14,18 @@ development branch and may be ahead of the latest tag.
 
 ## Unreleased
 
-Work on `main` since the 1.4.0 tag. Twenty-nine migrations —
-run `npx supabase db push` after pulling.
+Nothing yet.
+
+## 1.5.0 — 2026-09-17
+
+**The platform grew a data half that runs itself, and an install that brings
+all of it.** A hundred and eight commits since 1.4.0: every service on every
+install with nothing left opt-in, workflows as one graph over four separate
+clocks, a transformation layer over the lakehouse, Delta Sharing, SCIM, column
+level lineage, exactly-once streaming, a Spark engine for pipelines, and a
+dashboard that opens on what the deployment is doing rather than on a list of
+features. **Fifty-three migrations** — run `npx supabase db push` after
+pulling.
 
 ### Every service, on every install
 

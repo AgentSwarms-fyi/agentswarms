@@ -539,7 +539,7 @@ the repository root:
 
 ```bash
 export REGISTRY=<your registry host and path>   # set per cloud, below
-export TAG=1.4.0
+export TAG=1.5.0
 docker build -t "$REGISTRY/agentswarms:$TAG" .
 docker build -t "$REGISTRY/docgen:$TAG" ./docgen-service
 docker build -t "$REGISTRY/js-sandbox:$TAG" ./services/js-sandbox
@@ -572,7 +572,7 @@ export AWS_REGION=us-east-1
 export CLUSTER=agentswarms
 export ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
 export REGISTRY="$ACCOUNT.dkr.ecr.$AWS_REGION.amazonaws.com"
-export TAG=1.4.0
+export TAG=1.5.0
 ```
 
 **1. Create the cluster.** Three 4-vCPU nodes clear the roughly 4.5 CPU and
@@ -871,7 +871,7 @@ export PROJECT=$(gcloud config get-value project)
 export REGION=us-central1
 export CLUSTER=agentswarms
 export REGISTRY="$REGION-docker.pkg.dev/$PROJECT/agentswarms"
-export TAG=1.4.0
+export TAG=1.5.0
 gcloud services enable container.googleapis.com artifactregistry.googleapis.com sqladmin.googleapis.com storage.googleapis.com
 ```
 
@@ -1063,7 +1063,7 @@ export LOCATION=eastus
 export CLUSTER=agentswarms
 export ACR=agentswarmsacr          # must be globally unique
 export REGISTRY="$ACR.azurecr.io"
-export TAG=1.4.0
+export TAG=1.5.0
 az group create --name "$RG" --location "$LOCATION"
 ```
 
@@ -1227,7 +1227,7 @@ export OCI_REGION=us-ashburn-1
 export REGION_KEY=iad                     # the registry prefix for that region
 export NAMESPACE=$(oci os ns get --query data --raw-output)
 export REGISTRY="$REGION_KEY.ocir.io/$NAMESPACE/agentswarms"
-export TAG=1.4.0
+export TAG=1.5.0
 ```
 
 **1. Create the cluster and a node pool.** Size the pool for the roughly

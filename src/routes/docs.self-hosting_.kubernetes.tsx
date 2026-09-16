@@ -154,7 +154,7 @@ ADMIN_EMAIL=you@corp.com ADMIN_PASSWORD='...' bash scripts/setup-k8s.sh`}</Code>
         only the registry host changes.
       </P>
       <Code lang="bash">{`export REGISTRY=<your registry host and path>
-export TAG=1.4.0
+export TAG=1.5.0
 docker build -t "$REGISTRY/agentswarms:$TAG" .
 docker build -t "$REGISTRY/docgen:$TAG" ./docgen-service
 docker build -t "$REGISTRY/js-sandbox:$TAG" ./services/js-sandbox
