@@ -149,6 +149,69 @@ returns — which `sources` drops by design — is a canvas run: the client
 tracer records every `tool_call` and `tool_result` on the step, so the
 refusal strings can be read from `swarm_run_steps.tool_calls` verbatim.
 
+#### R14 · S1 · Every service, every install — and the four things only running it found
+
+Compose put seven services behind profiles, so `docker compose up -d --build`
+started the app alone; `--all` was documented and not the default; the
+Kubernetes installer left the notebook runtime and the Spark namespace to a
+later `kubectl apply`; and several services that did start were never wired —
+Qdrant idle until .env said `VECTOR_STORE`, Valkey until `FEATURE_STORE_URL`,
+Spark until `SPARK_CONNECT_URL`, the lakehouse catalog until it was named and
+given an object store that nothing shipped. The change is in the commits; what
+belongs here is what running it found, none of which a test that reads files
+could have said.
+
+- **F1 (S1)** MinIO's Docker Hub repository is not publicly pullable.
+  `docker pull minio/minio` is "pull access denied … or may require 'docker
+  login'" on a daemon that pulls `alpine` in the same second, so every install
+  would have failed on the image. Both images come from quay.io now, where
+  MinIO publishes.
+- **F2 (S2)** The bucket step ran `mc alias set` through a folded YAML scalar.
+  YAML turned the line continuations into spaces, mc read the access key as a
+  command — "agentswarms: command not found" — and created nothing, while the
+  line above it said "Added `lake` successfully". It uses `MC_HOST_lake`, mc's
+  own credential form, and a command array: no shell, nothing to fold.
+- **F3 (S2)** The object store's health check allowed 20 seconds plus five
+  retries. A fresh install starts eleven containers while several images are
+  still building, and MinIO formats its pool on first start: under that load it
+  missed the window, the bucket step refused to run ("dependency failed to
+  start: container minio is unhealthy") and the install ended with no bucket
+  and no error anyone would connect to the cause. Idle it is ready in about 30
+  seconds — which is why every measurement on a quiet machine passed. 60
+  seconds plus twenty retries now.
+- **F4 (S3)** `docker-compose.yml` named the egress proxy's container as a
+  literal while the app resolves it from `NOTEBOOK_EGRESS_CONTAINER`: the same
+  name by coincidence, and two instances on one host collided on it. Compose
+  reads the same variable now, so one setting moves both.
+
+Then CI, on the first push: `docker compose config` failed with "yaml: control
+characters are not allowed". Two comment lines carried U+0080 U+0094 — an
+em-dash that went through a bad decode in an editing script. Windows' compose
+accepts those characters and Linux's does not, so every local run passed and
+the first Linux run did not. Repaired, and `check-infra` now scans every
+tracked text file for U+007F–U+009F, which needs no Docker and so catches it
+where it is written.
+
+**Proved on a clone of the commit**, installed from scratch beside the running
+stack with its published ports remapped: `bash scripts/setup.sh` brought up 11
+services in 444 s, `/api/health` answered 200 five seconds later, the bucket
+was created, the catalog password was generated into both halves that must
+carry it, and .env arrived wired (VECTOR_STORE, QDRANT_URL, FEATURE_STORE_URL,
+SPARK_CONNECT_URL and the four lakehouse values). From inside the app
+container: qdrant, minio, docgen, the notebook gateway and the JS sandbox all
+answered 200, and valkey's port was open. Two refused at that moment and both
+were first-run timing, verified afterwards rather than assumed: the catalog was
+still running Postgres' first-boot init and accepts connections once it
+finishes, and Spark Connect was still downloading its connector jars — on a
+stack whose ivy volume already has them, the port is open.
+
+Recorded, not changed: the app image takes about 55 minutes to unpack on this
+machine, nearly all of it in the exporter, so a first install is a long wait
+rather than a hang; and the daemon holds a container it cannot kill ("PID is
+zombie and can not be killed"), a host condition that cost one attempt at this
+proof — it stopped the running stack, hit that container, and left the app down
+until it was brought back up.
+
 #### R13 · S2 · The installers, the compose file and the manifests, checked for the first time
 
 Every installation and deployment asset, verified rather than read: the

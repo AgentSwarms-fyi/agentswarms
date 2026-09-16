@@ -15,6 +15,26 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-16 — Every service by default, proved by a fresh clone, ADVERSARIAL_LOG R14
+
+**Driven.** A clone of the commit installed from scratch with
+`bash scripts/setup.sh`, beside the running stack with its published ports
+remapped so neither touched the other. Its `.env` was made the documented way:
+`.env.example` plus this machine's Supabase keys, nothing else edited.
+
+| What                            | Read from                                    | Result                                                                                                                                                                                                                                  |
+| ------------------------------- | -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The clone is runnable           | `git ls-files -s` in the clone               | `scripts/setup.sh` arrives `100755`                                                                                                                                                                                                     |
+| One command, every service      | `docker compose ps` in the clone             | 11 services from `bash scripts/setup.sh`, no flags, in 444 s                                                                                                                                                                            |
+| The app answers                 | `curl /api/health` on the remapped port      | 200, five seconds after the installer returned                                                                                                                                                                                          |
+| The object store has its bucket | `docker compose logs minio-init`             | "Bucket created successfully `lake/lakehouse`" — after three bugs: the Docker Hub image is not pullable, the folded-YAML command read the access key as a command, and the health grace was too short for a first-run format under load |
+| The install wired itself        | the clone's `.env`                           | `VECTOR_STORE`, `QDRANT_URL`, `FEATURE_STORE_URL`, `SPARK_CONNECT_URL`, `LAKEHOUSE_CATALOG_URL`, `LAKEHOUSE_DATA_URL`, `LAKEHOUSE_S3_ENDPOINT` all set; the catalog password generated into both places that carry it                   |
+| The app reaches every service   | `node` inside the app container              | qdrant, minio, docgen, notebook-gateway, js-sandbox all HTTP 200; valkey tcp open; the catalog and Spark refused at that moment                                                                                                         |
+| Those two refusals              | the same probes after they finished starting | the catalog: "accepting connections" and healthy once Postgres' first-boot init ended; Spark: still fetching its connector jars (the installer says it does), and tcp open on a stack whose ivy volume already holds them               |
+| The running stack was untouched | `docker compose ps` in the repository        | unchanged throughout                                                                                                                                                                                                                    |
+
+Nothing kept: the clone, its containers and its volumes were removed at the end.
+
 ## 2026-09-15 — Installers, compose, Dockerfiles, manifests, backup and restore, ADVERSARIAL_LOG R13
 
 **Driven.** Every installation and deployment asset, statically where a
