@@ -160,8 +160,25 @@ function SelfHostingConfigurationPage() {
       <H3 id="env-email">Email delivery</H3>
       <P>
         Carries welcome mail, budget alerts, BI alerts, scheduled reports, approval requests and the
-        contact form. Use <strong>either</strong> Resend or SMTP. Auth emails (confirmation,
-        password reset) are separate — Supabase sends those, configured in its own dashboard.
+        contact form. Auth emails (confirmation, password reset) are separate — Supabase sends
+        those, configured in its own dashboard.
+      </P>
+      <P>
+        <strong>No third-party account is required.</strong> SMTP is built in — nodemailer is a
+        dependency of the app, not something to install — so any relay you already have works with
+        four variables and nothing signed up for. Set <C>SMTP_HOST</C>, <C>SMTP_PORT</C>,
+        <C>SMTP_USER</C> and <C>SMTP_PASS</C>, plus <C>EMAIL_FROM</C>. Port 587 with STARTTLS is the
+        default; 465 turns on implicit TLS automatically. Leave <C>SMTP_USER</C> empty for a relay
+        that authenticates by IP.
+      </P>
+      <Code lang="bash">{`SMTP_HOST="smtp.your-company.com"
+SMTP_PORT="587"
+SMTP_USER="apikey-or-username"
+SMTP_PASS="..."
+EMAIL_FROM="AgentSwarms <noreply@your-company.com>"`}</Code>
+      <P>
+        <strong>Resend</strong> is the alternative for a deployment with no relay to point at. It
+        takes precedence when both are configured.
       </P>
       <P>
         <strong>Resend needs a verified domain, not just a key.</strong> In Resend: create an API

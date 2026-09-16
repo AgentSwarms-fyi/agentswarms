@@ -313,16 +313,43 @@ is documented inline in the file. In short:
 
 **Outbound transactional email (optional).** Welcome emails, budget alerts,
 BI alerts, scheduled reports, approval requests and the contact form send
-through whichever transport you configure: `RESEND_API_KEY`
-([resend.com](https://resend.com)), or
-`SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASS` (any SMTP provider). Set
-`EMAIL_FROM` and `SITE_URL` alongside either. **With neither configured, sends
+through whichever transport you configure. **With neither configured, sends
 are skipped and logged** (see the `email_send_log` table) — the app works fine
 without email, so it's safe to skip this entirely for local dev. Auth emails
 (confirmation, password reset) are unaffected — Supabase sends those itself
 (step 3.3).
 
-#### Setting up Resend with your own domain
+**No third-party account is required.** SMTP is built in — `nodemailer` is a
+dependency of the app, not something to install — so any relay you already
+have works with nothing else signed up for. Resend exists for deployments
+that have no relay to point at.
+
+#### Option A — your own SMTP relay
+
+Four variables, no account anywhere:
+
+```bash
+SMTP_HOST="smtp.your-company.com"
+SMTP_PORT="587"
+SMTP_USER="apikey-or-username"
+SMTP_PASS="..."
+EMAIL_FROM="AgentSwarms <noreply@your-company.com>"
+SITE_URL="https://your-domain.com"
+```
+
+Port **587** with STARTTLS is the usual choice and the default. Port **465**
+turns on implicit TLS automatically; set `SMTP_SECURE="true"` to force it on
+any other port. Leave `SMTP_USER` empty for a relay that authenticates by IP
+rather than by credential, which is common for an internal Postfix or an SES
+endpoint restricted to your VPC.
+
+Anything that speaks SMTP works: a corporate Exchange or Google Workspace
+relay, Amazon SES, a provider's free tier, or a mail server you run. Whatever
+you pick, the sending domain still needs SPF and DKIM records or large
+providers will treat the mail as spam — that requirement belongs to email,
+not to any particular vendor.
+
+#### Option B — Resend, when there is no relay to point at
 
 `RESEND_API_KEY` on its own is **not enough**. Resend will only send from an
 address on a domain you have verified, so both halves matter:
