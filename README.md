@@ -162,7 +162,7 @@ published as callable APIs.
 | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 🤖 **Agent Chat**                    | Build an agent, wire up tools, chat with full request and response traces. **Visual BI** draws a chart from your data beside the answer; a prompt turns into an editable **PowerPoint, Word or Excel**, the Excel with live formulas over every row. [Agent Chat & documents](./docs/AGENT_CHAT.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | 🐝 **Swarm canvas**                  | Multi-agent workflows as a graph, run from the canvas, the API or a schedule. Deployed runs checkpoint as they go and survive a restart; a human-approval step parks the run until someone decides.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| 📚 **Knowledge Base / RAG**          | Uploads, crawled sites, repos, and **Google Drive, Notion, SharePoint, Dropbox and Confluence** synced on a schedule with two-level dedup. Hybrid search, parent-child and Q&A indexing on pgvector, citations, and per-source access scopes down to the provider's own sharing. [Knowledge bases](./docs/KNOWLEDGE_BASES.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| 📚 **Knowledge Base / RAG**          | Uploads, crawled sites, repos, and **Google Drive, Notion, SharePoint, Dropbox and Confluence** synced on a schedule with two-level dedup. Hybrid search, parent-child and Q&A indexing on pgvector or Qdrant per collection, citations, and per-source access scopes down to the provider's own sharing. [Knowledge bases](./docs/KNOWLEDGE_BASES.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | 🏢 **Data Sources**                  | **39 connectors**: 22 databases and warehouses (PostgreSQL, MySQL, SQL Server, Oracle, Snowflake, Databricks, BigQuery, Redshift, Synapse, Trino, Athena, ClickHouse, CockroachDB, TimescaleDB and more) queried in place, read-only, with encrypted credentials; 17 apps (Google Sheets, Stripe, Shopify, HubSpot, Salesforce, Jira, Zendesk, ServiceNow, Intercom, GitHub, Linear, Asana, Freshdesk, Klaviyo, Notion, Airtable, Google Analytics 4) synced into datasets, following changes rather than re-reading where the API allows; and the built-in lakehouse. [Connectors](./docs/DATA_SOURCES.md)                                                                                                                                                                                                                                                                                                                                                      |
 | 🗂️ **Data Catalog**                  | Crawls warehouses, S3-compatible buckets and Iceberg REST catalogs: schema inference, column profiles, likely-PII flags, row estimates, usage, a business glossary, AI-written documentation, certification and deprecation, scheduled re-crawls with drift alerts. Lineage at table **and column** level, recorded by every pipeline run and SQL model build from what actually ran, so a revenue figure traces to the file columns it came from. Tags on tables and columns drive security rules. [Lakehouse](./docs/LAKEHOUSE.md#policies-by-tag)                                                                                                                                                                                                                                                                                                                                                                                                             |
 | 📊 **Business Intelligence**         | Drag-and-drop multi-page dashboards with 26 visual types, cross-filter and drill-through, incremental refresh, SQL aggregation pushdown, data alerts, row and column security on shares, workspaces and folders, dev-to-prod promotion and Git export. Plus the **AI Analyst**: plan, query, self-check, write up, every number cited. [Business intelligence](./docs/BUSINESS_INTELLIGENCE.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
@@ -226,9 +226,13 @@ counted by hand and re-checked when the feature changes.
   are missing from the bucket, and `npm run restore -- <dir> --drill` proves
   the backup restores; the recovery point and time are stated per deployment
   shape ([backups and restore](./docs/DEPLOYMENT.md#backups-and-restore)).
-- **Two vector stores** — pgvector in the application database by default, or
-  Qdrant when the index outgrows it, chosen with one environment variable and
-  swappable by re-indexing. Weaviate and Pinecone are not supported.
+- **Two vector stores, chosen per collection** — pgvector in the application
+  database by default, or Qdrant for a collection that has outgrown it, picked
+  in **RAG Settings → Retrieval → Vector index**; `VECTOR_STORE` is the
+  default for collections that have not chosen. Saving a change moves that
+  collection's existing vectors into the new index and clears the old one, and
+  re-embeds nothing, because the embeddings are a column on the chunk rows.
+  Weaviate and Pinecone are not supported.
 
 **Not there yet — stated so nobody has to discover it**
 
@@ -266,9 +270,8 @@ bringing up the stack):
 
 ```bash
 cp .env.example .env      # fill in your Supabase keys, then:
-bash scripts/setup.sh           # EVERYTHING  →  http://localhost:8080
-# bash scripts/setup.sh               # core stack only (the app; optional services off)
-# bash scripts/setup.sh --dev         # local dev server instead
+bash scripts/setup.sh           # EVERY service  →  http://localhost:8080
+# bash scripts/setup.sh --dev         # same services, local dev server for the app
 # Windows PowerShell:  powershell -ExecutionPolicy Bypass -File scripts\setup.ps1
 ```
 
@@ -343,9 +346,11 @@ Monitoring** shows every service's health in one place.
 First time? Follow **[the full installation guide](./docs/INSTALL.md)** — it
 covers every step on macOS, Linux, and Windows, including the Supabase
 dashboard clicks and a troubleshooting section for the errors people
-actually hit. Wondering what hardware you need (spoiler: a 2 vCPU / 4 GB VM,
-no GPU — ML training included, on CPU; 16 GB if you train)? See
-**[System requirements & sizing](./docs/SYSTEM_REQUIREMENTS.md)**.
+actually hit. Wondering what hardware you need? No GPU, ever — ML training
+included, on CPU. A 2 vCPU / 4 GB VM runs the app alone against Supabase
+Cloud; the default install above, which includes the notebook and MCP
+sandboxes, wants 4 vCPU / 8 GB, and 16 GB if you train models on it. Every
+row is in **[System requirements & sizing](./docs/SYSTEM_REQUIREMENTS.md)**.
 
 **"Does it handle billions of rows?"** Aggregate queries compile to SQL that
 runs **inside your warehouse** — or inside the lakehouse, where columnar scans
