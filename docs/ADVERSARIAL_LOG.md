@@ -149,6 +149,70 @@ returns — which `sources` drops by design — is a canvas run: the client
 tracer records every `tool_call` and `tool_result` on the step, so the
 refusal strings can be read from `swarm_run_steps.tool_calls` verbatim.
 
+#### R15 · S2 · One collection can choose its own index — and the four instance-wide questions that stopped being the right question
+
+The vector store was one switch for the whole deployment: `VECTOR_STORE`
+decided where every collection was searched. Asked why there were two stores at
+all, the honest answer was that the choice belongs to a collection, not to a
+deployment — one collection outgrows Postgres, the rest never will. So the
+choice moved into **RAG Settings → Retrieval → Vector index**.
+
+What made this worth doing carefully is the failure mode. Vectors written to
+one index and searched in another produce **no error and no empty state**. The
+agent simply stops citing that collection, and every page still says it is
+indexed. Nothing in the product would have reported it.
+
+Four places had already answered the question instance-wide, and each was wrong
+for a collection that differs from its instance:
+
+- **Ingest** exited on `usesExternalStore()` before doing anything. A
+  collection on Qdrant, on a deployment defaulting to Postgres, would have been
+  indexed nowhere — the write skipped, the search finding an empty index.
+- **Deleting** a document or a collection cleared the external store only when
+  the INSTANCE used one, so vectors could outlive the rows that authorised
+  them.
+- **Re-index** skipped whole instances for the same reason, leaving the one
+  repair operation unable to reach the collections most likely to need it.
+- **The mode pin** in `resolveRetrievalSettings` rebuilt the settings object for
+  `semantic` and `keyword`, and would have dropped the store with it: switching
+  a Qdrant collection to keyword search would have silently moved it back to
+  Postgres. Caught by a mutant, not by reading.
+
+The resolution now runs through two functions that ingest, retrieval, cleanup
+and rebuild all call, because the property that matters is not which store is
+right — it is that all four agree.
+
+**Changing the choice moves the data.** Saving copies the collection's existing
+vectors into the new index, then saves the setting, then clears the old one.
+Nothing is re-embedded: the embeddings are a column on `kb_chunks`, so a move
+costs no model calls. The order is the guarantee — saving first and failing the
+copy leaves a collection pointed at an empty index, while failing this way
+leaves a copy in two stores, which costs disk and answers correctly.
+
+**Proved live**, against this machine's real Supabase and the running Qdrant,
+with `VECTOR_STORE` unset so the instance default was Postgres — the exact case
+the old guards got wrong. A collection that chose Qdrant resolved to Qdrant
+while its neighbour resolved to Postgres; its vectors, once copied, came back
+from Qdrant at similarity 1.0 in the planted order; the same collection still
+answered from Postgres, which is what makes the move reversible; a search
+naming a different collection returned nothing; and clearing Qdrant left the
+Postgres copy intact. Every row and vector was removed afterwards.
+
+The first run of that file reported **five green ticks and proved nothing** —
+the fixture had not been built, and each test began with an early return that
+passes. The reason was mundane: the shipped sample collections have a null
+owner, so borrowing "the first knowledge base" borrowed nobody. The file now
+fails when `QDRANT_URL` is set and the fixture did not build, which is the only
+reason it was ever noticed.
+
+Not driven through the browser: the dev server needed for the new UI cannot use
+the running instance's port, and a fresh origin has no session — signing one in
+means typing a password, which this campaign does not do. The control is
+covered by thirteen mutants instead, including the three that matter most: the
+dialog opening on the default instead of what is saved, the save sending the
+mode but not the store, and the warning about an unconfigured Qdrant going
+missing.
+
 #### R14 · S1 · Every service, every install — and the four things only running it found
 
 Compose put seven services behind profiles, so `docker compose up -d --build`

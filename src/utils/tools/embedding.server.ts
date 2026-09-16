@@ -27,8 +27,13 @@ export type { ChunkOptions, ChunkStrategy };
 import { chunkParentChild, isChunkMode, type ChunkMode, DEFAULT_PARENT_TOKENS } from "@/lib/kbRag";
 import { generateQaPairs } from "./kbQa.server";
 import { getOpenRouterApiKey } from "@/utils/providers/openrouterDefault.server";
-import { usesExternalStore, vectorStore } from "@/utils/vector/store.server";
-import type { VectorPoint } from "@/utils/vector/types";
+import {
+  externalStoreConfigured,
+  storeFor,
+  storeKindByKnowledgeBase,
+  vectorStoreIsExternal,
+} from "@/utils/vector/store.server";
+import type { VectorPoint, VectorStoreKind } from "@/utils/vector/types";
 
 export const DEFAULT_EMBED_MODEL = "text-embedding-3-small";
 export const SUPPORTED_EMBED_MODELS = new Set<string>([
@@ -374,7 +379,20 @@ export async function embedAndStoreDocuments(opts: {
   if (docIdsToReplace.length > 0) {
     // The external index first, while the rows that authorise it still exist.
     // pgvector's store does nothing here: its vector leaves with the row.
-    await vectorStore(sb).deleteByDocuments(docIdsToReplace);
+    //
+    // Asked of the deployment, not of the collection. A collection can have
+    // chosen the external index while the instance defaults to Postgres, and
+    // one switched away from it may still have vectors there. Deleting an id
+    // the store does not hold is a no-op, so clearing whenever a store exists
+    // is both cheaper than resolving each collection and the only version that
+    // cannot leave a stale vector answering as if it were current.
+    if (externalStoreConfigured()) {
+      try {
+        await storeFor("qdrant", sb).deleteByDocuments(docIdsToReplace);
+      } catch (e) {
+        console.warn("[embedding] stale vectors may remain in the external store:", e);
+      }
+    }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (sb.from("kb_chunks" as any) as any).delete().in("document_id", docIdsToReplace);
     // Parents second. Doing it first would cascade-delete the chunks we are
@@ -517,8 +535,17 @@ async function mirrorToExternalStore(
   rows: { document_id: string; knowledge_base_id: string; chunk_index: number }[],
   embeddings: number[][],
 ): Promise<void> {
-  if (!usesExternalStore() || rows.length === 0) return;
+  if (rows.length === 0) return;
   try {
+    // Which index each collection chose. This used to be one instance-wide
+    // question asked before anything else; since a collection can choose its
+    // own index, one collection wanting Qdrant on a Postgres-default instance
+    // has to be enough to run this, and the rest still cost nothing.
+    const kinds = await storeKindByKnowledgeBase(
+      sb,
+      Array.from(new Set(rows.map((r) => r.knowledge_base_id))),
+    );
+    if (![...kinds.values()].some(vectorStoreIsExternal)) return;
     const docIds = Array.from(new Set(rows.map((r) => r.document_id)));
     const { data, error } = await sb
       .from("kb_chunks")
@@ -545,7 +572,15 @@ async function mirrorToExternalStore(
         documentId: r.document_id,
       });
     });
-    await vectorStore(sb).upsert(points);
+    // Each collection's vectors go to the index that collection chose. Only
+    // the external ones: pgvector's copy is the row that was just written.
+    const byKind = new Map<VectorStoreKind, VectorPoint[]>();
+    for (const p of points) {
+      const kind = kinds.get(p.knowledgeBaseId) ?? "pgvector";
+      if (!vectorStoreIsExternal(kind)) continue;
+      byKind.set(kind, [...(byKind.get(kind) ?? []), p]);
+    }
+    for (const [kind, group] of byKind) await storeFor(kind, sb).upsert(group);
   } catch (e) {
     console.warn(
       "[embedding] chunks stored but the external vector store was not updated; " +

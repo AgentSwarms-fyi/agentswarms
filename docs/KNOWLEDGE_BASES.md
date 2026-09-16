@@ -215,11 +215,18 @@ to run, one thing to back up, and a knowledge base that cannot half-exist
 because two systems disagree.
 
 Set `VECTOR_STORE=qdrant` and `QDRANT_URL` to search them in Qdrant instead.
-The reason to is **capacity, not availability**: an HNSW index wants RAM, and by
-default it wants it from the same instance serving your traces, audit, BI
-results and every OLTP query. Past a few million chunks it is the largest thing
-in there, and the only way to feed it is to resize the whole database. Qdrant is
-a place to put the index that scales — and replicates — on its own.
+That setting is the **default for every collection**, not a decision for the
+whole deployment: a single knowledge base can be pointed at either index from
+**RAG Settings → Retrieval → Vector index**, which is usually how this should
+be adopted — the one collection that outgrew Postgres moves, and nothing else
+changes.
+
+The reason to move one is **capacity, not availability**: an HNSW index wants
+RAM, and by default it wants it from the same instance serving your traces,
+audit, BI results and every OLTP query. Past a few million chunks it is the
+largest thing in there, and the only way to feed it is to resize the whole
+database. Qdrant is a place to put the index that scales — and replicates — on
+its own.
 
 It is **not** a way to survive losing Postgres. Every hit is hydrated from
 `kb_chunks`, so a database outage takes retrieval with it wherever the vectors
@@ -242,14 +249,14 @@ things follow, and they are the reason the split is drawn here:
   applies to the answer, not just to the question. A store that returned an id
   from somebody else's knowledge base gets nothing back.
 
-| Setting              | Default                 | What it does                                   |
-| -------------------- | ----------------------- | ---------------------------------------------- |
-| `VECTOR_STORE`       | `pgvector`              | `pgvector` or `qdrant`                         |
-| `QDRANT_URL`         | —                       | e.g. `http://qdrant:6333`                      |
-| `QDRANT_API_KEY`     | —                       | Sent as `api-key`; omit if the server has none |
-| `QDRANT_COLLECTION`  | `agentswarms_kb_chunks` | Created on first use, 1536-dim cosine          |
-| `QDRANT_REPLICATION` | `1`                     | Copies per shard. **2+ for HA**, cluster only  |
-| `QDRANT_SHARDS`      | `1`                     | Shards per collection                          |
+| Setting              | Default                 | What it does                                           |
+| -------------------- | ----------------------- | ------------------------------------------------------ |
+| `VECTOR_STORE`       | `pgvector`              | Default index for collections that have not chosen one |
+| `QDRANT_URL`         | —                       | e.g. `http://qdrant:6333`                              |
+| `QDRANT_API_KEY`     | —                       | Sent as `api-key`; omit if the server has none         |
+| `QDRANT_COLLECTION`  | `agentswarms_kb_chunks` | Created on first use, 1536-dim cosine                  |
+| `QDRANT_REPLICATION` | `1`                     | Copies per shard. **2+ for HA**, cluster only          |
+| `QDRANT_SHARDS`      | `1`                     | Shards per collection                                  |
 
 **One Qdrant node is not high availability.** A single node is the right shape
 for a laptop or a small install, and losing it degrades retrieval to keyword
@@ -260,7 +267,26 @@ between what was asked for and what was placed is visible.
 
 Selecting `qdrant` without `QDRANT_URL` logs an error and uses pgvector. It does
 not fail to start: the vectors are still in `kb_chunks` and retrieval still
-works.
+works. A collection asked for Qdrant on a deployment that has none falls back
+the same way, and the picker says so before it is saved.
+
+#### Moving one collection
+
+Changing **RAG Settings → Retrieval → Vector index** copies that collection's
+existing vectors into the index it chose, saves the setting, then clears the
+one it left. Nothing is re-embedded — the embeddings are a column on
+`kb_chunks` and are read back from there — so a move costs no model calls, only
+the time to read every chunk.
+
+The order matters, and it is the order above: a save that changed the setting
+first and then failed to copy would leave a collection searching an index it
+was never written to, which returns nothing and raises nothing. Failing the
+other way leaves a copy of the vectors in two stores — disk, not wrong answers
+— and saving again finishes the job.
+
+Deleting documents or a whole collection clears the external store whenever one
+is configured, whatever the collection chose, so a store it used to be in
+cannot keep vectors whose rows are gone.
 
 ### Re-indexing an external store
 

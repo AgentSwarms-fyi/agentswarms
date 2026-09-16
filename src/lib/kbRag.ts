@@ -161,10 +161,29 @@ function str(v: unknown): string {
 
 export type RetrievalMode = "semantic" | "keyword" | "hybrid";
 
+/**
+ * Where THIS collection's nearest-neighbour search runs.
+ *
+ * `default` follows the instance's VECTOR_STORE, which is what every
+ * collection did before this was a per-collection choice. The point of the
+ * choice is that collections differ: one that has outgrown the database can
+ * use Qdrant while the rest stay in Postgres, where the rows already are and
+ * row-level security is the permission check.
+ *
+ * Postgres holds the chunk text, its permissions AND the embedding either
+ * way; an external store holds a copy for searching. So this decides where a
+ * query runs, never where the data lives.
+ */
+export type VectorStoreChoice = "default" | "pgvector" | "qdrant";
+
+export const VECTOR_STORE_CHOICES: VectorStoreChoice[] = ["default", "pgvector", "qdrant"];
+
 export type RetrievalSettings = {
   mode: RetrievalMode;
   /** Share of the fused score from vector similarity. 1 = pure semantic. */
   semanticWeight: number;
+  /** Which index answers this collection's vector search. */
+  vectorStore: VectorStoreChoice;
 };
 
 /**
@@ -177,7 +196,11 @@ export type RetrievalSettings = {
  * resembled them, and the keyword pass rescued every one of those it was
  * allowed to run on. Changing no answers was the wrong thing to protect.
  */
-export const DEFAULT_RETRIEVAL: RetrievalSettings = { mode: "hybrid", semanticWeight: 0.7 };
+export const DEFAULT_RETRIEVAL: RetrievalSettings = {
+  mode: "hybrid",
+  semanticWeight: 0.7,
+  vectorStore: "default",
+};
 
 /**
  * Read per-KB settings from jsonb.
@@ -188,6 +211,9 @@ export const DEFAULT_RETRIEVAL: RetrievalSettings = { mode: "hybrid", semanticWe
 export function resolveRetrievalSettings(raw: unknown): RetrievalSettings {
   if (!raw || typeof raw !== "object") return { ...DEFAULT_RETRIEVAL };
   const o = raw as Record<string, unknown>;
+  const store = (VECTOR_STORE_CHOICES as string[]).includes(String(o.vector_store))
+    ? (o.vector_store as VectorStoreChoice)
+    : DEFAULT_RETRIEVAL.vectorStore;
   const mode: RetrievalMode =
     o.mode === "hybrid" || o.mode === "keyword" || o.mode === "semantic"
       ? o.mode
@@ -197,9 +223,9 @@ export function resolveRetrievalSettings(raw: unknown): RetrievalSettings {
   // The weight only means anything in hybrid mode. Collapsing it here means
   // downstream code never has to ask "which field wins?" — a question two call
   // sites would eventually answer differently.
-  if (mode === "semantic") return { mode, semanticWeight: 1 };
-  if (mode === "keyword") return { mode, semanticWeight: 0 };
-  return { mode, semanticWeight };
+  if (mode === "semantic") return { mode, semanticWeight: 1, vectorStore: store };
+  if (mode === "keyword") return { mode, semanticWeight: 0, vectorStore: store };
+  return { mode, semanticWeight, vectorStore: store };
 }
 
 export type Candidate = {

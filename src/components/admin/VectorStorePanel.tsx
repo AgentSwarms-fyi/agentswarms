@@ -75,7 +75,9 @@ export function VectorStorePanel({ token }: { token: string }) {
       if ("ok" in res && res.ok === false) {
         toast.error(res.error);
       } else if (res.skipped) {
-        toast.info("pgvector needs no index — the vector is stored on the chunk row itself.");
+        toast.info(
+          "No collection uses an external index — pgvector stores the vector on the chunk row itself.",
+        );
       } else {
         toast.success(`Re-indexed ${res.indexed.toLocaleString()} vectors`);
       }

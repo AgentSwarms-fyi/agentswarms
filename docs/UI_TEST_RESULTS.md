@@ -15,6 +15,40 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-16 — A knowledge base chooses its own vector index, ADVERSARIAL_LOG R15
+
+**Driven.** The store seam against this machine's real Supabase project and the
+running Qdrant container, with `VECTOR_STORE` unset so the instance default was
+Postgres — the case a per-collection choice has to get right and every
+instance-wide guard got wrong. `tests/integration/kbVectorStore.test.ts`, run as
+`QDRANT_URL=http://localhost:6333 npm run test:integration`.
+
+| What                                    | Read from                                  | Result                                                                                      |
+| --------------------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------- |
+| A collection differs from its instance  | `storeKindByKnowledgeBase` on two real KBs | the one that chose Qdrant → `qdrant`; its neighbour → `pgvector`                            |
+| Its vectors are answered by Qdrant      | a real search over the real container      | planted vector first at similarity > 0.99, all three ids returned, 7.3 s round trip         |
+| The move is reversible                  | the same collection searched in pgvector   | the same chunk first — the embeddings never left `kb_chunks`                                |
+| A store cannot widen what a caller sees | a search naming the other collection       | empty                                                                                       |
+| Leaving a store clears only that store  | delete from Qdrant, then search both       | Qdrant empty, Postgres unchanged                                                            |
+| The fixtures are gone                   | `knowledge_bases`, `knowledge_documents`   | zero `__itest__` rows; the 4 vectors left in Qdrant are an earlier sample's, not this run's |
+
+**A green run that proved nothing, first.** Every test began with an early
+return for an unbuilt fixture, and a test that returns early passes. Five ticks,
+no Qdrant touched. The cause: the shipped sample collections have a null owner,
+so borrowing the first knowledge base borrowed nobody. The file now fails when
+`QDRANT_URL` is set and the fixture did not build.
+
+**Not driven:** the RAG Settings control itself. The new UI needs a dev server,
+the running instance holds port 8080, and a dev server on another port is
+another origin with no session — signing in means typing a password. Thirteen
+mutants cover the control instead, including the dialog opening on the default
+rather than what is saved, the save omitting the store, and the
+Qdrant-not-configured warning going missing. The page and its server module
+were compiled and served by the dev server without error, and the app redirected
+an anonymous visitor to the sign-in page as it should.
+
+Nothing kept: every row this round created was deleted.
+
 ## 2026-09-16 — Every service by default, proved by a fresh clone, ADVERSARIAL_LOG R14
 
 **Driven.** A clone of the commit installed from scratch with

@@ -12,10 +12,19 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { resolveRetrievalSettings } from "@/lib/kbRag";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { auditEvent } from "@/utils/audit.server";
 import { requireSuperadmin } from "@/utils/iam.server";
-import { selectedStoreKind, vectorStore, vectorStoreIsExternal } from "./store.server";
+import {
+  externalStoreConfigured,
+  selectedStoreKind,
+  storeFor,
+  storeKindByKnowledgeBase,
+  storeKindForChoice,
+  vectorStore,
+  vectorStoreIsExternal,
+} from "./store.server";
 import { VECTOR_DIMS, type VectorPoint, type VectorStoreInfo } from "./types";
 
 /** Rows read from `kb_chunks` per page while re-indexing. */
@@ -82,10 +91,6 @@ export const vectorStoreReindex = createServerFn({ method: "POST" })
       if (!guard.ok) return guard;
 
       const kind = selectedStoreKind();
-      if (!vectorStoreIsExternal(kind)) {
-        return { ok: true, indexed: 0, skipped: true, kind };
-      }
-      const store = vectorStore(supabaseAdmin);
 
       // Which knowledge bases, resolved up front so the delete and the write
       // cover exactly the same set.
@@ -97,48 +102,23 @@ export const vectorStoreReindex = createServerFn({ method: "POST" })
       }
       if (kbIds.length === 0) return { ok: true, indexed: 0, skipped: false, kind };
 
+      // Only the collections that keep vectors outside Postgres, which is not
+      // the same question as what this instance defaults to: a collection can
+      // choose the external index on an instance whose default is Postgres,
+      // and it is exactly that collection a rebuild has to reach.
+      const kinds = await storeKindByKnowledgeBase(supabaseAdmin, kbIds);
+      const external = kbIds.filter((id) => vectorStoreIsExternal(kinds.get(id) ?? kind));
+      if (external.length === 0) return { ok: true, indexed: 0, skipped: true, kind };
+      kbIds = external;
+      const store = storeFor(kinds.get(external[0]) ?? kind, supabaseAdmin);
+
       // Forget first. A chunk deleted while the store was unreachable has no
       // row to re-write it, so writing without clearing would leave it there
       // for ever — and an id that hydrates to nothing is dropped at query
       // time, which hides the drift rather than fixing it.
       await store.deleteByKnowledgeBases(kbIds);
 
-      let indexed = 0;
-      for (const kbId of kbIds) {
-        for (let from = 0; ; from += REINDEX_PAGE) {
-          const { data: rows, error } = await supabaseAdmin
-            .from("kb_chunks")
-            .select("id, document_id, knowledge_base_id, embedding")
-            .eq("knowledge_base_id", kbId)
-            .order("id", { ascending: true })
-            .range(from, from + REINDEX_PAGE - 1);
-          if (error) throw new Error(error.message);
-          const page = (rows ?? []) as unknown as {
-            id: string;
-            document_id: string;
-            knowledge_base_id: string;
-            embedding: string | number[] | null;
-          }[];
-          if (page.length === 0) break;
-
-          const points: VectorPoint[] = [];
-          for (const r of page) {
-            const vec = parseEmbedding(r.embedding);
-            // A chunk with no embedding is one that was never indexed — it is
-            // keyword-only today and re-embedding is the fix, not this.
-            if (!vec) continue;
-            points.push({
-              id: r.id,
-              embedding: vec,
-              knowledgeBaseId: r.knowledge_base_id,
-              documentId: r.document_id,
-            });
-          }
-          await store.upsert(points);
-          indexed += points.length;
-          if (page.length < REINDEX_PAGE) break;
-        }
-      }
+      const indexed = await copyChunksToStore(supabaseAdmin, kbIds, store);
 
       auditEvent({
         userId: guard.userId,
@@ -153,6 +133,159 @@ export const vectorStoreReindex = createServerFn({ method: "POST" })
   );
 
 /**
+ * Copy the embeddings already in `kb_chunks` into a vector store.
+ *
+ * Reading from Postgres rather than re-embedding is the whole point: the
+ * vectors exist, they cost money once, and moving a collection between
+ * indexes must not charge for them again.
+ *
+ * `sb` decides what is visible. Passed the caller's client it copies only
+ * what that caller may read; passed the admin client it copies everything.
+ */
+async function copyChunksToStore(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  sb: any,
+  knowledgeBaseIds: string[],
+  store: { upsert: (points: VectorPoint[]) => Promise<void> },
+): Promise<number> {
+  let indexed = 0;
+  for (const kbId of knowledgeBaseIds) {
+    for (let from = 0; ; from += REINDEX_PAGE) {
+      const { data: rows, error } = await sb
+        .from("kb_chunks")
+        .select("id, document_id, knowledge_base_id, embedding")
+        .eq("knowledge_base_id", kbId)
+        .order("id", { ascending: true })
+        .range(from, from + REINDEX_PAGE - 1);
+      if (error) throw new Error(error.message);
+      const page = (rows ?? []) as {
+        id: string;
+        document_id: string;
+        knowledge_base_id: string;
+        embedding: string | number[] | null;
+      }[];
+      if (page.length === 0) break;
+
+      const points: VectorPoint[] = [];
+      for (const r of page) {
+        const vec = parseEmbedding(r.embedding);
+        // A chunk with no embedding is one that was never indexed — it is
+        // keyword-only today and re-embedding is the fix, not this.
+        if (!vec) continue;
+        points.push({
+          id: r.id,
+          embedding: vec,
+          knowledgeBaseId: r.knowledge_base_id,
+          documentId: r.document_id,
+        });
+      }
+      await store.upsert(points);
+      indexed += points.length;
+      if (page.length < REINDEX_PAGE) break;
+    }
+  }
+  return indexed;
+}
+
+/**
+ * Save a collection's retrieval settings, and move its vectors if the index
+ * it searches has changed.
+ *
+ * The move is why this is a server function rather than an update from the
+ * browser. Changing the index is not a preference that takes effect on the
+ * next query: the embeddings sit in whichever store they were written to, so
+ * a collection pointed at an index it was never written to matches nothing —
+ * no error, no empty-state, just an agent that stops citing it.
+ *
+ * The order is deliberate. Copy, then save, then clear the old index. A
+ * failure part-way leaves vectors in two stores, which costs disk and answers
+ * correctly; the other order leaves a collection pointing at an empty one.
+ */
+export const saveKbRetrievalSettings = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) =>
+    z
+      .object({
+        knowledgeBaseId: z.string().uuid(),
+        mode: z.enum(["semantic", "hybrid", "keyword"]),
+        semanticWeight: z.number().min(0).max(1),
+        vectorStore: z.enum(["default", "pgvector", "qdrant"]),
+      })
+      .parse(input),
+  )
+  .handler(
+    async ({
+      data,
+      context,
+    }): Promise<
+      | { ok: false; error: string }
+      | { ok: true; moved: number; movedTo: string | null; cleared: string | null }
+    > => {
+      const { supabase } = context;
+      // Read back under the CALLER'S client: a collection they cannot see comes
+      // back empty, and nothing below ever runs on an id they do not own.
+      const { data: kb } = await supabase
+        .from("knowledge_bases")
+        .select("id, retrieval_settings")
+        .eq("id", data.knowledgeBaseId)
+        .maybeSingle();
+      if (!kb) return { ok: false, error: "Knowledge base not found" };
+
+      const before = storeKindForChoice(
+        resolveRetrievalSettings(kb.retrieval_settings).vectorStore,
+      );
+      const after = storeKindForChoice(data.vectorStore);
+
+      let moved = 0;
+      let movedTo: string | null = null;
+      if (after !== before && vectorStoreIsExternal(after)) {
+        moved = await copyChunksToStore(supabase, [kb.id], storeFor(after, supabase));
+        movedTo = after;
+      }
+
+      const { error } = await supabase
+        .from("knowledge_bases")
+        .update({
+          retrieval_settings: {
+            mode: data.mode,
+            semantic_weight: data.semanticWeight,
+            vector_store: data.vectorStore,
+          },
+        })
+        .eq("id", kb.id);
+      if (error) return { ok: false, error: error.message };
+
+      // Only now, and only the store this collection has actually left. A
+      // failure here is a copy nobody searches: wasted space, not a wrong
+      // answer, so it is reported and not thrown.
+      let cleared: string | null = null;
+      if (after !== before && vectorStoreIsExternal(before)) {
+        try {
+          await storeFor(before, supabase).deleteByKnowledgeBases([kb.id]);
+          cleared = before;
+        } catch (e) {
+          console.warn(
+            "[vector] switched store but the old index was not cleared:",
+            e instanceof Error ? e.message : e,
+          );
+        }
+      }
+
+      if (after !== before) {
+        const { data: who } = await supabase.auth.getUser();
+        auditEvent({
+          userId: who.user?.id ?? null,
+          actorEmail: who.user?.email ?? null,
+          action: "vector_store.knowledge_base_changed",
+          resourceType: "knowledge_base",
+          resourceId: kb.id,
+          detail: { from: before, to: after, vectors: moved },
+        });
+      }
+      return { ok: true, moved, movedTo, cleared };
+    },
+  );
+/**
  * Which store this deployment searches, for anybody who may open a knowledge
  * base — not just an operator.
  *
@@ -166,10 +299,26 @@ export const vectorStoreReindex = createServerFn({ method: "POST" })
 export const vectorStoreBrief = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) => z.object({}).parse(input ?? {}))
-  .handler(async (): Promise<{ kind: string; external: boolean; dims: number }> => {
-    const kind = selectedStoreKind();
-    return { kind, external: vectorStoreIsExternal(kind), dims: VECTOR_DIMS };
-  });
+  .handler(
+    async (): Promise<{
+      kind: string;
+      external: boolean;
+      dims: number;
+      externalAvailable: boolean;
+    }> => {
+      const kind = selectedStoreKind();
+      return {
+        kind,
+        external: vectorStoreIsExternal(kind),
+        dims: VECTOR_DIMS,
+        // Whether a collection CAN be pointed at the external store, which is
+        // a different question from whether this instance defaults to it. A
+        // choice the deployment cannot honour has to be visible where it is
+        // made, not discovered later in a server log.
+        externalAvailable: externalStoreConfigured(),
+      };
+    },
+  );
 
 /**
  * Drop vectors for documents or knowledge bases that are being deleted.
@@ -202,8 +351,14 @@ export const forgetVectors = createServerFn({ method: "POST" })
   )
   .handler(async ({ data, context }): Promise<{ ok: true; forgot: number }> => {
     const { supabase } = context;
-    if (!vectorStoreIsExternal(selectedStoreKind())) return { ok: true, forgot: 0 };
-    const store = vectorStore(supabase);
+    // Asked of the deployment, not of the collection. A collection can have
+    // chosen the external index while the instance defaults to Postgres, and
+    // one switched AWAY from it still has vectors there. Deleting an id the
+    // store does not hold is a no-op, so clearing unconditionally is both
+    // cheaper than resolving each collection and the only version that cannot
+    // strand a vector whose row is gone.
+    if (!externalStoreConfigured()) return { ok: true, forgot: 0 };
+    const store = storeFor("qdrant", supabase);
     let forgot = 0;
 
     // Read back under the CALLER'S client: an id they cannot see comes back

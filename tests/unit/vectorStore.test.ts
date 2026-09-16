@@ -458,13 +458,20 @@ describe("the knowledge base page says where its vectors go", () => {
     .replace(/\/\*[\s\S]*?\*\//g, " ")
     .replace(/^\s*\/\/.*$/gm, " ");
 
-  it("offers no per-collection store picker, because there is no such choice", () => {
+  it("offers no dead picker — the live one is guarded in kbVectorStoreChoice", () => {
     // FOUND FROM A QUESTION: "I don't see it in RAG Settings". What WAS there
     // was a "Vector Store Provider" dropdown with one option, bound to a
     // useState nothing read and nothing saved — a control shaped like a choice
-    // that could not make one. And the choice is not per collection: splitting
-    // it would put one knowledge base's vectors in Postgres and another's in
-    // Qdrant, and switching would strand half of each.
+    // that could not make one. It was removed, and this test used to say the
+    // choice could not be per collection at all: splitting it would put one
+    // knowledge base's vectors in Postgres and another's in Qdrant, and
+    // switching would strand half of each.
+    //
+    // Stranding was the real objection, and it is now answered rather than
+    // avoided — saving a new store copies the collection's existing vectors
+    // into it before the setting changes, and clears the one it left. So the
+    // choice IS per collection, and what stays true here is only the narrower
+    // thing: no control that cannot make the choice it displays.
     expect(PAGE).not.toContain("Vector Store Provider");
     expect(PAGE).not.toContain("const VECTOR_STORES");
     expect(PAGE).not.toMatch(/useState\("local"\)/);

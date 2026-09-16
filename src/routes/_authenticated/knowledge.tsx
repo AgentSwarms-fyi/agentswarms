@@ -64,10 +64,19 @@ import {
   kbEmbedProbe,
   kbEmbedStatus,
 } from "@/utils/tools/kbEmbed.functions";
-import { forgetVectors, vectorStoreBrief } from "@/utils/vector/vector.functions";
+import {
+  forgetVectors,
+  saveKbRetrievalSettings,
+  vectorStoreBrief,
+} from "@/utils/vector/vector.functions";
 import { formatDistanceToNow } from "date-fns";
 import { Slider } from "@/components/ui/slider";
-import { type ChunkMode, type RetrievalMode, resolveRetrievalSettings } from "@/lib/kbRag";
+import {
+  type ChunkMode,
+  type RetrievalMode,
+  type VectorStoreChoice,
+  resolveRetrievalSettings,
+} from "@/lib/kbRag";
 
 export const Route = createFileRoute("/_authenticated/knowledge")({
   component: KnowledgePage,
@@ -244,10 +253,12 @@ function KnowledgePage() {
   const backfillFn = useServerFn(backfillKbEmbeddings);
   const forgetVectorsFn = useServerFn(forgetVectors);
   const storeBriefFn = useServerFn(vectorStoreBrief);
+  const saveRetrievalFn = useServerFn(saveKbRetrievalSettings);
   const [storeBrief, setStoreBrief] = useState<{
     kind: string;
     external: boolean;
     dims: number;
+    externalAvailable: boolean;
   } | null>(null);
   useEffect(() => {
     let live = true;
@@ -326,6 +337,11 @@ function KnowledgePage() {
   // Retrieval settings belong to the knowledge base, not the document.
   const [retrievalMode, setRetrievalMode] = useState<RetrievalMode>("semantic");
   const [semanticWeight, setSemanticWeight] = useState(0.7);
+  const [vectorStoreChoice, setVectorStoreChoice] = useState<VectorStoreChoice>("default");
+  // What is on the server, so the dialog can say that a change has to move
+  // vectors before it takes effect — the one retrieval setting that is not
+  // free to flip.
+  const [savedVectorStore, setSavedVectorStore] = useState<VectorStoreChoice>("default");
   const [savingRetrieval, setSavingRetrieval] = useState(false);
   const [reindexing, setReindexing] = useState(false);
 
@@ -459,6 +475,8 @@ function KnowledgePage() {
     // resolveRetrievalSettings pins the weight to 1/0 outside hybrid mode; the
     // slider only means something in hybrid, so keep a usable value otherwise.
     setSemanticWeight(r.mode === "hybrid" ? r.semanticWeight : 0.7);
+    setVectorStoreChoice(r.vectorStore);
+    setSavedVectorStore(r.vectorStore);
   }, [selectedBase]);
 
   async function loadBases() {
@@ -517,19 +535,34 @@ function KnowledgePage() {
   async function saveRetrievalSettings() {
     if (!selectedBase) return;
     setSavingRetrieval(true);
-    const { error } = await supabase
-      .from("knowledge_bases")
-      .update({
-        retrieval_settings: { mode: retrievalMode, semantic_weight: semanticWeight },
-      })
-      .eq("id", selectedBase.id);
-    setSavingRetrieval(false);
-    if (error) {
-      toast.error(error.message);
-      return;
+    // Through the server rather than a direct update: changing the index means
+    // moving the vectors that are already written, and a browser cannot do
+    // that. Mode and weighting go the same way so there is one saved shape.
+    try {
+      const r = await saveRetrievalFn({
+        data: {
+          knowledgeBaseId: selectedBase.id,
+          mode: retrievalMode,
+          semanticWeight,
+          vectorStore: vectorStoreChoice,
+        },
+      });
+      if (!r.ok) {
+        toast.error(r.error);
+        return;
+      }
+      setSavedVectorStore(vectorStoreChoice);
+      toast.success(
+        r.movedTo
+          ? `Retrieval settings saved \u2014 ${r.moved.toLocaleString()} vector(s) moved into ${r.movedTo}`
+          : "Retrieval settings saved",
+      );
+      loadBases();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not save retrieval settings");
+    } finally {
+      setSavingRetrieval(false);
     }
-    toast.success("Retrieval settings saved");
-    loadBases();
   }
 
   async function loadDocs(kbId: string) {
@@ -1411,6 +1444,55 @@ function KnowledgePage() {
                           </div>
                         )}
 
+                        <div className="space-y-2">
+                          <Label>Vector index</Label>
+                          <Select
+                            value={vectorStoreChoice}
+                            onValueChange={(v) => setVectorStoreChoice(v as VectorStoreChoice)}
+                          >
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="default">
+                                Instance default
+                                {storeBrief ? ` — ${storeBrief.kind}` : ""}
+                              </SelectItem>
+                              <SelectItem value="pgvector">
+                                Postgres (pgvector) &mdash; in this database
+                              </SelectItem>
+                              <SelectItem value="qdrant">
+                                Qdrant &mdash; dedicated vector service
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <p className="text-xs text-muted-foreground">
+                            Where this collection{"\u2019"}s nearest-neighbour search runs. Postgres
+                            keeps the vector on the chunk row, so permissions are the same row
+                            permissions and there is nothing to keep in sync &mdash; the right
+                            answer for most collections. Qdrant holds a copy of the vectors in a
+                            service built for them, which pays off on collections large enough that
+                            the database is the bottleneck. The text, the permissions and the
+                            embeddings stay in Postgres either way.
+                          </p>
+                          {vectorStoreChoice === "qdrant" &&
+                            storeBrief &&
+                            !storeBrief.externalAvailable && (
+                              <p className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs">
+                                Qdrant is not configured on this deployment, so saving this would
+                                leave the collection searching Postgres anyway. Set QDRANT_URL and
+                                restart the app first.
+                              </p>
+                            )}
+                          {vectorStoreChoice !== savedVectorStore && (
+                            <p className="rounded-md border border-sky-500/40 bg-sky-500/10 p-2 text-xs">
+                              Saving moves this collection{"\u2019"}s existing vectors into the new
+                              index and clears the old one. Nothing is re-embedded, so this costs no
+                              model calls &mdash; but it does read every chunk, so a large
+                              collection takes a moment.
+                            </p>
+                          )}
+                        </div>
                         <Button
                           size="sm"
                           disabled={savingRetrieval}
@@ -1420,8 +1502,9 @@ function KnowledgePage() {
                         </Button>
                         <p className="text-xs text-muted-foreground">
                           Applies immediately to every agent and swarm that searches this knowledge
-                          base. No re-embedding needed &mdash; this changes how the existing index
-                          is queried, not how it was built.
+                          base. Nothing here re-embeds anything &mdash; search mode and weighting
+                          change how the existing index is queried, and changing the index moves the
+                          vectors that are already built.
                         </p>
                       </>
                     )}

@@ -6,7 +6,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 import { embedTexts } from "./embedding.server";
-import { vectorStore } from "@/utils/vector/store.server";
+import { storeFor, storeKindForChoice } from "@/utils/vector/store.server";
+import type { VectorStoreKind } from "@/utils/vector/types";
 import {
   applyGroundingBudget,
   assembleCitationTexts,
@@ -19,6 +20,7 @@ import {
   resolveRetrievalSettings,
   type Candidate,
   type RetrievalSettings,
+  type VectorStoreChoice,
 } from "@/lib/kbRag";
 
 export type Citation = {
@@ -400,14 +402,23 @@ export async function retrieveCitationsServer(opts: {
   // play the most keyword-leaning wins, because a KB configured for hybrid was
   // configured that way for a reason (identifiers, error codes, product names)
   // and silently searching it semantically would lose exactly those matches.
-  let retrieval: RetrievalSettings = { mode: "semantic", semanticWeight: 1 };
+  let retrieval: RetrievalSettings = {
+    mode: "semantic",
+    semanticWeight: 1,
+    vectorStore: "default",
+  };
+  // Which index each collection chose. A request can span collections that
+  // chose differently, so this is a map rather than one answer: the search
+  // below asks each store for its own collections and merges the results.
+  const storeOf = new Map<string, VectorStoreChoice>();
   try {
     const { data: kbSettings } = await sb
       .from("knowledge_bases")
-      .select("retrieval_settings")
+      .select("id, retrieval_settings")
       .in("id", kbIds);
     for (const row of kbSettings ?? []) {
       const r = resolveRetrievalSettings(row.retrieval_settings);
+      storeOf.set(row.id, r.vectorStore);
       if (r.semanticWeight < retrieval.semanticWeight) retrieval = r;
     }
   } catch {
@@ -486,12 +497,29 @@ export async function retrieveCitationsServer(opts: {
       // the keyword side rescue nothing.
       const wide = reranker || retrieval.mode !== "semantic" ? Math.min(topK * 3, 30) : topK;
       // WHICH chunks, from whichever store holds the vectors — pgvector in the
-      // same database by default, an external one when configured.
-      const matches = await vectorStore(sb).search({
-        embedding: queryEmbedding,
-        knowledgeBaseIds: kbIds,
-        limit: wide,
-      });
+      // same database by default, an external one where the collection chose
+      // one. Grouped, because a request can span both: each store answers for
+      // its own collections and the lists are merged by score. The scores are
+      // comparable (both are cosine similarity in 0..1), and the fusion below
+      // normalises within the list anyway.
+      const byStore = new Map<VectorStoreKind, string[]>();
+      for (const id of kbIds) {
+        const kind = storeKindForChoice(storeOf.get(id));
+        byStore.set(kind, [...(byStore.get(kind) ?? []), id]);
+      }
+      const perStore = await Promise.all(
+        [...byStore.entries()].map(([kind, ids]) =>
+          storeFor(kind, sb).search({
+            embedding: queryEmbedding,
+            knowledgeBaseIds: ids,
+            limit: wide,
+          }),
+        ),
+      );
+      const matches = perStore
+        .flat()
+        .sort((a, b) => b.score - a.score)
+        .slice(0, wide);
       // WHAT they are, always from Postgres and always through the caller's
       // own client. This is the second ACL check: a store that returned an id
       // from somebody else's knowledge base gets nothing back, because RLS and

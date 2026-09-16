@@ -101,7 +101,7 @@ describe("the premise still holds — settings really do only steer chunks", () 
   it("fusion, vector search and chunk-keyword search all read chunks", () => {
     // Vector search goes through the store seam now; the rows it names are
     // fetched back from Postgres either way.
-    expect(server).toMatch(/vectorStore\(sb\)\.search\(/);
+    expect(server).toMatch(/storeFor\(kind, sb\)\.search\(/);
     expect(server).toMatch(/rpc\("kb_chunks_by_ids"/);
     expect(server).toMatch(/rpc\("keyword_kb_chunks"/);
     // `effective` is the collection's settings, except on a turn where the

@@ -324,6 +324,26 @@ question ──▶ embed ──▶ nearest chunks ──▶ pasted into the prom
         every hit is hydrated from the chunk rows in Postgres, so the database going down takes
         retrieval with it wherever the vectors live.
       </P>
+      <P>
+        That setting is the <strong>default for every collection</strong>, not a decision for the
+        whole deployment. <strong>RAG Settings &rarr; Retrieval &rarr; Vector index</strong> sets it
+        per knowledge base, which is usually how to adopt Qdrant at all: the one collection that
+        outgrew Postgres moves, every other one stays where its rows are. A collection pointed at
+        Qdrant on a deployment that has none falls back to Postgres, and the picker says so rather
+        than letting you find out from a server log.
+      </P>
+      <Callout kind="why" title="Changing the index moves the vectors, and costs nothing to do">
+        Saving a new index copies that collection{"\u2019"}s existing vectors into it, then clears
+        the one it left. Nothing is re-embedded — the embeddings are already stored as{" "}
+        <C>kb_chunks.embedding</C> and are read back from there — so the only cost is the time to
+        read every chunk.
+        <br />
+        <br />
+        The order is copy, save, clear, and it is the order because the other one fails badly: a
+        setting saved before the copy finished would leave the collection searching an index it was
+        never written to, which returns nothing and raises nothing. This way a failure leaves the
+        vectors in two stores — disk, not wrong answers — and saving again finishes it.
+      </Callout>
       <Callout kind="why" title="Qdrant holds vectors and two ids — that is all">
         The chunk text, the document it came from, the parent passage and who may read it stay in
         Postgres. So the keyword half of hybrid search is untouched; a Qdrant that loses its volume
@@ -404,7 +424,8 @@ question ──▶ embed ──▶ nearest chunks ──▶ pasted into the prom
       <P>
         Vector search finds meaning and blurs exact strings; an error code, a part number or a
         surname is exactly the kind of token embeddings smooth away. Keyword search is the opposite.
-        <strong> RAG Settings &rarr; Retrieval</strong> sets which of them runs, per knowledge base.
+        <strong> RAG Settings &rarr; Retrieval</strong> sets which of them runs, per knowledge base.{" "}
+        The same tab chooses the <strong>vector index</strong> that collection is searched in.
       </P>
       <Table
         headers={["Mode", "What runs"]}

@@ -163,7 +163,12 @@ describe("parseQaPairs", () => {
 describe("resolveRetrievalSettings", () => {
   it("defaults to hybrid leaning semantic — measured, not inherited (R12)", () => {
     expect(resolveRetrievalSettings(null)).toEqual(DEFAULT_RETRIEVAL);
-    expect(DEFAULT_RETRIEVAL).toEqual({ mode: "hybrid", semanticWeight: 0.7 });
+    expect(DEFAULT_RETRIEVAL).toEqual({
+      mode: "hybrid",
+      semanticWeight: 0.7,
+      // A collection follows the instance until someone picks an index for it.
+      vectorStore: "default",
+    });
     expect(resolveRetrievalSettings(undefined).mode).toBe("hybrid");
     expect(resolveRetrievalSettings({}).mode).toBe("hybrid");
     expect(resolveRetrievalSettings({}).semanticWeight).toBe(0.7);
@@ -171,6 +176,7 @@ describe("resolveRetrievalSettings", () => {
     expect(resolveRetrievalSettings({ mode: "semantic" })).toEqual({
       mode: "semantic",
       semanticWeight: 1,
+      vectorStore: "default",
     });
   });
 
@@ -374,7 +380,7 @@ describe("retrieval wiring", () => {
     // to live outside this database — at which point the search and the fetch
     // happen in two different systems and no single function can do both. The
     // parent join did not go anywhere; it moved into kb_chunks_by_ids.
-    expect(KB).toMatch(/vectorStore\(sb\)\.search\(/);
+    expect(KB).toMatch(/storeFor\(kind, sb\)\.search\(/);
     expect(KB).toMatch(/rpc\("kb_chunks_by_ids"/);
   });
 
