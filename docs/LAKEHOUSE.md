@@ -27,10 +27,17 @@ Two pieces of shared infrastructure, both named in `.env`:
 | `LAKEHOUSE_S3_USE_SSL`                        | `false` for plain-HTTP local MinIO                                |
 | `LAKEHOUSE_CATALOG_CONNECTIONS`               | Catalog sessions one app worker may hold (default 8); see Scaling |
 
-The compose `lakehouse` profile ships a catalog Postgres
-(`lakehouse-catalog`); any Postgres 12+ works, including a self-hosted
-Supabase's own database. Unset variables leave the feature off — the page
-says so instead of half-working.
+Compose ships a catalog Postgres (`lakehouse-catalog`) and starts it with
+everything else; any Postgres 12+ works instead, including a self-hosted
+Supabase's own database. It is a separate database rather than the
+application's for two reasons, both of which are about how it is reached:
+DuckLake attaches over a **raw Postgres connection** rather than the HTTPS
+API the rest of the app uses, so a pool of those sessions would land on the
+application's database and grow with every worker and replica; and an ETL
+pipeline writing a lakehouse table attaches it **from inside a notebook
+kernel**, which sits on a network with no route off it (see below). Unset
+variables leave the feature off — the page says so instead of
+half-working.
 
 If a query against an HTTPS object store fails with **"Problem with the SSL
 CA cert (path? access rights?)"**, the container running the engine has no

@@ -181,9 +181,9 @@ whole deployment.
 **An endpoint you run (`static`, the default).** One Spark Connect endpoint,
 shared by every run; the platform does not manage its lifecycle. Set it there
 or as `SPARK_CONNECT_URL` (the setting wins); until one is set the engine
-picker says so and the option is disabled. Locally the Compose `spark` profile
-runs a single-host Spark 4.2 Connect server with the S3A, Delta and JDBC
-connectors already on it:
+picker says so and the option is disabled. Locally, Compose runs a single-host
+Spark 4.2 Connect server with the S3A, Delta and JDBC connectors already on
+it, started with everything else:
 
 ```bash
 docker compose up -d

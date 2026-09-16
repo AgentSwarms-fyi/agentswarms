@@ -2479,8 +2479,9 @@ option and states the reason rather than leaving a control that does nothing.
 
 ### Checking what is running (Observability → Monitoring)
 
-Every optional piece below is a Compose profile you may or may not have
-started, which makes "is this deployment complete?" a real question. The
+Every service below is started by every install, which makes "is this
+deployment complete?" a question with a checkable answer rather than a
+matter of which pieces you chose. The
 in-app **Observability → Monitoring** page answers it: one row per service
 with its status, response time and the address that answered, plus live CPU,
 memory and disk for the machine running the app.

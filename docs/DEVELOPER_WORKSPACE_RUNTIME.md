@@ -19,7 +19,7 @@
 > (`/api/notebook/runtime[/result|/source|/reap]`), session-token acceptance in
 > `/api/python-chat|kb`, the kernel image (`docker/notebook-runtime/`), the
 > websocket gateway (`services/notebook-gateway/`), the egress proxy in the
-> main `docker-compose.yml` behind the `notebooks` profile, the Kubernetes
+> main `docker-compose.yml`, the Kubernetes
 > (`deploy/k8s/notebooks/`) topology, and the editor's runtime session UI. The feature is **off by
 > default** (`server_runtime_enabled=false` + no signing secret).
 >
