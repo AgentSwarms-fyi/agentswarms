@@ -252,11 +252,20 @@ services:
     volumes:
       - lake-data:/data
     healthcheck:
+      # `mc ready local`, the server image's own client, so "healthy" means it
+      # answers rather than that a port is open.
+      #
+      # The grace is wide because the FIRST start formats the pool, and the
+      # first start of an AgentSwarms install is also when eleven other
+      # containers are starting and several images are still building. At
+      # 20s + 5 x 15s a loaded laptop missed it, minio-init refused to run
+      # ("dependency failed to start: container minio is unhealthy") and the
+      # install stopped with no bucket. Idle, it is ready in about 30s.
       test: ["CMD", "mc", "ready", "local"]
       interval: 15s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
+      timeout: 10s
+      retries: 20
+      start_period: 60s
 
   # One-shot: create the bucket. Nothing in the app creates it — a missing
   # bucket surfaces as a write error on the first table, which is a poor way to
