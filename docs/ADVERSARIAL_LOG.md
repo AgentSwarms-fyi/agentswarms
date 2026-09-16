@@ -205,13 +205,30 @@ owner, so borrowing "the first knowledge base" borrowed nobody. The file now
 fails when `QDRANT_URL` is set and the fixture did not build, which is the only
 reason it was ever noticed.
 
-Not driven through the browser: the dev server needed for the new UI cannot use
-the running instance's port, and a fresh origin has no session — signing one in
-means typing a password, which this campaign does not do. The control is
-covered by thirteen mutants instead, including the three that matter most: the
-dialog opening on the default instead of what is saved, the save sending the
-mode but not the store, and the warning about an unconfigured Qdrant going
-missing.
+**Then driven through the browser**, once the owner signed in to a build of the
+commit served beside the running instance. The 100-chunk RAG eval collection was
+moved to Qdrant and back through the control itself, and the two directions
+prove different halves of the design:
+
+- Saving Qdrant reported "100 vector(s) moved into qdrant"; Qdrant went from 4
+  points to 104, exactly 100 of them this collection's, and a search with a
+  stored chunk's own vector returned that chunk at 1.0000. The dialog reopened
+  on Qdrant rather than the default.
+- The agent then answered a multi-hop question from that collection — the
+  firmware a controller needs to roll a node back (5.2) and the condition that
+  declares a partition (45 seconds on 3 or more links) — with citations, and a
+  version-conflict question (768 nodes, noting the older document says 512 and
+  why it is superseded).
+- **Qdrant's own request counter is what proves the routing.** It rose by one
+  per question while the collection was on Qdrant, and did not move at all for
+  a question asked after the switch back, which still answered correctly and
+  cited the right document. Postgres kept every vector, which is what makes the
+  return trip free.
+- Switching back reported a plain save with no move, cleared this collection's
+  100 points from Qdrant while leaving the other collection's 4 alone, and wrote
+  both directions to the audit trail.
+
+The collection was then restored to the settings it had before any of this.
 
 #### R14 · S1 · Every service, every install — and the four things only running it found
 

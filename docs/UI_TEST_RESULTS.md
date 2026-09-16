@@ -38,16 +38,27 @@ no Qdrant touched. The cause: the shipped sample collections have a null owner,
 so borrowing the first knowledge base borrowed nobody. The file now fails when
 `QDRANT_URL` is set and the fixture did not build.
 
-**Not driven:** the RAG Settings control itself. The new UI needs a dev server,
-the running instance holds port 8080, and a dev server on another port is
-another origin with no session — signing in means typing a password. Thirteen
-mutants cover the control instead, including the dialog opening on the default
-rather than what is saved, the save omitting the store, and the
-Qdrant-not-configured warning going missing. The page and its server module
-were compiled and served by the dev server without error, and the app redirected
-an anonymous visitor to the sign-in page as it should.
+**Then the control itself**, after the owner signed in to a production build of
+the commit served on :8081 beside the running instance. The 100-chunk RAG eval
+collection was moved to Qdrant and back, through the dialog.
 
-Nothing kept: every row this round created was deleted.
+| What                                | Read from                                 | Result                                                                                          |
+| ----------------------------------- | ----------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| The control names the real default  | the Retrieval tab on open                 | "Instance default — pgvector"                                                                   |
+| It warns before it moves data       | choosing Qdrant                           | the notice about moving vectors appears; no "not configured" warning, since QDRANT_URL was set  |
+| Saving moves the vectors            | the toast                                 | "Retrieval settings saved — 100 vector(s) moved into qdrant"                                    |
+| They are really there               | Qdrant's own API                          | 4 points → 104; exactly 100 for this collection; a stored chunk's vector finds itself at 1.0000 |
+| The choice sticks                   | reopening the dialog                      | opens on Qdrant, and the move warning is gone                                                   |
+| Retrieval still answers             | Agent Chat, multi-hop question            | firmware 5.2 and "45 seconds on 3 or more links", cited                                         |
+| …and handles a version conflict     | Agent Chat, recency question              | 768 nodes, naming the older 512 document and why it is superseded                               |
+| **The query really went to Qdrant** | Qdrant's request counter, before/after    | +1 per question while the collection was on Qdrant                                              |
+| Switching back is a plain save      | the toast                                 | "Retrieval settings saved", no move — pgvector needs no copy                                    |
+| …and clears only what left          | Qdrant's API                              | this collection's 100 points gone, the other collection's 4 untouched                           |
+| **And stops using Qdrant**          | the counter after a question, post-switch | unchanged, while the answer still came back correctly cited                                     |
+| Both moves are recorded             | `audit_events`                            | `vector_store.knowledge_base_changed`, pgvector→qdrant 100, then qdrant→pgvector 0              |
+
+Nothing kept: every row the integration test created was deleted, and the eval
+collection was restored to the settings it had before this round.
 
 ## 2026-09-16 — Every service by default, proved by a fresh clone, ADVERSARIAL_LOG R14
 
