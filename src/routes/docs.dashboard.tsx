@@ -19,13 +19,13 @@ export const Route = createFileRoute("/docs/dashboard")({
       {
         name: "description",
         content:
-          "The AgentSwarms dashboard: quick actions, featured swarms, workspace stats, 24-hour activity, model mix, and recent runs.",
+          "The AgentSwarms dashboard: platform status, the four figures that matter, 24-hour activity, what this deployment is running, spend by person or team, and recent runs.",
       },
       { property: "og:title", content: "Dashboard — AgentSwarms Documentation" },
       {
         property: "og:description",
         content:
-          "The AgentSwarms dashboard: quick actions, featured swarms, workspace stats, activity, and recent runs.",
+          "The AgentSwarms dashboard: platform status, key figures, activity, what you are running, and recent runs.",
       },
       { property: "og:url", content: "https://agentswarms.fyi/docs/dashboard" },
       { property: "og:type", content: "article" },
@@ -34,7 +34,7 @@ export const Route = createFileRoute("/docs/dashboard")({
       {
         name: "twitter:description",
         content:
-          "The AgentSwarms dashboard: quick actions, featured swarms, workspace stats, activity, and recent runs.",
+          "The AgentSwarms dashboard: platform status, key figures, activity, what you are running, and recent runs.",
       },
     ],
     links: [{ rel: "canonical", href: "https://agentswarms.fyi/docs/dashboard" }],
@@ -48,87 +48,124 @@ function DashboardDoc() {
       <DocsHeader
         eyebrow="Getting started"
         title="Dashboard"
-        description="The dashboard at /dashboard is the screen you land on after signing in. It answers two questions: what is the fastest next thing to do, and what has been happening in your workspace."
+        description="The dashboard at /dashboard is the screen you land on after signing in. It answers one question first — is this deployment healthy, and what is it costing — and then shows what you are running and what has happened in the last day."
       />
 
-      <H2 id="quick-actions">Quick actions</H2>
-      <P>Four tiles at the top cover the main entry points into the platform:</P>
+      <H2 id="status">Platform status</H2>
+      <P>
+        The first thing on the page is a single sentence: <strong>Everything is running</strong>, or
+        the number of things that need attention with a chip for each one. Every status behind it
+        was already being recorded somewhere — by the SaaS sync, the warehouse connection test, the
+        swarm scheduler, the pipeline run, the data monitor — and each chip links to the page that
+        can fix it.
+      </P>
+      <Table
+        headers={["Chip", "Where it comes from", "Where it takes you"]}
+        rows={[
+          [
+            "sources not syncing",
+            "A SaaS connection whose last sync errored or was partial",
+            "Integrations",
+          ],
+          [
+            "warehouses unreachable",
+            "A warehouse whose last connection test failed",
+            "Integrations",
+          ],
+          ["schedules failing", "A swarm schedule whose last run errored", "Swarms"],
+          [
+            "pipeline runs failed today",
+            "An ETL run that failed in the last 24 hours",
+            "ETL Pipelines",
+          ],
+          [
+            "open data incidents",
+            "A data monitor that raised an incident nobody has closed",
+            "Data monitors",
+          ],
+          ["workflows failed", "A workflow whose last run failed", "Workflows"],
+          ["SQL models failing", "A SQL model whose last build errored", "SQL models"],
+          [
+            "of the monthly budget used",
+            "Month-to-date spend at 80% of the cap or above",
+            "Budgets",
+          ],
+        ]}
+      />
+      <Callout kind="why" title="It says so when nothing is wrong">
+        A band that appears only on failure teaches nobody that it exists, and its absence then
+        reads as &ldquo;not loaded yet&rdquo; rather than &ldquo;nothing to report&rdquo;. It also
+        carries the time it checked, because a dashboard with no timestamp cannot be told apart from
+        a stale tab left open overnight.
+      </Callout>
+
+      <H2 id="figures">The four figures</H2>
+      <P>
+        Below the band are the numbers that change a decision, each measured against something
+        rather than standing alone.
+      </P>
       <FieldList
         items={[
           {
-            name: "Open the Playground",
+            name: "Runs (24h)",
             body: (
               <>
-                Opens the <DocLink to="/docs/playground">Agent Chat</DocLink> to chat with any model
-                and prototype an agent instantly.
+                Model calls in the last 24 hours. Shown as <strong>&ge;n</strong> when the read hit
+                its limit, so a busy day reports a floor rather than describing a prefix as if it
+                were the whole day.
               </>
             ),
           },
           {
-            name: "Build a Standalone Agent",
+            name: "Spend (month to date)",
             body: (
               <>
-                Opens the <DocLink to="/docs/agents">Agent Builder</DocLink> with the new-agent form
-                ready.
+                Against your monthly cap, with a bar that turns amber at 80% and red past 100%. The
+                figure is the same one <DocLink to="/docs/budgets">budget caps</DocLink> enforce, so
+                the two can never disagree. With no cap set it falls back to the 24-hour total and
+                says so.
               </>
             ),
           },
           {
-            name: "Design a Swarm",
+            name: "Success rate (24h)",
             body: (
               <>
-                Opens a blank <DocLink to="/docs/swarms">Swarm Canvas</DocLink> to wire agents
-                together into a multi-agent graph.
+                Of runs that reached a verdict. Cancelled runs leave the denominator entirely — a
+                person pressing Stop is not a failure. With nothing decided it reads
+                &ldquo;&mdash;&rdquo; rather than congratulating you on 100%.
               </>
             ),
           },
           {
-            name: "Open BI Workspace",
-            body: <>Opens the BI Workspace, where AI builds dashboards over your connected data.</>,
+            name: "Avg latency (24h)",
+            body: "Mean wall-clock time per model call, over the runs that recorded one.",
           },
         ]}
       />
 
-      <H2 id="featured-swarms">Featured swarms</H2>
+      <H2 id="activity">Activity and model mix</H2>
       <P>
-        A curated row of four multi-agent templates that open directly on the canvas. They are
-        chosen for being graphs worth reading — routing, parallel fan-out, retrieval and approval
-        gates — and they need no setup, because their retrieval nodes point at the sample knowledge
-        base bundled with the platform.
-      </P>
-      <Table
-        headers={["Template", "What it demonstrates"]}
-        rows={[
-          [
-            <strong key="a">Support Copilot</strong>,
-            "Router → KB retrieval with reranking → grounded answer → LLM judge → human approval. The most complete of the four.",
-          ],
-          [
-            <strong key="b">Revenue Ops Analyst</strong>,
-            "Querying your own data and turning the result into an answer.",
-          ],
-          [
-            <strong key="c">Market Research Desk</strong>,
-            "Parallel fan-out across sources, then a synthesis step.",
-          ],
-          [
-            <strong key="d">Incident Response Triage</strong>,
-            "Classification and branching, where the branch decides what happens next.",
-          ],
-        ]}
-      />
-      <P>
-        There are more in the full template gallery on the{" "}
-        <DocLink to="/docs/swarms">Swarm Canvas</DocLink> — these four are simply the ones surfaced
-        on the dashboard.
+        <strong>Activity</strong> charts hourly run volume for the last 24 hours across every agent
+        and swarm. <strong>Model mix</strong> beside it ranks models by tokens, so you can see where
+        the spend went before opening anything.
       </P>
 
-      <H2 id="stats">Workspace stats</H2>
+      <H2 id="running">What you&rsquo;re running</H2>
       <P>
-        Five tiles count what you own — <strong>Agents</strong>, <strong>Swarms</strong>,{" "}
-        <strong>Chats</strong>, <strong>Tools</strong>, and <strong>Knowledge</strong> bases. Each
-        tile links to the corresponding library page.
+        A grid counted from this deployment&rsquo;s own tables, covering both halves of the
+        platform: agents, swarms and knowledge bases on one side; ETL pipelines, the lakehouse, SQL
+        models, ML models, dashboards, workflows, data monitors, metrics and integrations on the
+        other. A capability with something in it shows the count and, when relevant, what is wrong
+        with it — &ldquo;5 watching &middot; 1 open&rdquo;. A capability with nothing in it says so
+        and offers the way in, rather than showing a zero.
       </P>
+      <Callout kind="why" title="Counted, not advertised">
+        This replaced a grid of twelve static feature tiles that read the same whether you had one
+        agent or a thousand pipelines. The sidebar already lists every feature; what a dashboard can
+        say that the sidebar cannot is which ones <em>you</em> are using and whether they are
+        working.
+      </Callout>
 
       <H2 id="spend">Spend &amp; usage — by person, team or organisation</H2>
       <P>
@@ -173,14 +210,6 @@ function DashboardDoc() {
         so a figure here and a budget alert can never disagree about what someone spent.
       </P>
 
-      <H2 id="activity">Activity and model mix</H2>
-      <P>
-        The <strong>Activity</strong> panel charts hourly run volume across all your agents and
-        swarms for the last 24 hours, with three summary figures underneath: success rate, average
-        latency, and spend. The <strong>Model mix</strong> panel next to it breaks recent runs down
-        by model, so you can see at a glance where your tokens went.
-      </P>
-
       <H2 id="recent-runs">Recent runs</H2>
       <P>
         The last six executions across your workspace, each with the agent name, model, latency,
@@ -189,13 +218,13 @@ function DashboardDoc() {
         trace — see <DocLink to="/docs/debugging">Logs &amp; traces</DocLink> for how to read one.
       </P>
 
-      <Note>
-        A <strong>learning side panel</strong> ("Welcome — start here") rides along on the right of
-        the dashboard with a short map of how the platform teaches agentic AI. Most authenticated
-        screens have one of these panels, scoped to the screen you are on.
-      </Note>
-
       <H2 id="first-run">What to do on a new workspace</H2>
+      <P>
+        A deployment with nothing built and nothing run gets a different page: an ordered checklist
+        instead of a console full of zeroes, with each step ticked from real state rather than from
+        a flag. Only the next unfinished step carries a button. The order below is the same one, and
+        it is dependency order rather than feature order.
+      </P>
       <Steps
         items={[
           {

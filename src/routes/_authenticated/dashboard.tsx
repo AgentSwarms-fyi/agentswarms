@@ -1,52 +1,70 @@
+// The dashboard: what is happening on this deployment right now.
+//
+// WHAT THIS PAGE USED TO BE, AND WHY IT CHANGED. Measured on a populated
+// account, the previous version was 3,241px tall and the first live number on
+// it — anything read from this deployment rather than hard-coded — appeared at
+// y=2,039. Above that sat a 920px grid of twelve static feature tiles, a
+// static "web embedding" callout and 577px of static swarm templates: about
+// 1,500px of brochure, shown identically to somebody on their first day and
+// somebody on their four hundredth. The sidebar already lists every one of
+// those features, so the brochure was a second copy of the navigation placed
+// in front of the data.
+//
+// A dashboard earns its place by answering one question in the time it takes
+// to glance at it. Here that question is "is my platform healthy, and what is
+// it costing me?", so the answer is the first thing on the page: a status
+// band, then four numbers, then the activity behind them. Discovery has not
+// been deleted — it moved to where it is the right answer, which is an account
+// that has nothing yet.
+//
+// The page has two states and they are genuinely different pages:
+//   - nothing indexed, no runs → an ordered checklist that leaves real things
+//     behind (FirstRun).
+//   - anything at all → the console.
+// The old page showed the console to everybody, so a new account's first
+// impression was five zeroes, a flat 2px sparkline and three "no runs yet"
+// messages, which reads as broken rather than as new.
+
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { formatMs } from "@/lib/format";
 import { useEffect, useMemo, useState } from "react";
+
+import { formatMs } from "@/lib/format";
 import { mySpendSince } from "@/lib/budgetSpendClient";
 import { greetingName } from "@/lib/greetingName";
 import { supabase } from "@/integrations/supabase/client";
 import { formatSpend, spendCaveat } from "@/lib/spendCompleteness";
-import {
-  activityMetrics,
-  activityWindow,
-  bucketHour,
-  hourlyBuckets,
-  modelMix,
-} from "@/lib/dashboardActivity";
+import { activityMetrics, activityWindow, hourlyBuckets, modelMix } from "@/lib/dashboardActivity";
 import { SpendPanel } from "@/components/dashboard/SpendPanel";
-import { Button } from "@/components/ui/button";
+import { ActivityChart } from "@/components/dashboard/ActivityChart";
+import { FirstRun, type Step } from "@/components/dashboard/FirstRun";
+import { KpiTile } from "@/components/dashboard/KpiTile";
+import { PlatformSurface, type SurfaceItem } from "@/components/dashboard/PlatformSurface";
+import { StatusBand, type Attention } from "@/components/dashboard/StatusBand";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import {
-  Bot,
-  MessageSquare,
-  Puzzle,
-  BookOpen,
-  Network,
   Activity,
-  ArrowUpRight,
-  Zap,
-  TrendingUp,
-  Clock,
-  CheckCircle2,
   AlertCircle,
-  Cpu,
-  LayoutTemplate,
-  Workflow,
-  PieChart,
-  Database,
-  NotebookPen,
-  Image as ImageIcon,
-  Columns,
-  Code2,
-  Wrench,
-  Waypoints,
-  Warehouse,
-  Layers,
+  BookOpen,
+  Bot,
   BrainCircuit,
+  CheckCircle2,
+  Clock,
+  Columns,
+  Database,
+  DollarSign,
+  Gauge,
+  LayoutTemplate,
+  Network,
+  PieChart,
   Sigma,
+  Warehouse,
+  Waypoints,
+  Workflow,
+  Zap,
 } from "lucide-react";
-import { SWARM_TEMPLATES } from "@/lib/swarmTemplates";
-import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
   component: DashboardPage,
@@ -76,123 +94,18 @@ type Trace = {
  */
 const TRACE_FETCH_LIMIT = 200;
 
-const cardCls = "rounded-xl border border-border bg-card shadow-sm";
-
-// Curated feature highlights, in the two halves the platform actually has:
-// agents that can act, and a data platform worth pointing them at. The split
-// is not decoration — this page listed nine agent-side surfaces and none of
-// ETL, the lakehouse, the semantic layer or the AI Analyst, so half the
-// product was undiscoverable from the page that exists to introduce it.
-const FEATURE_GROUPS = [
-  {
-    group: "Build",
-    blurb: "Agents, swarms and the things they call.",
-    items: [
-      {
-        title: "Playground",
-        desc: "Chat with any model or saved agent — tools, memory and RAG included.",
-        to: "/playground" as const,
-        icon: MessageSquare,
-        badge: null,
-        color: "text-violet-600 bg-violet-50 dark:text-violet-300 dark:bg-violet-500/15",
-      },
-      {
-        title: "Knowledge & RAG",
-        desc: "Vector search over your documents with BYOK embeddings and re-ranking.",
-        to: "/knowledge" as const,
-        icon: BookOpen,
-        badge: null,
-        color: "text-emerald-600 bg-emerald-50 dark:text-emerald-300 dark:bg-emerald-500/15",
-      },
-      {
-        title: "MCP Builder",
-        desc: "Write MCP servers in Python (FastMCP) and expose them as APIs.",
-        to: "/mcp-builder" as const,
-        icon: Wrench,
-        badge: null,
-        color: "text-cyan-600 bg-cyan-50 dark:text-cyan-300 dark:bg-cyan-500/15",
-      },
-      {
-        title: "Developer workspace",
-        desc: "Production Python notebooks on sandboxed server kernels.",
-        to: "/notebooks" as const,
-        icon: NotebookPen,
-        badge: null,
-        color: "text-amber-600 bg-amber-50 dark:text-amber-300 dark:bg-amber-500/15",
-      },
-    ],
-  },
-  {
-    group: "Data & BI",
-    blurb: "Get data in, store it, define it once, then ask it questions.",
-    items: [
-      {
-        title: "ETL Pipelines",
-        desc: "Visual or Python pipelines from storage, databases, APIs and CDC.",
-        to: "/etl" as const,
-        icon: Waypoints,
-        badge: "New",
-        color: "text-orange-600 bg-orange-50 dark:text-orange-300 dark:bg-orange-500/15",
-      },
-      {
-        title: "Lakehouse",
-        desc: "Columnar SQL over Parquet you own — snapshots, time travel, policies.",
-        to: "/lakehouse" as const,
-        icon: Warehouse,
-        badge: "New",
-        color: "text-teal-600 bg-teal-50 dark:text-teal-300 dark:bg-teal-500/15",
-      },
-      {
-        title: "Semantic Layer",
-        desc: "Define a metric once; BI, the analyst and agents all compute it the same.",
-        to: "/semantics" as const,
-        icon: Layers,
-        badge: null,
-        color: "text-indigo-600 bg-indigo-50 dark:text-indigo-300 dark:bg-indigo-500/15",
-      },
-      {
-        title: "AI Analyst",
-        desc: "Plans a question into steps, writes the SQL, and shows its working.",
-        to: "/ai-analyst" as const,
-        icon: BrainCircuit,
-        badge: null,
-        color: "text-fuchsia-600 bg-fuchsia-50 dark:text-fuchsia-300 dark:bg-fuchsia-500/15",
-      },
-      {
-        title: "BI Workspace",
-        desc: "AI-generated dashboards, 20+ visuals, ontology maps, schedules & alerts.",
-        to: "/bi" as const,
-        icon: PieChart,
-        badge: null,
-        color: "text-rose-600 bg-rose-50 dark:text-rose-300 dark:bg-rose-500/15",
-      },
-      {
-        title: "Data Catalog",
-        desc: "Crawl warehouses and buckets; lineage, profiling and PII flags.",
-        to: "/data-sql" as const,
-        icon: Database,
-        badge: null,
-        color: "text-sky-600 bg-sky-50 dark:text-sky-300 dark:bg-sky-500/15",
-      },
-      {
-        title: "Metrics",
-        desc: "The governed metric catalogue your dashboards and agents share.",
-        to: "/metrics" as const,
-        icon: Sigma,
-        badge: null,
-        color: "text-lime-600 bg-lime-50 dark:text-lime-300 dark:bg-lime-500/15",
-      },
-      {
-        title: "Integrations",
-        desc: "Bring your own keys: LLM providers, warehouses, MCP servers and secrets.",
-        to: "/integrations" as const,
-        icon: Puzzle,
-        badge: null,
-        color: "text-slate-600 bg-slate-100 dark:text-slate-300 dark:bg-slate-500/15",
-      },
-    ],
-  },
-];
+/** A count query that never fails the page — an unmigrated table returns 0. */
+async function countOf(table: string): Promise<number> {
+  try {
+    const { count } = await supabase
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .from(table as any)
+      .select("id", { count: "exact", head: true });
+    return count ?? 0;
+  } catch {
+    return 0;
+  }
+}
 
 // Time-only stamps read as "today". Runs older than that get the date.
 function formatRunTime(iso: string): string {
@@ -203,41 +116,63 @@ function formatRunTime(iso: string): string {
     : d.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
+type Counts = {
+  agents: number;
+  swarms: number;
+  conversations: number;
+  integrations: number;
+  knowledgeBases: number;
+  pipelines: number;
+  lakehouseSchemas: number;
+  dashboards: number;
+  metrics: number;
+  mlModels: number;
+  workflows: number;
+  sqlModels: number;
+  monitors: number;
+};
+
+const ZERO: Counts = {
+  agents: 0,
+  swarms: 0,
+  conversations: 0,
+  integrations: 0,
+  knowledgeBases: 0,
+  pipelines: 0,
+  lakehouseSchemas: 0,
+  dashboards: 0,
+  metrics: 0,
+  mlModels: 0,
+  workflows: 0,
+  sqlModels: 0,
+  monitors: 0,
+};
+
 function DashboardPage() {
-  const [stats, setStats] = useState({
-    agents: 0,
-    swarms: 0,
-    conversations: 0,
-    integrations: 0,
-    knowledgeBases: 0,
-    // The data half. None of this was counted here, so a deployment with a
-    // full lakehouse and a dozen pipelines looked, from its own dashboard,
-    // exactly like one with nothing in it.
-    pipelines: 0,
-    lakehouseTables: 0,
-    dashboards: 0,
-    metrics: 0,
-  });
+  const [counts, setCounts] = useState<Counts>(ZERO);
   const [traces, setTraces] = useState<Trace[]>([]);
   const [userName, setUserName] = useState<string>("there");
   const [loading, setLoading] = useState(true);
+  const [checkedAt, setCheckedAt] = useState<Date | null>(null);
 
   /**
    * Things that are already broken and would otherwise only be found by
    * opening the right tab.
    *
    * Every one of these statuses is already recorded — by the SaaS sync, the
-   * warehouse connection test, the swarm scheduler. Nothing aggregated them,
-   * so a source that stopped syncing three weeks ago looked exactly like one
-   * that synced this morning from anywhere but its own settings page.
+   * warehouse connection test, the swarm scheduler, the pipeline run, the data
+   * monitor. Nothing aggregated them, so a source that stopped syncing three
+   * weeks ago looked exactly like one that synced this morning from anywhere
+   * but its own settings page.
    */
   const [health, setHealth] = useState({
     syncs: 0,
     warehouses: 0,
     schedules: 0,
-    // A pipeline that failed at 3am is the same class of problem: already
-    // recorded, and findable only by opening ETL and looking.
     pipelineRuns: 0,
+    incidents: 0,
+    workflows: 0,
+    sqlModels: 0,
   });
   /** Month-to-date spend against the cap, computed the same way /budgets does. */
   const [budget, setBudget] = useState<{ spend: number; cap: number } | null>(null);
@@ -262,7 +197,7 @@ function DashboardPage() {
           .limit(TRACE_FETCH_LIMIT),
         supabase.auth.getUser(),
       ]);
-      setStats((prev) => ({
+      setCounts((prev) => ({
         ...prev,
         agents: a.count ?? 0,
         swarms: s.count ?? 0,
@@ -277,17 +212,25 @@ function DashboardPage() {
       // error back from the count, not a throw, and should still see the rest
       // of its dashboard.
       void Promise.all([
-        supabase.from("etl_pipelines").select("id", { count: "exact", head: true }),
-        supabase.from("lakehouse_schemas").select("id", { count: "exact", head: true }),
-        supabase.from("bi_dashboards").select("id", { count: "exact", head: true }),
-        supabase.from("semantic_models").select("id", { count: "exact", head: true }),
-      ]).then(([p, lh, d, sm]) =>
-        setStats((prev) => ({
+        countOf("etl_pipelines"),
+        countOf("lakehouse_schemas"),
+        countOf("bi_dashboards"),
+        countOf("semantic_models"),
+        countOf("ml_models"),
+        countOf("workflows"),
+        countOf("sql_models"),
+        countOf("data_monitors"),
+      ]).then(([p, lh, d, sm, ml, wf, sq, dm]) =>
+        setCounts((prev) => ({
           ...prev,
-          pipelines: p.count ?? 0,
-          lakehouseTables: lh.count ?? 0,
-          dashboards: d.count ?? 0,
-          metrics: sm.count ?? 0,
+          pipelines: p,
+          lakehouseSchemas: lh,
+          dashboards: d,
+          metrics: sm,
+          mlModels: ml,
+          workflows: wf,
+          sqlModels: sq,
+          monitors: dm,
         })),
       );
 
@@ -300,7 +243,7 @@ function DashboardPage() {
       monthStart.setUTCDate(1);
       monthStart.setUTCHours(0, 0, 0, 0);
       const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-      const [sy, wh, sc, pr, cap, spend] = await Promise.all([
+      const [sy, wh, sc, pr, inc, wfb, sqb, cap, spend] = await Promise.all([
         supabase
           .from("saas_connections")
           .select("id", { count: "exact", head: true })
@@ -318,6 +261,21 @@ function DashboardPage() {
           .select("id", { count: "exact", head: true })
           .eq("status", "failed")
           .gte("created_at", dayAgo),
+        // An open data incident is the data half's equivalent of a failed run,
+        // and the monitors that raise them are on the scheduler's clock — so
+        // nobody is watching unless something says so here.
+        supabase
+          .from("data_incidents")
+          .select("id", { count: "exact", head: true })
+          .eq("status", "open"),
+        supabase
+          .from("workflows")
+          .select("id", { count: "exact", head: true })
+          .eq("last_run_status", "failed"),
+        supabase
+          .from("sql_models")
+          .select("id", { count: "exact", head: true })
+          .eq("last_status", "error"),
         supabase.from("budget_settings").select("monthly_cap_usd").limit(1).maybeSingle(),
         // Aggregated in the database. This used to select every trace row for
         // the month and sum cost_usd in the browser, so a truncated result set
@@ -331,14 +289,16 @@ function DashboardPage() {
         warehouses: wh.count ?? 0,
         schedules: sc.count ?? 0,
         pipelineRuns: pr.count ?? 0,
+        incidents: inc.count ?? 0,
+        workflows: wfb.count ?? 0,
+        sqlModels: sqb.count ?? 0,
       });
       const capUsd = Number(cap.data?.monthly_cap_usd ?? 0);
-      // Only show the badge when the figure is known. A failed lookup used to
-      // sum to zero and render as "0% of cap used", which is the most
-      // reassuring possible way to display "we have no idea".
-      if (capUsd > 0 && spend.ok) {
-        setBudget({ spend: spend.spend, cap: capUsd });
-      }
+      // Only show the figure when it is known. A failed lookup used to sum to
+      // zero and render as "0% of cap used", which is the most reassuring
+      // possible way to display "we have no idea".
+      if (capUsd > 0 && spend.ok) setBudget({ spend: spend.spend, cap: capUsd });
+
       // The name the user actually set lives in `profiles` — that is what the
       // Account page writes and what the sidebar reads. Reading only the auth
       // metadata greeted them by a mangled email prefix while their own name
@@ -360,6 +320,7 @@ function DashboardPage() {
           email: u.data.user?.email,
         }),
       );
+      setCheckedAt(new Date());
       setLoading(false);
     }
     load();
@@ -379,666 +340,414 @@ function DashboardPage() {
     };
   }, [traces]);
 
-  const sparkMax = Math.max(1, ...metrics.spark);
   const recent = traces.slice(0, 6);
 
-  const heroStats = [
+  /** Nothing built and nothing run: the checklist, not the console. */
+  const firstRun =
+    !loading &&
+    traces.length === 0 &&
+    counts.agents === 0 &&
+    counts.swarms === 0 &&
+    counts.pipelines === 0 &&
+    counts.knowledgeBases === 0;
+
+  const attention: Attention[] = [
+    { label: "sources not syncing", count: health.syncs, to: "/integrations" },
+    { label: "warehouses unreachable", count: health.warehouses, to: "/integrations" },
+    { label: "schedules failing", count: health.schedules, to: "/swarms" },
+    { label: "pipeline runs failed today", count: health.pipelineRuns, to: "/etl" },
+    { label: "open data incidents", count: health.incidents, to: "/data-monitors" },
+    { label: "workflows failed", count: health.workflows, to: "/workflows" },
+    { label: "SQL models failing", count: health.sqlModels, to: "/sql-models" },
+    {
+      label: "of the monthly budget used",
+      // The cap was fetched and then never rendered: the old page used it only
+      // to decide whether to show a pill, so the one number an owner wants —
+      // how much of the month is gone — was computed and thrown away.
+      count:
+        budget && budget.spend >= budget.cap * 0.8
+          ? Math.round((budget.spend / budget.cap) * 100)
+          : 0,
+      to: "/budgets",
+    },
+  ];
+
+  const surfaces: SurfaceItem[] = [
     {
       label: "Agents",
-      value: stats.agents,
       icon: Bot,
+      count: counts.agents,
+      noun: "built",
       to: "/agents",
-      color: "text-violet-600 bg-violet-50 dark:text-violet-300 dark:bg-violet-500/15",
+      invite: "Build one that can use tools",
     },
     {
       label: "Swarms",
-      value: stats.swarms,
       icon: Network,
+      count: counts.swarms,
+      noun: "on the canvas",
       to: "/swarms",
-      color: "text-indigo-600 bg-indigo-50 dark:text-indigo-300 dark:bg-indigo-500/15",
+      warn: health.schedules ? `${health.schedules} schedule failing` : null,
+      invite: "Wire agents into a workflow",
     },
     {
-      label: "Chats",
-      value: stats.conversations,
-      icon: MessageSquare,
-      to: "/playground",
-      color: "text-sky-600 bg-sky-50 dark:text-sky-300 dark:bg-sky-500/15",
-    },
-    {
-      label: "Tools",
-      value: stats.integrations,
-      icon: Puzzle,
-      to: "/integrations",
-      color: "text-amber-600 bg-amber-50 dark:text-amber-300 dark:bg-amber-500/15",
-    },
-    {
-      label: "Knowledge",
-      value: stats.knowledgeBases,
+      label: "Knowledge bases",
       icon: BookOpen,
+      count: counts.knowledgeBases,
+      noun: "collections",
       to: "/knowledge",
-      color: "text-emerald-600 bg-emerald-50 dark:text-emerald-300 dark:bg-emerald-500/15",
+      invite: "Give agents something to quote",
     },
-  ] as const;
-
-  // The data half, counted the same way. Shown as its own row rather than
-  // appended to the one above, because "4 pipelines" and "12 agents" answer
-  // different questions and a nine-tile strip reads as noise.
-  const dataStats = [
     {
-      label: "Pipelines",
-      value: stats.pipelines,
+      label: "ETL pipelines",
       icon: Waypoints,
+      count: counts.pipelines,
+      noun: "pipelines",
       to: "/etl",
-      color: "text-orange-600 bg-orange-50 dark:text-orange-300 dark:bg-orange-500/15",
+      warn: health.pipelineRuns ? `${health.pipelineRuns} failed today` : null,
+      invite: "Move data in on a schedule",
     },
     {
-      label: "Lakehouse schemas",
-      value: stats.lakehouseTables,
+      label: "Lakehouse",
       icon: Warehouse,
+      count: counts.lakehouseSchemas,
+      noun: "schemas",
       to: "/lakehouse",
-      color: "text-teal-600 bg-teal-50 dark:text-teal-300 dark:bg-teal-500/15",
+      invite: "A warehouse of your own",
     },
     {
-      label: "Semantic models",
-      value: stats.metrics,
-      icon: Layers,
-      to: "/semantics",
-      color: "text-indigo-600 bg-indigo-50 dark:text-indigo-300 dark:bg-indigo-500/15",
+      label: "SQL models",
+      icon: Columns,
+      count: counts.sqlModels,
+      noun: "models",
+      to: "/sql-models",
+      warn: health.sqlModels ? `${health.sqlModels} failing` : null,
+      invite: "Transform raw tables into shaped ones",
+    },
+    {
+      label: "ML models",
+      icon: BrainCircuit,
+      count: counts.mlModels,
+      noun: "trained",
+      to: "/ml",
+      invite: "Predict, forecast or cluster a table",
     },
     {
       label: "Dashboards",
-      value: stats.dashboards,
       icon: PieChart,
+      count: counts.dashboards,
+      noun: "published",
       to: "/bi",
-      color: "text-fuchsia-600 bg-fuchsia-50 dark:text-fuchsia-300 dark:bg-fuchsia-500/15",
-    },
-  ] as const;
-
-  const actionTiles = [
-    {
-      title: "Open the Playground",
-      desc: "Chat with any model and prototype instantly.",
-      to: "/playground" as const,
-      icon: MessageSquare,
-      accent: "text-violet-600 bg-violet-50 dark:text-violet-300 dark:bg-violet-500/15",
-      search: undefined as undefined | Record<string, unknown>,
+      invite: "Put charts over your tables",
     },
     {
-      title: "Build a Standalone Agent",
-      desc: "Open the agent builder and ship a single agent.",
-      to: "/agents" as const,
-      icon: Bot,
-      accent: "text-primary bg-primary/10 dark:bg-primary/15",
-      search: { new: 1 } as Record<string, unknown>,
-    },
-    {
-      title: "Design a Swarm",
-      desc: "Open a blank canvas and wire agents together.",
-      to: "/swarms" as const,
+      label: "Workflows",
       icon: Workflow,
-      accent: "text-sky-600 bg-sky-50 dark:text-sky-300 dark:bg-sky-500/15",
-      search: undefined,
+      count: counts.workflows,
+      noun: "orchestrated",
+      to: "/workflows",
+      warn: health.workflows ? `${health.workflows} failed` : null,
+      invite: "One graph over everything above",
     },
     {
-      title: "Open BI Workspace",
-      desc: "Let AI build dashboards over your data.",
-      to: "/bi" as const,
-      icon: PieChart,
-      accent: "text-fuchsia-600 bg-fuchsia-50 dark:text-fuchsia-300 dark:bg-fuchsia-500/15",
-      search: undefined,
+      label: "Data monitors",
+      icon: Activity,
+      count: counts.monitors,
+      noun: "watching",
+      to: "/data-monitors",
+      warn: health.incidents ? `${health.incidents} open` : null,
+      invite: "Get told when a table goes wrong",
+    },
+    {
+      label: "Metrics",
+      icon: Sigma,
+      count: counts.metrics,
+      noun: "defined",
+      to: "/semantics",
+      invite: "Define revenue once, for everyone",
+    },
+    {
+      label: "Integrations",
+      icon: Database,
+      count: counts.integrations,
+      noun: "connected",
+      to: "/integrations",
+      warn:
+        health.syncs || health.warehouses ? `${health.syncs + health.warehouses} unhealthy` : null,
+      invite: "Connect a model, a warehouse or an app",
     },
   ];
 
-  // Curated, visually-interesting multi-agent swarm templates that open straight on the canvas.
-  const FEATURED_SWARM_IDS = [
-    "support-copilot",
-    "revops-analyst",
-    "research-desk",
-    "secops-triage",
+  const steps: Step[] = [
+    {
+      title: "Connect a model provider",
+      why: "Nothing can run until there is a key to run it with.",
+      done: counts.integrations > 0,
+      to: "/integrations",
+      cta: "Connect",
+    },
+    {
+      title: "Build an agent",
+      why: "A prompt, a model and the tools it is allowed to call.",
+      done: counts.agents > 0,
+      to: "/agents",
+      cta: "Build one",
+    },
+    {
+      title: "Run it once",
+      why: "The first run is what fills this page in.",
+      done: traces.length > 0,
+      to: "/playground",
+      cta: "Open chat",
+    },
+    {
+      title: "Give it something to read",
+      why: "A knowledge base is how an agent quotes your documents instead of inventing them.",
+      done: counts.knowledgeBases > 0,
+      to: "/knowledge",
+      cta: "Add documents",
+    },
+    {
+      title: "Bring in your data",
+      why: "A pipeline lands a table the analyst, the dashboards and the agents all share.",
+      done: counts.pipelines > 0 || counts.lakehouseSchemas > 0,
+      to: "/etl",
+      cta: "Build a pipeline",
+    },
   ];
-  const featuredTemplates = FEATURED_SWARM_IDS.map((id) =>
-    SWARM_TEMPLATES.find((t) => t.id === id),
-  ).filter((t): t is (typeof SWARM_TEMPLATES)[number] => Boolean(t));
-  const openCanvasSearch = (templateId: string) => ({
-    template: templateId,
-    view: "canvas" as const,
-  });
 
-  const isEmpty = !loading && stats.agents === 0 && stats.swarms === 0 && traces.length === 0;
+  const budgetPct = budget ? budget.spend / budget.cap : null;
+  // activityMetrics returns successRate as a PERCENTAGE already (0-100), not
+  // a fraction. The first version of this page multiplied it by 100 again and
+  // rendered "10000%", which is the kind of thing that only a screenshot
+  // catches: every type was correct.
+  const successTone =
+    metrics.successRate === null
+      ? "neutral"
+      : metrics.successRate >= 95
+        ? "good"
+        : metrics.successRate >= 80
+          ? "warn"
+          : "bad";
 
   return (
     <div className="dot-matrix-bg flex min-h-full font-sans">
       <div className="flex-1 space-y-6 p-6 sm:p-8">
-        {/* ───── Central "Lab" anchor card ───── */}
-        <section className={cn(cardCls, "relative overflow-hidden p-6 sm:p-8")}>
-          <div
-            aria-hidden
-            className="bg-grid-faint pointer-events-none absolute inset-0 opacity-60"
-          />
-          <div aria-hidden className="bg-hero-glow pointer-events-none absolute inset-0" />
-          <div
-            aria-hidden
-            className="pointer-events-none absolute -right-24 -top-24 h-64 w-64 rounded-full bg-primary/10 blur-3xl"
-          />
-          <div
-            aria-hidden
-            className="pointer-events-none absolute -bottom-32 -left-16 h-64 w-64 rounded-full bg-indigo-500/10 blur-3xl"
-          />
-          <header className="relative">
-            <h1 className="font-display text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
+        {/* The greeting is one line now. It was a 350px hero with four
+            decorative layers and two blurred colour blobs, which is a lot of
+            screen to spend on saying hello every single day. */}
+        <header className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h1 className="font-display text-2xl font-semibold tracking-tight sm:text-3xl">
               Welcome back, <span className="text-gradient-brand">{userName}</span>
             </h1>
-            <p className="mt-1.5 text-base text-muted-foreground">
-              Pick up where you left off, or start something new.
+            <p className="mt-1 text-sm text-muted-foreground">
+              {firstRun
+                ? "Nothing has run here yet. The list below is the shortest path to the first answer."
+                : "Everything this deployment is running, and what it cost."}
             </p>
-          </header>
-
-          {/* Attention strip — only rendered when something needs attention.
-              A permanent "all good" banner trains people to stop reading it. */}
-          {(health.syncs > 0 ||
-            health.warehouses > 0 ||
-            health.schedules > 0 ||
-            health.pipelineRuns > 0 ||
-            (budget && budget.spend >= budget.cap * 0.8)) && (
-            <div className="relative mt-5 flex flex-wrap items-center gap-2">
-              {health.syncs > 0 && (
-                <Link
-                  to="/integrations"
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-destructive/10 px-3 py-1.5 text-xs font-medium text-destructive ring-1 ring-destructive/20 transition hover:bg-destructive/15"
-                >
-                  {health.syncs} data {health.syncs === 1 ? "source" : "sources"} failed to sync
+          </div>
+          {!firstRun && (
+            <div className="flex gap-2">
+              <Button asChild size="sm" variant="outline">
+                <Link to="/playground" search={{ agentId: undefined }}>
+                  <Zap className="mr-1.5 h-3.5 w-3.5" /> Agent Chat
                 </Link>
-              )}
-              {health.warehouses > 0 && (
-                <Link
-                  to="/integrations"
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-destructive/10 px-3 py-1.5 text-xs font-medium text-destructive ring-1 ring-destructive/20 transition hover:bg-destructive/15"
-                >
-                  {health.warehouses}{" "}
-                  {health.warehouses === 1 ? "connection is" : "connections are"} unreachable
+              </Button>
+              <Button asChild size="sm">
+                <Link to="/swarms">
+                  <Network className="mr-1.5 h-3.5 w-3.5" /> Design a swarm
                 </Link>
-              )}
-              {health.schedules > 0 && (
-                <Link
-                  to="/swarms"
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-destructive/10 px-3 py-1.5 text-xs font-medium text-destructive ring-1 ring-destructive/20 transition hover:bg-destructive/15"
-                >
-                  {health.schedules} scheduled {health.schedules === 1 ? "run" : "runs"} failed
-                </Link>
-              )}
-              {health.pipelineRuns > 0 && (
-                <Link
-                  to="/etl"
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-destructive/10 px-3 py-1.5 text-xs font-medium text-destructive ring-1 ring-destructive/20 transition hover:bg-destructive/15"
-                >
-                  {health.pipelineRuns} pipeline {health.pipelineRuns === 1 ? "run" : "runs"} failed
-                  today
-                </Link>
-              )}
-              {budget && budget.spend >= budget.cap * 0.8 && (
-                <Link
-                  to="/budgets"
-                  className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium ring-1 transition ${
-                    budget.spend >= budget.cap
-                      ? "bg-destructive/10 text-destructive ring-destructive/20 hover:bg-destructive/15"
-                      : "bg-amber-500/10 text-amber-600 ring-amber-500/20 hover:bg-amber-500/15 dark:text-amber-500"
-                  }`}
-                >
-                  {Math.round((budget.spend / budget.cap) * 100)}% of this month&rsquo;s budget used
-                </Link>
-              )}
+              </Button>
             </div>
           )}
+        </header>
 
-          {/* Action Tiles */}
-          <div className="relative mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {actionTiles.map((tile) => (
-              <Link
-                key={tile.title}
-                to={tile.to}
-                {...(tile.search ? { search: tile.search } : {})}
-                aria-label={tile.title}
-                className="surface-raised glow-card group flex items-start gap-3 rounded-xl border border-border bg-card p-5 transition hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-              >
-                <div
-                  className={cn(
-                    "grid h-10 w-10 shrink-0 place-items-center rounded-lg ring-1 ring-inset ring-border/50 transition-transform group-hover:scale-105",
-                    tile.accent,
-                  )}
-                >
-                  <tile.icon className="h-5 w-5" strokeWidth={1.6} />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="font-medium text-foreground">{tile.title}</p>
-                    <ArrowUpRight className="h-4 w-4 text-muted-foreground transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-foreground" />
-                  </div>
-                  <p className="mt-0.5 text-sm text-muted-foreground">{tile.desc}</p>
-                </div>
-              </Link>
-            ))}
-          </div>
-        </section>
+        {firstRun ? (
+          <FirstRun steps={steps} />
+        ) : (
+          <>
+            <StatusBand items={attention} loading={loading} checkedAt={checkedAt} />
 
-        {/* ───── Explore the platform ───── */}
-        <section className={cn(cardCls, "p-6 sm:p-8")}>
-          <header className="mb-4">
-            <h2 className="text-lg font-semibold tracking-tight text-foreground">
-              Explore the platform
-            </h2>
-            <p className="text-sm text-muted-foreground">
-              Two halves that need each other: agents that can act, and a data platform worth
-              pointing them at.
-            </p>
-          </header>
-          <div className="space-y-5">
-            {FEATURE_GROUPS.map((g) => (
-              <div key={g.group}>
-                <div className="mb-2 flex items-baseline gap-2">
-                  <h3 className="text-xs font-semibold uppercase tracking-wider text-foreground">
-                    {g.group}
-                  </h3>
-                  <p className="text-xs text-muted-foreground">{g.blurb}</p>
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                  {g.items.map((f) => (
-                    <Link
-                      key={f.title}
-                      to={f.to}
-                      aria-label={f.title}
-                      className="group flex flex-col gap-3 rounded-xl bg-card p-4 ring-1 ring-border transition hover:-translate-y-0.5 hover:shadow-md hover:ring-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-                    >
-                      <div className="flex items-start justify-between">
-                        <div
-                          className={cn(
-                            "grid h-10 w-10 place-items-center rounded-lg transition-transform group-hover:scale-105",
-                            f.color,
-                          )}
-                        >
-                          <f.icon className="h-5 w-5" strokeWidth={1.6} />
-                        </div>
-                        {f.badge && (
-                          <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-primary">
-                            {f.badge}
-                          </span>
-                        )}
-                      </div>
-                      <div>
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="text-sm font-medium text-foreground">{f.title}</p>
-                          <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground opacity-0 transition group-hover:opacity-100" />
-                        </div>
-                        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                          {f.desc}
-                        </p>
-                      </div>
-                    </Link>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {/* ───── Web embedding callout — the workspace lives at /embeds ───── */}
-        <div
-          className={cn(
-            cardCls,
-            "flex flex-col items-center gap-3 p-5 text-center sm:flex-row sm:text-left",
-          )}
-        >
-          <div className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary">
-            <Code2 className="h-6 w-6" />
-          </div>
-          <div className="flex-1">
-            <div className="font-semibold text-foreground">
-              Web Embedding
-              <span className="ml-2 rounded-full bg-primary/15 px-2 py-0.5 align-middle text-[9px] font-semibold uppercase tracking-wider text-primary">
-                New
-              </span>
-            </div>
-            <div className="text-sm text-muted-foreground">
-              Put your chat agents, multi-agent swarms and BI dashboards on any website with an
-              iframe — secured by embed keys and domain allow-lists.
-            </div>
-          </div>
-          <Button asChild>
-            <Link to="/embeds">Open Web Embedding</Link>
-          </Button>
-        </div>
-
-        {/* ───── Featured swarms ───── */}
-        <section className={cn(cardCls, "p-6 sm:p-8")}>
-          <div className="mb-3 flex items-end justify-between">
-            <div>
-              <h2 className="text-lg font-semibold tracking-tight text-foreground">
-                Get started with a featured swarm
-              </h2>
-              <p className="text-sm text-muted-foreground">
-                Curated templates with knowledge bases, tools, and prompts pre-wired.
-              </p>
-            </div>
-            <Button
-              asChild
-              variant="ghost"
-              size="sm"
-              className="gap-1 text-muted-foreground hover:text-foreground"
-            >
-              <Link to="/swarms">
-                Browse all
-                <ArrowUpRight className="h-3.5 w-3.5" />
-              </Link>
-            </Button>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {featuredTemplates.map((tpl) => (
-              <Link
-                key={tpl.id}
-                to="/swarms"
-                search={openCanvasSearch(tpl.id)}
-                aria-label={`Open swarm on canvas: ${tpl.title}`}
-                className="group flex flex-col gap-2 rounded-xl bg-card p-4 ring-1 ring-border transition hover:-translate-y-0.5 hover:shadow-md hover:ring-primary/40"
-              >
-                <div className="flex items-start justify-between">
-                  <div className="grid h-9 w-9 place-items-center rounded-lg bg-primary/10 text-primary transition-transform group-hover:scale-105">
-                    <Network className="h-4 w-4" strokeWidth={1.8} />
-                  </div>
-                  <Badge
-                    variant="secondary"
-                    className="bg-muted text-[10px] font-medium text-muted-foreground ring-1 ring-border"
-                  >
-                    {tpl.category}
-                  </Badge>
-                </div>
-                <div className="mt-1">
-                  <p className="line-clamp-1 text-sm font-medium text-foreground">{tpl.title}</p>
-                  <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{tpl.tagline}</p>
-                </div>
-                <div className="mt-auto flex items-center justify-between pt-2">
-                  <span className="text-[11px] font-medium text-muted-foreground">
-                    {tpl.nodes.length} nodes
-                  </span>
-                  <span className="inline-flex items-center gap-1 text-xs font-medium text-primary opacity-0 transition group-hover:opacity-100">
-                    Open canvas <ArrowUpRight className="h-3 w-3" />
-                  </span>
-                </div>
-              </Link>
-            ))}
-          </div>
-        </section>
-
-        {/* ───── Quick stat tiles ───── */}
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          {heroStats.map((c) => (
-            <Link
-              key={c.label}
-              to={c.to}
-              className={cn(
-                cardCls,
-                "group flex items-center justify-between p-4 transition hover:-translate-y-0.5 hover:shadow-md",
-              )}
-            >
-              <div>
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  {c.label}
-                </span>
-                <div className="mt-2 text-2xl font-semibold tabular-nums text-foreground">
-                  {c.value}
-                </div>
-              </div>
-              <div className={cn("grid h-10 w-10 place-items-center rounded-lg", c.color)}>
-                <c.icon className="h-5 w-5" strokeWidth={1.6} />
-              </div>
-            </Link>
-          ))}
-        </div>
-
-        {/* Data-platform counts, one row down. Only rendered once something
-            exists: a row of four zeroes on a fresh install is discouraging
-            noise, and the feature grid above already advertises the surfaces. */}
-        {dataStats.some((d) => d.value > 0) && (
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {dataStats.map((c) => (
-              <Link
-                key={c.label}
-                to={c.to}
-                className={cn(
-                  cardCls,
-                  "group flex items-center justify-between p-4 transition hover:-translate-y-0.5 hover:shadow-md",
-                )}
-              >
-                <div>
-                  <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    {c.label}
-                  </span>
-                  <div className="mt-2 text-2xl font-semibold tabular-nums text-foreground">
-                    {c.value}
-                  </div>
-                </div>
-                <div className={cn("grid h-10 w-10 place-items-center rounded-lg", c.color)}>
-                  <c.icon className="h-5 w-5" strokeWidth={1.6} />
-                </div>
-              </Link>
-            ))}
-          </div>
-        )}
-
-        {/* ───── Empty state ───── */}
-        {isEmpty && (
-          <div
-            className={cn(
-              cardCls,
-              "flex flex-col items-center gap-3 p-6 text-center sm:flex-row sm:text-left",
-            )}
-          >
-            <div className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary">
-              <LayoutTemplate className="h-6 w-6" />
-            </div>
-            <div className="flex-1">
-              <div className="font-semibold text-foreground">
-                Your lab is empty — let's fix that.
-              </div>
-              <div className="text-sm text-muted-foreground">
-                Spin up a featured swarm in seconds to see agents, swarms, traces, and costs come
-                alive.
-              </div>
-            </div>
-            <Button asChild>
-              <Link to="/swarms">Browse swarms</Link>
-            </Button>
-          </div>
-        )}
-
-        {/* ───── Spend & usage (scoped, server-backed) ─────
-            Separate from the tiles above because those read the caller's own
-            traces under RLS; this one can answer "my team" and "the whole
-            organisation", which requires the server to authorise the scope
-            first. */}
-        <SpendPanel />
-
-        {/* ───── Activity + Model mix ───── */}
-        <div className="grid gap-4 lg:grid-cols-3">
-          <section className={cn(cardCls, "p-6 lg:col-span-2")}>
-            <header className="flex items-start justify-between pb-3">
-              <div>
-                <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                  <Activity className="h-4 w-4 text-primary" />
-                  Activity — last 24h
-                </h3>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Hourly run volume across all your agents and swarms.
-                </p>
-              </div>
-              <Badge
-                variant="secondary"
-                className="gap-1 bg-muted text-muted-foreground ring-1 ring-border"
-                title={
-                  metrics.truncated
-                    ? `More than ${TRACE_FETCH_LIMIT} calls were recorded in this window, which is as far back as this card reads. Every figure here is a floor. Traces & Logs has the complete set.`
-                    : undefined
+            {/* Four numbers that drive a decision. The old page led with five
+                counts — agents, swarms, chats, tools, knowledge — which change
+                once a week and answer nothing. */}
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <KpiTile
+                icon={Activity}
+                label="Runs (24h)"
+                value={`${metrics.runsAtLeast ? "≥" : ""}${metrics.runs.toLocaleString()}`}
+                against={
+                  metrics.truncated ? "a floor — the read hit its limit" : "model calls today"
                 }
-              >
-                <TrendingUp className="h-3 w-3" />
-                {metrics.runsAtLeast ? "≥" : ""}
-                {metrics.runs} runs
-              </Badge>
-            </header>
-            <div className="flex h-32 items-end gap-1">
-              {metrics.spark.map((v, i) => (
-                <div
-                  key={i}
-                  className="flex-1 rounded-t bg-gradient-to-t from-primary/15 to-primary/70 transition-all hover:to-primary"
-                  style={{ height: `${(v / sparkMax) * 100}%`, minHeight: v > 0 ? "4px" : "2px" }}
-                  title={`${bucketHour(i, metrics.now)}:00 — ${v} runs`}
-                />
-              ))}
+                to="/traces"
+                loading={loading}
+              />
+              <KpiTile
+                icon={DollarSign}
+                label="Spend (month to date)"
+                value={budget ? `$${budget.spend.toFixed(2)}` : formatSpend(metrics.spend)}
+                against={
+                  budget ? `of $${budget.cap.toFixed(2)} cap` : "no monthly cap set — 24h total"
+                }
+                progress={budgetPct}
+                tone={budgetPct && budgetPct >= 0.8 ? "warn" : "neutral"}
+                to="/budgets"
+                loading={loading}
+              />
+              <KpiTile
+                icon={CheckCircle2}
+                label="Success rate (24h)"
+                value={metrics.successRate === null ? "—" : `${metrics.successRate}%`}
+                against={metrics.successRate === null ? "no runs to measure" : "of runs completed"}
+                tone={successTone}
+                to="/traces"
+                loading={loading}
+              />
+              <KpiTile
+                icon={Gauge}
+                label="Avg latency (24h)"
+                value={metrics.avgLatencyMs === null ? "—" : formatMs(metrics.avgLatencyMs)}
+                against={metrics.avgLatencyMs === null ? "no runs to measure" : "per model call"}
+                to="/traces"
+                loading={loading}
+              />
             </div>
-            {metrics.truncated && (
-              <p className="mt-2 text-[11px] text-amber-600 dark:text-amber-400">
-                Showing the most recent {TRACE_FETCH_LIMIT} calls — the full 24 hours holds more, so
-                these figures are a floor.
-              </p>
-            )}
-            <div className="mt-4 grid grid-cols-3 gap-3 border-t border-border/60 pt-3 text-xs">
-              <div>
-                <div className="text-muted-foreground">Success rate</div>
-                {/* Null, not 100: an account with nothing decided has not earned
-                    a success rate, and rendering one is a claim about runs that
-                    never happened. */}
-                <div className="mt-0.5 flex items-center gap-1 font-semibold text-emerald-600">
-                  {metrics.successRate === null ? (
-                    <span className="text-muted-foreground">—</span>
-                  ) : (
-                    <>
-                      <CheckCircle2 className="h-3 w-3" /> {metrics.successRate}%
-                    </>
-                  )}
-                </div>
-              </div>
-              <div>
-                <div className="text-muted-foreground">Avg latency</div>
-                <div className="mt-0.5 flex items-center gap-1 font-semibold text-foreground">
-                  {metrics.avgLatencyMs === null ? (
-                    <span className="text-muted-foreground">—</span>
-                  ) : (
-                    <>
-                      <Clock className="h-3 w-3 text-sky-500" /> {formatMs(metrics.avgLatencyMs)}
-                    </>
-                  )}
-                </div>
-              </div>
-              <div>
-                <div className="text-muted-foreground">Spend</div>
-                <div
-                  className="mt-0.5 flex items-center gap-1 font-semibold text-foreground"
-                  title={spendCaveat(metrics.spend) ?? undefined}
-                >
-                  <Zap className="h-3 w-3 text-amber-500" /> {formatSpend(metrics.spend)}
-                </div>
-              </div>
-            </div>
-          </section>
 
-          <section className={cn(cardCls, "p-6")}>
-            <header className="pb-3">
-              <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                <Cpu className="h-4 w-4 text-indigo-500" />
-                Model mix
-              </h3>
-              <p className="mt-1 text-xs text-muted-foreground">Tokens by model, last 24h</p>
-            </header>
-            <div className="space-y-3">
-              {loading ? (
-                <p className="py-6 text-center text-sm text-muted-foreground">Loading…</p>
-              ) : metrics.mix.entries.length === 0 ? (
-                // Two different facts, two different sentences. Runs with no
-                // token accounting is not the same state as no runs at all,
-                // and telling someone "no runs yet" while they are looking at
-                // a run count above is simply false.
-                <p className="py-6 text-center text-sm text-muted-foreground">
-                  {metrics.runs === 0
-                    ? "No runs in the last 24h. Provision a template to populate."
-                    : "No token usage was recorded for these runs."}
-                </p>
-              ) : (
-                <>
-                  {metrics.mix.entries.map((m) => (
-                    <div key={m.model}>
-                      <div className="mb-1 flex items-center justify-between text-xs">
-                        <span className="truncate font-medium text-foreground">{m.model}</span>
-                        <span className="text-muted-foreground tabular-nums">
-                          {m.tokens.toLocaleString()}
-                        </span>
-                      </div>
-                      <Progress value={m.share} className="h-1.5" />
+            <div className="grid gap-6 lg:grid-cols-3">
+              <Card className="lg:col-span-2">
+                <CardContent className="p-6">
+                  <div className="mb-4 flex items-center justify-between gap-3">
+                    <div>
+                      <h2 className="text-lg font-semibold tracking-tight">Activity</h2>
+                      <p className="text-xs text-muted-foreground">
+                        Runs per hour, last 24 hours
+                        {metrics.truncated && " — a floor, the read hit its limit"}
+                      </p>
                     </div>
-                  ))}
-                  {metrics.mix.hidden > 0 && (
-                    <p className="pt-1 text-[11px] text-muted-foreground">
-                      +{metrics.mix.hidden} more {metrics.mix.hidden === 1 ? "model" : "models"} not
-                      shown
-                    </p>
-                  )}
-                </>
-              )}
-            </div>
-          </section>
-        </div>
+                    <Button asChild size="sm" variant="ghost">
+                      <Link to="/traces">View traces</Link>
+                    </Button>
+                  </div>
+                  <ActivityChart buckets={metrics.spark} now={metrics.now} />
+                </CardContent>
+              </Card>
 
-        {/* ───── Recent runs ───── */}
-        <section className={cn(cardCls, "p-6")}>
-          <header className="flex items-center justify-between pb-3">
-            <div>
-              <h3 className="text-sm font-semibold text-foreground">Recent runs</h3>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Latest agent executions across your workspace
-              </p>
+              <Card>
+                <CardContent className="p-6">
+                  <h2 className="text-lg font-semibold tracking-tight">Model mix</h2>
+                  <p className="text-xs text-muted-foreground">By tokens, last 24 hours</p>
+                  <div className="mt-4 space-y-3">
+                    {metrics.mix.entries.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">
+                        {loading
+                          ? "Loading…"
+                          : "No runs in the last 24h. Open Agent Chat to make one."}
+                      </p>
+                    ) : (
+                      metrics.mix.entries.map((m) => (
+                        <div key={m.model}>
+                          <div className="mb-1 flex items-baseline justify-between gap-2">
+                            <span className="truncate text-xs font-medium">{m.model}</span>
+                            <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                              {m.tokens.toLocaleString()}
+                            </span>
+                          </div>
+                          <Progress value={m.share * 100} className="h-1.5" />
+                        </div>
+                      ))
+                    )}
+                    {metrics.mix.hidden > 0 && (
+                      <p className="text-[11px] text-muted-foreground">
+                        +{metrics.mix.hidden} more model{metrics.mix.hidden === 1 ? "" : "s"} not
+                        shown
+                      </p>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
             </div>
-            <Button
-              asChild
-              variant="ghost"
-              size="sm"
-              className="gap-1 text-muted-foreground hover:text-foreground"
-            >
-              <Link to="/traces">
-                View all
-                <ArrowUpRight className="h-3.5 w-3.5" />
-              </Link>
-            </Button>
-          </header>
-          {loading ? (
-            <p className="py-6 text-center text-sm text-muted-foreground">Loading…</p>
-          ) : recent.length === 0 ? (
-            <p className="py-6 text-center text-sm text-muted-foreground">
-              No runs yet. Open the Playground or provision a template.
-            </p>
-          ) : (
-            <div className="divide-y divide-border/60">
-              {recent.map((r) => (
-                <div key={r.id} className="flex items-center gap-3 py-2.5 text-sm">
-                  {r.status === "success" ? (
-                    <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />
-                  ) : r.status === "cancelled" ? (
-                    <CheckCircle2 className="h-4 w-4 shrink-0 text-muted-foreground/50" />
-                  ) : (
-                    <AlertCircle className="h-4 w-4 shrink-0 text-rose-500" />
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate font-medium text-foreground">{r.agent_name}</div>
-                    <div className="truncate text-xs text-muted-foreground">{r.llm_model}</div>
-                  </div>
-                  <div className="hidden text-right text-xs text-muted-foreground sm:block">
-                    <div className="tabular-nums">{formatMs(r.latency_ms)}</div>
-                    <div className="tabular-nums">${(r.cost_usd || 0).toFixed(4)}</div>
-                  </div>
-                  <Badge variant="outline" className="shrink-0 text-[10px]">
-                    {formatRunTime(r.created_at)}
-                  </Badge>
+
+            {/* What this deployment has, counted from its own tables. This is
+                the half of the product the old page never mentioned: it listed
+                nine agent-side features and none of ETL, the lakehouse, SQL
+                models, ML, workflows or monitors as things you might already
+                be running. */}
+            <section className="space-y-3">
+              <div className="flex items-end justify-between gap-3">
+                <div>
+                  <h2 className="font-display text-lg font-semibold tracking-tight">
+                    What you&rsquo;re running
+                  </h2>
+                  <p className="text-sm text-muted-foreground">
+                    Counted from this deployment. Anything not set up says so, with the way in.
+                  </p>
                 </div>
-              ))}
-            </div>
-          )}
-        </section>
+              </div>
+              <PlatformSurface items={surfaces} loading={loading} />
+            </section>
+
+            <SpendPanel />
+
+            <Card>
+              <CardContent className="p-6">
+                <div className="mb-4 flex items-center justify-between gap-3">
+                  <h2 className="text-lg font-semibold tracking-tight">Recent runs</h2>
+                  <Button asChild size="sm" variant="ghost">
+                    <Link to="/traces">View all</Link>
+                  </Button>
+                </div>
+                {recent.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    {loading ? "Loading…" : "No runs yet. Open Agent Chat to make one."}
+                  </p>
+                ) : (
+                  <div className="divide-y divide-border">
+                    {recent.map((r) => (
+                      <div key={r.id} className="flex items-center gap-3 py-2.5">
+                        {r.status === "success" ? (
+                          <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />
+                        ) : r.status === "cancelled" ? (
+                          <Clock className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        ) : (
+                          <AlertCircle className="h-4 w-4 shrink-0 text-red-500" />
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium">{r.agent_name}</p>
+                          <p className="truncate text-xs text-muted-foreground">{r.llm_model}</p>
+                        </div>
+                        <div className="hidden shrink-0 text-right sm:block">
+                          <p className="text-xs tabular-nums">{formatMs(r.latency_ms)}</p>
+                          <p className="text-xs text-muted-foreground tabular-nums">
+                            ${Number(r.cost_usd ?? 0).toFixed(4)}
+                          </p>
+                        </div>
+                        <Badge variant="outline" className="shrink-0 font-normal tabular-nums">
+                          {formatRunTime(r.created_at)}
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {metrics.spend.partial && (
+                  <p className="mt-3 text-[11px] text-muted-foreground">
+                    {spendCaveat(metrics.spend)}
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Discovery, once, at the bottom — where somebody who has already
+                read the numbers might want it. Not 920px in front of them. */}
+            <p className="text-center text-sm text-muted-foreground">
+              Looking for something else? Every surface is in the sidebar, or read{" "}
+              <Link to="/docs" className="underline underline-offset-4 hover:text-foreground">
+                the documentation
+              </Link>
+              .
+            </p>
+          </>
+        )}
       </div>
     </div>
   );

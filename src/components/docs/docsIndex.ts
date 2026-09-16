@@ -846,32 +846,32 @@ export const DOCS_INDEX: DocsIndexPage[] = [
   {
     "route": "/docs/dashboard",
     "title": "Dashboard",
-    "description": "The dashboard at /dashboard is the screen you land on after signing in. It answers two questions: what is the fastest next thing to do, and what has been happening in your workspace.",
+    "description": "The dashboard at /dashboard is the screen you land on after signing in. It answers one question first — is this deployment healthy, and what is it costing — and then shows what you are running and what has happened in the last day.",
     "terms": [],
     "headings": [
       {
-        "id": "quick-actions",
-        "text": "Quick actions",
+        "id": "status",
+        "text": "Platform status",
         "level": 2
       },
       {
-        "id": "featured-swarms",
-        "text": "Featured swarms",
-        "level": 2
-      },
-      {
-        "id": "stats",
-        "text": "Workspace stats",
-        "level": 2
-      },
-      {
-        "id": "spend",
-        "text": "Spend & usage — by person, team or organisation",
+        "id": "figures",
+        "text": "The four figures",
         "level": 2
       },
       {
         "id": "activity",
         "text": "Activity and model mix",
+        "level": 2
+      },
+      {
+        "id": "running",
+        "text": "What you&rsquo;re running",
+        "level": 2
+      },
+      {
+        "id": "spend",
+        "text": "Spend & usage — by person, team or organisation",
         "level": 2
       },
       {
