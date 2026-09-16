@@ -238,20 +238,61 @@ note(
   `${manifests.length} Kubernetes manifests, ${docs.length} documents: selectors, images, requests, ${refs.size} secret references resolved`,
 );
 
-// ── 5. compose renders, with and without every profile (needs Docker) ───────
+// ── 5. characters a strict YAML reader refuses ──────────────────────────────
+// Windows' compose parsed a file carrying U+0080 U+0094 — an em-dash that went
+// through a bad decode in an editing script — and Linux's rejected it with
+// "yaml: control characters are not allowed". The difference reached CI, which
+// is the one place it was ever going to be noticed. Bytes are the same
+// everywhere, so check the bytes: C1 controls (U+0080–U+009F) and DEL in any
+// tracked text file, plus a lone CR in a YAML or shell file.
+{
+  const TEXT =
+    /\.(ya?ml|md|json|mjs|ts|tsx|sh|ps1|example|toml|conf)$|^(Dockerfile|\.env\.example)$/;
+  let scanned = 0;
+  for (const t of tracked) {
+    const name = t.file.split("/").pop() ?? t.file;
+    if (!TEXT.test(t.file) && !TEXT.test(name)) continue;
+    let text;
+    try {
+      text = rd(t.file);
+    } catch {
+      continue; // not utf-8, or gone
+    }
+    scanned++;
+    const bad = [];
+    for (let i = 0; i < text.length; i++) {
+      const c = text.codePointAt(i);
+      if (c !== undefined && c >= 0x7f && c <= 0x9f) {
+        const line = text.slice(0, i).split("\n").length;
+        bad.push(`U+${c.toString(16).toUpperCase().padStart(4, "0")} on line ${line}`);
+        if (bad.length >= 3) break;
+      }
+    }
+    if (bad.length)
+      problem(`${t.file}: control character(s) a strict YAML/parser rejects — ${bad.join(", ")}`);
+  }
+  note(`${scanned} tracked text files carry no control characters`);
+}
+
+// ── 6. compose renders, with and without every profile (needs Docker) ───────
 if (has("docker", ["compose", "version"])) {
+  let rendered = true;
   for (const args of [
     ["compose", "config", "-q"],
     ["compose", "--profile", "all", "config", "-q"],
   ]) {
     const r = spawnSync("docker", args, { cwd: root, encoding: "utf8" });
-    if (r.status !== 0)
+    if (r.status !== 0) {
       problem(`docker ${args.join(" ")}: ${(r.stderr || "").trim().split("\n")[0]}`);
+      rendered = false;
+    }
   }
-  note("docker compose config renders with and without --profile all");
+  // Only claim it when it did: the first version printed the ok line beside
+  // its own failure, which reads as two contradictory facts.
+  if (rendered) note("docker compose config renders with and without --profile all");
 } else skip("docker compose not available: compose not rendered");
 
-// ── 6. the compose build args and the image the manifests run agree ─────────
+// ── 7. the compose build args and the image the manifests run agree ─────────
 const dockerfile = rd("Dockerfile");
 const appArgs = [...dockerfile.matchAll(/^ARG (VITE_[A-Z0-9_]+)/gm)].map((m) => m[1]);
 const composeArgs = Object.keys(compose.services?.agentswarms?.build?.args ?? {});
