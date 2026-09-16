@@ -21,6 +21,48 @@ describe("the infra check is wired in", () => {
   });
 });
 
+describe("the compose render check can actually run where CI runs it", () => {
+  const check = readFileSync("scripts/check-infra.mjs", "utf8");
+
+  it("supplies a .env, because the compose file requires one and .env is gitignored", () => {
+    // FOUND IN CI, TWICE OVER. `docker-compose.yml` declares `env_file: .env`
+    // and `.env` is gitignored, so on a fresh checkout compose refuses to
+    // render at all — "env file … not found" — and the check failed on every
+    // push while passing on every developer machine, where the file exists.
+    expect(readFileSync("docker-compose.yml", "utf8")).toContain("env_file: .env");
+    expect(execFileSync("git", ["check-ignore", ".env"], { encoding: "utf8" }).trim()).toBe(".env");
+    expect(check).toContain(".env.example");
+    expect(check).toMatch(/copyFileSync/);
+  });
+
+  it("never overwrites a real .env, and removes the one it borrowed", () => {
+    // The file it would clobber holds the developer's keys. Borrow only when
+    // absent, and put it back in a finally so a failing render still cleans up.
+    // The whole assignment, not just the negation somewhere in it: an earlier
+    // version of this test asserted only that `!existsSync(envPath)` appeared,
+    // and a mutant that borrowed whether or not the file existed still
+    // contained that substring and passed.
+    expect(check).toMatch(/const borrowed = !existsSync\(envPath\) &&/);
+    expect(check).toMatch(/finally \{[\s\S]{0,120}rmSync\(envPath/);
+  });
+
+  it("reports the line that says WHY, not the first line compose printed", () => {
+    // Compose prints one warning per unset variable before the real reason, so
+    // reporting stderr[0] reported "SUPABASE_SERVICE_ROLE_KEY is not set" for a
+    // missing file: a true sentence about the wrong problem, which sent the
+    // first diagnosis after the wrong bug.
+    //
+    // Scoped to this block on purpose. `bash -n` and the PowerShell parser
+    // print their error as the first line with nothing before it, so taking
+    // line 0 there is right and this must not drag them in.
+    const block = check.slice(check.indexOf("// ── 6."), check.indexOf("// ── 7."));
+    expect(block, "the compose section moved; re-anchor this test").toContain("docker");
+    expect(block).not.toMatch(/stderr[^\n]*split\("\\n"\)\[0\]/);
+    expect(block).toMatch(/level=warning/);
+    expect(block).toMatch(/\.at\(-1\)/);
+  });
+});
+
 describe("what R13 found stays fixed", () => {
   it("every tracked shell script is executable — ./scripts/setup.sh must work after a clone", () => {
     const lines = execFileSync("git", ["ls-files", "-s"], { encoding: "utf8" }).split(/\r?\n/);

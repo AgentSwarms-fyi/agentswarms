@@ -13,7 +13,7 @@
 //   node scripts/check-infra.mjs            # report and exit non-zero on a problem
 //   node scripts/check-infra.mjs --quiet    # problems only
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { copyFileSync, existsSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import yaml from "js-yaml";
@@ -275,21 +275,47 @@ note(
 }
 
 // ── 6. compose renders, with and without every profile (needs Docker) ───────
+//
+// The compose file declares `env_file: .env`, and `.env` is gitignored — so on
+// a fresh checkout compose refuses to render at all: "env file … not found".
+// That is CI, and every run there failed on it while every local run passed,
+// because a developer's tree has the file. The fix is to render the way a
+// fresh install does, `.env.example` copied to `.env`, which is also the first
+// line of both installers.
 if (has("docker", ["compose", "version"])) {
-  let rendered = true;
-  for (const args of [
-    ["compose", "config", "-q"],
-    ["compose", "--profile", "all", "config", "-q"],
-  ]) {
-    const r = spawnSync("docker", args, { cwd: root, encoding: "utf8" });
-    if (r.status !== 0) {
-      problem(`docker ${args.join(" ")}: ${(r.stderr || "").trim().split("\n")[0]}`);
-      rendered = false;
+  const envPath = path.join(root, ".env");
+  // Never touch a real one. A developer's .env holds their keys, and this
+  // check is not worth the smallest chance of overwriting it.
+  const borrowed = !existsSync(envPath) && existsSync(path.join(root, ".env.example"));
+  if (borrowed) copyFileSync(path.join(root, ".env.example"), envPath);
+  try {
+    let rendered = true;
+    for (const args of [
+      ["compose", "config", "-q"],
+      ["compose", "--profile", "all", "config", "-q"],
+    ]) {
+      const r = spawnSync("docker", args, { cwd: root, encoding: "utf8" });
+      if (r.status !== 0) {
+        // The LAST line, not the first. Compose prints one warning per unset
+        // variable before it prints the reason it failed, so reporting the
+        // first line reported "SUPABASE_SERVICE_ROLE_KEY is not set" for a
+        // missing file — a true sentence about the wrong problem, which is
+        // worse than no message.
+        const lines = (r.stderr || "").trim().split("\n").filter(Boolean);
+        const real = lines.filter((l) => !/level=warning/.test(l));
+        problem(`docker ${args.join(" ")}: ${(real.length ? real : lines).at(-1) ?? "no output"}`);
+        rendered = false;
+      }
     }
+    // Only claim it when it did: the first version printed the ok line beside
+    // its own failure, which reads as two contradictory facts.
+    if (rendered)
+      note(
+        `docker compose config renders with and without --profile all${borrowed ? " (.env from .env.example)" : ""}`,
+      );
+  } finally {
+    if (borrowed) rmSync(envPath, { force: true });
   }
-  // Only claim it when it did: the first version printed the ok line beside
-  // its own failure, which reads as two contradictory facts.
-  if (rendered) note("docker compose config renders with and without --profile all");
 } else skip("docker compose not available: compose not rendered");
 
 // ── 7. the compose build args and the image the manifests run agree ─────────
