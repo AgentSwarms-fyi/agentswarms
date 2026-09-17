@@ -2614,3 +2614,11 @@ docker compose restart notebook-docker-proxy
 Docker: `git pull && docker compose up -d --build`. Apply any new migrations
 with `npx supabase db push` (already-applied migrations are skipped; it's safe
 to re-run).
+
+**Rebuild everything, not just the app.** Several things the app orchestrates
+run inside OTHER images built by the same compose file — notably the
+Developer-workspace runtime (`agentswarms/notebook-runtime`), which is where an
+ETL run, a training job and a warm model endpoint actually execute. Rebuilding
+only the `agentswarms` service leaves those on the previous build, and the
+symptom is silent: the app sends the new field and the old runtime ignores it.
+`docker compose up -d --build` with no service name rebuilds all of them.

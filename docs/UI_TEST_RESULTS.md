@@ -15,6 +15,160 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-17 — Lakehouse, ETL and ML, by real runs from the UI, ADVERSARIAL_LOG R16
+
+**Driven.** The running instance on :8080, signed in as the owner, in the
+lakehouse SQL editor, the visual pipeline editor and the ML pages. Nothing here
+is a rendered card: every row is a real statement against the live catalog or a
+real run in the sandbox container, read back from the result grid, the run list
+and the run's own log line. The ETL rounds ran on the image built at `b9aef9f`;
+the lakehouse rounds on the rebuild that added `64e34dd`, which is the commit
+the first pass of this same round produced.
+
+### Lakehouse: what a write may read, and what a quote may contain (`e045783`, `e335335`, `64e34dd`)
+
+**Driven.** The SQL editor on the rebuilt image, in `analytics`, against the
+live DuckLake catalog. Row 3 and row 5 are the regression checks (my first two
+attempts at this fix broke one each); rows 4 and 6 are the security checks.
+
+| #   | Statement                                                                                | Expected                            | What came back                                                                          |
+| --- | ---------------------------------------------------------------------------------------- | ----------------------------------- | --------------------------------------------------------------------------------------- |
+| 1   | `SELECT 'A--B' AS dashes, '/*' AS open_c, '*/' AS close_c`                               | three columns, values intact        | 1 row, 1746 ms — `A--B`, `/*`, `*/`                                                     |
+| 2   | the same three literals, one statement earlier (previous image)                          | —                                   | "unterminated quoted string" for the first; the other two silently became ONE column    |
+| 3   | `UPDATE analytics.authz_probe SET plan = plan WHERE authz_probe.net_usd > 0`             | succeeds — the alias-qualifier case | Count 9                                                                                 |
+| 4   | `CREATE TABLE analytics.authz_probe2 AS SELECT * FROM nosuch.customers`                  | refused, naming the schema it reads | `No access to schema "nosuch" — it doesn't exist, or nobody shared it with you`         |
+| 5   | `UPDATE analytics.authz_probe SET status = 'A--B /* not a comment */' WHERE net_usd > 0` | succeeds; the literal survives      | Count 9, then `SELECT status, count(*) …` → `A--B /* not a comment */` ×9, `paid` ×1    |
+| 6   | `SHOW ALL TABLES`                                                                        | refused — catalog-wide listing      | `"SHOW" needs a schema-qualified target here — catalog-wide listings are not available` |
+
+Row 2 is the reason row 1 is here: the literal-aware stripper was written for
+the write-authorization work and then used only there, so every SELECT kept the
+two regexes that did not know what a string was. Reading the diff would not
+have shown it — the commit message even claimed the opposite. Typing a
+perfectly ordinary statement into the editor did.
+
+Kept for review: `analytics.authz_probe` (10 rows; 9 of them now carry the
+comment-shaped status string from row 5).
+
+### Run parameters reach a visual pipeline (`b9aef9f`)
+
+The claim to disprove: before this commit a parameter could be typed into
+"Run with parameters", accepted, pinned on the run row and handed to
+`entrypoint(inputs)` — and change nothing, because `_tick` never read its
+argument. The only way to see it was to compare row counts between two runs.
+So that is the test.
+
+**Setup.** New pipeline `param_probe2` from the "Medallion branch-out" sample
+(pre-wired: HTTP source → standardise → valid/rejected branches → three object
+storage targets). One field edited, in the "Valid rows" filter:
+
+```
+is_valid                →   is_valid and country == '{{params.country|DE}}'
+```
+
+Saved. Settings → Default destination = "MinIO local etl demo". The source CSV
+(`/etl-samples/orders.csv`, 308 rows) carries US 47, JP 34 among its countries.
+
+| Run                 | Parameters          | Result    | Total | `orders_silver` (parameterised branch) | `orders_quarantine` | `revenue_by_country` |
+| ------------------- | ------------------- | --------- | ----- | -------------------------------------- | ------------------- | -------------------- |
+| 7:30:43 PM, 1 m 1 s | `{"country": "US"}` | Succeeded | 64    | **43**                                 | 18                  | 3                    |
+| 7:32:47 PM, 28 s    | `{"country": "JP"}` | Succeeded | 52    | **31**                                 | 18                  | 3                    |
+
+Read from: the Runs tab (status, duration, "N rows → 3 target(s)") and each
+run's own **Logs** dialog, which carries the sandbox's `rows_loaded` line with
+a per-target breakdown and load ids.
+
+Two runs of one saved pipeline, one program, different data. The controlled
+part is what did **not** move: the quarantine and country-KPI branches do not
+reference the parameter and read 18 and 3 both times, so the 43 → 31 is the
+parameter and nothing else.
+
+### Auto-ingest and a row cursor cannot share a source (`9dd4c9e`)
+
+**Setup.** Pipeline `param_probe`, a "Object storage files" source on the MinIO
+bucket, folder `raw/revenue/orders`, **auto-ingest on** and **incremental
+cursor `updated_at`** — the combination that used to compile, run once, and
+die on its second run inside `json.loads`.
+
+| What                       | Read from                | Result                                                                                                                                                                                                                                         |
+| -------------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The canvas refuses it live | the validation banner    | `Source "Object storage files" uses auto-ingest AND an incremental cursor on "updated_at". They are two cursors for one source and overwrite each other — the pipeline would fail on its second run. Keep auto-ingest to load only new FILES…` |
+| Save keeps the draft…      | the Save toast           | "Saved — but the graph can't run yet: …" then the same sentence                                                                                                                                                                                |
+| …and the run is refused    | the trigger's reply      | `{ok: false}` — no run row, nothing reached the sandbox                                                                                                                                                                                        |
+| The message names both     | the banner and the toast | the node label the user clicked and the column the user typed                                                                                                                                                                                  |
+
+**A finding this round produced.** The refused run's reply was
+`"Pipeline has no code to run"` — true (the graph never compiled, so
+`source_code` stayed empty) and useless: it reads like the pipeline is empty
+and points at a code tab a visual pipeline does not have. `startEtlRun` now
+recompiles the stored graph before falling back to that sentence, so Run says
+what the editor said. Tests: `tests/unit/etlRunRefusalReason.test.ts`.
+
+Kept for review: pipelines **`param_probe2`** (two succeeded runs with their
+parameters and logs) and **`param_probe`** (left in the refused state, so the
+banner and the Save toast can be seen without rebuilding it).
+
+### ML: the decision threshold on a warm endpoint (`837180d`)
+
+The hardest of the four to drive, because it needs a **two-class** model (a
+single line means nothing otherwise), a threshold set on its production
+version, and a **warm** endpoint — the path a deployed model actually answers
+from, and the one that was ignoring the line. None of the instance's existing
+models qualified: the plan classifier predicts four classes, and no version
+anywhere carried a threshold. So the round builds one.
+
+**Setup, all through the UI.** ML → Train a model → `analytics.revenue_facts`,
+target `payment_rows` (the profiler labels it "Classification · 2 distinct"),
+whole table, no tuning. Trained in ~2 minutes: lightgbm, F1 macro 58.8%,
+ROC AUC 86.7%, 96% of rows in the majority class. Accuracy tab → Operating
+point → **the line drawn at 0.30** for the class "2" (audited:
+`ml.threshold.set`, detail `{version: 1, threshold: 0.3, positive_label: "2"}`).
+Automation tab → **Deploy** → "Warm endpoint · serving v1 · 1 of 1 copy
+answering".
+
+**Finding the row that tells the two apart.** A threshold only changes an
+answer where the positive class scores between the line and 0.5. One batch run
+over all 836 rows, then in the SQL editor:
+
+```sql
+SELECT order_id, prediction, threshold_applied, proba_2
+FROM analytics.threshold_probe_payment_rows_predictions
+WHERE proba_2 >= 0.3 AND proba_2 < 0.5
+```
+
+Exactly one row: **order 1197** — Customer 058, AMER, pro, `net_usd` 0 — at
+`proba_2` 0.3549. argmax calls it "1"; a line at 0.30 calls it "2".
+
+**That row, through the warm endpoint.** Predictions → Try it, with order
+1197's six feature values typed in.
+
+| Version's line | Predicted | Probability shown   | `threshold_applied` | `served` | Latency |
+| -------------- | --------- | ------------------- | ------------------- | -------- | ------- |
+| 0.30 on "2"    | **2**     | 35.5% (= `proba_2`) | **0.3**             | `warm`   | 0.104 s |
+| removed        | **1**     | 64.5% (= `proba_1`) | absent              | `warm`   | 0.124 s |
+
+Same row, same endpoint, same artifact; the only difference is the version's
+decision threshold. Before this commit the second line was the ONLY answer the
+warm path could give — the batch path sent the threshold and the warm path sent
+neither it nor the positive label. The probability reported also tracks the
+answer rather than the winner, so the row declined at 0.35 does not claim 64.5%
+confidence in a decision nobody made.
+
+**What the first attempt found instead.** The same row scored "1" with no
+`threshold_applied` on a warm endpoint whose app container definitely carried
+the fix. The scorer is not in the app image: `score()` lives in
+`docker/notebook-runtime/score_server.py`, baked into
+`agentswarms/notebook-runtime`, and the rebuild had named a single service
+(`docker compose up -d --build agentswarms`). The old image's signature was
+still `def score(rows)`. Rebuilding that image and redeploying the endpoint
+produced the table above. The documented upgrade — `docker compose up -d
+--build` with no service name — rebuilds both; docs/DEPLOYMENT.md now says so
+out loud, because the failure is silent in exactly this way.
+
+Kept for review: model **`threshold_probe (payment_rows)`**
+(`/ml/3476e695-e025-4499-9315-1f77da0539c3`) with its line at 0.30, its warm
+endpoint, its three predictions and its batch table
+`analytics.threshold_probe_payment_rows_predictions` (836 rows).
+
 ## 2026-09-16 — A knowledge base chooses its own vector index, ADVERSARIAL_LOG R15
 
 **Driven.** The store seam against this machine's real Supabase project and the

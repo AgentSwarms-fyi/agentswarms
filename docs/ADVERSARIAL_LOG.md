@@ -86,6 +86,94 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-17 — Lakehouse, ETL and ML, driven after the fixes
+
+Not a module pass: the round that verifies four fixes in the browser, and what
+verifying them turned up. Three of the five below are findings the UI produced
+and no amount of reading would have; the last two came from reading the emitter
+and the scheduler in the same sitting, and are logged here because they are the
+same kind of defect — a control that offers something the code then quietly
+turns into something else.
+
+#### R16 · S1 · A comment stripper was written, tested, and never wired in
+
+The fix for lakehouse write authorization needed a stripper that knows what a
+string literal is, so one was written (`sqlRefs.ts`, `stripComments`) and used
+by the new code. `stripSqlComments` — the one every statement actually goes
+through before it executes — kept its two regexes, which do not. The commit
+message asserted the opposite.
+
+Typing `SELECT 'A--B'` into the editor returned **"unterminated quoted string"**:
+the stripper had cut the statement at the `--` inside the quotes. Worse and
+quieter, `SELECT '/*' AS a, '*/' AS b` returned **one column and no error** —
+everything between the two literals had been blanked as a comment.
+
+Fixed by delegating (`64e34dd`), with a test that asserts the WIRING rather
+than the behaviour of the good function, because the behaviour was already
+tested and already passing while the product did the wrong thing. Verified on
+the rebuilt image: three columns, `A--B`, `/*`, `*/`.
+
+#### R16 · S1 · The warm scorer is in a different image, and says nothing when it is stale
+
+The decision-threshold fix (`837180d`) has two halves: the app sends the
+version's threshold with each warm request, and the scorer applies it. The
+scorer is `docker/notebook-runtime/score_server.py`, baked into
+`agentswarms/notebook-runtime` — not the app image. A rebuild that named one
+service (`docker compose up -d --build agentswarms`) left the old
+`def score(rows)` in place, and the warm endpoint went on answering by argmax
+while the app dutifully sent a field nobody read. No error, no warning, no
+version skew check: the extra JSON key is simply ignored.
+
+The documented upgrade (`docker compose up -d --build`, no service name)
+rebuilds both, so this bites a partial rebuild rather than a real install.
+docs/DEPLOYMENT.md now says so in the Upgrades section, because the symptom is
+invisible in exactly this way.
+
+#### R16 · S2 · "Pipeline has no code to run", on a pipeline the canvas had just explained
+
+A visual pipeline saves even when its graph does not compile — a draft may be
+half-wired — and the save toast carries the compiler's real sentence. Four
+seconds later the toast is gone. Pressing Run then answered "Pipeline has no
+code to run": true, because the graph never compiled and `source_code` is
+empty, and useless, because it reads like the pipeline is empty and points at a
+code tab a visual pipeline does not have. Found with the refusal still on
+screen above the button that gave the wrong reason for it.
+
+`startEtlRun` now recompiles the stored graph and returns what the editor said.
+
+#### R16 · S3 · A quality gate that aborted the run recorded that it had dropped rows
+
+The severity dropdown offered "Drop bad rows" for every check. For
+`row_count_min` there is nothing to drop, and both emitters raised — correct —
+while appending `severity: 'drop'` to the run's `_quality` metric. The record
+of the gate that stopped the run said it had filtered it. The editor no longer
+offers the option for that check, and both emitters record what they did.
+
+#### R16 · S2 · Promote-when-better chose the noisier anomaly detector
+
+`ML_PRIMARY_METRIC.anomaly = 'anomaly_rate'`, and `anomaly_rate` is not in
+`ML_LOWER_IS_BETTER`, so `beatsProduction` read "better" as "flags MORE rows".
+A nightly retrain with promote-if-better on installed whichever version was
+noisiest, and told the owner it was better. The trainer disagreed in its own
+output — the leaderboard row it writes carries `higher_is_better: False` — so
+the two halves of the product had contradicted each other since the metric was
+chosen.
+
+Flipping the direction is not the fix: a detector that flags nothing would then
+always win. The rate describes the fit rather than scoring it, so it now
+decides nothing — production is kept and the notification says why.
+
+**Tests:** `tests/unit/lakehouseSqlRefs.test.ts` and
+`tests/unit/lakehouseWriteAuthz.test.ts` (the stripper wiring),
+`tests/unit/etlRunRefusalReason.test.ts`, the two gate cases in
+`tests/unit/etlPipelines.test.ts`, and the anomaly case in
+`tests/unit/mlOps.test.ts`. Every one mutation-verified: removing the fix fails
+it, rewording the comment beside it does not.
+
+**Fixtures kept**, all listed in [UI test results](./UI_TEST_RESULTS.md).
+
+---
+
 ### 2026-09-14 — Module 3 revisited, Agent Builder (`/agents`): the ML Predictions picker
 
 Found by the UI round of a feature being shipped — a model picker for the ML
