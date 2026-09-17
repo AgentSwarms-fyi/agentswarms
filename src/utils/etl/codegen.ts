@@ -378,6 +378,37 @@ export function analyzeGraph(graph: EtlGraph): Analysis {
     const outs = outgoing.get(n.id)!.length;
     if (n.kind === "source" && ins > 0) throw new Error(`Source "${name(n)}" cannot have inputs`);
     if (n.kind === "source" && outs === 0) throw new Error(`Source "${name(n)}" is not connected`);
+    // AUTO-INGEST AND A ROW CURSOR CANNOT SHARE A NODE.
+    //
+    // They are two different cursors competing for one slot. Auto-ingest
+    // persists a JSON ledger ({mtime, keys, columns}); the row cursor
+    // persists a scalar high-water mark; both write `_watermarks[node]` and
+    // both read ETL_<NODE>_CURSOR. The row cursor is emitted second, so it
+    // overwrites the ledger — and the NEXT run feeds a date or a number to
+    // `json.loads`, which raises inside the sandbox.
+    //
+    // Run one looked perfect. Run two died with a Python JSON error nobody
+    // could map back to "you turned on two switches", and the persisted
+    // cursor was left wrong in a way the pipeline could not recover from
+    // without someone deleting the etl_pipeline_state row by hand.
+    //
+    // Refused rather than merged: `etl_pipeline_state.cursor_value` is capped
+    // at 512 characters, so a ledger of any size would be truncated into
+    // invalid JSON even if the two were given an envelope to share. Making
+    // this combination genuinely work needs its own state slot and a wider
+    // column, which is a change to storage rather than to codegen.
+    if (n.kind === "source" && isAutoIngest(n.config)) {
+      const cur = (n.config as { incremental?: { cursor_column?: string } }).incremental
+        ?.cursor_column;
+      if (cur) {
+        throw new Error(
+          `Source "${name(n)}" uses auto-ingest AND an incremental cursor on "${cur}". ` +
+            `They are two cursors for one source and overwrite each other — the pipeline would ` +
+            `fail on its second run. Keep auto-ingest to load only new FILES, or clear it and ` +
+            `use the cursor to load only new ROWS.`,
+        );
+      }
+    }
     if (n.kind === "target" && ins !== 1)
       throw new Error(`Target "${name(n)}" needs exactly one input`);
     if (n.kind === "target" && outs > 0) throw new Error(`Target "${name(n)}" cannot have outputs`);
@@ -619,6 +650,23 @@ export function sourceFn(node: EtlNode): string {
       `    rows = []`,
       `    with engine.connect().execution_options(isolation_level='AUTOCOMMIT') as con:`,
       `        exists = con.execute(sa.text("SELECT 1 FROM pg_replication_slots WHERE slot_name = :s"), {'s': slot}).scalar()`,
+      // A PREVIEW MUST NOT CREATE THE SLOT OR TAKE THE SNAPSHOT.
+      //
+      // Previewing is how anyone checks a source's columns before wiring the
+      // rest of the graph, and the natural order is: add the CDC source,
+      // press Preview data, then build and run. Without this guard the
+      // preview created the slot and consumed the initial snapshot into a
+      // throwaway container. The first REAL run then found the slot already
+      // there, skipped the snapshot branch, peeked only the changes since the
+      // preview, and SUCCEEDED having loaded none of the table's existing
+      // rows. The mirror was silently missing all of its history, and nothing
+      // in the run log said so.
+      //
+      // The ingest source and the Pub/Sub ack already guard on this variable;
+      // CDC was the one that was missed.
+      `        if not exists and os.environ.get('AGENTSWARMS_ETL_PREVIEW') == '1':`,
+      `            print('[etl] cdc: preview only — slot not created, no snapshot taken')`,
+      `            return pd.DataFrame(columns=['_cdc_action', '_cdc_deleted', '_cdc_lsn'])`,
       `        if not exists:`,
       `            con.execute(sa.text("SELECT pg_create_logical_replication_slot(:s, 'wal2json')"), {'s': slot})`,
       `            print('[etl] cdc: created slot ' + slot)`,

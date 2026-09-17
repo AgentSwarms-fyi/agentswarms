@@ -396,8 +396,11 @@ feed:
   load, so transforms after the source keep working between arrivals.
 - The source is now **drainable**, so the pipeline can run **continuous**: one
   long-running run watches the prefix every few seconds, and with a lakehouse
-  target it is exactly-once. The row-level incremental cursor still applies on
-  top when set.
+  target it is exactly-once.
+- **Not with a row-level cursor.** Auto-ingest and an incremental cursor are two
+  cursors for one source and share one state slot, so a node with both is
+  refused at save, by name. Auto-ingest loads only new FILES; the cursor loads
+  only new ROWS. Pick the one that matches how the data arrives.
 - **Sandbox engine only.** The Spark engine reads a prefix whole; a pipeline
   with this setting is refused at save on that engine, by name.
 
