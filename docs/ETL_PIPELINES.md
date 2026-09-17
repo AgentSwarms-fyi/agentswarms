@@ -867,6 +867,13 @@ The run engine owns the operational behaviours a mature ETL tool is judged on:
 - **Parameters** — `default_params` merged under per-run params (UI dialog or
   trigger body), pinned on the run row, delivered to `entrypoint(inputs)` via
   the existing `NB_INPUTS` plumbing. Backfills are parameterised runs.
+  - **In a visual pipeline**, reference one as `{{params.NAME}}` in a source
+    path, an HTTP URL, a filter expression or a SQL step, with an optional
+    default after a pipe: `landing/{{params.day|2026-01-01}}/*.csv`. A field
+    with no reference compiles exactly as before. A parameter with neither a
+    value nor a default reads as the empty string, so a scheduled run that
+    passes nothing still runs.
+  - **In code mode**, read `inputs` directly in `entrypoint(inputs)`.
 - **Chaining** — `run_after` starts a pipeline on another's success; cycles are
   refused at save (`etl.functions.ts` walks the chain), and the child's own
   overlap guard prevents storms.

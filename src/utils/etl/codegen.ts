@@ -295,6 +295,51 @@ const FAMILY_DRIVER: Record<"postgres" | "mysql" | "tds", string> = {
 
 // ── String hygiene ──────────────────────────────────────────────────────────
 
+/**
+ * The spelling a run parameter takes in a node's field: `{{params.NAME}}`.
+ *
+ * Optionally with a default: `{{params.day|2026-01-01}}`. A parameter with no
+ * value and no default compiles to the empty string rather than raising, so a
+ * pipeline whose schedule supplies nothing still runs — the same field then
+ * reads exactly as it did before parameters existed.
+ */
+const PARAM_RE = /\{\{\s*params\.([A-Za-z_][A-Za-z0-9_]*)\s*(?:\|([^}]*))?\}\}/g;
+
+/** True when a field carries at least one parameter reference. */
+export function hasParams(s: string): boolean {
+  PARAM_RE.lastIndex = 0;
+  return PARAM_RE.test(String(s ?? ""));
+}
+
+/**
+ * A field as a Python EXPRESSION, with `{{params.x}}` resolved at run time.
+ *
+ * Returns a plain literal when there is nothing to substitute, so the emitted
+ * program is unchanged for the overwhelming majority of nodes.
+ *
+ * WHY THIS EXISTS. `entrypoint(inputs)` received the run's parameters, passed
+ * them to `_tick(inputs)`, and `_tick` never read them. Nothing in a visual
+ * pipeline could see a parameter, and nothing said so: the Run-with-parameters
+ * dialog calls itself "the backfill door" and "the standard way to backfill a
+ * window or rerun one partition", and the documentation described backfills as
+ * parameterised runs. Re-running July 3-9 started a run, reported success, and
+ * read exactly what the pipeline always reads.
+ */
+export function pyTemplate(s: string): string {
+  const raw = String(s ?? "");
+  if (!hasParams(raw)) return pyStr(raw);
+  const parts: string[] = [];
+  let last = 0;
+  PARAM_RE.lastIndex = 0;
+  for (let m = PARAM_RE.exec(raw); m; m = PARAM_RE.exec(raw)) {
+    if (m.index > last) parts.push(pyStr(raw.slice(last, m.index)));
+    parts.push(`_param(${pyStr(m[1]!)}, ${pyStr(m[2] ?? "")})`);
+    last = m.index + m[0].length;
+  }
+  if (last < raw.length) parts.push(pyStr(raw.slice(last)));
+  return `(${parts.join(" + ")})`;
+}
+
 /** Python string literal — single-quoted, everything meaningful escaped. */
 export function pyStr(s: string): string {
   return (
@@ -553,7 +598,7 @@ export function sourceFn(node: EtlNode): string {
       `        endpoint_url=os.environ.get('${key}_ENDPOINT_URL') or None,`,
       `    )`,
       `    base = os.environ['${key}_BUCKET'].rstrip('/')`,
-      `    path = ${pyStr(c.path)}.lstrip('/')`,
+      `    path = ${pyTemplate(c.path)}.lstrip('/')`,
       ...(c.new_files_only
         ? [
             // Auto-ingest. The ledger is small on purpose: the newest
@@ -738,7 +783,7 @@ export function sourceFn(node: EtlNode): string {
     return [
       head,
       `    import requests`,
-      `    resp = requests.get(${pyStr(c.url)}, timeout=60)`,
+      `    resp = requests.get(${pyTemplate(c.url)}, timeout=60)`,
       `    resp.raise_for_status()`,
       `    data = resp.json()`,
       dig,
@@ -909,7 +954,7 @@ function transformExpr(node: EtlNode, ins: string[]): string {
   const one = f(ins[0]);
   switch (c.type) {
     case "filter":
-      return `${one}.query(${pyStr(c.expr)})`;
+      return `${one}.query(${pyTemplate(c.expr)})`;
     case "select":
       return `${one}[[${c.columns.map((x) => pyStr(x)).join(", ")}]]`;
     case "rename": {
@@ -951,7 +996,7 @@ function transformExpr(node: EtlNode, ins: string[]): string {
     case "union":
       return `pd.concat([${ins.map((x) => f(x)).join(", ")}], ignore_index=True)`;
     case "sql":
-      return `_sql_over(${one}, ${pyStr(c.query)})`;
+      return `_sql_over(${one}, ${pyTemplate(c.query)})`;
     case "python":
       return `_fn_${node.id}(${one})`;
     case "quality_gate":
@@ -1459,7 +1504,22 @@ export function compileGraph(graph: EtlGraph): string {
 
   // The per-tick body. The wrapper appended below defines `entrypoint`: once
   // through for an ordinary run, a loop for a continuous one.
+  // The run's parameters, published where every source function can see them.
+  // Source functions are module-level (`def _src_n1()`), so a closure over
+  // `inputs` would not reach them — hence a module global set once per tick.
+  lines.push(
+    ``,
+    `_PARAMS = {}`,
+    ``,
+    `def _param(name, default=''):`,
+    `    # One run parameter, as text. Missing and None both read as the default.`,
+    `    v = _PARAMS.get(name)`,
+    `    # A key present but null must fall back too: a schedule that passes`,
+    `    # {"day": null} means "no value", not "the empty string".`,
+    `    return str(default) if v is None else str(v)`,
+  );
   lines.push(``, `def _tick(inputs=None):`);
+  lines.push(`    global _PARAMS`, `    _PARAMS = dict(inputs or {})`);
   if (incremental.length) lines.push(`    _watermarks = {}`);
   lines.push(`    _cols = {}`);
   for (const n of order) {
