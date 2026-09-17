@@ -691,7 +691,25 @@ export async function scoreWarm(args: {
     const res = await fetch(`${endpoint}${SCORE_PATH}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ rows: args.rows }),
+      // THE DECISION LINE RIDES WITH THE REQUEST, not with the deployment.
+      //
+      // It was sent with neither. The batch path puts decision_threshold and
+      // positive_label in the job config; the warm scorer reused the config
+      // frozen at deploy time, which never had them. So the same model and the
+      // same row answered at argmax when an endpoint happened to be up and at
+      // the operator's line when it was not, and the warm rows carried no
+      // threshold_applied column to tell the two apart. On a model that
+      // approves or declines, that is the difference between the decision the
+      // operator set and one nobody chose.
+      //
+      // Per request rather than per deployment, so "moving the line takes
+      // effect on the next prediction" stays true — baking it in at deploy
+      // would freeze it until the next redeploy.
+      body: JSON.stringify({
+        rows: args.rows,
+        decision_threshold: args.version.decision_threshold ?? null,
+        positive_label: args.version.positive_label ?? null,
+      }),
       signal: AbortSignal.timeout(SCORE_TIMEOUT_MS),
     });
     const body = (await res.json().catch(() => null)) as Record<string, unknown> | null;
@@ -711,9 +729,13 @@ export async function scoreWarm(args: {
     // AFTER the answer is in hand and deliberately not awaited. A mirror that
     // the caller waits for is not a shadow, it is a second serving path with
     // twice the latency and twice the ways to fail.
-    void mirrorToCandidate(dep, args, body).catch((e) =>
-      console.warn("[ml-shadow] mirror failed:", (e as Error).message),
-    );
+    void mirrorToCandidate(
+      dep,
+      args,
+      body,
+      args.version.decision_threshold ?? null,
+      args.version.positive_label ?? null,
+    ).catch((e) => console.warn("[ml-shadow] mirror failed:", (e as Error).message));
     return {
       ok: true,
       columns: (body?.columns as string[]) ?? [],
@@ -1206,6 +1228,8 @@ async function mirrorToCandidate(
   dep: MlDeploymentRow,
   args: { model: MlModelRow; userId: string; rows: Record<string, unknown>[] },
   primaryBody: Record<string, unknown> | null,
+  line: number | null,
+  label: string | null,
 ): Promise<void> {
   if (dep.candidate_mode !== "shadow" || !dep.candidate_version_id) return;
   // Only tasks where "the same answer" means something. Clustering and anomaly
@@ -1226,7 +1250,16 @@ async function mirrorToCandidate(
     const res = await fetch(`${target.endpoint}${SCORE_PATH}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ rows: args.rows }),
+      // THE SAME DECISION LINE THE PRIMARY USED, deliberately.
+      //
+      // The mirror exists to answer "would this version have said something
+      // different to the same question". Holding the decision rule fixed is
+      // what isolates the model change; letting each side use its own line
+      // would report a disagreement caused by the threshold and attribute it
+      // to the candidate. It also matters now that the primary applies a line
+      // at all — before, neither side did, and they agreed by both being
+      // wrong.
+      body: JSON.stringify({ rows: args.rows, decision_threshold: line, positive_label: label }),
       signal: AbortSignal.timeout(SHADOW_TIMEOUT_MS),
     });
     const body = (await res.json().catch(() => null)) as Record<string, unknown> | null;

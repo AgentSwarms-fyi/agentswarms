@@ -56,7 +56,11 @@ describe("a candidate never answers a caller", () => {
     // A mirror the caller waits for is not a shadow: it is a second serving
     // path with twice the latency and twice the ways to fail.
     const warm = SERVE.slice(SERVE.indexOf("export async function scoreWarm"));
-    expect(warm).toContain("void mirrorToCandidate(dep, args, body)");
+    // Matched on the CALL, not on its argument list. The call gained two
+    // arguments when the decision threshold started being passed through, and
+    // pinning the exact spelling failed a change that preserved every
+    // property this test exists to protect.
+    expect(warm).toMatch(/void mirrorToCandidate\(/);
     expect(warm).not.toContain("await mirrorToCandidate");
     // Between the primary's answer being parsed and that answer being
     // returned. Compared against `ok: true` rather than the first `return {`,
@@ -68,7 +72,10 @@ describe("a candidate never answers a caller", () => {
 
   it("and a mirror that throws cannot reach the caller", () => {
     const warm = SERVE.slice(SERVE.indexOf("export async function scoreWarm"));
-    expect(warm).toContain('.catch((e) =>\n      console.warn("[ml-shadow] mirror failed:"');
+    // The .catch may sit on a different line from the call once the argument
+    // list wraps; what matters is that the mirror's failure is swallowed into
+    // a warning and never rethrown at the caller.
+    expect(warm).toMatch(/\.catch\(\(e\) =>\s*\n?\s*console\.warn\("\[ml-shadow\] mirror failed:"/);
   });
 
   it("a copy records which version and side it is, rather than inheriting it", () => {

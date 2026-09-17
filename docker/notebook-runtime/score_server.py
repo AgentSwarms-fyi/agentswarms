@@ -130,17 +130,29 @@ def load_model():
         _log("[score] load failed: " + traceback.format_exc())
 
 
-def score(rows):
+def score(rows, threshold=None, positive_label=None):
     """Score rows with the loaded artifact, through the shared program.
 
     `_predict` re-downloads the artifact by design in the batch path; here it
     is already in memory, so the pre-loaded object is handed back through the
     program's own loader. That keeps ONE code path for the actual scoring.
+
+    THE DECISION LINE ARRIVES WITH THE REQUEST. The config frozen at deploy
+    time never carried one, so a warm endpoint answered at argmax while the
+    batch path answered at the operator's threshold -- the same model and row
+    giving two different verdicts depending on whether a replica happened to
+    be up, and the warm rows carrying no `threshold_applied` column to tell
+    them apart. Per request rather than per deployment, so moving the line
+    takes effect on the next prediction rather than on the next redeploy.
     """
     ns = _program["ns"]
     cfg = dict(_program["cfg"])
     cfg["input"] = {"kind": "rows", "rows": rows}
     cfg["output"] = None
+    if threshold is not None:
+        cfg["decision_threshold"] = threshold
+    if positive_label is not None:
+        cfg["positive_label"] = positive_label
 
     art = _program["art"]
     original = ns["_download_artifact"]
@@ -212,7 +224,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         started = time.time()
         try:
-            out = score(rows)
+            out = score(rows, body.get("decision_threshold"), body.get("positive_label"))
         except Exception as e:  # noqa: BLE001 — a bad row must not kill the server
             _log("[score] request failed: " + traceback.format_exc())
             self._send(500, {"error": "%s: %s" % (type(e).__name__, e)})
