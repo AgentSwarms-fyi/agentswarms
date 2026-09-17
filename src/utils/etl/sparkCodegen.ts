@@ -624,7 +624,10 @@ function gateFn(node: EtlNode): string {
       throw new Error(`Rule ${ruleDesc(r)} in gate "${label}" needs a column`);
     }
     const desc = ruleDesc(r);
-    const sev = r.severity === "drop" || r.severity === "warn" ? r.severity : "fail";
+    let sev = r.severity === "drop" || r.severity === "warn" ? r.severity : "fail";
+    // Same as the sandbox emitter: a short frame has no offending rows, so
+    // "drop" can only mean "fail", and the _quality record has to say so.
+    if (r.check === "row_count_min" && sev === "drop") sev = "fail";
     if (r.check === "row_count_min") {
       const min = Math.max(0, Math.floor(r.min ?? 0));
       lines.push(

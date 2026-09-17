@@ -17,7 +17,12 @@ import {
   trainNewVersion,
   type MlTrainInput,
 } from "./api.server";
-import { ML_LOWER_IS_BETTER, ML_PRIMARY_METRIC, type MlTask } from "./types";
+import {
+  ML_LOWER_IS_BETTER,
+  ML_NOT_A_QUALITY_METRIC,
+  ML_PRIMARY_METRIC,
+  type MlTask,
+} from "./types";
 
 export type MlScheduleRow = Database["public"]["Tables"]["ml_schedules"]["Row"];
 
@@ -52,6 +57,10 @@ export function beatsProduction(
   if (!candidate || candidate.status !== "ready") return false;
   if (!incumbent) return true;
   const metric = ML_PRIMARY_METRIC[task as MlTask];
+  // Nothing is "better" on a metric that only describes the fit. Keeping
+  // production is the safe half of the answer; the notification says why, and
+  // promoting by hand is one click away on the model page.
+  if (ML_NOT_A_QUALITY_METRIC.has(metric)) return false;
   const c = (candidate.metrics as Record<string, number | null>)?.[metric];
   const p = (incumbent.metrics as Record<string, number | null>)?.[metric];
   if (typeof c !== "number") return false;
@@ -209,7 +218,11 @@ export async function evaluateScheduledVersions(): Promise<number> {
                   return typeof p === "number" ? p.toFixed(4) : "n/a";
                 })()}`
               : "") +
-            (better ? " (better)" : " (not better)"),
+            (better
+              ? " (better)"
+              : ML_NOT_A_QUALITY_METRIC.has(metric)
+                ? " — this metric describes how much was flagged, not how well, so it cannot decide a promotion. Production kept; promote by hand if this is the version you want."
+                : " (not better)"),
       link: `/ml/${model.id}`,
     });
     judged++;

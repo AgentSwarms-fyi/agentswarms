@@ -852,7 +852,14 @@ function gateFn(node: EtlNode): string {
     if (r.check !== "row_count_min" && !r.column)
       throw new Error(`Rule ${ruleDesc(r)} in gate "${label}" needs a column`);
     const desc = ruleDesc(r);
-    const sev = r.severity === "drop" || r.severity === "warn" ? r.severity : "fail";
+    let sev = r.severity === "drop" || r.severity === "warn" ? r.severity : "fail";
+    // "DROP BAD ROWS" MEANS NOTHING FOR A ROW COUNT — a frame that is too
+    // short has no offending rows to remove, and the only answers left are
+    // abort or carry on. The generated code already aborted; what it also did
+    // was write `severity: 'drop'` into the run's _quality metric, so the
+    // record of a gate that failed the run said it had dropped rows. The
+    // editor offered the option, so the reader had every reason to believe it.
+    if (r.check === "row_count_min" && sev === "drop") sev = "fail";
     if (r.check === "row_count_min") {
       const min = Math.max(0, Math.floor(r.min ?? 0));
       lines.push(

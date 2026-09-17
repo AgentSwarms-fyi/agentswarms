@@ -1369,7 +1369,10 @@ function QualityRulesEditor({
               <SelectContent>
                 <SelectItem value="fail">Fail the run</SelectItem>
                 <SelectItem value="warn">Warn and continue</SelectItem>
-                <SelectItem value="drop">Drop bad rows</SelectItem>
+                {/* A row count has no offending rows to drop. Offering it
+                    here was the reason a gate could be saved asking for
+                    something the compiler quietly turned into "fail". */}
+                {r.check !== "row_count_min" && <SelectItem value="drop">Drop bad rows</SelectItem>}
               </SelectContent>
             </Select>
           </div>

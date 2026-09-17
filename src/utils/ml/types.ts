@@ -233,6 +233,24 @@ export const ML_LOWER_IS_BETTER = new Set([
   "inertia",
 ]);
 
+/**
+ * Metrics that DESCRIBE a fit rather than score it.
+ *
+ * `anomaly_rate` is the share of the training rows an unsupervised detector
+ * flagged — near enough the `contamination` it was handed. It is not a quality
+ * score in either direction: a detector that flags 40% of its rows is not
+ * better than one that flags 2%, and one that flags nothing is not better
+ * still. It sits in ML_PRIMARY_METRIC because a model page has to show
+ * something, and that is a different job from deciding a promotion.
+ *
+ * It was deciding promotions. `anomaly_rate` is not in ML_LOWER_IS_BETTER, so
+ * "is the candidate better" read as "does the candidate flag MORE rows", and a
+ * nightly retrain with promote-if-better installed whichever version was
+ * noisiest. The trainer had already said otherwise — its own leaderboard row
+ * carries `higher_is_better: False` — so the two halves disagreed in silence.
+ */
+export const ML_NOT_A_QUALITY_METRIC = new Set(["anomaly_rate"]);
+
 /** Tasks that predict a chosen column; the others describe or rank rows. */
 /** A forecast's granularity; auto infers it from the gaps between timestamps. */
 export const ML_PERIODS = ["auto", "hour", "day", "week", "month", "quarter"] as const;

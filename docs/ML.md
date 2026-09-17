@@ -605,8 +605,13 @@ same reaper as ETL pipelines and materialized views:
   or on a cron expression, with its own budget and tuning mode. When
   **promote when better** is on, the new version becomes production the
   moment it is ready if its primary metric beats the incumbent; you are told
-  either way. A schedule that cannot start (a limit reached, a missing
-  table) records the reason and notifies you.
+  either way. **An anomaly model is the exception**: its primary metric,
+  `anomaly_rate`, is the share of rows the detector flagged — near enough the
+  contamination it was given — and describes the fit rather than scoring it, so
+  it cannot decide a promotion in either direction. Such a schedule trains and
+  keeps production, and the notification says why; promote by hand from the
+  Versions tab when the new version is the one you want. A schedule that cannot
+  start (a limit reached, a missing table) records the reason and notifies you.
 - **Batch prediction** — score a lakehouse table (optionally filtered) into
   a table you own with the production version, so a scored table stays
   fresh for dashboards and agents without anyone clicking.

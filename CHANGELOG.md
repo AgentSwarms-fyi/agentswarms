@@ -14,7 +14,82 @@ development branch and may be ahead of the latest tag.
 
 ## Unreleased
 
-Nothing yet.
+**A pass over the lakehouse, ETL and ML halves, looking for the places where a
+control was offered and did not do what it said.** Seven of them; each was
+found by running the thing rather than reading it, and each is described in
+full in its own commit.
+
+### Lakehouse
+
+- **A write is now authorized for what it READS, not only for what it writes.**
+  `CREATE TABLE mine.copy AS SELECT * FROM finance.salaries` was checked
+  against `mine` alone: DuckDB refuses to serialize any non-SELECT statement
+  to JSON, so the AST walk that authorizes a SELECT's schemas had nothing to
+  walk and the read side of a write went unchecked. Writes now have their read
+  set recovered by a position-based scanner (a table reference is one that
+  follows `FROM`/`JOIN`/`INTO`/`USING`/`UPDATE`/`TABLE`/`VIEW`), every schema
+  it names is authorized, and a write that reads a table carrying a security
+  policy is refused rather than silently bypassing the policy.
+- **The comment stripper knows what a string is.** The stripper that runs
+  before every statement executes was two regexes that did not: `SELECT 'A--B'`
+  was cut to `SELECT 'A` and refused as an unterminated literal, and
+  `SELECT '/*' AS a, '*/' AS b` quietly became one column with no error at all.
+
+### ETL
+
+- **Run parameters reach a visual pipeline.** They were validated, pinned on
+  the run row, shipped to the sandbox and handed to `entrypoint(inputs)` —
+  which passed them to a `_tick` that never read its argument. A backfill
+  dialog that calls itself "the standard way to backfill a window" re-ran the
+  window and read exactly what the pipeline always reads. A field may now carry
+  `{{params.NAME}}`, optionally with a default (`{{params.day|2026-01-01}}`),
+  in a source path, an HTTP URL, a filter expression and a SQL step. A field
+  with no reference compiles to the literal it always compiled to.
+- **Auto-ingest and a row cursor can no longer share one source.** They are two
+  cursors competing for one state slot: the first run looked perfect and the
+  second died inside `json.loads` with a message nobody could map back to "you
+  turned on two switches". Refused at compile, naming the node and the column.
+- **A preview no longer consumes a CDC source.** Previewing a change-data-
+  capture source created the replication slot and drank the initial snapshot,
+  so the first real run found the slot already there, skipped the snapshot and
+  reported success having loaded none of the table's history.
+- **Pressing Run on a graph the editor refused says why.** The answer was
+  "Pipeline has no code to run" — true, and useless: it reads like the pipeline
+  is empty. The stored graph is recompiled so the run repeats the sentence the
+  canvas showed.
+
+- **A quality gate's row-count rule no longer offers to drop rows.** The
+  severity dropdown offered "Drop bad rows" for every check. A frame that is
+  too short has no offending rows to remove, so the generated code aborted the
+  run — correctly — while recording `severity: 'drop'` in the run's quality
+  metric, leaving a record that said rows had been dropped. The option is gone
+  for that check in the editor, and both emitters record what they did.
+
+### ML
+
+- **The decision threshold applies on a warm endpoint, not only a cold one.**
+  The batch path sent the version's threshold and positive label with every
+  request; the warm path — the one a deployed endpoint uses, and the one under
+  every latency claim — sent neither, so a model whose operating point had been
+  deliberately moved reverted to argmax the moment it was deployed. The scorer
+  now takes both per request, and a shadow deployment is mirrored with the
+  primary's line so the comparison is like for like.
+
+- **Promote-when-better no longer picks the noisier anomaly detector.** An
+  anomaly model's primary metric is `anomaly_rate`, the share of rows the
+  detector flagged; it was not marked lower-is-better, so "is the candidate
+  better" read as "does it flag MORE rows" and a nightly retrain installed
+  whichever version was noisiest. The trainer had already written
+  `higher_is_better: False` on its own leaderboard row, so the two halves
+  disagreed in silence. The rate describes the fit rather than scoring it, so
+  it now decides nothing: production is kept and the notification says why.
+
+### Email
+
+- **Nothing about email requires a Resend account.** SMTP was supported and
+  worked; the documentation, the `.env.example` and the settings copy all
+  described Resend as the way email is sent, so a self-hosted install read as
+  needing a third-party account to invite a user.
 
 ## 1.5.0 — 2026-09-17
 

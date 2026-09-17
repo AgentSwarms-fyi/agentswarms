@@ -1189,6 +1189,37 @@ describe("quality gates", () => {
     expect(code).toContain("[quality] WARN");
   });
 
+  it("a row count cannot be asked to drop rows, and does not claim to", () => {
+    // The severity dropdown offered "Drop bad rows" for every check. For a
+    // row-count minimum there is nothing to drop — a short frame's rows are
+    // not the problem — so the generated code raised, which is right, while
+    // writing `severity: 'drop'` into the run's _quality metric, which is not:
+    // the record of the gate that failed the run said it had dropped rows.
+    const code = compileGraph(gateGraph([{ check: "row_count_min", min: 10, severity: "drop" }]));
+    assertParsesAsPython(code);
+    expect(code).toContain("'severity': 'fail'");
+    expect(code).not.toContain("'severity': 'drop'");
+    expect(code).toContain("raise RuntimeError");
+    // The editor no longer offers it either, which is where it came from.
+    expect(readFileSync("src/routes/_authenticated/etl.tsx", "utf8")).toContain(
+      'r.check !== "row_count_min" && (',
+    );
+    // And the Spark emitter, which carried the same line, agrees.
+    expect(readFileSync("src/utils/etl/sparkCodegen.ts", "utf8")).toContain(
+      'if (r.check === "row_count_min" && sev === "drop") sev = "fail";',
+    );
+  });
+
+  it("a droppable check still drops, and still says drop", () => {
+    // The control mutant for the rule above: nothing changed for the checks
+    // where dropping the offending rows is exactly what should happen.
+    const code = compileGraph(
+      gateGraph([{ check: "range", column: "amount", min: 0, max: 10, severity: "drop" }]),
+    );
+    expect(code).toContain("'severity': 'drop'");
+    expect(code).toContain("reset_index(drop=True)");
+  });
+
   it("half-open ranges compile (min-only and max-only)", () => {
     const code = compileGraph(
       gateGraph([

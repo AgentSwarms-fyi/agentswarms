@@ -121,6 +121,28 @@ describe("schedules", () => {
     expect(sched).toContain("evaluated_version_id: candidate.id,");
   });
 
+  it("refuses to judge a promotion on a metric that only describes the fit", () => {
+    // anomaly_rate is the share of rows an unsupervised detector flagged —
+    // near enough the contamination it was handed. It is not in
+    // ML_LOWER_IS_BETTER, so "is the candidate better" read as "does it flag
+    // MORE rows", and a nightly retrain with promote-if-better installed
+    // whichever version was noisiest. The trainer had already said otherwise.
+    const quiet = version({ id: "p", metrics: { anomaly_rate: 0.02 } });
+    const noisy = version({ metrics: { anomaly_rate: 0.4 } });
+    expect(beatsProduction("anomaly", noisy, quiet)).toBe(false);
+    // Not fixed by flipping the direction either: flagging less is not better,
+    // and flagging nothing would then always win.
+    expect(beatsProduction("anomaly", quiet, noisy)).toBe(false);
+    // A first version still goes live — there is nothing to compare it with.
+    expect(beatsProduction("anomaly", noisy, null)).toBe(true);
+    // The trainer's own leaderboard row, which the comparison disagreed with.
+    expect(rd("src/utils/ml/pyTrain.ts")).toContain(
+      "'metric': 'anomaly_rate', 'value': rate, 'higher_is_better': False",
+    );
+    // And the owner is told why production was kept, not just "(not better)".
+    expect(sched).toContain("cannot decide a promotion");
+  });
+
   it("run as the owner through the shared service and audit each start", () => {
     expect(sched).toContain('.eq("user_id", s.user_id)');
     expect(sched).toContain("{ userId: s.user_id, trigger: via }");

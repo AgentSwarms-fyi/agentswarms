@@ -14,6 +14,7 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { Database, Json } from "@/integrations/supabase/types";
 import { loadStorageConfig } from "@/utils/catalog/crawler.server";
 import {
+  analyzeGraph,
   previewRequirementsFor,
   compilePreview,
   nativeWarehouseTarget,
@@ -858,6 +859,23 @@ export async function startEtlRun(
   params?: Record<string, unknown>,
 ): Promise<{ ok: true; runId: string } | { ok: false; error: string }> {
   if (!pipeline.source_code.trim()) {
+    // A VISUAL PIPELINE SAVES EVEN WHEN ITS GRAPH DOES NOT COMPILE. A draft is
+    // allowed to be half-wired, and the save toast says exactly what is wrong
+    // — but by the time anyone presses Run that toast is four seconds gone,
+    // and an empty `source_code` is the SYMPTOM, not the reason. The graph is
+    // still sitting in the row, so recompile it and say what the editor said.
+    //
+    // Found by pressing Run on a pipeline the editor had just refused: the
+    // banner on the canvas named the node and the column, and the run refused
+    // with a sentence that reads like the pipeline is empty.
+    const graph = normalizeGraph(pipeline.graph);
+    if (graph) {
+      try {
+        analyzeGraph(graph);
+      } catch (e) {
+        return { ok: false, error: (e as Error).message };
+      }
+    }
     return { ok: false, error: "Pipeline has no code to run" };
   }
   // Resolve the env now to fail fast on a missing destination — a run that
