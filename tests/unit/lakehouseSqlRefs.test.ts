@@ -3,6 +3,8 @@
 // These back a SECURITY decision, so the bias is explicit: every case that
 // cannot be understood must produce MORE references (a refusal the user can
 // argue with), never fewer (a table they did not know they had exposed).
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 
 import { qualifiedRefs, stripComments, tableRefs, writeSubSelect } from "@/utils/lakehouse/sqlRefs";
@@ -106,6 +108,31 @@ describe("finding every qualified name a statement mentions", () => {
     // Which is itself a refusal upstream — an unqualified write target is
     // already rejected by the classifier.
     expect(qualifiedRefs("SHOW ALL TABLES")).toEqual([]);
+  });
+});
+
+describe("the executor uses the literal-aware stripper", () => {
+  // FOUND BY RUNNING IT, NOT BY READING IT. The literal-aware scanner was
+  // written for the write-authorization work and then used only there, so
+  // every SELECT kept the old two-regex stripper. `SELECT 'A--B'` typed into
+  // the editor came back "unterminated quoted string" — a parse error on a
+  // perfectly valid statement — because the STRIPPED text is what executes.
+  //
+  // A module can be correct and still not be wired in. This asserts the wire.
+  it("stripSqlComments delegates rather than re-implementing", () => {
+    const core = readFileSync("src/utils/lakehouse/core.server.ts", "utf8");
+    const fn = core.slice(
+      core.indexOf("export function stripSqlComments"),
+      core.indexOf("export function stripSqlComments") + 900,
+    );
+    expect(fn).toContain("stripComments(sql)");
+    // The old implementation, gone: these two regexes are what broke literals.
+    expect(fn).not.toMatch(/replace\(\/--\[\^/);
+  });
+
+  it("keeps the behaviour its own test pins", () => {
+    // A comment really must not smuggle a second statement.
+    expect(stripComments("SELECT 1 /* ; DROP TABLE a.t */")).not.toContain("DROP");
   });
 });
 

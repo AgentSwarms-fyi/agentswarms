@@ -30,7 +30,7 @@ import path from "node:path";
 import { auditEvent } from "@/utils/audit.server";
 import { applyTablePolicies, loadPolicies } from "@/utils/lakehouse/policies.server";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import { qualifiedRefs, tableRefs, writeSubSelect } from "@/utils/lakehouse/sqlRefs";
+import { qualifiedRefs, stripComments, tableRefs, writeSubSelect } from "@/utils/lakehouse/sqlRefs";
 
 import type { DuckDBConnection, DuckDBInstance } from "@duckdb/node-api";
 import { usesAiSqlFunctions } from "@/utils/aiSql/core";
@@ -483,10 +483,17 @@ const IDENT = String.raw`(?:"[^"]+"|[A-Za-z_][A-Za-z0-9_$]*)`;
 const QUALIFIED = new RegExp(`^(${IDENT})\\.(${IDENT})`);
 
 export function stripSqlComments(sql: string): string {
-  return sql
-    .replace(/--[^\n]*/g, " ")
-    .replace(/\/\*[\s\S]*?\*\//g, " ")
-    .trim();
+  // Delegates to the literal-aware scanner. The two regexes this replaced did
+  // not know what a string was, and the STRIPPED text is what executes:
+  //
+  //   SELECT 'A--B'        ->  SELECT 'A            (unterminated, refused)
+  //   SELECT '/*' , '*/'   ->  SELECT '  '          (one column, NO error)
+  //
+  // Found by running it rather than reading it: a literal-aware stripper was
+  // written for the write-authorization work and then only used there, so
+  // every SELECT kept the broken one. The first symptom was a parse error on
+  // a perfectly valid statement typed into the editor.
+  return stripComments(sql).trim();
 }
 
 function unquote(ident: string): string {
