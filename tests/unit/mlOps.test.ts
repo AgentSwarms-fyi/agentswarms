@@ -143,6 +143,23 @@ describe("schedules", () => {
     expect(sched).toContain("cannot decide a promotion");
   });
 
+  it("does not offer the promote box on a model nothing can judge", () => {
+    // The refusal above makes "Promote the new version when its primary metric
+    // beats production" a control that never fires for an anomaly model. A
+    // fix that leaves the box tickable trades one silent wrong answer for a
+    // silent no-op, so the editor says why and the save writes false.
+    const panel = rd("src/components/ml/SchedulesPanel.tsx");
+    expect(panel).toContain('disabled={task === "anomaly"}');
+    expect(panel).toContain('checked={task === "anomaly" ? false : promote}');
+    expect(panel).toContain('promote_if_better: task === "anomaly" ? false : promote,');
+    expect(panel).toContain("how much, not how well");
+    // A schedule saved before this existed still carries promote_if_better;
+    // the list must not keep advertising what the engine now refuses.
+    expect(panel).toContain('s.promote_if_better && task !== "anomaly"');
+    // Every other task keeps the box and the original sentence.
+    expect(panel).toContain("Promote the new version when its primary metric beats production");
+  });
+
   it("run as the owner through the shared service and audit each start", () => {
     expect(sched).toContain('.eq("user_id", s.user_id)');
     expect(sched).toContain("{ userId: s.user_id, trigger: via }");

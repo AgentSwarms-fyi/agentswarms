@@ -169,6 +169,44 @@ Kept for review: model **`threshold_probe (payment_rows)`**
 endpoint, its three predictions and its batch table
 `analytics.threshold_probe_payment_rows_predictions` (836 rows).
 
+### The three fixes this round produced, driven on the next image
+
+| What                                        | Driven                                                                    | Result                                                                                                                                                                                                                |
+| ------------------------------------------- | ------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Run explains a graph that will not compile  | **Run now** on `param_probe`, still in its refused state                  | the toast, and the trigger's own reply, now carry `Source "Object storage files" uses auto-ingest AND an incremental cursor on "updated_at"…` — the canvas's sentence, where "Pipeline has no code to run" used to be |
+| A row count is not offered "drop"           | Quality gate node → severity dropdown, read twice                         | check `not_null` → **Fail / Warn / Drop bad rows**; switch the check to **Min row count** → **Fail / Warn** only                                                                                                      |
+| Promote-when-better cannot judge an anomaly | new anomaly model, retrain schedule with promote-when-better, **Run now** | v2 trained, production kept, and the notification reads `anomaly_rate: 0.0203 vs production 0.0203 — this metric describes how much was flagged, not how well, so it cannot decide a promotion. Production kept…`     |
+| …and the control, in the same inbox         | the clustering model's own scheduled retrain, two hours earlier           | `silhouette: 0.2490 vs production 0.2490 (not better)` — a real quality metric keeps the original wording                                                                                                             |
+
+**One limit, stated rather than papered over.** The retrain produced the same
+`anomaly_rate` as the incumbent (0.020335 both, 17 rows of 836), because
+isolation forest is deterministic on unchanged data with a fixed contamination
+and the contamination is fixed when the model is created. So the DECISION would
+have been "kept" under the old comparison too; what the live run proves is the
+message. The direction itself — candidate 0.40 against incumbent 0.02 reading
+as "better" — is covered by `tests/unit/mlOps.test.ts`, mutation-verified.
+
+**And a control the fix turned into a no-op**, caught by the same round: the
+schedule dialog's "Promote the new version when its primary metric beats
+production" would still tick for an anomaly model and then never fire. It is
+now disabled there, with the reason in place of the label, and the save writes
+`promote_if_better: false`.
+
+**And one more control, proved broken before it was fixed.** "Explain this
+answer" on `revenue_facts · recommendations`, one row, through the panel: the
+prediction succeeded and the stored row reads
+`input: {"kind":"rows","count":1,"explain":true}`,
+`result.explanations: null`, with the only warning about cold start. The flag
+travelled from the checkbox into the request and was dropped without a word,
+because the recommendation branch returns before both explain blocks. Neither
+explain control is rendered for that task now, and the program says why to any
+caller that asks anyway.
+
+Kept for review: model **`anomaly_promote_probe`** with its two versions and
+the `promote_probe retrain` schedule, the notification in the bell, and the
+recommender's explained prediction row (`7635d72e`), which is the evidence for
+the paragraph above.
+
 ## 2026-09-16 — A knowledge base chooses its own vector index, ADVERSARIAL_LOG R15
 
 **Driven.** The store seam against this machine's real Supabase project and the

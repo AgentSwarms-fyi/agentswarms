@@ -80,13 +80,23 @@ describe("the program that does the explaining", () => {
     // about is true of both, so it should be asserted of both: a window that
     // happens to fit is not the thing being checked.
     const starts = [...program.matchAll(/if cfg\.get\('explain'\)/g)].map((m) => m.index!);
-    expect(starts.length).toBeGreaterThanOrEqual(2);
+    expect(starts.length).toBeGreaterThanOrEqual(3);
+    let computing = 0;
     for (const at of starts) {
       // To the end of the statement this guards, wherever that falls.
+      const line = program.slice(at, program.indexOf("\n", at));
       const block = program.slice(at, program.indexOf("\n\n", at));
-      expect(block).toContain("except Exception");
-      expect(block).toMatch(/warnings_\.append/);
+      // The two that actually COMPUTE one are the two that can fail, and
+      // they are what this property is about. The third refuses up front
+      // for a model whose answer has no per-feature story, and so has
+      // nothing to guard.
+      if (/cfg\.get\('output'\)/.test(line)) {
+        computing += 1;
+        expect(block).toMatch(/warnings_\.append/);
+        expect(block).toContain("except Exception");
+      }
     }
+    expect(computing).toBe(2);
   });
 });
 
@@ -147,5 +157,30 @@ describe("what it is called", () => {
 
   it("tells the reader which way a bar points", () => {
     expect(PANEL).toMatch(/pushed the answer up/i);
+  });
+
+  it("is not offered on a recommender, and says so if asked anyway", () => {
+    // The recommendation path returns before either explain block, so ticking
+    // the box produced a prediction row with `explanations: null` and no word
+    // about the absence. Measured on the live model: input recorded
+    // `{kind: "rows", count: 1, explain: true}`, result `explanations: null`,
+    // warnings about cold start only.
+    //
+    // Both halves matter: the panel stops offering it, and the program says
+    // why for every other caller — the API, the agent tool, a scheduled batch.
+    // BOTH controls: the single-row box and the batch reason-code box.
+    expect((PANEL.match(/model\.task !== "recommendation" \?/g) ?? []).length).toBe(2);
+    expect(PY).toMatch(/A recommender cannot be explained row by row/);
+    const reco = PY.slice(
+      PY.indexOf("def _predict_recommendation"),
+      PY.indexOf("def _predict_recommendation") + 1600,
+    );
+    // Adjacent, not merely both present: a body commented out would leave
+    // the message in the file and the guard doing nothing.
+    expect(reco).toMatch(
+      /if cfg\.get\('explain'\):\s*\n\s*warnings_\.append\("A recommender cannot be explained row by row/,
+    );
+    // Every other task keeps the control.
+    expect(PANEL).toContain("Explain this answer");
   });
 });

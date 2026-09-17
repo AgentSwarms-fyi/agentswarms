@@ -159,7 +159,14 @@ export function SchedulesPanel({
                       <p className="font-medium">{s.name}</p>
                       <p className="text-[11px] text-muted-foreground">
                         {s.kind === "retrain"
-                          ? `retrain · ${ML_TUNING_LABEL[(cfg.tuning as MlTuning) ?? "none"]}${s.promote_if_better ? " · promote when better" : ""}`
+                          ? // A schedule saved before the comparison learned to refuse can
+                            // still carry promote_if_better on a task nothing can judge.
+                            // The engine ignores it; the list must not advertise it.
+                            `retrain · ${ML_TUNING_LABEL[(cfg.tuning as MlTuning) ?? "none"]}${
+                              s.promote_if_better && task !== "anomaly"
+                                ? " · promote when better"
+                                : ""
+                            }`
                           : `batch predict · ${cfg.input?.schema}.${cfg.input?.table} → ${cfg.output?.schema}.${cfg.output?.table}`}
                       </p>
                     </td>
@@ -302,7 +309,7 @@ function NewScheduleDialog({
           schedule,
           cron_expr: schedule === "cron" ? cron.trim() : undefined,
           timezone: timezone || undefined,
-          promote_if_better: promote,
+          promote_if_better: task === "anomaly" ? false : promote,
           time_budget_minutes: budget === "" ? undefined : Number(budget),
           tuning: kind === "retrain" ? tuning : undefined,
           input:
@@ -425,13 +432,26 @@ function NewScheduleDialog({
                   ))}
                 </select>
               </div>
-              <label className="flex cursor-pointer items-center gap-2 text-xs sm:col-span-2">
+              {/* An anomaly model has no metric that can answer this. Its
+                  primary metric is `anomaly_rate` — the share of rows the
+                  detector flagged, near enough the contamination it was given
+                  — which describes the fit rather than scoring it. The
+                  comparison behind this box refuses to judge on it, so leaving
+                  the box tickable would leave a control that does nothing. */}
+              <label
+                className={`flex items-center gap-2 text-xs sm:col-span-2 ${
+                  task === "anomaly" ? "cursor-not-allowed opacity-70" : "cursor-pointer"
+                }`}
+              >
                 <input
                   type="checkbox"
-                  checked={promote}
+                  checked={task === "anomaly" ? false : promote}
+                  disabled={task === "anomaly"}
                   onChange={(e) => setPromote(e.target.checked)}
                 />
-                Promote the new version when its primary metric beats production
+                {task === "anomaly"
+                  ? "This model's primary metric is the share of rows it flagged — how much, not how well — so nothing here can call one version better. Retrains are kept as candidates; promote by hand."
+                  : "Promote the new version when its primary metric beats production"}
               </label>
             </div>
           ) : (

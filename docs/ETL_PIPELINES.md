@@ -303,6 +303,10 @@ itself. Each rule carries a severity:
 | `warn`   | Log `[quality] WARN …` and continue                       |
 | `drop`   | Log `[quality] DROP …`, remove offending rows, continue   |
 
+`drop` is not offered for `row_count_min`: a frame that is too short has no
+offending rows to remove, so the only answers are abort and carry on. A saved
+rule that asks for it is recorded and run as `fail`.
+
 Every rule's outcome — violating row counts included, zero or not — lands in
 the run's `quality` metric, so a Runs-tab entry answers "what did the gate see"
 without re-running anything. `[quality]` log lines carry the same numbers for

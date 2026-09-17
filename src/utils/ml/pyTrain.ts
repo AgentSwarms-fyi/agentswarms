@@ -1543,6 +1543,19 @@ def _train_recommendation(df, cfg, warnings_):
 def _predict_recommendation(art, cfg, warnings_):
     import numpy as np
     import pandas as pd
+    # ASKED TO EXPLAIN, AND SAYING SO RATHER THAN RETURNING NOTHING.
+    #
+    # This path returns before either of the two explain blocks below, so an
+    # explained recommendation used to come back with a null explanations
+    # field and no word about why: the checkbox was ticked, the request row
+    # recorded explain true, and the answer simply had no explanation in it.
+    #
+    # The ablation those blocks perform replaces one feature value with a
+    # typical one and asks the model again. A recommender's answer comes from
+    # which items co-occur in OTHER users' histories, not from this row's
+    # columns, so there is no cell to replace and nothing the move would mean.
+    if cfg.get('explain'):
+        warnings_.append("A recommender cannot be explained row by row: the answer comes from which items other users chose together, not from this row's columns.")
     inp = cfg['input']
     con = None
     ucol = art['user_col']

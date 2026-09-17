@@ -436,15 +436,21 @@ function TryIt({
             )}
             Predict
           </Button>
-          <label className="inline-flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
-            <input
-              type="checkbox"
-              className="h-3.5 w-3.5 accent-primary"
-              checked={explain}
-              onChange={(e) => setExplain(e.target.checked)}
-            />
-            Explain this answer
-          </label>
+          {/* Not offered for a recommender: its answer comes from which
+              items other users chose together, so the per-feature ablation
+              behind this box has no cell to move. Ticking it returned a row
+              with `explanations: null` and no explanation of the absence. */}
+          {model.task !== "recommendation" ? (
+            <label className="inline-flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
+              <input
+                type="checkbox"
+                className="h-3.5 w-3.5 accent-primary"
+                checked={explain}
+                onChange={(e) => setExplain(e.target.checked)}
+              />
+              Explain this answer
+            </label>
+          ) : null}
           {busy ? (
             <span className="text-xs text-muted-foreground">Scoring in a sandbox…</span>
           ) : null}
@@ -673,24 +679,29 @@ function BatchDialog({
               ))}
             </select>
           </div>
-          <label className="flex cursor-pointer items-start gap-2 sm:col-span-2">
-            <input
-              type="checkbox"
-              className="mt-0.5 h-3.5 w-3.5 accent-primary"
-              checked={explain}
-              onChange={(e) => setExplain(e.target.checked)}
-            />
-            <span className="text-xs">
-              <span className="font-medium">Write reason codes beside every row</span>
-              <span className="block text-[11px] leading-relaxed text-muted-foreground">
-                Adds <code className="font-mono">reason_1</code>…
-                <code className="font-mono">reason_3</code> and their effects as columns, so
-                &ldquo;why did this one get that answer&rdquo; is answerable in SQL without coming
-                back here. It costs an extra prediction per feature per row, so large batches are
-                refused rather than half-explained — narrow the rows if that happens.
+          {/* Same reason as the single-row box above: a recommender's scoring
+              path returns before the reason-code block, so this would write a
+              scored table with no reason columns and no note saying why. */}
+          {model.task !== "recommendation" ? (
+            <label className="flex cursor-pointer items-start gap-2 sm:col-span-2">
+              <input
+                type="checkbox"
+                className="mt-0.5 h-3.5 w-3.5 accent-primary"
+                checked={explain}
+                onChange={(e) => setExplain(e.target.checked)}
+              />
+              <span className="text-xs">
+                <span className="font-medium">Write reason codes beside every row</span>
+                <span className="block text-[11px] leading-relaxed text-muted-foreground">
+                  Adds <code className="font-mono">reason_1</code>…
+                  <code className="font-mono">reason_3</code> and their effects as columns, so
+                  &ldquo;why did this one get that answer&rdquo; is answerable in SQL without coming
+                  back here. It costs an extra prediction per feature per row, so large batches are
+                  refused rather than half-explained — narrow the rows if that happens.
+                </span>
               </span>
-            </span>
-          </label>
+            </label>
+          ) : null}
         </div>
         {err ? (
           <p className={cn("rounded-md bg-red-500/10 p-2 text-xs text-red-600 dark:text-red-400")}>

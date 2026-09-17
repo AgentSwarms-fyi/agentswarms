@@ -82,7 +82,22 @@ full in its own commit.
   whichever version was noisiest. The trainer had already written
   `higher_is_better: False` on its own leaderboard row, so the two halves
   disagreed in silence. The rate describes the fit rather than scoring it, so
-  it now decides nothing: production is kept and the notification says why.
+  it now decides nothing: production is kept and the notification says why. The
+  schedule dialog's promote-when-better box is disabled for that task with the
+  reason in place of its label, so the refusal does not leave a control that
+  ticks and never fires.
+
+- **"Explain this answer" is not offered where there is no answer to give.**
+  A recommender's prediction comes from which items other users chose
+  together, not from the row's own columns, and its scoring path returns
+  before either explanation branch — so ticking the box produced a prediction
+  with a null explanations field and no word about the absence. The control is
+  gone for that task, and the program now says why for every other caller.
+- **The trainer program is compiled as Python by the suite.** It is a
+  2,000-line module carried as a TypeScript string, and every other test of it
+  reads substrings out of that string — which is how an unbalanced quote
+  reaches a sandbox and dies at import. Added after exactly that happened while
+  writing the fix above.
 
 ### Email
 

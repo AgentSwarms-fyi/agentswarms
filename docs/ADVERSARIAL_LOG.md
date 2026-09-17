@@ -163,11 +163,68 @@ Flipping the direction is not the fix: a detector that flags nothing would then
 always win. The rate describes the fit rather than scoring it, so it now
 decides nothing — production is kept and the notification says why.
 
+#### R16 · S2 · "Explain this answer" on a recommender returned no answer and no explanation
+
+Ticked on `revenue_facts · recommendations`, one row, through the UI. The
+prediction succeeded and the stored row says exactly what happened:
+
+```
+input:   {"kind": "rows", "count": 1, "explain": true}
+result:  {"columns": [...], "explanations": null,
+          "warnings": ["1 user(s) had no history; they received the most popular items."]}
+```
+
+`explanations: null`, and the only warning is about cold start. The
+recommendation branch of `_predict` returns before BOTH explain blocks, so the
+flag was carried all the way from the checkbox into the stored request and then
+dropped without a word.
+
+The ablation those blocks perform replaces one feature value with a typical one
+and asks the model again. A recommender's answer comes from which items other
+users chose together, not from this row's columns, so there is nothing to
+replace — the honest answer is "not for this kind of model", which is now what
+both halves say: the two controls are not rendered for that task, and the
+program appends a warning for every other caller (the API, the agent tool, a
+scheduled batch) that asks anyway.
+
+#### R16 · S1 · The trainer program was never compiled as Python by the suite
+
+Found by making the mistake. The warning above was first written with an
+apostrophe inside a single-quoted Python literal, in a 2,000-line module
+carried as a TypeScript `String.raw` template. TypeScript was happy. Python
+would have died at import, inside a sandbox, on a line number that maps to
+nothing anybody edited.
+
+Twenty-odd test files assert things about that module by searching the string
+for substrings, which cannot catch it — the substring is present either way.
+`tests/unit/mlTrainProgramParses.test.ts` now compiles the whole module with
+the real interpreter, and scans it for control characters (a `\b` written in a
+shell heredoc arrives as a literal BACKSPACE and compiles). Mutation check: the
+unbalanced quote fails it with `SyntaxError: unterminated string literal`.
+
+The same round also put a backtick inside that `String.raw` template while
+writing a comment, which ends the template and breaks the TypeScript — caught
+immediately, by the new test file failing to transform.
+
+#### R16 · S3 · And the fix above turned a checkbox into a no-op
+
+Refusing to judge an anomaly promotion leaves the schedule dialog offering
+"Promote the new version when its primary metric beats production" for a model
+where nothing can beat anything. Ticking it would have written
+`promote_if_better: true` and then never fired — one silent wrong answer traded
+for a silent nothing. The box is disabled for that task, the reason replaces
+the label, and the save writes `false`.
+
+Worth naming as a pattern: a refusal added in the engine is only half a fix
+while the control that asks for it still looks available.
+
 **Tests:** `tests/unit/lakehouseSqlRefs.test.ts` and
 `tests/unit/lakehouseWriteAuthz.test.ts` (the stripper wiring),
 `tests/unit/etlRunRefusalReason.test.ts`, the two gate cases in
-`tests/unit/etlPipelines.test.ts`, and the anomaly case in
-`tests/unit/mlOps.test.ts`. Every one mutation-verified: removing the fix fails
+`tests/unit/etlPipelines.test.ts`, the anomaly cases in
+`tests/unit/mlOps.test.ts`, the recommender case in
+`tests/unit/mlExplanations.test.ts`, and the whole of
+`tests/unit/mlTrainProgramParses.test.ts`. Every one mutation-verified: removing the fix fails
 it, rewording the comment beside it does not.
 
 **Fixtures kept**, all listed in [UI test results](./UI_TEST_RESULTS.md).
