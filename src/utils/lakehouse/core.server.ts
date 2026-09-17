@@ -30,7 +30,7 @@ import path from "node:path";
 import { auditEvent } from "@/utils/audit.server";
 import { applyTablePolicies, loadPolicies } from "@/utils/lakehouse/policies.server";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import { qualifiedRefs } from "@/utils/lakehouse/sqlRefs";
+import { qualifiedRefs, tableRefs, writeSubSelect } from "@/utils/lakehouse/sqlRefs";
 
 import type { DuckDBConnection, DuckDBInstance } from "@duckdb/node-api";
 import { usesAiSqlFunctions } from "@/utils/aiSql/core";
@@ -1076,7 +1076,10 @@ export async function runLakehouseStatement(
       // this app ships. So the read set comes from a text scan that fails
       // closed: every schema-qualified name in the statement must be one the
       // caller may touch. See src/utils/lakehouse/sqlRefs.ts.
-      const mentioned = qualifiedRefs(sql);
+      // Alias qualifiers are not schemas: `WHERE t.id = 5` mentions `t.id`,
+      // and treating that as a schema refuses most real write SQL. tableRefs
+      // drops names bound inside the statement.
+      const mentioned = tableRefs(sql);
       assertSchemasAllowed([...new Set(mentioned.map((r) => r.schema))], allowed);
       // A write that READS a table under someone else's policy is refused
       // rather than filtered. Filtering would silently produce a copy with

@@ -193,6 +193,41 @@ export function qualifiedRefs(sql: string): QualifiedRef[] {
 }
 
 /**
+ * The qualified names that sit in a TABLE POSITION.
+ *
+ * A table reference in SQL always follows one of a small set of keywords, and
+ * that is far more precise than "any dotted name". Two earlier versions of
+ * this function were not, and both were wrong in a way that mattered:
+ *
+ *   - Taking every dotted name refused legitimate SQL. `UPDATE analytics.t SET
+ *     x = 1 WHERE t.id = 5` mentions `t.id`, and reading that as a schema
+ *     answers "No access to schema t" for a statement the user owns outright.
+ *   - Excluding names "bound" elsewhere in the statement fixed that and opened
+ *     a bypass: a table named after a schema (`INSERT INTO mine.secret SELECT
+ *     * FROM secret.data`) bound `secret` and then dropped the read of it.
+ *
+ * Position has neither problem. A column qualifier never follows FROM, and a
+ * table name in a FROM clause is always a table.
+ */
+export function tableRefs(sql: string): QualifiedRef[] {
+  const s = stripComments(sql);
+  const out: QualifiedRef[] = [];
+  const seen = new Set<string>();
+  // MERGE INTO / DELETE FROM / INSERT INTO are covered by INTO and FROM.
+  const re =
+    /\b(FROM|JOIN|INTO|USING|UPDATE|TABLE|VIEW)\s+(?:IF\s+NOT\s+EXISTS\s+|IF\s+EXISTS\s+|ONLY\s+)?("[^"]+"|[A-Za-z_][A-Za-z0-9_$]*)\s*\.\s*("[^"]+"|[A-Za-z_][A-Za-z0-9_$]*)/gi;
+  for (const m of s.matchAll(re)) {
+    const schema = m[2]!.replace(/^"|"$/g, "");
+    const table = m[3]!.replace(/^"|"$/g, "");
+    const key = `${schema.toLowerCase()}|${table.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ schema, table });
+  }
+  return out;
+}
+
+/**
  * The sub-SELECT of a write statement, when there is one that can be isolated.
  *
  * Only the forms where the select is unambiguously the tail of the statement:

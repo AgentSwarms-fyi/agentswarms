@@ -5,7 +5,7 @@
 // argue with), never fewer (a table they did not know they had exposed).
 import { describe, expect, it } from "vitest";
 
-import { qualifiedRefs, stripComments, writeSubSelect } from "@/utils/lakehouse/sqlRefs";
+import { qualifiedRefs, stripComments, tableRefs, writeSubSelect } from "@/utils/lakehouse/sqlRefs";
 
 describe("comment stripping keeps string literals intact", () => {
   it("leaves a double dash inside a literal alone", () => {
@@ -106,6 +106,81 @@ describe("finding every qualified name a statement mentions", () => {
     // Which is itself a refusal upstream — an unqualified write target is
     // already rejected by the classifier.
     expect(qualifiedRefs("SHOW ALL TABLES")).toEqual([]);
+  });
+});
+
+describe("a table reference is one in a TABLE POSITION", () => {
+  // Three versions of this were wrong before it was right, and the failures
+  // ran in both directions — which is why both directions are pinned here.
+  //
+  //   1. "every dotted name" refused legitimate SQL: `WHERE t.id = 5` reads
+  //      as schema "t".
+  //   2. "every dotted name, minus names bound elsewhere" fixed that and
+  //      opened a bypass: `INSERT INTO mine.secret SELECT * FROM secret.data`
+  //      bound "secret" from the target and then dropped the read of it.
+  //   3. The position scan itself silently matched NOTHING for an hour,
+  //      because a Python heredoc turned the regex's leading word boundary
+  //      into a literal BACKSPACE character. It typechecked, it ran, it
+  //      returned []. An access check that returns an empty read set is a
+  //      check that authorizes everything.
+
+  it("ignores alias and table-name column qualifiers", () => {
+    expect(tableRefs("UPDATE analytics.t SET x = 1 WHERE t.id = 5")).toEqual([
+      { schema: "analytics", table: "t" },
+    ]);
+    expect(
+      tableRefs("INSERT INTO analytics.t SELECT r.a FROM analytics.revenue_facts r").map(
+        (r) => `${r.schema}.${r.table}`,
+      ),
+    ).toEqual(["analytics.t", "analytics.revenue_facts"]);
+  });
+
+  it("still catches the source of every attack shape", () => {
+    for (const [sql, wanted] of [
+      ["CREATE TABLE mine.copy AS SELECT * FROM theirs.customers", "theirs.customers"],
+      ["CREATE TABLE mine.copy AS SELECT c.* FROM theirs.customers c", "theirs.customers"],
+      ["INSERT INTO mine.t SELECT * FROM theirs.secret", "theirs.secret"],
+      ["UPDATE mine.t SET x = s.x FROM theirs.src s", "theirs.src"],
+      ["DELETE FROM mine.t USING theirs.src s WHERE s.id = mine.t.id", "theirs.src"],
+      ["CREATE VIEW mine.v AS SELECT * FROM theirs.policed", "theirs.policed"],
+      ["MERGE INTO mine.t USING theirs.src s ON s.id = mine.t.id", "theirs.src"],
+      ["INSERT INTO mine.t SELECT * FROM a.x JOIN b.y ON 1=1", "b.y"],
+    ] as const) {
+      const got = tableRefs(sql).map((r) => `${r.schema}.${r.table}`);
+      expect(got, sql).toContain(wanted);
+    }
+  });
+
+  it("is not defeated by a table named after a schema", () => {
+    // The bypass that killed version 2.
+    const got = tableRefs("INSERT INTO mine.secret SELECT * FROM secret.data").map(
+      (r) => `${r.schema}.${r.table}`,
+    );
+    expect(got).toContain("secret.data");
+  });
+
+  it("reads quoted identifiers in table position", () => {
+    const got = tableRefs('INSERT INTO "my s"."t x" SELECT * FROM "oth er"."tbl"').map(
+      (r) => `${r.schema}.${r.table}`,
+    );
+    expect(got).toEqual(["my s.t x", "oth er.tbl"]);
+  });
+
+  it("finds something for every write shape — an empty read set authorizes everything", () => {
+    // The backspace bug's signature. Any statement that names a table must
+    // yield at least one reference; a silent [] is the failure mode that is
+    // invisible from the outside.
+    for (const sql of [
+      "CREATE TABLE a.b AS SELECT * FROM c.d",
+      "INSERT INTO a.b SELECT * FROM c.d",
+      "UPDATE a.b SET x = 1",
+      "DELETE FROM a.b",
+      "MERGE INTO a.b USING c.d ON 1=1",
+      "CREATE VIEW a.v AS SELECT 1",
+      "DROP TABLE a.b",
+    ]) {
+      expect(tableRefs(sql).length, `${sql} resolved to NO tables`).toBeGreaterThan(0);
+    }
   });
 });
 

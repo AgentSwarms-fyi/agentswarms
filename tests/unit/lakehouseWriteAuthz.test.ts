@@ -77,7 +77,9 @@ describe("the chokepoint checks reads on every statement kind", () => {
     expect(writeBranch, "the write branch no longer exists; re-anchor").toContain(
       "assertSchemasAllowed",
     );
-    expect(writeBranch).toContain("qualifiedRefs(sql)");
+    // tableRefs, not qualifiedRefs: the read set is the names in a TABLE
+    // POSITION. Authorizing every dotted name refused `WHERE t.id = 5`.
+    expect(writeBranch).toContain("tableRefs(sql)");
     // Two distinct assertions: the write target, and everything mentioned.
     expect(writeBranch.match(/assertSchemasAllowed/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
   });
