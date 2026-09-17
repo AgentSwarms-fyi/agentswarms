@@ -192,6 +192,18 @@ production" would still tick for an anomaly model and then never fire. It is
 now disabled there, with the reason in place of the label, and the save writes
 `promote_if_better: false`.
 
+**The controls the refusals left behind, both directions.** Driven on the
+final image, with a schedule saved two builds earlier that still carries
+`promote_if_better: true`:
+
+| Where                                 | Anomaly model                                                                                               | Control (classification / clustering)         |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
+| New-schedule dialog                   | checkbox `disabled`, unchecked, label replaced by "…the share of rows it flagged — how much, not how well…" | enabled, ticked, original label               |
+| Schedule list subtitle                | `retrain · No tuning` — the suffix is gone though the stored flag is still true                             | `retrain · No tuning · promote when better`   |
+| Predictions panel, single row         | —                                                                                                           | "Explain this answer" present                 |
+| Batch-prediction dialog               | —                                                                                                           | "Write reason codes beside every row" present |
+| Both of those, on the **recommender** | absent                                                                                                      | —                                             |
+
 **And one more control, proved broken before it was fixed.** "Explain this
 answer" on `revenue_facts · recommendations`, one row, through the panel: the
 prediction succeeded and the stored row reads
