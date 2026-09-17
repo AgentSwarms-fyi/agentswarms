@@ -30,6 +30,7 @@ import path from "node:path";
 import { auditEvent } from "@/utils/audit.server";
 import { applyTablePolicies, loadPolicies } from "@/utils/lakehouse/policies.server";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { qualifiedRefs } from "@/utils/lakehouse/sqlRefs";
 
 import type { DuckDBConnection, DuckDBInstance } from "@duckdb/node-api";
 import { usesAiSqlFunctions } from "@/utils/aiSql/core";
@@ -618,10 +619,33 @@ export async function selectReferencedTables(
 export async function selectReferencedSchemas(c: DuckDBConnection, sql: string): Promise<string[]> {
   const cleaned = stripSqlComments(sql).replace(/;\s*$/, "");
   const head = cleaned.slice(0, 20).toUpperCase();
-  // DESCRIBE/SUMMARIZE/SHOW take one target; serialize only handles SELECTs.
+  // DESCRIBE/SUMMARIZE/SHOW.
+  //
+  // The old shortcut took the FIRST schema-qualified name it could regex out
+  // and authorized only that. `SUMMARIZE SELECT * FROM mine.t JOIN
+  // theirs.secret USING (id)` therefore checked "mine" and executed — and
+  // SUMMARIZE reports min, max, approx-distinct and mean per column, which is
+  // a rich leak. `SHOW ALL TABLES` matched no qualified name at all, returned
+  // an empty read set, and listed every schema, table and column in the
+  // catalog including other users' and every mounted lake.
+  //
+  // DESCRIBE/SUMMARIZE over a SELECT *do* serialize (checked against the
+  // engine), so try the parser first and fall back only for the bare-target
+  // forms. Anything with no qualified name left is refused rather than
+  // treated as reading nothing.
   if (/^(DESCRIBE|SUMMARIZE|SHOW)\b/.test(head)) {
-    const m = new RegExp(`(${IDENT})\\.(${IDENT})`).exec(cleaned);
-    return m ? [unquote(m[1])] : [];
+    const sub = cleaned.replace(/^(DESCRIBE|SUMMARIZE)\s+/i, "");
+    if (/^(SELECT|WITH|FROM|\()/i.test(sub) && !/^SHOW\b/i.test(head)) {
+      return selectReferencedSchemas(c, sub);
+    }
+    const refs = qualifiedRefs(cleaned);
+    if (!refs.length) {
+      throw new Error(
+        `"${head.split(/\s+/)[0]}" needs a schema-qualified target here — ` +
+          `catalog-wide listings are not available`,
+      );
+    }
+    return [...new Set(refs.map((r) => r.schema))];
   }
   // json_serialize_sql needs a CONSTANT varchar — a bound parameter is
   // rejected — so the statement rides in as an escaped literal.
@@ -1013,13 +1037,21 @@ export async function runLakehouseStatement(
         // it: they could overwrite or delete rows the policy hides from them,
         // with no way to notice.
         if (row && row.user_id !== userId) {
-          const { data: policed } = await supabaseAdmin
-            .from("lakehouse_table_policies")
-            .select("table_name")
-            .eq("user_id", row.user_id)
-            .eq("schema_name", schema);
-          if ((policed ?? []).length) {
-            const names = new Set((policed ?? []).map((x) => String(x.table_name).toLowerCase()));
+          // Through loadPolicies, NOT a direct read of the policy table. The
+          // direct read was a second implementation of "is this table policed"
+          // and it had already drifted: a table protected only by a TAG rule
+          // has no row here, so its grantee could UPDATE and DELETE rows the
+          // policy hides from them. loadPolicies folds tag rules in, so the
+          // two enforcement points now answer the same question.
+          const policedMap = await loadPolicies(
+            [row.user_id],
+            (classified.writeTables ?? []).map((t) => ({
+              schema: schema.toLowerCase(),
+              table: t.toLowerCase(),
+            })),
+          );
+          if (policedMap.size) {
+            const names = new Set([...policedMap.keys()].map((k) => k.split(".")[1] ?? ""));
             const target = classified.writeTables?.find((t) => names.has(t.toLowerCase()));
             if (target) {
               throw new Error(
@@ -1027,6 +1059,45 @@ export async function runLakehouseStatement(
               );
             }
           }
+        }
+      }
+      // WHAT THE STATEMENT READS, not only what it writes.
+      //
+      // This check did not exist, and its absence was the whole security
+      // model's biggest hole: `CREATE TABLE mine.copy AS SELECT * FROM
+      // theirs.customers` authorized "mine", never resolved "theirs", and
+      // executed — DuckDB has no per-user ACLs and the engine holds one attach
+      // over the entire catalog, so the read simply worked. The same shape
+      // applies to INSERT…SELECT, MERGE…USING, UPDATE…FROM and DELETE…USING.
+      //
+      // It cannot reuse the SELECT path's AST walk, because DuckDB's
+      // `json_serialize_sql` refuses every non-SELECT statement ("Only SELECT
+      // statements can be serialized to json!") — verified against the engine
+      // this app ships. So the read set comes from a text scan that fails
+      // closed: every schema-qualified name in the statement must be one the
+      // caller may touch. See src/utils/lakehouse/sqlRefs.ts.
+      const mentioned = qualifiedRefs(sql);
+      assertSchemasAllowed([...new Set(mentioned.map((r) => r.schema))], allowed);
+      // A write that READS a table under someone else's policy is refused
+      // rather than filtered. Filtering would silently produce a copy with
+      // fewer rows than the source, which is a quieter wrong answer than a
+      // refusal the user can ask about.
+      const foreignRead = allowed.filter((sch) => sch.user_id !== userId);
+      if (foreignRead.length) {
+        const readTables = mentioned.filter((r) =>
+          foreignRead.some((sch) => sch.name.toLowerCase() === r.schema.toLowerCase()),
+        );
+        const readPolicies = await loadPolicies(
+          [...new Set(foreignRead.map((f) => f.user_id))],
+          readTables.map((r) => ({ schema: r.schema.toLowerCase(), table: r.table.toLowerCase() })),
+        );
+        if (readPolicies.size) {
+          const first = [...readPolicies.keys()][0];
+          throw new Error(
+            `This statement reads "${first}", which has a security policy — ` +
+              `a policy can only be applied to a SELECT, so it cannot be copied or written through. ` +
+              `Read it with SELECT, or ask its owner.`,
+          );
         }
       }
     }
