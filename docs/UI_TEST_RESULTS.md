@@ -15,6 +15,66 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-18 — The ETL node catalogue, driven; Kafka against a real broker
+
+**Driven.** The running instance, signed in as the owner, building pipelines
+node by node on the canvas rather than from templates — which is how three of
+the four defects below were found. Streaming ran against a local Redpanda
+(`redpandadata/redpanda:v24.2.7`, alias `redpanda-test.local`) on the kernel
+network, fed with `rpk`.
+
+### A long chain of transforms, off an HTTP JSON source
+
+`matrix_transforms`: **orders API (HTTP/JSON)** → filter → select → rename →
+derive → deduplicate → limit → **lakehouse table**, every node added from the
+toolbar and wired automatically.
+
+| What        | Configured as                            | Read back from `analytics.matrix_out`           |
+| ----------- | ---------------------------------------- | ----------------------------------------------- |
+| source      | `orders.json`, records path `data.items` | 308 rows arrived                                |
+| filter      | `amount > 0`                             | the 7 non-positive rows gone                    |
+| select      | order_id, customer_id, country, amount   | exactly those columns, plus the derived one     |
+| rename      | `amount → gross`                         | the column is `gross`                           |
+| derive      | `net = gross * 0.9`                      | **`sum(net)/sum(gross) = 0.9000` exactly**      |
+| deduplicate | (all columns)                            | **`count(DISTINCT order_id) = 250 = count(*)`** |
+| limit       | 250                                      | **250 rows**                                    |
+
+### Kafka, against a real broker
+
+`kafka_live`: **Kafka topic** → filter (`status == 'paid'`) → **lakehouse
+table** (append). 120 JSON messages produced to `orders_stream`, then 30 more.
+
+| Run | Topic state                                 | Result                 | Table after                                                |
+| --- | ------------------------------------------- | ---------------------- | ---------------------------------------------------------- |
+| 1   | 120 messages, 90 of them `paid`             | Succeeded, **90 rows** | 90 rows, `sum(amount)` **22666.44** — to the cent          |
+| 2   | nothing new                                 | **FAILED** — see below | —                                                          |
+| 3   | nothing new, after the fix                  | Succeeded, **0 rows**  | unchanged                                                  |
+| 4   | 30 more on a DIFFERENT partition, 20 `paid` | Succeeded, **20 rows** | **110 rows**, **25869.13**, 2 partitions, 110 distinct ids |
+
+Run 4 is the one that matters: only the new partition's messages were read,
+none of the 120 was read twice, and the totals add up exactly
+(22666.44 + 3202.69 = 25869.13).
+
+### What driving it found
+
+| #   | Defect                                                                                                                                           | How it surfaced                                                   |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------- |
+| 1   | **"Add rename" did nothing** — one of fifteen transform kinds could not be configured from the canvas at all                                     | clicking it, twice by mouse and once by `.click()` on the element |
+| 2   | **A caught-up stream failed on every quiet tick** (`KeyError: 'status'` on a frame with zero rows and only `_stream_*` columns)                  | run 2 above                                                       |
+| 3   | **A failed access check read as a refusal** — `no access to lakehouse schema "analytics"` while the same owner queried that schema seconds later | a run in between, then the SQL editor                             |
+| 4   | **An HTTP node pointing at an unreachable host** returned forty lines of urllib3 instead of naming the host                                      | pointing an HTTP API source at the app's own origin               |
+
+Defect 2 took two attempts, and the second attempt is the lesson: the first
+guard tested for "no rows AND no columns", which is what a bare
+`pd.DataFrame()` looks like — and it did not fire, because a quiet Kafka read
+returns its five `_stream_*` metadata columns. The live run failed again,
+identically. Row count is the honest test.
+
+Kept for review: pipelines **`matrix_transforms`** and **`kafka_live`** with
+their runs, tables `analytics.matrix_out` and `analytics.kafka_orders`, and the
+Redpanda container `agentswarms-redpanda-test` (removable with `docker rm -f`;
+its host is on the egress allow-list as `redpanda-test.local`).
+
 ## 2026-09-17 — Lakehouse, ETL and ML, by real runs from the UI, ADVERSARIAL_LOG R16
 
 **Driven.** The running instance on :8080, signed in as the owner, in the
