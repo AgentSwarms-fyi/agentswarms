@@ -16,6 +16,7 @@
 // never do.
 
 import type { BiWidget } from "@/lib/biDashboards";
+import { hasRawDateValues, parseDateValue } from "@/lib/biChartMath";
 
 /** Page sizes in PDF points (72 per inch), portrait. */
 export const PAGE_SIZES = {
@@ -195,6 +196,83 @@ export function tableRows(
   const rows = block.widget.rows ?? [];
   const cap = block.maxRows;
   return cap && cap > 0 ? rows.slice(0, cap) : rows;
+}
+
+/**
+ * One table cell as the READER will see it.
+ *
+ * Shared by the preview and the PDF on purpose. The PDF formatted numbers and
+ * the preview called `String(v)`, so a float that prints `410,379.26` on the
+ * page a finance team receives read `410379.26499999943` on the page its
+ * author approved — IEEE-754 noise, in a table whose whole reason for being
+ * paginated is that somebody checks it row by row.
+ *
+ * Full digits with separators, not the compact "410.4k" the charts use: a
+ * number in a table is there to be read exactly.
+ */
+/**
+ * What a column holds, decided once from its values rather than per cell.
+ *
+ * A timestamp and a quantity are both `number` by the time they reach a cell,
+ * so a per-cell decision cannot tell them apart — and printing an order date
+ * as `1,640,995,200,000` is only a tidier version of printing it as
+ * `1640995200000`.
+ */
+export type ReportColumnKind = "date" | "datetime" | "year" | "other";
+
+const p2 = (n: number) => String(n).padStart(2, "0");
+
+/**
+ * The kind of each column of a table block.
+ *
+ * Note this is NOT the chart axis rule. An axis may relabel a whole column to
+ * one grain — "2024-03" for every March — because an axis is a scale. A table
+ * is a list of rows somebody checks one at a time, so every row keeps its own
+ * value and only its PRESENTATION changes.
+ */
+export function reportColumnKinds(
+  rows: Record<string, unknown>[],
+  cols: string[],
+): Record<string, ReportColumnKind> {
+  const out: Record<string, ReportColumnKind> = {};
+  for (const c of cols) {
+    if (hasRawDateValues(rows, c)) {
+      // Midnight everywhere means the time half is noise, not information.
+      const withTime = rows.some((r) => {
+        const d = parseDateValue(r[c]);
+        return !!d && (d.getUTCHours() || d.getUTCMinutes() || d.getUTCSeconds());
+      });
+      out[c] = withTime ? "datetime" : "date";
+      continue;
+    }
+    // A column of plain four-digit integers reads as years — the same reading
+    // parseDateValue takes of 2026 — and a year is not a quantity, so it must
+    // not be grouped into "2,026".
+    const nums = rows.map((r) => r[c]).filter((v) => v !== null && v !== undefined && v !== "");
+    const allYears =
+      nums.length > 0 &&
+      nums.every((v) => typeof v === "number" && Number.isInteger(v) && v >= 1000 && v <= 9999);
+    out[c] = allYears ? "year" : "other";
+  }
+  return out;
+}
+
+export function reportCellText(v: unknown, kind: ReportColumnKind = "other"): string {
+  if (v === null || v === undefined) return "—";
+  if (kind === "date" || kind === "datetime") {
+    const d = parseDateValue(v);
+    if (d) {
+      const day = `${d.getUTCFullYear()}-${p2(d.getUTCMonth() + 1)}-${p2(d.getUTCDate())}`;
+      return kind === "datetime" ? `${day} ${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}` : day;
+    }
+  }
+  if (typeof v === "number") {
+    if (kind === "year") return String(v);
+    return Number.isInteger(v)
+      ? v.toLocaleString()
+      : v.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  }
+  return String(v);
 }
 
 /** The columns a table block prints: the ones it names, else the query's own. */

@@ -15,6 +15,95 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-18 — BI dashboarding and reporting end to end, ADVERSARIAL_LOG R18
+
+**Driven.** The running instance, signed in as the owner. Three surfaces: a
+hand-built dashboard over a series whose every value was known before the first
+tile existed; a paginated report the AI planned and built; and a whole
+dashboard the AI generated unaided. Then the AI extras on top of them — the
+per-widget insight, the insight sweep, the NL analyst, and an ontology over the
+built-in lakehouse.
+
+**The reference series.** `analytics.bi_demo_sales` in the lakehouse, seeded by
+ETL pipeline `bi_seed` from `base(t) = 1000 + 25t + 200·sin(2πt/12) +
+10·sin(7t)` — 108 rows, 36 months, three regions weighted 0.5 / 0.3 / 0.2,
+total **51,749.84**. Every number a tile showed could therefore be checked
+rather than eyeballed.
+
+### Visual types
+
+| Driven                                                                                                                                                                                                                                                   | Read back                                                                                                                                                                                                       |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 25 of the 26 types on one dashboard: column, bar, stacked column, stacked bar, bar race, line, area, combo, scatter, pie, nightingale, radar, funnel, sankey, treemap, word cloud, heatmap, box plot, waterfall, KPI, gauge, matrix, map, bubbles, table | Every one rendered from the lakehouse table. Matrix checked cell by cell against the seeded series; treemap and table totals 51.7k; heatmap rows AMER/APJ/EMEA against 36 month columns                         |
+| The 26th, **Ontology**, built from the lakehouse (21/21 tables)                                                                                                                                                                                          | 21 entities, 1 source — and the AI step timed out at 60s, leaving 0 relationships and heuristic labels (R18)                                                                                                    |
+| Forecast, 6 periods, built-in seasonal                                                                                                                                                                                                                   | 1874.2 / 1997.0 / 2095.4 / 2148.6 / 2147.7 / 2099.5 against truth 1906.24 / 2034.84 / 2131.80 / 2178.14 / 2169.33 / 2116.02 — **MAPE ≈ 1.4%**, peak at step 4 in both, band widening 208.5 → 510.6 = √6 exactly |
+| Filled map and bubble map over a column of ISO alpha-2 codes                                                                                                                                                                                             | "10 rows not matched to a country" on both — 2 of 280 codes resolved, `GB` among the failures (R18)                                                                                                             |
+
+### The AI half
+
+| Driven                                                                          | Read back                                                                                                                                                                                                                                 |
+| ------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Generate a report** over `saas_sales`, twice from the same brief              | A 4-section plan each time with a chart type and a rationale per section. Run 1 built 3 of 4 and disclosed the shortfall; run 3 built all 4 (11 blocks). Header, footer, `{{page}} of {{pages}}` and the repeated table header all behave |
+| **Generate Entire Dashboard** over `saas_sales`, no focus given                 | An executive summary and 13 widgets across 13 chart types, all 13 built. Two carry a `PARTIAL` badge where the snapshot hit its row cap                                                                                                   |
+| **AI analyst** (NL → SQL → chart → narrative), asked for total sales and profit | `SELECT SUM(Sales) AS total_sales, SUM(Profit) AS total_profit FROM saas_sales` → 2.30M / 286.4k, matching both generated KPI tiles and the 14-row product breakdown, which sums to 2,297,201.86                                          |
+| **AI insight** on "Sales by Region"                                             | A structured card — what the data shows / watch out for / next steps — whose three percentages summed to **106%** (R18)                                                                                                                   |
+| **Scan** on the generated dashboard                                             | "Swept 10 widgets and found 2 things worth a look… 4 could not be swept", each with its reason. Deterministic, no model call. The 2025-11 outlier at 3.1 MAD from the median                                                              |
+| **Build ontology with AI**, lakehouse only                                      | AI enrichment refused at the 60s deadline, disclosed in the widget, heuristic fallback shown (R18)                                                                                                                                        |
+
+### Blocked, and why
+
+Neither AI generator can be pointed at a lakehouse or warehouse table — both
+offer local datasets (and, for dashboards, a governed semantic model) only — so
+the "generate from the lakehouse" path was exercised through the **Ontology**
+builder, which does list it, and through a dashboard widget carried into a
+report. Recorded in the log as a product decision rather than a defect.
+
+**Kept for review.** The user asked for these to be left in place:
+
+- Dashboard **"BI verification — known series"** — `/bi/64a77e4b-041a-4d41-b58c-092745558f7a`
+  — the 25 visual types over the seeded lakehouse series, including the two map
+  widgets that produced the country-code finding and the verified forecast.
+- Dashboard **"AI verification - generated from saas_sales"** —
+  `/bi/db14d61a-6fe7-4862-a428-42eabb600ad2` — everything on it was written by
+  the AI: the executive summary, 13 widgets, the insight card whose percentages
+  summed to 106%, and the ontology widget.
+- Report **"Revenue pack - known series"** —
+  `/bi/report/d27fef19-1c65-4287-9161-424d0e7c6d93` — the AI-planned paginated
+  report, saved at the 3-section version that produced the preview/PDF finding.
+
+### Re-driven on the rebuilt image
+
+The same widgets, after the fixes, on the same data:
+
+| Widget                                     | Before                                       | After                                                                                        |
+| ------------------------------------------ | -------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Revenue by country, filled and bubble      | "10 rows not matched" of 11                  | "3 rows not matched" — all 8 real countries draw, `GB` included; the 3 are `??`, `U S`, `XX` |
+| Report trend axis, and both AI time charts | `1667260800000`                              | `2022-05 … 2025-12`, on AUTO, no user action                                                 |
+| "Top Products by Revenue" table            | `410379.26499999943`                         | `410,379.26` — the text the PDF prints                                                       |
+| Data ontology                              | 0 links, "AI enrichment unavailable (… 60s)" | **76 entities, 55 relationships, 5 sources, "AI-built"**                                     |
+| AI insight on "Sales by Region"            | 48% + 39% + 19% = **106%**                   | 45.4% + 36.5% + 18.1% = **100.0%**, with the total it divided by stated                      |
+
+### Re-driven again: both AI generators, pointed at the lakehouse
+
+After the source picker was added to both dialogs (and the report editor's own
+route was given a real warehouse context):
+
+| Driven                                                                                                            | Read back                                                                                                                                                                                                                    |
+| ----------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Generate Entire Dashboard** → source "Lakehouse — AgentSwarms Lakehouse (built-in)" → `analytics.bi_demo_sales` | All 21 lakehouse tables offered, none with a misleading "0 rows". 13 widgets built. **Total Revenue 51.7k** — the seeded series total — and AMER 25.9k, matching the regional split verified earlier                         |
+| The generated KPI's own editor                                                                                    | SQL `SELECT SUM(revenue) AS total_revenue FROM analytics.bi_demo_sales`, source **"Lakehouse — AgentSwarms Lakehouse (built-in)"** — so refresh and drill-through return there                                               |
+| **Generate a report** → same source → same table, 3 sections                                                      | 9 blocks. The detail table's 36 monthly rows sum to **51,749.84**, against 51,749.79 recomputed from the seeding formula `1000 + 25t + 200·sin(2πt/12) + 10·sin(7t)` — the 5-cent gap is per-row rounding in the stored data |
+| The same report's chart axis and table cells                                                                      | `2023-01 … 2025-12` on AUTO and `1,131.56` rather than a raw float — the earlier two fixes holding on a lakehouse-sourced page                                                                                               |
+
+**Kept for review** (added to the list above):
+
+- Dashboard **"AI from the lakehouse - generated"** — `/bi/c9bbdd5c-eab3-4717-b3bf-dc4a0392b9b3`
+  — 13 widgets, every one of them written by the AI against the lakehouse.
+- Report **"Lakehouse pack - generated"** — `/bi/report/aee89589-104e-49c7-ad0f-29e0a5efb9ed`
+  — the AI-planned paginated report whose numbers reconcile to the cent.
+
+Findings from this round: R18 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-18 — A shipped sample pipeline, run; what the product wrote, it could not read back
 
 **Driven.** The running instance, signed in as the owner. `recon_live2`,

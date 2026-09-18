@@ -29,6 +29,7 @@ import { parseModelChoice } from "@/utils/providers/modelChoice";
 import { clientDeadlineMs } from "@/lib/llmDeadline";
 import type { GovernedModelFields } from "@/lib/aiAnalyst";
 import type { ScenarioParameter } from "@/lib/analystScenario";
+import { insightFacts } from "@/lib/biInsightFacts";
 
 export type ColumnMeta = {
   description?: string;
@@ -1156,6 +1157,11 @@ export async function generateWidgetInsight(args: {
   model?: string;
 }): Promise<string> {
   const sample = args.rows.slice(0, 30);
+  // Totals and shares are computed here, over EVERY row, because a model
+  // asked to divide will divide wrongly and the card is headed "What the
+  // data shows". Measured: it reported regional shares of 48% / 39% / 19%,
+  // which sum to 106%.
+  const facts = insightFacts(args.columns, args.rows);
   const out = await llmJson<{ insight: string }>({
     model: args.model,
     systemPrompt:
@@ -1165,8 +1171,13 @@ export async function generateWidgetInsight(args: {
       "'**Watch out for**' (1-2 bullets on anomalies, gaps or caveats), and " +
       "'**Suggested next steps**' (1-2 actionable bullets). Be specific — quote real numbers " +
       "from the data, rounded for readability ($1.2M, 3.4k). No preamble, no headings beyond " +
-      "the bolded labels.",
-    userPrompt: `VISUAL: ${args.title}\nSQL: ${args.sql ?? "n/a"}\nCOLUMNS: ${args.columns.join(", ")}\nTOTAL ROWS: ${args.rows.length}\nROWS (sample): ${JSON.stringify(sample)}\n\nReturn JSON: { "insight": "..." }`,
+      "the bolded labels. " +
+      "FACTS is authoritative and already computed over every row: take every total, " +
+      "share and percentage from it verbatim. Do NOT calculate a percentage, share, " +
+      "ratio or total yourself, and do not state one FACTS does not give you — the " +
+      "rows below may be a sample of a longer result, so anything derived from them " +
+      "can be wrong.",
+    userPrompt: `VISUAL: ${args.title}\nSQL: ${args.sql ?? "n/a"}\nCOLUMNS: ${args.columns.join(", ")}\nTOTAL ROWS: ${args.rows.length}\n${facts ? `FACTS (authoritative):\n${facts}\n` : ""}ROWS (sample): ${JSON.stringify(sample)}\n\nReturn JSON: { "insight": "..." }`,
   });
   return out.insight;
 }

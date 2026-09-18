@@ -151,6 +151,111 @@ export function bucketDate(v: unknown, grain: DateGrain): string | null {
   }
 }
 
+/**
+ * True when a field holds RAW date values rather than labels a person reads.
+ *
+ * The distinction is the whole point. `SELECT strftime(d, '%Y-%m')` returns
+ * "2023-01" — already a label, and relabelling it would only risk changing
+ * it. `SELECT date_trunc('month', d)` returns a timestamp, which arrives here
+ * as a Date or an epoch number and renders on the axis as `1667260800000`.
+ */
+/**
+ * Epoch range this will commit to: 2001-09-09 through 2100, as milliseconds
+ * or as seconds.
+ *
+ * Deliberately NARROWER than `parseDateValue`, which maps anything under
+ * 10^10 to seconds and so reads the money column 13946.229 as a moment in
+ * 1970. That reading is harmless where it only decides whether to OFFER a
+ * grain toggle; it is not harmless here, where a "yes" rewrites the column's
+ * printed values. So this answers "is this unmistakably a timestamp", and
+ * anything short of unmistakable is left exactly as the query returned it.
+ */
+function plausibleEpoch(n: number): boolean {
+  if (!Number.isInteger(n)) return false; // a stamp is not 13946.229
+  const a = Math.abs(n);
+  return (a >= 1e12 && a <= 4.102e12) || (a >= 1e9 && a <= 4.102e9);
+}
+
+export function hasRawDateValues(rows: Record<string, unknown>[], field: string): boolean {
+  let raw = 0;
+  let total = 0;
+  for (const r of rows) {
+    const v = r[field];
+    if (v === null || v === undefined || v === "") continue;
+    total++;
+    if (v instanceof Date) raw++;
+    // A four-digit year is a LABEL already ("2026"), not a raw stamp — the
+    // same reading parseDateValue takes of it. Everything else must look like
+    // an actual epoch, or a column of revenue becomes a column of dates.
+    else if (typeof v === "number" && plausibleEpoch(v)) raw++;
+  }
+  return total > 0 && raw / total >= 0.8;
+}
+
+/** How many labels an axis can carry before they stop being readable. */
+const MAX_AUTO_BUCKETS = 60;
+
+const GRAIN_DAYS: [DateGrain, number][] = [
+  ["day", 1],
+  ["week", 7],
+  ["month", 30.44],
+  ["quarter", 91.31],
+  ["year", 365.25],
+];
+
+/**
+ * The grain a date axis should be LABELLED at when nobody picked one.
+ *
+ * Returns null when there is nothing to fix — the values are already labels,
+ * or are not dates at all — so the common case changes not at all.
+ *
+ * Found by generating a report with AI: its SQL grouped by `date_trunc`, and
+ * every tick on the finance team's revenue trend read `1667260800000`. The
+ * grain toggle would have fixed it, but it defaults to "auto" and auto did
+ * nothing, so the unreadable axis is the one every reader gets. Picking the
+ * finest grain that still fits is what "auto" always claimed to do.
+ */
+export function autoDateGrain(rows: Record<string, unknown>[], field: string): DateGrain | null {
+  if (!hasRawDateValues(rows, field)) return null;
+  const times: number[] = [];
+  for (const r of rows) {
+    const d = parseDateValue(r[field]);
+    if (d) times.push(d.getTime());
+  }
+  if (times.length === 0) return null;
+  const spanDays = (Math.max(...times) - Math.min(...times)) / 86_400_000;
+  for (const [grain, days] of GRAIN_DAYS) {
+    if (spanDays / days <= MAX_AUTO_BUCKETS) return grain;
+  }
+  return "year";
+}
+
+/**
+ * Relabel a date field in place — no reordering, no aggregation, no rows lost.
+ *
+ * Deliberately NOT `bucketRowsX`: an explicit grain is a request to regroup
+ * the data, but auto is only a request to make the axis readable. Sorting
+ * would reorder a ranked chart and dropping unparsable rows would quietly
+ * change a total, and neither is something a reader asked for by not
+ * choosing a grain.
+ *
+ * What this function does not do, a caller still might: a bar chart combines
+ * equal categories through `aggregateByField` whatever produced the labels,
+ * so daily rows labelled by month do total per month there. That is the
+ * chart's own long-standing behaviour, not something introduced here — a line
+ * chart, which does not aggregate, keeps every point.
+ */
+export function labelRowsX(
+  rows: Record<string, unknown>[],
+  field: string,
+  grain: DateGrain,
+): Record<string, unknown>[] {
+  return rows.map((r) => {
+    const label = bucketDate(r[field], grain);
+    return label === null ? r : { ...r, [field]: label };
+  });
+}
+
 /** Replace a field's values with bucket labels (unparsable rows dropped). */
 export function bucketRowsX(
   rows: Record<string, unknown>[],

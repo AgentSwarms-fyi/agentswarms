@@ -7,9 +7,15 @@
 // narrative of SECTIONS instead of a set of tiles, and each section says
 // whether its answer belongs in a chart or in a table somebody will read a
 // row of.
+//
+// That extends to WHERE the data lives: the table may be local, in a
+// connected warehouse, or in the built-in lakehouse, resolved by the same
+// lib/biGenerationSource the dashboard generator uses. A month-end pack is
+// exactly the kind of report whose numbers live in the warehouse rather than
+// in a file somebody uploaded.
 import { useState } from "react";
 import { toast } from "sonner";
-import { FileText, Loader2, Sparkles, Table2 } from "lucide-react";
+import { Database, FileText, Loader2, Sparkles, Table2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -33,6 +39,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { BiModelSelect } from "@/components/bi/BiModelSelect";
 import type { BiDataContext } from "@/components/bi/biDataContext";
 import { runBiTurn } from "@/lib/biAgent";
+import {
+  LOCAL_SOURCE_KEY,
+  generationSource,
+  generationSourceOptions,
+} from "@/lib/biGenerationSource";
 import { widgetFromBiTurn } from "@/lib/biDashboards";
 import { suggestReportOutline, type ReportSection } from "@/lib/biReportAgent";
 import { newBlockId, type ReportBlock } from "@/lib/biReports";
@@ -57,6 +68,8 @@ export function GenerateReportDialog({
   onDone: (blocks: ReportBlock[], title: string) => void;
 }) {
   const [phase, setPhase] = useState<"configure" | "review">("configure");
+  /** "local", or the id of a warehouse/lakehouse connection. */
+  const [sourceKey, setSourceKey] = useState(LOCAL_SOURCE_KEY);
   const [table, setTable] = useState("");
   const [goal, setGoal] = useState("");
   const [planning, setPlanning] = useState(false);
@@ -67,12 +80,22 @@ export function GenerateReportDialog({
   const [picked, setPicked] = useState<Set<number>>(new Set());
   const [steps, setSteps] = useState<Step[]>([]);
 
-  const selectedTable = ctx.datasets.some((d) => d.name === table)
+  const gen = generationSource({
+    sourceKey,
+    datasets: ctx.datasets,
+    semantics: ctx.semantics,
+    metrics: ctx.metrics,
+    warehouses: ctx.warehouses,
+    whTables: ctx.whTables,
+    userId: ctx.userId,
+  });
+  const sourceOptions = generationSourceOptions(ctx.warehouses);
+  const selectedTable = gen.datasets.some((d) => d.name === table)
     ? table
-    : (ctx.datasets[0]?.name ?? "");
-  const scoped = ctx.datasets.filter((d) => d.name === selectedTable);
+    : (gen.datasets[0]?.name ?? "");
+  const scoped = gen.datasets.filter((d) => d.name === selectedTable);
   const scopedMetrics =
-    scoped.length > 0 ? ctx.metrics.filter((m) => m.table_id === scoped[0].id) : [];
+    scoped.length > 0 ? gen.metrics.filter((m) => m.table_id === scoped[0].id) : [];
 
   function reset() {
     setPhase("configure");
@@ -84,12 +107,13 @@ export function GenerateReportDialog({
   }
 
   async function plan() {
+    if (gen.notReady) return toast.error(gen.notReady);
     if (!scoped.length) return toast.error("Pick a table first");
     setPlanning(true);
     try {
       const out = await suggestReportOutline({
         datasets: scoped,
-        semantics: ctx.semantics,
+        semantics: gen.semantics,
         metrics: scopedMetrics,
         goal: goal.trim() || undefined,
         model: ctx.model ?? undefined,
@@ -139,15 +163,20 @@ export function GenerateReportDialog({
         const turn = await runBiTurn({
           question: s.question,
           datasets: scoped,
-          semantics: ctx.semantics,
+          semantics: gen.semantics,
           metrics: scopedMetrics,
           model: ctx.model ?? undefined,
+          // Against a warehouse the SQL runs there, in that dialect; the
+          // widget records the source so the report's own refresh goes back
+          // to the same place.
+          execute: gen.warehouse ? (sql) => ctx.runSql(gen.source, sql) : undefined,
+          dialect: gen.dialect,
           // A table section still needs a chart spec built (the widget carries
           // one either way); asking for "table" keeps the answer row-shaped.
           preferChart: s.present === "table" ? "table" : s.chartType || undefined,
           onUpdate: () => {},
         });
-        const widget = widgetFromBiTurn(turn, { kind: "local" });
+        const widget = widgetFromBiTurn(turn, gen.source);
         if (widget && turn.status === "done" && (turn.result?.row_count ?? 0) > 0) {
           widget.title = "";
           if (s.pageBreakBefore && blocks.length) {
@@ -217,20 +246,58 @@ export function GenerateReportDialog({
 
         {phase === "configure" ? (
           <div className="space-y-4">
+            {sourceOptions.length > 1 && (
+              <div className="space-y-1.5">
+                <Label className="text-xs">Source</Label>
+                <Select
+                  value={sourceKey}
+                  onValueChange={(v) => {
+                    setSourceKey(v);
+                    // The old source's table name must not survive the switch.
+                    setTable("");
+                    // On the pick, not in an effect — see the dashboard
+                    // generator: an effect would retry a broken connection
+                    // forever.
+                    if (v !== LOCAL_SOURCE_KEY) ctx.ensureSchema(v);
+                  }}
+                >
+                  <SelectTrigger className="h-9">
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      <Database className="h-3.5 w-3.5 shrink-0 text-primary" />
+                      <SelectValue />
+                    </span>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sourceOptions.map((o) => (
+                      <SelectItem key={o.key} value={o.key}>
+                        {o.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div className="space-y-1.5">
               <Label className="text-xs">Table</Label>
               <Select value={selectedTable} onValueChange={setTable}>
                 <SelectTrigger className="h-9">
-                  <SelectValue placeholder="Pick a table…" />
+                  <SelectValue placeholder={gen.notReady ?? "Pick a table…"} />
                 </SelectTrigger>
                 <SelectContent>
-                  {ctx.datasets.map((d) => (
+                  {gen.datasets.map((d) => (
                     <SelectItem key={d.name} value={d.name}>
                       {d.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+              {gen.notReady ? (
+                <p className="text-[10px] text-amber-600 dark:text-amber-400">{gen.notReady}</p>
+              ) : gen.warehouse ? (
+                <p className="text-[10px] text-muted-foreground">
+                  Every section queries {gen.warehouse.name} live.
+                </p>
+              ) : null}
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs">What is the report for? (optional)</Label>

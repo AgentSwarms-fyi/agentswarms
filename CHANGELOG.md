@@ -19,6 +19,68 @@ control was offered and did not do what it said.** Seven of them; each was
 found by running the thing rather than reading it, and each is described in
 full in its own commit.
 
+### BI dashboards and reports
+
+A pass over the BI half — 25 visual types over a series whose every value was
+known in advance, then the AI features on top. Five of the six fixes are one
+sentence: a value the query returned is not a value a person can read.
+
+- **Maps take ISO country codes.** A column of alpha-2 codes — the ordinary way
+  country data is stored — matched TWO of the 280 assigned codes, and `GB`, the
+  real code for the United Kingdom, drew nothing. Alpha-2 now resolves through
+  `Intl.DisplayNames` and the numeric form through the atlas's own feature ids,
+  which ARE ISO 3166-1 numeric: **171 of the bundled atlas's 177 countries**
+  now resolve from a code, up from 2. Two aliases that had always pointed at
+  shapes the atlas cannot draw were removed.
+
+- **A date axis on AUTO no longer prints epoch milliseconds.** A chart whose
+  SQL returns a real timestamp — which is every chart the AI writes — drew its
+  axis as `1667260800000`. "Auto" now picks the finest grain whose labels fit
+  and relabels in place: an explicit grain is a request to reshape the data —
+  it sorts, sums and drops what will not parse — where auto only makes the
+  axis readable, so no row moves, disappears or changes value. (A bar chart
+  still combines equal categories afterwards, as it always has, so daily rows
+  labelled by month do total per month.)
+
+- **A report preview shows what the PDF will print.** The preview rendered
+  `410379.26499999943` where the exported PDF rendered `410,379.26`, and a date
+  column read `1640995200000` in both. One cell formatter now serves both
+  surfaces, and a table column is typed from its values first — dates print as
+  dates, with every row keeping its own, because a table is a list somebody
+  checks a row of.
+
+- **An AI insight card no longer does its own arithmetic.** One reported
+  regional shares of 48%, 39% and 19% — three shares of one total that sum to
+  106%. Totals, ranges and shares are now computed over every row and handed to
+  the model as authoritative facts, which also fixes a quieter gap: the prompt
+  sends 30 rows, and the card speaks about the whole result.
+
+- **Both AI generators can now be pointed at a warehouse or the built-in
+  lakehouse.** "Generate Entire Dashboard" and the paginated-report planner
+  offered local datasets only, which made them the one place in BI that could
+  not see the lakehouse the dashboards around them were already querying. They
+  now share one source resolver, and it is careful about the things that
+  quietly assume local: semantic models and saved metrics are keyed to local
+  dataset ids, so a warehouse source carries neither rather than applying one
+  table's definitions to another's columns; a schema that is still loading, a
+  connection that is broken and a warehouse with no tables each say something
+  different; and a connection that disappears mid-dialog refuses instead of
+  falling back to local data. Each generated widget records the connection it
+  queried, so refresh and drill-through return to it.
+
+  The report editor's own route also had to be wired: it handed the generator
+  an empty warehouse list and a `runSql` that threw "A report generates from
+  local datasets", so the picker had nothing to offer there no matter what the
+  dialog did. It now loads connections, fetches schemas lazily, and runs a
+  report block's SQL at the widget row cap rather than the workbench's 50-row
+  preview cap.
+
+- **The ontology's AI step gets a deadline sized to the job.** Building one over
+  21 lakehouse tables refused at 60 seconds and fell back to heuristic labels
+  with zero relationships. The deadline scales with the requested completion
+  cap and this call named none, so the largest generation in the product had
+  the clock of a one-line SQL step.
+
 ### Lakehouse
 
 - **A write is now authorized for what it READS, not only for what it writes.**

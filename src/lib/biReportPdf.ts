@@ -19,8 +19,11 @@ import {
   pageGeometry,
   sliceTable,
   substituteTokens,
+  reportCellText,
+  reportColumnKinds,
   tableColumns,
   tableRows,
+  type ReportColumnKind,
   TABLE_HEADER_H,
   TABLE_ROW_H,
   type BiReport,
@@ -169,6 +172,7 @@ export async function buildReportPdfBytes(args: {
       case "table": {
         const rows = tableRows(block);
         const cols = tableColumns(block);
+        const kinds = reportColumnKinds(rows, cols);
         if (!rows.length || !cols.length) {
           ensure(20);
           draw(`[no rows: ${block.widget.title || "untitled"}]`, {
@@ -224,7 +228,7 @@ export async function buildReportPdfBytes(args: {
               });
             }
             cols.forEach((c, i) => {
-              page.drawText(fit(cell(rows[r]?.[c]), regular, SIZE.table, colW - 8), {
+              page.drawText(fit(cell(rows[r]?.[c], kinds[c]), regular, SIZE.table, colW - 8), {
                 x: margin + i * colW + 4,
                 y: y - SIZE.table - 1,
                 size: SIZE.table,
@@ -252,16 +256,9 @@ export async function buildReportPdfBytes(args: {
 }
 
 /** One cell's text: numbers grouped, nulls made visible rather than blank. */
-function cell(v: unknown): string {
-  if (v === null || v === undefined) return "—";
-  if (typeof v === "number") {
-    return Number.isInteger(v)
-      ? v.toLocaleString()
-      : v.toLocaleString(undefined, {
-          maximumFractionDigits: 2,
-        });
-  }
-  return encLine(String(v));
+/** The shared cell text, then stripped of what a single-line draw cannot show. */
+function cell(v: unknown, kind: ReportColumnKind = "other"): string {
+  return encLine(reportCellText(v, kind));
 }
 
 /** Truncate to the column, with an ellipsis, so a long value cannot overrun its neighbour. */

@@ -58,7 +58,9 @@ import { OntologyGraph } from "@/components/bi/OntologyGraph";
 import { isOntologySpec } from "@/lib/biOntology";
 import type { BiNumberFormat, BiRefLine, ChartSpec } from "@/lib/biAgent";
 import {
+  autoDateGrain,
   bucketRowsX,
+  labelRowsX,
   cumulative,
   drillRows,
   forecastRows,
@@ -1962,6 +1964,12 @@ export function BiChartRender({
     }
     if (isTime && xKey && showGrainToggle && grain !== "auto") {
       r = bucketRowsX(r, xKey, grain as DateGrain);
+    } else if (xKey && grain === "auto") {
+      // Auto: make the axis readable without changing what it reports. This
+      // runs for every chart type, not just the two that offer the toggle —
+      // a column chart over a timestamp has no toggle to rescue it.
+      const auto = autoDateGrain(r, xKey);
+      if (auto) r = labelRowsX(r, xKey, auto);
     }
     return { effChart: c, effRows: r };
     // eslint-disable-next-line react-hooks/exhaustive-deps

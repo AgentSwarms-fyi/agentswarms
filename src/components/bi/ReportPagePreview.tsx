@@ -12,6 +12,8 @@ import {
   blockHeight,
   pageGeometry,
   paginateBlocks,
+  reportCellText,
+  reportColumnKinds,
   substituteTokens,
   tableColumns,
   tableRows,
@@ -197,6 +199,7 @@ function PreviewItem({
     case "table": {
       const cols = tableColumns(block);
       const rows = tableRows(block);
+      const kinds = reportColumnKinds(rows, cols);
       const slice = item.slice ?? { from: 0, to: rows.length, continued: false };
       return wrap(
         <div>
@@ -230,7 +233,7 @@ function PreviewItem({
                 >
                   {cols.map((c) => (
                     <td key={c} className="truncate px-1">
-                      {r[c] === null || r[c] === undefined ? "—" : String(r[c])}
+                      {reportCellText(r[c], kinds[c])}
                     </td>
                   ))}
                 </tr>

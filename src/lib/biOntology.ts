@@ -669,6 +669,27 @@ export function applyEnrichment(
   };
 }
 
+/**
+ * Completion budget for the enrichment reply, and therefore its deadline.
+ *
+ * Both, because `llmJson` derives the clock from the cap (see llmDeadline.ts):
+ * a call that names no cap lands on the 60-second FLOOR meant for a one-line
+ * SQL step. This is the largest generation in the product — a record for every
+ * entity plus a typed triple for every relation — and it was getting the
+ * smallest clock. Measured: 21 lakehouse tables, `openai/gpt-4o-mini`,
+ * "AI enrichment unavailable (… did not finish within 60s)", and the widget
+ * fell back to heuristic labels and zero relationships.
+ *
+ * Sized from the shape of the reply the prompt asks for: ~70 tokens per
+ * entity record, ~80 per relation triple with its evidence phrase, and the
+ * model is explicitly invited to ADD relations, so the relation budget is at
+ * least twice the entity count rather than the number detected so far.
+ */
+export function ontologyTokenBudget(entityCount: number, relationCount: number): number {
+  const relations = Math.max(relationCount, entityCount * 2);
+  return Math.min(16000, 300 + entityCount * 70 + relations * 80);
+}
+
 export async function enrichOntology(args: {
   entities: OntologyEntity[];
   relations: OntologyRelation[];
@@ -677,6 +698,7 @@ export async function enrichOntology(args: {
 }): Promise<{ summary: string; entities: OntologyEntity[]; relations: OntologyRelation[] }> {
   const out = await llmJson<AiOntologyOut>({
     model: args.model,
+    maxTokens: ontologyTokenBudget(args.entities.length, args.relations.length),
     systemPrompt:
       "You are an ontology engineer building a knowledge graph of an organisation's data estate. " +
       "Every relation is a TRIPLE: subject (from), predicate, object (to). Output JSON only. " +

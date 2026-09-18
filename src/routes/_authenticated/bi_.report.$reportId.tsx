@@ -50,7 +50,16 @@ import {
   type SavedMetric,
   type SemanticEntry,
 } from "@/lib/biAgent";
-import { hydrateFromSupabase, type DatasetMeta } from "@/lib/sqlEngine";
+import {
+  hydrateFromSupabase,
+  runQueryUnlimited,
+  type DatasetMeta,
+  type QueryResult,
+} from "@/lib/sqlEngine";
+import { widgetRowCap, type BiWidgetSource } from "@/lib/biDashboards";
+import { fetchWarehouseSchema, runWarehouseQuery } from "@/lib/warehouseClient";
+import { listWarehouseConnections } from "@/utils/warehouse.functions";
+import type { WarehouseConnectionSummary, WarehouseTable } from "@/utils/warehouse/types";
 import {
   BLOCK_LABEL,
   PAGE_SIZES,
@@ -74,6 +83,11 @@ function ReportDesigner() {
   const saveFn = useServerFn(biReportSave);
 
   const [report, setReport] = useState<BiReport | null>(null);
+  const [warehouses, setWarehouses] = useState<WarehouseConnectionSummary[]>([]);
+  const [whTables, setWhTables] = useState<Record<string, WarehouseTable[] | "loading" | "error">>(
+    {},
+  );
+  const listWarehousesFn = useServerFn(listWarehouseConnections);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -125,20 +139,75 @@ function ReportDesigner() {
     })();
   }, [user?.id]);
 
+  // A report's numbers live wherever the business keeps them, which for a
+  // month-end pack is far more often a warehouse than a file somebody
+  // uploaded. This route used to hand the generator an empty warehouse list
+  // and a `runSql` that threw "A report generates from local datasets", so
+  // the dialog's source picker had nothing to offer and the lakehouse was
+  // unreachable from reports even though dashboards queried it happily.
+  useEffect(() => {
+    if (!token) return;
+    listWarehousesFn({ data: { access_token: token } }).then((res) => {
+      if (res.ok) setWarehouses(res.connections.filter((c) => c.is_active));
+    });
+  }, [token, listWarehousesFn]);
+
+  // Lazily, and only for the connection actually picked — the same shape the
+  // dashboard route uses, including re-fetching one left in "error" so a
+  // fixed connection recovers without a reload.
+  const ensureSchema = useCallback(
+    (connId: string) => {
+      setWhTables((cur) => {
+        if (cur[connId] && cur[connId] !== "error") return cur;
+        if (token) {
+          fetchWarehouseSchema(token, connId)
+            .then((tables) => setWhTables((c) => ({ ...c, [connId]: tables })))
+            .catch((e) => {
+              setWhTables((c) => ({ ...c, [connId]: "error" }));
+              toast.error((e as Error).message);
+            });
+        }
+        return { ...cur, [connId]: "loading" };
+      });
+    },
+    [token],
+  );
+
+  const runSql = useCallback(
+    async (source: BiWidgetSource, sql: string): Promise<QueryResult> => {
+      if (source.kind === "warehouse") {
+        if (!token) throw new Error("Not signed in");
+        return runWarehouseQuery(token, source.connection_id, sql);
+      }
+      // widgetRowCap(), not the workbench's preview cap: a report block is a
+      // widget, and its snapshot has to hold the same rows the dashboard's
+      // would — a table somebody checks a row of cannot quietly stop at 50.
+      const t0 = performance.now();
+      const res = await runQueryUnlimited(sql, widgetRowCap());
+      return {
+        columns: res.columns,
+        rows: res.rows,
+        row_count: res.rows.length,
+        total_matched: res.total,
+        capped: res.capped,
+        duration_ms: Math.round(performance.now() - t0),
+      };
+    },
+    [token],
+  );
+
   const ctx = useMemo<BiDataContext>(
     () => ({
       userId: user?.id ?? null,
       datasets,
       semantics,
       metrics,
-      warehouses: [],
-      whTables: {},
-      ensureSchema: () => {},
-      runSql: async () => {
-        throw new Error("A report generates from local datasets");
-      },
+      warehouses,
+      whTables,
+      ensureSchema,
+      runSql,
     }),
-    [user?.id, datasets, semantics, metrics],
+    [user?.id, datasets, semantics, metrics, warehouses, whTables, ensureSchema, runSql],
   );
 
   const patch = useCallback((next: Partial<BiReport>) => {

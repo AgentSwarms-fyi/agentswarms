@@ -86,6 +86,285 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-18 — BI dashboarding and reporting, end to end
+
+Twenty-five of the twenty-six visual types on one dashboard over a series whose
+every value was known in advance, then the AI half: generate a dashboard,
+generate a paginated report, an insight card, the insight sweep, and an
+ontology over the lakehouse. The arithmetic held up almost everywhere — the
+forecast to a 1.4% MAPE, the matrix cell by cell, two AI-generated widgets
+agreeing on a total to the cent. What did not hold up is what happens to a
+number between being computed and being read.
+
+Four of the six defects below are one sentence: **a value the query returned
+is not a value a person can read, and nobody converted it** — a country code,
+a timestamp on an axis, a timestamp in a table, a float in a report cell. The
+other two are the AI inventing arithmetic it was never given, and the largest
+generation in the product running on the smallest deadline.
+
+#### R18 · S1 · A column of ISO country codes drew one country
+
+A filled map and a bubble map over `SELECT country, sum(amount) … GROUP BY 1`,
+where `country` holds alpha-2 codes — the ordinary way country data is stored.
+Both rendered, shaded a single country, and said so in grey 9px text in the
+corner: **"10 rows not matched to a country"**.
+
+The matcher worked on the country NAME through a hand-kept alias table whose
+only code-shaped entries were `usa`/`us` and `uk`. Of the 280 assigned alpha-2
+codes exactly TWO resolved, and `UK` is not one of them in ISO: the real code
+for the United Kingdom is `GB`, which drew nothing at all.
+
+Alpha-2 now resolves through `Intl.DisplayNames`, which already knows every
+assigned region, and the numeric form through the atlas's own feature ids,
+which ARE ISO 3166-1 numeric — rather than a 249-row table in the component
+that would be wrong the first time a code is reassigned. Measured against the
+bundled Natural Earth 110m atlas: **171 of its 177 countries** now resolve from
+a code, up from 2.
+
+Writing the test turned up two aliases that had always pointed at nothing:
+`macedonia → "north macedonia"` (the atlas shape is called "Macedonia", so the
+plain name vanished) and `cape verde → "cabo verde"` (the 110m atlas carries no
+Cape Verde under either spelling). Both removed; a test now asserts every alias
+names a shape the atlas can actually draw.
+
+#### R18 · S1 · A date axis on AUTO printed epoch milliseconds
+
+Found on the first report the AI generated. The planner asked for a monthly
+revenue trend, the SQL writer produced `date_trunc('month', order_date)`, and
+the chart drew a correct line under an axis reading `1667260800000`,
+`1696118400000`, `1725148800000` — on the page a finance team reads.
+
+The data was never wrong: pressing the chart's **M** grain button relabelled
+the same line `2022-05 … 2025-12`. But the toggle defaults to "auto", and auto
+did no bucketing at all, so the unreadable axis is the one every reader gets.
+The toggle is offered on line and area charts only, so a column chart over the
+same column had no escape hatch whatsoever.
+
+The dashboard's hand-built tiles had escaped this only because their SQL emits
+strings; every chart whose query returns a real timestamp was affected, which
+is every chart the AI writes.
+
+Auto now picks the finest grain whose labels still fit and **relabels in
+place** — an explicit grain is a request to regroup the data (it sorts, sums,
+and drops what will not parse), where auto is only a request to make the axis
+readable, so no row moves, disappears or changes value. A bar chart still
+combines equal categories afterwards, as it always has; a line chart, which
+does not aggregate, keeps every point.
+
+#### R18 · S2 · The report preview showed a number the PDF never prints
+
+The "Top Products by Revenue" table read `410379.26499999943` in the preview
+while the exported PDF rendered the same cell `410,379.26`. The PDF had a
+`cell()` formatter; the preview called `String(v)`.
+
+That contradicts the preview's own stated purpose, which its file header spells
+out: it paginates with the same function the PDF uses, because "a preview that
+flowed differently would be a picture of a document nobody receives". Cell text
+is part of what a reader receives. One formatter now, used by both.
+
+#### R18 · S1 · And a date column in that table printed the epoch too
+
+The AI's "Monthly Revenue Summary" section had an `Order Date` column whose
+every row read `1640995200000`. Formatting it as a number — the fix above —
+would only have made it `1,640,995,200,000`.
+
+So a table column is now typed from its values before anything is printed:
+dates print as dates, and **each row keeps its own**, which is where a table
+parts company with a chart axis. An axis may relabel a whole column to one
+grain because an axis is a scale; a table is a list somebody checks a row of.
+
+This nearly introduced a worse defect than it fixed. `parseDateValue` maps any
+number below 10^10 to seconds-since-epoch, so the money column
+`13946.229, 4810.558, 55691.009` parsed as three moments in 1970 and the first
+version of this change relabelled the finance team's revenue as dates. Caught
+by a test written before the code was trusted. The detector is now deliberately
+narrower than `parseDateValue`: integers only, inside a plausible epoch range,
+and anything short of unmistakable is left exactly as the query returned it.
+
+#### R18 · S1 · The AI insight's percentages summed to 106%
+
+Pressing **AI insight** on a "Sales by Region" bar produced a card headed
+"What the data shows":
+
+> EMEA leads with total sales of $1.0M, accounting for **48%** of overall sales.
+> AMER follows with $837k, representing **39%** of total sales.
+> APJ has the lowest sales at $415k, making up **19%** of the total.
+
+48 + 39 + 19 = 106. No denominator makes three shares of one total sum to 106%,
+so this needs no reference data to be wrong. The prompt had asked the model to
+"quote real numbers from the data", which it did for the dollars — the
+percentages were not in the data at all, and the model did the division.
+
+The division is no longer the model's job. Totals, ranges and each category's
+share are computed over **every** row and handed to the prompt as authoritative
+facts, and the model is told not to derive a percentage, share, ratio or total
+of its own. That also closes a quieter gap: the prompt sends only the first 30
+rows, so on a longer result the model was generalising from a sample while the
+card spoke about the whole.
+
+The computed facts refuse to state what would be meaningless rather than
+guessing: no shares for a column that can go negative (a "share" of profit
+where one row is a loss), none when a category repeats (the rows are not a
+breakdown), and no total for a column of timestamps or years — `2023 + 2024 =
+4047` is not a fact about anything.
+
+#### R18 · S2 · The ontology's AI step had the deadline of a one-line SQL call
+
+Building an Ontology widget over the built-in lakehouse — 21 tables, default
+model — returned:
+
+> AI enrichment unavailable (openai/gpt-4o-mini did not finish within 60s. Try
+> again, or pick a different model.) — showing the detected structure with
+> heuristic labels.
+
+…and a map of the data estate showing 21 entities and **0 relationships**,
+which is not a map. The product disclosed the failure clearly and degraded
+honestly, which is why this is S2 and not S1.
+
+The cause is in `llmDeadline.ts`, and that file's own comment names the trap:
+the deadline is `floor + maxTokens × msPerToken`, so a call naming no
+completion cap lands on the 60-second floor meant for a one-line SQL step.
+`enrichOntology` named none — and it is the largest generation in the product,
+a record for every entity plus a typed triple for every relation.
+
+The cap is now sized from the shape of the reply the prompt asks for, which
+fixes both halves at once: the reply can no longer be truncated, and the
+deadline grows with the estate (21 tables: 60s → 87s; a 73-entity estate:
+150s). Mutation testing caught that the first version of this test would have
+passed with the budget deleted from the call — it exercised the function and
+never the one line that puts it on the request.
+
+#### R18 · S3 · The AI writes a title it does not make the data keep
+
+Two instances on one generated dashboard:
+
+- **"Top 5 Products by Sales"** renders 14 bars. Its SQL is
+  `SELECT "Product", SUM("Sales") AS total_sales FROM saas_sales GROUP BY
+"Product" ORDER BY total_sales DESC` — no `LIMIT`. The SQL prompt does say
+  "use LIMIT only when the question itself asks for a top-N"; the question did,
+  and the model omitted it.
+- **"Top 10 Customers by Sales"** renders 12, because the bar-race component
+  takes `topN = 12` and nothing plumbs the requested N through to it.
+
+Left as found. Both are a title and a dataset disagreeing, and reconciling them
+is a product decision — rewrite the model's SQL, retitle the widget, or badge
+the mismatch — not a defect with one obvious repair.
+
+#### R18 · S3 · Neither AI generator could be pointed at the lakehouse
+
+"Generate Entire Dashboard" offered a local table or a governed semantic model;
+the report planner offered `ctx.datasets` alone. Neither listed a warehouse or
+lakehouse table, though the manual chart builder reaches both and the
+dashboards under test query `analytics.bi_demo_sales` directly. The two dialogs
+were the only place in BI that could not see the lakehouse.
+
+It was a gap in the dialogs, not the platform, and nothing new had to be built
+to close it: the builder has always offered warehouses, `runBiTurn` already
+accepts an `execute` override and a `dialect`, and `widgetFromBiTurn` already
+stores whichever source it is handed. Only the dialogs never asked.
+
+Both now resolve their source through one shared, pure function rather than
+each remembering the rules. The rules are where the risk is, and they are not
+about SQL:
+
+- **Semantic entries and saved metrics are keyed to LOCAL dataset ids.**
+  Carrying them onto a warehouse table would offer the planner one table's
+  metric definitions for another table's columns — `revenue = SUM(amount)`
+  defined on a local `saas_sales` silently applied to a lakehouse table that
+  also happens to have an `amount`. That is an ungoverned guess wearing a
+  governed number's clothes, so a warehouse source carries neither.
+- **A missing schema is not an empty warehouse.** "Still loading", "the
+  connection is broken", and "this warehouse has no tables" all end in a table
+  list with nothing in it, and only one of them is fixed by waiting — so each
+  says something different, and the generator refuses rather than asking a
+  model to write SQL against columns it was never shown.
+- **A connection that disappears must not fall back to local data.** Generating
+  a dashboard over the wrong tables and looking like it worked is the worst
+  outcome available here, so that path returns no tables and says why.
+
+The generated widget records the connection it queried, so refresh and
+drill-through go back to the warehouse rather than hunting for a local table of
+the same name.
+
+**And wiring the dialog turned out to be only half of it.** With the dashboard
+generator working against the lakehouse, the report planner still showed no
+source picker at all — because the report EDITOR is its own route, and it
+handed the dialog `warehouses: []`, `whTables: {}`, a no-op `ensureSchema` and
+a `runSql` that threw "A report generates from local datasets". The feature was
+impossible there regardless of what the dialog did, and every dialog-level test
+passed the whole time. Found by opening the report generator and seeing one
+dropdown where the dashboard's had two — which is the same lesson as the
+catalog `fqn` in R17: a change is not finished at the component that displays
+it. That route now loads connections, fetches schemas lazily, and runs a
+report block's SQL at `widgetRowCap()` rather than the workbench's 50-row
+preview cap, because a table somebody checks a row of must not quietly stop at
+fifty.
+
+#### Verified on the rebuilt image, not just in the tests
+
+Every fix was checked back on the same widgets that produced the finding.
+
+**The maps.** The two widgets that read "10 rows not matched to a country" now
+read **"3 rows not matched"**. The lakehouse says why, exactly: `SELECT
+country, count(*) FROM analytics.recon_union GROUP BY 1` returns twelve groups
+— `BR 35, DE 35, ES 35, FR 38, GB 32, IN 41, JP 33, US 46`, plus `?? 1`,
+`U S 2`, `XX 2` and 9 nulls. All **eight real countries now draw, `GB` among
+them**, and the three that remain unmatched are the sample's deliberate dirt.
+They should stay unmatched: guessing that `U S` means the United States is how
+a map ends up quietly wrong instead of visibly incomplete.
+
+**The axes.** The saved report and both time charts on the AI-generated
+dashboard render `2022-05 … 2025-12` on AUTO, with no user action and no epoch
+anywhere on either page.
+
+**The report table.** `410,379.26`, `340,935.42`, `330,007.05` — the same text
+`buildReportPdfBytes` puts on the page. `410379.26499999943` appears nowhere.
+
+**The insight card.** Pressed again on the same widget, so both cards now sit
+on the dashboard for comparison. Before: 48% / 39% / 19%, summing to 106%.
+After: **45.4% / 36.5% / 18.1%, summing to 100.0%** — and it now states the
+total it divided by ($2.3M) and the exact figures ($837.9k, $415.5k) instead of
+rounded ones, because it is quoting computed facts rather than doing the
+arithmetic. The shares reconcile against the true total of $2,297,201.86.
+
+**The ontology.** Rebuilt from the same button that had failed: **76 entities,
+55 relationships, 5 sources, badged "AI-built"** rather than the heuristic
+fallback — and that is a job three times the size of the 21-table one that
+died at 60 seconds. The relations carry real predicates (`derived_from`,
+`defined_in`, `owned_by`, `depends_on`, `on_call_for`, `is_a`,
+`interacts_with`), so the map has edges to read.
+
+#### Verified correct, left alone
+
+**The forecast is not a decorative line.** Six projected months against a
+series built from `1000 + 25t + 200·sin(2πt/12) + 10·sin(7t)`: 1874.2 / 1997.0
+/ 2095.4 / 2148.6 / 2147.7 / 2099.5 against a truth of 1906.24 / 2034.84 /
+2131.80 / 2178.14 / 2169.33 / 2116.02 — **MAPE ≈ 1.4%**, the peak at step 4 in
+both, and the interval widening 208.5 → 510.6, which is √6 exactly.
+
+**Scan for insights** says on the tin that it is "computed from the snapshots
+already on this dashboard — no model call, no cost, same answer every time",
+and it is: it found the 2025-11 outlier at 3.1 MAD from the median, and it
+listed the four widgets it could NOT sweep with a reason for each ("the
+snapshot hit its row cap, so any total or share would be computed from part of
+the data"). A feature that discloses its own blind spots.
+
+**The AI's numbers are right even where its prose is not.** Total Sales 2.30M
+and Total Profit 286.4k on the generated dashboard match the analyst's
+independent `SELECT SUM(Sales), SUM(Profit)`, and the 14-row product breakdown
+sums to 2,297,201.86 — the same total by a third route.
+
+The Matrix pivot was checked cell by cell against the seeded series; the
+paginated report's running header, footer, `{{page}} of {{pages}}` tokens and
+cross-page table header all behave; and a section that fails to build is
+disclosed (one of four failed once in three runs, with the reason named).
+
+**Tests:** 51 across `biGeoMapCodes` (11), `biAutoDateGrain` (14),
+`biReportCell` (11), `biInsightFacts` (10) and `biOntologyBudget` (8) — all
+mutation-verified, 18 behaviour-changing mutants applied one at a time and each
+killed, with two misses recorded and justified (a control, and the renderer's
+one-line call site, which the live check covers instead).
+
 ### 2026-09-18 — A bundled sample, run end to end
 
 One run of the shipped **Orders ↔ payments reconciliation** pipeline. The ETL
