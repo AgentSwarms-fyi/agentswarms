@@ -370,10 +370,21 @@ export function RenameEditor({
   onChange: (v: Record<string, string>) => void;
   columns: ColumnHints;
 }) {
-  // Edited as a list so a half-typed row can exist; an empty key is simply
-  // not stored, rather than being silently dropped mid-keystroke.
-  const rows = Object.entries(value ?? {});
+  // A HALF-TYPED ROW HAS TO LIVE SOMEWHERE, AND IT CANNOT LIVE IN THE MAP.
+  //
+  // A rename is stored as `{from: to}`, so a row whose "from" is still empty
+  // has no key to be stored under. Deriving the rows from that map meant "Add
+  // rename" appended `["", ""]`, `write` dropped it for having no key, the map
+  // came back unchanged and the row was gone before it rendered: the button
+  // did nothing, and the Rename columns node could not be configured through
+  // the editor AT ALL. (The comment this replaces said the list existed so a
+  // half-typed row could exist. It could not.)
+  //
+  // The draft list lives here instead, and only complete pairs go upward. The
+  // panel is keyed by node id, so switching nodes starts a fresh draft.
+  const [rows, setRows] = useState<[string, string][]>(() => Object.entries(value ?? {}));
   const write = (next: [string, string][]) => {
+    setRows(next);
     const out: Record<string, string> = {};
     for (const [from, to] of next) if (from.trim()) out[from.trim()] = to.trim();
     onChange(out);

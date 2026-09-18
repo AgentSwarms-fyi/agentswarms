@@ -901,6 +901,37 @@ function gateFn(node: EtlNode): string {
 }
 
 /**
+ * `_empty(df)` for the emitted program: a read that returned NO ROWS.
+ *
+ * A step that names a column cannot run when the column is not there, and a
+ * source with nothing to return does not always carry the payload's columns.
+ * A Kafka source with no new messages returns its FIVE metadata columns and
+ * zero rows (`_stream_topic`, `_stream_partition`, `_stream_offset`,
+ * `_stream_key`, `_stream_timestamp`), so `df.query("status == 'paid'")`
+ * raises `KeyError: 'status'` — and a caught-up stream pipeline failed on
+ * every quiet tick: on a schedule, a failure every interval; on a continuous
+ * pipeline, every rollover.
+ *
+ * The first attempt at this guard tested for "no rows AND no columns", which
+ * is what a bare `pd.DataFrame()` looks like. It did not fire, because those
+ * five metadata columns are columns. Row count is the honest test: with no
+ * rows, a row-wise step's answer is no rows whatever its expression mentions.
+ *
+ * The lakehouse target has skipped empty batches since it shipped, and its own
+ * comment names the case ("a stream with nothing new"). The steps between the
+ * source and the target had not.
+ */
+export function emptyGuardFn(): string {
+  return [
+    `def _empty(df):`,
+    `    # No rows: a row-wise step's answer is no rows, whatever columns its`,
+    `    # expression names. A source that read nothing may still carry some`,
+    `    # columns (a stream's metadata) but never the ones the step wants.`,
+    `    return len(df.index) == 0`,
+  ].join("\n");
+}
+
+/**
  * The sandbox-side lakehouse attach. Credentials arrive as env (resolved
  * server-side, never in code text) exactly like every other connector; the
  * engine here is the SAME DuckLake catalog the app uses, so a pipeline's
@@ -1525,6 +1556,7 @@ export function compileGraph(graph: EtlGraph): string {
     `    # {"day": null} means "no value", not "the empty string".`,
     `    return str(default) if v is None else str(v)`,
   );
+  lines.push(``, emptyGuardFn());
   lines.push(``, `def _tick(inputs=None):`);
   lines.push(`    global _PARAMS`, `    _PARAMS = dict(inputs or {})`);
   if (incremental.length) lines.push(`    _watermarks = {}`);
@@ -1577,7 +1609,25 @@ export function compileGraph(graph: EtlGraph): string {
         );
       }
     } else if (n.kind === "transform") {
-      lines.push(`    f_${n.id} = ${transformExpr(n, ins)}`);
+      // Two exceptions, both because the step's answer to "no rows" is not
+      // the compiler's to decide:
+      //   UNION — `pd.concat` already keeps the branch that DID have rows;
+      //   PYTHON — the author's own code may build rows out of nothing.
+      const kind_ = (n.config as { type?: string }).type;
+      if (kind_ === "union" || kind_ === "python") {
+        lines.push(`    f_${n.id} = ${transformExpr(n, ins)}`);
+      } else {
+        // The input's columns are the best-known schema, so the skip keeps
+        // them: `iloc[0:0]` is no rows with the shape intact, which cascades
+        // through the rest of the graph and lets the target's own empty-batch
+        // skip do its job.
+        lines.push(
+          `    if ${ins.map((i) => `_empty(f_${i})`).join(" or ")}:`,
+          `        f_${n.id} = f_${ins[0]}.iloc[0:0]`,
+          `    else:`,
+          `        f_${n.id} = ${transformExpr(n, ins)}`,
+        );
+      }
     }
   }
 
@@ -1713,13 +1763,35 @@ export function compilePreview(graph: EtlGraph, nodeId: string): string {
     lines.push(``, sourceFn(n), ``);
   }
 
+  // The steps below guard on `_empty`, so the preview has to emit it as well:
+  // the preview is a second compiler over the same nodes.
+  lines.push(``, emptyGuardFn());
+
   lines.push(``, `def entrypoint(inputs):`);
   for (const n of slice) {
     const ins = incoming.get(n.id)!.filter((x) => keep.has(x));
     if (n.kind === "source") {
       lines.push(`    f_${n.id} = _src_${n.id}().head(${PREVIEW_SAMPLE_ROWS})`);
     } else if (n.kind === "transform") {
-      lines.push(`    f_${n.id} = ${transformExpr(n, ins)}`);
+      // Two exceptions, both because the step's answer to "no rows" is not
+      // the compiler's to decide:
+      //   UNION — `pd.concat` already keeps the branch that DID have rows;
+      //   PYTHON — the author's own code may build rows out of nothing.
+      const kind_ = (n.config as { type?: string }).type;
+      if (kind_ === "union" || kind_ === "python") {
+        lines.push(`    f_${n.id} = ${transformExpr(n, ins)}`);
+      } else {
+        // The input's columns are the best-known schema, so the skip keeps
+        // them: `iloc[0:0]` is no rows with the shape intact, which cascades
+        // through the rest of the graph and lets the target's own empty-batch
+        // skip do its job.
+        lines.push(
+          `    if ${ins.map((i) => `_empty(f_${i})`).join(" or ")}:`,
+          `        f_${n.id} = f_${ins[0]}.iloc[0:0]`,
+          `    else:`,
+          `        f_${n.id} = ${transformExpr(n, ins)}`,
+        );
+      }
     }
   }
   // Every ancestor frame already exists here, so reporting each one's columns

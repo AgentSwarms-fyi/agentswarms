@@ -71,6 +71,70 @@ export function normalizeEgressHost(raw: string): string | null {
  * cannot lock kernels out of PyPI by clearing the field.
  */
 /** Raw IPv4 (optionally with port already stripped by normalize). */
+/**
+ * Does `host` match one allow-list pattern, the way squid matches dstdomain?
+ *
+ * A leading dot is a SUFFIX: `.github.com` matches `github.com` and every
+ * subdomain of it. Anything else is exact.
+ *
+ * Deliberately NOT routed through `normalizeEgressHost`, which is for the ACL
+ * FILE and so requires a real two-label domain. The hosts a sandbox reaches
+ * without the proxy at all — `agentswarms`, `localhost`, a Kubernetes `.svc`
+ * — are single-label or bare suffixes, and a checker that drops them reports
+ * a reachable host as forbidden.
+ */
+export function hostMatchesPattern(pattern: string, host: string): boolean {
+  const clean = (raw: string, keepDot: boolean) => {
+    let h = (raw ?? "").trim().toLowerCase();
+    h = h.replace(/^[a-z][a-z0-9+.-]*:\/\//, "");
+    h = h.split("/")[0];
+    h = h.split("@").pop() ?? h;
+    h = h.replace(/:\d+$/, "");
+    h = h.replace(/\.+$/, "");
+    return keepDot ? h : h.replace(/^\.+/, "");
+  };
+  const p = clean(pattern, true);
+  const h = clean(host, false);
+  if (!p || !h) return false;
+  if (p.startsWith(".")) return h === p.slice(1) || h.endsWith(p);
+  return h === p;
+}
+
+/**
+ * Is `host` reachable from a sandbox, given the allow-list and what bypasses
+ * the proxy entirely?
+ *
+ * Both lists are consulted because both make a host reachable, and a refusal
+ * that ignores the second sends the reader to add something that would change
+ * nothing. Written after the exact-match version refused a subdomain of an
+ * allow-listed domain — squid would have let it through, so the sentence
+ * "not on the sandbox egress allow-list" was false.
+ */
+export function egressReaches(patterns: Iterable<string>, host: string): boolean {
+  for (const p of patterns) if (hostMatchesPattern(p, host)) return true;
+  return false;
+}
+
+/**
+ * The host a URL will dial, when that is knowable without running anything.
+ *
+ * Returns nothing for a URL carrying a run parameter (`https://{{params.host}}/v1`)
+ * or one that does not parse: those have no host until a run substitutes one,
+ * and refusing on a guess would block a pipeline that is fine. Everything else
+ * gives up its hostname, so a node pointing off this machine can be held to
+ * the egress allow-list BEFORE a container starts — rather than coming back as
+ * a urllib3 ProxyError that never mentions an allow-list.
+ */
+export function staticEgressHost(url: string | undefined | null): string[] {
+  const raw = (url ?? "").trim();
+  if (!raw || raw.includes("{{")) return [];
+  try {
+    return [new URL(raw).hostname];
+  } catch {
+    return [];
+  }
+}
+
 export function isEgressIp(token: string): boolean {
   return /^\d{1,3}(\.\d{1,3}){3}$/.test(token.replace(/^\./, ""));
 }

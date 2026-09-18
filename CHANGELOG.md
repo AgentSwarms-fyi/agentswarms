@@ -65,6 +65,65 @@ full in its own commit.
   metric, leaving a record that said rows had been dropped. The option is gone
   for that check in the editor, and both emitters record what they did.
 
+- **A caught-up stream no longer fails on every quiet tick.** A Kafka source
+  with no new messages returns zero rows and only its five `_stream_*` metadata
+  columns — never the payload's — so the next step raised `KeyError` instead of
+  producing an empty result. On a schedule that was a failure every interval
+  once the backlog drained; on a continuous pipeline, every rollover. Row-wise
+  steps now skip an input with no rows and keep its shape, in both the run
+  compiler and the preview compiler. `union` and a custom Python step are
+  exempt: what "no rows" means there is the author's call.
+- **A failed access check no longer reads as a refusal.** `accessibleSchemas`
+  dropped the error from its query and returned an empty list, so a database
+  blip became "this account can reach no schema at all" — which five callers
+  report as a permissions verdict ("no access to lakehouse schema X — it
+  doesn't exist, or nobody shared it"), each inviting the reader to grant
+  access they already have. Caught on a live run: a pipeline wrote a lakehouse
+  table, and a later run of the same pipeline was refused for having no access
+  to the schema it had just written.
+- **"Add rename" adds a rename.** One of the fifteen transform kinds could not
+  be configured from the canvas at all: the button did nothing. A rename is
+  stored as `{from: to}`, and the editor derived its rows from that map — so a
+  new row with no source column yet had no key to be stored under, was dropped
+  on the way out, and vanished before it rendered. The draft list now lives in
+  the editor and only complete pairs are saved; the node panel is keyed by node
+  so a half-typed row cannot follow the reader to the next node.
+- **A preview says why it cannot run, instead of dying in a container.** The
+  preview compiled the graph up front — for exactly this reason — but resolved
+  its credentials and egress from inside the sandbox, so a bucket that was
+  never picked, a secret that is not set or an unreachable host came back as
+  `500 Internal Server Error` on the runtime's source route, wrapped in a
+  Python traceback. It resolves both before starting anything.
+- **An HTTP node that points somewhere the sandbox cannot reach says so, before
+  a container starts.** Stream sources had that pre-flight check from the
+  start; the HTTP API source and the reverse-ETL HTTP target — the two most
+  likely to point at something new — did not, and failed instead with a
+  forty-line urllib3 `ProxyError` ending in `Tunnel connection failed: 403
+Forbidden`, naming no host and never mentioning an allow-list. The same
+  check now covers all of them, and it judges reachability the way the proxy
+  does: a leading dot covers a domain and its subdomains (the exact-match
+  version refused subdomains squid would have admitted), and the hosts that
+  bypass the proxy entirely — the app itself, `localhost`, in-cluster
+  suffixes — count as reachable rather than being dropped by an ACL
+  normaliser that insists on two labels.
+- **Adding a node continues from the one you are on.** Every added node used to
+  land on a fixed column, unconnected, so a ten-step pipeline meant nine drags
+  between 8px handles over nodes that began overlapping at the seventh. The
+  rules are the compiler's own — a source is never chained into, a target
+  never chained from — so an automatic edge cannot build a graph that will not
+  compile.
+- **Every node kind is now compiled by the suite, on both engines.** The tests
+  named "compiles every source type" and "compiles every transform type"
+  covered six of eleven sources and seven of fifteen transforms. The
+  replacement is keyed on the config type unions, so adding a node kind stops
+  type-checking until it has a row: 52 cases across both emitters, each one
+  compiled by a real interpreter, plus every write mode, table format and file
+  format. Spark's two gaps (Iceberg, merge into a database) are asserted as
+  refusals in words.
+- **`orders.json`** joins the sample datasets — the same 308 rows as
+  `orders.csv` in the envelope a paginated API returns — so the HTTP API
+  source is demonstrable on a fresh install with nothing to set up.
+
 ### ML
 
 - **The decision threshold applies on a warm endpoint, not only a cold one.**

@@ -1,0 +1,3092 @@
+{
+ "meta": {
+  "source": "agentswarms etl sample",
+  "note": "The same 308 rows as orders.csv, with the same deliberate defects, in the envelope a paginated API returns them in. Records path: data.items",
+  "count": 308
+ },
+ "data": {
+  "items": [
+   {
+    "order_id": "ORD-1000",
+    "customer_id": "C043",
+    "order_date": "2026-08-01",
+    "updated_at": "2026-08-01T00:00:00Z",
+    "amount": 546.09,
+    "currency": "USD",
+    "status": "completed",
+    "country": "DE"
+   },
+   {
+    "order_id": "ORD-1001",
+    "customer_id": "C052",
+    "order_date": "2026-08-01",
+    "updated_at": "2026-08-01T07:13:00Z",
+    "amount": 862.08,
+    "currency": "EUR",
+    "status": "completed",
+    "country": "DE"
+   },
+   {
+    "order_id": "ORD-1002",
+    "customer_id": "C039",
+    "order_date": "2026-08-01",
+    "updated_at": "2026-08-01T14:26:00Z",
+    "amount": 795.02,
+    "currency": "EUR",
+    "status": "completed",
+    "country": "ES"
+   },
+   {
+    "order_id": "ORD-1003",
+    "customer_id": "C033",
+    "order_date": "2026-08-01",
+    "updated_at": "2026-08-01T21:39:00Z",
+    "amount": 131.11,
+    "currency": "USD",
+    "status": "completed",
+    "country": "DE"
+   },
+   {
+    "order_id": "ORD-1004",
+    "customer_id": "C059",
+    "order_date": "2026-08-01",
+    "updated_at": "2026-08-01T04:52:00Z",
+    "amount": 513.54,
+    "currency": "EUR",
+    "status": "completed",
+    "country": "DE"
+   },
+   {
+    "order_id": "ORD-1005",
+    "customer_id": "C017",
+    "order_date": "2026-08-01",
+    "updated_at": "2026-08-01T11:05:00Z",
+    "amount": 886.03,
+    "currency": "USD",
+    "status": "shipped",
+    "country": "BR"
+   },
+   {
+    "order_id": "ORD-1006",
+    "customer_id": "C048",
+    "order_date": "2026-08-01",
+    "updated_at": "2026-08-01T18:18:00Z",
+    "amount": 230.39,
+    "currency": "EUR",
+    "status": "shipped",
+    "country": "XX"
+   },
+   {
+    "order_id": "ORD-1007",
+    "customer_id": "C040",
+    "order_date": "2026-08-01",
+    "updated_at": "2026-08-01T01:31:00Z",
+    "amount": 784.53,
+    "currency": "USD",
+    "status": "returned",
+    "country": "BR"
+   },
+   {
+    "order_id": "ORD-1008",
+    "customer_id": "C041",
+    "order_date": "2026-08-01",
+    "updated_at": "2026-08-01T08:44:00Z",
+    "amount": 681.76,
+    "currency": "USD",
+    "status": "completed",
+    "country": "FR"
+   },
+   {
+    "order_id": "ORD-1009",
+    "customer_id": "C029",
+    "order_date": "2026-08-01",
+    "updated_at": "2026-08-01T15:57:00Z",
+    "amount": 18.65,
+    "currency": "EUR",
+    "status": "completed",
+    "country": "US"
+   },
+   {
+    "order_id": "ORD-1010",
+    "customer_id": "C001",
+    "order_date": "2026-08-01",
+    "updated_at": "2026-08-01T22:10:00Z",
+    "amount": 718.66,
+    "currency": "EUR",
+    "status": "shipped",
+    "country": "US"
+   },
+   {
+    "order_id": "ORD-1011",
+    "customer_id": "C029",
+    "order_date": "2026-08-01",
+    "updated_at": "2026-08-01T05:23:00Z",
+    "amount": 56.43,
+    "currency": "GBP",
+    "status": "shipped",
+    "country": "FR"
+   },
+   {
+    "order_id": "ORD-1012",
+    "customer_id": "C048",
+    "order_date": "2026-08-02",
+    "updated_at": "2026-08-02T12:36:00Z",
+    "amount": 29.3,
+    "currency": "EUR",
+    "status": "shipped",
+    "country": "US"
+   },
+   {
+    "order_id": "ORD-1013",
+    "customer_id": "C046",
+    "order_date": "2026-08-02",
+    "updated_at": "2026-08-02T19:49:00Z",
+    "amount": 157.69,
+    "currency": "GBP",
+    "status": "completed",
+    "country": "IN"
+   },
+   {
+    "order_id": "ORD-1014",
+    "customer_id": "C019",
+    "order_date": "2026-08-02",
+    "updated_at": "2026-08-02T02:02:00Z",
+    "amount": 8.82,
+    "currency": "USD",
+    "status": "shipped",
+    "country": "DE"
+   },
+   {
+    "order_id": "ORD-1015",
+    "customer_id": "C027",
+    "order_date": "2026-08-02",
+    "updated_at": "2026-08-02T09:15:00Z",
+    "amount": 712.09,
+    "currency": "usd",
+    "status": "completed",
+    "country": "FR"
+   },
+   {
+    "order_id": "ORD-1016",
+    "customer_id": "C018",
+    "order_date": "2026-08-02",
+    "updated_at": "2026-08-02T16:28:00Z",
+    "amount": 201.0,
+    "currency": "GBP",
+    "status": "completed",
+    "country": "DE"
+   },
+   {
+    "order_id": "ORD-1017",
+    "customer_id": "C010",
+    "order_date": "2026-08-02",
+    "updated_at": "2026-08-02T23:41:00Z",
+    "amount": 227.89,
+    "currency": "eur",
+    "status": "completed",
+    "country": "IN"
+   },
+   {
+    "order_id": "ORD-1018",
+    "customer_id": "C028",
+    "order_date": "2026-08-02",
+    "updated_at": "2026-08-02T06:54:00Z",
+    "amount": 576.29,
+    "currency": "GBP",
+    "status": "completed",
+    "country": "DE"
+   },
+   {
+    "order_id": "ORD-1019",
+    "customer_id": "C029",
+    "order_date": "2026-08-02",
+    "updated_at": "2026-08-02T13:07:00Z",
+    "amount": 245.59,
+    "currency": "usd",
+    "status": "completed",
+    "country": "FR"
+   },
+   {
+    "order_id": "ORD-1020",
+    "customer_id": "C028",
+    "order_date": "2026-08-02",
+    "updated_at": "2026-08-02T20:20:00Z",
+    "amount": 0.0,
+    "currency": "eur",
+    "status": "shipped",
+    "country": "BR"
+   },
+   {
+    "order_id": "ORD-1021",
+    "customer_id": "C053",
+    "order_date": "2026-08-02",
+    "updated_at": "2026-08-02T03:33:00Z",
+    "amount": 303.8,
+    "currency": "USD",
+    "status": "completed",
+    "country": "DE"
+   },
+   {
+    "order_id": "ORD-1022",
+    "customer_id": "C036",
+    "order_date": "2026-08-02",
+    "updated_at": "2026-08-02T10:46:00Z",
+    "amount": 151.15,
+    "currency": "EUR",
+    "status": "completed",
+    "country": "BR"
+   },
+   {
+    "order_id": "ORD-1023",
+    "customer_id": "C032",
+    "order_date": "2026-08-03",
+    "updated_at": "2026-08-03T17:59:00Z",
+    "amount": 516.88,
+    "currency": "USD",
+    "status": "completed",
+    "country": "BR"
+   },
+   {
+    "order_id": "ORD-1024",
+    "customer_id": "C057",
+    "order_date": "2026-08-03",
+    "updated_at": "2026-08-03T00:12:00Z",
+    "amount": 194.66,
+    "currency": "EUR",
+    "status": "shipped",
+    "country": "JP"
+   },
+   {
+    "order_id": "ORD-1025",
+    "customer_id": "C056",
+    "order_date": "2026-08-03",
+    "updated_at": "2026-08-03T07:25:00Z",
+    "amount": 172.16,
+    "currency": "USD",
+    "status": "completed",
+    "country": "DE"
+   },
+   {
+    "order_id": "ORD-1026",
+    "customer_id": "C054",
+    "order_date": "2026-08-03",
+    "updated_at": "2026-08-03T14:38:00Z",
+    "amount": 589.47,
+    "currency": "EUR",
+    "status": "returned",
+    "country": "JP"
+   },
+   {
+    "order_id": "ORD-1027",
+    "customer_id": "C021",
+    "order_date": "2026-08-03",
+    "updated_at": "2026-08-03T21:51:00Z",
+    "amount": 60.69,
+    "currency": "GBP",
+    "status": "completed",
+    "country": "FR"
+   },
+   {
+    "order_id": "ORD-1028",
+    "customer_id": "C044",
+    "order_date": "2026-08-03",
+    "updated_at": "2026-08-03T04:04:00Z",
+    "amount": 339.64,
+    "currency": "USD",
+    "status": "completed",
+    "country": "US"
+   },
+   {
+    "order_id": "ORD-1029",
+    "customer_id": "C047",
+    "order_date": "2026-08-03",
+    "updated_at": "2026-08-03T11:17:00Z",
+    "amount": 338.88,
+    "currency": "EUR",
+    "status": "completed",
+    "country": "FR"
+   },
+   {
+    "order_id": "ORD-1030",
+    "customer_id": "C060",
+    "order_date": "2026-08-03",
+    "updated_at": "2026-08-03T18:30:00Z",
+    "amount": 516.93,
+    "currency": "USD",
+    "status": "completed",
+    "country": "ES"
+   },
+   {
+    "order_id": "ORD-1031",
+    "customer_id": "C043",
+    "order_date": "2026-08-03",
+    "updated_at": "2026-08-03T01:43:00Z",
+    "amount": 242.5,
+    "currency": "GBP",
+    "status": "completed",
+    "country": "ES"
+   },
+   {
+    "order_id": "ORD-1032",
+    "customer_id": "C024",
+    "order_date": "2026-08-03",
+    "updated_at": "2026-08-03T08:56:00Z",
+    "amount": 419.56,
+    "currency": "EUR",
+    "status": "completed",
+    "country": "FR"
+   },
+   {
+    "order_id": "ORD-1033",
+    "customer_id": "C041",
+    "order_date": "2026-08-03",
+    "updated_at": "2026-08-03T15:09:00Z",
+    "amount": 865.63,
+    "currency": "GBP",
+    "status": "returned",
+    "country": "FR"
+   },
+   {
+    "order_id": "ORD-1034",
+    "customer_id": "C030",
+    "order_date": "2026-08-04",
+    "updated_at": "2026-08-04T22:22:00Z",
+    "amount": 135.92,
+    "currency": "EUR",
+    "status": "shipped",
+    "country": "IN"
+   },
+   {
+    "order_id": "ORD-1035",
+    "customer_id": "C032",
+    "order_date": "2026-08-04",
+    "updated_at": "2026-08-04T05:35:00Z",
+    "amount": 791.42,
+    "currency": "GBP",
+    "status": "returned",
+    "country": "US"
+   },
+   {
+    "order_id": "ORD-1036",
+    "customer_id": "C043",
+    "order_date": "2026-08-04",
+    "updated_at": "2026-08-04T12:48:00Z",
+    "amount": 18.76,
+    "currency": "usd",
+    "status": "completed",
+    "country": "US"
+   },
+   {
+    "order_id": "ORD-1037",
+    "customer_id": "C012",
+    "order_date": "2026-08-04",
+    "updated_at": "2026-08-04T19:01:00Z",
+    "amount": 596.29,
+    "currency": "USD",
+    "status": "completed",
+    "country": "FR"
+   },
+   {
+    "order_id": "ORD-1038",
+    "customer_id": "C008",
+    "order_date": "2026-08-04",
+    "updated_at": "2026-08-04T02:14:00Z",
+    "amount": 425.53,
+    "currency": "GBP",
+    "status": "shipped",
+    "country": "FR"
+   },
+   {
+    "order_id": "ORD-1039",
+    "customer_id": "C042",
+    "order_date": "2026-08-04",
+    "updated_at": "2026-08-04T09:27:00Z",
+    "amount": 647.86,
+    "currency": "GBP",
+    "status": "returned",
+    "country": "JP"
+   },
+   {
+    "order_id": "ORD-1040",
+    "customer_id": "C021",
+    "order_date": "2026-08-04",
+    "updated_at": "2026-08-04T16:40:00Z",
+    "amount": 635.93,
+    "currency": "eur",
+    "status": "shipped",
+    "country": "JP"
+   },
+   {
+    "order_id": "ORD-1041",
+    "customer_id": "C014",
+    "order_date": "2026-08-04",
+    "updated_at": "2026-08-04T23:53:00Z",
+    "amount": 828.01,
+    "currency": "GBP",
+    "status": "completed",
+    "country": "FR"
+   },
+   {
+    "order_id": "ORD-1042",
+    "customer_id": "C050",
+    "order_date": "2026-08-04",
+    "updated_at": "2026-08-04T06:06:00Z",
+    "amount": 469.45,
+    "currency": "GBP",
+    "status": "completed",
+    "country": "ES"
+   },
+   {
+    "order_id": "ORD-1043",
+    "customer_id": null,
+    "order_date": "2026-08-04",
+    "updated_at": "2026-08-04T13:19:00Z",
+    "amount": 369.69,
+    "currency": "EUR",
+    "status": "completed",
+    "country": "US"
+   },
+   {
+    "order_id": "ORD-1044",
+    "customer_id": "C010",
+    "order_date": "2026-08-04",
+    "updated_at": "2026-08-04T20:32:00Z",
+    "amount": 308.95,
+    "currency": "GBP",
+    "status": "completed",
+    "country": "IN"
+   },
+   {
+    "order_id": "ORD-1045",
+    "customer_id": "C026",
+    "order_date": "2026-08-05",
+    "updated_at": "2026-08-05T03:45:00Z",
+    "amount": 132.42,
+    "currency": "gbp",
+    "status": "returned",
+    "country": "IN"
+   },
+   {
+    "order_id": "ORD-1046",
+    "customer_id": "C058",
+    "order_date": "2026-08-05",
+    "updated_at": "2026-08-05T10:58:00Z",
+    "amount": 31.62,
+    "currency": "USD",
+    "status": "completed",
+    "country": "ES"
+   },
+   {
+    "order_id": "ORD-1047",
+    "customer_id": "C008",
+    "order_date": "2026-08-05",
+    "updated_at": "2026-08-05T17:11:00Z",
+    "amount": 641.95,
+    "currency": "USD",
+    "status": "shipped",
+    "country": "BR"
+   },
+   {
+    "order_id": "ORD-1048",
+    "customer_id": "C024",
+    "order_date": "2026-08-05",
+    "updated_at": "2026-08-05T00:24:00Z",
+    "amount": 385.89,
+    "currency": "EUR",
+    "status": "completed",
+    "country": "IN"
+   },
+   {
+    "order_id": "ORD-1049",
+    "customer_id": "C054",
+    "order_date": "2026-08-05",
+    "updated_at": "2026-08-05T07:37:00Z",
+    "amount": 192.12,
+    "currency": "USD",
+    "status": "returned",
+    "country": "BR"
+   },
+   {
+    "order_id": "ORD-1050",
+    "customer_id": "C013",
+    "order_date": "2026-08-05",
+    "updated_at": "2026-08-05T14:50:00Z",
+    "amount": 438.75,
+    "currency": "USD",
+    "status": "completed",
+    "country": "IN"
+   },
+   {
+    "order_id": "ORD-1051",
+    "customer_id": "C030",
+    "order_date": "2026-08-05",
+    "updated_at": "2026-08-05T21:03:00Z",
+    "amount": 77.54,
+    "currency": "EUR",
+    "status": "completed",
+    "country": "JP"
+   },
+   {
+    "order_id": "ORD-1052",
+    "customer_id": "C022",
+    "order_date": "2026-08-05",
+    "updated_at": "2026-08-05T04:16:00Z",
+    "amount": 55.26,
+    "currency": "EUR",
+    "status": "returned",
+    "country": "US"
+   },
+   {
+    "order_id": "ORD-1053",
+    "customer_id": "C017",
+    "order_date": "2026-08-05",
+    "updated_at": "2026-08-05T11:29:00Z",
+    "amount": 562.33,
+    "currency": "gbp",
+    "status": "returned",
+    "country": "DE"
+   },
+   {
+    "order_id": "ORD-1054",
+    "customer_id": "C031",
+    "order_date": "2026-08-05",
+    "updated_at": "2026-08-05T18:42:00Z",
+    "amount": 403.25,
+    "currency": "USD",
+    "status": "completed",
+    "country": "DE"
+   },
+   {
+    "order_id": "ORD-1055",
+    "customer_id": "C046",
+    "order_date": "2026-08-05",
+    "updated_at": "2026-08-05T01:55:00Z",
+    "amount": 669.31,
+    "currency": "USD",
+    "status": "completed",
+    "country": "FR"
+   },
+   {
+    "order_id": "ORD-1056",
+    "customer_id": "C046",
+    "order_date": "2026-08-06",
+    "updated_at": "2026-08-06T08:08:00Z",
+    "amount": 888.32,
+    "currency": "EUR",
+    "status": "completed",
+    "country": "US"
+   },
+   {
+    "order_id": "ORD-1057",
+    "customer_id": "C042",
+    "order_date": "2026-08-06",
+    "updated_at": "2026-08-06T15:21:00Z",
+    "amount": 430.45,
+    "currency": "USD",
+    "status": "returned",
+    "country": "DE"
+   },
+   {
+    "order_id": "ORD-1058",
+    "customer_id": "C011",
+    "order_date": "2026-08-06",
+    "updated_at": "2026-08-06T22:34:00Z",
+    "amount": 763.69,
+    "currency": "EUR",
+    "status": "returned",
+    "country": "JP"
+   },
+   {
+    "order_id": "ORD-1059",
+    "customer_id": "C008",
+    "order_date": "2026-08-06",
+    "updated_at": "2026-08-06T05:47:00Z",
+    "amount": 861.67,
+    "currency": "GBP",
+    "status": "completed",
+    "country": "ES"
+   },
+   {
+    "order_id": "ORD-1060",
+    "customer_id": "C039",
+    "order_date": "2026-08-06",
+    "updated_at": "2026-08-06T12:00:00Z",
+    "amount": 230.3,
+    "currency": "USD",
+    "status": "shipped",
+    "country": "FR"
+   },
+   {
+    "order_id": "ORD-1061",
+    "customer_id": "C036",
+    "order_date": "2026-08-06",
+    "updated_at": "2026-08-06T19:13:00Z",
+    "amount": 95.26,
+    "currency": "USD",
+    "status": "returned",
+    "country": "IN"
+   },
+   {
+    "order_id": "ORD-1062",
+    "customer_id": "C051",
+    "order_date": "2026-08-06",
+    "updated_at": "2026-08-06T02:26:00Z",
+    "amount": 543.32,
+    "currency": "USD",
+    "status": "returned",
+    "country": "IN"
+   },
+   {
+    "order_id": "ORD-1063",
+    "customer_id": "C026",
+    "order_date": "2026-08-06",
+    "updated_at": "2026-08-06T09:39:00Z",
+    "amount": 515.62,
+    "currency": "gbp",
+    "status": "shipped",
+    "country": "BR"
+   },
+   {
+    "order_id": "ORD-1064",
+    "customer_id": "C026",
+    "order_date": "2026-08-06",
+    "updated_at": "2026-08-06T16:52:00Z",
+    "amount": 545.07,
+    "currency": "GBP",
+    "status": "shipped",
+    "country": "ES"
+   },
+   {
+    "order_id": "ORD-1065",
+    "customer_id": "C001",
+    "order_date": "2026-08-06",
+    "updated_at": "2026-08-06T23:05:00Z",
+    "amount": 223.63,
+    "currency": "GBP",
+    "status": "returned",
+    "country": "US"
+   },
+   {
+    "order_id": "ORD-1066",
+    "customer_id": "C014",
+    "order_date": "2026-08-06",
+    "updated_at": "2026-08-06T06:18:00Z",
+    "amount": 33.27,
+    "currency": "EUR",
+    "status": "completed",
+    "country": "DE"
+   },
+   {
+    "order_id": "ORD-1067",
+    "customer_id": "C026",
+    "order_date": "2026-08-07",
+    "updated_at": "2026-08-07T13:31:00Z",
+    "amount": 677.72,
+    "currency": "usd",
+    "status": "completed",
+    "country": "IN"
+   },
+   {
+    "order_id": "ORD-1068",
+    "customer_id": "C053",
+    "order_date": "2026-08-07",
+    "updated_at": "2026-08-07T20:44:00Z",
+    "amount": 496.46,
+    "currency": "USD",
+    "status": "completed",
+    "country": "US"
+   },
+   {
+    "order_id": "ORD-1069",
+    "customer_id": "C014",
+    "order_date": "2026-08-07",
+    "updated_at": "2026-08-07T03:57:00Z",
+    "amount": 66.91,
+    "currency": "EUR",
+    "status": "shipped",
+    "country": "IN"
+   },
+   {
+    "order_id": "ORD-1070",
+    "customer_id": "C030",
+    "order_date": "2026-08-07",
+    "updated_at": "2026-08-07T10:10:00Z",
+    "amount": 709.93,
+    "currency": "GBP",
+    "status": "completed",
+    "country": "JP"
+   },
+   {
+    "order_id": "ORD-1071",
+    "customer_id": "C059",
+    "order_date": "2026-08-07",
+    "updated_at": "2026-08-07T17:23:00Z",
+    "amount": 639.78,
+    "currency": "USD",
+    "status": "completed",
+    "country": "ES"
+   },
+   {
+    "order_id": "ORD-1072",
+    "customer_id": "C025",
+    "order_date": "2026-08-07",
+    "updated_at": "2026-08-07T00:36:00Z",
+    "amount": 499.29,
+    "currency": "USD",
+    "status": "shipped",
+    "country": "FR"
+   },
+   {
+    "order_id": "ORD-1073",
+    "customer_id": "C031",
+    "order_date": "2026-08-07",
+    "updated_at": "2026-08-07T07:49:00Z",
+    "amount": 242.98,
+    "currency": "EUR",
+    "status": "completed",
+    "country": "US"
+   },
+   {
+    "order_id": "ORD-1074",
+    "customer_id": "C035",
+    "order_date": "2026-08-07",
+    "updated_at": "2026-08-07T14:02:00Z",
+    "amount": 337.19,
+    "currency": "GBP",
+    "status": "completed",
+    "country": "JP"
+   },
+   {
+    "order_id": "ORD-1075",
+    "customer_id": "C025",
+    "order_date": "2026-08-07",
+    "updated_at": "2026-08-07T21:15:00Z",
+    "amount": 83.19,
+    "currency": "GBP",
+    "status": "returned",
+    "country": "FR"
+   },
+   {
+    "order_id": "ORD-1076",
+    "customer_id": "C057",
+    "order_date": "2026-08-07",
+    "updated_at": "2026-08-07T04:28:00Z",
+    "amount": -12.5,
+    "currency": "EUR",
+    "status": "completed",
+    "country": "FR"
+   },
+   {
+    "order_id": "ORD-1077",
+    "customer_id": "C033",
+    "order_date": "2026-08-07",
+    "updated_at": "2026-08-07T11:41:00Z",
+    "amount": 841.37,
+    "currency": "EUR",
+    "status": "completed",
+    "country": "U S"
+   },
+   {
+    "order_id": "ORD-1078",
+    "customer_id": "C021",
+    "order_date": "2026-08-08",
+    "updated_at": "2026-08-08T18:54:00Z",
+    "amount": 673.56,
+    "currency": "usd",
+    "status": "completed",
+    "country": "DE"
+   },
+   {
+    "order_id": "ORD-1079",
+    "customer_id": "C029",
+    "order_date": "2026-08-08",
+    "updated_at": "2026-08-08T01:07:00Z",
+    "amount": 598.48,
+    "currency": "GBP",
+    "status": "completed",
+    "country": "IN"
+   },
+   {
+    "order_id": "ORD-1080",
+    "customer_id": "C008",
+    "order_date": "2026-08-08",
+    "updated_at": "2026-08-08T08:20:00Z",
+    "amount": 282.01,
+    "currency": "EUR",
+    "status": "completed",
+    "country": "IN"
+   },
+   {
+    "order_id": "ORD-1081",
+    "customer_id": "C054",
+    "order_date": "2026-08-08",
+    "updated_at": "2026-08-08T15:33:00Z",
+    "amount": 38.2,
+    "currency": "EUR",
+    "status": "completed",
+    "country": "ES"
+   },
+   {
+    "order_id": "ORD-1082",
+    "customer_id": "C024",
+    "order_date": "2026-08-08",
+    "updated_at": "2026-08-08T22:46:00Z",
+    "amount": 749.5,
+    "currency": "GBP",
+    "status": "completed",
+    "country": "BR"
+   },
+   {
+    "order_id": "ORD-1083",
+    "customer_id": "C056",
+    "order_date": "2026-08-08",
+    "updated_at": "2026-08-08T05:59:00Z",
+    "amount": 290.65,
+    "currency": "EUR",
+    "status": "shipped",
+    "country": "BR"
+   },
+   {
+    "order_id": "ORD-1084",
+    "customer_id": "C018",
+    "order_date": "2026-08-08",
+    "updated_at": "2026-08-08T12:12:00Z",
+    "amount": 835.34,
+    "currency": "USD",
+    "status": "completed",
+    "country": "ES"
+   },
+   {
+    "order_id": "ORD-1085",
+    "customer_id": "C041",
+    "order_date": "2026-08-08",
+    "updated_at": "2026-08-08T19:25:00Z",
+    "amount": 855.27,
+    "currency": "GBP",
+    "status": "completed",
+    "country": "JP"
+   },
+   {
+    "order_id": "ORD-1086",
+    "customer_id": "C005",
+    "order_date": "2026-08-08",
+    "updated_at": "2026-08-08T02:38:00Z",
+    "amount": 560.17,
+    "currency": "USD",
+    "status": "shipped",
+    "country": "DE"
+   },
+   {
+    "order_id": "ORD-1087",
+    "customer_id": "C042",
+    "order_date": "2026-08-08",
+    "updated_at": "2026-08-08T09:51:00Z",
+    "amount": 310.3,
+    "currency": "USD",
+    "status": "returned",
+    "country": "FR"
+   },
+   {
+    "order_id": "ORD-1088",
+    "customer_id": "C007",
+    "order_date": "2026-08-08",
+    "updated_at": "2026-08-08T16:04:00Z",
+    "amount": 325.81,
+    "currency": "eur",
+    "status": "completed",
+    "country": "ES"
+   },
+   {
+    "order_id": "ORD-1089",
+    "customer_id": "C023",
+    "order_date": "2026-08-09",
+    "updated_at": "2026-08-09T23:17:00Z",
+    "amount": 200.26,
+    "currency": "GBP",
+    "status": "shipped",
+    "country": "FR"
+   },
+   {
+    "order_id": "ORD-1090",
+    "customer_id": "C056",
+    "order_date": "2026-08-09",
+    "updated_at": "2026-08-09T06:30:00Z",
+    "amount": 146.57,
+    "currency": "USD",
+    "status": "completed",
+    "country": "ES"
+   },
+   {
+    "order_id": "ORD-1091",
+    "customer_id": "C008",
+    "order_date": "2026-08-09",
+    "updated_at": "2026-08-09T13:43:00Z",
+    "amount": 273.8,
+    "currency": "usd",
+    "status": "completed",
+    "country": "IN"
+   },
+   {
+    "order_id": "ORD-1092",
+    "customer_id": "C051",
+    "order_date": "2026-08-09",
+    "updated_at": "2026-08-09T20:56:00Z",
+    "amount": 606.52,
+    "currency": "EUR",
+    "status": "completed",
+    "country": "GB"
+   },
+   {
+    "order_id": "ORD-1093",
+    "customer_id": "C008",
+    "order_date": "2026-08-09",
+    "updated_at": "2026-08-09T03:09:00Z",
+    "amount": 76.5,
+    "currency": "GBP",
+    "status": "completed",
+    "country": "DE"
+   },
+   {
+    "order_id": "ORD-1094",
+    "customer_id": "C030",
+    "order_date": "2026-08-09",
+    "updated_at": "2026-08-09T10:22:00Z",
+    "amount": 767.2,
+    "currency": "GBP",
+    "status": "returned",
+    "country": "BR"
+   },
+   {
+    "order_id": "ORD-1095",
+    "customer_id": "C037",
+    "order_date": "2026-08-09",
+    "updated_at": "2026-08-09T17:35:00Z",
+    "amount": 669.74,
+    "currency": "gbp",
+    "status": "completed",
+    "country": "IN"
+   },
+   {
+    "order_id": "ORD-1096",
+    "customer_id": "C003",
+    "order_date": "2026-08-09",
+    "updated_at": "2026-08-09T00:48:00Z",
+    "amount": 153.14,
+    "currency": "EUR",
+    "status": "returned",
+    "country": "IN"
+   },
+   {
+    "order_id": "ORD-1097",
+    "customer_id": "C054",
+    "order_date": "2026-08-09",
+    "updated_at": "2026-08-09T07:01:00Z",
+    "amount": 885.07,
+    "currency": "USD",
+    "status": "completed",
+    "country": "JP"
+   },
+   {
+    "order_id": "ORD-1098",
+    "customer_id": "C011",
+    "order_date": "2026-08-09",
+    "updated_at": "2026-08-09T14:14:00Z",
+    "amount": 587.53,
+    "currency": "EUR",
+    "status": "shipped",
+    "country": "IN"
+   },
+   {
+    "order_id": "ORD-1099",
+    "customer_id": "C028",
+    "order_date": "2026-08-09",
+    "updated_at": "2026-08-09T21:27:00Z",
+    "amount": 188.28,
+    "currency": "USD",
+    "status": "completed",
+    "country": "JP"
+   },
+   {
+    "order_id": "ORD-1100",
+    "customer_id": "C015",
+    "order_date": "2026-08-10",
+    "updated_at": "2026-08-10T04:40:00Z",
+    "amount": 801.7,
+    "currency": "EUR",
+    "status": "completed",
+    "country": "ES"
+   },
+   {
+    "order_id": "ORD-1101",
+    "customer_id": "C059",
+    "order_date": "2026-08-10",
+    "updated_at": "2026-08-10T11:53:00Z",
+    "amount": 875.01,
+    "currency": "GBP",
+    "status": "completed",
+    "country": "IN"
+   },
+   {
+    "order_id": "ORD-1102",
+    "customer_id": "C027",
+    "order_date": "2026-08-10",
+    "updated_at": "2026-08-10T18:06:00Z",
+    "amount": 626.67,
+    "currency": "EUR",
+    "status": "completed",
+    "country": "DE"
+   },
+   {
+    "order_id": "ORD-1103",
+    "customer_id": "C047",
+    "order_date": "2026-08-10",
+    "updated_at": "2026-08-10T01:19:00Z",
+    "amount": 176.43,
+    "currency": "USD",
+    "status": "completed",
+    "country": "DE"
+   },
+   {
+    "order_id": "ORD-1104",
+    "customer_id": "C030",
+    "order_date": "2026-08-10",
+    "updated_at": "2026-08-10T08:32:00Z",
+    "amount": 9.15,
+    "currency": "usd",
+    "status": "completed",
+    "country": "GB"
+   },
+   {
+    "order_id": "ORD-1105",
+    "customer_id": "C024",
+    "order_date": "2026-08-10",
+    "updated_at": "2026-08-10T15:45:00Z",
+    "amount": 641.8,
+    "currency": "GBP",
+    "status": "returned",
+    "country": "IN"
+   },
+   {
+    "order_id": "ORD-1106",
+    "customer_id": "C007",
+    "order_date": "2026-08-10",
+    "updated_at": "2026-08-10T22:58:00Z",
+    "amount": 400.61,
+    "currency": "GBP",
+    "status": "completed",
+    "country": "FR"
+   },
+   {
+    "order_id": "ORD-1107",
+    "customer_id": "C003",
+    "order_date": "2026-08-10",
+    "updated_at": "2026-08-10T05:11:00Z",
+    "amount": 788.24,
+    "currency": "USD",
+    "status": "returned",
+    "country": "IN"
+   },
+   {
+    "order_id": "ORD-1108",
+    "customer_id": "C003",
+    "order_date": "2026-08-10",
+    "updated_at": "2026-08-10T12:24:00Z",
+    "amount": 284.55,
+    "currency": "EUR",
+    "status": "shipped",
+    "country": "FR"
+   },
+   {
+    "order_id": "ORD-1109",
+    "customer_id": "C044",
+    "order_date": "2026-08-10",
+    "updated_at": "2026-08-10T19:37:00Z",
+    "amount": 227.42,
+    "currency": "USD",
+    "status": "completed",
+    "country": "DE"
+   },
+   {
+    "order_id": "ORD-1110",
+    "customer_id": "C025",
+    "order_date": "2026-08-10",
+    "updated_at": "2026-08-10T02:50:00Z",
+    "amount": 72.68,
+    "currency": "GBP",
+    "status": "completed",
+    "country": "ES"
+   },
+   {
+    "order_id": "ORD-1111",
+    "customer_id": "C010",
+    "order_date": "2026-08-10",
+    "updated_at": "2026-08-10T09:03:00Z",
+    "amount": 715.73,
+    "currency": "EUR",
+    "status": "completed",
+    "country": "US"
+   },
+   {
+    "order_id": "ORD-1112",
+    "customer_id": "C014",
+    "order_date": "2026-08-11",
+    "updated_at": "2026-08-11T16:16:00Z",
+    "amount": 536.99,
+    "currency": "EUR",
+    "status": "completed",
+    "country": "US"
+   },
+   {
+    "order_id": "ORD-1113",
+    "customer_id": "C021",
+    "order_date": "2026-08-11",
+    "updated_at": "2026-08-11T23:29:00Z",
+    "amount": 531.4,
+    "currency": "EUR",
+    "status": "completed",
+    "country": "GB"
+   },
+   {
+    "order_id": "ORD-1114",
+    "customer_id": "C001",
+    "order_date": "2026-08-11",
+    "updated_at": "2026-08-11T06:42:00Z",
+    "amount": 13.43,
+    "currency": "usd",
+    "status": "completed",
+    "country": "GB"
+   },
+   {
+    "order_id": "ORD-1115",
+    "customer_id": "C060",
+    "order_date": "2026-08-11",
+    "updated_at": "2026-08-11T13:55:00Z",
+    "amount": 71.03,
+    "currency": "USD",
+    "status": "completed",
+    "country": "ES"
+   },
+   {
+    "order_id": "ORD-1116",
+    "customer_id": "C008",
+    "order_date": "2026-08-11",
+    "updated_at": "2026-08-11T20:08:00Z",
+    "amount": 793.61,
+    "currency": "USD",
+    "status": "shipped",
+    "country": "ES"
+   },
+   {
+    "order_id": "ORD-1117",
+    "customer_id": "C012",
+    "order_date": "2026-08-11",
+    "updated_at": "2026-08-11T03:21:00Z",
+    "amount": 103.55,
+    "currency": "EUR",
+    "status": "shipped",
+    "country": "IN"
+   },
+   {
+    "order_id": "ORD-1118",
+    "customer_id": null,
+    "order_date": "2026-08-11",
+    "updated_at": "2026-08-11T10:34:00Z",
+    "amount": 836.99,
+    "currency": "gbp",
+    "status": "completed",
+    "country": "IN"
+   },
+   {
+    "order_id": "ORD-1119",
+    "customer_id": "C039",
+    "order_date": "2026-08-11",
+    "updated_at": "2026-08-11T17:47:00Z",
+    "amount": 292.62,
+    "currency": "GBP",
+    "status": "completed",
+    "country": "ES"
+   },
+   {
+    "order_id": "ORD-1120",
+    "customer_id": "C037",
+    "order_date": "2026-08-11",
+    "updated_at": "2026-08-11T00:00:00Z",
+    "amount": 560.19,
+    "currency": "GBP",
+    "status": "shipped",
+    "country": "DE"
+   },
+   {
+    "order_id": "ORD-1121",
+    "customer_id": "C051",
+    "order_date": "2026-08-11",
+    "updated_at": "2026-08-11T07:13:00Z",
+    "amount": 842.48,
+    "currency": "EUR",
+    "status": "completed",
+    "country": "IN"
+   },
+   {
+    "order_id": "ORD-1122",
+    "customer_id": "C052",
+    "order_date": "2026-08-11",
+    "updated_at": "2026-08-11T14:26:00Z",
+    "amount": 617.71,
+    "currency": "GBP",
+    "status": "completed",
+    "country": "GB"
+   },
+   {
+    "order_id": "ORD-1123",
+    "customer_id": "C043",
+    "order_date": "2026-08-12",
+    "updated_at": "2026-08-12T21:39:00Z",
+    "amount": 16.44,
+    "currency": "USD",
+    "status": "completed",
+    "country": "BR"
+   },
+   {
+    "order_id": "ORD-1124",
+    "customer_id": "C039",
+    "order_date": "2026-08-12",
+    "updated_at": "2026-08-12T04:52:00Z",
+    "amount": 765.32,
+    "currency": "USD",
+    "status": "returned",
+    "country": "IN"
+   },
+   {
+    "order_id": "ORD-1125",
+    "customer_id": "C058",
+    "order_date": "2026-08-12",
+    "updated_at": "2026-08-12T11:05:00Z",
+    "amount": 419.82,
+    "currency": "GBP",
+    "status": "completed",
+    "country": "IN"
+   },
+   {
+    "order_id": "ORD-1126",
+    "customer_id": "C047",
+    "order_date": "2026-08-12",
+    "updated_at": "2026-08-12T18:18:00Z",
+    "amount": 744.91,
+    "currency": "GBP",
+    "status": "completed",
+    "country": "GB"
+   },
+   {
+    "order_id": "ORD-1127",
+    "customer_id": null,
+    "order_date": "2026-08-12",
+    "updated_at": "2026-08-12T01:31:00Z",
+    "amount": 110.58,
+    "currency": "GBP",
+    "status": "completed",
+    "country": "GB"
+   },
+   {
+    "order_id": "ORD-1128",
+    "customer_id": "C040",
+    "order_date": "2026-08-12",
+    "updated_at": "2026-08-12T08:44:00Z",
+    "amount": 371.7,
+    "currency": "USD",
+    "status": "completed",
+    "country": "FR"
+   },
+   {
+    "order_id": "ORD-1129",
+    "customer_id": "C010",
+    "order_date": "2026-08-12",
+    "updated_at": "2026-08-12T15:57:00Z",
+    "amount": 806.14,
+    "currency": "GBP",
+    "status": "completed",
+    "country": "DE"
+   },
+   {
+    "order_id": "ORD-1130",
+    "customer_id": "C010",
+    "order_date": "2026-08-12",
+    "updated_at": "2026-08-12T22:10:00Z",
+    "amount": 355.64,
+    "currency": "eur",
+    "status": "completed",
+    "country": "DE"
+   },
+   {
+    "order_id": "ORD-1131",
+    "customer_id": "C024",
+    "order_date": "2026-08-12",
+    "updated_at": "2026-08-12T05:23:00Z",
+    "amount": 259.23,
+    "currency": "GBP",
+    "status": "shipped",
+    "country": "XX"
+   },
+   {
+    "order_id": "ORD-1132",
+    "customer_id": "C011",
+    "order_date": "2026-08-12",
+    "updated_at": "2026-08-12T12:36:00Z",
+    "amount": 531.12,
+    "currency": "GBP",
+    "status": "completed",
+    "country": "JP"
+   },
+   {
+    "order_id": "ORD-1133",
+    "customer_id": "C058",
+    "order_date": "2026-08-12",
+    "updated_at": "2026-08-12T19:49:00Z",
+    "amount": 520.4,
+    "currency": "EUR",
+    "status": "returned",
+    "country": "US"
+   },
+   {
+    "order_id": "ORD-1134",
+    "customer_id": "C014",
+    "order_date": "2026-08-13",
+    "updated_at": "2026-08-13T02:02:00Z",
+    "amount": 657.72,
+    "currency": "usd",
+    "status": "completed",
+    "country": "BR"
+   },
+   {
+    "order_id": "ORD-1135",
+    "customer_id": "C057",
+    "order_date": "2026-08-13",
+    "updated_at": "2026-08-13T09:15:00Z",
+    "amount": 352.38,
+    "currency": "GBP",
+    "status": "completed",
+    "country": "ES"
+   },
+   {
+    "order_id": "ORD-1136",
+    "customer_id": "C007",
+    "order_date": "2026-08-13",
+    "updated_at": "2026-08-13T16:28:00Z",
+    "amount": 489.2,
+    "currency": "EUR",
+    "status": "shipped",
+    "country": "BR"
+   },
+   {
+    "order_id": "ORD-1137",
+    "customer_id": "C007",
+    "order_date": "2026-08-13",
+    "updated_at": "2026-08-13T23:41:00Z",
+    "amount": 692.65,
+    "currency": "GBP",
+    "status": "completed",
+    "country": "US"
+   },
+   {
+    "order_id": "ORD-1138",
+    "customer_id": "C036",
+    "order_date": "2026-08-13",
+    "updated_at": "2026-08-13T06:54:00Z",
+    "amount": 130.93,
+    "currency": "USD",
+    "status": "completed",
+    "country": "IN"
+   },
+   {
+    "order_id": "ORD-1139",
+    "customer_id": "C023",
+    "order_date": "2026-08-13",
+    "updated_at": "2026-08-13T13:07:00Z",
+    "amount": -12.5,
+    "currency": "USD",
+    "status": "shipped",
+    "country": "GB"
+   },
+   {
+    "order_id": "ORD-1140",
+    "customer_id": "C010",
+    "order_date": "2026-08-13",
+    "updated_at": "2026-08-13T20:20:00Z",
+    "amount": 151.68,
+    "currency": "USD",
+    "status": "shipped",
+    "country": "IN"
+   },
+   {
+    "order_id": "ORD-1141",
+    "customer_id": "C058",
+    "order_date": "2026-08-13",
+    "updated_at": "2026-08-13T03:33:00Z",
+    "amount": 524.37,
+    "currency": "GBP",
+    "status": "completed",
+    "country": "FR"
+   },
+   {
+    "order_id": "ORD-1142",
+    "customer_id": "C045",
+    "order_date": "2026-08-13",
+    "updated_at": "2026-08-13T10:46:00Z",
+    "amount": 212.12,
+    "currency": "EUR",
+    "status": "shipped",
+    "country": "US"
+   },
+   {
+    "order_id": "ORD-1143",
+    "customer_id": "C037",
+    "order_date": "2026-08-13",
+    "updated_at": "2026-08-13T17:59:00Z",
+    "amount": 637.12,
+    "currency": "eur",
+    "status": "returned",
+    "country": "FR"
+   },
+   {
+    "order_id": "ORD-1144",
+    "customer_id": "C007",
+    "order_date": "2026-08-13",
+    "updated_at": "2026-08-13T00:12:00Z",
+    "amount": 765.89,
+    "currency": "EUR",
+    "status": "completed",
+    "country": "FR"
+   },
+   {
+    "order_id": "ORD-1145",
+    "customer_id": "C023",
+    "order_date": "2026-08-14",
+    "updated_at": "2026-08-14T07:25:00Z",
+    "amount": 66.34,
+    "currency": "USD",
+    "status": "returned",
+    "country": "DE"
+   },
+   {
+    "order_id": "ORD-1146",
+    "customer_id": "C020",
+    "order_date": "2026-08-14",
+    "updated_at": "2026-08-14T14:38:00Z",
+    "amount": 854.06,
+    "currency": "USD",
+    "status": "completed",
+    "country": "US"
+   },
+   {
+    "order_id": "ORD-1147",
+    "customer_id": "C012",
+    "order_date": "2026-08-14",
+    "updated_at": "2026-08-14T21:51:00Z",
+    "amount": 40.77,
+    "currency": "gbp",
+    "status": "returned",
+    "country": "GB"
+   },
+   {
+    "order_id": "ORD-1148",
+    "customer_id": "C059",
+    "order_date": "2026-08-14",
+    "updated_at": "2026-08-14T04:04:00Z",
+    "amount": 400.46,
+    "currency": "gbp",
+    "status": "completed",
+    "country": "DE"
+   },
+   {
+    "order_id": "ORD-1149",
+    "customer_id": "C058",
+    "order_date": "2026-08-14",
+    "updated_at": "2026-08-14T11:17:00Z",
+    "amount": 881.35,
+    "currency": "usd",
+    "status": "completed",
+    "country": "JP"
+   },
+   {
+    "order_id": "ORD-1150",
+    "customer_id": "C060",
+    "order_date": "2026-08-14",
+    "updated_at": "2026-08-14T18:30:00Z",
+    "amount": 89.31,
+    "currency": "GBP",
+    "status": "shipped",
+    "country": "FR"
+   },
+   {
+    "order_id": "ORD-1151",
+    "customer_id": "C015",
+    "order_date": "2026-08-14",
+    "updated_at": "2026-08-14T01:43:00Z",
+    "amount": 893.65,
+    "currency": "GBP",
+    "status": "returned",
+    "country": "US"
+   },
+   {
+    "order_id": "ORD-1152",
+    "customer_id": "C053",
+    "order_date": "2026-08-14",
+    "updated_at": "2026-08-14T08:56:00Z",
+    "amount": 37.82,
+    "currency": "GBP",
+    "status": "completed",
+    "country": "JP"
+   },
+   {
+    "order_id": "ORD-1153",
+    "customer_id": "C049",
+    "order_date": "2026-08-14",
+    "updated_at": "2026-08-14T15:09:00Z",
+    "amount": 762.0,
+    "currency": "EUR",
+    "status": "completed",
+    "country": "GB"
+   },
+   {
+    "order_id": "ORD-1154",
+    "customer_id": "C001",
+    "order_date": "2026-08-14",
+    "updated_at": "2026-08-14T22:22:00Z",
+    "amount": 103.25,
+    "currency": "USD",
+    "status": "completed",
+    "country": "FR"
+   },
+   {
+    "order_id": "ORD-1155",
+    "customer_id": "C010",
+    "order_date": "2026-08-14",
+    "updated_at": "2026-08-14T05:35:00Z",
+    "amount": 217.65,
+    "currency": "USD",
+    "status": "returned",
+    "country": "ES"
+   },
+   {
+    "order_id": "ORD-1156",
+    "customer_id": "C017",
+    "order_date": "2026-08-15",
+    "updated_at": "2026-08-15T12:48:00Z",
+    "amount": 798.58,
+    "currency": "GBP",
+    "status": "completed",
+    "country": "US"
+   },
+   {
+    "order_id": "ORD-1157",
+    "customer_id": "C057",
+    "order_date": "2026-08-15",
+    "updated_at": "2026-08-15T19:01:00Z",
+    "amount": 543.72,
+    "currency": "GBP",
+    "status": "returned",
+    "country": "??"
+   },
+   {
+    "order_id": "ORD-1158",
+    "customer_id": "C046",
+    "order_date": "2026-08-15",
+    "updated_at": "2026-08-15T02:14:00Z",
+    "amount": 342.29,
+    "currency": "EUR",
+    "status": "returned",
+    "country": "GB"
+   },
+   {
+    "order_id": "ORD-1159",
+    "customer_id": "C033",
+    "order_date": "2026-08-15",
+    "updated_at": "2026-08-15T09:27:00Z",
+    "amount": 810.65,
+    "currency": "eur",
+    "status": "shipped",
+    "country": "JP"
+   },
+   {
+    "order_id": "ORD-1160",
+    "customer_id": "C037",
+    "order_date": "2026-08-15",
+    "updated_at": "2026-08-15T16:40:00Z",
+    "amount": 272.38,
+    "currency": "USD",
+    "status": "shipped",
+    "country": "BR"
+   },
+   {
+    "order_id": "ORD-1161",
+    "customer_id": "C056",
+    "order_date": "2026-08-15",
+    "updated_at": "2026-08-15T23:53:00Z",
+    "amount": 807.52,
+    "currency": "EUR",
+    "status": "completed",
+    "country": "GB"
+   },
+   {
+    "order_id": "ORD-1162",
+    "customer_id": "C049",
+    "order_date": "2026-08-15",
+    "updated_at": "2026-08-15T06:06:00Z",
+    "amount": 862.95,
+    "currency": "GBP",
+    "status": "completed",
+    "country": "BR"
+   },
+   {
+    "order_id": "ORD-1163",
+    "customer_id": "C035",
+    "order_date": "2026-08-15",
+    "updated_at": "2026-08-15T13:19:00Z",
+    "amount": 206.37,
+    "currency": "GBP",
+    "status": "shipped",
+    "country": "US"
+   },
+   {
+    "order_id": "ORD-1164",
+    "customer_id": "C050",
+    "order_date": "2026-08-15",
+    "updated_at": "2026-08-15T20:32:00Z",
+    "amount": 691.9,
+    "currency": "EUR",
+    "status": "completed",
+    "country": "US"
+   },
+   {
+    "order_id": "ORD-1165",
+    "customer_id": "C003",
+    "order_date": "2026-08-15",
+    "updated_at": "2026-08-15T03:45:00Z",
+    "amount": 878.48,
+    "currency": "GBP",
+    "status": "returned",
+    "country": "US"
+   },
+   {
+    "order_id": "ORD-1166",
+    "customer_id": "C030",
+    "order_date": "2026-08-15",
+    "updated_at": "2026-08-15T10:58:00Z",
+    "amount": 625.37,
+    "currency": "USD",
+    "status": "completed",
+    "country": "US"
+   },
+   {
+    "order_id": "ORD-1167",
+    "customer_id": "C027",
+    "order_date": "2026-08-16",
+    "updated_at": "2026-08-16T17:11:00Z",
+    "amount": 829.05,
+    "currency": "gbp",
+    "status": "shipped",
+    "country": "US"
+   },
+   {
+    "order_id": "ORD-1168",
+    "customer_id": "C005",
+    "order_date": "2026-08-16",
+    "updated_at": "2026-08-16T00:24:00Z",
+    "amount": 779.09,
+    "currency": "EUR",
+    "status": "completed",
+    "country": "BR"
+   },
+   {
+    "order_id": "ORD-1169",
+    "customer_id": "C052",
+    "order_date": "2026-08-16",
+    "updated_at": "2026-08-16T07:37:00Z",
+    "amount": 727.51,
+    "currency": "USD",
+    "status": "completed",
+    "country": "FR"
+   },
+   {
+    "order_id": "ORD-1170",
+    "customer_id": "C013",
+    "order_date": "2026-08-16",
+    "updated_at": "2026-08-16T14:50:00Z",
+    "amount": 225.44,
+    "currency": "EUR",
+    "status": "completed",
+    "country": "GB"
+   },
+   {
+    "order_id": "ORD-1171",
+    "customer_id": "C021",
+    "order_date": "2026-08-16",
+    "updated_at": "2026-08-16T21:03:00Z",
+    "amount": 724.12,
+    "currency": "GBP",
+    "status": "completed",
+    "country": "ES"
+   },
+   {
+    "order_id": "ORD-1172",
+    "customer_id": "C049",
+    "order_date": "2026-08-16",
+    "updated_at": "2026-08-16T04:16:00Z",
+    "amount": 556.89,
+    "currency": "GBP",
+    "status": "returned",
+    "country": "FR"
+   },
+   {
+    "order_id": "ORD-1173",
+    "customer_id": "C007",
+    "order_date": "2026-08-16",
+    "updated_at": "2026-08-16T11:29:00Z",
+    "amount": 149.54,
+    "currency": "GBP",
+    "status": "shipped",
+    "country": "GB"
+   },
+   {
+    "order_id": "ORD-1174",
+    "customer_id": "C019",
+    "order_date": "2026-08-16",
+    "updated_at": "2026-08-16T18:42:00Z",
+    "amount": 634.65,
+    "currency": "EUR",
+    "status": "completed",
+    "country": "BR"
+   },
+   {
+    "order_id": "ORD-1175",
+    "customer_id": "C030",
+    "order_date": "2026-08-16",
+    "updated_at": "2026-08-16T01:55:00Z",
+    "amount": 834.27,
+    "currency": "EUR",
+    "status": "completed",
+    "country": "GB"
+   },
+   {
+    "order_id": "ORD-1176",
+    "customer_id": "C012",
+    "order_date": "2026-08-16",
+    "updated_at": "2026-08-16T08:08:00Z",
+    "amount": 281.89,
+    "currency": "EUR",
+    "status": "completed",
+    "country": "JP"
+   },
+   {
+    "order_id": "ORD-1177",
+    "customer_id": "C018",
+    "order_date": "2026-08-16",
+    "updated_at": "2026-08-16T15:21:00Z",
+    "amount": 789.17,
+    "currency": "USD",
+    "status": "completed",
+    "country": "US"
+   },
+   {
+    "order_id": "ORD-1178",
+    "customer_id": "C012",
+    "order_date": "2026-08-17",
+    "updated_at": "2026-08-17T22:34:00Z",
+    "amount": 248.47,
+    "currency": "USD",
+    "status": "shipped",
+    "country": "GB"
+   },
+   {
+    "order_id": "ORD-1179",
+    "customer_id": "C060",
+    "order_date": "2026-08-17",
+    "updated_at": "2026-08-17T05:47:00Z",
+    "amount": 853.88,
+    "currency": "usd",
+    "status": "completed",
+    "country": "US"
+   },
+   {
+    "order_id": "ORD-1180",
+    "customer_id": "C032",
+    "order_date": "2026-08-17",
+    "updated_at": "2026-08-17T12:00:00Z",
+    "amount": 152.62,
+    "currency": "USD",
+    "status": "shipped",
+    "country": "JP"
+   },
+   {
+    "order_id": "ORD-1181",
+    "customer_id": "C013",
+    "order_date": "2026-08-17",
+    "updated_at": "2026-08-17T19:13:00Z",
+    "amount": 447.76,
+    "currency": "USD",
+    "status": "completed",
+    "country": "FR"
+   },
+   {
+    "order_id": "ORD-1182",
+    "customer_id": "C002",
+    "order_date": "2026-08-17",
+    "updated_at": "2026-08-17T02:26:00Z",
+    "amount": 733.07,
+    "currency": "USD",
+    "status": "completed",
+    "country": "US"
+   },
+   {
+    "order_id": "ORD-1183",
+    "customer_id": "C042",
+    "order_date": "2026-08-17",
+    "updated_at": "2026-08-17T09:39:00Z",
+    "amount": 251.09,
+    "currency": "USD",
+    "status": "returned",
+    "country": "FR"
+   },
+   {
+    "order_id": "ORD-1184",
+    "customer_id": "C044",
+    "order_date": "2026-08-17",
+    "updated_at": "2026-08-17T16:52:00Z",
+    "amount": 664.79,
+    "currency": "USD",
+    "status": "completed",
+    "country": "JP"
+   },
+   {
+    "order_id": "ORD-1185",
+    "customer_id": "C010",
+    "order_date": "2026-08-17",
+    "updated_at": "2026-08-17T23:05:00Z",
+    "amount": 397.23,
+    "currency": "USD",
+    "status": "completed",
+    "country": "US"
+   },
+   {
+    "order_id": "ORD-1186",
+    "customer_id": "C038",
+    "order_date": "2026-08-17",
+    "updated_at": "2026-08-17T06:18:00Z",
+    "amount": 379.2,
+    "currency": "EUR",
+    "status": "completed",
+    "country": "ES"
+   },
+   {
+    "order_id": "ORD-1187",
+    "customer_id": "C008",
+    "order_date": "2026-08-17",
+    "updated_at": "2026-08-17T13:31:00Z",
+    "amount": 31.01,
+    "currency": "usd",
+    "status": "completed",
+    "country": "DE"
+   },
+   {
+    "order_id": "ORD-1188",
+    "customer_id": "C029",
+    "order_date": "2026-08-17",
+    "updated_at": "2026-08-17T20:44:00Z",
+    "amount": 606.58,
+    "currency": "GBP",
+    "status": "completed",
+    "country": "JP"
+   },
+   {
+    "order_id": "ORD-1189",
+    "customer_id": "C003",
+    "order_date": "2026-08-18",
+    "updated_at": "2026-08-18T03:57:00Z",
+    "amount": 31.14,
+    "currency": "EUR",
+    "status": "completed",
+    "country": "ES"
+   },
+   {
+    "order_id": "ORD-1190",
+    "customer_id": "C033",
+    "order_date": "2026-08-18",
+    "updated_at": "2026-08-18T10:10:00Z",
+    "amount": 14.01,
+    "currency": "gbp",
+    "status": "completed",
+    "country": "IN"
+   },
+   {
+    "order_id": "ORD-1191",
+    "customer_id": "C010",
+    "order_date": "2026-08-18",
+    "updated_at": "2026-08-18T17:23:00Z",
+    "amount": 345.97,
+    "currency": "GBP",
+    "status": "shipped",
+    "country": "GB"
+   },
+   {
+    "order_id": "ORD-1192",
+    "customer_id": "C032",
+    "order_date": "2026-08-18",
+    "updated_at": "2026-08-18T00:36:00Z",
+    "amount": 202.67,
+    "currency": "USD",
+    "status": "shipped",
+    "country": "BR"
+   },
+   {
+    "order_id": "ORD-1193",
+    "customer_id": "C018",
+    "order_date": "2026-08-18",
+    "updated_at": "2026-08-18T07:49:00Z",
+    "amount": 602.97,
+    "currency": "gbp",
+    "status": "completed",
+    "country": "GB"
+   },
+   {
+    "order_id": "ORD-1194",
+    "customer_id": "C058",
+    "order_date": "2026-08-18",
+    "updated_at": "2026-08-18T14:02:00Z",
+    "amount": 354.57,
+    "currency": "GBP",
+    "status": "completed",
+    "country": "JP"
+   },
+   {
+    "order_id": "ORD-1195",
+    "customer_id": "C035",
+    "order_date": "2026-08-18",
+    "updated_at": "2026-08-18T21:15:00Z",
+    "amount": 691.89,
+    "currency": "USD",
+    "status": "completed",
+    "country": "BR"
+   },
+   {
+    "order_id": "ORD-1196",
+    "customer_id": "C021",
+    "order_date": "2026-08-18",
+    "updated_at": "2026-08-18T04:28:00Z",
+    "amount": 310.49,
+    "currency": "USD",
+    "status": "completed",
+    "country": "FR"
+   },
+   {
+    "order_id": "ORD-1197",
+    "customer_id": "C014",
+    "order_date": "2026-08-18",
+    "updated_at": "2026-08-18T11:41:00Z",
+    "amount": 323.0,
+    "currency": "USD",
+    "status": "completed",
+    "country": "US"
+   },
+   {
+    "order_id": "ORD-1198",
+    "customer_id": "C026",
+    "order_date": "2026-08-18",
+    "updated_at": "2026-08-18T18:54:00Z",
+    "amount": 677.93,
+    "currency": "EUR",
+    "status": "completed",
+    "country": "FR"
+   },
+   {
+    "order_id": "ORD-1199",
+    "customer_id": "C040",
+    "order_date": "2026-08-18",
+    "updated_at": "2026-08-18T01:07:00Z",
+    "amount": 316.28,
+    "currency": "GBP",
+    "status": "completed",
+    "country": "JP"
+   },
+   {
+    "order_id": "ORD-1200",
+    "customer_id": "C028",
+    "order_date": "2026-08-19",
+    "updated_at": "2026-08-19T08:20:00Z",
+    "amount": 0.0,
+    "currency": "USD",
+    "status": "completed",
+    "country": "JP"
+   },
+   {
+    "order_id": "ORD-1201",
+    "customer_id": "C002",
+    "order_date": "2026-08-19",
+    "updated_at": "2026-08-19T15:33:00Z",
+    "amount": 756.0,
+    "currency": "GBP",
+    "status": "completed",
+    "country": "FR"
+   },
+   {
+    "order_id": "ORD-1202",
+    "customer_id": "C053",
+    "order_date": "2026-08-19",
+    "updated_at": "2026-08-19T22:46:00Z",
+    "amount": 582.77,
+    "currency": "usd",
+    "status": "shipped",
+    "country": "DE"
+   },
+   {
+    "order_id": "ORD-1203",
+    "customer_id": "C009",
+    "order_date": "2026-08-19",
+    "updated_at": "2026-08-19T05:59:00Z",
+    "amount": 405.54,
+    "currency": "USD",
+    "status": "returned",
+    "country": "US"
+   },
+   {
+    "order_id": "ORD-1204",
+    "customer_id": "C014",
+    "order_date": "2026-08-19",
+    "updated_at": "2026-08-19T12:12:00Z",
+    "amount": 92.65,
+    "currency": "USD",
+    "status": "completed",
+    "country": "DE"
+   },
+   {
+    "order_id": "ORD-1205",
+    "customer_id": "C058",
+    "order_date": "2026-08-19",
+    "updated_at": "2026-08-19T19:25:00Z",
+    "amount": 316.5,
+    "currency": "EUR",
+    "status": "completed",
+    "country": "ES"
+   },
+   {
+    "order_id": "ORD-1206",
+    "customer_id": "C056",
+    "order_date": "2026-08-19",
+    "updated_at": "2026-08-19T02:38:00Z",
+    "amount": 247.74,
+    "currency": "USD",
+    "status": "returned",
+    "country": "JP"
+   },
+   {
+    "order_id": "ORD-1207",
+    "customer_id": "C032",
+    "order_date": "2026-08-19",
+    "updated_at": "2026-08-19T09:51:00Z",
+    "amount": 791.79,
+    "currency": "EUR",
+    "status": "shipped",
+    "country": "GB"
+   },
+   {
+    "order_id": "ORD-1208",
+    "customer_id": "C035",
+    "order_date": "2026-08-19",
+    "updated_at": "2026-08-19T16:04:00Z",
+    "amount": 502.46,
+    "currency": "GBP",
+    "status": "completed",
+    "country": "IN"
+   },
+   {
+    "order_id": "ORD-1209",
+    "customer_id": "C004",
+    "order_date": "2026-08-19",
+    "updated_at": "2026-08-19T23:17:00Z",
+    "amount": 890.95,
+    "currency": "GBP",
+    "status": "shipped",
+    "country": "ES"
+   },
+   {
+    "order_id": "ORD-1210",
+    "customer_id": "C007",
+    "order_date": "2026-08-19",
+    "updated_at": "2026-08-19T06:30:00Z",
+    "amount": 837.88,
+    "currency": "USD",
+    "status": "returned",
+    "country": "ES"
+   },
+   {
+    "order_id": "ORD-1211",
+    "customer_id": "C028",
+    "order_date": "2026-08-19",
+    "updated_at": "2026-08-19T13:43:00Z",
+    "amount": 786.55,
+    "currency": "USD",
+    "status": "completed",
+    "country": "US"
+   },
+   {
+    "order_id": "ORD-1212",
+    "customer_id": "C042",
+    "order_date": "2026-08-20",
+    "updated_at": "2026-08-20T20:56:00Z",
+    "amount": 229.65,
+    "currency": "USD",
+    "status": "completed",
+    "country": "IN"
+   },
+   {
+    "order_id": "ORD-1213",
+    "customer_id": "C051",
+    "order_date": "2026-08-20",
+    "updated_at": "2026-08-20T03:09:00Z",
+    "amount": 823.02,
+    "currency": "EUR",
+    "status": "completed",
+    "country": "US"
+   },
+   {
+    "order_id": "ORD-1214",
+    "customer_id": "C043",
+    "order_date": "2026-08-20",
+    "updated_at": "2026-08-20T10:22:00Z",
+    "amount": 338.5,
+    "currency": "EUR",
+    "status": "completed",
+    "country": "DE"
+   },
+   {
+    "order_id": "ORD-1215",
+    "customer_id": "C044",
+    "order_date": "2026-08-20",
+    "updated_at": "2026-08-20T17:35:00Z",
+    "amount": 154.53,
+    "currency": "eur",
+    "status": "completed",
+    "country": "US"
+   },
+   {
+    "order_id": "ORD-1216",
+    "customer_id": "C009",
+    "order_date": "2026-08-20",
+    "updated_at": "2026-08-20T00:48:00Z",
+    "amount": 304.54,
+    "currency": "GBP",
+    "status": "completed",
+    "country": "US"
+   },
+   {
+    "order_id": "ORD-1217",
+    "customer_id": "C031",
+    "order_date": "2026-08-20",
+    "updated_at": "2026-08-20T07:01:00Z",
+    "amount": 28.27,
+    "currency": "GBP",
+    "status": "completed",
+    "country": "BR"
+   },
+   {
+    "order_id": "ORD-1218",
+    "customer_id": "C048",
+    "order_date": "2026-08-20",
+    "updated_at": "2026-08-20T14:14:00Z",
+    "amount": 424.72,
+    "currency": "USD",
+    "status": "shipped",
+    "country": "ES"
+   },
+   {
+    "order_id": "ORD-1219",
+    "customer_id": "C010",
+    "order_date": "2026-08-20",
+    "updated_at": "2026-08-20T21:27:00Z",
+    "amount": 556.45,
+    "currency": "GBP",
+    "status": "completed",
+    "country": "IN"
+   },
+   {
+    "order_id": "ORD-1220",
+    "customer_id": "C031",
+    "order_date": "2026-08-20",
+    "updated_at": "2026-08-20T04:40:00Z",
+    "amount": 600.56,
+    "currency": "EUR",
+    "status": "completed",
+    "country": "IN"
+   },
+   {
+    "order_id": "ORD-1221",
+    "customer_id": "C015",
+    "order_date": "2026-08-20",
+    "updated_at": "2026-08-20T11:53:00Z",
+    "amount": 58.03,
+    "currency": "EUR",
+    "status": "completed",
+    "country": "JP"
+   },
+   {
+    "order_id": "ORD-1222",
+    "customer_id": "C009",
+    "order_date": "2026-08-20",
+    "updated_at": "2026-08-20T18:06:00Z",
+    "amount": 514.62,
+    "currency": "EUR",
+    "status": "shipped",
+    "country": "GB"
+   },
+   {
+    "order_id": "ORD-1223",
+    "customer_id": "C012",
+    "order_date": "2026-08-21",
+    "updated_at": "2026-08-21T01:19:00Z",
+    "amount": 473.4,
+    "currency": "USD",
+    "status": "completed",
+    "country": "US"
+   },
+   {
+    "order_id": "ORD-1224",
+    "customer_id": "C029",
+    "order_date": "2026-08-21",
+    "updated_at": "2026-08-21T08:32:00Z",
+    "amount": 275.31,
+    "currency": "EUR",
+    "status": "shipped",
+    "country": "US"
+   },
+   {
+    "order_id": "ORD-1225",
+    "customer_id": "C035",
+    "order_date": "2026-08-21",
+    "updated_at": "2026-08-21T15:45:00Z",
+    "amount": -1.0,
+    "currency": "EUR",
+    "status": "returned",
+    "country": "US"
+   },
+   {
+    "order_id": "ORD-1226",
+    "customer_id": "C051",
+    "order_date": "2026-08-21",
+    "updated_at": "2026-08-21T22:58:00Z",
+    "amount": 378.96,
+    "currency": "EUR",
+    "status": "completed",
+    "country": "DE"
+   },
+   {
+    "order_id": "ORD-1227",
+    "customer_id": "C031",
+    "order_date": "2026-08-21",
+    "updated_at": "2026-08-21T05:11:00Z",
+    "amount": 326.83,
+    "currency": "EUR",
+    "status": "completed",
+    "country": "IN"
+   },
+   {
+    "order_id": "ORD-1228",
+    "customer_id": "C053",
+    "order_date": "2026-08-21",
+    "updated_at": "2026-08-21T12:24:00Z",
+    "amount": 652.07,
+    "currency": "GBP",
+    "status": "completed",
+    "country": "U S"
+   },
+   {
+    "order_id": "ORD-1229",
+    "customer_id": "C011",
+    "order_date": "2026-08-21",
+    "updated_at": "2026-08-21T19:37:00Z",
+    "amount": 785.7,
+    "currency": "usd",
+    "status": "completed",
+    "country": "US"
+   },
+   {
+    "order_id": "ORD-1230",
+    "customer_id": "C040",
+    "order_date": "2026-08-21",
+    "updated_at": "2026-08-21T02:50:00Z",
+    "amount": 415.66,
+    "currency": "USD",
+    "status": "returned",
+    "country": "BR"
+   },
+   {
+    "order_id": "ORD-1231",
+    "customer_id": "C030",
+    "order_date": "2026-08-21",
+    "updated_at": "2026-08-21T09:03:00Z",
+    "amount": 499.82,
+    "currency": "USD",
+    "status": "completed",
+    "country": "JP"
+   },
+   {
+    "order_id": "ORD-1232",
+    "customer_id": "C037",
+    "order_date": "2026-08-21",
+    "updated_at": "2026-08-21T16:16:00Z",
+    "amount": 782.47,
+    "currency": "USD",
+    "status": "completed",
+    "country": "DE"
+   },
+   {
+    "order_id": "ORD-1233",
+    "customer_id": "C008",
+    "order_date": "2026-08-21",
+    "updated_at": "2026-08-21T23:29:00Z",
+    "amount": 553.54,
+    "currency": "gbp",
+    "status": "completed",
+    "country": "FR"
+   },
+   {
+    "order_id": "ORD-1234",
+    "customer_id": "C032",
+    "order_date": "2026-08-22",
+    "updated_at": "2026-08-22T06:42:00Z",
+    "amount": 327.77,
+    "currency": "GBP",
+    "status": "completed",
+    "country": "US"
+   },
+   {
+    "order_id": "ORD-1235",
+    "customer_id": "C049",
+    "order_date": "2026-08-22",
+    "updated_at": "2026-08-22T13:55:00Z",
+    "amount": 115.25,
+    "currency": "GBP",
+    "status": "returned",
+    "country": "BR"
+   },
+   {
+    "order_id": "ORD-1236",
+    "customer_id": "C001",
+    "order_date": "2026-08-22",
+    "updated_at": "2026-08-22T20:08:00Z",
+    "amount": 855.58,
+    "currency": "GBP",
+    "status": "completed",
+    "country": "GB"
+   },
+   {
+    "order_id": "ORD-1237",
+    "customer_id": "C001",
+    "order_date": "2026-08-22",
+    "updated_at": "2026-08-22T03:21:00Z",
+    "amount": 344.61,
+    "currency": "gbp",
+    "status": "completed",
+    "country": "GB"
+   },
+   {
+    "order_id": "ORD-1238",
+    "customer_id": "C050",
+    "order_date": "2026-08-22",
+    "updated_at": "2026-08-22T10:34:00Z",
+    "amount": 506.63,
+    "currency": "GBP",
+    "status": "completed",
+    "country": "BR"
+   },
+   {
+    "order_id": "ORD-1239",
+    "customer_id": "C039",
+    "order_date": "2026-08-22",
+    "updated_at": "2026-08-22T17:47:00Z",
+    "amount": 348.86,
+    "currency": "USD",
+    "status": "completed",
+    "country": "JP"
+   },
+   {
+    "order_id": "ORD-1240",
+    "customer_id": "C045",
+    "order_date": "2026-08-22",
+    "updated_at": "2026-08-22T00:00:00Z",
+    "amount": 164.29,
+    "currency": "EUR",
+    "status": "completed",
+    "country": "ES"
+   },
+   {
+    "order_id": "ORD-1241",
+    "customer_id": "C023",
+    "order_date": "2026-08-22",
+    "updated_at": "2026-08-22T07:13:00Z",
+    "amount": 152.97,
+    "currency": "eur",
+    "status": "completed",
+    "country": "JP"
+   },
+   {
+    "order_id": "ORD-1242",
+    "customer_id": "C047",
+    "order_date": "2026-08-22",
+    "updated_at": "2026-08-22T14:26:00Z",
+    "amount": 856.75,
+    "currency": "GBP",
+    "status": "completed",
+    "country": "JP"
+   },
+   {
+    "order_id": "ORD-1243",
+    "customer_id": "C026",
+    "order_date": "2026-08-22",
+    "updated_at": "2026-08-22T21:39:00Z",
+    "amount": 431.66,
+    "currency": "USD",
+    "status": "shipped",
+    "country": "BR"
+   },
+   {
+    "order_id": "ORD-1244",
+    "customer_id": "C022",
+    "order_date": "2026-08-22",
+    "updated_at": "2026-08-22T04:52:00Z",
+    "amount": 428.16,
+    "currency": "USD",
+    "status": "shipped",
+    "country": "IN"
+   },
+   {
+    "order_id": "ORD-1245",
+    "customer_id": "C008",
+    "order_date": "2026-08-23",
+    "updated_at": "2026-08-23T11:05:00Z",
+    "amount": 170.54,
+    "currency": "GBP",
+    "status": "completed",
+    "country": "ES"
+   },
+   {
+    "order_id": "ORD-1246",
+    "customer_id": "C001",
+    "order_date": "2026-08-23",
+    "updated_at": "2026-08-23T18:18:00Z",
+    "amount": 239.25,
+    "currency": "GBP",
+    "status": "completed",
+    "country": "BR"
+   },
+   {
+    "order_id": "ORD-1247",
+    "customer_id": "C051",
+    "order_date": "2026-08-23",
+    "updated_at": "2026-08-23T01:31:00Z",
+    "amount": 699.96,
+    "currency": "EUR",
+    "status": "returned",
+    "country": "FR"
+   },
+   {
+    "order_id": "ORD-1248",
+    "customer_id": "C040",
+    "order_date": "2026-08-23",
+    "updated_at": "2026-08-23T08:44:00Z",
+    "amount": 678.29,
+    "currency": "USD",
+    "status": "returned",
+    "country": "GB"
+   },
+   {
+    "order_id": "ORD-1249",
+    "customer_id": "C041",
+    "order_date": "2026-08-23",
+    "updated_at": "2026-08-23T15:57:00Z",
+    "amount": 27.14,
+    "currency": "EUR",
+    "status": "completed",
+    "country": "JP"
+   },
+   {
+    "order_id": "ORD-1250",
+    "customer_id": "C007",
+    "order_date": "2026-08-23",
+    "updated_at": "2026-08-23T22:10:00Z",
+    "amount": -12.5,
+    "currency": "EUR",
+    "status": "completed",
+    "country": "GB"
+   },
+   {
+    "order_id": "ORD-1251",
+    "customer_id": null,
+    "order_date": "2026-08-23",
+    "updated_at": "2026-08-23T05:23:00Z",
+    "amount": 300.45,
+    "currency": "EUR",
+    "status": "shipped",
+    "country": "US"
+   },
+   {
+    "order_id": "ORD-1252",
+    "customer_id": "C030",
+    "order_date": "2026-08-23",
+    "updated_at": "2026-08-23T12:36:00Z",
+    "amount": 89.26,
+    "currency": "USD",
+    "status": "shipped",
+    "country": "ES"
+   },
+   {
+    "order_id": "ORD-1253",
+    "customer_id": "C001",
+    "order_date": "2026-08-23",
+    "updated_at": "2026-08-23T19:49:00Z",
+    "amount": 241.22,
+    "currency": "USD",
+    "status": "shipped",
+    "country": "US"
+   },
+   {
+    "order_id": "ORD-1254",
+    "customer_id": "C059",
+    "order_date": "2026-08-23",
+    "updated_at": "2026-08-23T02:02:00Z",
+    "amount": 680.86,
+    "currency": "GBP",
+    "status": "completed",
+    "country": "ES"
+   },
+   {
+    "order_id": "ORD-1255",
+    "customer_id": "C018",
+    "order_date": "2026-08-23",
+    "updated_at": "2026-08-23T09:15:00Z",
+    "amount": 113.43,
+    "currency": "EUR",
+    "status": "completed",
+    "country": "JP"
+   },
+   {
+    "order_id": "ORD-1256",
+    "customer_id": "C044",
+    "order_date": "2026-08-24",
+    "updated_at": "2026-08-24T16:28:00Z",
+    "amount": 210.01,
+    "currency": "USD",
+    "status": "returned",
+    "country": "FR"
+   },
+   {
+    "order_id": "ORD-1257",
+    "customer_id": "C011",
+    "order_date": "2026-08-24",
+    "updated_at": "2026-08-24T23:41:00Z",
+    "amount": 864.02,
+    "currency": "GBP",
+    "status": "completed",
+    "country": "ES"
+   },
+   {
+    "order_id": "ORD-1258",
+    "customer_id": "C011",
+    "order_date": "2026-08-24",
+    "updated_at": "2026-08-24T06:54:00Z",
+    "amount": 568.27,
+    "currency": "USD",
+    "status": "returned",
+    "country": "BR"
+   },
+   {
+    "order_id": "ORD-1259",
+    "customer_id": "C003",
+    "order_date": "2026-08-24",
+    "updated_at": "2026-08-24T13:07:00Z",
+    "amount": 582.27,
+    "currency": "GBP",
+    "status": "shipped",
+    "country": "US"
+   },
+   {
+    "order_id": "ORD-1260",
+    "customer_id": "C057",
+    "order_date": "2026-08-24",
+    "updated_at": "2026-08-24T20:20:00Z",
+    "amount": 888.07,
+    "currency": "EUR",
+    "status": "completed",
+    "country": "GB"
+   },
+   {
+    "order_id": "ORD-1261",
+    "customer_id": "C020",
+    "order_date": "2026-08-24",
+    "updated_at": "2026-08-24T03:33:00Z",
+    "amount": 279.25,
+    "currency": "GBP",
+    "status": "returned",
+    "country": "GB"
+   },
+   {
+    "order_id": "ORD-1262",
+    "customer_id": "C041",
+    "order_date": "2026-08-24",
+    "updated_at": "2026-08-24T10:46:00Z",
+    "amount": 642.09,
+    "currency": "EUR",
+    "status": "completed",
+    "country": "JP"
+   },
+   {
+    "order_id": "ORD-1263",
+    "customer_id": "C020",
+    "order_date": "2026-08-24",
+    "updated_at": "2026-08-24T17:59:00Z",
+    "amount": 405.19,
+    "currency": "EUR",
+    "status": "returned",
+    "country": "ES"
+   },
+   {
+    "order_id": "ORD-1264",
+    "customer_id": null,
+    "order_date": "2026-08-24",
+    "updated_at": "2026-08-24T00:12:00Z",
+    "amount": 540.81,
+    "currency": "USD",
+    "status": "returned",
+    "country": "IN"
+   },
+   {
+    "order_id": "ORD-1265",
+    "customer_id": "C056",
+    "order_date": "2026-08-24",
+    "updated_at": "2026-08-24T07:25:00Z",
+    "amount": 533.47,
+    "currency": "EUR",
+    "status": "returned",
+    "country": "GB"
+   },
+   {
+    "order_id": "ORD-1266",
+    "customer_id": "C032",
+    "order_date": "2026-08-24",
+    "updated_at": "2026-08-24T14:38:00Z",
+    "amount": 824.48,
+    "currency": "GBP",
+    "status": "completed",
+    "country": "BR"
+   },
+   {
+    "order_id": "ORD-1267",
+    "customer_id": "C040",
+    "order_date": "2026-08-25",
+    "updated_at": "2026-08-25T21:51:00Z",
+    "amount": 846.7,
+    "currency": "EUR",
+    "status": "completed",
+    "country": "ES"
+   },
+   {
+    "order_id": "ORD-1268",
+    "customer_id": "C043",
+    "order_date": "2026-08-25",
+    "updated_at": "2026-08-25T04:04:00Z",
+    "amount": 160.57,
+    "currency": "USD",
+    "status": "completed",
+    "country": "BR"
+   },
+   {
+    "order_id": "ORD-1269",
+    "customer_id": "C012",
+    "order_date": "2026-08-25",
+    "updated_at": "2026-08-25T11:17:00Z",
+    "amount": 806.72,
+    "currency": "GBP",
+    "status": "shipped",
+    "country": "GB"
+   },
+   {
+    "order_id": "ORD-1270",
+    "customer_id": "C036",
+    "order_date": "2026-08-25",
+    "updated_at": "2026-08-25T18:30:00Z",
+    "amount": 55.83,
+    "currency": "GBP",
+    "status": "completed",
+    "country": "GB"
+   },
+   {
+    "order_id": "ORD-1271",
+    "customer_id": "C042",
+    "order_date": "2026-08-25",
+    "updated_at": "2026-08-25T01:43:00Z",
+    "amount": 462.48,
+    "currency": "USD",
+    "status": "completed",
+    "country": "GB"
+   },
+   {
+    "order_id": "ORD-1272",
+    "customer_id": "C050",
+    "order_date": "2026-08-25",
+    "updated_at": "2026-08-25T08:56:00Z",
+    "amount": 223.95,
+    "currency": "USD",
+    "status": "shipped",
+    "country": "US"
+   },
+   {
+    "order_id": "ORD-1273",
+    "customer_id": "C057",
+    "order_date": "2026-08-25",
+    "updated_at": "2026-08-25T15:09:00Z",
+    "amount": 0.0,
+    "currency": "GBP",
+    "status": "completed",
+    "country": "ES"
+   },
+   {
+    "order_id": "ORD-1274",
+    "customer_id": "C054",
+    "order_date": "2026-08-25",
+    "updated_at": "2026-08-25T22:22:00Z",
+    "amount": 845.69,
+    "currency": "USD",
+    "status": "completed",
+    "country": "BR"
+   },
+   {
+    "order_id": "ORD-1275",
+    "customer_id": "C027",
+    "order_date": "2026-08-25",
+    "updated_at": "2026-08-25T05:35:00Z",
+    "amount": 310.86,
+    "currency": "USD",
+    "status": "returned",
+    "country": "US"
+   },
+   {
+    "order_id": "ORD-1276",
+    "customer_id": "C012",
+    "order_date": "2026-08-25",
+    "updated_at": "2026-08-25T12:48:00Z",
+    "amount": 460.68,
+    "currency": "USD",
+    "status": "completed",
+    "country": "FR"
+   },
+   {
+    "order_id": "ORD-1277",
+    "customer_id": "C024",
+    "order_date": "2026-08-25",
+    "updated_at": "2026-08-25T19:01:00Z",
+    "amount": 535.52,
+    "currency": "GBP",
+    "status": "completed",
+    "country": "IN"
+   },
+   {
+    "order_id": "ORD-1278",
+    "customer_id": "C005",
+    "order_date": "2026-08-26",
+    "updated_at": "2026-08-26T02:14:00Z",
+    "amount": 407.57,
+    "currency": "USD",
+    "status": "completed",
+    "country": "IN"
+   },
+   {
+    "order_id": "ORD-1279",
+    "customer_id": "C002",
+    "order_date": "2026-08-26",
+    "updated_at": "2026-08-26T09:27:00Z",
+    "amount": 151.35,
+    "currency": "GBP",
+    "status": "shipped",
+    "country": "DE"
+   },
+   {
+    "order_id": "ORD-1280",
+    "customer_id": "C032",
+    "order_date": "2026-08-26",
+    "updated_at": "2026-08-26T16:40:00Z",
+    "amount": 293.01,
+    "currency": "USD",
+    "status": "returned",
+    "country": "IN"
+   },
+   {
+    "order_id": "ORD-1281",
+    "customer_id": "C013",
+    "order_date": "2026-08-26",
+    "updated_at": "2026-08-26T23:53:00Z",
+    "amount": 52.95,
+    "currency": "GBP",
+    "status": "returned",
+    "country": "DE"
+   },
+   {
+    "order_id": "ORD-1282",
+    "customer_id": "C044",
+    "order_date": "2026-08-26",
+    "updated_at": "2026-08-26T06:06:00Z",
+    "amount": 63.55,
+    "currency": "EUR",
+    "status": "completed",
+    "country": "JP"
+   },
+   {
+    "order_id": "ORD-1283",
+    "customer_id": "C050",
+    "order_date": "2026-08-26",
+    "updated_at": "2026-08-26T13:19:00Z",
+    "amount": 833.54,
+    "currency": "USD",
+    "status": "completed",
+    "country": "GB"
+   },
+   {
+    "order_id": "ORD-1284",
+    "customer_id": "C040",
+    "order_date": "2026-08-26",
+    "updated_at": "2026-08-26T20:32:00Z",
+    "amount": 566.14,
+    "currency": "USD",
+    "status": "returned",
+    "country": "DE"
+   },
+   {
+    "order_id": "ORD-1285",
+    "customer_id": "C041",
+    "order_date": "2026-08-26",
+    "updated_at": "2026-08-26T03:45:00Z",
+    "amount": 635.74,
+    "currency": "EUR",
+    "status": "completed",
+    "country": "IN"
+   },
+   {
+    "order_id": "ORD-1286",
+    "customer_id": "C027",
+    "order_date": "2026-08-26",
+    "updated_at": "2026-08-26T10:58:00Z",
+    "amount": 777.88,
+    "currency": "EUR",
+    "status": "completed",
+    "country": "BR"
+   },
+   {
+    "order_id": "ORD-1287",
+    "customer_id": "C052",
+    "order_date": "2026-08-26",
+    "updated_at": "2026-08-26T17:11:00Z",
+    "amount": 838.43,
+    "currency": "usd",
+    "status": "completed",
+    "country": "IN"
+   },
+   {
+    "order_id": "ORD-1288",
+    "customer_id": null,
+    "order_date": "2026-08-26",
+    "updated_at": "2026-08-26T00:24:00Z",
+    "amount": 827.95,
+    "currency": "GBP",
+    "status": "completed",
+    "country": "JP"
+   },
+   {
+    "order_id": "ORD-1289",
+    "customer_id": "C016",
+    "order_date": "2026-08-27",
+    "updated_at": "2026-08-27T07:37:00Z",
+    "amount": 260.07,
+    "currency": "EUR",
+    "status": "returned",
+    "country": "BR"
+   },
+   {
+    "order_id": "ORD-1290",
+    "customer_id": "C023",
+    "order_date": "2026-08-27",
+    "updated_at": "2026-08-27T14:50:00Z",
+    "amount": 276.51,
+    "currency": "usd",
+    "status": "shipped",
+    "country": "GB"
+   },
+   {
+    "order_id": "ORD-1291",
+    "customer_id": "C052",
+    "order_date": "2026-08-27",
+    "updated_at": "2026-08-27T21:03:00Z",
+    "amount": 768.31,
+    "currency": "GBP",
+    "status": "returned",
+    "country": "ES"
+   },
+   {
+    "order_id": "ORD-1292",
+    "customer_id": "C055",
+    "order_date": "2026-08-27",
+    "updated_at": "2026-08-27T04:16:00Z",
+    "amount": 816.13,
+    "currency": "EUR",
+    "status": "completed",
+    "country": "BR"
+   },
+   {
+    "order_id": "ORD-1293",
+    "customer_id": "C029",
+    "order_date": "2026-08-27",
+    "updated_at": "2026-08-27T11:29:00Z",
+    "amount": 695.14,
+    "currency": "USD",
+    "status": "completed",
+    "country": "DE"
+   },
+   {
+    "order_id": "ORD-1294",
+    "customer_id": "C051",
+    "order_date": "2026-08-27",
+    "updated_at": "2026-08-27T18:42:00Z",
+    "amount": 532.99,
+    "currency": "GBP",
+    "status": "completed",
+    "country": "FR"
+   },
+   {
+    "order_id": "ORD-1295",
+    "customer_id": "C031",
+    "order_date": "2026-08-27",
+    "updated_at": "2026-08-27T01:55:00Z",
+    "amount": 877.51,
+    "currency": "gbp",
+    "status": "completed",
+    "country": "DE"
+   },
+   {
+    "order_id": "ORD-1296",
+    "customer_id": "C051",
+    "order_date": "2026-08-27",
+    "updated_at": "2026-08-27T08:08:00Z",
+    "amount": 109.11,
+    "currency": "eur",
+    "status": "completed",
+    "country": "BR"
+   },
+   {
+    "order_id": "ORD-1297",
+    "customer_id": "C003",
+    "order_date": "2026-08-27",
+    "updated_at": "2026-08-27T15:21:00Z",
+    "amount": 130.32,
+    "currency": "eur",
+    "status": "completed",
+    "country": "US"
+   },
+   {
+    "order_id": "ORD-1298",
+    "customer_id": "C036",
+    "order_date": "2026-08-27",
+    "updated_at": "2026-08-27T22:34:00Z",
+    "amount": 843.93,
+    "currency": "USD",
+    "status": "completed",
+    "country": "IN"
+   },
+   {
+    "order_id": "ORD-1299",
+    "customer_id": "C047",
+    "order_date": "2026-08-27",
+    "updated_at": "2026-08-27T05:47:00Z",
+    "amount": 286.87,
+    "currency": "EUR",
+    "status": "shipped",
+    "country": "BR"
+   },
+   {
+    "order_id": "ORD-1238",
+    "customer_id": "C050",
+    "order_date": "2026-08-22",
+    "updated_at": "2026-08-22T10:34:00Z",
+    "amount": 506.63,
+    "currency": "GBP",
+    "status": "completed",
+    "country": "BR"
+   },
+   {
+    "order_id": "ORD-1125",
+    "customer_id": "C058",
+    "order_date": "2026-08-12",
+    "updated_at": "2026-08-12T11:05:00Z",
+    "amount": 419.82,
+    "currency": "GBP",
+    "status": "completed",
+    "country": "IN"
+   },
+   {
+    "order_id": "ORD-1192",
+    "customer_id": "C032",
+    "order_date": "2026-08-18",
+    "updated_at": "2026-08-18T00:36:00Z",
+    "amount": 202.67,
+    "currency": "USD",
+    "status": "shipped",
+    "country": "BR"
+   },
+   {
+    "order_id": "ORD-1283",
+    "customer_id": "C050",
+    "order_date": "2026-08-26",
+    "updated_at": "2026-08-26T13:19:00Z",
+    "amount": 833.54,
+    "currency": "USD",
+    "status": "completed",
+    "country": "GB"
+   },
+   {
+    "order_id": "ORD-1278",
+    "customer_id": "C005",
+    "order_date": "2026-08-26",
+    "updated_at": "2026-08-26T02:14:00Z",
+    "amount": 407.57,
+    "currency": "USD",
+    "status": "completed",
+    "country": "IN"
+   },
+   {
+    "order_id": "ORD-1010",
+    "customer_id": "C001",
+    "order_date": "2026-08-01",
+    "updated_at": "2026-08-01T22:10:00Z",
+    "amount": 718.66,
+    "currency": "EUR",
+    "status": "shipped",
+    "country": "US"
+   },
+   {
+    "order_id": "ORD-1025",
+    "customer_id": "C056",
+    "order_date": "2026-08-03",
+    "updated_at": "2026-08-03T07:25:00Z",
+    "amount": 172.16,
+    "currency": "USD",
+    "status": "completed",
+    "country": "DE"
+   },
+   {
+    "order_id": "ORD-1231",
+    "customer_id": "C030",
+    "order_date": "2026-08-21",
+    "updated_at": "2026-08-21T09:03:00Z",
+    "amount": 499.82,
+    "currency": "USD",
+    "status": "completed",
+    "country": "JP"
+   }
+  ],
+  "next": null
+ }
+}

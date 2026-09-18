@@ -10,6 +10,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 
 import { chainTargetsOf, describeChain } from "@/lib/etlChain";
+import { placeNode, shouldChain } from "@/lib/etlGraphEdit";
 import CodeMirror from "@uiw/react-codemirror";
 import { python } from "@codemirror/lang-python";
 import { vscodeDark, vscodeLight } from "@uiw/codemirror-theme-vscode";
@@ -1622,6 +1623,21 @@ function CanvasBuilder({
     [graph, onChange],
   );
 
+  /**
+   * Add a node and, when one is selected, WIRE IT UP AND PUT IT AFTER IT.
+   *
+   * Every added node used to land on a fixed column at `80 + (count % 6) * 90`
+   * and arrive unconnected, so a ten-step pipeline was nine hand-drags between
+   * two 8px handles, over nodes that started overlapping at the seventh. The
+   * graphs this product is for are longer than that, and the sample templates
+   * were the only realistic way to get one.
+   *
+   * The rules are the ones the compiler already enforces, so an auto-edge can
+   * never build a graph that will not compile: a source takes no input; a
+   * target gives no output; and a target already holding its one input is not
+   * extended. Anything the rules refuse simply lands unconnected, exactly as
+   * before, and the canvas says so.
+   */
   const addNode = (kind: EtlNode["kind"], type: string, label: string) => {
     const nextNum =
       graph.nodes.reduce((max, n) => {
@@ -1629,14 +1645,15 @@ function CanvasBuilder({
         return m ? Math.max(max, Number(m[1])) : max;
       }, 0) + 1;
     const id = `n${nextNum}`;
-    const x = kind === "source" ? 80 : kind === "target" ? 640 : 360;
-    const y = 80 + (graph.nodes.length % 6) * 90;
+    const from = graph.nodes.find((n) => n.id === selectedId) ?? null;
+    const chain = shouldChain(kind, from);
+    const position = placeNode(kind, from, graph.nodes.length);
     onChange({
       ...graph,
-      nodes: [
-        ...graph.nodes,
-        { id, kind, label, config: defaultNodeConfig(kind, type), position: { x, y } },
-      ],
+      nodes: [...graph.nodes, { id, kind, label, config: defaultNodeConfig(kind, type), position }],
+      edges: chain
+        ? [...graph.edges, { id: `e${Date.now().toString(36)}`, from: from!.id, to: id }]
+        : graph.edges,
     });
     setSelectedId(id);
   };
@@ -1744,6 +1761,10 @@ function CanvasBuilder({
       {selected && !showCode && (
         <div className="w-80 shrink-0 overflow-auto rounded-lg border p-3">
           <NodePanel
+            // Keyed by node: the panel holds draft state for fields a saved
+            // config cannot represent mid-edit (a rename row with no "from"
+            // yet), and that draft must not follow the reader to another node.
+            key={selected.id}
             node={selected}
             graph={graph}
             pipelineId={pipelineId}

@@ -870,7 +870,7 @@ export const previewEtlNode = createServerFn({ method: "POST" })
     const userId = await resolveCaller(data.access_token);
     const { data: pipeline } = await supabaseAdmin
       .from("etl_pipelines")
-      .select("id, graph")
+      .select("*")
       .eq("id", data.pipeline_id)
       .eq("user_id", userId)
       .maybeSingle();
@@ -880,6 +880,14 @@ export const previewEtlNode = createServerFn({ method: "POST" })
     // Compile now so a broken graph fails HERE with a message, not inside a
     // container that spins up just to die.
     compilePreview(graph, data.node_id);
+    // And resolve the environment now, for exactly the same reason. A bucket
+    // that was never picked, a secret that is not set, a host the sandbox may
+    // not reach: this code knows all three and can say them in a sentence. The
+    // sandbox learns them by asking for its source bundle, which then answers
+    // 500 — and the reader gets a Python traceback about an HTTP status where
+    // a sentence about an allow-list was available all along.
+    const { resolveRunEnv } = await import("@/utils/etl/service.server");
+    await resolveRunEnv(pipeline, { skipTargets: true });
     const { startSession } = await import("@/utils/notebookRuntime/service.server");
     const { session } = await startSession({
       userId,

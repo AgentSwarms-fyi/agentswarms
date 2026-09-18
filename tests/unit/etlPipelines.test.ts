@@ -107,7 +107,10 @@ describe("compileGraph — DAG shapes", () => {
     assertParsesAsPython(code);
   });
 
-  it("compiles every source type", () => {
+  // Named for what it is. EXHAUSTIVENESS over the source union lives in
+  // tests/unit/etlNodeMatrix.test.ts, which is keyed on the type so a new
+  // kind cannot be forgotten; this one keeps the hand-picked awkward cases.
+  it("compiles a source of each awkward shape", () => {
     const sources = [
       { type: "object_storage", path: "raw/*.csv", format: "csv" },
       { type: "object_storage", path: "raw/book.xlsx", format: "xlsx" },
@@ -126,7 +129,10 @@ describe("compileGraph — DAG shapes", () => {
     }
   });
 
-  it("compiles every transform type", () => {
+  // Likewise: the exhaustive pass is in etlNodeMatrix.test.ts. This one is
+  // here for the MARKERS it asserts — that the emitted program really uses
+  // groupby, sort_values and head, rather than merely compiling.
+  it("compiles a chain of transforms into the pandas calls they name", () => {
     const code = compileGraph(
       linear(
         node("n2", "transform", { type: "filter", expr: "amount > 0" }),

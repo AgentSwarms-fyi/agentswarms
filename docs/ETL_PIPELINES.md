@@ -369,7 +369,15 @@ node's env stem (`ETL_<NODE>_SASL_USERNAME`, `ETL_<NODE>_ACCESS_KEY_ID`,
 broker or service host must already be on the **sandbox egress allow-list**
 (Admin → Developer runtime); a run refuses before it starts when it is not,
 naming the host - a pipeline author cannot widen where the sandbox may
-reach. Kafka is a raw TCP protocol, so the brokers must be reachable from the
+reach. **The same check covers an HTTP API source and a reverse-ETL HTTP
+target**, whose URLs are the ones most likely to point somewhere new: without
+it, the run reached the proxy and came back as a urllib3 `ProxyError` ending
+in `Tunnel connection failed: 403 Forbidden`, which names no host and reads
+like the endpoint is down. A host is judged reachable if the allow-list
+admits it the way squid does (a leading dot covers the domain and its
+subdomains) **or** if it bypasses the proxy entirely — the app itself,
+`localhost`, in-cluster suffixes. A URL completed by a run parameter
+(`https://{{params.host}}/v1`) has no host to check and is left to the proxy. Kafka is a raw TCP protocol, so the brokers must be reachable from the
 kernel network itself (the same Docker network, a VPC peering, or
 `NOTEBOOK_NETWORK`); Kinesis and Pub/Sub are HTTPS and go through the egress
 proxy like every other web call. The runtime image ships `confluent-kafka`,
@@ -947,7 +955,10 @@ incremental watermark load (state persisted in the destination bucket), fuzzy
 contact dedupe (canonical match keys + survivorship), and clickstream
 sessionization (30-minute-gap windowing). They run against deterministic messy
 datasets in `public/etl-samples/` — every defect in that data is deliberate and
-counted, and the scenarios were verified end-to-end against those counts (the
+counted. `orders.json` carries the same 308 rows as `orders.csv` inside the
+envelope a paginated API returns (`{"meta": …, "data": {"items": […]}}`), so an
+**HTTP API (JSON)** source is demonstrable on a fresh install with records path
+`data.items` and nothing else to set up, and the scenarios were verified end-to-end against those counts (the
 reconciliation recovers exactly the 25 missing / 12 mismatched / 6 duplicated
 payments the generator planted). `tests/unit/etlTemplates.test.ts` keeps the
 templates compiling and the datasets present.

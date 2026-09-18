@@ -720,7 +720,27 @@ export type SchemaRow = {
  * from the loop this replaces.
  */
 export async function accessibleSchemas(userId: string): Promise<SchemaRow[]> {
-  const { data } = await supabaseAdmin.rpc("accessible_lakehouse_schemas", { uid: userId });
+  const { data, error } = await supabaseAdmin.rpc("accessible_lakehouse_schemas", { uid: userId });
+  // A READ THAT FAILED IS NOT AN ANSWER ABOUT ACCESS.
+  //
+  // The error was dropped and `data ?? []` turned a database blip into "this
+  // user can reach no schema at all" — which five callers then report as a
+  // fact about the account: the ETL preflight says "no access to lakehouse
+  // schema X — it doesn't exist, or nobody shared it", the SQL path says "No
+  // access to schema X", and the materialized-view and Iceberg paths refuse
+  // the same way. Each invites the reader to fix it by granting something
+  // they already have.
+  //
+  // Caught on a live run: a Kafka pipeline wrote analytics.kafka_orders
+  // successfully, and a later run of the SAME pipeline was refused for having
+  // no access to `analytics` — while the same owner read that very table in
+  // the SQL editor seconds afterwards.
+  if (error) {
+    throw new Error(
+      `Could not read which lakehouse schemas this account may use (${error.message}). ` +
+        `This is a failure to check access, not a refusal — nothing about the grants has changed.`,
+    );
+  }
   return (data ?? []) as SchemaRow[];
 }
 

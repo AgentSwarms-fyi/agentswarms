@@ -47,7 +47,7 @@ import {
   streamSecretEnv,
   validateStreamSource,
 } from "@/utils/etl/streaming";
-import { normalizeEgressHost } from "@/utils/notebookRuntime/egress";
+import { egressReaches, staticEgressHost } from "@/utils/notebookRuntime/egress";
 import { platformEgressHosts } from "@/utils/notebookRuntime/egressApply.server";
 
 export type EtlPipelineRow = Database["public"]["Tables"]["etl_pipelines"]["Row"];
@@ -215,6 +215,50 @@ export async function resolveRunEnv(
   // the graph, so the run refuses unless every host is already on the egress
   // allow-list: a pipeline author cannot widen where the sandbox may reach.
   let allowedEgress: Set<string> | null = null;
+
+  /**
+   * Refuse a host the sandbox may not reach, BEFORE a container starts.
+   *
+   * Every node that names an address off this machine goes through here, so
+   * the answer is one sentence naming the host and the page that fixes it.
+   * Without it the run reaches the egress proxy and comes back as a forty-line
+   * urllib3 ProxyError ending in `Tunnel connection failed: 403 Forbidden`,
+   * which says nothing about an allow-list and reads like the endpoint is
+   * down. Stream sources had this check from the start; HTTP API sources and
+   * reverse-ETL HTTP targets did not, and they are the two most likely to
+   * point at something new.
+   */
+  const assertEgress = async (node: EtlNode, hosts: string[], verb: string) => {
+    if (!hosts.length) return;
+    if (!allowedEgress) {
+      const { data } = await supabaseAdmin
+        .from("notebook_runtime_settings")
+        .select("egress_allowlist")
+        .eq("id", true)
+        .maybeSingle();
+      // THREE THINGS MAKE A HOST REACHABLE, and the check has to know all
+      // three or it refuses something that works. The operator's allow-list
+      // and the platform's own hosts go through the proxy; the NO_PROXY list
+      // (the app itself, localhost, in-cluster suffixes) skips it entirely.
+      // Patterns are kept RAW here — matching is squid's, done below — because
+      // the ACL normaliser insists on a two-label domain and would drop
+      // exactly the single-label names in that third group.
+      allowedEgress = new Set([
+        ...((data?.egress_allowlist ?? []) as string[]),
+        ...platformEgressHosts(),
+        ...noProxyList(internalAppUrl()).split(","),
+      ]);
+    }
+    for (const host of hosts) {
+      if (!egressReaches(allowedEgress, host)) {
+        throw new Error(
+          `Node "${node.label || node.id}" ${verb} ${host}, which is not on the sandbox egress allow-list. ` +
+            `An administrator adds it under Admin → Developer runtime → Egress allow-list.`,
+        );
+      }
+    }
+  };
+
   const streamEnv = async (
     node: EtlNode,
     cfg: Parameters<typeof streamSecretEnv>[1],
@@ -222,27 +266,7 @@ export async function resolveRunEnv(
   ) => {
     const bad = validateStreamSource(cfg);
     if (bad) throw new Error(`Node "${node.label || node.id}": ${bad}`);
-    if (!allowedEgress) {
-      const { data } = await supabaseAdmin
-        .from("notebook_runtime_settings")
-        .select("egress_allowlist")
-        .eq("id", true)
-        .maybeSingle();
-      allowedEgress = new Set(
-        [...((data?.egress_allowlist ?? []) as string[]), ...platformEgressHosts()]
-          .map((h) => normalizeEgressHost(h))
-          .filter((h): h is string => Boolean(h)),
-      );
-    }
-    for (const host of streamEgressHosts(cfg)) {
-      const norm = normalizeEgressHost(host);
-      if (!norm || !allowedEgress.has(norm)) {
-        throw new Error(
-          `Node "${node.label || node.id}" reads from ${host}, which is not on the sandbox egress allow-list. ` +
-            `An administrator adds it under Admin → Developer runtime → Egress allow-list.`,
-        );
-      }
-    }
+    await assertEgress(node, streamEgressHosts(cfg), "reads from");
     if (cfg.type === "kafka") {
       env[`${stem}_BROKERS`] = cfg.brokers.trim();
       env[`${stem}_TOPIC`] = cfg.topic.trim();
@@ -313,6 +337,14 @@ export async function resolveRunEnv(
     }
     if (node.kind === "source" && isStreamSource(c)) {
       await streamEnv(node as EtlNode, c, stem);
+    }
+    // An HTTP node's own URL, held to the same rule as a broker's address.
+    if (c.type === "http_api") {
+      await assertEgress(
+        node as EtlNode,
+        staticEgressHost((c as { url?: string }).url),
+        node.kind === "target" ? "writes to" : "reads from",
+      );
     }
     // A named SaaS target writes through a connection that already exists, so
     // there is no second copy of the CRM's credential to manage. The row is
