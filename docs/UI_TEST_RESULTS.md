@@ -15,6 +15,242 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-18 — A shipped sample pipeline, run; what the product wrote, it could not read back
+
+**Driven.** The running instance, signed in as the owner. `recon_live2`,
+created from the bundled **Orders ↔ payments reconciliation** sample — the
+most complex graph the product ships: two Python sources, a dedupe, an
+aggregate, a **full outer join**, a Python classifier, a two-way filter branch,
+and two object-storage targets in **different file formats**. Ten nodes, nine
+edges, one run.
+
+The expected answer was computed first, independently, by re-deriving the graph
+node by node in pandas inside the runtime image over the same two CSVs — so the
+run had something to be wrong against.
+
+| Step                                        | Reference (computed first) | The run reported                   |
+| ------------------------------------------- | -------------------------- | ---------------------------------- |
+| orders.csv / payments.csv                   | 308 / 290 rows             | 8 / 5 columns, both read           |
+| dedupe on `order_id`                        | 300 (8 duplicates dropped) | —                                  |
+| payments per order                          | 284 groups                 | `order_id, paid_total, n_payments` |
+| **full outer join**                         | **309 rows**               | **309 rows loaded**                |
+| classify                                    | 11 columns out             | 11 columns out                     |
+| → `finance/orders_reconciled` (**parquet**) | **257**                    | **257**                            |
+| → `finance/recon_exceptions` (**jsonl**)    | **52**                     | **52**                             |
+
+Succeeded in 49s. Every number matched, including the classification split
+(ok 257 · missing_payment 25 · amount_mismatch 12 · orphan_payment 9 ·
+duplicate_payment 6).
+
+Then the Data Catalog was opened on the two tables it had just re-crawled, and
+the round stopped being about the join.
+
+### What the catalog said about the files the run had just written
+
+| Asset               | Catalog said         | Actually in the bucket                                 |
+| ------------------- | -------------------- | ------------------------------------------------------ |
+| `orders_reconciled` | parquet · 257 rows   | `1789716743.9029138.58bdd233ab.parquet` — correct      |
+| `recon_exceptions`  | ndjson · **10 rows** | `1789716749.8566182.2f2a328a13.**jsonl.gz**` — 52 rows |
+
+And **Query data** on `recon_exceptions`, the catalog's own button over the
+catalog's own asset:
+
+```
+IO Error: No files found that match the pattern
+"s3://etl/finance/recon_exceptions/*.ndjson"
+```
+
+One cause, three faces, all of them "dlt gzips text output":
+
+| #   | Defect                                                                                                                                                                                                                | How it surfaced                                                 |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| 1   | **The catalog globbed a name nothing has.** `*.${logical format}` over a folder of `*.jsonl.gz` — the fqn is the catalog's join key, so the Workbench, an ETL catalog-asset source and lineage all pointed at nothing | pressing Query data                                             |
+| 2   | **The row count was counted in compressed bytes.** Newlines that happen to occur in a gzip stream; 52 rows became a confident, plausible **10**                                                                       | comparing the catalog's row count with the run's own load count |
+| 3   | **The object-storage source could not read it back.** `fs.open(k, 'rb')` hands pandas gzip: `UnicodeDecodeError: … byte 0x8b`                                                                                         | reproduced in the runtime image with fsspec + pandas, both ways |
+| 4   | **The run and the crawler would then disagree.** A run REPORTS its target's fqn and `catalog_lineage` joins on that string — fixing the crawler alone would have broken the lineage edge instead                      | followed from 1; what dlt writes was then measured, not assumed |
+
+Defect 3 is the one that decides how bad this was: this product's own
+object-storage target is what writes the `.gz`, so "pipeline B reads what
+pipeline A wrote" — the medallion pattern the other bundled sample
+demonstrates — could not work for csv or jsonl at all.
+
+What dlt actually names its files was measured in the runtime image against
+dlt 1.30.0 rather than assumed, because assuming is how this happened:
+
+| loader format | file left in the bucket                     |
+| ------------- | ------------------------------------------- |
+| jsonl         | `1789717247.006242.313c9cc5f7.**jsonl.gz**` |
+| csv           | `1789717247.5861135.1a09cd7f30.**csv.gz**`  |
+| parquet       | `1789717248.6333005.a2880ca09f.parquet`     |
+
+Spark's naming is different again (`part-*.json`, `part-*.snappy.parquet`), so
+the two engines report different globs for the same graph — on purpose, and
+asserted as such.
+
+### Union and the quality gate — the last two transform kinds with no live evidence
+
+**`union_live`** — the two halves the reconciliation run wrote, put back
+together: a **Data Catalog asset** source on `finance/orders_reconciled`
+(Parquet, 257 rows) and another on `finance/recon_exceptions`
+(**gzipped** NDJSON, 52 rows) → **union** → `analytics.recon_union`.
+
+The picker named the second one `Reads JSONL at
+finance/recon_exceptions/*.jsonl.gz` — the glob the crawler had just corrected
+— and the sandbox opened it with pandas, which is the read that used to die on
+`byte 0x8b`.
+
+Succeeded in 1m 23s, **309 rows → 1 target**. Read back from the lakehouse:
+
+| recon_status      | rows | reference |
+| ----------------- | ---- | --------- |
+| ok                | 257  | 257       |
+| missing_payment   | 25   | 25        |
+| amount_mismatch   | 12   | 12        |
+| orphan_payment    | 9    | 9         |
+| duplicate_payment | 6    | 6         |
+| **total**         | 309  | 309       |
+
+257 + 52 = 309, and the five categories are the reconciliation's own, so the
+union is provably the two inputs and nothing else.
+
+**`gate_live`** — `analytics.recon_union` (309 rows) → **quality gate** →
+`analytics.gate_out`. Five rules, run in order, covering five of the six check
+kinds and all three severities:
+
+| #   | Rule                                | Severity | Expected | The run said                |
+| --- | ----------------------------------- | -------- | -------- | --------------------------- |
+| 1   | `allowed_values(recon_status ∈ ok)` | drop     | 52       | `DROP … removing 52 row(s)` |
+| 2   | `not_null(customer_id)`             | warn     | 5        | `WARN … 5 row(s) violate`   |
+| 3   | `range(amount ≥ 0)`                 | warn     | 4        | `WARN … 4 row(s) violate`   |
+| 4   | `regex(order_id ~ ORD-[0-9]+)`      | fail     | 0        | silent — nothing to report  |
+| 5   | `row_count_min(300)`                | fail     | abort    | **run FAILED**              |
+
+> `RuntimeError: Quality gate Quality gate: row_count_min(300) failed — 257 row(s), need 300`
+
+257 is 309 minus the 52 that rule 1 dropped, so the ordering is real: rule 5
+measured the frame rule 1 had already shrunk. Rules 2 and 3 counted their
+violations **after** the drop too — 5 nulls and 4 negative amounts among the
+257 survivors, not the 15 and 13 in the whole table.
+
+Lowering rule 5 to 250 and re-running: **Succeeded, 257 rows → 1 target.**
+
+With these two, **all fifteen transform kinds have been run against real data
+from the canvas**, not only compiled.
+
+### One more thing the round found, by mis-clicking
+
+Creating `recon_live` from the sample produced the **blank starter graph** —
+two nodes where the sample has ten — under the name chosen for the sample, and
+nothing said so. The New pipeline dialog had been dismissed earlier by a
+mis-aimed click on the overlay while a template was selected; Radix unmounts
+the dialog's content but not the component holding its state, so on reopening
+the tile was still highlighted. Clicking the tile you want is what anybody
+does — and the tile toggles. The create path already cleared both fields; only
+the dismiss path did not.
+
+### And the fix did not reach the pipeline that found it
+
+With everything deployed and the catalog re-crawled, re-running `recon_live2`
+**still wrote the old target fqn** — its lineage edge went on pointing at a
+filename that does not exist, beside a catalog asset that was now right.
+Pressing **Save** to recompile did nothing: the button is disabled when the
+graph has not changed.
+
+The generated program is a cache of the graph, and the run executed the cache.
+Every visual pipeline on an upgraded deployment keeps running the previous
+release's program until somebody edits it for an unrelated reason — runs still
+succeeding, nothing pointing at it. This sitting had already paid for it once
+without noticing: the SQL step's move off ibis never reached a pipeline created
+before that rebuild, and its stored requirements went on installing ibis.
+
+### A node left half-configured, and what it said
+
+Building the platform-dataset case, the "Choose a dataset" select was never
+opened. The graph **saved**, the run **started**, and it failed with
+
+```
+requests.exceptions.HTTPError: 404 Client Error: for url:
+http://agentswarms:8080/api/notebook/runtime/source
+```
+
+— the app's own internal API, named as though it were the problem. Targets had
+said the right thing all along ("Node “Reconciled” has no bucket selected",
+"Lakehouse table must be a valid identifier … got ''"); sources and transforms
+reached pandas, requests or DuckDB first and failed in whichever library got
+there. Every required field is now refused at compile, naming the node.
+
+### Three more node kinds, driven
+
+| Pipeline        | Graph                                                             | Result                                           |
+| --------------- | ----------------------------------------------------------------- | ------------------------------------------------ |
+| `platform_live` | **platform dataset** `summary_segment_data` → lakehouse           | **9,992 rows** — the count the picker advertised |
+| `http_live`     | lakehouse `analytics.gate_out` (257) → **HTTP API (reverse ETL)** | **3 requests, 257 records** at the receiver      |
+
+The reverse-ETL target was driven against a real HTTP receiver on the kernel
+network, counting what arrived: `rows=100 · rows=100 · rows=57`, 257 records
+carrying all thirteen columns. Batching at 100 rows per request is exactly what
+the node was configured for.
+
+Its first attempt failed, and that is the finding: the receiver was on `:8099`,
+its host was on the allow-list, the generated `allowed_domains` file carried
+`.echo-target.local` — and the run died with
+
+```
+requests.exceptions.HTTPError: 403 Client Error: Forbidden for url:
+http://echo-target.local:8099/hook
+```
+
+which reads as the endpoint refusing. It was squid: `http_access deny
+!Safe_ports`, and Safe_ports is 80, 443, 9000, 19000. Moving the receiver to
+port 80 made the same pipeline succeed first try. The allow-list covers hosts;
+nothing covered ports, so the one rule that could refuse a perfectly configured
+node was invisible until it fired from inside a container.
+
+### The same graph on the other engine
+
+`spark_live` — lakehouse `analytics.recon_union` (309) → filter
+`recon_status == 'ok'` → lakehouse `analytics.spark_out`, with **Engine = Spark
+cluster** in Settings. Succeeded in 10m 12s:
+
+```
+[etl] spark: connected to sc://spark-connect:15002 (4.2.0)
+[etl] spark: staged 257 row(s) at s3a://lakehouse/main/_spark_stage/n3/…
+[etl] {"rows_loaded": 257, … "engine": "spark",
+       "lineage_sources": ["lakehouse:analytics.recon_union"]}
+```
+
+**257** is the same number the pandas engine produced for the same predicate in
+`gate_live`, from the same table, with all thirteen columns carried through.
+Two engines, one answer. (Ten minutes is this host, not the product: code
+generation alone took 7 s on a cold JVM with 8 CPU and 11 GB.)
+
+An earlier attempt failed with **"The run never acquired a sandbox session."** —
+the app container was rebuilt while that run sat queued. The message is the
+reaper's and it is the right one; noted here because it appears in the run list
+above and was self-inflicted.
+
+Kept for review: pipelines **`recon_live2`** (the bundled sample, three runs),
+**`union_live`**, **`gate_live`** (one failed run and one succeeded, on purpose),
+**`platform_live`**, **`http_live`** and **`spark_live`**, with their runs and
+logs; lakehouse
+tables `analytics.recon_union` (309), `analytics.gate_out` (257) and
+`analytics.platform_out` (9,992) and `analytics.spark_out` (257); bucket
+datasets `finance/orders_reconciled`
+and `finance/recon_exceptions`. Two throwaway containers can be removed with
+`docker rm -f`: **`agentswarms-echo-target`** (the reverse-ETL receiver, on the
+kernel network as `echo-target.local`, allow-listed under Admin → Developer
+runtime) and the earlier `agentswarms-redpanda-test`.
+
+**Tests:** 21 in `tests/unit/catalogGzipDataset.test.ts`, 7 in
+`tests/unit/etlRunRecompiles.test.ts`, 30 in
+`tests/unit/etlUnfinishedNode.test.ts` and 6 in
+`tests/unit/etlEgressPort.test.ts`, twenty-five guards
+mutation-checked one at a time (each reversion caught) with a control mutant
+that was correctly missed. The reader is exercised as real Python in the
+runtime image, failing without `compression='infer'` and working with it; the
+lakehouse mount's fqn regex and the Catalog's "Query data" test are pulled out
+of the source and executed, so they are checked by behaviour, not spelling.
+
 ## 2026-09-18 — The ETL node catalogue, driven; Kafka against a real broker
 
 **Driven.** The running instance, signed in as the owner, building pipelines

@@ -25,7 +25,7 @@ import {
   lineageSourceOf,
 } from "@/utils/etl/codegen";
 import { etlErrorMessage } from "@/utils/etl/explainError";
-import { engineOf } from "@/utils/etl/compile";
+import { compilePipeline, engineOf, pipelineRequirements } from "@/utils/etl/compile";
 import { chainTargetsOf, hasChainTargets } from "@/lib/etlChain";
 import {
   CONTINUOUS_SCHEDULE,
@@ -47,7 +47,7 @@ import {
   streamSecretEnv,
   validateStreamSource,
 } from "@/utils/etl/streaming";
-import { egressReaches, staticEgressHost } from "@/utils/notebookRuntime/egress";
+import { egressPortRefusal, egressReaches, staticEgressHost } from "@/utils/notebookRuntime/egress";
 import { platformEgressHosts } from "@/utils/notebookRuntime/egressApply.server";
 
 export type EtlPipelineRow = Database["public"]["Tables"]["etl_pipelines"]["Row"];
@@ -338,11 +338,23 @@ export async function resolveRunEnv(
     if (node.kind === "source" && isStreamSource(c)) {
       await streamEnv(node as EtlNode, c, stem);
     }
-    // An HTTP node's own URL, held to the same rule as a broker's address.
+    // An HTTP node's own URL, held to the same rule as a broker's address —
+    // and to the proxy's PORT rule, which is a separate denial with an
+    // identical-looking symptom. Found live: a reverse-ETL target pointed at
+    // an allow-listed host on :8099 failed with a bare
+    // `403 Client Error: Forbidden for url: http://…:8099/hook`, which reads
+    // as the endpoint refusing rather than squid refusing the port.
     if (c.type === "http_api") {
+      const url = (c as { url?: string }).url;
+      const portWhy = egressPortRefusal(url);
+      if (portWhy) {
+        throw new Error(
+          `${node.kind === "target" ? "Target" : "Source"} "${node.label || node.id}": ${portWhy}`,
+        );
+      }
       await assertEgress(
         node as EtlNode,
-        staticEgressHost((c as { url?: string }).url),
+        staticEgressHost(url),
         node.kind === "target" ? "writes to" : "reads from",
       );
     }
@@ -876,7 +888,19 @@ export async function etlEnvFor(
     // is the one that knows which run the staged files belong to.
     runId: run.id,
   });
-  const requirements = (pipeline.requirements ?? "")
+  // Same staleness, one layer down: the stored requirements were computed by
+  // the compiler that ran at the last save. When the SQL step moved off ibis
+  // the replacement package was in the new requirements and the old ones went
+  // on installing ibis, so the fix could not take even where the program was
+  // right. A visual pipeline's packages follow from its graph — the canvas
+  // rewrites them on every edit and offers no field to hand-edit — so they are
+  // derived here, for the engine this run uses. A code pipeline's list is
+  // typed by a person and is left exactly alone.
+  const graph = pipeline.mode === "visual" ? normalizeGraph(pipeline.graph) : null;
+  const reqText = graph
+    ? pipelineRequirements(graph, engineOf(pipeline.engine))
+    : (pipeline.requirements ?? "");
+  const requirements = reqText
     .split("\n")
     .map((l) => l.trim())
     .filter((l) => l && !l.startsWith("#"));
@@ -910,6 +934,35 @@ export async function startEtlRun(
     }
     return { ok: false, error: "Pipeline has no code to run" };
   }
+  // THE GENERATED PROGRAM IS A CACHE, NOT THE DEFINITION.
+  //
+  // For a visual pipeline the GRAPH is what somebody built; `source_code` is
+  // what the last save compiled it to. The two drift the moment the compiler
+  // changes, and the editor only recompiles on save — where the button is
+  // disabled when nothing has changed. So an upgraded deployment went on
+  // running last release's program, per pipeline, until somebody happened to
+  // edit that pipeline for some other reason.
+  //
+  // Found live, twice in one sitting: a fix to the SQL step (ibis → duckdb)
+  // and a fix to the target fqn a run reports both failed to reach a pipeline
+  // created twenty minutes earlier, and the second left a lineage edge
+  // pointing at a filename that does not exist. Recompiling here costs
+  // microseconds and makes "the fix shipped" mean the same thing for every
+  // pipeline. A graph the CURRENT compiler refuses stops the run with the
+  // compiler's own sentence, which is what the canvas would have said —
+  // better than silently running a program built from rules it now fails.
+  let sourceCode = pipeline.source_code;
+  if (pipeline.mode === "visual") {
+    const graph = normalizeGraph(pipeline.graph);
+    if (graph) {
+      try {
+        sourceCode = compilePipeline(graph, engineOf(pipeline.engine));
+      } catch (e) {
+        return { ok: false, error: (e as Error).message };
+      }
+    }
+  }
+
   // Resolve the env now to fail fast on a missing destination — a run that
   // dies inside the sandbox on a config error costs a cold start to discover.
   try {
@@ -968,7 +1021,7 @@ export async function startEtlRun(
       user_id: pipeline.user_id,
       status: "queued",
       trigger,
-      source_code: pipeline.source_code,
+      source_code: sourceCode,
       params: (Object.keys(mergedParams).length ? mergedParams : null) as Json,
       retries_remaining: pipeline.retry_count ?? 0,
       attempt: 1,

@@ -135,6 +135,57 @@ export function staticEgressHost(url: string | undefined | null): string[] {
   }
 }
 
+/**
+ * The ports the egress proxy admits — a MIRROR of `Safe_ports` and `SSL_ports`
+ * in deploy/notebooks/egress/squid.conf, kept in step by a test that parses
+ * that file.
+ *
+ * Kernels have no direct route out, so every request goes through squid, and
+ * squid denies a port outside this list before it ever looks at the domain.
+ * The symptom is a bare `403 Client Error: Forbidden` from inside the sandbox,
+ * naming the URL as though the endpoint had refused — found live, pointing a
+ * reverse-ETL target at a receiver on :8099 whose domain WAS allow-listed.
+ */
+export const EGRESS_SAFE_PORTS = [80, 443, 9000, 19000] as const;
+/** CONNECT (i.e. https) is allowed to this port only. */
+export const EGRESS_SSL_PORTS = [443] as const;
+
+/**
+ * Why the proxy will refuse this URL on its port, in words — or null when the
+ * port is fine (which says nothing about the domain; `egressReaches` answers
+ * that separately).
+ */
+export function egressPortRefusal(url: string | undefined | null): string | null {
+  const raw = (url ?? "").trim();
+  // A templated URL resolves at run time; there is nothing to judge yet.
+  if (!raw || raw.includes("{{")) return null;
+  let u: URL;
+  try {
+    u = new URL(raw);
+  } catch {
+    return null; // not a URL — a different check's problem
+  }
+  const https = u.protocol === "https:";
+  const port = Number(u.port || (https ? 443 : 80));
+  if (!Number.isFinite(port)) return null;
+  if (https && !(EGRESS_SSL_PORTS as readonly number[]).includes(port)) {
+    return (
+      `the sandbox's egress proxy only tunnels HTTPS to port ${EGRESS_SSL_PORTS.join(", ")}, ` +
+      `and this URL uses port ${port}. Use https on 443, or plain http on one of ` +
+      `${EGRESS_SAFE_PORTS.join(", ")}.`
+    );
+  }
+  if (!(EGRESS_SAFE_PORTS as readonly number[]).includes(port)) {
+    return (
+      `the sandbox's egress proxy only allows ports ${EGRESS_SAFE_PORTS.join(", ")}, ` +
+      `and this URL uses port ${port}. The allow-list under Admin → Developer runtime ` +
+      `covers hosts, not ports — a host on an unusual port is refused by the proxy with ` +
+      `a 403 that looks like it came from the endpoint.`
+    );
+  }
+  return null;
+}
+
 export function isEgressIp(token: string): boolean {
   return /^\d{1,3}(\.\d{1,3}){3}$/.test(token.replace(/^\./, ""));
 }

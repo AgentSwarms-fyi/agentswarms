@@ -560,7 +560,12 @@ export function CatalogView({
    */
   // `.avro` is deliberately absent: the file is cataloged, but DuckDB has no
   // Avro build for this version, so the button would only ever error.
-  const QUERYABLE_OBJECT = /\.(parquet|csv|tsv|json|ndjson|jsonl|orc)$/i;
+  // The `(\.gz)?` is what makes the button appear on a compressed dataset: dlt
+  // gzips text output, so a folder of jsonl is globbed `*.jsonl.gz`, and an
+  // anchored extension test without it hides the button on exactly the assets
+  // this product writes most often. DuckDB decompresses by extension, so the
+  // query behind the button works.
+  const QUERYABLE_OBJECT = /\.(parquet|csv|tsv|json|ndjson|jsonl|orc)(\.gz)?$/i;
 
   const queryable = (a: UnifiedAsset) => {
     if (a.local) return true;
@@ -1276,7 +1281,10 @@ function AssetSheet({
     (e) => e.upstream_column,
   );
   const lineageColumns = [...new Set([...upByColumn.keys(), ...downByColumn.keys()])].sort();
-  const shortFqn = (fqn: string) => fqn.split(".").slice(-2).join(".");
+  // Last two segments — of the PATH for an object fqn, of the dotted name
+  // otherwise. `finance/recon_exceptions/*.jsonl.gz` is not three names.
+  const shortFqn = (fqn: string) =>
+    fqn.includes("/") ? fqn.split("/").slice(-2).join("/") : fqn.split(".").slice(-2).join(".");
 
   async function save() {
     if (!asset || asset.local) return;

@@ -280,6 +280,26 @@ export function fileFormat(key: string): string | null {
   return null;
 }
 
+/**
+ * The extension a key actually CARRIES, `.gz` tail included.
+ *
+ * `fileFormat` answers what a file IS — "orders.jsonl.gz" is ndjson. This
+ * answers what it is CALLED, which is what a glob has to match. The two part
+ * company for compressed text, and dlt gzips text output by default, so a
+ * dataset globbed as `*.ndjson` matched none of the `*.jsonl.gz` files in its
+ * own folder and every read of it failed with "No files found that match".
+ *
+ * Returns "" for a key with no extension at all.
+ */
+export function objectExt(key: string): string {
+  const base = (key.split("/").pop() ?? key).toLowerCase();
+  const parts = base.split(".");
+  if (parts.length < 2) return "";
+  const last = parts[parts.length - 1];
+  if (last === "gz" && parts.length > 2) return `${parts[parts.length - 2]}.gz`;
+  return last;
+}
+
 function valueType(v: unknown): string {
   if (typeof v === "number") return "number";
   if (typeof v === "boolean") return "boolean";

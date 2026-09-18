@@ -223,9 +223,11 @@ export function sparkRequirementsFor(graph: EtlGraph): string {
   const needsS3 = (graph.nodes ?? []).some(
     (n) => n.kind === "target" && (n.config as EtlTargetConfig).type === "lakehouse",
   );
-  // The Spark Connect client is baked into the runtime image. dlt and ibis
-  // are the two things the pandas engine needed that this one does not: the
-  // cluster does the loading, and SQL steps run as Spark SQL.
+  // The Spark Connect client is baked into the runtime image. dlt is the one
+  // thing the pandas engine needs that this one does not: the cluster does the
+  // loading, and SQL steps run as Spark SQL. (ibis was a second such thing
+  // until the pandas SQL step moved to duckdb — which the driver half wants
+  // anyway for a lakehouse read.)
   const reqs = requirementsFor(graph)
     .split("\n")
     .filter((l) => l.trim() && !/^(dlt|ibis-framework)\b/.test(l.trim()));
@@ -718,9 +720,14 @@ function storageTarget(
   if (c.write_mode === "merge" && !c.primary_key?.length) {
     throw new Error(`Merge on target "${node.label || node.id}" needs primary key columns`);
   }
+  // Spark's own file naming, which is NOT dlt's: `part-*.json` for jsonl (no
+  // gzip by default) and `part-*.snappy.parquet` for parquet, which `*.parquet`
+  // still matches. The sandbox engine's globs live in DLT_FILE_EXT and differ;
+  // both have to match what their writer leaves in the bucket, because catalog
+  // lineage joins the reported fqn against the crawled asset.
   const fqn = delta
     ? `'${dataset}/${table}/*.parquet'`
-    : `'${dataset}/${table}/*.${c.format === "jsonl" ? "ndjson" : c.format}'`;
+    : `'${dataset}/${table}/*.${c.format === "jsonl" ? "json" : c.format}'`;
   const lines = [
     `    # target ${node.id}: object storage → ${dataset}.${table} (${c.write_mode}${delta ? ", delta" : ""})`,
     `    _sdf = ${input}`,

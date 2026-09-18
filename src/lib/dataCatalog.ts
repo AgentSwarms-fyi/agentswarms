@@ -147,10 +147,20 @@ export type CatalogLineageEdge = {
   exact: boolean;
 };
 
-/** Match lineage FQNs (often catalog.schema.table) to catalog assets
- *  (schema.table) by their trailing two segments. */
+/**
+ * Match lineage FQNs (often catalog.schema.table) to catalog assets
+ * (schema.table) by their trailing two segments.
+ *
+ * An object-store fqn is a PATH and is exempt: `finance/x/*.jsonl.gz` has
+ * three dot-separated pieces, the last two of which are "jsonl" and "gz" —
+ * a key every gzipped dataset in the bucket would share. Both sides of this
+ * join (the crawled asset and the fqn a run reports) write the same string
+ * for an object, so the whole string is the identity.
+ */
 export function lineageKey(fqn: string): string {
-  return fqn.toLowerCase().split(".").slice(-2).join(".");
+  const f = fqn.toLowerCase();
+  if (f.includes("/")) return f;
+  return f.split(".").slice(-2).join(".");
 }
 
 export async function loadCatalogLineage(): Promise<CatalogLineageEdge[]> {

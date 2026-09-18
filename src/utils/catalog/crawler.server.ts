@@ -11,6 +11,7 @@
 // can surface classification at a glance. Crawls are bounded (object,
 // sample and byte caps) so a huge bucket cannot wedge the server.
 import { createHash } from "node:crypto";
+import zlib from "node:zlib";
 
 import type { Database, Json } from "@/integrations/supabase/types";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
@@ -25,6 +26,7 @@ import {
   fileFormat,
   inferColumns,
   listObjects,
+  objectExt,
   sampleObject,
   type InferredColumn,
   type ObjectStoreConfig,
@@ -429,15 +431,91 @@ export function groupObjects(objects: StoredObject[]): ObjectGroup[] {
   return [...groups.values()];
 }
 
-/** Rough row estimate for a text file: bytes-per-line from the sample. */
-function estimateRows(sample: Buffer, totalBytes: number, format: string | null): number | null {
+/**
+ * A folder of same-format files is a dataset even when the folder holds a
+ * single file: table-per-folder layouts (dlt, Hive, Iceberg data dirs) write
+ * exactly one file per load, and the folder name IS the table name. Only a
+ * bare file at the bucket root stays a plain file asset.
+ */
+export function isDatasetGroup(g: ObjectGroup): boolean {
+  return g.format !== null && (g.objects.length > 1 || g.dir !== "");
+}
+
+/**
+ * The extension a dataset's glob must carry.
+ *
+ * `g.format` is the LOGICAL format, and for compressed text that is not the
+ * extension: a folder of `*.jsonl.gz` files has format "ndjson", and
+ * `*.ndjson` matches none of them. One writer per folder is the normal shape,
+ * so a single shared extension is the answer; when a folder somehow mixes
+ * spellings, fall back to the format rather than picking one and silently
+ * excluding the rest.
+ */
+function groupExt(g: ObjectGroup): string | null {
+  const exts = new Set(g.objects.map((o) => objectExt(o.key)).filter(Boolean));
+  return exts.size === 1 ? [...exts][0] : g.format;
+}
+
+/**
+ * The fqn a crawled group is stored under — a glob for a dataset, the key
+ * itself for a lone file.
+ *
+ * This string is the join key for the whole catalog: the Workbench reads the
+ * bucket through it, an ETL catalog-asset source resolves to it, and
+ * `catalog_lineage.downstream_fqn` (written from what a RUN reports) is
+ * matched against it. It has to name files that exist — `finance/x/*.ndjson`
+ * over a folder holding `<load>.jsonl.gz` is a catalog entry nothing can open.
+ */
+export function datasetFqn(g: ObjectGroup): string {
+  return isDatasetGroup(g) ? `${g.dir || "."}/*.${groupExt(g)}` : g.objects[0].key;
+}
+
+/**
+ * Rows in a text dataset, from a head-of-file sample.
+ *
+ * Two things this has to get right, one of which it used to get wrong.
+ *
+ * COMPRESSED TEXT. The sample arrives as raw bytes, and for a `.gz` object
+ * those bytes are gzip, not text. Counting newlines in them counts whatever
+ * 0x0A happens to fall out of the compressed stream — a plausible-looking,
+ * entirely invented number. A 52-row exception report written by dlt (2.2 KB
+ * gzipped) was cataloged as 10 rows that way. Decompress first, and measure
+ * density against the COMPRESSED bytes the sample consumed, because the
+ * object's size is compressed too.
+ *
+ * A FULLY SAMPLED FILE IS NOT AN ESTIMATE. When the sample covers the whole
+ * object — the usual case for anything dlt writes — the line count IS the row
+ * count, and rounding it through a bytes-per-line ratio can only make it worse.
+ */
+export function estimateRows(
+  sample: Buffer,
+  totalBytes: number,
+  format: string | null,
+  key: string,
+): number | null {
   if (format !== "csv" && format !== "ndjson") return null;
-  const text = sample.toString("utf8");
-  const lines = text.split("\n").filter((l) => l.trim() !== "").length;
-  if (lines < 2) return null;
-  const bytesPerLine = sample.length / lines;
-  const dataRows = Math.round(totalBytes / bytesPerLine) - (format === "csv" ? 1 : 0);
-  return Math.max(dataRows, 0);
+  let text: string;
+  if (key.toLowerCase().endsWith(".gz")) {
+    try {
+      // Z_SYNC_FLUSH: a ranged GET hands back a truncated gzip stream, and the
+      // prefix that decompressed cleanly is exactly what we want to measure.
+      text = zlib.gunzipSync(sample, { finishFlush: zlib.constants.Z_SYNC_FLUSH }).toString("utf8");
+    } catch {
+      return null;
+    }
+  } else {
+    text = sample.toString("utf8");
+  }
+  let lines = text.split("\n").filter((l) => l.trim() !== "").length;
+  if (lines === 0) return null;
+  const header = format === "csv" ? 1 : 0;
+  // The sample covered the whole object: this is a count, not an estimate.
+  if (sample.length >= totalBytes) return Math.max(lines - header, 0);
+  // A partial sample's last line is usually cut in half — it is a line in the
+  // file, but not one this sample measured.
+  lines = Math.max(lines - 1, 1);
+  const rows = Math.round((lines / Math.max(sample.length, 1)) * totalBytes);
+  return Math.max(rows - header, 0);
 }
 
 /** Prior crawl state for incremental sampling: fqn → reusable metadata. */
@@ -457,14 +535,6 @@ export async function crawlObjectStorage(
   );
   const sampleBudget = new Set(ranked.slice(0, MAX_SAMPLES).map((g) => g));
 
-  // A folder of same-format files is a dataset even when the folder holds a
-  // single file: table-per-folder layouts (dlt, Hive, Iceberg data dirs) write
-  // exactly one file per load, and the folder name IS the table name. Only a
-  // bare file at the bucket root stays a plain file asset.
-  const isDatasetGroup = (g: ObjectGroup) =>
-    g.format !== null && (g.objects.length > 1 || g.dir !== "");
-  const groupFqn = (g: ObjectGroup) =>
-    isDatasetGroup(g) ? `${g.dir || "."}/*.${g.format}` : g.objects[0].key;
   const unchangedSince = (g: ObjectGroup) =>
     Boolean(since) && g.objects.every((o) => o.last_modified !== "" && o.last_modified <= since!);
 
@@ -486,7 +556,7 @@ export async function crawlObjectStorage(
     // asset used to be cataloged as a filename with a size and no columns.
     const canDescribe = duckReadableFormat(g.format) !== null;
     const canInfer = canSample || canDescribe;
-    const reuse = canInfer && unchangedSince(g) ? prior?.get(groupFqn(g)) : undefined;
+    const reuse = canInfer && unchangedSince(g) ? prior?.get(datasetFqn(g)) : undefined;
     if (reuse && reuse.columns.length > 0) {
       inferred = reuse.columns;
       rowEstimate = reuse.row_count;
@@ -495,7 +565,7 @@ export async function crawlObjectStorage(
       try {
         const buf = await sampleObject(cfg, biggest.key, SAMPLE_BYTES);
         inferred = inferColumns(g.format, buf, biggest.key);
-        const perFile = estimateRows(buf, biggest.size, g.format);
+        const perFile = estimateRows(buf, biggest.size, g.format, biggest.key);
         if (perFile !== null) {
           // Scale the per-byte density across the whole group.
           rowEstimate = Math.round((perFile / Math.max(biggest.size, 1)) * totalSize);
@@ -540,7 +610,7 @@ export async function crawlObjectStorage(
         asset_type: "dataset",
         schema_name: g.dir || null,
         name,
-        fqn: `${g.dir || "."}/*.${g.format}`,
+        fqn: datasetFqn(g),
         columns,
         row_count: rowEstimate,
         size_bytes: totalSize,

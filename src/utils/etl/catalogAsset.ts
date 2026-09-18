@@ -68,7 +68,9 @@ const READABLE: Record<string, SourceFileFormat> = {
 const IN_PIPELINE = "CSV, TSV, JSON, JSONL, Parquet or Excel";
 
 function extensionOf(key: string): string {
-  const m = /\.([a-z0-9]+)$/i.exec(key);
+  // The optional `.gz` matters: dlt gzips text output, so the extension that
+  // says what the file IS sits one segment in from the end.
+  const m = /\.([a-z0-9]+)(\.gz)?$/i.exec(key);
   return m ? m[1].toLowerCase() : "";
 }
 

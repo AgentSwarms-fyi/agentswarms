@@ -395,7 +395,10 @@ describe("requirementsFor", () => {
       "pymysql",
       "psycopg2-binary",
       "sqlalchemy",
-      "ibis-framework[duckdb]",
+      // The SQL step runs on duckdb, not ibis: ibis 12 against the runtime's
+      // pandas 3 fails materialising the frame before the query is read, and
+      // the requirement was unpinned so every new sandbox pulled it.
+      "duckdb>=1.4",
       "dlt[sqlalchemy]>=1.3",
     ]) {
       expect(reqs).toContain(expected);
@@ -1263,7 +1266,13 @@ describe("quality gates", () => {
 // ── Lineage emission ────────────────────────────────────────────────────────
 
 describe("lineage in compiled metrics", () => {
-  it("emits per-target fqns in the crawler's vocabulary (jsonl is ndjson)", () => {
+  // The name this test used to carry — "jsonl is ndjson" — was the defect.
+  // dlt gzips text output, so a jsonl target leaves `<load>.jsonl.gz` and a
+  // glob of `*.ndjson` matches nothing in its own folder. The crawler stores
+  // the extension the files really have and `catalog_lineage` joins the two
+  // strings, so the run has to report the same one. Measured against dlt
+  // 1.30.0; see DLT_FILE_EXT and tests/unit/catalogGzipDataset.test.ts.
+  it("emits per-target fqns naming the files dlt actually writes", () => {
     const g: EtlGraph = {
       nodes: [
         node("s", "source", { type: "python", code: "df = None" }),
@@ -1294,7 +1303,7 @@ describe("lineage in compiled metrics", () => {
       ],
     };
     const code = compileGraph(g);
-    expect(code).toContain("'fqn': 'finance/exceptions/*.ndjson'");
+    expect(code).toContain("'fqn': 'finance/exceptions/*.jsonl.gz'");
     expect(code).toContain("'fqn': 'finance/orders/*.parquet'");
   });
 

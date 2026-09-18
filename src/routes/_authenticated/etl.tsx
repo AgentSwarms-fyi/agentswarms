@@ -723,8 +723,20 @@ function NewPipelineDialog({
     }
   };
 
+  // Dismissing resets the form. Radix unmounts the content but not this
+  // component, so without it a template stays selected across openings — and
+  // since the tile TOGGLES, the next reader clicks the thing they want and
+  // deselects it, ending up with a blank starter graph under a name they
+  // chose for a sample. (Found doing exactly that.)
+  const dismiss = () => {
+    setName("");
+    setTemplateId(null);
+    setMode("visual");
+    onClose();
+  };
+
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+    <Dialog open={open} onOpenChange={(v) => !v && dismiss()}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>New pipeline</DialogTitle>
@@ -800,7 +812,7 @@ function NewPipelineDialog({
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
+          <Button variant="outline" onClick={dismiss}>
             Cancel
           </Button>
           <Button onClick={create} disabled={busy || !name.trim()}>

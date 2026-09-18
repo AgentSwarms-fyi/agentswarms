@@ -24,6 +24,22 @@
 export type SourceFileFormat = "csv" | "tsv" | "json" | "jsonl" | "parquet" | "xlsx";
 export type TargetFileFormat = "parquet" | "csv" | "jsonl";
 
+/**
+ * What dlt NAMES the files it writes, per loader format.
+ *
+ * Not the same as the format: dlt gzips text output, so a jsonl target leaves
+ * `<load>.jsonl.gz` behind and a csv target `<load>.csv.gz`. The run reports
+ * one of these globs as its target's fqn, catalog lineage joins on that string,
+ * and the crawler derives the same glob from the keys it actually lists — so
+ * all three have to agree or the lineage edge points at nothing. Measured
+ * against dlt 1.30.0 rather than assumed.
+ */
+export const DLT_FILE_EXT: Record<TargetFileFormat, string> = {
+  parquet: "parquet",
+  csv: "csv.gz",
+  jsonl: "jsonl.gz",
+};
+
 import {
   isStreamSource,
   streamSourcePython,
@@ -512,12 +528,62 @@ function effectiveType(n: EtlNode): string | undefined {
   return isCatalogAsset(c) ? c.resolved?.type : c.type;
 }
 
+/**
+ * A source node nobody finished configuring is refused BY NAME, at compile.
+ *
+ * Found by leaving a Platform dataset node's picker untouched: the graph
+ * saved, the run started, and it died inside the sandbox with
+ *
+ *   requests.exceptions.HTTPError: 404 Client Error: for url:
+ *   http://agentswarms:8080/api/notebook/runtime/source
+ *
+ * — the app's own internal API, named as if it were the problem, with nothing
+ * to connect it back to the node or to the field that was never filled in.
+ * Targets have had this for as long as they have had `pyIdent` ("Lakehouse
+ * table must be a valid identifier … got ''") and a bucket check that names
+ * the node; sources had it only where a field happened to be run through one
+ * of those.
+ *
+ * The rule is the same for every kind: say which node, and which field.
+ */
+export function assertSourceConfigured(node: EtlNode, c: EtlSourceConfig): void {
+  const who = `Source "${node.label || node.id}"`;
+  const blank = (v: unknown) => typeof v !== "string" || !v.trim();
+  if (c.type === "platform_dataset" && blank(c.table_id)) {
+    throw new Error(`${who} has no dataset picked`);
+  }
+  if (c.type === "object_storage" && blank(c.path)) {
+    throw new Error(`${who} has no file or folder picked`);
+  }
+  if (c.type === "http_api" && blank(c.url)) {
+    throw new Error(`${who} needs a URL`);
+  }
+  if (c.type === "python" && blank(c.code)) {
+    throw new Error(`${who} has no code`);
+  }
+  if (c.type === "lakehouse" && c.mode === "table" && (blank(c.schema) || blank(c.table))) {
+    throw new Error(`${who} has no lakehouse table picked`);
+  }
+  // NOT a missing connection: `resolveRunEnv` already refuses that by name
+  // ("Node \"X\" has no connection selected") for sources AND targets, before
+  // a container starts. Adding a second, differently-worded refusal here would
+  // be two messages for one mistake — the same reason stream sources are left
+  // to their own validator.
+  if (c.type === "database" && c.mode === "table" && blank(c.table)) {
+    throw new Error(`${who} has no table picked`);
+  }
+  if (c.type === "database" && c.mode === "query" && blank(c.query)) {
+    throw new Error(`${who} has no query`);
+  }
+}
+
 export function sourceFn(node: EtlNode): string {
   const c = node.config as EtlSourceConfig;
   // A catalog asset is read as the source it resolved to when it was picked.
   if (isCatalogAsset(c)) {
     return sourceFn({ ...node, config: unwrapSourceConfig(c) as EtlSourceConfig });
   }
+  assertSourceConfigured(node, c);
   const key = envKey(node.id);
   const head = `def _src_${node.id}():`;
   if (isStreamSource(c)) {
@@ -618,6 +684,12 @@ export function sourceFn(node: EtlNode): string {
             // run every tick would see the first tick's listing and a file
             // that landed later would never be new. List fresh each time.
             `    fs.invalidate_cache()`,
+            // `compression='infer'`: this product's own object-storage
+            // target writes `.jsonl.gz` and `.csv.gz` (dlt gzips text output),
+            // so a pipeline reading what another pipeline wrote is the common
+            // case, not an exotic one. Without it pandas gets gzip bytes and
+            // the run dies with `UnicodeDecodeError: ... byte 0x8b`. Verified
+            // a no-op on uncompressed files.
             `    _listing = fs.glob(f"{base}/{path}", detail=True)`,
             `    if not isinstance(_listing, dict):`,
             `        _listing = {k: fs.info(k) for k in (_listing or [])}`,
@@ -636,7 +708,7 @@ export function sourceFn(node: EtlNode): string {
             `    keys = [k for (m, k) in _new]`,
             `    frames = []`,
             `    for k in keys:`,
-            `        with fs.open(k, 'rb') as f:`,
+            `        with fs.open(k, 'rb', compression='infer') as f:`,
             `            frames.append(${READERS[c.format]})`,
             `    if frames:`,
             `        out = pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]`,
@@ -651,7 +723,7 @@ export function sourceFn(node: EtlNode): string {
             `    keys = [p for p in fs.glob(f"{base}/{path}")] or [f"{base}/{path}"]`,
             `    frames = []`,
             `    for k in keys:`,
-            `        with fs.open(k, 'rb') as f:`,
+            `        with fs.open(k, 'rb', compression='infer') as f:`,
             `            frames.append(${READERS[c.format]})`,
             `    out = pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]`,
           ]),
@@ -986,8 +1058,43 @@ function aggArgs(aggs: { column: string; fn: AggFn; as: string }[]): string {
     .join(", ");
 }
 
+/**
+ * The same rule as `assertSourceConfigured`, for the steps in between.
+ *
+ * Each of these reaches pandas as an expression that cannot work, and fails
+ * in pandas' vocabulary rather than the canvas's: `df.query('')` is
+ * "expr cannot be an empty string", `sort_values([])` is
+ * "Length of ascending (1) != length of by (0)", `groupby([])` is
+ * "No group keys passed!", and a join with no right keys is
+ * "len(right_on) must equal len(left_on)". None of them says which of the ten
+ * nodes on the canvas it means.
+ *
+ * Only the fields whose emptiness makes the step IMPOSSIBLE are refused. A
+ * rename with no pairs, a dedupe with no columns and a fill with no columns
+ * all have a defined meaning — no-op, every column, every column — and are
+ * left alone; refusing them would be inventing a rule.
+ */
+export function assertTransformConfigured(node: EtlNode, c: EtlTransformConfig): void {
+  const who = `Transform "${node.label || node.id}"`;
+  const blank = (v: unknown) => typeof v !== "string" || !v.trim();
+  const empty = (v: unknown) => !Array.isArray(v) || v.length === 0;
+  if (c.type === "filter" && blank(c.expr)) throw new Error(`${who} has no filter expression`);
+  if (c.type === "select" && empty(c.columns)) throw new Error(`${who} has no columns selected`);
+  if (c.type === "derive" && blank(c.column)) throw new Error(`${who} has no column name`);
+  if (c.type === "derive" && blank(c.expr)) throw new Error(`${who} has no expression`);
+  if (c.type === "sort" && empty(c.by)) throw new Error(`${who} has no columns to sort by`);
+  if (c.type === "aggregate" && empty(c.group_by))
+    throw new Error(`${who} has no group-by columns`);
+  if (c.type === "aggregate" && empty(c.aggs)) throw new Error(`${who} has no aggregations`);
+  if (c.type === "join" && (empty(c.left_on) || empty(c.right_on))) {
+    throw new Error(`${who} needs a key column on both sides`);
+  }
+  if (c.type === "sql" && blank(c.query)) throw new Error(`${who} has no query`);
+}
+
 function transformExpr(node: EtlNode, ins: string[]): string {
   const c = node.config as EtlTransformConfig;
+  assertTransformConfigured(node, c);
   const f = (id: string) => `f_${id}`;
   const one = f(ins[0]);
   switch (c.type) {
@@ -1366,7 +1473,7 @@ export function targetBlock(node: EtlNode, input: string, cdcInput = false): str
           ? `'${dataset}/${table}/data/*.parquet'`
           : tableFormat === "delta"
             ? `'${dataset}/${table}/*.parquet'`
-            : `'${dataset}/${table}/*.${c.format === "jsonl" ? "ndjson" : c.format}'`
+            : `'${dataset}/${table}/*.${DLT_FILE_EXT[c.format]}'`
         : `'${dataset}.${table}'`
     }, 'rows': int(len(${input})), 'load_id': str(info.loads_ids[0]) if info.loads_ids else None})`,
   ].join("\n");
@@ -1478,10 +1585,19 @@ export function compileGraph(graph: EtlGraph): string {
       ``,
       `def _sql_over(df, query):`,
       `    # SQL step: the incoming frame is table 't'.`,
-      `    import ibis`,
-      `    con = ibis.duckdb.connect()`,
-      `    con.create_table('t', df, overwrite=True)`,
-      `    return con.sql(query).to_pandas()`,
+      `    #`,
+      `    # DuckDB directly, not through ibis. ibis 12.0.0 against the`,
+      `    # image's pandas 3 fails inside create_table with`,
+      `    # "Parser Error: syntax error at end of input", so a SQL step could`,
+      `    # not run AT ALL on a fresh sandbox — and the requirement was`,
+      `    # unpinned, so every new run pulled whatever ibis had just released.`,
+      `    # duckdb registers a frame natively, is the engine the lakehouse`,
+      `    # already uses, and ships in the runtime image: this removes a`,
+      `    # dependency rather than pinning one.`,
+      `    import duckdb`,
+      `    con = duckdb.connect()`,
+      `    con.register('t', df)`,
+      `    return con.sql(query).df()`,
       ``,
     );
   }
@@ -1736,10 +1852,11 @@ export function compilePreview(graph: EtlGraph, nodeId: string): string {
     lines.push(
       ``,
       `def _sql_over(df, query):`,
-      `    import ibis`,
-      `    con = ibis.duckdb.connect()`,
-      `    con.create_table('t', df, overwrite=True)`,
-      `    return con.sql(query).to_pandas()`,
+      `    # DuckDB directly: ibis 12 fails on pandas 3 inside create_table.`,
+      `    import duckdb`,
+      `    con = duckdb.connect()`,
+      `    con.register('t', df)`,
+      `    return con.sql(query).df()`,
       ``,
     );
   }
@@ -1849,7 +1966,7 @@ export function requirementsFor(graph: EtlGraph): string {
         if (fam) reqs.add(FAMILY_DRIVER[fam]);
       }
     }
-    if (n.kind === "transform" && c.type === "sql") reqs.add("ibis-framework[duckdb]");
+    if (n.kind === "transform" && c.type === "sql") reqs.add("duckdb>=1.4");
     if (n.kind === "target" && (c.type === "http_api" || c.type === "saas")) {
       reqs.add("requests");
       continue;

@@ -377,7 +377,16 @@ like the endpoint is down. A host is judged reachable if the allow-list
 admits it the way squid does (a leading dot covers the domain and its
 subdomains) **or** if it bypasses the proxy entirely — the app itself,
 `localhost`, in-cluster suffixes. A URL completed by a run parameter
-(`https://{{params.host}}/v1`) has no host to check and is left to the proxy. Kafka is a raw TCP protocol, so the brokers must be reachable from the
+(`https://{{params.host}}/v1`) has no host to check and is left to the proxy.
+
+The **port** is a separate rule with the same symptom, and it is checked in the
+same pre-flight: the proxy admits only 80, 443, 9000 and 19000, and tunnels
+HTTPS to 443 alone. A host can be fully allow-listed and still be refused on
+its port — found live, pointing a reverse-ETL target at a receiver on `:8099`
+and getting `403 Client Error: Forbidden for url: http://…:8099/hook`, which
+reads as the endpoint saying no. The refusal now names the node, the port and
+the allowed set. The app's copy of that list is checked against
+`deploy/notebooks/egress/squid.conf` by a test, so the two cannot drift. Kafka is a raw TCP protocol, so the brokers must be reachable from the
 kernel network itself (the same Docker network, a VPC peering, or
 `NOTEBOOK_NETWORK`); Kinesis and Pub/Sub are HTTPS and go through the egress
 proxy like every other web call. The runtime image ships `confluent-kafka`,
@@ -716,10 +725,14 @@ and the warn policy loaded it with the WARN line in the run logs.
 Every successful run writes edges into `catalog_lineage`: one per (source,
 produced asset) pair. Sources are labeled with what they actually are — an
 object-storage path (`raw/orders/*.csv`), a database table, an HTTP URL, or
-`python` for script sources. Target fqns use the crawler's vocabulary
-(`<dataset>/<table>/*.<format>`, with `jsonl` registered as `ndjson`), so the
-edge lands on the same fqn the crawl gives the asset and the Data Catalog's
-asset drawer shows it under "Data lineage · from source".
+`python` for script sources. A target's fqn is the glob the file actually
+lands under, so the edge meets the fqn the crawl gives the asset and the Data
+Catalog's asset drawer shows it under "Data lineage · from source". That means
+naming the file, not the format: dlt gzips text output, so a jsonl target is
+`<dataset>/<table>/*.jsonl.gz` and a csv target `*.csv.gz`, while parquet stays
+`*.parquet`. The Spark engine writes its own names (`part-*.json`,
+`part-*.snappy.parquet`) and reports those instead — one graph, two globs,
+depending on which engine ran it.
 
 **Column lineage** rides beside it. A run reports the columns every node's
 frame actually had, and the engine traces each target column back to the
@@ -744,11 +757,20 @@ lineage (Databricks system tables) refreshes only rows with
 rows (`pipeline_id` column, added in migration `20260836000000`; deleting a
 pipeline cascades its edges away).
 
-One catalog nicety came out of the same verification pass: the crawler now
-sees through gzip. dlt writes text formats gzipped by default
-(`file.jsonl.gz`), which used to register as an opaque `compressed` asset;
-the format detector now reports the inner format and column inference
-decompresses the ranged-GET sample (sync-flush, so a truncated tail is fine).
+**Compressed text, end to end.** dlt writes text formats gzipped by default
+(`<load>.jsonl.gz`, `<load>.csv.gz`), and every place that reads a bucket has
+to know it. The format detector reports the inner format; column inference
+decompresses the ranged-GET sample (sync-flush, so a truncated tail is fine);
+the row estimate decompresses before counting lines, and returns a count rather
+than an estimate when the sample covered the whole object; the dataset's glob
+carries the real extension, so the Workbench, an ETL catalog-asset source and
+the lakehouse mount all open files that exist; and the object-storage SOURCE
+opens keys with `compression='infer'`, so a pipeline reading what another
+pipeline wrote is an ordinary read.
+
+Each of those was a separate break, found by running the bundled
+reconciliation sample and then trying to query its output — see
+[Adversarial log R17](./ADVERSARIAL_LOG.md).
 
 ## Data-size limits and machine sizing
 

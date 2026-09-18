@@ -9,6 +9,8 @@
 //
 // The rules below are the COMPILER's rules, restated where the canvas can use
 // them, so an automatic edge can never produce a graph that will not compile.
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 
 import { CHAIN_DX, placeNode, shouldChain } from "@/lib/etlGraphEdit";
@@ -115,5 +117,34 @@ describe("a graph built this way compiles", () => {
     // six-row cycle did from the seventh node on.
     const spots = new Set(nodes.map((n) => `${n.position?.x},${n.position?.y}`));
     expect(spots.size).toBe(nodes.length);
+  });
+});
+
+// ── The New pipeline dialog keeps no draft across dismissals ────────────────
+//
+// Found by using it: a template was chosen, the dialog was dismissed by a
+// mis-aimed click on the overlay, and on reopening the tile was still
+// highlighted. Clicking the tile you want is what anybody does — and the tile
+// TOGGLES, so that click deselected it. The pipeline was created from the
+// blank starter graph under the name chosen for the sample: two nodes where
+// the sample has ten, and nothing said so.
+//
+// Radix unmounts the dialog's content but not the component that owns the
+// state, so `open` alone resets nothing. The create path already cleared both
+// fields; only the dismiss path did not.
+describe("the New pipeline dialog's draft", () => {
+  it("is cleared on dismiss, the same fields the create path clears", () => {
+    const page = readFileSync("src/routes/_authenticated/etl.tsx", "utf8");
+    const at = page.indexOf("const dismiss = () => {");
+    expect(at, "the dismiss handler was renamed; re-anchor this test").toBeGreaterThan(-1);
+    const body = page.slice(at, at + 220);
+    expect(body).toContain('setName("")');
+    expect(body).toContain("setTemplateId(null)");
+    expect(body).toContain("onClose()");
+    // Both ways out of the dialog go through it: the overlay/Escape path and
+    // the Cancel button. Leaving either on the bare onClose brings the trap
+    // back for that route only, which is worse than having it on both.
+    expect(page).toContain("onOpenChange={(v) => !v && dismiss()}");
+    expect(page).toContain('<Button variant="outline" onClick={dismiss}>');
   });
 });

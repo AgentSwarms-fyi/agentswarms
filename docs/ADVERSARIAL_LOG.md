@@ -86,6 +86,160 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-18 — A bundled sample, run end to end
+
+One run of the shipped **Orders ↔ payments reconciliation** pipeline. The ETL
+half was right to the row — 309 joined, 257 matched, 52 exceptions, every
+number equal to a reference computed independently beforehand. Everything
+below is about what happened to those 52 rows _after_ they landed, and it is
+one assumption wearing five faces: **dlt gzips text output.**
+
+#### R17 · S1 · The catalog globbed a filename nothing has
+
+The crawler stored each folder-dataset as `${dir}/*.${logical format}`. The
+logical format of `1789716749.8566182.2f2a328a13.jsonl.gz` is "ndjson", so the
+asset was recorded as `finance/recon_exceptions/*.ndjson` — a pattern that
+matches nothing in its own folder.
+
+That string is not a label. It is the catalog's join key: the Workbench reads
+the bucket through it, an ETL catalog-asset source resolves to it, the lakehouse
+mount parses it, and `catalog_lineage.downstream_fqn` is matched against it.
+Pressing the catalog's own **Query data** button on the catalog's own asset
+returned
+
+```
+IO Error: No files found that match the pattern
+"s3://etl/finance/recon_exceptions/*.ndjson"
+```
+
+Every jsonl or csv target this product has ever written was in this state. The
+one bundled sample that reads a bucket back would have hit it too.
+
+#### R17 · S2 · A row count measured in compressed bytes
+
+`estimateRows` counted newlines in the sampled Buffer and scaled by
+bytes-per-line. For a `.gz` object those bytes are gzip, so it counted whatever
+0x0A fell out of the compressed stream: the 52-row exception report was
+cataloged as **10 rows**, and 10 is exactly the sort of number nobody
+questions. `inferColumns` a few lines above decompresses; only the counter did
+not. It now decompresses first, and when the sample covered the whole object it
+returns a count rather than an estimate.
+
+#### R17 · S1 · The object-storage source could not read the target's output
+
+`fs.open(k, 'rb')` hands pandas raw gzip:
+`UnicodeDecodeError: 'utf-8' codec can't decode byte 0x8b`. Since this
+product's own target is what writes the `.gz`, "pipeline B reads what pipeline
+A wrote" — the medallion pattern — was impossible for csv and jsonl.
+Reproduced both ways in the runtime image before and after the one-argument
+fix, and that reproduction is the test.
+
+#### R17 · S2 · Fixing the crawler alone would have broken lineage instead
+
+A run REPORTS its target's fqn and lineage joins on that string, so the
+compiler had to move with the crawler. What dlt actually names its files was
+then **measured** — jsonl `.jsonl.gz`, csv `.csv.gz`, parquet `.parquet`,
+against dlt 1.30.0 — rather than assumed, since assuming is what produced R17
+in the first place. Spark names its own output differently again
+(`part-*.json`, `part-*.snappy.parquet`), so the two engines deliberately
+report different globs for one graph.
+
+#### R17 · S2 · And four parsers downstream of the join key
+
+Changing a stored identifier is never a local edit. `lineageKey` keys on the
+last two **dot** segments, which for `finance/x/*.jsonl.gz` are "jsonl" and
+"gz" — a key every compressed dataset in the bucket would share, so one
+table's lineage would render as another's. The lakehouse mount's regex
+(`/^(.*)\/\*\.([a-z0-9]+)$/`) simply failed to match and counted the asset as
+`skipped`, with no message anywhere. `objectSqlName` — whose own header says
+both sides must agree or the seeded query names a table the server cannot
+resolve — trimmed one extension and left `*.jsonl`. The fourth came out of
+pressing the button rather than reading: the Catalog decides whether to offer
+**Query data** with an anchored extension test over the fqn, and `*.jsonl.gz`
+ends in `.gz`, so the corrected asset had no button at all — a fix that removes
+the feature it was repairing, on exactly the assets this product writes most
+often. Each is pinned.
+
+#### R17 · S1 · And none of it reached the pipeline that found it
+
+The fixes were deployed, the image rebuilt, the catalog re-crawled — and
+re-running `recon_live2` still wrote the OLD target fqn, leaving its lineage
+edge pointing at a filename that does not exist while the asset beside it was
+right. Pressing **Save** to recompile did nothing: the button is disabled when
+the graph has not changed.
+
+The generated program is a CACHE of the graph, and the run executed the cache.
+Every visual pipeline on an upgraded deployment keeps running the previous
+release's program until somebody edits it for some unrelated reason — with the
+runs still succeeding, so nothing points at it. The same sitting had already
+paid for this once without noticing: the SQL step's move off ibis did not reach
+a pipeline created before that rebuild either, and its stored REQUIREMENTS went
+on asking pip for `ibis-framework`, so even a correct program would have run in
+the wrong environment.
+
+A visual pipeline's graph is now recompiled at run start, for the engine the
+run uses, and its packages derived from the same graph. A graph the current
+compiler refuses stops the run with the compiler's own sentence. A code
+pipeline — where the source is what somebody typed — is untouched.
+
+#### R17 · S2 · A node nobody finished configuring failed in a library's words
+
+Building the platform-dataset case, the "Choose a dataset" select was never
+opened. The graph **saved**. The run **started**. It died inside the sandbox
+with
+
+```
+requests.exceptions.HTTPError: 404 Client Error: for url:
+http://agentswarms:8080/api/notebook/runtime/source
+```
+
+— the app's own internal API, named as though it were the problem, with nothing
+tying it back to the node or the field. The reader's next move is to go and
+look at the runtime.
+
+Targets have said the right thing for as long as they have gone through the
+identifier check ("Lakehouse table must be a valid identifier … got ''") and
+the bucket check ("Node “Reconciled” has no bucket selected"). Sources and
+transforms got it only where a field happened to pass through one of those; the
+rest reached pandas, requests or DuckDB first and failed in whichever library
+got there. `df.query('')` is "expr cannot be an empty string"; `groupby([])` is
+"No group keys passed!"; a join with no right keys is "len(right_on) must equal
+len(left_on)". None of them names one of ten nodes on a canvas.
+
+Every required field is now refused at compile with a sentence naming the node.
+Fields whose emptiness MEANS something are deliberately left alone — a rename
+with no pairs is a no-op, a dedupe or a fill with no columns means every column
+— and that line is pinned in both directions: the mutation run includes an
+OVER-strict mutant (refusing a rename with no pairs) and the suite catches that
+too.
+
+#### R17 · S2 · The proxy refuses ports, and it looks like the endpoint refusing
+
+A reverse-ETL target pointed at `http://echo-target.local:8099/hook`. The host
+was on the allow-list, `allowed_domains` carried `.echo-target.local`, the
+pre-flight passed — and the run failed with `403 Client Error: Forbidden for
+url: http://echo-target.local:8099/hook`. It was squid: `http_access deny
+!Safe_ports`, where Safe_ports is 80, 443, 9000 and 19000. The same pipeline
+succeeded first try once the receiver moved to port 80.
+
+The allow-list covers HOSTS. Nothing in the product covered ports, so the one
+rule that could refuse a fully-configured node was invisible until it fired, in
+a library's words, from inside a container — and the SaaS target's 403 hint
+("this looks like the egress proxy…") would have pointed at the allow-list,
+which was already right. The pre-flight now names the node, the port and the
+allowed set, and gives HTTPS-on-a-non-443-port its own sentence since
+`http_access deny CONNECT !SSL_ports` is a separate denial with the same
+symptom. The app's port list is parsed out of the tracked squid.conf by a test,
+mutation-checked in BOTH directions, so a change to either side fails.
+
+**Tests:** 21 in `tests/unit/catalogGzipDataset.test.ts`, 30 in
+`tests/unit/etlUnfinishedNode.test.ts`, 7 in
+`tests/unit/etlRunRecompiles.test.ts`, 6 in `tests/unit/etlEgressPort.test.ts`.
+Twenty-five guards mutation-checked one at a time, every reversion caught, with
+a control mutant correctly missed in each set. The mount's regex and the Catalog's "Query data" test are pulled out of
+the source and executed, so they are checked by behaviour rather than
+spelling.
+
 ### 2026-09-17 — Lakehouse, ETL and ML, driven after the fixes
 
 Not a module pass: the round that verifies four fixes in the browser, and what

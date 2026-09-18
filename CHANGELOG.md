@@ -123,6 +123,95 @@ Forbidden`, naming no host and never mentioning an allow-list. The same
 - **`orders.json`** joins the sample datasets — the same 308 rows as
   `orders.csv` in the envelope a paginated API returns — so the HTTP API
   source is demonstrable on a fresh install with nothing to set up.
+- **The SQL transform runs on DuckDB.** It went through ibis, whose
+  requirement was unpinned, so every new sandbox installed whatever ibis had
+  released most recently — and ibis 12.0.0 against the runtime's pandas 3.0.5
+  fails on the statement it generates to MATERIALISE the frame, before the
+  query is ever seen: `ParserException: syntax error at end of input`. One of
+  the fifteen transform kinds was broken on a fresh install. DuckDB registers a
+  pandas frame natively and is already in the image, so the fix removes a
+  dependency rather than freezing one.
+- **The product can read back what the product just wrote.** dlt gzips text
+  output, so an object-storage target writes `<load>.jsonl.gz` and
+  `<load>.csv.gz` — and three separate places assumed the file was called
+  `.ndjson`/`.csv` and contained text. The catalog globbed
+  `finance/x/*.ndjson` over a folder holding `*.jsonl.gz`, which is the
+  catalog's join key, so **Query data** answered `IO Error: No files found that
+match the pattern`, an ETL catalog-asset source resolved to nothing, and
+  mounting the bucket as a lakehouse schema silently skipped the dataset. The
+  row estimate counted newlines in gzip BYTES, turning a 52-row exception
+  report into a confident, plausible 10. And the object-storage source opened
+  the key raw, so a pipeline reading another pipeline's output died with
+  `UnicodeDecodeError: … byte 0x8b` — the medallion pattern the bundled sample
+  demonstrates. Every one of them now goes by the extension the file actually
+  carries, and what dlt names its files was measured against dlt 1.30.0 rather
+  than assumed, because assuming is how this happened. The glob a RUN reports
+  moved with them, since `catalog_lineage` joins on that string and fixing only
+  the crawler would have traded a broken query for a broken lineage edge.
+- **The New pipeline dialog keeps no draft across dismissals.** Dismiss it with
+  a template selected and the tile is still highlighted when it reopens — and
+  the tile toggles, so clicking the one you want deselects it and the pipeline
+  is created from the blank starter graph under the name you chose for the
+  sample. Two nodes where the sample has ten, with nothing to say so. Radix
+  unmounts the dialog's content but not the component holding its state, so
+  `open` alone reset nothing; the create path already cleared both fields.
+- **A compiler fix now reaches the pipelines that already exist.** The
+  generated program is a cache of the graph, not the definition of it — and a
+  run executed the cache. `source_code` is written by whichever compiler was
+  running at the last save, and the editor recompiles only on save, where the
+  button is disabled when nothing has changed. So an upgraded deployment went
+  on running the previous release's program, one pipeline at a time, until
+  somebody edited each for some other reason; the runs kept succeeding and
+  nothing said why they were different. Caught twice in one sitting by fixes
+  that had already shipped: the SQL step's move off ibis did not reach a
+  pipeline created before the rebuild (nor did its requirements, so pip went on
+  installing ibis), and a corrected target fqn left a pipeline created twenty
+  minutes earlier reporting the old one — a lineage edge pointing at a filename
+  that does not exist, next to a catalog asset that was right. A visual
+  pipeline's graph is now recompiled at run start, for the engine that run
+  uses, and its packages derived from the same graph; a graph the current
+  compiler refuses stops the run with the compiler's own sentence rather than
+  running a program built from rules it now fails. A code pipeline's source and
+  its hand-typed requirements are untouched.
+- **A node you did not finish configuring is refused by name.** A Platform
+  dataset source whose picker was never opened saved, ran, and died inside the
+  sandbox with `requests.exceptions.HTTPError: 404 Client Error: for url:
+http://agentswarms:8080/api/notebook/runtime/source` — the app's own internal
+  API, named as though it were the problem, with nothing tying it back to the
+  node or the empty field. Targets have been refused by name for as long as
+  they have gone through the identifier check ("Lakehouse table must be a valid
+  identifier … got ''") and the bucket check ("Node “Reconciled” has no
+  bucket selected"); sources and transforms got it only where a field happened
+  to pass through one of those, and everything else reached pandas, requests or
+  DuckDB and failed in that library's vocabulary. Now every required field is
+  checked at compile with a sentence that names the node: a source with no
+  dataset, file, URL, code, lakehouse table, connection, table or query; a
+  filter with no expression, a select with no columns, a derive with no name or
+  expression, a sort with no columns, an aggregate with no group-by or no
+  aggregations, a join with a key on one side only, a SQL step with no query.
+  Fields whose emptiness MEANS something are deliberately left alone — a rename
+  with no pairs is a no-op, a dedupe or a fill with no columns means every
+  column — because refusing those would be inventing a rule rather than
+  reporting one. Both engines get it from one list: the Spark compiler already
+  validates through the pandas compiler for exactly this reason. One of these
+  turns a run that used to SUCCEED into a refusal, deliberately: a select with
+  no columns emitted `df[[]]` and loaded a frame with no columns at all, which
+  is a wrong answer delivered quietly rather than an error.
+- **A reverse-ETL target on an unusual port says the proxy refused it, before a
+  container starts.** Kernels have no direct route out; every request goes
+  through the egress proxy, which denies a port outside `Safe_ports`
+  (80, 443, 9000, 19000) before it ever looks at the domain. Found live: a
+  target pointed at an allow-listed host on `:8099` failed with a bare
+  `403 Client Error: Forbidden for url: http://…:8099/hook`, which reads as the
+  endpoint saying no. The allow-list under Admin → Developer runtime covers
+  HOSTS; nothing covered ports, so the one rule that could refuse a perfectly
+  configured node was invisible until it fired, in a library's words, from
+  inside a container. The pre-flight now names the node, the port and the
+  allowed set — and HTTPS to anything but 443 gets its own sentence, because
+  `http_access deny CONNECT !SSL_ports` is a separate denial with an identical
+  symptom. The app's copy of the port list is checked against
+  `deploy/notebooks/egress/squid.conf` by a test that parses it, so the two
+  cannot drift in either direction.
 
 ### ML
 

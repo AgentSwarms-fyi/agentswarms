@@ -665,8 +665,11 @@ export const mountLakeSource = createServerFn({ method: "POST" })
       await c.run(`CREATE SCHEMA IF NOT EXISTS ${qi(data.name)}`);
       const prefix = (cfg.prefix ?? "").replace(/^\/+|\/+$/g, "");
       for (const asset of assets) {
-        // fqn is "<dir>/*.<format>" from the crawler's grouping.
-        const m = /^(.*)\/\*\.([a-z0-9]+)$/i.exec(asset.fqn);
+        // fqn is "<dir>/*.<ext>" from the crawler's grouping, and the ext can
+        // carry a `.gz` tail — dlt gzips text output, so a folder of jsonl is
+        // globbed `*.jsonl.gz`. Without the optional group the match failed
+        // and every compressed dataset was silently skipped from the mount.
+        const m = /^(.*)\/\*\.([a-z0-9]+)(?:\.gz)?$/i.exec(asset.fqn);
         const view = asset.name
           .toLowerCase()
           .replace(/[^a-z0-9_]/g, "_")

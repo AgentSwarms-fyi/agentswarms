@@ -67,7 +67,7 @@ export function sqlNameFor(fqn: string, taken: Set<string>): string {
   if (!taken.has(name)) return name;
   // Two files called orders.parquet in different folders are ordinary, and
   // silently pointing both at one of them would answer the wrong question.
-  const withDir = safeTableName(fqn.replace(/\.[a-z0-9]+$/i, ""));
+  const withDir = safeTableName(fqn.replace(/\.[a-z0-9]+(\.gz)?$/i, ""));
   if (!taken.has(withDir)) return withDir;
   let i = 2;
   while (taken.has(`${name}_${i}`)) i++;

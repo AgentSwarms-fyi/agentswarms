@@ -21,6 +21,7 @@
 // needs.
 import { extractTableRefs } from "@/lib/sqlRefs";
 import type { AnalystStep } from "@/lib/aiAnalyst";
+import { lineageKey } from "@/lib/dataCatalog";
 import type { AssetLineage, CatalogLineageEdge } from "@/lib/dataCatalog";
 
 /**
@@ -113,9 +114,7 @@ function derivedInputs(
 }
 
 /** Match on the trailing two segments, the same key the catalog lineage uses. */
-function shortKey(fqn: string): string {
-  return fqn.toLowerCase().split(".").slice(-2).join(".");
-}
+const shortKey = lineageKey;
 
 function upstreamOf(table: string, edges?: CatalogLineageEdge[]): string[] {
   if (!edges?.length) return [];

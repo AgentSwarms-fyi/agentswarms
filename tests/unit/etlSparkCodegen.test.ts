@@ -124,17 +124,20 @@ describe("compile — one graph, two compilers", () => {
     assertParsesAsPython(code);
   });
 
-  it("the sandbox half of a Spark run does not install dlt or ibis", () => {
+  it("the sandbox half of a Spark run does not install dlt", () => {
     const g = linear(
       CSV_SRC,
       node("q", "transform", { type: "sql", query: "select * from t" }),
       PARQUET_TGT,
     );
     expect(requirementsFor(g)).toMatch(/^dlt/m);
-    expect(requirementsFor(g)).toMatch(/^ibis-framework/m);
     const spark = sparkRequirementsFor(g);
     expect(spark).not.toMatch(/^dlt/m);
-    expect(spark).not.toMatch(/^ibis-framework/m);
+    // ibis is gone from both: the SQL step moved to duckdb, which the driver
+    // half wants anyway for a lakehouse read — so it stays in the Spark list.
+    expect(requirementsFor(g)).not.toMatch(/ibis-framework/);
+    expect(spark).not.toMatch(/ibis-framework/);
+    expect(spark).toMatch(/^duckdb/m);
     expect(pipelineRequirements(g, "spark")).toBe(spark);
   });
 });
@@ -359,13 +362,21 @@ describe("compileSparkGraph — transforms", () => {
   });
 
   it("aggregate refuses an unknown function and a non-identifier output name", () => {
+    // The group-by is populated so these reach the checks they are about: an
+    // aggregate with NO group-by is now refused first, by name, because
+    // `groupby([])` raises "No group keys passed!" in pandas' words rather
+    // than the canvas's (tests/unit/etlUnfinishedNode.test.ts).
     expect(() =>
-      through({ type: "aggregate", group_by: [], aggs: [{ column: "a", fn: "stddev", as: "s" }] }),
+      through({
+        type: "aggregate",
+        group_by: ["g"],
+        aggs: [{ column: "a", fn: "stddev", as: "s" }],
+      }),
     ).toThrow(/Unknown aggregate function/);
     expect(() =>
       through({
         type: "aggregate",
-        group_by: [],
+        group_by: ["g"],
         aggs: [{ column: "a", fn: "sum", as: "bad name; import os" }],
       }),
     ).toThrow(/Aggregate output name/);
