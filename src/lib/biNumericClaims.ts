@@ -45,7 +45,7 @@ export type NumericClaim = {
 export type ClaimVerdict = NumericClaim & {
   /** What the figure matched, when it matched something. */
   matched: {
-    kind: "row" | "total" | "min" | "max" | "mean" | "share" | "count";
+    kind: "row" | "total" | "min" | "max" | "mean" | "share" | "count" | "fact";
     label: string;
   } | null;
 };
@@ -126,6 +126,21 @@ export function extractClaims(prose: string): NumericClaim[] {
   return out;
 }
 
+/**
+ * The numbers a block of text states, as values a writer may legitimately quote.
+ *
+ * A generative step is often handed a prepared FACTS block — totals, ranges,
+ * distinct counts, a truncation note. Those figures are true by construction
+ * and the model was told to use them, so a check that did not admit them would
+ * flag the model for doing exactly as instructed. This reads them back out of
+ * the same text the model was given, which keeps the two in step without the
+ * caller having to describe its facts twice in two shapes.
+ */
+export function valuesStatedIn(text: string | undefined): number[] {
+  if (!text) return [];
+  return extractClaims(text).map((c) => c.value);
+}
+
 type GroundKind = NonNullable<ClaimVerdict["matched"]>["kind"];
 type Ground = { v: number; kind: GroundKind; label: string };
 
@@ -173,8 +188,11 @@ export function verifyClaims(
   prose: string,
   facts: InsightFacts | null,
   rows: Record<string, unknown>[],
+  /** Figures already stated to the writer, e.g. a prepared FACTS block. */
+  alsoGrounded?: number[],
 ): ClaimVerdict[] {
   const { values, percents } = groundingSet(facts, rows);
+  for (const v of alsoGrounded ?? []) values.push({ v, kind: "fact", label: "stated fact" });
   return extractClaims(prose).map((c) => {
     const pool = c.isPercent
       ? percents.map((p) => ({ v: p.v, kind: "share" as const, label: p.label }))

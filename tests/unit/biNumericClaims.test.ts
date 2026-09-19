@@ -14,7 +14,12 @@
 import { describe, expect, it } from "vitest";
 
 import { computeInsightFacts } from "@/lib/biInsightFacts";
-import { extractClaims, unsupportedFigures, verifyClaims } from "@/lib/biNumericClaims";
+import {
+  extractClaims,
+  unsupportedFigures,
+  valuesStatedIn,
+  verifyClaims,
+} from "@/lib/biNumericClaims";
 
 /** The widget that produced the finding: "Sales by Region", as it really was. */
 const COLUMNS = ["region", "total_sales"];
@@ -177,6 +182,72 @@ describe("percentages are checked against shares, not row values", () => {
     const facts = computeInsightFacts(["region", "margin_pct"], rows);
     const v = verifyClaims("AMER runs at 18.2% margin.", facts, rows);
     expect(unsupportedFigures(v)).toEqual([]);
+  });
+});
+
+describe("figures the writer was handed", () => {
+  // A generative step is usually given a prepared FACTS block and told to use
+  // it. Some of those figures are not row values or totals at all — a count of
+  // distinct identifiers, a truncation note naming how many rows of how many.
+  // A check that did not admit them would flag the model for obeying its
+  // instructions, which is the fastest way to make a warning worthless.
+  const FACTS =
+    "NOTE: the engine returned only the first 500 of 12,480 matching rows\n" +
+    "order_id: identifier column, 417 distinct values (not a quantity — no total)\n" +
+    "amount: total=2297201.86 max=1042800";
+
+  it("reads the figures out of the block the model was given", () => {
+    const v = valuesStatedIn(FACTS);
+    expect(v).toContain(500);
+    expect(v).toContain(12480);
+    expect(v).toContain(417);
+    expect(v).toContain(2297201.86);
+  });
+
+  it("accepts a narrative quoting them, and still catches an invention", () => {
+    const rows = [{ region: "EMEA", amount: 1042800 }];
+    const stated = valuesStatedIn(FACTS);
+    const ok = verifyClaims(
+      "Across 417 orders the total is $2,297,201.86, from the first 500 of 12,480 rows.",
+      null,
+      rows,
+      stated,
+    );
+    expect(unsupportedFigures(ok)).toEqual([]);
+    // …but a number in neither the rows nor the facts is still unsupported.
+    const bad = verifyClaims("The total is $3,100,000.", null, rows, stated);
+    expect(unsupportedFigures(bad)).toEqual(["$3,100,000"]);
+  });
+
+  it("marks where a figure was grounded, so a citation can name it", () => {
+    const v = verifyClaims("417 orders", null, [], valuesStatedIn(FACTS));
+    expect(v[0].matched).toEqual({ kind: "fact", label: "stated fact" });
+  });
+
+  it("changes nothing when no facts were stated", () => {
+    expect(valuesStatedIn(undefined)).toEqual([]);
+    expect(valuesStatedIn("")).toEqual([]);
+  });
+});
+
+describe("the narrative step checks itself too", () => {
+  it("verifies, retries once naming the figures, and discloses", async () => {
+    const fs = await import("node:fs");
+    const src = fs.readFileSync("src/lib/biAgent.ts", "utf8");
+    const at = src.indexOf("export async function summarizeResult");
+    const end = src.indexOf("export async function", at + 10);
+    const body = src.slice(at, end > at ? end : at + 6000);
+
+    expect(body).toContain("unsupportedFigures(verifyClaims(t, measured, measuredRows, stated))");
+    // `stated` must actually be the facts block, not an empty array — the
+    // check accepts whatever it is handed, so the wiring is what matters.
+    expect(body).toContain("const stated = valuesStatedIn(facts);");
+    expect(body).toMatch(/let bad = check\(summary\)/);
+    expect(body).toMatch(/must not appear: \$\{bad\.join/);
+    expect(body).toMatch(/if \(retryBad\.length < bad\.length\)/);
+    expect(body).toContain("Not checked against the data");
+    // A truncated result must not offer shares of a prefix to the checker.
+    expect(body).toMatch(/args\.result\.capped \? \{ \.\.\.measured0, shares: \[\] \}/);
   });
 });
 

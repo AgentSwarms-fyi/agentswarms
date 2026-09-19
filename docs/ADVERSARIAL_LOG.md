@@ -109,6 +109,64 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-19 — The analyst's answer, checked the same way a card is
+
+The numeric check shipped on the insight card. The busier surface is the
+analyst's written answer: every natural-language question produces one. It
+already computed its own facts — added after it once reported "approximately
+$1.4M" against a true total of $704,186 — but nothing verified what came back.
+It does now, with the same write, check, retry-once, disclose loop.
+
+#### R21 · S3 · A check that would have punished obedience
+
+The design problem was not the checking, it was what counts as checkable.
+
+An analyst answer is handed a prepared FACTS block and told to use it, and some
+of those figures are not row values and not totals: how many distinct
+identifiers a column holds, how many rows of how many the engine returned
+before truncating. Grounding only against rows and computed aggregates would
+have flagged the model for quoting exactly what it was instructed to quote —
+the fastest way to make a warning worth ignoring.
+
+So anything the writer was GIVEN counts as grounds. `valuesStatedIn` reads the
+numbers back out of the same text the model was handed, which keeps the two in
+step without the caller having to describe its facts twice in two shapes. A
+truncated result still withholds its shares from the checker, for the reason a
+`LIMIT`-capped query does: they would be shares of a prefix.
+
+#### Driven, and what it did not show
+
+Two questions through the AI analyst on the rebuilt image, with `window.fetch`
+patched to record every `/api/bi` call and clone its reply.
+
+- _"What is total revenue by region?"_ — one narrative call, no retry.
+  `$2.3M` against a true 2,297,201.86; `$1.0M` against EMEA's 1,042,800;
+  `$415k` against APJ's 415,500, which passes at exactly the ±500 the written
+  precision allows.
+- _"What share of total sales does each region hold?"_ — chosen because a
+  question about shares invites an invented percentage. No retry.
+  45.4% and 18.1% are the real shares, and "about 33.3%" is the mean of the
+  share column, which the facts state.
+
+**The catch path did not fire in either run, and this entry does not pretend it
+did.** Both answers were correct, which is what handing the model computed
+facts is for; the check is the backstop behind that, and it is proven by unit
+tests and by the mutant that severs it. Two attempts at inducing an invented
+figure is not evidence that one cannot occur.
+
+One probe artefact worth recording, because it nearly became a false claim: a
+first version detected corrections by looking for the phrase "must not appear"
+in the request body, and reported a correction on the **SQL** step, whose
+prompt contains that phrase for its own reasons. The marker is now the
+narrative correction's own opening sentence. A probe that matches something
+other than what it claims to match will happily confirm whatever you hoped.
+
+**Tests:** 27 in `biNumericClaims`, 25 behaviour-changing mutants applied one at
+a time and each killed, control missed, baseline verified green first. Two of
+those mutants exist because the first run silently SKIPPED them — one anchor
+matched twice once the insight card and the narrative shared a retry shape, and
+one matched nothing after Prettier reflowed a line.
+
 ### 2026-09-19 — A widget's title is a claim, and claims get checked
 
 The numeric verifier (R19) checks the prose a visual is described with. It

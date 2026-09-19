@@ -727,6 +727,10 @@ GROUP BY region`}</Code>
 
       <H3 id="verified-figures">Every figure is checked before you see it</H3>
       <P>
+        This applies to the insight card and to the answer the AI analyst writes under a chart — the
+        two places the product puts numbers into prose.
+      </P>
+      <P>
         A card that reports a number nobody can check is worse than a card that says nothing. So
         every numeral written into an insight is matched back against what the query actually
         returned — a value in a row, a computed total, minimum, maximum or mean, or a
@@ -745,6 +749,13 @@ GROUP BY region`}</Code>
         denominator makes them true — the model had the rows and did the division itself. The
         arithmetic is now done before the model writes, and checked after.
       </Callout>
+
+      <P>
+        Figures the writer was <em>given</em> count as checkable too. An analyst answer is handed a
+        prepared block of computed facts — totals, ranges, how many rows of how many the engine
+        returned — and told to use them. A check that did not admit those would flag the model for
+        doing as it was told, which is the fastest way to make a warning worth ignoring.
+      </P>
 
       <H3 id="partial-results">A query that caps itself says so</H3>
       <P>

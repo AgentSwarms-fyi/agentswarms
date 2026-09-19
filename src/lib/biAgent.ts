@@ -30,7 +30,7 @@ import { clientDeadlineMs } from "@/lib/llmDeadline";
 import type { GovernedModelFields } from "@/lib/aiAnalyst";
 import type { ScenarioParameter } from "@/lib/analystScenario";
 import { computeInsightFacts, formatInsightFacts, queryRowLimit } from "@/lib/biInsightFacts";
-import { unsupportedFigures, verifyClaims } from "@/lib/biNumericClaims";
+import { unsupportedFigures, valuesStatedIn, verifyClaims } from "@/lib/biNumericClaims";
 
 export type ColumnMeta = {
   description?: string;
@@ -1130,7 +1130,42 @@ export async function summarizeResult(args: {
       `want is not in COMPUTED FACTS, describe the data without it rather than estimating.\n\n` +
       `Return JSON: { "summary": "..." }`,
   });
-  return out.summary;
+  // Same check the insight card gets, on the surface that carries far more of
+  // the product's answers: every NL question produces one of these. The facts
+  // above make an invented figure unlikely; this makes it visible.
+  const measuredRows = args.result.rows ?? [];
+  const measured0 = computeInsightFacts(args.result.columns ?? [], measuredRows);
+  // A truncated result has no meaningful shares, for the same reason a capped
+  // query has none: they would be shares of a prefix.
+  const measured = measured0 && args.result.capped ? { ...measured0, shares: [] } : measured0;
+  const stated = valuesStatedIn(facts);
+  const check = (t: string) => unsupportedFigures(verifyClaims(t, measured, measuredRows, stated));
+
+  let summary = out.summary;
+  let bad = check(summary);
+  if (bad.length > 0) {
+    const retry = await llmJson<{ summary: string }>({
+      model: args.model,
+      stage: "narrative",
+      systemPrompt:
+        "You are correcting a short analytics answer. Keep its length and tone. " +
+        `These figures do not appear in the data and must not appear: ${bad.join(", ")}. ` +
+        "Replace each with a figure from COMPUTED FACTS, or drop the claim. " +
+        'Output JSON only: { "summary": "..." }.',
+      userPrompt:
+        `QUESTION: ${args.question}\n${facts}\n\nANSWER TO CORRECT:\n${summary}\n\n` +
+        'Return JSON: { "summary": "..." }',
+    });
+    const retryBad = check(retry.summary);
+    if (retryBad.length < bad.length) {
+      summary = retry.summary;
+      bad = retryBad;
+    }
+    if (bad.length > 0) {
+      summary += ` (Not checked against the data: ${bad.join(", ")}.)`;
+    }
+  }
+  return summary;
 }
 
 // ── Suggested questions for a dataset ──────────────────────────────────

@@ -21,6 +21,21 @@ full in its own commit.
 
 ### Verified AI answers
 
+- **The analyst's written answer is checked the same way an insight card is.**
+  Every natural-language question produces one, which makes it the busiest
+  place the product turns data into prose. It already computed its own facts —
+  added after it once reported "approximately $1.4M" against a true total of
+  $704,186 — but nothing verified what came back. Now every numeral is matched
+  against the result, with one named retry and a disclosure for anything that
+  survives.
+
+  Figures the writer was **given** count as grounded. An analyst answer is
+  handed a facts block stating things a row simply does not contain — how many
+  distinct identifiers, how many rows of how many the engine returned — and is
+  told to use them. Admitting only row values would have flagged the model for
+  obeying its instructions, which is the fastest way to make a warning worth
+  ignoring.
+
 - **A visual's title is now checked against its query.** The planner names a
   chart before it knows what the query will return, and the two drift: a chart
   titled "Top 5 Products by Sales" drew fourteen bars because its SQL carried

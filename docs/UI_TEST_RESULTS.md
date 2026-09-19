@@ -15,6 +15,32 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-19 — The analyst's answer, checked, ADVERSARIAL_LOG R21
+
+**Driven.** Two questions through the **AI analyst** pane on the rebuilt image,
+`window.fetch` patched to record every `/api/bi` call and clone its reply, so a
+narrative retry is visible as a request carrying the correction prompt.
+
+| Asked                                              | Read back                                                                                                                                                            |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| "What is total revenue by region?"                 | One narrative call, no retry. `$2.3M` vs 2,297,201.86 · `$1.0M` vs EMEA 1,042,800 · `$415k` vs APJ 415,500, passing at exactly the ±500 its written precision allows |
+| "What share of total sales does each region hold?" | Chosen to invite an invented percentage. No retry. 45.4% and 18.1% are the real shares; "about 33.3%" is the mean of the share column                                |
+
+**What this does not show.** The catch path fired in neither run. Both answers
+were correct — which is what giving the model computed facts is for — so the
+check had nothing to reject. It is covered by unit tests and by a mutant that
+severs it; two attempts at inducing an invented figure is not evidence that one
+cannot occur, and no claim is made here that it is.
+
+**A probe that nearly lied.** The first version detected a correction by
+searching the request body for "must not appear", and duly reported one — on
+the **SQL** step, whose prompt contains that phrase for unrelated reasons. The
+marker is now the narrative correction's own opening sentence. Recorded because
+a probe matching something other than what it claims will confirm whatever you
+were hoping for.
+
+Findings from this round: R21 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-19 — Titles reconciled against queries, ADVERSARIAL_LOG R20
 
 **Driven.** The running instance on the rebuilt image. Three whole-dashboard
