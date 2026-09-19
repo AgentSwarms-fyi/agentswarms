@@ -21,7 +21,7 @@
 // Pinning ibis would have worked. Dropping it works better: duckdb registers a
 // pandas frame natively, is the engine the lakehouse already uses, and is in
 // the runtime image, so the fix REMOVES a dependency instead of freezing one.
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 
 import { describe, expect, it } from "vitest";
 
@@ -57,6 +57,46 @@ const RUNNER: { cmd: string; args: string[] } | null = (() => {
     return null;
   }
 })();
+
+/**
+ * How long the interpreter above is allowed, and it depends which one was found.
+ *
+ * A local interpreter is already warm: it imports pandas and duckdb into a
+ * process that exists. The docker fallback starts a container from the runtime
+ * image first, and that is a different order of magnitude — measured at 72s to
+ * 79s with only three such files running, and these tests were timing out at
+ * 120s under the whole suite in parallel, which is how CI runs them.
+ *
+ * A single flat number cannot serve both: generous enough for the container and
+ * it stops catching a genuinely hung local run; tight enough for local and the
+ * container path fails for reasons that have nothing to do with the code under
+ * test. So the budget follows the runner, and a timeout here once again means
+ * something went wrong rather than that the machine was busy.
+ */
+const RUNNER_TIMEOUT_MS = RUNNER?.cmd === "docker" ? 300_000 : 45_000;
+
+/**
+ * Run a snippet through the interpreter found above, returning its stdout.
+ *
+ * Asynchronously, and that is the whole point of the shape. `execFileSync`
+ * blocks the worker's event loop for as long as python runs, so vitest's own
+ * RPC back to the main thread goes unanswered and birpc gives up with
+ * `Timeout calling "onTaskUpdate"`. Every test still passed and the run still
+ * exited non-zero, which is a confusing way to fail. Spawning leaves the loop
+ * free to answer while the container works.
+ */
+function runPython(runner: { cmd: string; args: string[] }, code: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = execFile(
+      runner.cmd,
+      runner.args,
+      { maxBuffer: 16 * 1024 * 1024 },
+      (err, stdout, stderr) =>
+        err ? reject(new Error(`${err.message}\n${stderr}`)) : resolve(stdout),
+    );
+    child.stdin?.end(code);
+  });
+}
 
 const sqlGraph = (): EtlGraph =>
   ({
@@ -117,15 +157,16 @@ describe("what the SQL step is built on", () => {
 });
 
 describe("the step, run", () => {
-  it("answers the query the live pipeline asked", () => {
+  it("answers the query the live pipeline asked", { timeout: RUNNER_TIMEOUT_MS }, async () => {
     if (!RUNNER) {
       console.warn("no pandas+duckdb and no runtime image; the SQL step was not exercised");
       return;
     }
     // The emitted body, verbatim, against a frame shaped like the aggregate
     // output that broke it: a string key, a float measure, an integer count.
-    const out = execFileSync(RUNNER.cmd, RUNNER.args, {
-      input: [
+    const out = await runPython(
+      RUNNER,
+      [
         "import pandas as pd",
         "",
         "def _sql_over(df, query):",
@@ -146,8 +187,7 @@ describe("the step, run", () => {
         "empty = _sql_over(df.iloc[0:0], 'SELECT * FROM t')",
         "print('empty rows:', len(empty), 'empty cols:', len(empty.columns))",
       ].join("\n"),
-      stdio: "pipe",
-    }).toString();
+    );
     // The filter, the ordering and the shape all survive the round trip.
     expect(out).toContain("rows: 2");
     expect(out).toContain("order: ['US', 'JP']");
@@ -155,5 +195,5 @@ describe("the step, run", () => {
     // And a frame with columns but no rows is an ordinary empty result here,
     // not an error — the case the empty-tick guard hands through.
     expect(out).toContain("empty rows: 0 empty cols: 3");
-  }, 120_000);
+  });
 });

@@ -29,7 +29,7 @@
 // its target's fqn, lineage joins on that string, so the compiler and the
 // crawler have to spell the same filename. What dlt actually writes was
 // measured against dlt 1.30.0 rather than assumed — see DLT_FILE_EXT.
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import zlib from "node:zlib";
 
@@ -333,14 +333,55 @@ const RUNNER: { cmd: string; args: string[] } | null = (() => {
   }
 })();
 
+/**
+ * How long the interpreter above is allowed, and it depends which one was found.
+ *
+ * A local interpreter is already warm: it imports pandas and duckdb into a
+ * process that exists. The docker fallback starts a container from the runtime
+ * image first, and that is a different order of magnitude — measured at 72s to
+ * 79s with only three such files running, and these tests were timing out at
+ * 120s under the whole suite in parallel, which is how CI runs them.
+ *
+ * A single flat number cannot serve both: generous enough for the container and
+ * it stops catching a genuinely hung local run; tight enough for local and the
+ * container path fails for reasons that have nothing to do with the code under
+ * test. So the budget follows the runner, and a timeout here once again means
+ * something went wrong rather than that the machine was busy.
+ */
+const RUNNER_TIMEOUT_MS = RUNNER?.cmd === "docker" ? 300_000 : 45_000;
+
+/**
+ * Run a snippet through the interpreter found above, returning its stdout.
+ *
+ * Asynchronously, and that is the whole point of the shape. `execFileSync`
+ * blocks the worker's event loop for as long as python runs, so vitest's own
+ * RPC back to the main thread goes unanswered and birpc gives up with
+ * `Timeout calling "onTaskUpdate"`. Every test still passed and the run still
+ * exited non-zero, which is a confusing way to fail. Spawning leaves the loop
+ * free to answer while the container works.
+ */
+function runPython(runner: { cmd: string; args: string[] }, code: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = execFile(
+      runner.cmd,
+      runner.args,
+      { maxBuffer: 16 * 1024 * 1024 },
+      (err, stdout, stderr) =>
+        err ? reject(new Error(`${err.message}\n${stderr}`)) : resolve(stdout),
+    );
+    child.stdin?.end(code);
+  });
+}
+
 describe("what the two readers actually do, run as Python", () => {
-  it("fails without the argument and works with it", () => {
+  it("fails without the argument and works with it", { timeout: RUNNER_TIMEOUT_MS }, async () => {
     if (!RUNNER) {
       console.warn("no pandas+fsspec and no runtime image; the reader was not exercised");
       return;
     }
-    const out = execFileSync(RUNNER.cmd, RUNNER.args, {
-      input: [
+    const out = await runPython(
+      RUNNER,
+      [
         "import gzip, json, tempfile, os",
         "import fsspec",
         "import pandas as pd",
@@ -369,14 +410,13 @@ describe("what the two readers actually do, run as Python", () => {
         "    df2 = pd.read_json(f, lines=True)",
         "print('PLAIN rows:', len(df2))",
       ].join("\n"),
-      stdio: "pipe",
-    }).toString();
+    );
     // The live failure this prevents, reproduced: the byte is gzip's magic.
     expect(out).not.toContain("OLD: no error");
     expect(out).toMatch(/OLD: (UnicodeDecodeError|ValueError)/);
     expect(out).toContain("NEW rows: 5 cols: ['order_id', 'recon_status']");
     expect(out).toContain("PLAIN rows: 5");
-  }, 120_000);
+  });
 });
 
 // ── The joins that a longer filename would otherwise have broken ────────────

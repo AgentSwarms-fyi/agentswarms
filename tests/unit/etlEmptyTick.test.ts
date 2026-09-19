@@ -23,7 +23,7 @@
 // The lakehouse target has skipped empty batches since it shipped; its own
 // comment names the case ("a stream with nothing new"). The steps between the
 // source and the target did not.
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 
 import { compileGraph, compilePreview, type EtlGraph } from "@/utils/etl/codegen";
@@ -69,10 +69,46 @@ const RUNNER: { cmd: string; args: string[] } | null = (() => {
   }
 })();
 
-/** Run a snippet where pandas exists, returning stdout; null when it cannot. */
-function runPython(code: string): string | null {
-  if (!RUNNER) return null;
-  return execFileSync(RUNNER.cmd, RUNNER.args, { input: code, stdio: "pipe" }).toString();
+/**
+ * How long the interpreter above is allowed, and it depends which one was found.
+ *
+ * A local interpreter is already warm: it imports pandas and duckdb into a
+ * process that exists. The docker fallback starts a container from the runtime
+ * image first, and that is a different order of magnitude — measured at 72s to
+ * 79s with only three such files running, and these tests were timing out at
+ * 120s under the whole suite in parallel, which is how CI runs them.
+ *
+ * A single flat number cannot serve both: generous enough for the container and
+ * it stops catching a genuinely hung local run; tight enough for local and the
+ * container path fails for reasons that have nothing to do with the code under
+ * test. So the budget follows the runner, and a timeout here once again means
+ * something went wrong rather than that the machine was busy.
+ */
+const RUNNER_TIMEOUT_MS = RUNNER?.cmd === "docker" ? 300_000 : 45_000;
+
+/**
+ * Run a snippet where pandas exists, returning stdout; null when it cannot.
+ *
+ * Asynchronously, and that is the whole point of the shape. `execFileSync`
+ * blocks the worker's event loop for as long as python runs, so vitest's own
+ * RPC back to the main thread goes unanswered and birpc gives up with
+ * `Timeout calling "onTaskUpdate"`. Every test still passed and the run still
+ * exited non-zero, which is a confusing way to fail. Spawning leaves the loop
+ * free to answer while the container works.
+ */
+function runPython(code: string): Promise<string | null> {
+  const runner = RUNNER;
+  if (!runner) return Promise.resolve(null);
+  return new Promise((resolve, reject) => {
+    const child = execFile(
+      runner.cmd,
+      runner.args,
+      { maxBuffer: 16 * 1024 * 1024 },
+      (err, stdout, stderr) =>
+        err ? reject(new Error(`${err.message}\n${stderr}`)) : resolve(stdout),
+    );
+    child.stdin?.end(code);
+  });
 }
 
 const KAFKA = {
@@ -153,8 +189,8 @@ describe("the guard the emitted program carries", () => {
  * seconds — three of them is a suite that times out on its own default. The
  * probe runs once, lazily, and the tests read parts of its output.
  */
-let PROBE: string | null | undefined;
-function probe(): string | null {
+let PROBE: Promise<string | null> | undefined;
+function probe(): Promise<string | null> {
   if (PROBE === undefined) {
     PROBE = runPython(
       [
@@ -201,74 +237,95 @@ function probe(): string | null {
 }
 
 describe("what the guard actually does, run as Python", () => {
-  it("fires on the frame a quiet stream actually returns", () => {
-    const out = probe();
-    if (out === null) {
-      console.warn("no pandas and no runtime image; the guard was not exercised");
-      return;
-    }
-    // The frame really does carry columns — which is why the first guard,
-    // written against `pd.DataFrame()`, never fired and the live run failed a
-    // second time in exactly the same way.
-    expect(out).toContain("columns present: 5 rows: 0");
-    expect(out).toContain("old guard fires? False");
-    expect(out).toContain("new guard fires? True");
-  }, 120_000);
+  it(
+    "fires on the frame a quiet stream actually returns",
+    { timeout: RUNNER_TIMEOUT_MS },
+    async () => {
+      const out = await probe();
+      if (out === null) {
+        console.warn("no pandas and no runtime image; the guard was not exercised");
+        return;
+      }
+      // The frame really does carry columns — which is why the first guard,
+      // written against `pd.DataFrame()`, never fired and the live run failed a
+      // second time in exactly the same way.
+      expect(out).toContain("columns present: 5 rows: 0");
+      expect(out).toContain("old guard fires? False");
+      expect(out).toContain("new guard fires? True");
+    },
+  );
 
-  it("stops the step that would have raised, keeping the shape", () => {
-    const out = probe();
-    if (out === null) return;
-    // Unguarded, that line is what the live run died on. Its traceback ended
-    // in `KeyError: 'status'`; pandas re-raises it as UndefinedVariableError,
-    // and which surfaces depends on the version. What matters is that it
-    // RAISES where an empty result was wanted.
-    expect(out).not.toContain("UNGUARDED: no error");
-    expect(out).toMatch(/UNGUARDED: (KeyError|UndefinedVariableError)/);
-    expect(out).toContain("GUARDED rows: 0 cols: 5");
-  }, 120_000);
+  it(
+    "stops the step that would have raised, keeping the shape",
+    { timeout: RUNNER_TIMEOUT_MS },
+    async () => {
+      const out = await probe();
+      if (out === null) return;
+      // Unguarded, that line is what the live run died on. Its traceback ended
+      // in `KeyError: 'status'`; pandas re-raises it as UndefinedVariableError,
+      // and which surfaces depends on the version. What matters is that it
+      // RAISES where an empty result was wanted.
+      expect(out).not.toContain("UNGUARDED: no error");
+      expect(out).toMatch(/UNGUARDED: (KeyError|UndefinedVariableError)/);
+      expect(out).toContain("GUARDED rows: 0 cols: 5");
+    },
+  );
 
-  it("leaves an ordinary empty result alone — zero rows WITH columns", () => {
-    // A filter that matched nothing must still behave like a filter: the
-    // columns are known, so the step runs and the result keeps them.
-    const out = probe();
-    if (out === null) return;
-    expect(out).toContain("cols kept: ['status', 'amount'] rows: 0");
-  }, 120_000);
+  it(
+    "leaves an ordinary empty result alone — zero rows WITH columns",
+    { timeout: RUNNER_TIMEOUT_MS },
+    async () => {
+      // A filter that matched nothing must still behave like a filter: the
+      // columns are known, so the step runs and the result keeps them.
+      const out = await probe();
+      if (out === null) return;
+      expect(out).toContain("cols kept: ['status', 'amount'] rows: 0");
+    },
+  );
 });
 
 describe("union is deliberately not guarded", () => {
-  it("keeps concat, which already handles a schemaless side", () => {
-    // Guarding a union would throw away the branch that DID have rows.
-    const g = {
-      nodes: [
-        { id: "n1", kind: "source", label: "a", config: KAFKA },
-        {
-          id: "n2",
-          kind: "source",
-          label: "b",
-          config: { type: "lakehouse", schema: "analytics", mode: "table", table: "revenue_facts" },
-        },
-        { id: "n3", kind: "transform", label: "both", config: { type: "union" } },
-        {
-          id: "n4",
-          kind: "target",
-          label: "out",
-          config: { type: "lakehouse", schema: "analytics", table: "t", write_mode: "append" },
-        },
-      ],
-      edges: [
-        { id: "e1", from: "n1", to: "n3" },
-        { id: "e2", from: "n2", to: "n3" },
-        { id: "e3", from: "n3", to: "n4" },
-      ],
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any;
-    const code = compileGraph(g);
-    expect(code).toContain("f_n3 = pd.concat(");
-    expect(code).not.toMatch(/if _empty\(f_n1\) or _empty\(f_n2\):/);
+  it(
+    "keeps concat, which already handles a schemaless side",
+    { timeout: RUNNER_TIMEOUT_MS },
+    async () => {
+      // Guarding a union would throw away the branch that DID have rows.
+      const g = {
+        nodes: [
+          { id: "n1", kind: "source", label: "a", config: KAFKA },
+          {
+            id: "n2",
+            kind: "source",
+            label: "b",
+            config: {
+              type: "lakehouse",
+              schema: "analytics",
+              mode: "table",
+              table: "revenue_facts",
+            },
+          },
+          { id: "n3", kind: "transform", label: "both", config: { type: "union" } },
+          {
+            id: "n4",
+            kind: "target",
+            label: "out",
+            config: { type: "lakehouse", schema: "analytics", table: "t", write_mode: "append" },
+          },
+        ],
+        edges: [
+          { id: "e1", from: "n1", to: "n3" },
+          { id: "e2", from: "n2", to: "n3" },
+          { id: "e3", from: "n3", to: "n4" },
+        ],
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any;
+      const code = compileGraph(g);
+      expect(code).toContain("f_n3 = pd.concat(");
+      expect(code).not.toMatch(/if _empty\(f_n1\) or _empty\(f_n2\):/);
 
-    const out = probe();
-    if (out === null) return;
-    expect(out).toContain("concat rows: 3");
-  }, 120_000);
+      const out = await probe();
+      if (out === null) return;
+      expect(out).toContain("concat rows: 3");
+    },
+  );
 });
