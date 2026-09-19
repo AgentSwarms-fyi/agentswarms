@@ -73,6 +73,7 @@ import {
   generationSource,
   generationSourceOptions,
 } from "@/lib/biGenerationSource";
+import { parseTitleClaim, reconcileWidgetResult } from "@/lib/biTitleClaims";
 import {
   suggestGovernedWidgets,
   toSemanticQuery,
@@ -391,10 +392,36 @@ export function GenerateDashboardDialog({
             dialect: gen.dialect,
             onUpdate: () => {},
           });
+          // The planner names a visual before it knows what the query will
+          // return. Check the title against what came back, and repair it
+          // where a repair is deterministic — "Top 5" over 14 rows, or a
+          // category chart whose SQL narrowed to a single row.
+          const fixed = await reconcileWidgetResult({
+            title: picks[i].title,
+            question: picks[i].question,
+            sql: turn.sql,
+            chartType: picks[i].chartType || undefined,
+            rows: turn.result?.rows ?? [],
+            execute: (q) => ctx.runSql(gen.source, q),
+          });
+          if (fixed.changed !== "none" && turn.result) {
+            turn.result = { ...turn.result, rows: fixed.rows, row_count: fixed.rows.length };
+            turn.sql = fixed.sql;
+          }
           const widget = widgetFromBiTurn(turn, gen.source);
+          // A race caps its own frame at twelve rows regardless of the query,
+          // so a title promising ten has to reach the renderer as a number.
+          const claim = parseTitleClaim(picks[i].title) ?? parseTitleClaim(picks[i].question);
+          if (widget?.chart && claim && widget.chart.type === "barrace") {
+            widget.chart = { ...widget.chart, topN: claim.n };
+          }
           ok = Boolean(widget && turn.status === "done" && (turn.result?.row_count ?? 0) > 0);
           if (ok && widget) {
-            widget.title = picks[i].title || widget.title;
+            // The note goes on HERE, with the final title. Applied any earlier
+            // it is silently overwritten by this line — which is exactly what
+            // happened, and what driving the dashboard caught.
+            const base = picks[i].title || widget.title;
+            widget.title = fixed.note ? `${base} — ${fixed.note}` : base;
             widgets.push(widget);
           } else {
             // runBiTurn resolves (never throws) with the reason on the turn.

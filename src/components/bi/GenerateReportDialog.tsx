@@ -44,6 +44,7 @@ import {
   generationSource,
   generationSourceOptions,
 } from "@/lib/biGenerationSource";
+import { reconcileWidgetResult } from "@/lib/biTitleClaims";
 import { widgetFromBiTurn } from "@/lib/biDashboards";
 import { suggestReportOutline, type ReportSection } from "@/lib/biReportAgent";
 import { newBlockId, type ReportBlock } from "@/lib/biReports";
@@ -176,6 +177,19 @@ export function GenerateReportDialog({
           preferChart: s.present === "table" ? "table" : s.chartType || undefined,
           onUpdate: () => {},
         });
+        // A section heading is a claim in exactly the way a widget title is.
+        const fixed = await reconcileWidgetResult({
+          title: s.heading,
+          question: s.question,
+          sql: turn.sql,
+          chartType: s.chartType || undefined,
+          rows: turn.result?.rows ?? [],
+          execute: (q) => ctx.runSql(gen.source, q),
+        });
+        if (fixed.changed !== "none" && turn.result) {
+          turn.result = { ...turn.result, rows: fixed.rows, row_count: fixed.rows.length };
+          turn.sql = fixed.sql;
+        }
         const widget = widgetFromBiTurn(turn, gen.source);
         if (widget && turn.status === "done" && (turn.result?.row_count ?? 0) > 0) {
           widget.title = "";

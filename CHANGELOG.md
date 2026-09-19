@@ -21,6 +21,16 @@ full in its own commit.
 
 ### Verified AI answers
 
+- **A visual's title is now checked against its query.** The planner names a
+  chart before it knows what the query will return, and the two drift: a chart
+  titled "Top 5 Products by Sales" drew fourteen bars because its SQL carried
+  no `LIMIT`, and one titled "Top 10 Customers" drew twelve because the bar
+  race caps its own frame. A title promising N over a query that returned more
+  now takes the N it promised — only when the query sorted, since the first
+  five of an unordered result are an arbitrary five — and a bar race is told
+  the N its title claims. A promise the data cannot meet is disclosed instead:
+  "Top 5 Regions by Revenue — The data has 3 rows, not 5."
+
 - **Every figure an insight card states is now checked against the data before
   the card is shown.** Handing the model computed facts made an invented number
   less likely; nothing made it impossible, and a card headed "What the data

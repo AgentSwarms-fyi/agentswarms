@@ -1676,6 +1676,7 @@ function BiChartRenderInner({
         timeField={chart.timeField}
         format={chart}
         onElementClick={onElementClick}
+        topN={chart.topN}
       />
     );
   }

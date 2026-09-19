@@ -129,7 +129,18 @@ export type ChartSpec = {
     // Stacked horizontal bar — xField category, yField measure, split by seriesField.
     | { type: "shbar"; xField: string; yField: string; seriesField: string }
     // Animated bar-chart race — xField category (racing bars), yField measure, timeField frames.
-    | { type: "barrace"; xField: string; yField: string; timeField: string }
+    | {
+        type: "barrace";
+        xField: string;
+        yField: string;
+        timeField: string;
+        /**
+         * Rows per frame. Set from a title that promised a number, because
+         * a race titled "Top 10 Customers" that draws twelve is a title
+         * the chart does not keep. Undefined leaves the renderer's default.
+         */
+        topN?: number;
+      }
     // Sankey flow — xField=source node, yField=target node, valueField=flow magnitude.
     | { type: "sankey"; xField: string; yField: string; valueField: string }
     // Nightingale / polar-area rose — one wedge per nameField, radius ∝ valueField.

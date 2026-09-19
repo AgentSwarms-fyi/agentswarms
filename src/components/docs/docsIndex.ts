@@ -393,7 +393,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     "title": "BI Workspace",
     "description": "Dashboards built on the same catalog, prepared tables and metrics your agents use — so a chart and an agent answering about it cannot disagree.",
     "terms": [
+      "$1.0M",
+      "$837.9k",
+      "$837k",
       "2.6×",
+      "410,379.26",
       "VITE_BI_SNAPSHOT_ROWS_CAP",
       "answer",
       "area",
@@ -604,6 +608,21 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "id": "insights",
         "text": "AI insights",
         "level": 2
+      },
+      {
+        "id": "verified-figures",
+        "text": "Every figure is checked before you see it",
+        "level": 3
+      },
+      {
+        "id": "partial-results",
+        "text": "A query that caps itself says so",
+        "level": 3
+      },
+      {
+        "id": "title-claims",
+        "text": "A title is a claim, and it is checked too",
+        "level": 3
       },
       {
         "id": "scan",

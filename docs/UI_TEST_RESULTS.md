@@ -15,6 +15,51 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-19 — Titles reconciled against queries, ADVERSARIAL_LOG R20
+
+**Driven.** The running instance on the rebuilt image. Three whole-dashboard
+generations against the lakehouse, each chosen to put a different reconciliation
+path under load, plus a direct re-read of the two widgets that produced the
+original findings.
+
+**Why chart types were read from the DOM, not assumed.** A widget that renders
+one value with a label looks in a text dump exactly like a bar chart with one
+bar. Every claim below about what a widget IS comes from checking the rendered
+node — `recharts` present or absent, the `svg text` labels, the count of
+`.recharts-rectangle` — because assuming it once already put a wrong sentence
+in this log (see the correction on R19).
+
+| Driven                                                        | Read back                                                                                                                                                         |
+| ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Re-read "Top 5 Products by Sales" on the pre-fix dashboard    | A real recharts bar chart, **14 category labels**, SQL with no `LIMIT`. The R20 finding, confirmed rather than inferred                                           |
+| Re-read "Revenue by Region" on the pre-fix dashboard          | `recharts` absent, no `svg text`, one value and a label — a **KPI**, not the bar chart R19 described. Correction filed                                            |
+| Generate 13 widgets, lakehouse, no focus                      | Nothing to reconcile: every generated query matched its title. "Revenue by Region" came back without a `LIMIT` this time                                          |
+| Generate 8 widgets, focus on rankings                         | "Top 5 Months by Revenue" → exactly 5 bars, and the right five: 2025-05, -04, -06, -03, -12, matching the seeded series' five highest months                      |
+| …same run                                                     | "Top 3 Plans by Units Sold" → SQL carried `LIMIT 3`, **3** bars, 3 `svg text` labels. The trailing `—` in the card's text is not a category, it is a sibling node |
+| Generate 1 widget, "top 5 regions" against a table with three | **The path that proves the wiring.** Title rendered as `Top 5 Regions by Revenue — The data has 3 rows, not 5.`                                                   |
+
+**The bug this round existed to find.** On the first attempt at the last row,
+the widget rendered correctly and the title carried **no note**: the generator
+assigns `widget.title = picks[i].title || widget.title` two lines after the note
+was applied, overwriting it. Twenty unit tests and seventeen mutants were green
+— they asserted the note was produced, never that it survived. One forced
+generation found it. Fixed, and the test now asserts the ORDER of the two
+assignments with a mutant that reinstates the overwrite.
+
+**Kept for review.** Both versions are on the same dashboard, adjacent:
+
+- Dashboard **"Reconciled titles - lakehouse"** —
+  `/bi/712429e4-4211-42ce-9422-d94c7cfc45dd` — two widgets titled "Top 5 Regions
+  by Revenue", one from before the fix and one after, each drawing AMER / EMEA /
+  APAC; only the second says what the data actually had.
+
+**Not exercised live.** `truncate` and `widen` did not fire in any of these
+runs, because the generator wrote correct `LIMIT`s every time. Both are covered
+by unit tests and mutants; neither has been seen repairing a live generation,
+and this entry does not claim otherwise.
+
+Findings from this round: R20 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-19 — Every figure an AI card states, checked, ADVERSARIAL_LOG R19
 
 **Driven.** The running instance on the rebuilt image, signed in as the owner.

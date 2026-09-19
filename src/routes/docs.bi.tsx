@@ -719,10 +719,67 @@ GROUP BY region`}</Code>
         summarising the whole page.
       </P>
       <Callout kind="warn">
-        Insights are generated from the data actually in the chart, but they are still model output:
-        useful as a first pass, not as a substitute for looking. Treat them as a colleague's first
-        impression.
+        The <em>numbers</em> in an insight are checked (below); the <em>judgement</em> is still
+        model output. &ldquo;Revenue fell 12%&rdquo; is verified against the data.
+        &ldquo;…indicating a demand problem&rdquo; is a colleague&rsquo;s first impression, and
+        should be read as one.
       </Callout>
+
+      <H3 id="verified-figures">Every figure is checked before you see it</H3>
+      <P>
+        A card that reports a number nobody can check is worse than a card that says nothing. So
+        every numeral written into an insight is matched back against what the query actually
+        returned — a value in a row, a computed total, minimum, maximum or mean, or a
+        category&rsquo;s share. Anything matching nothing is sent back once, with the offending
+        figures named, and whatever survives that is disclosed to you rather than shown quietly.
+      </P>
+      <P>
+        Rounding is allowed for readability, and the tolerance comes from the precision written.{" "}
+        <C>$1.0M</C> is a claim that the value rounds to 1.0M, so it admits fifty thousand either
+        way; <C>410,379.26</C> is held to half a cent. This is why a card will say <C>$837.9k</C>{" "}
+        where you might have written <C>$837k</C> — the underlying value is 837,900, and $837k is a
+        claim it does not meet.
+      </P>
+      <Callout kind="why" title="Where this came from">
+        An insight card once reported regional shares of 48%, 39% and 19%. They sum to 106%, so no
+        denominator makes them true — the model had the rows and did the division itself. The
+        arithmetic is now done before the model writes, and checked after.
+      </Callout>
+
+      <H3 id="partial-results">A query that caps itself says so</H3>
+      <P>
+        If a visual&rsquo;s SQL ends in <C>LIMIT 5</C>, its rows are the top five and not the whole
+        picture. An insight over them is told exactly that, and is barred from stating shares of a
+        total, calling anything 100%, or saying that other categories are absent — because none of
+        those is knowable from a result that was cut short.
+      </P>
+      <P>
+        This is the one failure a check on the wording cannot catch. A card reading &ldquo;AMER
+        accounts for 100% of revenue&rdquo; over a <C>LIMIT 1</C> query is <em>true of its data</em>{" "}
+        and false about the business, and every figure in it verifies.
+      </P>
+
+      <H3 id="title-claims">A title is a claim, and it is checked too</H3>
+      <P>
+        The AI names a visual before it knows what the query will return, and the two drift apart in
+        both directions: a chart called <C>Top 5 Products</C> drawing fourteen bars, or one called{" "}
+        <C>Revenue by Region</C> whose query kept a single row. Both are now reconciled when the
+        visual is generated:
+      </P>
+      <UL>
+        <li>
+          A title promising <strong>top N</strong> over a query that returned more takes the N it
+          promised — but only when the query sorted its rows, since the first five of an unordered
+          result are an arbitrary five.
+        </li>
+        <li>
+          A <strong>category chart</strong> whose query narrowed to one row is re-run without the
+          limit. A one-bar bar chart is not a chart, and the title never asked for one.
+        </li>
+        <li>
+          A title promising more rows than exist <strong>says so</strong> — rows cannot be invented.
+        </li>
+      </UL>
 
       <H3 id="scan">Scan — computed, not generated</H3>
       <P>

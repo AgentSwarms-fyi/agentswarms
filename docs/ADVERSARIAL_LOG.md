@@ -109,6 +109,90 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-19 — A widget's title is a claim, and claims get checked
+
+The numeric verifier (R19) checks the prose a visual is described with. It
+cannot check the visual itself, and the two drift apart: the planner names a
+chart before it knows what the query will return.
+
+#### R20 · S1 · "Top 5 Products by Sales" over fourteen bars
+
+Verified on the running instance rather than inferred: the widget is a real
+recharts bar chart and its category axis carries **fourteen** labels —
+ContactMatcher, FinanceHub, Site Analytics, … Storage. Its SQL is
+
+```sql
+SELECT "Product", SUM("Sales") AS total_sales FROM saas_sales
+GROUP BY "Product" ORDER BY total_sales DESC
+```
+
+with no `LIMIT`. The SQL prompt does tell the model to "use LIMIT only when the
+question itself asks for a top-N"; the question did, and the model did not.
+
+A title promising N over a query that returned more now takes the N it
+promised — **but only when the query sorted its rows**. The first five of an
+unordered result are an arbitrary five, which is a different lie from the one
+being repaired. No re-query is needed: the rows arrive in the query's own
+order, so slicing them is precisely what `LIMIT 5` would have returned, and the
+stored SQL is rewritten so a later refresh agrees with what is on screen.
+
+#### R20 · S3 · "Top 10 Customers by Sales" over twelve rows
+
+Nothing to do with SQL. `BarRace` takes `topN = 12` and the requested N never
+reached it. The spec now carries `topN`, the generator sets it from the title,
+and the renderer passes it through — three places, because a value that stops
+at any of them is a title the chart does not keep.
+
+#### R20 · S2 · A promise the data cannot meet
+
+The complement of the first finding, and the one driven end to end here:
+"Top 5 Regions by Revenue" over a table with three regions. Rows cannot be
+invented, so there is no repair — only disclosure. The widget now reads
+
+> Top 5 Regions by Revenue — The data has 3 rows, not 5.
+
+#### R20 · S2 · And the repair was written where it could not survive
+
+Found by driving it, and it is the reason this round was driven at all. The
+note was applied to `widget.title` immediately after the widget was built —
+and two lines later the generator does
+
+```ts
+widget.title = picks[i].title || widget.title;
+```
+
+which overwrote it. The unit suite was green throughout: it asserted the note
+was **produced**, never that it **survived**. Twenty tests and seventeen
+mutants did not see it; one forced generation did.
+
+The note is now applied with the final assignment, and the test asserts the
+ORDER of the two rather than the presence of either — with a mutant that
+reinstates the overwrite, which is now caught.
+
+#### On the `widen` repair, honestly
+
+A category chart whose query ends `LIMIT 1` over a `GROUP BY` is re-run without
+the limit, because a one-bar bar chart is not a chart. **This guard has no
+observed instance.** It was motivated by R19's "Revenue by Region", which that
+entry described as a bar chart and which is in fact a KPI — see the correction
+there. A KPI reaching for one row with `LIMIT 1` is coherent, and the rule
+correctly declines to touch it.
+
+It is kept because the SQL it guards against is real — the generator does emit
+`GROUP BY … LIMIT 1` — and the only accident was which widget it landed on. If
+the same query had been attached to the bar chart the title implied, the chart
+would have drawn a single bar. Recorded as a guard rather than a repair so that
+nobody later reads it as evidence of a defect that was never seen.
+
+Mutation testing pushed back on the scope twice while this was written: one
+mutant showed the KPI test never exercised the category-chart condition at all
+(its SQL had no `GROUP BY`, so the rule was never reached), and another that
+there was no test for a widening re-query returning **empty** — where replacing
+a rendering widget with nothing is worse than leaving it narrow.
+
+**Tests:** 20 in `biTitleClaims`, 18 behaviour-changing mutants applied one at a
+time and each killed, control missed, baseline verified green first.
+
 ### 2026-09-19 — The insight card, checked rather than trusted
 
 The card that reported shares summing to 106% was fixed in R18 by computing the
@@ -157,9 +241,25 @@ SELECT region, SUM(revenue) AS total_revenue FROM analytics.bi_demo_sales
 GROUP BY region ORDER BY total_revenue DESC NULLS LAST LIMIT 1
 ```
 
-`LIMIT 1`, on a bar chart whose generated rationale was "easy comparison of
-revenue across different regions". Relative to the one row the widget holds,
-100% is exactly right and no other region is present.
+`LIMIT 1`. Relative to the one row the widget holds, 100% is exactly right and
+no other region is present.
+
+> **Correction, 2026-09-19.** This entry first described that widget as _"a bar
+> chart whose generated rationale was 'easy comparison of revenue across
+> different regions'"_. That is wrong on both counts and the error was mine.
+> Checked against the running instance, the widget is a **KPI** — no recharts
+> node, no axis labels, a single value with a label — and the rationale quoted
+> belonged to a _different_ dashboard, the one generated over `saas_sales`. A
+> KPI that takes the top region with `LIMIT 1` is coherent SQL, not a defect.
+>
+> What stands: the insight card's claims were false and the fix is right. A
+> card asserting "100% of the total revenue" and "no other regions
+> contributing" is wrong about the business whatever chart it sits beside, and
+> the PARTIAL caveat is what stops it. What does not stand: the picture of a
+> bar chart drawing one bar. The `widen` repair built in R20 was motivated by
+> that mistaken picture, correctly does NOT fire here — it is scoped to
+> category charts, and a KPI is not one — and is documented there as a guard
+> against an adjacent case rather than a repair of an observed one.
 
 **This is the most dangerous shape a generated claim can take**, and it is
 worth being precise about why: every figure in it verifies. A check on the
