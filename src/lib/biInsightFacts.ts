@@ -62,36 +62,52 @@ function isMeasure(rows: Record<string, unknown>[], col: string): boolean {
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
+/** The measured shape of a widget's rows, before any of it becomes prose. */
+export type InsightFacts = {
+  rowCount: number;
+  measures: { name: string; total: number; min: number; max: number; mean: number }[];
+  /** The dimension the shares are broken down by, when shares are meaningful. */
+  dimension: string | null;
+  shares: { label: string; value: number; pct: number }[];
+};
+
 /**
- * A compact, authoritative digest of a widget's rows.
+ * Measure the rows.
  *
- * Returns "" when there is nothing worth stating — no rows, or no measure to
- * total — so the caller can leave the prompt exactly as it was.
+ * Split out from the prompt string so the same numbers can be used twice: once
+ * to tell the model what is true, and once to check what it wrote. A digest
+ * that only ever existed as prose could steer a model but never catch one.
  */
-export function insightFacts(columns: string[], rows: Record<string, unknown>[]): string {
-  if (rows.length === 0) return "";
+export function computeInsightFacts(
+  columns: string[],
+  rows: Record<string, unknown>[],
+): InsightFacts | null {
+  if (rows.length === 0) return null;
   const cols = columns.length ? columns : Object.keys(rows[0] ?? {});
-  const measures = cols.filter((c) => isMeasure(rows, c));
-  if (measures.length === 0) return "";
-  const dimension = cols.find((c) => !measures.includes(c)) ?? null;
+  const measureNames = cols.filter((c) => isMeasure(rows, c));
+  if (measureNames.length === 0) return null;
+  const dimension = cols.find((c) => !measureNames.includes(c)) ?? null;
 
-  const lines: string[] = [`ROWS: ${rows.length}`];
-
-  for (const m of measures) {
+  const measures: InsightFacts["measures"] = [];
+  for (const m of measureNames) {
     const vals = rows.map((r) => num(r[m])).filter((n): n is number => n !== null);
     if (vals.length === 0) continue;
     const sum = vals.reduce((a, b) => a + b, 0);
-    lines.push(
-      `${m}: total=${round2(sum)} min=${round2(Math.min(...vals))} ` +
-        `max=${round2(Math.max(...vals))} mean=${round2(sum / vals.length)}`,
-    );
+    measures.push({
+      name: m,
+      total: round2(sum),
+      min: round2(Math.min(...vals)),
+      max: round2(Math.max(...vals)),
+      mean: round2(sum / vals.length),
+    });
   }
 
   // Shares only where a share is a meaningful thing to state: one row per
   // category, nothing negative, and a positive total to divide by. A "share"
   // of a mixed-sign column (profit, variance) is arithmetic that means
   // nothing, and stating it would repeat the mistake in a new place.
-  const first = measures[0];
+  const shares: InsightFacts["shares"] = [];
+  const first = measureNames[0];
   if (dimension && rows.length <= 25) {
     const vals = rows.map((r) => num(r[first]));
     const total = vals.reduce<number>((a, b) => a + (b ?? 0), 0);
@@ -99,14 +115,74 @@ export function insightFacts(columns: string[], rows: Record<string, unknown>[])
     const labels = rows.map((r) => String(r[dimension] ?? "—"));
     const unique = new Set(labels).size === labels.length;
     if (allNonNegative && total > 0 && unique) {
-      const parts = rows.map((r, i) => {
+      rows.forEach((_, i) => {
         const v = vals[i] ?? 0;
-        return `${labels[i]}=${round2(v)} (${((v / total) * 100).toFixed(1)}%)`;
+        shares.push({ label: labels[i], value: round2(v), pct: (v / total) * 100 });
       });
-      lines.push(`SHARE OF ${first} BY ${dimension}: ${parts.join(", ")}`);
-      lines.push(`(these percentages are computed over every row and sum to 100%)`);
     }
   }
 
+  return { rowCount: rows.length, measures, dimension, shares };
+}
+
+/**
+ * The row cap a query imposed on itself, or null.
+ *
+ * Found by driving the product: the AI generated a widget titled "Revenue by
+ * Region" whose SQL ended `ORDER BY total_revenue DESC LIMIT 1`, so the chart
+ * drew one bar and the insight card then wrote "AMER accounts for 100% of the
+ * total revenue" and "there are no other regions contributing to revenue".
+ * Both sentences are TRUE of the rows the widget holds and false about the
+ * business, which is the most dangerous shape a generated claim can take —
+ * every figure in it verifies.
+ *
+ * A check on the prose cannot catch that, because the prose is not wrong about
+ * its data. What has to change is what the model is told the data IS.
+ */
+export function queryRowLimit(sql: string | undefined): number | null {
+  if (!sql) return null;
+  const m = /\blimit\s+(\d+)\s*;?\s*$/i.exec(sql.trim());
+  if (!m) return null;
+  const n = Number(m[1]);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** The digest as the prompt carries it. */
+export function formatInsightFacts(f: InsightFacts, rowLimit?: number | null): string {
+  const lines: string[] = [`ROWS: ${f.rowCount}`];
+  for (const m of f.measures) {
+    lines.push(`${m.name}: total=${m.total} min=${m.min} max=${m.max} mean=${m.mean}`);
+  }
+  // Shares of a truncated result are shares of nothing. Stating them invites
+  // exactly the "100% of the total" sentence this is here to prevent, so a
+  // capped query gets the caveat INSTEAD of the percentages.
+  if (rowLimit != null) {
+    lines.push(
+      `PARTIAL: the query ends with LIMIT ${rowLimit}, so these are the top ` +
+        `${rowLimit} row(s) only and NOT the whole breakdown. The totals above ` +
+        `cover just these rows. Do not state shares of a total, do not call ` +
+        `anything 100%, and do not say other categories are absent — the query ` +
+        `did not ask for them.`,
+    );
+  } else if (f.shares.length > 0 && f.dimension) {
+    const parts = f.shares.map((s) => `${s.label}=${s.value} (${s.pct.toFixed(1)}%)`);
+    lines.push(`SHARE OF ${f.measures[0].name} BY ${f.dimension}: ${parts.join(", ")}`);
+    lines.push(`(these percentages are computed over every row and sum to 100%)`);
+  }
   return lines.join("\n");
+}
+
+/**
+ * A compact, authoritative digest of a widget's rows.
+ *
+ * Returns "" when there is nothing worth stating — no rows, or no measure to
+ * total — so the caller can leave the prompt exactly as it was.
+ */
+export function insightFacts(
+  columns: string[],
+  rows: Record<string, unknown>[],
+  sql?: string,
+): string {
+  const f = computeInsightFacts(columns, rows);
+  return f ? formatInsightFacts(f, queryRowLimit(sql)) : "";
 }

@@ -15,6 +15,48 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-19 — Every figure an AI card states, checked, ADVERSARIAL_LOG R19
+
+**Driven.** The running instance on the rebuilt image, signed in as the owner.
+The **AI insight** control on four widgets of the AI-generated lakehouse
+dashboard, each one a different shape: a 36-row time series with no shares
+computable, a second time series, a 3-row breakdown, and a self-capped query.
+
+**How the catch was observed.** `window.fetch` patched to record every
+`/api/bi` call and clone its reply, so a rejected first draft is visible as a
+second call carrying the correction prompt — the same technique the log's
+Method section describes for failed reads, and for the same reason: the screen
+alone cannot tell you a retry happened. A full page reload destroys the patch,
+so every measurement below was taken without one.
+
+**The reference series.** `analytics.bi_demo_sales`, seeded from
+`base(t) = 1000 + 25t + 200·sin(2πt/12) + 10·sin(7t)` — 36 months, total
+**51,749.84**, regions weighted 0.5 / 0.3 / 0.2 — so every figure a card states
+was checkable rather than plausible.
+
+| Widget                       | Calls | Read back                                                                                                                                                                          |
+| ---------------------------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Monthly Revenue Trend        | **2** | A first draft rejected and rewritten. Final card: total `$51,749.84`, max `$1,882.60` (2025-05), mean `$1,437.50` (= 51,749.84/36), low `$1,000` at January 2023 — every one exact |
+| Monthly Units Sold Trend     | **2** | Rejected a **correct** sentence — the "b" of "both" read as a billion suffix (R19). After the fix: **1 call**, no correction, card still says "January 2023"                       |
+| Revenue by Region            | **1** | Card claimed `100%` and "no other regions", every figure verifying, because the SQL ends `LIMIT 1` (R19). After the fix: the card states the cap itself and claims no share        |
+| Sales by Region (saas_sales) | **1** | `$2.3M`, `$1.0M`, `45.4%`, `$837.9k`, `36.5%`, `$415.5k`, `18.1%` — all traceable, shares sum to 100.0%. Note `$837.9k`, not the `$837k` the checker rejects                       |
+
+**What the two calls prove.** A second `/api/bi` call carries a system prompt
+naming the offending figures, so the count is direct evidence of the check
+firing — not an inference from what rendered. On "Monthly Revenue Trend" the
+rejected draft and the accepted one were captured side by side; the correction
+changed `177` to `176.5` and dropped a month the data did not support.
+
+**Kept for review.** Both "Insight — Revenue by Region" cards are left on the
+dashboard on purpose, the before and the after together:
+
+- Dashboard **"AI from the lakehouse - generated"** —
+  `/bi/c9bbdd5c-eab3-4717-b3bf-dc4a0392b9b3` — card `aaaf9b5f` is the one
+  claiming 100% of revenue for AMER; card `9167dfa9` is the same button pressed
+  after the fix, disclosing that the query returned only the top region.
+
+Findings from this round: R19 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-18 — BI dashboarding and reporting end to end, ADVERSARIAL_LOG R18
 
 **Driven.** The running instance, signed in as the owner. Three surfaces: a

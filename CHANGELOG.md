@@ -19,6 +19,36 @@ control was offered and did not do what it said.** Seven of them; each was
 found by running the thing rather than reading it, and each is described in
 full in its own commit.
 
+### Verified AI answers
+
+- **Every figure an insight card states is now checked against the data before
+  the card is shown.** Handing the model computed facts made an invented number
+  less likely; nothing made it impossible, and a card headed "What the data
+  shows" has to be right rather than probably right. Each numeral in the
+  generated prose is matched back to a row value, a computed total, range or
+  mean, or a share. A figure that matches nothing gets one rewrite naming it
+  explicitly, and anything that survives that is disclosed to the reader rather
+  than shipped silently.
+
+  Rounding is what makes this hard, and the rule is that **the tolerance comes
+  from the precision the writer chose**: "$1.0M" claims only that the value
+  rounds to 1.0M, so it admits ±50,000, while "410,379.26" is held to ±0.005.
+  A fixed fuzz would either wave through a wrong figure or reject a correct one
+  depending on magnitude — and the margin matters, because the 19% that started
+  this was only 0.9 away from the true 18.1%.
+
+  Deterministic: no model call, no cost, the same verdict every time. The model
+  proposes, the check decides — the same split the insight sweep already uses.
+
+- **A query that caps itself now says so.** An AI-generated widget titled
+  "Revenue by Region" ended its SQL `ORDER BY total_revenue DESC LIMIT 1`, and
+  the insight card then wrote that AMER was "100% of the total revenue" and
+  that "there are no other regions contributing" — sentences that are true of
+  the one row the widget holds and false about the business, with every figure
+  in them verifying. A trailing `LIMIT n` now produces a PARTIAL caveat in the
+  facts instead of shares, and the shares are withheld from the checker too, so
+  a "100%" written against a capped result is caught rather than grounded.
+
 ### BI dashboards and reports
 
 A pass over the BI half — 25 visual types over a series whose every value was

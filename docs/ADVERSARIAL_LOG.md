@@ -20,6 +20,29 @@ has not been tested; it has been visited.
    a deleted referent, a value that is null for a legitimate reason.
 5. Log what is found, fix it with a regression test, mutation-verify the test.
 
+### Mutation testing needs a green baseline
+
+A mutation run reports a mutant as "caught" when the suite fails with it
+applied. If the suite was ALREADY failing, every mutant is reported caught and
+the whole run means nothing — it measures the standing failure, not the test.
+
+This is not hypothetical: a run of fourteen mutants over the claim verifier
+came back thirteen-for-thirteen with the control also caught, which is the only
+visible symptom. The cause was a stale source assertion left red by a rename
+two steps earlier. **The control failing is the tell** — a control that gets
+caught means the baseline is red or the tests are anchored on a comment, and
+either way the run is void.
+
+Assert the baseline is green before mutating, and keep a control in every run.
+
+### Source-anchored tests must pin the USE, not the definition
+
+Three separate mutants have now survived a green suite by leaving a definition
+in place and severing its use: an ontology token budget nothing sent, a schema
+fetch an `if (false)` could disable, and a claim check whose result was
+replaced with an empty list. A `toContain("someHelper(...)")` assertion passes
+in all three cases. Assert the call site and the branch it feeds.
+
 ### Failing one read on purpose
 
 Several findings depend on making exactly one read fail in the live page. The
@@ -85,6 +108,107 @@ Never infer it from what rendered.
 ## Findings
 
 <!-- newest first -->
+
+### 2026-09-19 — The insight card, checked rather than trusted
+
+The card that reported shares summing to 106% was fixed in R18 by computing the
+facts and handing them to the model. That made an invented figure less likely
+and nothing made it impossible, so this round built the check — every numeral
+in generated prose matched back to a row value, a computed total, range or
+mean, or a share — and then drove it from the UI, which is where both of the
+findings below came from.
+
+#### R19 · S2 · The verifier flagged a correct sentence, because of one letter
+
+Pressing **AI insight** on "Monthly Units Sold Trend" produced two `/api/bi`
+calls instead of one — the signature of a rejected first draft. Capturing both
+drafts showed the sentence it objected to:
+
+> some months like January 2023 and March **2024 b**oth recording the minimum
+> of 159 units
+
+The extractor had read the **"b" of "both"** as a BILLION suffix, turning 2024
+into 2.024e9. That also stopped it looking like a four-digit year, so the guard
+that exists precisely to skip years never fired, and a correct sentence was
+sent back to be rewritten. The same trap was waiting in "300 basis points",
+"12 bottles" and "7 key accounts".
+
+A single-letter magnitude must now sit directly against its digits — `$1.2M`,
+`3.4k` — while a spelled-out one may take a space, since `$2.3 million` cannot
+be misread. Verified on the rebuilt image: the same widget now answers in one
+call, and its card still contains the phrase "January 2023".
+
+This is an argument for driving the thing rather than reading it. The unit
+tests were green, the mutants were all killed, and the bug was in a regex
+branch no test had thought to write, in prose no test had thought to invent.
+
+#### R19 · S1 · A card whose every figure verifies, and whose sentences are false
+
+"Revenue by Region" produced a card headed "What the data shows":
+
+> AMER accounts for **100%** of the total revenue in this dataset.
+> There are **no other regions** contributing to revenue.
+
+The seeded table has three regions. The verifier passed the card with zero
+corrections — correctly, because the widget's SQL is
+
+```sql
+SELECT region, SUM(revenue) AS total_revenue FROM analytics.bi_demo_sales
+GROUP BY region ORDER BY total_revenue DESC NULLS LAST LIMIT 1
+```
+
+`LIMIT 1`, on a bar chart whose generated rationale was "easy comparison of
+revenue across different regions". Relative to the one row the widget holds,
+100% is exactly right and no other region is present.
+
+**This is the most dangerous shape a generated claim can take**, and it is
+worth being precise about why: every figure in it verifies. A check on the
+prose cannot catch it, because the prose is not wrong about its data — the
+data is wrong about the world. Nothing downstream of the query can fix a
+sentence like that; what has to change is what the model is told the data IS.
+
+So a query that caps itself now says so. A trailing `LIMIT n` produces a
+PARTIAL line in the facts _instead of_ the shares — "these are the top n rows
+only and NOT the whole breakdown; do not state shares of a total, do not call
+anything 100%, and do not say other categories are absent" — and the shares are
+withheld from the checker too, so a "100%" written against a capped result is
+caught rather than grounded.
+
+Verified on the rebuilt image, same widget, same button. The card now reads:
+
+> The AMER region generated a total revenue of $25,875. This revenue figure
+> represents the highest revenue among the regions analyzed.
+> **Watch out for** — The data only includes the top region, so insights on
+> other regions are not available.
+
+It disclosed the truncation itself, which is better than merely not lying about
+it, and it needed no correction: told the truth about its data, the model wrote
+something true.
+
+#### The same defect as R18's "Top 5", in the mirror
+
+R18 recorded "Top 5 Products by Sales" rendering 14 bars because the generated
+SQL carried no `LIMIT`. This is the same defect inverted — a title promising a
+breakdown over SQL that returns one row. Two instances now, in opposite
+directions, from one generator. Reconciling a widget's title against what its
+query actually does is no longer an optional refinement.
+
+#### Method, twice over
+
+Both of this round's process guards were earned rather than designed.
+
+A mutation run over the verifier came back thirteen-for-thirteen **with the
+control also caught** — the only visible symptom of a run that measured
+nothing, because a rename two steps earlier had left a source assertion red and
+every mutant was "caught" by that standing failure. The harness now asserts a
+green baseline before it mutates, and that guard fired for real within the
+hour: a source assertion with a hard-coded 4,200-character window had stopped
+covering the end of a function that grew. It now slices to the next top-level
+function.
+
+**Tests:** 37 across `biNumericClaims` (22) and `biInsightFacts` (15), with 19
+behaviour-changing mutants applied one at a time and each killed, control
+missed, baseline verified green first.
 
 ### 2026-09-18 — BI dashboarding and reporting, end to end
 

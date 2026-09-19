@@ -29,7 +29,8 @@ import { parseModelChoice } from "@/utils/providers/modelChoice";
 import { clientDeadlineMs } from "@/lib/llmDeadline";
 import type { GovernedModelFields } from "@/lib/aiAnalyst";
 import type { ScenarioParameter } from "@/lib/analystScenario";
-import { insightFacts } from "@/lib/biInsightFacts";
+import { computeInsightFacts, formatInsightFacts, queryRowLimit } from "@/lib/biInsightFacts";
+import { unsupportedFigures, verifyClaims } from "@/lib/biNumericClaims";
 
 export type ColumnMeta = {
   description?: string;
@@ -1161,7 +1162,13 @@ export async function generateWidgetInsight(args: {
   // asked to divide will divide wrongly and the card is headed "What the
   // data shows". Measured: it reported regional shares of 48% / 39% / 19%,
   // which sum to 106%.
-  const facts = insightFacts(args.columns, args.rows);
+  const rowLimit = queryRowLimit(args.sql);
+  const measured0 = computeInsightFacts(args.columns, args.rows);
+  // A capped query has no meaningful shares, so they are removed from the
+  // facts AND from what the checker will accept — a "100%" written against
+  // one row of a LIMIT 1 result should be caught, not grounded.
+  const measured = measured0 && rowLimit != null ? { ...measured0, shares: [] } : measured0;
+  const facts = measured ? formatInsightFacts(measured, rowLimit) : "";
   const out = await llmJson<{ insight: string }>({
     model: args.model,
     systemPrompt:
@@ -1179,7 +1186,46 @@ export async function generateWidgetInsight(args: {
       "can be wrong.",
     userPrompt: `VISUAL: ${args.title}\nSQL: ${args.sql ?? "n/a"}\nCOLUMNS: ${args.columns.join(", ")}\nTOTAL ROWS: ${args.rows.length}\n${facts ? `FACTS (authoritative):\n${facts}\n` : ""}ROWS (sample): ${JSON.stringify(sample)}\n\nReturn JSON: { "insight": "..." }`,
   });
-  return out.insight;
+
+  // Write, then CHECK. The facts above make an invented figure less likely;
+  // they cannot make it impossible, and a card headed "What the data shows"
+  // has to be right rather than probably right. Every numeral is matched back
+  // against the rows and the computed facts, and anything that matches nothing
+  // gets one chance to be rewritten before the reader is told about it.
+  const check = (text: string) => unsupportedFigures(verifyClaims(text, measured, args.rows));
+
+  let insight = out.insight;
+  let bad = check(insight);
+  if (bad.length > 0) {
+    // Naming the offending figures is the whole of the retry: a model told
+    // only "try again" tends to produce the same number in a new sentence.
+    const retry = await llmJson<{ insight: string }>({
+      model: args.model,
+      systemPrompt:
+        "You are correcting a BI insight card. Keep the same three bolded " +
+        "sections and the same structure. These figures do not appear in the " +
+        `data and must not appear in the card: ${bad.join(", ")}. Replace each ` +
+        "with a figure from FACTS, or remove the claim. Change nothing else. " +
+        'Output JSON only: { "insight": "<markdown>" }.',
+      userPrompt:
+        `${facts ? `FACTS (authoritative):\n${facts}\n\n` : ""}` +
+        `CARD TO CORRECT:\n${insight}\n\nReturn JSON: { "insight": "..." }`,
+    });
+    const retryBad = check(retry.insight);
+    // Keep whichever version a reader can check more of — a retry that made
+    // things worse is not an improvement just because it is newer.
+    if (retryBad.length < bad.length) {
+      insight = retry.insight;
+      bad = retryBad;
+    }
+    if (bad.length > 0) {
+      // Disclose rather than delete. Cutting the sentence would leave prose
+      // that reads as if it were all verified, which is the failure this is
+      // here to prevent.
+      insight += `\n\n_Could not be checked against this visual's data: ${bad.join(", ")}._`;
+    }
+  }
+  return insight;
 }
 
 // ── Orchestrator ───────────────────────────────────────────────────────
