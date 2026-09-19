@@ -784,11 +784,17 @@ GROUP BY region`}</Code>
           result are an arbitrary five.
         </li>
         <li>
-          A <strong>category chart</strong> whose query narrowed to one row is re-run without the
-          limit. A one-bar bar chart is not a chart, and the title never asked for one.
+          A query that <strong>capped itself</strong> below what its title shows is run again for
+          the number the title names. <C>Top 5 Months by Revenue</C> over a query ending{" "}
+          <C>LIMIT 1</C> is one row of a table that has thirty-six. A category chart narrowed to a
+          single row is re-run without the limit at all — a one-bar bar chart is not a chart, and
+          the title never asked for one.
         </li>
         <li>
           A title promising more rows than exist <strong>says so</strong> — rows cannot be invented.
+          Which sentence you get matters: <em>the data has 3 rows, not 5</em> is written only once
+          the limit that might have been hiding the rest is gone. Until then the note says the{" "}
+          <em>query</em> stopped short, because that is the part that is known to be true.
         </li>
       </UL>
 

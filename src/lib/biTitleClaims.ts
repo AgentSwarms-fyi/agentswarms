@@ -78,10 +78,16 @@ export type TitleVerdict =
    */
   | { verdict: "truncate"; n: number; sql: string; note: string }
   /**
-   * A category chart whose query kept one row. A one-bar bar chart is not a
-   * chart, and the title never asked for one.
+   * A query that capped itself below what the title shows. Two shapes reach
+   * here: a category chart whose query kept one row, and a title naming an N
+   * the query's own LIMIT was smaller than. Both are re-runs.
+   *
+   * `note` is what the reader is told when the re-run cannot happen — it says
+   * the QUERY stopped short, which is the true statement in that case. `n` is
+   * the title's number, carried so the widened result can still be checked
+   * against it.
    */
-  | { verdict: "widen"; sql: string }
+  | { verdict: "widen"; sql: string; n?: number; note: string }
   /**
    * The title promised more than the query could give. Nothing can be
    * repaired — rows cannot be invented — so the reader is told.
@@ -121,11 +127,28 @@ export function reconcileTitle(args: {
       };
     }
     if (args.rowCount < claim.n) {
+      // Why this is not simply "short": a query that stopped at its own LIMIT
+      // has not told us how big the data is. "Top 5 Months by Revenue" over
+      // `LIMIT 1` came back with one row, and saying "the data has 1 row, not
+      // 5" of a 36-month table is a false statement about the reader's data —
+      // the same failure this file exists to catch, one level further in.
+      const selfCapped = limit != null && limit < claim.n && args.rowCount >= limit;
+      const cappedNote =
+        `This query stopped at ${limit} row${limit === 1 ? "" : "s"}; ` +
+        `the ${claim.n} the title names were not fetched.`;
+
+      // Re-running an unordered query for more rows gives more arbitrary rows,
+      // not the top N — the same reason truncate refuses to slice one.
+      if (selfCapped && hasOrderBy(sql)) {
+        return { verdict: "widen", sql: withLimit(sql, claim.n), n: claim.n, note: cappedNote };
+      }
       return {
         verdict: "short",
         promised: claim.n,
         got: args.rowCount,
-        note: `The data has ${args.rowCount} row${args.rowCount === 1 ? "" : "s"}, not ${claim.n}.`,
+        note: selfCapped
+          ? cappedNote
+          : `The data has ${args.rowCount} row${args.rowCount === 1 ? "" : "s"}, not ${claim.n}.`,
       };
     }
     return { verdict: "ok" };
@@ -134,7 +157,11 @@ export function reconcileTitle(args: {
   // No number promised. The remaining failure is the opposite one: a query
   // that narrowed to a single row under a title describing a breakdown.
   if (isCategory && limit === 1 && hasGroupBy(sql)) {
-    return { verdict: "widen", sql: stripTrailingLimit(sql) };
+    return {
+      verdict: "widen",
+      sql: stripTrailingLimit(sql),
+      note: "This query returned a single row; the other categories were not fetched.",
+    };
   }
   return { verdict: "ok" };
 }
@@ -190,16 +217,23 @@ export async function reconcileWidgetResult(args: {
   }
 
   // widen: the only case that needs the database again.
-  if (!args.execute) return base;
+  const unrepaired: ReconciledWidget = { ...base, note: v.note, changed: "none" };
+  if (!args.execute) return unrepaired;
   try {
     const res = await args.execute(v.sql);
-    if (!res.rows.length) return base;
-    return { rows: res.rows, sql: v.sql, changed: "widened" };
-  } catch {
+    if (!res.rows.length) return unrepaired;
+    // The widened result gets the same test the first one got. A title that
+    // named 5 and a table that holds 3 is short — but now that is a fact about
+    // the data, because the LIMIT that hid it is gone.
+    const got = res.rows.length;
+    const stillShort = v.n != null && got < v.n;
     return {
-      ...base,
-      note: "This query returned a single row; the other categories were not fetched.",
-      changed: "none",
+      rows: res.rows,
+      sql: v.sql,
+      note: stillShort ? `The data has ${got} row${got === 1 ? "" : "s"}, not ${v.n}.` : undefined,
+      changed: "widened",
     };
+  } catch {
+    return unrepaired;
   }
 }

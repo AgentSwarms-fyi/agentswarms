@@ -109,6 +109,73 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-19 — The guard that told the truth about the wrong thing
+
+`widen` was built in R20 to repair a query that capped itself, and R20 recorded
+honestly that it had never fired on a live generation. Driving one more
+generation to find out why produced the answer, and a worse bug with it: the
+repair could not be reached from the case that needed it most, and the branch
+that took that case instead printed a false statement about the reader's data.
+
+#### R22 · S1 · "The data has 1 row, not 5" — of a table holding thirty-six
+
+Asked, through the generate dialog, for one bar chart over the seeded 36-month
+lakehouse table. The model returned:
+
+```
+title: "Top 5 Months by Revenue"
+sql:   SELECT month FROM analytics.bi_demo_sales
+       GROUP BY month ORDER BY SUM(revenue) DESC LIMIT 1
+```
+
+and the widget rendered
+
+```
+Top 5 Months by Revenue — The data has 1 row, not 5.
+```
+
+The table has thirty-six months. The note is false, and it was written by the
+guard whose entire purpose is to stop a widget saying something false.
+
+`reconcileTitle` returns from every path inside `if (claim)`, so the `widen`
+branch below it was reachable only by a title naming NO number. A title that
+names one — the only kind that can be compared against a row count at all —
+fell to `rowCount < claim.n` and was told the data was short. The single input
+that makes the check possible was the input that disabled its repair.
+
+The distinction the fix turns on is that **a query which stopped at its own
+`LIMIT` has not told you how big the table is**. So `short` is now reserved for
+the case where the count is a fact about the DATA — no limit, or a limit the
+query never reached — and a query that capped itself below its title's number
+is re-run for that number. The re-run carries the same `ORDER BY` requirement
+`truncate` already had, because re-running an unordered query returns more
+arbitrary rows rather than the top five. When the re-run cannot be made at all,
+the note says the QUERY stopped, which is the part that is known to be true.
+
+**Tests:** 8 added, 28 in the file, 11 behaviour-changing mutants applied one at
+a time and each killed, control missed, baseline verified green first.
+
+One of the eight did not test what it was aimed at when first written. The
+"stopped below its own limit" case used `LIMIT 10` under a claim of 10, so
+`limit < claim.n` was already false and the clause under test — `rowCount >=
+limit` — was never reached; the mutant flipping it to `<=` survived. A limit
+BELOW the claim reaches it. Recorded because the test read correctly and
+asserted the right answer for the wrong reason, which is the failure mode that
+mutation testing exists to expose and that reading the test cannot.
+
+#### R22 · S2 · OPEN — a chart whose measure is not in its own result set
+
+Found in the same frame and deliberately not fixed here. The repaired widget
+draws five month labels and no bars: the model's SQL selects only `month`, so
+the chart spec's `yField: "revenue"` has no column to plot, and the widget
+renders an empty plot area saying nothing about why. The R20 widget beside it,
+whose query selected the measure, draws five bars and a 0-2.0k axis.
+
+The title check cannot see this — it compares the title against the ROW COUNT,
+and those agree. Comparing a chart's declared fields against the columns its
+query actually returned is a different check. Recorded open rather than folded
+into this round's change.
+
 ### 2026-09-19 — The analyst's answer, checked the same way a card is
 
 The numeric check shipped on the insight card. The busier surface is the

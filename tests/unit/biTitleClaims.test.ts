@@ -166,6 +166,148 @@ describe("the verdict", () => {
   });
 });
 
+describe("a title that names an N the query capped itself below", () => {
+  // Driven from the UI, on the seeded 36-month lakehouse table. The generator
+  // wrote this, verbatim, under the title "Top 5 Months by Revenue":
+  //
+  //   SELECT month FROM analytics.bi_demo_sales
+  //   GROUP BY month ORDER BY SUM(revenue) DESC LIMIT 1
+  //
+  // and the widget rendered "Top 5 Months by Revenue — The data has 1 row, not
+  // 5." The data has thirty-six. The note was a false statement about the
+  // reader's table, produced by the guard that exists to prevent exactly that,
+  // because `widen` sat behind a branch that a numbered title could not reach.
+  const CAPPED = "SELECT month FROM t GROUP BY month ORDER BY SUM(revenue) DESC LIMIT 1";
+
+  it("widens to the promised N instead of calling the table short", () => {
+    const v = reconcileTitle({
+      title: "Top 5 Months by Revenue",
+      sql: CAPPED,
+      rowCount: 1,
+      chartType: "bar",
+    });
+    expect(v.verdict).toBe("widen");
+    if (v.verdict !== "widen") throw new Error("unreachable");
+    expect(v.sql).toBe("SELECT month FROM t GROUP BY month ORDER BY SUM(revenue) DESC LIMIT 5");
+    expect(v.n).toBe(5);
+    // What the reader is told if the re-run cannot happen: the QUERY stopped.
+    expect(v.note).toContain("This query stopped at 1 row");
+    expect(v.note).not.toContain("The data has");
+  });
+
+  it("still calls a genuinely short table short", () => {
+    // No LIMIT, so the four rows ARE the data and the old note is the true one.
+    const v = reconcileTitle({
+      title: "Top 10 Customers",
+      sql: "SELECT c, SUM(s) AS t FROM x GROUP BY c ORDER BY t DESC",
+      rowCount: 4,
+      chartType: "bar",
+    });
+    expect(v.verdict).toBe("short");
+    if (v.verdict !== "short") throw new Error("unreachable");
+    expect(v.note).toBe("The data has 4 rows, not 10.");
+  });
+
+  it("calls it short when the query stopped BELOW its own limit", () => {
+    // The limit has to sit under the claim for this to be the interesting
+    // case: asking for 5 and getting 3 means the table held 3, so widening to
+    // 10 would find nothing more and the note about the DATA is the true one.
+    const v = reconcileTitle({
+      title: "Top 10 Plans",
+      sql: "SELECT p, SUM(s) AS t FROM x GROUP BY p ORDER BY t DESC LIMIT 5",
+      rowCount: 3,
+      chartType: "bar",
+    });
+    expect(v.verdict).toBe("short");
+    if (v.verdict !== "short") throw new Error("unreachable");
+    expect(v.note).toBe("The data has 3 rows, not 10.");
+  });
+
+  it("will not re-run an unordered query, but stops saying the data is short", () => {
+    // Re-running without an ORDER BY returns more arbitrary rows, not the top
+    // five — the same objection that stops truncate slicing one. The verdict
+    // stays short because nothing can be repaired; the NOTE still has to be
+    // true, and the truth is that the query stopped, not that the table did.
+    const v = reconcileTitle({
+      title: "Top 5 Months by Revenue",
+      sql: "SELECT month FROM t GROUP BY month LIMIT 1",
+      rowCount: 1,
+      chartType: "bar",
+    });
+    expect(v.verdict).toBe("short");
+    if (v.verdict !== "short") throw new Error("unreachable");
+    expect(v.note).toContain("This query stopped at 1 row");
+  });
+
+  it("re-queries with the promised N and drops the note when it is met", async () => {
+    const execute = vi.fn().mockResolvedValue({ rows: rows(5) });
+    const out = await reconcileWidgetResult({
+      title: "Top 5 Months by Revenue",
+      sql: CAPPED,
+      chartType: "bar",
+      rows: rows(1),
+      execute,
+    });
+    expect(execute).toHaveBeenCalledWith(
+      "SELECT month FROM t GROUP BY month ORDER BY SUM(revenue) DESC LIMIT 5",
+    );
+    expect(out.rows).toHaveLength(5);
+    expect(out.changed).toBe("widened");
+    expect(out.note).toBeUndefined();
+  });
+
+  it("checks the WIDENED result against the title too", async () => {
+    // Lift the LIMIT and the table turns out to hold three. Now "short" is a
+    // fact about the data, so the reader gets the count — and it is the count
+    // from the widened query, not the one the LIMIT was hiding behind.
+    const out = await reconcileWidgetResult({
+      title: "Top 5 Months by Revenue",
+      sql: CAPPED,
+      chartType: "bar",
+      rows: rows(1),
+      execute: () => Promise.resolve({ rows: rows(3) }),
+    });
+    expect(out.rows).toHaveLength(3);
+    expect(out.changed).toBe("widened");
+    expect(out.note).toBe("The data has 3 rows, not 5.");
+  });
+
+  it("says the query stopped when the re-run cannot be made", async () => {
+    const out = await reconcileWidgetResult({
+      title: "Top 5 Months by Revenue",
+      sql: CAPPED,
+      chartType: "bar",
+      rows: rows(1),
+    });
+    expect(out.changed).toBe("none");
+    expect(out.rows).toHaveLength(1);
+    expect(out.note).toContain("This query stopped at 1 row");
+  });
+
+  it("says the same when the re-run fails or comes back empty", async () => {
+    const failed = await reconcileWidgetResult({
+      title: "Top 5 Months by Revenue",
+      sql: CAPPED,
+      chartType: "bar",
+      rows: rows(1),
+      execute: () => Promise.reject(new Error("warehouse down")),
+    });
+    expect(failed.changed).toBe("none");
+    expect(failed.note).toContain("This query stopped at 1 row");
+
+    const empty = await reconcileWidgetResult({
+      title: "Top 5 Months by Revenue",
+      sql: CAPPED,
+      chartType: "bar",
+      rows: rows(1),
+      execute: () => Promise.resolve({ rows: [] }),
+    });
+    expect(empty.changed).toBe("none");
+    expect(empty.rows).toHaveLength(1);
+    expect(empty.note).toContain("This query stopped at 1 row");
+  });
+});
+
 describe("applying the verdict", () => {
   const ORDERED = "SELECT p, SUM(s) AS t FROM x GROUP BY p ORDER BY t DESC";
 

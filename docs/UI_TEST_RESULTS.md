@@ -15,6 +15,52 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-19 — A title that names an N the query capped itself below, ADVERSARIAL_LOG R22
+
+**Driven.** Two generations against the lakehouse (`analytics.bi_demo_sales`,
+the seeded 36-month series), Gemini 2.5 Flash, each narrowed with **Clear all**
+to the single pick `Top 5 Months by Revenue` so one widget could be watched
+end to end — once on the image that shipped R20/R21, once on the image rebuilt
+with the fix. `window.fetch` patched to record every `/api/bi` call and clone
+its reply, so the SQL the model wrote is readable beside the title it wrote.
+
+**What the steer was for, and what it actually produced.** R20 closed with
+`truncate` and `widen` unexercised live, because the un-steered generator wrote
+correct limits every time. The focus text here told the model _not_ to write a
+`LIMIT` — aimed at `truncate`. The model wrote `LIMIT 1` both times instead,
+which is the `widen` case, and that is how the bug turned up. The steer did not
+produce the outcome it was written for; it is recorded as what it was.
+
+| Driven                                                  | Read back                                                                                                                                                                                                       |
+| ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Generate, pre-fix image, one pick                       | Model wrote `... GROUP BY month ORDER BY SUM(revenue) DESC LIMIT 1` under a title claiming 5. Widget rendered **`Top 5 Months by Revenue — The data has 1 row, not 5.`** — of a 36-month table. The R22 finding |
+| Generate, rebuilt image, same pick, same focus          | Model wrote `... ORDER BY revenue DESC NULLS LAST LIMIT 1`. Widget rendered **`Top 5 Months by Revenue`, no note**, five month labels: 2025-05, -04, -06, -03, -12                                              |
+| Opened that widget's editor and read its persisted SQL  | `SELECT month FROM analytics.bi_demo_sales WHERE revenue IS NOT NULL ORDER BY revenue DESC NULLS LAST **LIMIT 5**` — rewritten, so a later refresh agrees with the screen                                       |
+| Cross-checked the five against R20's correct generation | The 4h-old widget on the same dashboard, whose SQL carried its own `LIMIT 5`, draws the same five months. The widened query returned the RIGHT five, not merely five                                            |
+
+**Chart nodes were read, not assumed.** Counts above come from
+`.recharts-rectangle` and `svg text` on the card after scrolling it into view —
+these widgets virtualise, and a card measured while off-screen reports zero
+bars and no labels whatever it actually draws. A first pass here did exactly
+that and briefly showed the known-good R20 widget as empty.
+
+**A second defect, found in the same frame and NOT fixed.** The repaired widget
+draws **no bars** — five month labels along the x-axis, no y-axis ticks, no
+rectangles. The model's SQL selects only `month`; it never selects `revenue`,
+so the chart spec's `yField: "revenue"` has no column to plot. The R20 widget
+beside it draws five bars and a 0–2.0k axis, which is what a correct generation
+looks like. The title check cannot catch this — it reads the title against the
+row count, and both agree. Reconciling a chart's declared fields against its
+own result columns is a different check and a separate change; it is recorded
+here as open, not quietly folded into this round.
+
+**Kept for review.** Three widgets titled `Top 5 Months by Revenue` now sit on
+dashboard **"Reconciled titles - lakehouse"** —
+`/bi/712429e4-4211-42ce-9422-d94c7cfc45dd` — a correct generation from R20, the
+false note this round found, and the same generation repaired.
+
+Findings from this round: R22 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-19 — The analyst's answer, checked, ADVERSARIAL_LOG R21
 
 **Driven.** Two questions through the **AI analyst** pane on the rebuilt image,
