@@ -420,9 +420,14 @@ describe("where the check is spent", () => {
     // written earlier is silently overwritten — which is what shipped, and
     // what driving the dashboard caught. Assert the order, not the presence.
     const assignsFinal = dash.indexOf("const base = picks[i].title || widget.title;");
-    const appliesNote = dash.indexOf("fixed.note ? `${base}");
+    const appliesNote = dash.indexOf("notes.length ? `${base}");
     expect(assignsFinal).toBeGreaterThan(-1);
     expect(appliesNote).toBeGreaterThan(assignsFinal);
+    // A second note source joined this one (the chart-field check). The title
+    // note has to remain IN that list: every other test in this file stops at
+    // reconcileTitle's return value, so a list that quietly dropped it would
+    // leave the R20 bug fixed in the unit tests and back on the dashboard.
+    expect(dash).toContain("const notes = [fixed.note,");
     expect(dash).not.toMatch(/widget\.title = `\$\{widget\.title\} — \$\{fixed\.note\}`/);
     expect(dash).toMatch(/widget\.chart\.type === "barrace"/);
     expect(dash).toContain("topN: claim.n");

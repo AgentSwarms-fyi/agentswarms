@@ -798,6 +798,43 @@ GROUP BY region`}</Code>
         </li>
       </UL>
 
+      <H3 id="chart-fields">A chart names its columns, and those are checked too</H3>
+      <P>
+        A chart says which column is its category and which is its measure. The query that feeds it
+        does not always return them. The clearest case: a query that ends{" "}
+        <C>ORDER BY revenue DESC</C> and never puts <C>revenue</C> in its SELECT list — so the chart
+        drew month labels, no axis, no bars, and no explanation. It looks like a widget still
+        loading, and it never will.
+      </P>
+      <P>
+        The title check cannot see this. It compares a title against a <em>row count</em>, and five
+        rows under a title promising five agree perfectly. Only reading the chart's fields against
+        the query's columns finds it. Three outcomes, in order of confidence:
+      </P>
+      <UL>
+        <li>
+          A missing <strong>series split</strong> is dropped without comment. A chart that cannot
+          find the column it was going to split by is not broken; it is a chart with one series.
+        </li>
+        <li>
+          A missing <strong>measure or category</strong> is re-pointed when exactly one unused
+          column of the right kind could have been meant — a number for a measure, a label for a
+          category, and never a column another field is already drawing. Two candidates is a guess,
+          and a guess drawn as a chart is worse than no chart.
+        </li>
+        <li>
+          Otherwise the widget <strong>shows its rows as a table</strong> and the title says which
+          column is missing. The rows are real and the reader can see them; an empty frame tells
+          them nothing.
+        </li>
+      </UL>
+      <P>
+        Which field has to be a number depends on the chart, not on the field's name: a bar chart's{" "}
+        <C>yField</C> is its measure, a sankey's is a node label, and a heatmap's axes are both
+        categorical with the measure in <C>valueField</C>. Getting that backwards would move a
+        repair onto the wrong column, which is worse than the blank chart it set out to fix.
+      </P>
+
       <H3 id="scan">Scan — computed, not generated</H3>
       <P>
         <strong>Scan</strong> in the toolbar is the opposite kind of thing: it runs the obvious

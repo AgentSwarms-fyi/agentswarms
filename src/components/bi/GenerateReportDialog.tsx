@@ -44,6 +44,7 @@ import {
   generationSource,
   generationSourceOptions,
 } from "@/lib/biGenerationSource";
+import { reconcileChartFields } from "@/lib/biChartFields";
 import { reconcileWidgetResult } from "@/lib/biTitleClaims";
 import { widgetFromBiTurn } from "@/lib/biDashboards";
 import { suggestReportOutline, type ReportSection } from "@/lib/biReportAgent";
@@ -190,6 +191,14 @@ export function GenerateReportDialog({
           turn.result = { ...turn.result, rows: fixed.rows, row_count: fixed.rows.length };
           turn.sql = fixed.sql;
         }
+        // Same check as the dashboard's: a section's chart can name a column
+        // its own query never selected.
+        const fields = reconcileChartFields({
+          chart: turn.chart,
+          columns: turn.result?.columns ?? [],
+          rows: turn.result?.rows ?? [],
+        });
+        if (fields.verdict !== "ok") turn.chart = fields.chart;
         const widget = widgetFromBiTurn(turn, gen.source);
         if (widget && turn.status === "done" && (turn.result?.row_count ?? 0) > 0) {
           widget.title = "";

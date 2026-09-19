@@ -109,6 +109,92 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-20 — A chart names its columns, and the query need not return them
+
+R22 recorded this open and did not fix it. Fixed here, with the part that is
+still only unit-tested said plainly.
+
+#### R23 · S2 · The widget that looked like it was still loading
+
+A generated widget drew five x-axis labels, no y-axis, no bars, and no
+explanation. Its query and its chart, both from the same generation:
+
+```
+sql:   SELECT month FROM analytics.bi_demo_sales
+       WHERE revenue IS NOT NULL ORDER BY revenue DESC NULLS LAST LIMIT 5
+chart: { type: "bar", xField: "month", yField: "revenue" }
+```
+
+The query orders BY revenue and never selects it. So the chart's measure names
+a column that does not exist, and a bar chart with no measure draws an empty
+frame that is indistinguishable from one still fetching.
+
+The title check next door cannot see this. It compares a title against a ROW
+COUNT, and five rows under a title promising five agree perfectly. Only reading
+the chart's FIELDS against the query's COLUMNS finds it.
+
+`reconcileChartFields` now does that, deterministically and with no model call,
+in three outcomes ordered by confidence. A missing **series split** is dropped
+without comment — a chart that cannot find the column it meant to split by is
+not broken, it is a chart with one series. A missing **measure or category** is
+re-pointed when exactly one unused column of the right kind could have been
+meant; two candidates is a guess, and a guess drawn as a chart is worse than no
+chart. Otherwise the widget **shows its rows as a table** and the title names
+the missing column, because five months a reader can see beats an empty frame.
+
+Which field must be a number depends on the chart and not on the field's name:
+a bar chart's `yField` is its measure, a sankey's is a node label, a heatmap's
+axes are both categorical with the measure in `valueField`. A single set of
+field names would move a repair onto the wrong column, which is worse than the
+blank chart it set out to fix.
+
+The correction is applied to the TURN rather than to the finished widget, so
+`widgetFromBiTurn` derives `agg_pushdown` from the spec that will actually be
+drawn. A mutant that moves it after the build is caught for that reason.
+
+**Tests:** 15 in `biChartFields`, 14 behaviour-changing mutants applied one at a
+time and each killed, control missed, baseline verified green first.
+
+One mutant survived the first run — "columns already drawn are offered to
+repairs" — and it was EQUIVALENT rather than a gap. Fixing an earlier defect
+(two missing fields both claiming the same spare column) had added a
+`!taken.has(c)` guard inside the loop, which made the outer filter redundant.
+The redundancy was removed rather than the mutant kept: two guards doing one
+job is how a later reader concludes the real one is unnecessary.
+
+#### R23 · S2 · What the UI could not be made to show
+
+Four generations on the rebuilt image, and the repair path did not fire in any
+of them: every query the SQL step wrote selected its own measure, including one
+run handed the literal one-column SQL and asked to use it unchanged. The bug is
+real — it was observed twice in R22, before this check existed — but it could
+not be summoned on demand, so `unplottable` and the re-point repair rest on
+unit tests and mutants alone.
+
+What the four runs do show is the half most likely to go wrong. A guard that
+fires when it should not would have turned four correct charts into tables
+carrying an apology. None of the four grew a note.
+
+#### R23 · S3 · An anchor that went stale the moment the line moved
+
+R22's source-anchored test pinned the note application with
+`dash.indexOf("fixed.note ? \`${base}")`. This change rewrote that line to join
+two notes, so the anchor matched nothing, `indexOf`returned`-1`, and the
+assertion failed with _expected -1 to be greater than 16636_.
+
+It failed loudly, which is the good case. The point worth keeping is what did
+NOT catch it: the mutation run for the new check passed a green baseline,
+because it runs one test FILE and the broken anchor lived in the neighbouring
+one. Only the whole gate saw it. A per-file mutation run proves the tests in
+that file kill those mutants; it says nothing about the file next door that
+pins the same line.
+
+The anchor now names the current expression and also asserts the title note is
+still IN the joined list — because every other test in that file stops at
+`reconcileTitle`'s return value, so a list that quietly dropped it would leave
+the R20 bug fixed in the unit tests and back on the dashboard. Mutation-checked:
+removing `fixed.note` from the list fails that test.
+
 ### 2026-09-19 — The guard that told the truth about the wrong thing
 
 `widen` was built in R20 to repair a query that capped itself, and R20 recorded

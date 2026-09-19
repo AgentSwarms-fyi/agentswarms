@@ -444,6 +444,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "prediction",
       "probability",
       "radar",
+      "revenue",
       "rules",
       "running",
       "sankey",
@@ -460,8 +461,10 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "trend",
       "value",
       "value2",
+      "valueField",
       "waterfall",
-      "wordcloud"
+      "wordcloud",
+      "yField"
     ],
     "headings": [
       {
@@ -622,6 +625,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       {
         "id": "title-claims",
         "text": "A title is a claim, and it is checked too",
+        "level": 3
+      },
+      {
+        "id": "chart-fields",
+        "text": "A chart names its columns, and those are checked too",
         "level": 3
       },
       {

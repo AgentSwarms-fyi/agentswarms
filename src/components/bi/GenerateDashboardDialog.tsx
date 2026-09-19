@@ -73,6 +73,7 @@ import {
   generationSource,
   generationSourceOptions,
 } from "@/lib/biGenerationSource";
+import { reconcileChartFields } from "@/lib/biChartFields";
 import { parseTitleClaim, reconcileWidgetResult } from "@/lib/biTitleClaims";
 import {
   suggestGovernedWidgets,
@@ -408,6 +409,16 @@ export function GenerateDashboardDialog({
             turn.result = { ...turn.result, rows: fixed.rows, row_count: fixed.rows.length };
             turn.sql = fixed.sql;
           }
+          // The chart names columns too, and the query does not always return
+          // them. Corrected on the TURN rather than on the widget, so that
+          // widgetFromBiTurn derives `agg_pushdown` from the spec that will
+          // actually be drawn.
+          const fields = reconcileChartFields({
+            chart: turn.chart,
+            columns: turn.result?.columns ?? [],
+            rows: turn.result?.rows ?? [],
+          });
+          if (fields.verdict !== "ok") turn.chart = fields.chart;
           const widget = widgetFromBiTurn(turn, gen.source);
           // A race caps its own frame at twelve rows regardless of the query,
           // so a title promising ten has to reach the renderer as a number.
@@ -421,7 +432,10 @@ export function GenerateDashboardDialog({
             // it is silently overwritten by this line — which is exactly what
             // happened, and what driving the dashboard caught.
             const base = picks[i].title || widget.title;
-            widget.title = fixed.note ? `${base} — ${fixed.note}` : base;
+            const notes = [fixed.note, fields.verdict !== "ok" ? fields.note : undefined].filter(
+              Boolean,
+            );
+            widget.title = notes.length ? `${base} — ${notes.join(" ")}` : base;
             widgets.push(widget);
           } else {
             // runBiTurn resolves (never throws) with the reason on the turn.

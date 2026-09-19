@@ -15,6 +15,42 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-20 — A chart's columns checked against its query, ADVERSARIAL_LOG R23
+
+**Driven.** Four generations against the lakehouse (`analytics.bi_demo_sales`),
+Gemini 2.5 Flash, each narrowed with **Clear all** to a single pick, on the
+image rebuilt with the new check. `window.fetch` patched to record every
+`/api/` call, so the SQL and the chart spec are readable side by side.
+
+| Driven                                                              | Read back                                                                                                                                                                                                                                                         |
+| ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Focus: rank months, write no `LIMIT`                                | `SELECT month, SUM(revenue) AS total_revenue … ORDER BY total_revenue DESC`, no limit → 36 rows. **`truncate` fired live for the first time**: "Top 5 Months by Revenue — Showing the top 5 of 36." Five bars, axis 0–2.0k, tooltip `2025-12 total_revenue: 1.8k` |
+| Focus: title "Best Month by Revenue", SELECT the month column only  | `SELECT month … ORDER BY SUM(revenue) DESC LIMIT 1`. The chart step chose **kpi on `month`** — a field that IS in the result — so the field check correctly said nothing. Renders "MONTH WITH HIGHEST REVENUE / 2025-05"                                          |
+| Focus: same, more explicit — no aggregate in the SELECT list        | Model wrote `SELECT month, SUM(revenue) AS total_revenue … LIMIT 5` anyway. Fields present, claim 5 = 5 rows, nothing to reconcile                                                                                                                                |
+| Focus: the literal one-column SQL, spelled out to be used unchanged | Same again. The SQL step declines to omit the measure                                                                                                                                                                                                             |
+
+**The path this round was built for did NOT fire live, and this entry does not
+pretend it did.** Four generations, four queries that all selected their own
+measure. The bug is real and was observed twice in R22, before this check
+existed — both of those runs produced `SELECT month` alone under a bar chart
+declaring `yField: "revenue"` — but the SQL step would not reproduce it on
+demand here. `unplottable` and the re-point repair are covered by 15 unit tests
+and 14 mutants, and by nothing else.
+
+**What four clean generations DO show.** A new guard that fires when it should
+not is worse than the gap it closes: it would have turned four correct charts
+into tables with an apology on them. None of the four grew a note, and the two
+that had something to reconcile got the title note only. That is the half of
+this change the UI can prove, and it is the half most likely to go wrong.
+
+**Kept for review.** Dashboard **"Reconciled titles - lakehouse"** —
+`/bi/712429e4-4211-42ce-9422-d94c7cfc45dd` — now carries the whole sequence
+under one title: R20's correct generation, R22's false note, R22's repair
+(five labels, no bars — the widget this round's check exists for), and R23's
+truncate. The empty-bars widget is deliberately left as it was generated.
+
+Findings from this round: R23 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-19 — A title that names an N the query capped itself below, ADVERSARIAL_LOG R22
 
 **Driven.** Two generations against the lakehouse (`analytics.bi_demo_sales`,
