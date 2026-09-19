@@ -219,5 +219,8 @@ describe("the check is actually wired into both generators", () => {
     expect(assignsFinal).toBeGreaterThan(-1);
     expect(appliesNotes).toBeGreaterThan(assignsFinal);
     expect(dash).toContain('fields.verdict !== "ok" ? fields.note : undefined');
+    // The field note stays AHEAD of the count note: the count note is the
+    // title's suffix so a refresh can find and restate it.
+    expect(dash).toContain("const notes = [fieldNote, fixed.note].filter(Boolean);");
   });
 });

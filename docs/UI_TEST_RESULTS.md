@@ -15,6 +15,40 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-20 — A note re-checked when the rows under it change, ADVERSARIAL_LOG R24
+
+**Driven.** The running instance on the rebuilt image, against the lakehouse
+`analytics.bi_demo_sales`. Widget objects were read out of React state through
+the fiber, not inferred from the card, so "the field is stored" is a fact about
+the object rather than about the pixels.
+
+| Driven                                                                 | Read back                                                                                                                                                         |
+| ---------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Generate one widget, "Top 5 Regions by Revenue", over a 3-region table | Title `Top 5 Regions by Revenue — The data has 3 rows, not 5.`, and `reconcile_note` stored on the widget as that exact sentence. 3 rows                          |
+| Press **Refresh** with the data unchanged                              | Every still-correct note preserved byte-for-byte across ~26 widgets. The no-write path, which is what stops a refresh dirtying the document over a sentence       |
+| Rename the claim in the editor, `Top 5` → `Top 3`, and save            | **`Top 3 Regions by Revenue`** — note withdrawn, `reconcile_note` cleared, three bars (AMER/EMEA/APAC). The claim now matches the data, so the caveat retired     |
+| Re-read the widget edited during the FIRST attempt                     | `Top 5 Regions by Revenue — The data has 3 rows, not 5.` with **5 rows**. The stale note, still standing — orphaned by the pre-fix builder. Left on the dashboard |
+
+**The first attempt failed, and the failure was the second finding.** The plan
+was: generate a widget with a note, edit its SQL so the count changes, refresh,
+watch the note go. It did not go. The widget had no `reconcile_note` at all —
+`BiBuilderPane` rebuilds its widget from an explicit list of fields, so editing
+any widget dropped the new one and orphaned the note permanently. The test
+method destroyed the thing under test. Fixed, and that widget is deliberately
+left on the dashboard as the before-picture.
+
+**Not exercised live.** The case where the DATA changes under a widget and the
+note is rewritten rather than withdrawn — the seeded table's row counts do not
+move, and nothing here manufactured a change to claim otherwise. All four write
+sites call one function; its withdraw, rewrite, preserve and refuse branches are
+covered by unit tests and eleven mutants.
+
+**Kept for review.** Dashboard **"Reconciled titles - lakehouse"** —
+`/bi/712429e4-4211-42ce-9422-d94c7cfc45dd` — now carries the stale note and the
+retired one within a screen of each other.
+
+Findings from this round: R24 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-20 — A chart's columns checked against its query, ADVERSARIAL_LOG R23
 
 **Driven.** Four generations against the lakehouse (`analytics.bi_demo_sales`),

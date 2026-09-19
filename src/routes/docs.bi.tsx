@@ -798,6 +798,23 @@ GROUP BY region`}</Code>
         </li>
       </UL>
 
+      <P>
+        <strong>And the note is re-checked every refresh.</strong> A sentence like{" "}
+        <C>Showing the top 5 of 36.</C> is a claim about one query result, and a refresh replaces
+        that result. Left alone it goes on being displayed — a chart drawing five bars under a title
+        still insisting the data has three rows, which is worse than the silence it replaced,
+        because a reader who checks the caveat against the chart finds the product contradicting
+        itself. So each refresh re-derives the count and rewrites the note, or takes it away when
+        the data has caught up with the title.
+      </P>
+      <P>
+        Three things stop it. A snapshot that hit the row cap has no count to speak of, so the note
+        stands and the <strong>Partial</strong> badge explains the widget instead. A title you have
+        renamed is yours — if the note is no longer the last thing in it, nothing is edited. And a
+        note that is still exactly right is left exactly as it is, so a refresh that changes nothing
+        writes nothing.
+      </P>
+
       <H3 id="chart-fields">A chart names its columns, and those are checked too</H3>
       <P>
         A chart says which column is its category and which is its measure. The query that feeds it

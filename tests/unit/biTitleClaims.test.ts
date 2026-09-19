@@ -13,12 +13,15 @@
 // the total revenue", "there are no other regions contributing" — because the
 // query had already discarded the other regions. Nothing that reads the prose
 // can catch it. Only something that reads the title against the query can.
+import fs from "node:fs";
+
 import { describe, expect, it, vi } from "vitest";
 
 import {
   parseTitleClaim,
   reconcileTitle,
   reconcileWidgetResult,
+  restateWidgetNote,
   stripTrailingLimit,
   withLimit,
 } from "@/lib/biTitleClaims";
@@ -400,6 +403,164 @@ describe("applying the verdict", () => {
   });
 });
 
+describe("a note is a claim about one result, and refresh replaces the result", () => {
+  // The badge that outlives what it vouched for. Both refresh paths rewrote
+  // rows, columns and `truncated` and never the title, so a widget generated
+  // when the table held three regions went on saying "The data has 3 rows, not
+  // 5." after the fourth and fifth arrived — beside a chart drawing five bars.
+  const SHORT = "The data has 3 rows, not 5.";
+  const rows = (n: number) => Array.from({ length: n }, (_, i) => ({ k: `r${i}` }));
+
+  it("withdraws the note when the data has caught up with the title", () => {
+    const out = restateWidgetNote({
+      title: `Top 5 Regions by Revenue — ${SHORT}`,
+      sql: "SELECT r, SUM(v) AS t FROM x GROUP BY r ORDER BY t DESC LIMIT 5",
+      chart: { type: "bar" },
+      reconcile_note: SHORT,
+      rows: rows(5),
+    });
+    expect(out).not.toBeNull();
+    expect(out!.title).toBe("Top 5 Regions by Revenue");
+    expect(out!.reconcile_note).toBeUndefined();
+  });
+
+  it("restates it with the new count when the data is still short", () => {
+    const out = restateWidgetNote({
+      title: `Top 5 Regions by Revenue — ${SHORT}`,
+      sql: "SELECT r, SUM(v) AS t FROM x GROUP BY r ORDER BY t DESC LIMIT 5",
+      chart: { type: "bar" },
+      reconcile_note: SHORT,
+      rows: rows(4),
+    });
+    expect(out!.title).toBe("Top 5 Regions by Revenue — The data has 4 rows, not 5.");
+    expect(out!.reconcile_note).toBe("The data has 4 rows, not 5.");
+  });
+
+  it("says nothing when the note is still exactly right", () => {
+    // Nothing to write means nothing to write: a no-op refresh must not dirty
+    // the dashboard document and lose somebody's concurrent edit to it.
+    const out = restateWidgetNote({
+      title: `Top 5 Regions by Revenue — ${SHORT}`,
+      sql: "SELECT r, SUM(v) AS t FROM x GROUP BY r ORDER BY t DESC LIMIT 5",
+      chart: { type: "bar" },
+      reconcile_note: SHORT,
+      rows: rows(3),
+    });
+    expect(out).toBeNull();
+  });
+
+  it("keeps a field note ahead of it and rewrites only the count", () => {
+    // The field note describes a repair already applied to THIS widget — its
+    // chart is a table now — so re-running that check would find nothing wrong
+    // and delete a sentence that is still true.
+    const field = "This query returns no revenue column, so the rows are shown instead.";
+    const out = restateWidgetNote({
+      title: `Top 5 Regions by Revenue — ${field} ${SHORT}`,
+      sql: "SELECT r FROM x GROUP BY r ORDER BY SUM(v) DESC LIMIT 5",
+      chart: { type: "table" },
+      reconcile_note: SHORT,
+      rows: rows(5),
+    });
+    expect(out!.title).toBe(`Top 5 Regions by Revenue — ${field}`);
+    expect(out!.reconcile_note).toBeUndefined();
+  });
+
+  it("will not edit a title the owner has rewritten", () => {
+    // Those are their words now. A refresh that reaches into a hand-written
+    // title to delete part of it is a worse failure than a stale caveat.
+    const out = restateWidgetNote({
+      title: "Regional revenue (Q3 review)",
+      sql: "SELECT r FROM x ORDER BY t DESC LIMIT 5",
+      chart: { type: "bar" },
+      reconcile_note: SHORT,
+      rows: rows(5),
+    });
+    expect(out).toBeNull();
+  });
+
+  it("stays silent on a capped snapshot, which has no count to speak of", () => {
+    // `rows.length` is the cap, not the result. Re-deriving from it would
+    // invent a number; the Partial badge is what explains this widget.
+    const out = restateWidgetNote({
+      title: `Top 5 Regions by Revenue — ${SHORT}`,
+      sql: "SELECT r, SUM(v) AS t FROM x GROUP BY r ORDER BY t DESC",
+      chart: { type: "bar" },
+      reconcile_note: SHORT,
+      rows: rows(500),
+      truncated: true,
+    });
+    expect(out).toBeNull();
+  });
+
+  it("will not truncate a title that carries words AFTER the note", () => {
+    // The note has to be the SUFFIX, not merely present. An owner who appended
+    // anything of their own after it would otherwise have it deleted: the
+    // rebuild takes everything before the note and drops the rest.
+    const out = restateWidgetNote({
+      title: `Top 5 Regions by Revenue — ${SHORT} (Q3 review)`,
+      sql: "SELECT r, SUM(v) AS t FROM x GROUP BY r ORDER BY t DESC LIMIT 5",
+      chart: { type: "bar" },
+      reconcile_note: SHORT,
+      rows: rows(5),
+    });
+    expect(out).toBeNull();
+  });
+
+  it("keeps the original separator when a field note precedes a restated count", () => {
+    // The two notes are joined by a space, not a second em dash. Rebuilding
+    // from the base instead of from the text before the note would quietly
+    // change the punctuation of every title that carries both.
+    const field = "This query returns no revenue column, so the rows are shown instead.";
+    const out = restateWidgetNote({
+      title: `Top 5 Regions by Revenue — ${field} ${SHORT}`,
+      sql: "SELECT r FROM x GROUP BY r ORDER BY SUM(v) DESC LIMIT 5",
+      chart: { type: "table" },
+      reconcile_note: SHORT,
+      rows: rows(4),
+    });
+    expect(out!.title).toBe(`Top 5 Regions by Revenue — ${field} The data has 4 rows, not 5.`);
+    expect(out!.reconcile_note).toBe("The data has 4 rows, not 5.");
+  });
+
+  it("is carried by every place that rebuilds a widget field by field", () => {
+    // The note is only restateable while the widget still carries it, and the
+    // builder pane constructs its widget from an explicit list of fields —
+    // anything not named there is silently dropped. That is how the first
+    // attempt to verify this from the UI failed: editing the widget orphaned
+    // the note, so the refresh afterwards had nothing to restate and the
+    // sentence stayed on screen beside five bars. Source-anchored because no
+    // unit test of the pure function can see an object literal drop a key.
+    const pane = fs.readFileSync("src/components/bi/BiBuilderPane.tsx", "utf8");
+    expect(pane).toContain("reconcile_note: initial?.reconcile_note,");
+    // And rechecked there too: the owner may have just changed the SQL.
+    const carries = pane.indexOf("reconcile_note: initial?.reconcile_note,");
+    const restates = pane.indexOf("restateWidgetNote({");
+    expect(carries).toBeGreaterThan(-1);
+    expect(restates).toBeGreaterThan(carries);
+    expect(pane).toMatch(
+      /\{ \.\.\.edited, title: restated\.title, reconcile_note: restated\.reconcile_note \}/,
+    );
+  });
+
+  it("has nothing to do for a widget that never carried a note", () => {
+    expect(
+      restateWidgetNote({ title: "Revenue by Region", sql: "SELECT r FROM x", rows: rows(3) }),
+    ).toBeNull();
+  });
+
+  it("restates a truncate note against the new total", () => {
+    const note = "Showing the top 5 of 36.";
+    const out = restateWidgetNote({
+      title: `Top 5 Months by Revenue — ${note}`,
+      sql: "SELECT m, SUM(v) AS t FROM x GROUP BY m ORDER BY t DESC",
+      chart: { type: "bar" },
+      reconcile_note: note,
+      rows: rows(40),
+    });
+    expect(out!.title).toBe("Top 5 Months by Revenue — Showing the top 5 of 40.");
+  });
+});
+
 describe("where the check is spent", () => {
   it("runs in both generators, and the race gets its N", async () => {
     const fs = await import("node:fs");
@@ -423,11 +584,11 @@ describe("where the check is spent", () => {
     const appliesNote = dash.indexOf("notes.length ? `${base}");
     expect(assignsFinal).toBeGreaterThan(-1);
     expect(appliesNote).toBeGreaterThan(assignsFinal);
-    // A second note source joined this one (the chart-field check). The title
-    // note has to remain IN that list: every other test in this file stops at
-    // reconcileTitle's return value, so a list that quietly dropped it would
-    // leave the R20 bug fixed in the unit tests and back on the dashboard.
-    expect(dash).toContain("const notes = [fixed.note,");
+    // Order is load-bearing now: the COUNT note must be the title's suffix or
+    // a refresh cannot find it again to restate it, and the field note must
+    // stay ahead of it because a refresh must not re-check and delete that one.
+    expect(dash).toContain("const notes = [fieldNote, fixed.note].filter(Boolean);");
+    expect(dash).toContain("widget.reconcile_note = fixed.note;");
     expect(dash).not.toMatch(/widget\.title = `\$\{widget\.title\} — \$\{fixed\.note\}`/);
     expect(dash).toMatch(/widget\.chart\.type === "barrace"/);
     expect(dash).toContain("topN: claim.n");

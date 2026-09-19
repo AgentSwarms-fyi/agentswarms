@@ -100,6 +100,7 @@ import {
   type BiWidget,
   type SemanticChartType,
 } from "@/lib/biDashboards";
+import { restateWidgetNote } from "@/lib/biTitleClaims";
 import type { SemanticQuery, TimeGrain } from "@/lib/semanticLayer";
 import { isAggregatableChart } from "@/lib/biAggregate";
 import { buildOntology, type OntologyBuildStage, type OntologySpec } from "@/lib/biOntology";
@@ -998,7 +999,7 @@ export function BiBuilderPane({
       return;
     }
     if (!preview) return;
-    onSubmit({
+    const edited: BiWidget = {
       id: initial?.id ?? crypto.randomUUID(),
       kind: "chart",
       title: title.trim(),
@@ -1025,7 +1026,29 @@ export function BiBuilderPane({
           ? { column: incColumn, days: Number(incDays) }
           : undefined,
       refreshed_at: new Date().toISOString(),
+      // Carried, not rebuilt. This pane constructs the widget field by field,
+      // so anything not named here is dropped — and dropping THIS one leaves
+      // the note's sentence in the title with nothing able to restate it ever
+      // again. Found by editing a widget and watching a refresh fail to
+      // withdraw a note it should have withdrawn.
+      reconcile_note: initial?.reconcile_note,
+    };
+    // The owner may have just changed the SQL, so the note is re-checked here
+    // for the same reason a refresh re-checks it: the result underneath it has
+    // changed. A title they retyped is left alone by the suffix test.
+    const restated = restateWidgetNote({
+      title: edited.title,
+      sql: edited.sql,
+      chart: edited.chart,
+      reconcile_note: edited.reconcile_note,
+      rows: edited.rows,
+      truncated: edited.truncated,
     });
+    onSubmit(
+      restated
+        ? { ...edited, title: restated.title, reconcile_note: restated.reconcile_note }
+        : edited,
+    );
     toast.success(initial ? "Widget updated" : "Widget added to the dashboard");
   }
 

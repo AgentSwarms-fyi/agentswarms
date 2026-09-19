@@ -237,3 +237,60 @@ export async function reconcileWidgetResult(args: {
     return unrepaired;
   }
 }
+
+/**
+ * Re-derive the count note on a refreshed widget, or take it away.
+ *
+ * A note like "Showing the top 5 of 36." is a statement about ONE query
+ * result. Refresh replaces that result and used to leave the sentence
+ * standing — a chart drawing five bars under a title still insisting the data
+ * had three rows. The note is the badge that outlived what it vouched for,
+ * and it is worse than the silence it replaced, because a reader who checks
+ * the caveat against the chart now finds the product contradicting itself.
+ *
+ * Only the COUNT note is re-derivable, which is why it is stored and why the
+ * generator puts it last. A field note ("returns no revenue column, so the
+ * rows are shown instead") describes a repair already applied to this widget —
+ * its chart is a table now — so re-running the check would find nothing wrong
+ * and delete a sentence that is still true.
+ *
+ * Returns null when nothing should change: no stored note, an owner who has
+ * edited the title out from under it, or a snapshot that hit the row cap and
+ * therefore cannot be counted against anything.
+ */
+export function restateWidgetNote(w: {
+  title?: string;
+  sql?: string;
+  chart?: { type?: string };
+  reconcile_note?: string;
+  rows?: unknown[];
+  truncated?: boolean;
+}): { title: string; reconcile_note?: string } | null {
+  const stored = typeof w.reconcile_note === "string" ? w.reconcile_note : "";
+  const title = typeof w.title === "string" ? w.title : "";
+  if (!stored || !title) return null;
+  // A capped snapshot has no row count to speak of — `rows.length` is the cap,
+  // not the result. Saying nothing here leaves the Partial badge to explain
+  // the widget, which is the honest division of labour.
+  if (w.truncated) return null;
+
+  const at = title.lastIndexOf(stored);
+  // The note has to still be where it was put. An owner who renamed the widget
+  // owns those words now, and a refresh does not edit them.
+  if (at < 0 || at + stored.length !== title.length) return null;
+
+  const head = title.slice(0, at);
+  const v = reconcileTitle({
+    title: head,
+    sql: w.sql,
+    chartType: w.chart?.type,
+    rowCount: Array.isArray(w.rows) ? w.rows.length : 0,
+  });
+  const next = v.verdict === "ok" ? "" : v.note;
+  if (next === stored) return null;
+  // Rebuilt from `head`, so whatever separated the notes originally survives.
+  const cleaned = head.endsWith(" — ") ? head.slice(0, -3) : head.trimEnd();
+  return next
+    ? { title: `${head}${next}`, reconcile_note: next }
+    : { title: cleaned, reconcile_note: undefined };
+}

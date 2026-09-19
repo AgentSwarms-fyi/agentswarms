@@ -126,6 +126,7 @@ import {
   type BiWidgetSource,
   type BiWidgetTheme,
 } from "@/lib/biDashboards";
+import { restateWidgetNote } from "@/lib/biTitleClaims";
 import { isAggregatableChart } from "@/lib/biAggregate";
 import { exportDashboardPdf } from "@/lib/biPdf";
 import { BiDeckDialog } from "@/components/bi/BiDeckDialog";
@@ -983,14 +984,29 @@ function BiProjectPage() {
       try {
         const res = await runSql(w.source ?? { kind: "local" }, w.sql!);
         const idx = next.findIndex((x) => x.id === w.id);
+        const rows = snapshotRows(res.rows);
+        const capped = res.capped || res.rows.length > widgetRowCap();
+        // Same restatement the scheduled refresh does. Both paths replace the
+        // rows, so both have to re-check whatever sentence was counting them —
+        // one of the two doing it would just make the widget's caveat depend
+        // on which button the owner pressed.
+        const restated = restateWidgetNote({
+          title: next[idx].title,
+          sql: w.sql,
+          chart: next[idx].chart,
+          reconcile_note: next[idx].reconcile_note,
+          rows,
+          truncated: capped,
+        });
         next[idx] = {
           ...next[idx],
+          ...(restated ? { title: restated.title, reconcile_note: restated.reconcile_note } : {}),
           columns: res.columns,
-          rows: snapshotRows(res.rows),
+          rows,
           // Carry the engine's own verdict. Refreshing used to clear nothing
           // and set nothing, so a widget that came back capped was stored as
           // complete and lost its badge.
-          truncated: res.capped || res.rows.length > widgetRowCap(),
+          truncated: capped,
           refreshed_at: new Date().toISOString(),
         };
       } catch (e) {

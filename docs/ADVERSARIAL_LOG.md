@@ -109,6 +109,65 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-20 — The badge that outlived what it vouched for
+
+The opening paragraph of this log names the failure it exists to hunt: _a badge
+that outlives what it vouched for_. The reconciliation notes built over R20-R23
+were exactly that, and had been since the first one shipped.
+
+#### R24 · S1 · "The data has 3 rows, not 5." beside a chart drawing five bars
+
+A note is a statement about ONE query result. `refreshAll` in the dashboard
+route and `applyResult` in the scheduled refresh both replace that result —
+they rewrite `rows`, `columns`, `truncated` and `refreshed_at` — and neither
+has ever touched `title`. The note is fused into the title string, so it stands
+unchanged while the thing it describes is swapped out underneath it.
+
+The result is worse than the silence it replaced. A reader who takes the
+trouble to check the caveat against the chart finds the product contradicting
+itself, and learns that its caveats are decoration.
+
+`restateWidgetNote` re-derives the count on every write that replaces the rows
+and rewrites the sentence, or withdraws it. It is stored on the widget as
+`reconcile_note` rather than parsed back out of the title, because a separator
+is not a marker: an owner may put an em dash in a title for their own reasons.
+
+Three things deliberately stop it. A snapshot that hit the row cap has no count
+to speak of — `rows.length` is the cap, not the result — so the note stands and
+the **Partial** badge explains the widget instead. A title whose suffix is no
+longer the note has been rewritten by its owner, and those are their words now.
+And a note that is still exactly right is left byte-identical, so a refresh that
+changes nothing writes nothing and cannot lose a concurrent edit.
+
+Only the COUNT note is re-derivable, which is why it is stored and why the
+generator now emits it last. A field note ("returns no revenue column, so the
+rows are shown instead") describes a repair already applied to that widget — its
+chart is a table now — so re-running that check would find nothing wrong and
+delete a sentence that is still true.
+
+#### R24 · S1 · A new field is not a field every writer knows about
+
+Found by the UI test failing, and it was my own change that caused it.
+
+The first attempt to verify this drove the obvious route: generate a widget with
+a note, edit its SQL so the row count changes, refresh, watch the note go. The
+note did not go. The widget had no `reconcile_note` at all — `BiBuilderPane`
+constructs its widget from an explicit list of fields, and anything not named
+there is dropped. Editing any widget therefore ORPHANED its note: the sentence
+stayed in the title with nothing able to restate it, permanently.
+
+Adding a field to a type does not add it to the code that rebuilds objects field
+by field. The same lesson as the stored-identifier one further down this log —
+enumerate every writer — in a new disguise. The pane now carries the note and
+restates it on save, for the same reason a refresh does: the owner may have just
+changed the SQL underneath it.
+
+The test for it is source-anchored, because no unit test of a pure function can
+watch an object literal fail to mention a key.
+
+**Tests:** 39 in `biTitleClaims`, 11 behaviour-changing mutants applied one at a
+time and each killed, control missed, baseline verified green first.
+
 ### 2026-09-20 — A chart names its columns, and the query need not return them
 
 R22 recorded this open and did not fix it. Fixed here, with the part that is

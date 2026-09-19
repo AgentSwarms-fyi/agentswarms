@@ -127,6 +127,16 @@ export type BiWidget = {
    * edit to an old row will not be seen until a full refresh.
    */
   incremental?: { column: string; days: number };
+  /**
+   * The count note currently at the END of `title`, stored verbatim.
+   *
+   * "Showing the top 5 of 36." is a claim about one query result, and refresh
+   * replaces that result. Keeping the sentence here is what lets a refresh
+   * find it again and restate it — matching on a separator would not, because
+   * an owner may put an em dash in a title for their own reasons. See
+   * `restateWidgetNote`.
+   */
+  reconcile_note?: string;
   /** Last refresh filled the snapshot to the row cap — totals may be partial. */
   truncated?: boolean;
   /**

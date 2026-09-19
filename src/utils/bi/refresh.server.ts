@@ -43,6 +43,7 @@ import { loadWarehouseConnectionForUser } from "@/utils/warehouse/connections.se
 import { executeWarehouseQuery } from "@/utils/warehouse/drivers.server";
 import { parsePrepConfig } from "@/lib/dataPrepCore";
 import { assertLocalReadOnlySql } from "@/lib/sqlSafety";
+import { restateWidgetNote } from "@/lib/biTitleClaims";
 import { STAGING_PREFIX } from "@/lib/datasetParse";
 import { localEngineName } from "@/utils/data/localEngine.server";
 
@@ -345,6 +346,21 @@ function applyResult(
   }
   w.columns = result.columns;
   w.refreshed_at = new Date().toISOString();
+  // The rows just changed, so any sentence counting them has to be re-checked
+  // or withdrawn. Left alone, "The data has 3 rows, not 5." goes on being
+  // displayed beside a chart drawing five bars.
+  const restated = restateWidgetNote({
+    title: w.title,
+    sql: w.sql,
+    chart: w.chart as { type?: string } | undefined,
+    reconcile_note: typeof w.reconcile_note === "string" ? w.reconcile_note : undefined,
+    rows: w.rows,
+    truncated: w.truncated,
+  });
+  if (restated) {
+    w.title = restated.title;
+    w.reconcile_note = restated.reconcile_note;
+  }
 }
 
 // ── Dashboard refresh ────────────────────────────────────────────────────

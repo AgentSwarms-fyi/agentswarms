@@ -432,10 +432,15 @@ export function GenerateDashboardDialog({
             // it is silently overwritten by this line — which is exactly what
             // happened, and what driving the dashboard caught.
             const base = picks[i].title || widget.title;
-            const notes = [fixed.note, fields.verdict !== "ok" ? fields.note : undefined].filter(
-              Boolean,
-            );
+            // The COUNT note goes last and is stored on the widget. It is the
+            // only one a later refresh can re-derive, and it can only be found
+            // again if it is the title's suffix. The field note stays ahead of
+            // it: it describes a repair already applied to this widget, so a
+            // refresh must not re-check and delete it.
+            const fieldNote = fields.verdict !== "ok" ? fields.note : undefined;
+            const notes = [fieldNote, fixed.note].filter(Boolean);
             widget.title = notes.length ? `${base} — ${notes.join(" ")}` : base;
+            widget.reconcile_note = fixed.note;
             widgets.push(widget);
           } else {
             // runBiTurn resolves (never throws) with the reason on the turn.

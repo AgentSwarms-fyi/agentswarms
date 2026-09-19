@@ -118,8 +118,20 @@ describe("creation and refresh both record truncation", () => {
     // path in the same file already contains that, so deleting the line in
     // `refreshAll` left the loose assertion still passing. Mutation testing
     // caught it: the check has to name the whole expression it is pinning.
-    expect(DASHBOARD).toMatch(
-      /truncated:\s*res\.capped\s*\|\|\s*res\.rows\.length\s*>\s*widgetRowCap\(\)/,
+    //
+    // The expression is now hoisted into a const, because the note restatement
+    // in the same block needs the same verdict and computing it twice is how
+    // the two drift. So the pin moved with it: the whole expression on the
+    // const, and `truncated` taking that const rather than recomputing.
+    expect(DASHBOARD, "the manual refresh no longer derives capped from the engine").toContain(
+      "const capped = res.capped || res.rows.length > widgetRowCap();",
+    );
+    // `truncated: capped,` appears TWICE in that block — once as an argument to
+    // restateWidgetNote and once on the widget — so pin the one that lands on
+    // the widget by the line that follows it. Matching either occurrence is the
+    // same trap the looser pattern above fell into.
+    expect(DASHBOARD, "the widget itself no longer records truncation").toMatch(
+      /truncated: capped,\s+refreshed_at: new Date\(\)\.toISOString\(\),/,
     );
   });
 
