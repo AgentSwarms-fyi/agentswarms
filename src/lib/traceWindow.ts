@@ -76,3 +76,28 @@ export async function pageTraces<Row>(
   }
   return all;
 }
+
+/**
+ * The same sentence for a list that is not traces.
+ *
+ * Swarm Observability had the identical defect this module was written for —
+ * `.limit(200)` and then "N swarm runs · auto-deleted after 30 days", which is
+ * a statement about the account made by a read that only saw the first page.
+ * Rather than a second helper that could drift, the noun is a parameter: one
+ * module keeps owning the two sentences, and the two Observability pages
+ * cannot end up describing the same situation differently.
+ */
+export function countHeadline(
+  w: TraceWindow,
+  noun: { one: string; many: string },
+  rangeLabel = "the last 30 days",
+): string {
+  if (windowComplete(w)) {
+    const word = w.total === 1 ? noun.one : noun.many;
+    return `${w.total.toLocaleString()} ${word} over ${rangeLabel}`;
+  }
+  return (
+    `showing the most recent ${w.fetched.toLocaleString()} of ` +
+    `${w.total.toLocaleString()} ${noun.many} from ${rangeLabel}`
+  );
+}

@@ -5,10 +5,13 @@
 // header told the user "1,000 traces over the last 30 days" for an account
 // holding 2,731 — with spend, tokens, agent count and a 32%-biased average
 // latency all inheriting the truncation.
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
+  countHeadline,
   pageTraces,
   traceCountHeadline,
   traceKpiQualifier,
@@ -169,5 +172,65 @@ describe("getExecutionTraces carries the true total (tripwire)", () => {
     const src = readFileSync(resolve("src/utils/traceLog.functions.ts"), "utf8");
     expect(src).toMatch(/count:\s*"exact",\s*head:\s*true/);
     expect(src).toMatch(/total:\s*count\s*\?\?\s*traces\.length/);
+  });
+});
+
+describe("the same sentence for a list that is not traces (module 22)", () => {
+  // Swarm Observability had the identical defect this module exists for:
+  // `.limit(200)` and then "N swarm runs · auto-deleted after 30 days" — a
+  // statement about the ACCOUNT made by a read that only saw the first page.
+  // The noun is a parameter so the two Observability pages cannot end up
+  // describing the same situation in different words.
+  const RUNS = { one: "swarm run", many: "swarm runs" };
+
+  it("claims the total when the window holds everything", () => {
+    expect(countHeadline({ fetched: 42, total: 42 }, RUNS)).toBe(
+      "42 swarm runs over the last 30 days",
+    );
+  });
+
+  it("says most-recent-of when the read was capped", () => {
+    expect(countHeadline({ fetched: 200, total: 1312 }, RUNS)).toBe(
+      "showing the most recent 200 of 1,312 swarm runs from the last 30 days",
+    );
+  });
+
+  it("never implies completeness it does not have", () => {
+    const capped = countHeadline({ fetched: 200, total: 1312 }, RUNS);
+    // The failure this prevents is the bare "200 swarm runs" that reads as the
+    // whole account. Any capped sentence must name BOTH numbers.
+    expect(capped).toContain("200");
+    expect(capped).toContain("1,312");
+    expect(capped.startsWith("200 swarm runs")).toBe(false);
+  });
+
+  it("uses the singular only for exactly one", () => {
+    expect(countHeadline({ fetched: 1, total: 1 }, RUNS)).toBe("1 swarm run over the last 30 days");
+    expect(countHeadline({ fetched: 0, total: 0 }, RUNS)).toBe(
+      "0 swarm runs over the last 30 days",
+    );
+  });
+
+  it("takes the range label like its sibling does", () => {
+    expect(countHeadline({ fetched: 3, total: 3 }, RUNS, "the last 7 days")).toBe(
+      "3 swarm runs over the last 7 days",
+    );
+  });
+
+  it("is what Swarm Observability actually renders", () => {
+    // Source-anchored: the helper being correct is half of it, the page asking
+    // the database for the exact total is the other half.
+    const src = readFileSync("src/routes/_authenticated/analytics_.observability.tsx", "utf8");
+    expect(src).toContain('.select("id", { count: "exact", head: true })');
+    // The RENDERED branch, not the mere presence of the call: a mutant that
+    // put `${runs.length} swarm runs` in front of it left "countHeadline("
+    // in the file and printed the bare row count anyway.
+    expect(src).toContain("            : countHeadline(");
+    expect(src).toContain('{ one: "swarm run", many: "swarm runs" }');
+    // A failed count must not fail the page, but then the label may only claim
+    // what it holds.
+    expect(src).toContain("setExactTotal(countError ? rows.length : (exact ?? rows.length));");
+    // And the list itself says when it is cut.
+    expect(src).toContain("Only the most recent");
   });
 });

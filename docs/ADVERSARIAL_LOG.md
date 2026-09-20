@@ -109,6 +109,50 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-20 — Swarm Observability presented its first page as the account
+
+#### R35 · S1 · The sibling page's fix had never been applied here
+
+`/analytics/observability` reads `swarm_runs` for the last 30 days with
+`.limit(200)` and then says:
+
+> 200 swarm runs · click a row to inspect agent-level traces · auto-deleted
+> after 30 days
+
+That is a statement about the ACCOUNT made by a read that saw only the first
+page, and "auto-deleted after 30 days" sitting beside it makes the number read
+as the whole retained history rather than as a page of it.
+
+The first pass had already fixed this page's OTHER half: `listClaim` makes a
+count and an empty state claims only a completed read may make, so a query error
+prints "unknown" rather than zero. The capped half was never touched — and the
+identical defect had been found and fixed on the sibling page, `/traces`, where
+`lib/traceWindow` was written for it. That module's header says it exists "so
+they are testable and cannot drift into implying completeness the read does not
+have", and one page of the Observability pair was doing exactly that.
+
+So the fix reuses the module rather than adding a second one: the noun is a
+parameter, the exact count for the same window is read before the rows, and the
+page either states the total or says "showing the most recent 200 of 1,312 swarm
+runs from the last 30 days". When the window is cut, the list says so again above
+the table — a reader who scrolls past the header is still entitled to know the
+rows below are a page.
+
+**Tests:** 24 in `traceWindow`, 8 behaviour-changing mutants applied one at a
+time and each killed, control missed, baseline verified green first.
+
+#### R35 · S3 · Presence is not use — a third time
+
+The source anchor checked that the file contains `countHeadline(`. A mutant that
+put `${runs.length} swarm runs` in front of the call left that string in place
+and printed the bare row count anyway, and the assertion stayed green.
+
+This is the third source anchor this session satisfied by an identifier that no
+longer did anything: `olderThanShown` still present while always set to zero, a
+phrase matched in a doc comment instead of the log line it described, and now a
+function still called but no longer rendered. The rule that keeps surviving
+contact: **pin the branch that runs, not the token that appears.**
+
 ### 2026-09-20 — The budget gate counted unpriced calls as free
 
 Three rows of the partiality sweep. Two clear, one the most consequential

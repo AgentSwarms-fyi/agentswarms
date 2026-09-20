@@ -1,6 +1,7 @@
 import { createFileRoute, Link, Outlet, useLocation } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { listClaim, UNKNOWN_COUNT } from "@/lib/listClaim";
+import { countHeadline, windowComplete } from "@/lib/traceWindow";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { Card } from "@/components/ui/card";
@@ -45,10 +46,19 @@ function ObservabilityList() {
   const location = useLocation();
   const isDetailRoute = location.pathname.startsWith("/analytics/observability/");
 
+  const [exactTotal, setExactTotal] = useState(0);
   useEffect(() => {
     if (!user) return;
     void (async () => {
       const since = new Date(Date.now() - 30 * 86400000).toISOString();
+      // The exact count for the same window, read before the rows. Without it
+      // the header presents the first page as the population — "200 swarm
+      // runs" to an account that made a thousand this month, which is the
+      // defect this page's sibling (/traces) already fixed.
+      const { count: exact, error: countError } = await supabase
+        .from("swarm_runs")
+        .select("id", { count: "exact", head: true })
+        .gte("started_at", since);
       const { data, error } = await supabase
         .from("swarm_runs")
         .select(
@@ -63,7 +73,11 @@ function ObservabilityList() {
         return;
       }
       setLoadError(null);
-      setRuns((data ?? []) as Run[]);
+      const rows = (data ?? []) as Run[];
+      setRuns(rows);
+      // A failed count is not worth failing the page over — rows on screen beat
+      // a perfect label — but then the label claims only what it holds.
+      setExactTotal(countError ? rows.length : (exact ?? rows.length));
     })();
   }, [user]);
 
@@ -93,10 +107,21 @@ function ObservabilityList() {
         </p>
         <h1 className="font-display text-3xl font-semibold tracking-tight">Swarm Observability</h1>
         <p className="text-muted-foreground mt-1 text-sm">
-          {claim.message === "error" ? UNKNOWN_COUNT : runs.length} swarm run
-          {claim.message !== "error" && runs.length === 1 ? "" : "s"} · click a row to inspect
-          agent-level traces · auto-deleted after 30 days
+          {claim.message === "error"
+            ? `${UNKNOWN_COUNT} swarm runs`
+            : countHeadline(
+                { fetched: runs.length, total: exactTotal },
+                { one: "swarm run", many: "swarm runs" },
+              )}{" "}
+          · click a row to inspect agent-level traces · auto-deleted after 30 days
         </p>
+        {claim.message !== "error" &&
+          !windowComplete({ fetched: runs.length, total: exactTotal }) && (
+            <p className="mt-0.5 text-xs text-warning">
+              Only the most recent {runs.length.toLocaleString()} are listed — anything below covers
+              these, not all {exactTotal.toLocaleString()}.
+            </p>
+          )}
         <p className="text-muted-foreground mt-1 text-xs">
           Looking for single-agent or playground traces? See{" "}
           <Link to="/traces" className="underline">
