@@ -633,6 +633,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "level": 3
       },
       {
+        "id": "one-of-many",
+        "text": "A single-value card says which row it is showing",
+        "level": 3
+      },
+      {
         "id": "scan",
         "text": "Scan — computed, not generated",
         "level": 3

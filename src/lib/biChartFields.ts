@@ -194,3 +194,34 @@ export function reconcileChartFields(args: {
       : undefined,
   };
 }
+
+/**
+ * How many rows a single-value chart is drawing one of, or null when it is
+ * showing everything there is.
+ *
+ * A KPI renders `rows[0][valueField]` and nothing else. When the query returned
+ * one row that is the whole truth; when it returned three, the card shows a
+ * third of a breakdown in the type size reserved for a headline. Live examples,
+ * off a generated dashboard: "Revenue by Region" displaying AMER's 25,874.92
+ * of a 51,749.84 total, and "Units Sold by Plan" displaying `free` of three
+ * plans. Neither said so.
+ *
+ * Restricted to a NUMERIC first value on purpose. "Best Month by Revenue" is a
+ * KPI over 36 ordered rows whose `valueField` is `month` — row zero IS the
+ * answer there, and a caveat on it would be noise that teaches readers to
+ * ignore the caveats that matter. A measure is the case where row zero is one
+ * slice presented as the total.
+ *
+ * Computed where the number is drawn rather than stored with the widget: a
+ * count of rows that a refresh can replace is exactly the sentence that goes
+ * stale, and this one cannot, because nothing keeps it.
+ */
+export function unshownRows(
+  rows: Record<string, unknown>[] | undefined,
+  valueField: string | undefined,
+): number | null {
+  if (!valueField || !Array.isArray(rows) || rows.length < 2) return null;
+  const v = rows[0]?.[valueField];
+  if (typeof v !== "number" || !Number.isFinite(v)) return null;
+  return rows.length;
+}

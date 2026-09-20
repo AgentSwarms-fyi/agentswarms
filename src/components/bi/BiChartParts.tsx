@@ -52,12 +52,15 @@ export function GaugeChart({
   max,
   label,
   format,
+  caveat,
 }: {
   value: number;
   target?: number;
   max?: number;
   label?: string;
   format?: BiNumberFormat | BiFormatOptions;
+  /** Shown under the dial when the query returned more rows than it draws. */
+  caveat?: string;
 }) {
   const resolvedMax = Math.max(
     max ?? (target !== undefined ? target * 1.25 : value * 1.33),
@@ -123,6 +126,14 @@ export function GaugeChart({
       {label && (
         <p className="mt-0.5 text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
           {label}
+        </p>
+      )}
+      {caveat && (
+        <p
+          className="mt-0.5 cursor-help text-[10px] text-muted-foreground"
+          title="This query returned more rows than a single-value chart draws. The rest are not on this card."
+        >
+          {caveat}
         </p>
       )}
     </div>

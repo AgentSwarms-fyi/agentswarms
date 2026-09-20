@@ -852,6 +852,26 @@ GROUP BY region`}</Code>
         repair onto the wrong column, which is worse than the blank chart it set out to fix.
       </P>
 
+      <H3 id="one-of-many">A single-value card says which row it is showing</H3>
+      <P>
+        A KPI draws the first row of its result and nothing else. When the query returned one row
+        that is the whole truth. When it returned three, the card is showing a third of a breakdown
+        in the type size reserved for a headline — <C>Revenue by Region</C> displaying one region's
+        25,874.92 out of a 51,749.84 total, with nothing on the card saying so.
+      </P>
+      <P>
+        Single-value charts now carry <strong>1 of N rows</strong> under the number whenever their
+        query returned more rows than they draw. It appears only when the value is a{" "}
+        <em>measure</em>: <C>Best Month by Revenue</C> is a KPI over thirty-six ordered rows whose
+        value is a month name, and there row one is the answer. A caveat on that would be noise, and
+        noise is what teaches people to ignore the caveats that matter.
+      </P>
+      <P>
+        It is computed where the number is drawn rather than stored with the widget. A count of rows
+        is exactly the kind of sentence that goes stale when the data changes — this one cannot,
+        because nothing keeps it.
+      </P>
+
       <H3 id="scan">Scan — computed, not generated</H3>
       <P>
         <strong>Scan</strong> in the toolbar is the opposite kind of thing: it runs the obvious

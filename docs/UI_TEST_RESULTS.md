@@ -15,6 +15,36 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-20 — A single-value card says which row it draws, ADVERSARIAL_LOG R25
+
+**Driven.** The existing generated dashboard on the rebuilt image — no new
+generation, because the dashboard already held the three cases and inventing a
+fourth would have proved less. Widget objects were read out of React state to
+get `chart.type`, `valueField` and the real row arrays, then the rendered DOM
+was read back for what the cards actually say.
+
+| Card (live, unchanged)                               | Before                     | After                                                      |
+| ---------------------------------------------------- | -------------------------- | ---------------------------------------------------------- |
+| **Revenue by Region** — kpi, 3 rows, `total_revenue` | `AMER 25.9k`, nothing else | `AMER 25.9k` **+ "1 of 3 rows"**                           |
+| **Units Sold by Plan** — kpi, 3 rows, `total_units`  | `FREE 2.1k`, nothing else  | `FREE 2.1k` **+ "1 of 3 rows"**                            |
+| **Best Month by Revenue** — kpi, 36 rows, `month`    | `2025-05`                  | `2025-05`, **no caveat** — correct, row zero is the answer |
+| **Total Revenue** — kpi, 1 row                       | `51.7k`                    | `51.7k`, unchanged                                         |
+| **Total Units Sold** — kpi, 1 row                    | `6.4k`                     | `6.4k`, unchanged                                          |
+
+**Two caveats on the whole dashboard, and they are the right two.** Counted in
+the DOM across roughly twenty-six widgets: exactly two nodes matching
+`1 of N rows`, owned by Revenue by Region and Units Sold by Plan. The genuine
+one-row totals stayed clean, and the ordered-label KPI stayed clean. A guard
+that fires where it should not is worse than the gap it closes — on a dashboard
+this size, that is the half the UI can actually prove.
+
+**Nothing was regenerated or edited.** These cards were built in earlier rounds
+and were left exactly as they were; only the renderer changed. That is the point
+of computing the count at render rather than storing it — it reaches widgets
+that already exist, and it cannot go stale on the ones that do not change.
+
+Findings from this round: R25 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-20 — A note re-checked when the rows under it change, ADVERSARIAL_LOG R24
 
 **Driven.** The running instance on the rebuilt image, against the lakehouse

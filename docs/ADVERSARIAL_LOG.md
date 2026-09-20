@@ -109,6 +109,53 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-20 — A headline number that was one row of three
+
+#### R25 · S1 · `rows[0]` in the type size reserved for a total
+
+`BiChartRender` draws a KPI as `rows[0]?.[chart.valueField]` and stops. When the
+query returned one row that is the whole truth. When it returned three, the card
+puts one slice of a breakdown in the largest type on the dashboard and says
+nothing about the other two.
+
+Three live instances, read out of React state on a generated dashboard:
+
+| Card                  | Shows          | Of                                                |
+| --------------------- | -------------- | ------------------------------------------------- |
+| Revenue by Region     | AMER 25,874.92 | 3 rows — EMEA 15,524.94 and APAC 10,349.98 unseen |
+| Units Sold by Plan    | free 2,139     | 3 rows — pro 2,118, enterprise 2,097 unseen       |
+| Best Month by Revenue | "2025-05"      | 36 rows — and CORRECT                             |
+
+The first is the shape of the problem: 25,874.92 is half of the 51,749.84 total,
+displayed under a title promising the breakdown. A reader takes the big number
+as the answer, because that is what big numbers on dashboards are.
+
+**The third is why the rule is not "a KPI with more than one row".** "Best Month
+by Revenue" is a KPI over thirty-six ORDERED rows whose `valueField` is `month`.
+Row zero is the answer there. A caveat on it would be noise, and noise is what
+teaches people to ignore the caveats that matter. The check therefore fires only
+when the displayed value is a **measure** — a finite number — which is exactly
+the case where row zero is one slice presented as a total, and excludes the case
+where it is the extreme the title asked for.
+
+`unshownRows` is computed where the number is drawn, not stored on the widget.
+That is a deliberate consequence of R24: a count of rows is precisely the kind of
+sentence that goes stale when a refresh replaces the rows, and this one cannot,
+because nothing keeps it. Single-value charts carry `1 of N rows` under the
+figure; the gauge takes the same caveat, since a gauge is a single-value chart
+with a dial around it.
+
+**Tests:** 21 in `biChartFields`, 8 behaviour-changing mutants applied one at a
+time and each killed, control missed, baseline verified green first.
+
+A ninth candidate mutant was investigated and dropped rather than counted:
+removing the `!valueField` guard is a **tsc** error (TS2538, "Type 'undefined'
+cannot be used as an index type"), so it is caught by the typecheck rather than
+by this suite, and the numeric test below it would swallow it at runtime anyway.
+Established by applying it and running tsc, not by reasoning about it — a
+surviving mutant is either a test gap or an equivalent one, and which of the two
+is not a judgement call to make from the armchair.
+
 ### 2026-09-20 — The badge that outlived what it vouched for
 
 The opening paragraph of this log names the failure it exists to hunt: _a badge

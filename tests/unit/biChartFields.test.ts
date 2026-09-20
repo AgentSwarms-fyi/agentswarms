@@ -15,7 +15,7 @@ import fs from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import type { ChartSpec } from "@/lib/biAgent";
-import { numericColumns, reconcileChartFields } from "@/lib/biChartFields";
+import { numericColumns, reconcileChartFields, unshownRows } from "@/lib/biChartFields";
 
 /** The five rows the live query actually returned: a month, and nothing else. */
 const MONTHS_ONLY = [
@@ -192,6 +192,60 @@ describe("which field has to be a number depends on the chart", () => {
       "ok",
     );
     expect(reconcileChartFields({ chart: undefined, columns: ["a"], rows: [] }).verdict).toBe("ok");
+  });
+});
+
+describe("a single-value chart drawing one row of several", () => {
+  // All three taken off a generated dashboard. A KPI renders rows[0] and
+  // nothing else, so the first two put a third of a breakdown in the type size
+  // reserved for a headline, and said nothing about it.
+  const BY_REGION = [
+    { region: "AMER", total_revenue: 25874.92 },
+    { region: "EMEA", total_revenue: 15524.94 },
+    { region: "APAC", total_revenue: 10349.98 },
+  ];
+
+  it("counts the rows a KPI is not showing", () => {
+    // 25,874.92 of a 51,749.84 total, under a card titled "Revenue by Region".
+    expect(unshownRows(BY_REGION, "total_revenue")).toBe(3);
+  });
+
+  it("says nothing when the one row IS the result", () => {
+    expect(unshownRows([{ total: 51749.84 }], "total")).toBeNull();
+  });
+
+  it("says nothing about a label, only about a measure", () => {
+    // "Best Month by Revenue" is a KPI over 36 ordered rows whose valueField is
+    // `month`. Row zero IS the answer there. A caveat on it would be noise, and
+    // noise is what teaches readers to ignore the caveats that matter.
+    const months = [{ month: "2025-05" }, { month: "2025-04" }, { month: "2025-06" }];
+    expect(unshownRows(months, "month")).toBeNull();
+  });
+
+  it("is unmoved by a missing field, an empty result or no rows at all", () => {
+    expect(unshownRows(BY_REGION, undefined)).toBeNull();
+    expect(unshownRows(BY_REGION, "not_a_column")).toBeNull();
+    expect(unshownRows([], "total_revenue")).toBeNull();
+    expect(unshownRows(undefined, "total_revenue")).toBeNull();
+  });
+
+  it("does not count a non-finite first value", () => {
+    expect(unshownRows([{ v: Number.NaN }, { v: 2 }], "v")).toBeNull();
+  });
+
+  it("is drawn by both single-value charts, and computed where it is drawn", () => {
+    // Not stored on the widget: a count of rows that a refresh can replace is
+    // exactly the sentence that goes stale. This one is derived at render, so
+    // there is nothing to restate and nothing that can outlive its data.
+    const render = fs.readFileSync("src/components/bi/BiChartRender.tsx", "utf8");
+    expect(render).toContain("const ofRows = unshownRows(rows, chart.valueField);");
+    expect(render).toMatch(/1 of \{ofRows\} rows/);
+    expect(render).toContain("const gaugeOf = unshownRows(rows, chart.valueField);");
+    expect(render).toMatch(/caveat=\{gaugeOf !== null \? `1 of \$\{gaugeOf\} rows` : undefined\}/);
+    // And the gauge has to actually render what it is handed.
+    const parts = fs.readFileSync("src/components/bi/BiChartParts.tsx", "utf8");
+    expect(parts).toMatch(/\{caveat && \(/);
+    expect(parts).toContain("{caveat}");
   });
 });
 
