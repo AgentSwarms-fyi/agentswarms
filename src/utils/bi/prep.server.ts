@@ -14,6 +14,7 @@
 import { createRequire } from "node:module";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { selectAllPages } from "@/lib/pagedSelect";
 import { registerPrepFns } from "@/lib/alasqlPrepFns";
 import { STAGING_PREFIX } from "@/lib/datasetParse";
 import type { Json } from "@/integrations/supabase/types";
@@ -197,24 +198,23 @@ async function loadFlowTables(
   for (const t of tables ?? []) {
     if (!needed.has(t.name)) continue;
     if (cfg?.sources?.[t.name]) continue; // already buffered from the warehouse
-    const rows: Record<string, unknown>[] = [];
-    const PAGE = 1000;
-    let hitCap = false;
-    for (let start = 0; start < sourceCap; start += PAGE) {
-      const { data: chunk, error: rowErr } = await supabaseAdmin
-        .from("user_data_rows")
-        .select("row")
-        .eq("table_id", t.id)
-        .range(start, start + PAGE - 1);
-      if (rowErr || !chunk || chunk.length === 0) break;
-      rows.push(...chunk.map((c) => c.row as Record<string, unknown>));
-      if (chunk.length < PAGE) break;
-      if (rows.length >= sourceCap) {
-        hitCap = true;
-        break;
-      }
-    }
-    if (hitCap) truncated.push(t.name);
+    // Through selectAllPages, which advances by the rows it RECEIVED and keeps
+    // the page's error. The old loop advanced by the page it asked for, so a
+    // short page left a HOLE rather than a tail — and `hitCap` only ever
+    // described the ceiling, never the rows a failed or clamped page dropped on
+    // the way to it. A prep flow reading a dataset with gaps produces a
+    // perfectly ordinary-looking output.
+    const scan = await selectAllPages<{ row: unknown }>(
+      () =>
+        supabaseAdmin
+          .from("user_data_rows")
+          .select("row")
+          .eq("table_id", t.id)
+          .order("id", { ascending: true }),
+      sourceCap,
+    );
+    const rows = scan.rows.map((c) => c.row as Record<string, unknown>);
+    if (scan.truncated) truncated.push(t.name);
     let columns = Array.isArray(t.columns) ? (t.columns as FlowTable["columns"]) : [];
     let visibleRows = rows;
     // A dataset that is neither yours nor a sample reached you through a grant,

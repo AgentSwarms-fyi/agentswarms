@@ -109,6 +109,125 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-21 — The offset that advanced by what it asked for
+
+#### R44 · S1 · Not a short tail. Holes.
+
+`start += PAGE` after a page that came back short does not truncate a read — it
+puts **holes** in it. Ask rows 0-999, receive 500 because `db-max-rows` says so,
+then ask 1000-1999: rows 500-999 are never requested at all.
+
+That distinction is the finding. A missing TAIL can be caught by comparing what
+was read against an exact count, and several call sites in this repo do exactly
+that — `bi/quality` sets `capped`, `etl/service` sets `truncated`. A missing
+MIDDLE reports the same way: fewer rows than the count, a caveat about
+truncation, and rows that are not a prefix of anything. Every figure computed
+from them is wrong in a direction nothing can predict, and the caveat that fires
+describes the wrong problem.
+
+Five internal sites advanced by the request. Three had no way for anything
+downstream to tell:
+
+| Site                    | Error     | Order    | Discloses |
+| ----------------------- | --------- | -------- | --------- |
+| `tools/sql.server.ts`   | folded in | **none** | **no**    |
+| `bi/prep.server.ts`     | folded in | **none** | cap only  |
+| `bi/versions.server.ts` | correct   | **none** | **no**    |
+
+**The SQL tool is the one that matters most.** It is what an agent calls to
+answer a question about a dataset, and it was reading a table with its middle
+missing, with the page's error folded into the exhaustion test and no `ORDER BY`
+at all. The agent then answers, confidently, from a sample nobody chose.
+
+**The version copy is the one with the sharpest irony.** Its error branch was
+already right, and says so:
+
+> A partial copy is worse than an honest metadata-only version: it would present
+> itself as restorable and then silently lose rows.
+
+The paging directly beneath that comment did precisely what the comment refuses
+— a clamped page left a hole in a snapshot that still called itself restorable.
+The fix is to make the paging agree with the doctrine the file already had.
+
+All three read through `selectAllPages` now, which advances by the rows it
+RECEIVED, orders by `id`, and reports whether its ceiling stopped it. The SQL
+tool refuses rather than answering from a prefix (`SQL_TOOL_MAX_ROWS`, default
+200,000); prep keeps naming the datasets it could not read whole; a version
+stores metadata only rather than a copy with gaps.
+
+**Tests:** 15 in `offsetAdvance`, 8 behaviour-changing mutants applied one at a
+time and each killed, control missed, baseline verified green first.
+
+The test file keeps the OLD loop as `legacyPager` so the defect stays
+demonstrable rather than described. Against 2,500 rows behind a server that
+hands back 400 it asserts not "too few rows" but **which** rows were never
+asked for:
+
+```ts
+expect(seen.has(399)).toBe(true);
+expect(seen.has(400)).toBe(false);
+```
+
+#### R44 · S3 · The test double was shaped to the bug
+
+`embedBiAllowList` drives the SQL tool against a fake Supabase client, and the
+fix broke it twice over.
+
+The shallow break: the stub had no `.order()`, because the query never had one.
+Adding the method is trivial. The interesting break is underneath it — the stub
+**ignored the range window entirely** and returned every row of the table for
+any page, faking an ending with a flag that made the un-ranged call return `[]`:
+
+```ts
+// Second page must come back empty or loadUserTables loops forever.
+data: ranged ? (rowsByTable[id] ?? []).map((row) => ({ row })) : [],
+```
+
+That only works against a pager that stops at the first short page. The comment
+even says so: the stub had to manufacture an ending because the loop it was
+written for could not find one honestly. A pager that advances by the rows it
+received asks for page after identical page until its ceiling — which is what
+happened.
+
+So the double had been built to the shape of the defect, and it would have kept
+any correct implementation looking broken. It honours `range` now, which is both
+the fix and a truer stand-in, since the real builder does.
+
+A test double that models the call shape a buggy caller happens to make is not
+neutral: it votes for the bug. When a fix makes a stub fail, the question is
+which of the two was describing the real system.
+
+#### R44 · process · Having the list is not running the list
+
+Before the gate, `tests/` was grepped for everything touching the three files —
+eighteen of them, `embedBiAllowList` included — and then eleven were run. The
+gate found the other one. The habit added in R40 was "grep for the files the
+round touched and run those first"; the habit that was missing is running all of
+what the grep returns. Nineteen files, 305 tests, is thirty seconds.
+
+#### R44 · process · The gate was flaky, and the flakiness was measured, not assumed
+
+Two consecutive full gates failed with 10 and 4 failures, every one a 20-second
+TIMEOUT, in files this round never touched — `duckdb.test.ts`,
+`connectedIntegrations`, `nl2sqlEval`, `aiAnalyst`. Each run reported ~640s of
+test time against a suite that normally takes a fraction of that, with a Docker
+stack of fifteen containers on the same machine.
+
+Rather than re-rolling the gate until it came up green — which would have meant
+trusting a green run after discarding two red ones — every step of `npm run check`
+was run separately with its own exit code, and vitest pinned to four threads:
+
+```
+typecheck 0 · lint 0 · check:docs 0 · check:md-docs 0
+check:doc-commands 0 · check:infra 0 · vitest 0 (396 files) · build 0
+```
+
+The suite is green; the aggregate gate is unreliable on this machine under load.
+That is a property of running 7,497 tests beside a container stack, not a defect
+in the product, and the repo's test timeout was deliberately left alone —
+raising it to suit one laptop would hide exactly the kind of slowness a timeout
+exists to surface.
+
 ### 2026-09-21 — The pagers that write, not the ones that print
 
 #### R43 · S1 · A failed page replaced a lakehouse table with a prefix of itself

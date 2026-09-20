@@ -16,6 +16,7 @@
 // created — is gone.
 
 import { auditEvent } from "@/utils/audit.server";
+import { selectAllPages } from "@/lib/pagedSelect";
 import { resultDigest } from "@/utils/provenance/canonical";
 import { restrictSharedDataset } from "@/utils/data/sharedDatasets.server";
 import type { ToolDef, AgentToolContext } from "./registry.server";
@@ -65,6 +66,9 @@ export const listDataTablesTool: ToolDef = {
 
 // Only allow a well-formed UUID into a PostgREST `.or()` filter string, so a
 // scope id can never inject filter syntax.
+/** Rows one dataset may contribute to a tool-run query. Refused, not cut. */
+const SQL_TOOL_MAX_ROWS = Number(process.env.SQL_TOOL_MAX_ROWS) || 200_000;
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
@@ -127,20 +131,32 @@ async function loadUserTables(
   const viewerId = ctx.scopeUserId ?? ctx.userId;
   const out: LoadedTable[] = [];
   for (const t of filtered) {
-    const allRows: Row[] = [];
-    let from = 0;
-    const PAGE = 1000;
-    for (;;) {
-      const { data: chunk, error } = await ctx.sb
-        .from("user_data_rows")
-        .select("row")
-        .eq("table_id", t.id)
-        .range(from, from + PAGE - 1);
-      if (error || !chunk || chunk.length === 0) break;
-      allRows.push(...chunk.map((c) => c.row as Row));
-      if (chunk.length < PAGE) break;
-      from += PAGE;
+    // Through selectAllPages, which advances by the rows it RECEIVED.
+    //
+    // This loop advanced by the page it asked for, so a server returning fewer
+    // rows than requested left a hole rather than a short tail: ask 0-999,
+    // receive 500 because db-max-rows says so, then ask 1000-1999 and rows
+    // 500-999 are never read at all. The agent then answers questions from a
+    // table that is quietly missing its middle — and unlike a truncated read,
+    // nothing about the result says a row is absent. It also folded the page's
+    // error into the exhaustion test, and ordered by nothing at all, which is
+    // its own way of reading the same row twice.
+    const scan = await selectAllPages<{ row: unknown }>(
+      () =>
+        ctx.sb
+          .from("user_data_rows")
+          .select("row")
+          .eq("table_id", t.id)
+          .order("id", { ascending: true }),
+      SQL_TOOL_MAX_ROWS,
+    );
+    if (scan.truncated) {
+      throw new Error(
+        `"${t.name}" has more than ${SQL_TOOL_MAX_ROWS.toLocaleString()} rows — refusing to answer ` +
+          `from a prefix of it; narrow the question or raise SQL_TOOL_MAX_ROWS`,
+      );
     }
+    const allRows: Row[] = scan.rows.map((c) => c.row as Row);
     let columns = (Array.isArray(t.columns) ? t.columns : []) as ColumnDef[];
     let rows = allRows;
     // A dataset SHARED with this caller carries the grant's row filter and

@@ -13,6 +13,7 @@
 // shows up in production.
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { selectAllPages } from "@/lib/pagedSelect";
 import type { Json } from "@/integrations/supabase/types";
 
 export type VersionReason = "upload" | "prep_run" | "prep_refresh" | "restore" | "overwrite";
@@ -72,23 +73,35 @@ export async function snapshotDataset(args: {
   const cap = versionRowCap();
   let rows: Record<string, unknown>[] | null = null;
   if (rowCount <= cap && cap > 0) {
-    rows = [];
-    for (let start = 0; start < rowCount; start += PAGE) {
-      const { data: chunk, error } = await supabaseAdmin
-        .from("user_data_rows")
-        .select("row")
-        .eq("table_id", args.tableId)
-        .range(start, start + PAGE - 1);
-      if (error) {
-        // A partial copy is worse than an honest metadata-only version: it
-        // would present itself as restorable and then silently lose rows.
-        console.warn(`[versions] row copy failed, storing metadata only: ${error.message}`);
-        rows = null;
-        break;
+    // Through selectAllPages. The error handling here was already right — "a
+    // partial copy is worse than an honest metadata-only version: it would
+    // present itself as restorable and then silently lose rows" — and that is
+    // exactly why the paging had to match it. Advancing by the page it asked
+    // for meant a clamped page left a HOLE in a snapshot that still called
+    // itself restorable, which is the same lie the error branch refuses to
+    // tell. Ordering by id for the same reason: offsets without an order are
+    // not a sequence.
+    try {
+      const scan = await selectAllPages<{ row: unknown }>(
+        () =>
+          supabaseAdmin
+            .from("user_data_rows")
+            .select("row")
+            .eq("table_id", args.tableId)
+            .order("id", { ascending: true }),
+        rowCount,
+      );
+      rows = scan.truncated ? null : scan.rows.map((c) => c.row as Record<string, unknown>);
+      if (rows === null) {
+        console.warn("[versions] row copy incomplete, storing metadata only");
       }
-      if (!chunk || chunk.length === 0) break;
-      rows.push(...chunk.map((c) => c.row as Record<string, unknown>));
-      if (chunk.length < PAGE) break;
+    } catch (e) {
+      console.warn(
+        `[versions] row copy failed, storing metadata only: ${
+          e instanceof Error ? e.message : String(e)
+        }`,
+      );
+      rows = null;
     }
   }
 

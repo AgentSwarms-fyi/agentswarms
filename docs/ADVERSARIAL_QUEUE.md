@@ -86,6 +86,7 @@ The three shapes it takes:
 | Agent swarms / runs    | ✅ fixed | 2026-09-21 | R40 — a run's steps, data flow and canvas DAG were an unbounded read of a bounded API                        |
 | `lib/pagedSelect`      | ✅ fixed | 2026-09-21 | R41 — out of order: the shared pager read a short page as the end of the filter                              |
 | Pagers that persist    | ✅ fixed | 2026-09-21 | R43 — lakehouse import, Parquet mirror and widget refresh; a failed page became a shorter table              |
+| Offsets that skipped   | ✅ fixed | 2026-09-21 | R44 — `start += PAGE` left holes, not a tail; the SQL tool an agent calls, prep, and version copies          |
 | **Semantic layer**     | ⬜ next  |            |                                                                                                              |
 | ML predictions         | ⬜       |            |                                                                                                              |
 
@@ -100,17 +101,23 @@ rather than a table — but the same three questions apply to every one: does it
 keep the page's error, does it order by a unique column, and what does it claim
 when it stops early?
 
-| Site                              | What it feeds                           |
-| --------------------------------- | --------------------------------------- |
-| `src/lib/traceWindow.ts`          | `pageTraces` — written by this campaign |
-| `src/lib/sqlEngine.ts`            | rows a local SQL query reads            |
-| `src/routes/api/audit.export.ts`  | the audit export, i.e. evidence         |
-| `src/utils/audit.functions.ts`    | the user list behind audit attribution  |
-| `src/utils/bi/prep.server.ts`     | prep flows                              |
-| `src/utils/bi/quality.server.ts`  | data-quality checks                     |
-| `src/utils/bi/versions.server.ts` | widget version history                  |
-| `src/utils/etl/service.server.ts` | ETL reads                               |
-| `src/utils/tools/sql.server.ts`   | the SQL tool agents call                |
+R44 took the three of these that could not disclose a short read. What is
+left:
+
+| Site                              | What it feeds                           | Still wrong                       |
+| --------------------------------- | --------------------------------------- | --------------------------------- |
+| `src/routes/api/audit.export.ts`  | the audit export, i.e. evidence         | short page closes, no error line  |
+| `src/lib/sqlEngine.ts`            | rows a local SQL query reads            | PARALLEL pages, error → stop      |
+| `src/lib/traceWindow.ts`          | `pageTraces` — written by this campaign | short page ends the read          |
+| `src/utils/audit.functions.ts`    | the user list behind audit attribution  | Auth admin API, error folded in   |
+| `src/utils/bi/quality.server.ts`  | data-quality checks                     | skips, but `capped` catches it    |
+| `src/utils/etl/service.server.ts` | ETL reads                               | skips, but `truncated` catches it |
+
+`audit.export` is the one to take first. It already emits an `_export_error`
+line so a consumer can tell a truncated export from a complete one, and the
+short-page close is the ONE path that ends the stream without emitting it — a
+silently truncated audit export, indistinguishable from a full one, which is
+the worst property evidence can have.
 
 The five under `src/utils/saas/*` and `kb/confluence.server.ts` are NOT in this
 class: they page third-party APIs, which honour their own page sizes and have
@@ -163,6 +170,12 @@ least twice, not a hypothetical.
 - An anchor a SIBLING can satisfy checks nothing. Where a rule must hold at
   several symmetric sites — two pagers, three branches — count the occurrences
   instead of looking for one. Four mutants survived a run on that alone.
+- A test double shaped to a buggy caller votes for the bug. When a fix makes a
+  stub fail, ask which of the two was describing the real system — one stub here
+  ignored the page window entirely and faked an ending, because the loop it was
+  written for could not find one honestly.
+- Run ALL of what the grep returns, not the interesting-looking half. Eighteen
+  files were found; eleven were run; the gate found the twelfth.
 - Before the gate, grep `tests/` for the files the round touched and run those
   first. Three rounds in a row cost an extra ten-minute gate to an existing
   source-anchored test that a two-second run would have shown.

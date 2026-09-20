@@ -27,8 +27,13 @@ type Table = { id: string; name: string; columns: { name: string; type: string }
 /**
  * Supabase stand-in shaped like the calls loadUserTables makes:
  *   from("user_data_tables").select(…).not(…)
- *   from("user_data_rows").select("row").eq("table_id", id).range(a, b)
+ *   from("user_data_rows").select("row").eq("table_id", id).order("id").range(a, b)
  * Every link is chainable AND awaitable, because the real builder is.
+ *
+ * The row window is HONOURED rather than ignored. It used to return every row
+ * for any page and fake an ending with a flag, which only worked against a
+ * pager that stops at the first short page. A pager that advances by the rows
+ * it received would have asked for identical pages until its ceiling.
  */
 function fakeDb(tables: Table[], rowsByTable: Record<string, Record<string, unknown>[]>) {
   return {
@@ -44,26 +49,27 @@ function fakeDb(tables: Table[], rowsByTable: Record<string, Record<string, unkn
         return chain;
       }
       let id = "";
-      let ranged = false;
+      // No range asked for means no rows: slice(0, 0). The real builder would
+      // apply the server's default, and every caller here pages explicitly.
+      let from = 0;
+      let to = -1;
       const chain: Record<string, unknown> = {};
       chain.select = () => chain;
+      chain.order = () => chain;
       chain.eq = (_c: string, v: string) => {
         id = v;
         return chain;
       };
-      chain.range = () => {
-        ranged = true;
+      chain.range = (a: number, b: number) => {
+        from = a;
+        to = b;
         return chain;
       };
       chain.then = (r: (v: { data: unknown; error: null }) => unknown) =>
         Promise.resolve({
-          // Second page must come back empty or loadUserTables loops forever.
-          data: ranged ? (rowsByTable[id] ?? []).map((row) => ({ row })) : [],
+          data: (rowsByTable[id] ?? []).slice(from, to + 1).map((row) => ({ row })),
           error: null,
-        }).then((v) => {
-          ranged = false;
-          return r(v);
-        });
+        }).then(r);
       return chain;
     },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
