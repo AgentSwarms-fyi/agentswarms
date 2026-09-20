@@ -109,6 +109,107 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-20 — The knowledge base asked a membership question of a prefix
+
+#### R38 · S1 · Documents that were already indexed got embedded a second time
+
+Before embedding, the backfill asks which of the documents in its batch already
+have chunks, and skips those:
+
+```ts
+const { data: existing } = await writer
+  .from("kb_chunks")
+  .select("document_id")
+  .in("document_id", ids);
+const have = new Set(existing.map((r) => r.document_id));
+pending = docs.filter((d) => !have.has(d.id));
+```
+
+No limit, so it reads everything — except PostgREST answers with at most
+`db-max-rows`, **1,000** on a default Supabase project, and supabase-js returns
+the short page with no error and no flag. The batch is up to 50 documents; at
+the default 500-character chunk size a 10 KB document is about 21 chunks, so
+**fifty ordinary documents pass a thousand chunk rows**. Past that point some
+indexed documents are simply not in the response, and `!have.has(d.id)` cannot
+tell "no chunks" from "not in the page I was given".
+
+What that costs: the documents are embedded again — paid API calls — and a
+second copy of their chunks is inserted. Duplicate chunks are not just waste;
+they change retrieval, because the same passage now occupies several of the
+`KB_CHUNKS_PER_DOCUMENT` slots an answer is allowed to cite.
+
+This is the partiality class at its sharpest. Every earlier finding in the sweep
+was a number or a sentence that came out wrong. This one is a **set membership
+test over a prefix**, where absence from the page read as absence from the
+table, and the wrong answer spends money and mutates data.
+
+The same read, with the same cap, builds the per-document chunk counts on the
+Knowledge page — so the same documents carry an amber "Pending embedding" badge
+while being fully indexed, "Indexed N/M" counts them as missing, "Embed X
+pending" offers to fix what is not broken, and the Re-index button's force
+decision (`indexed >= total`) is made from the same prefix.
+
+**Cursor paging, not offset paging.** `lib/cursorScan.ts` asks for rows strictly
+after the last one it saw, so it never uses a short page as proof of the end —
+which matters, because "stop at the first short page" is wrong exactly when the
+server's cap is below the page size asked for, and that assumption is what
+produced this bug. Two shapes:
+
+- `scanKeysPresent` answers membership and jumps past the whole of a key as soon
+  as one of its rows proves it: a document with 40,000 chunks costs one page,
+  not forty. At most one round per key, so it terminates even against a page
+  source that ignores the cursor.
+- `scanRows` keeps every row up to a ceiling and reports whether the ceiling
+  bit. It probes one row past the ceiling before saying so, because a table
+  holding exactly `maxRows` rows is not a prefix of itself and a caveat on a
+  complete answer teaches readers to ignore caveats.
+
+The failed-probe path changed too. The old read dropped its error, and an errored
+probe produces an empty `have` — which is the most expensive possible reading of
+a failure: re-embed everything. It now fails the backfill.
+
+**Verified live** against the running deployment: for the 50 documents on hand,
+the cursor scan returns the same membership set as the unbounded read (11 of 50
+have chunks) in 2 requests, and stays correct past 1,000 rows where the
+unbounded read does not.
+
+**Tests:** 13 in `cursorScan`, 15 behaviour-changing mutants applied one at a
+time and each killed, control missed, baseline verified green first.
+
+#### R38 · S3 · Presence is not use — the fifth, and the first caught by a mutant
+
+`expect(page).toContain("const CHUNK_SCAN_MAX = 50_000;")` passed happily under
+a mutant that declared the constant and then passed `Number.MAX_SAFE_INTEGER` to
+the scan, which is the difference between a bounded client read and one that
+pulls every chunk row in the workspace into a browser tab. The other four this
+session were found by reading; this one was found by the harness, which is what
+the harness is for. The assertion now pins `{ maxRows: CHUNK_SCAN_MAX }`.
+
+A second anchor broke in the older way: `{chunkCountsWhole && indexCoverage.total > 0`
+matched nothing once prettier wrapped the guard across three lines. Those are
+regexes now. Source anchors must be bounded by structure, never by the
+whitespace prettier chose that day.
+
+#### R38 · process · The gate said 1 and the notification said 0
+
+Third time this session. The background task reported "exit code 0" while the
+shell's own `GATE EXIT` line said **1**; the notification reports the wrapper's
+status, not npm's. The failure was real:
+
+```
+missing path (1)
+  SCALE_AND_LIMITS.md: src/lib/cursorScan.ts
+1 problem(s).
+```
+
+`scripts/check-md-docs.mjs` resolves a backticked repo path against **git's**
+index, not the filesystem — so documentation may only name a file the repo
+actually has. `src/lib/cursorScan.ts` existed on disk and was untracked, and the
+paragraph describing it was, by that rule, a claim about nothing. The repo's own
+tooling caught a drift this campaign exists to prevent, which is the outcome the
+checker was written for. A new module has to be `git add`ed before the gate runs,
+not at commit time.
+
 ### 2026-09-20 — The model registry's ceiling was half what the code thought
 
 #### R37 · S2 · A cap of 2,000 that the database enforces at 1,000

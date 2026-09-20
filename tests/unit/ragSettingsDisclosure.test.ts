@@ -47,12 +47,25 @@ describe("an unindexed collection says its retrieval settings are inert", () => 
   });
 
   it("shows the disclosure only when there are documents and none are indexed", () => {
+    // R38 added a third clause: the chunk scan must have seen every row. A
+    // partial scan makes an indexed collection look unindexed, and this panel
+    // is the loudest thing on the page — "nothing here is indexed" over a read
+    // that only saw the first thousand chunks is a worse statement than the one
+    // the panel exists to prevent.
+    //
+    // Matched as a pattern rather than a line: prettier decides where a
+    // three-clause JSX guard wraps, and pinning its whitespace is how this
+    // assertion broke in the first place.
     const tab = retrievalTab();
-    expect(tab).toMatch(/indexCoverage\.total > 0 && indexCoverage\.indexed === 0/);
+    expect(tab).toMatch(
+      /\{chunkCountsWhole &&\s+indexCoverage\.total > 0 &&\s+indexCoverage\.indexed === 0/,
+    );
   });
 
   it("states plainly that the settings are not in effect", () => {
-    expect(retrievalTab()).toMatch(/not in\s+effect/);
+    // \s+ between every word: the sentence wraps wherever the surrounding
+    // indentation puts it, and it has moved twice now.
+    expect(retrievalTab()).toMatch(/not\s+in\s+effect/);
   });
 
   it("offers the way out rather than just naming the problem", () => {

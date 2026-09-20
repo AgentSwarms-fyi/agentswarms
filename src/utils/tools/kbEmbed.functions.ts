@@ -5,6 +5,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { scanKeysPresent } from "@/lib/cursorScan";
 import { embedAndStoreDocuments, type EmbedDocInput } from "./embedding.server";
 import { resolveEmbedTarget } from "./embedTarget.server";
 
@@ -152,13 +153,33 @@ export const backfillKbEmbeddings = createServerFn({ method: "POST" })
     let pending = docs;
     if (!data.force) {
       const ids = docs.map((d) => d.id);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data: existing } = await (writer.from("kb_chunks" as any) as any)
-        .select("document_id")
-        .in("document_id", ids);
-      const have = new Set<string>(
-        ((existing ?? []) as { document_id: string }[]).map((r) => r.document_id),
-      );
+      // This probe decides who gets embedded AGAIN, so a row it fails to see
+      // costs money and inserts a second copy of a document's chunks, which
+      // then over-weights those passages in every later retrieval.
+      //
+      // It used to be one unbounded `.select("document_id").in(...)`. PostgREST
+      // answers that with at most `db-max-rows` — 1,000 on a default Supabase
+      // project — and supabase-js returns the short page with no error, so past
+      // 1,000 chunk rows across this batch (50 documents of ~10 KB at the
+      // default 500-character chunk size reach it) indexed documents simply
+      // fell off the end and were read as pending. The scan pages by cursor and
+      // skips the rest of a document as soon as one of its rows proves
+      // membership.
+      const have = await scanKeysPresent(ids, async (after, pageSize) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let q = (writer.from("kb_chunks" as any) as any)
+          .select("document_id")
+          .in("document_id", ids)
+          .order("document_id", { ascending: true })
+          .limit(pageSize);
+        if (after) q = q.gt("document_id", after);
+        const { data: page, error: pageErr } = await q;
+        // The old read discarded its error, and an errored probe yields an
+        // empty `have` — which is the same as claiming nothing is indexed and
+        // re-embedding the lot. Fail the backfill instead.
+        if (pageErr) throw new Error(`could not check existing chunks: ${pageErr.message}`);
+        return ((page ?? []) as { document_id: string }[]).map((r) => r.document_id);
+      });
       pending = docs.filter((d) => !have.has(d.id));
     }
     if (pending.length === 0)

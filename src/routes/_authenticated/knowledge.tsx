@@ -3,6 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { useDropzone } from "react-dropzone";
 import { supabase } from "@/integrations/supabase/client";
+import { scanRows } from "@/lib/cursorScan";
 import { useAuth } from "@/hooks/use-auth";
 import { cn } from "@/lib/utils";
 import { clickable } from "@/lib/clickable";
@@ -77,6 +78,11 @@ import {
   type VectorStoreChoice,
   resolveRetrievalSettings,
 } from "@/lib/kbRag";
+
+// Chunks scanned to build the per-document counts. Well past any real
+// collection — the point of the ceiling is that an unbounded client scan
+// cannot be allowed to grow without one, not that it should ever bite.
+const CHUNK_SCAN_MAX = 50_000;
 
 export const Route = createFileRoute("/_authenticated/knowledge")({
   component: KnowledgePage,
@@ -289,6 +295,11 @@ function KnowledgePage() {
   const [viewDoc, setViewDoc] = useState<KnowledgeDoc | null>(null);
   // Per-document indexing status, derived from kb_chunks. Map docId → chunk count.
   const [chunkCounts, setChunkCounts] = useState<Map<string, number>>(new Map());
+  // Whether those counts are the whole story. False when the scan hit its
+  // ceiling or failed — either way the page may not turn them into a verdict
+  // about what is indexed, because a document missing from a partial scan
+  // looks exactly like a document with no chunks.
+  const [chunkCountsWhole, setChunkCountsWhole] = useState(true);
   const [backfilling, setBackfilling] = useState(false);
 
   // Open the Create dialog when navigated to with ?new=1 (Global "+" menu).
@@ -576,15 +587,45 @@ function KnowledgePage() {
   }
 
   async function loadChunkCounts(kbId: string) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: rows } = await (supabase.from("kb_chunks" as any) as any)
-      .select("document_id")
-      .eq("knowledge_base_id", kbId);
-    const counts = new Map<string, number>();
-    ((rows ?? []) as { document_id: string }[]).forEach((r) => {
-      counts.set(r.document_id, (counts.get(r.document_id) ?? 0) + 1);
-    });
-    setChunkCounts(counts);
+    // This was an unbounded `.select("document_id")`, which PostgREST answers
+    // with at most `db-max-rows` — 1,000 on a default Supabase project — and
+    // supabase-js hands back the short page with no error. Chunks are the
+    // numerous thing here: one modest document set passes a thousand of them,
+    // and every document whose chunks landed past the cut then showed an amber
+    // "Pending embedding" badge while being fully indexed, and was counted as
+    // missing by "Indexed N/M" and by "Embed X pending".
+    //
+    // Cursor paging rather than `.range()` on purpose: offset paging that stops
+    // at the first short page is wrong whenever the server's cap is smaller
+    // than the page it was asked for, which is the assumption that produced the
+    // bug in the first place.
+    try {
+      const scan = await scanRows<{ id: string; document_id: string }>(
+        async (after, pageSize) => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          let q = (supabase.from("kb_chunks" as any) as any)
+            .select("id, document_id")
+            .eq("knowledge_base_id", kbId)
+            .order("id", { ascending: true })
+            .limit(pageSize);
+          if (after) q = q.gt("id", after);
+          const { data: rows, error } = await q;
+          if (error) throw new Error(error.message);
+          return (rows ?? []) as { id: string; document_id: string }[];
+        },
+        (r) => r.id,
+        { maxRows: CHUNK_SCAN_MAX },
+      );
+      const counts = new Map<string, number>();
+      scan.rows.forEach((r) => counts.set(r.document_id, (counts.get(r.document_id) ?? 0) + 1));
+      setChunkCounts(counts);
+      setChunkCountsWhole(scan.complete);
+    } catch {
+      // A scan that failed knows nothing, which is not the same as knowing
+      // there are no chunks. Say nothing rather than saying zero.
+      setChunkCounts(new Map());
+      setChunkCountsWhole(false);
+    }
   }
 
   async function loadSources(kbId: string) {
@@ -995,18 +1036,24 @@ function KnowledgePage() {
       size="sm"
       variant="outline"
       disabled={backfilling}
-      onClick={() => void runIndex(indexCoverage.indexed >= indexCoverage.total)}
+      // Forcing is a full RE-index of everything. Deciding to do that from
+      // counts that may be a prefix is how a partial scan turns into a bill.
+      onClick={() =>
+        void runIndex(chunkCountsWhole && indexCoverage.indexed >= indexCoverage.total)
+      }
     >
       {backfilling ? (
         <Loader2 className="h-3 w-3 mr-1 animate-spin" />
       ) : (
         <RefreshCw className="h-3 w-3 mr-1" />
       )}
-      {indexCoverage.indexed === 0
-        ? `Index ${indexCoverage.total} document${indexCoverage.total === 1 ? "" : "s"}`
-        : indexCoverage.indexed < indexCoverage.total
-          ? `Embed ${indexCoverage.total - indexCoverage.indexed} pending`
-          : "Re-index"}
+      {!chunkCountsWhole
+        ? "Index pending documents"
+        : indexCoverage.indexed === 0
+          ? `Index ${indexCoverage.total} document${indexCoverage.total === 1 ? "" : "s"}`
+          : indexCoverage.indexed < indexCoverage.total
+            ? `Embed ${indexCoverage.total - indexCoverage.indexed} pending`
+            : "Re-index"}
     </Button>
   ) : null;
 
@@ -1375,24 +1422,26 @@ function KnowledgePage() {
                       </p>
                     ) : (
                       <>
-                        {indexCoverage.total > 0 && indexCoverage.indexed === 0 && (
-                          <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs leading-relaxed">
-                            <p className="font-medium text-foreground">
-                              Nothing in this collection is indexed yet — these settings are not in
-                              effect.
-                            </p>
-                            <p className="mt-1 text-muted-foreground">
-                              All {indexCoverage.total} document
-                              {indexCoverage.total === 1 ? " has" : "s have"} zero chunks, so
-                              searching it falls back to matching words in the raw text. Search
-                              mode, the semantic/keyword balance, parent expansion and Q&amp;A pairs
-                              all operate on chunks, so they change nothing until it is indexed. The
-                              shipped sample collections start this way — indexing them costs
-                              embedding calls, so it is left to you.
-                            </p>
-                            {indexButton && <div className="mt-2">{indexButton}</div>}
-                          </div>
-                        )}
+                        {chunkCountsWhole &&
+                          indexCoverage.total > 0 &&
+                          indexCoverage.indexed === 0 && (
+                            <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs leading-relaxed">
+                              <p className="font-medium text-foreground">
+                                Nothing in this collection is indexed yet — these settings are not
+                                in effect.
+                              </p>
+                              <p className="mt-1 text-muted-foreground">
+                                All {indexCoverage.total} document
+                                {indexCoverage.total === 1 ? " has" : "s have"} zero chunks, so
+                                searching it falls back to matching words in the raw text. Search
+                                mode, the semantic/keyword balance, parent expansion and Q&amp;A
+                                pairs all operate on chunks, so they change nothing until it is
+                                indexed. The shipped sample collections start this way — indexing
+                                them costs embedding calls, so it is left to you.
+                              </p>
+                              {indexButton && <div className="mt-2">{indexButton}</div>}
+                            </div>
+                          )}
                         <div className="space-y-2">
                           <Label>Search Mode</Label>
                           <Select
@@ -1811,6 +1860,16 @@ function KnowledgePage() {
                         // It is a resting state, and it means semantic search
                         // is off, so say that instead of implying it is coming.
                         const none = indexed === 0;
+                        if (!chunkCountsWhole) {
+                          // A bar drawn from a prefix is a measurement, and this
+                          // one would read low. Nothing is a truer picture than
+                          // a wrong fraction.
+                          return (
+                            <p className="mb-3 text-xs text-muted-foreground">
+                              Index coverage could not be read in full for this collection.
+                            </p>
+                          );
+                        }
                         return (
                           <div className="mb-3 flex items-center gap-3">
                             <Progress value={(indexed / total) * 100} className="h-1.5 flex-1" />
@@ -1892,6 +1951,20 @@ function KnowledgePage() {
                                               className="text-[10px] px-1 py-0 text-muted-foreground"
                                             >
                                               No text
+                                            </Badge>
+                                          );
+                                        }
+                                        if (!chunkCountsWhole) {
+                                          // "Pending embedding" on a document
+                                          // that is indexed is the whole defect.
+                                          // Absent from a partial scan is not
+                                          // absent from the table.
+                                          return (
+                                            <Badge
+                                              variant="outline"
+                                              className="text-[10px] px-1 py-0 text-muted-foreground"
+                                            >
+                                              Index status unknown
                                             </Badge>
                                           );
                                         }

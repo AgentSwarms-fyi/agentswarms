@@ -314,6 +314,16 @@ for a small model. Below `KB_MIN_SIMILARITY` (**0.3**) on the best chunk, with
 no keyword hit, a turn is not grounded at all. See KNOWLEDGE_BASES.md → What
 the model reads.
 
+How the index is counted: both the "does this document already have chunks"
+probe in the backfill and the per-document counts on the Knowledge page read
+`kb_chunks` by **cursor**, not by offset, through `src/lib/cursorScan.ts`. They
+used to be single unbounded selects, which PostgREST answers with at most
+`db-max-rows` (**1,000** on a default Supabase project) and no error — so past a
+thousand chunks the backfill re-embedded documents it had already embedded and
+the page badged them "Pending embedding". The client scan stops at **50,000**
+chunks and the page then says its coverage could not be read in full rather than
+drawing a bar from a prefix.
+
 What a tool costs before it is called: every enabled tool's schema rides on
 every request. Most are 150–700 tokens; the `sql_query` description carries the
 user's tables inline and is budgeted by `SQL_TOOL_SCHEMA_MAX_CHARS` (**4,000**
