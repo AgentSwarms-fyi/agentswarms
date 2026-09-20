@@ -39,7 +39,14 @@ type Entry = { at: number; over: boolean; spend: number; cap: number };
 const cache = new Map<string, Entry>();
 const TTL_MS = 60_000;
 
-export type BudgetStatus = { over: boolean; spend: number; cap: number };
+export type BudgetStatus = {
+  over: boolean;
+  spend: number;
+  cap: number;
+  /** True when `spend` is a floor: some calls had no known price, or the
+   *  count of those could not be read. */
+  partial?: boolean;
+};
 
 /**
  * Whether `userId` has exhausted their monthly cap. Returns not-over when
@@ -71,8 +78,32 @@ export async function getBudgetStatus(userId: string): Promise<BudgetStatus> {
       return budgetFailsClosed() ? { over: true, spend: 0, cap } : miss;
     }
     const spend = result.spend;
-    const status: BudgetStatus = { over: spend >= cap, spend, cap };
+    // A total that counted unpriced calls at $0 is a FLOOR, and the two
+    // verdicts are not symmetric on a floor:
+    //
+    //   over  — sound. If the floor already exceeds the cap, the true spend
+    //           does too, whatever the unpriced calls turn out to have cost.
+    //   under — not sound. The calls with no known price could carry any
+    //           amount, and the one that would tip it over is exactly the one
+    //           that was counted as free.
+    //
+    // So an operator who set BUDGET_FAIL_CLOSED — meaning the cap must hold —
+    // gets the same answer here as for a lookup that failed outright. The
+    // default stays fail-open, so nothing changes for anyone who has not asked
+    // for a cap that holds.
+    const partial = result.unpriced === null || result.unpriced > 0;
+    const over = spend >= cap || (partial && budgetFailsClosed());
+    const status: BudgetStatus = { over, spend, cap, partial };
     cache.set(userId, { at: Date.now(), ...status });
+    if (partial && !status.over) {
+      console.warn(
+        `[budget] spend for ${userId} is a floor (${
+          result.unpriced === null
+            ? "unpriced count unavailable"
+            : `${result.unpriced} unpriced calls`
+        }); under-cap is not established`,
+      );
+    }
     if (cache.size > 5000) {
       for (const [k, v] of cache) if (Date.now() - v.at > TTL_MS) cache.delete(k);
     }

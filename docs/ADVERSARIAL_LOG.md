@@ -109,6 +109,68 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-20 — The budget gate counted unpriced calls as free
+
+Three rows of the partiality sweep. Two clear, one the most consequential
+finding of it so far.
+
+**Traces & Logs — clear.** Its first-pass finding was "the capped page presented
+as the population", and that fix reached every figure: the header goes through
+`traceCountHeadline`, an incomplete window says "filters and counts below cover
+these, not all N", a filtered view says "of the loaded traces", and per-row and
+per-chain costs carry the unpriced label and the `+?` mark.
+
+**Audit log — clear.** `auditWindowHeadline` already states shown-of-total and
+the retention boundary.
+
+#### R34 · S1 · The cap was enforced against a total that omitted part of the spend
+
+`spendCompleteness` exists because a call on a model with no known price is
+recorded at `cost_usd` 0 — honest on the row, labelled "unpriced" on the Traces
+page. The comment beside that label reads:
+
+> "$0.0000 for a call nothing knew how to price reads as 'free', and budgets
+> summed exactly that."
+
+Budgets did. **No file under the budget gate mentioned `pricing_missing`** — not
+the spend query, not the guard, not the client mirror. So the cap meant to stop
+spending was enforced against a total that silently omitted part of it, and the
+omission grows with exactly the models nobody has priced yet.
+
+The same asymmetry as R31, on money:
+
+- **over** — sound. If the floor already exceeds the cap, the true spend does
+  too, whatever the unpriced calls cost.
+- **under** — not sound. Those calls could carry any amount, and the one that
+  would tip it over is exactly the one counted as free.
+
+`spendSince` now reports how many calls contributed nothing, and the guard
+treats a floor under the cap the way it already treats a lookup that failed:
+allowed by default, refused for an operator who set `BUDGET_FAIL_CLOSED` because
+they need the cap to hold. **Nothing changes for a default install.** The floor
+is logged and carried on the status either way, so an operator sees the cap is
+being enforced against an incomplete figure rather than learning it from a bill.
+
+A count that itself fails reports null rather than zero — "no unpriced calls"
+and "we could not tell" lead to different decisions under a cap that must hold,
+and collapsing them is the same mistake as reading a failed sum as $0.
+
+**Tests:** 27 in `budgetSpend`, 8 behaviour-changing mutants applied one at a
+time and each killed, control missed, baseline verified green first.
+
+Two assertions were weak, and mutants found both rather than reading did. One
+pinned the whole one-line `SpendResult` type, which prettier reflows the moment
+a field is added. The other asserted the phrase "is a floor" — which also
+appears in a doc comment, so a mutant that rewrote the message an operator
+actually reads stayed green. Both pin something load-bearing now.
+
+#### R34 · S3 · A queue row anchored on its own formatting
+
+The queue update failed on its first attempt: it matched whole table rows
+including their padding, and prettier reflows every column width whenever any
+cell changes. It matches on the row LABEL now. The same lesson as the source
+anchors — pin the thing, not the layout around it.
+
 ### 2026-09-20 — A baseline that fell off the end of a list
 
 #### R33 · S2 · The compare control did not shrink, it disappeared

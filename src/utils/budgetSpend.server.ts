@@ -20,7 +20,21 @@
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 
 export type SpendResult =
-  | { ok: true; spend: number }
+  | {
+      ok: true;
+      spend: number;
+      /**
+       * Calls in the window that contributed $0 because no price was known for
+       * their model, or `null` when that could not be established.
+       *
+       * A call on an unpriced model is recorded at cost_usd 0 — honest on the
+       * row, and the Traces page labels it "unpriced". A SUM cannot carry that
+       * label, so any total above is a FLOOR: the true spend is at least this,
+       * and possibly more. The gate's own comment on the Traces page said
+       * "budgets summed exactly that", and budgets did.
+       */
+      unpriced: number | null;
+    }
   /** The lookup failed. `spend` is unknown — NOT zero. */
   | { ok: false; error: string };
 
@@ -58,7 +72,8 @@ export async function spendSince(args: {
     });
     if (!error) {
       const n = Number(data ?? 0);
-      return Number.isFinite(n) ? { ok: true, spend: n } : { ok: false, error: "non-numeric sum" };
+      if (!Number.isFinite(n)) return { ok: false, error: "non-numeric sum" };
+      return { ok: true, spend: n, unpriced: await unpricedSince(args) };
     }
     // Anything other than "the function does not exist" is a real failure and
     // must not be papered over by re-running the slow path.
@@ -83,6 +98,35 @@ export async function spendSince(args: {
 const MAX_FALLBACK_ROWS = 50_000;
 const PAGE = 1_000;
 
+/**
+ * How many calls in the window had no known price, or null when the count
+ * itself could not be read.
+ *
+ * Null is deliberately distinct from 0: "no unpriced calls" and "we do not know
+ * whether there were any" lead to different decisions under a fail-closed cap,
+ * and collapsing them is the same mistake as reading a failed sum as $0.
+ */
+async function unpricedSince(args: {
+  userId: string;
+  since: string;
+  scope?: { type: string; id: string } | null;
+  userIds?: string[] | null;
+}): Promise<number | null> {
+  let q = supabaseAdmin
+    .from("execution_traces")
+    .select("id", { count: "exact", head: true })
+    .gte("created_at", args.since)
+    .eq("request_payload->>pricing_missing", "true");
+  q = args.scope
+    ? q.eq("cost_scope_type", args.scope.type).eq("cost_scope_id", args.scope.id)
+    : args.userIds
+      ? q.in("user_id", args.userIds)
+      : q.eq("user_id", args.userId);
+  const { count, error } = await q;
+  if (error) return null;
+  return count ?? 0;
+}
+
 async function fallbackSum(args: {
   userId: string;
   since: string;
@@ -90,10 +134,11 @@ async function fallbackSum(args: {
   userIds?: string[] | null;
 }): Promise<SpendResult> {
   let total = 0;
+  let unpriced = 0;
   for (let offset = 0; offset < MAX_FALLBACK_ROWS; offset += PAGE) {
     let q = supabaseAdmin
       .from("execution_traces")
-      .select("cost_usd")
+      .select("cost_usd, pricing_missing:request_payload->>pricing_missing")
       .gte("created_at", args.since)
       .range(offset, offset + PAGE - 1);
     q = args.scope
@@ -104,8 +149,14 @@ async function fallbackSum(args: {
 
     const { data, error } = await q;
     if (error) return { ok: false, error: error.message };
-    for (const r of data ?? []) total += Number((r as { cost_usd: number | null }).cost_usd ?? 0);
-    if ((data?.length ?? 0) < PAGE) return { ok: true, spend: total };
+    for (const r of data ?? []) {
+      const row = r as { cost_usd: number | null; pricing_missing?: string | null };
+      total += Number(row.cost_usd ?? 0);
+      // Counted here rather than by a second query: this path is already
+      // reading every row.
+      if (row.pricing_missing === "true") unpriced += 1;
+    }
+    if ((data?.length ?? 0) < PAGE) return { ok: true, spend: total, unpriced };
   }
   return {
     ok: false,
