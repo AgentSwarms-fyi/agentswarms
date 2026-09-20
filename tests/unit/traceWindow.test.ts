@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
+  runStepsCaveat,
   catalogueCaveat,
   catalogueCount,
   countHeadline,
@@ -332,5 +333,102 @@ describe("what the model registry actually reads and renders", () => {
     expect(page).toContain("catalogueCaveat(registryWindow, MODEL_NOUN)");
     expect(page).toContain("{cappedCaveat && (");
     expect(page).toContain('{wholeCatalogue ? " across all major providers" : ""}');
+  });
+});
+
+describe("a run whose header is whole and whose list is not", () => {
+  // /analytics/observability/$runId read swarm_run_steps and swarm_run_edges
+  // with no bound, so past the server's cap the timeline, the data-flow list
+  // and the DAG on the canvas were a prefix. A DAG drawn from a prefix is not a
+  // smaller graph, it is a WRONG one: edges arriving from nodes that are not
+  // there.
+  //
+  // The header is the opposite case. total_cost_usd, total_tokens_* and
+  // step_count are columns on the run row, written by the executor, so they
+  // describe the whole run however much detail came back — verified against
+  // this deployment, where step_count matched the actual row count on all seven
+  // runs checked. Without saying which half is partial, the page simply looks
+  // like it does not add up.
+
+  it("says nothing when every step came back", () => {
+    expect(runStepsCaveat({ fetched: 28, total: 28 })).toBeNull();
+  });
+
+  it("names both numbers when the list is a prefix", () => {
+    const note = runStepsCaveat({ fetched: 1000, total: 1400 });
+    expect(note).toContain("1,000");
+    expect(note).toContain("1,400");
+  });
+
+  it("says which half of the page is still trustworthy", () => {
+    // The point of the sentence: the reader is looking at a header that
+    // disagrees with the list under it, and one of them is right.
+    const note = runStepsCaveat({ fetched: 1000, total: 1400 });
+    expect(note).toContain("canvas");
+    expect(note).toContain("cover all of it");
+  });
+});
+
+/** How many times `needle` appears in `hay` — for anchors that must hold on
+ *  every one of several symmetric sites, not just somewhere. */
+const occurrences = (hay: string, needle: string) => hay.split(needle).length - 1;
+
+describe("what the run detail page actually reads", () => {
+  const page = readFileSync(
+    "src/routes/_authenticated/analytics_.observability.$runId.tsx",
+    "utf8",
+  );
+
+  it("pages both tables by cursor instead of reading them unbounded", () => {
+    expect(page).toContain('.from("swarm_run_steps")');
+    expect(page).toContain('.from("swarm_run_edges")');
+    expect(page).toContain("scanRows<Step>(pageSteps,");
+    expect(page).toContain("scanRows<Edge>(pageEdges,");
+    // COUNTED, not merely present. There are two pagers here, and a mutation
+    // run showed that removing the cursor from one of them left the other's
+    // copy of the same line sitting in the file, happily satisfying a
+    // toContain. An anchor a sibling can satisfy checks nothing — the same
+    // failure as an anchor a comment can satisfy, one symmetry along.
+    expect(occurrences(page, 'q = q.gt("id", after)')).toBe(2);
+    expect(occurrences(page, "{ maxRows: RUN_ROW_SCAN_MAX }")).toBe(2);
+  });
+
+  it("pages by a unique key and sorts for display separately", () => {
+    // Two steps of one run can share a start instant, so started_at is not a
+    // paging key — ordering by it and paging by offset would drop rows.
+    expect(occurrences(page, '.order("id", { ascending: true })')).toBe(2);
+    expect(page).toMatch(/sort\(\(a, b\) => Date\.parse\(a\.started_at\)/);
+  });
+
+  it("renders the caveat it computes", () => {
+    // Presence is not use, for the seventh time this session.
+    expect(page).toContain("const stepsCaveat = runStepsCaveat({");
+    // Reflow-proof: prettier decides whether a short JSX guard stays on one
+    // line, and it collapsed this one the first time it saw it.
+    expect(page).toMatch(/\{stepsCaveat && </);
+  });
+
+  it("does not report absence it has not established", () => {
+    expect(page).toContain('{loadError ? "The steps of this run could not be read."');
+    expect(page).toContain('{loadError ? "The data flow of this run could not be read."');
+    expect(page).toContain("This run could not be read");
+    // And the error actually reaches that state. Three branches reading
+    // `loadError` are decoration if the catch never sets it.
+    expect(page).toMatch(/catch \(err\) \{[\s\S]*?setLoadError\(err/);
+  });
+
+  it("is enrolled in the failed-read registry, not guarded only from here", () => {
+    // failedReadClaims.test.ts keeps the list of pages that must not report a
+    // failed read as an empty account, and enforces the contract for each. A
+    // page that satisfies it belongs in that list — otherwise the next person
+    // to touch this one gets no warning from the guard built for exactly this.
+    const registry = readFileSync("tests/unit/failedReadClaims.test.ts", "utf8");
+    expect(registry).toContain(
+      'file: "src/routes/_authenticated/analytics_.observability.$runId.tsx"',
+    );
+  });
+
+  it("marks the data-flow count when the scan stopped early", () => {
+    expect(page).toMatch(/\{edgesComplete \? "" : "\+"\}\)/);
   });
 });

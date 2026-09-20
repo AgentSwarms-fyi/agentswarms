@@ -145,3 +145,29 @@ export function catalogueCaveat(
     `${noun.many} only — the other ${rest} were not loaded and cannot be found from here.`
   );
 }
+
+/**
+ * A run detail page whose header is whole and whose list is not.
+ *
+ * `/analytics/observability/$runId` reads `swarm_run_steps` and
+ * `swarm_run_edges` with no bound, so past the server's cap the timeline, the
+ * data-flow list and the DAG on the canvas are a prefix — and a DAG drawn from
+ * a prefix is not a smaller graph, it is a WRONG one, with edges arriving from
+ * nodes that are not there.
+ *
+ * The header is the opposite case: `total_cost_usd`, `total_tokens_*` and
+ * `step_count` are columns on the run row, written by the executor, so they
+ * describe the whole run however much of it was read back. (Verified against
+ * this deployment: `step_count` matched the actual row count on all seven runs
+ * checked.) That asymmetry is the sentence — the numbers above are right, the
+ * detail below is partial, and without saying so the page looks like it simply
+ * does not add up.
+ */
+export function runStepsCaveat(w: TraceWindow): string | null {
+  if (windowComplete(w)) return null;
+  return (
+    `Showing the first ${w.fetched.toLocaleString()} of ${w.total.toLocaleString()} steps. ` +
+    `The canvas, the timeline and the per-step figures cover these only — the totals ` +
+    `above are recorded on the run itself and cover all of it.`
+  );
+}

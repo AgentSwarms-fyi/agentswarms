@@ -109,6 +109,80 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-21 — A swarm run's canvas could be a prefix of the run it draws
+
+#### R40 · S2 · A DAG from a prefix is not a smaller graph, it is a wrong one
+
+`/analytics/observability/$runId` read the steps and the edges of one run with
+no bound:
+
+```ts
+supabase.from("swarm_run_steps").select("*").eq("run_id", runId).order("started_at"),
+supabase.from("swarm_run_edges").select("*").eq("run_id", runId).order("created_at"),
+```
+
+Past `db-max-rows` the timeline, the data-flow list and the canvas are a prefix.
+The canvas is the one that matters: a truncated node set with a truncated edge
+set does not draw a smaller swarm, it draws a broken one — edges arriving from
+nodes that are not on the page, branches that appear never to have run.
+
+What makes this page tractable is an asymmetry it already had. `step_count`,
+`total_cost_usd`, `total_tokens_in/out` and `total_latency_ms` are **columns on
+the run row**, written by the executor, so the header describes the whole run
+however little detail came back. Verified against this deployment: `step_count`
+matched the actual row count on all seven runs checked. So the page can state
+exactly when its list is a prefix without asking the database anything extra —
+and it must, because otherwise a header reading "Steps 1,400" sits above a
+timeline holding a thousand and the page simply looks like it cannot add up.
+`runStepsCaveat` goes directly under the metrics row, where that discrepancy is.
+
+Paging is by cursor on `id`, then sorted by `started_at` for display. Ordering
+by `started_at` and paging by offset would not have worked: two steps of one run
+can share a start instant, and a page boundary inside that tie drops rows.
+
+#### R40 · S1 · A failed read drew a run that did nothing
+
+The same two reads were `?? []`, and the run read's error was discarded outright.
+So a failed query rendered an empty timeline, an empty data flow, an empty
+canvas — or "Run not found.", which is a claim about the database that a failed
+read has not established. All three now say the read failed, and the run's own
+totals are kept on screen with a note that they still stand, because they do.
+
+Rather than a new test beside it, the page is enrolled in
+`tests/unit/failedReadClaims.test.ts` — the registry of pages that must not
+report a failed read as an empty account, which already enforces the contract
+(the claim routes through a real branch, the error is kept, a rejection is
+handled, the list is never emptied without recording why). A page that satisfies
+that contract belongs in the list, or the next person to touch it gets no
+warning from the guard built for exactly this defect.
+
+**Tests:** 45 in `traceWindow`, 15 behaviour-changing mutants applied one at a
+time and each killed — including one that drops the page back out of the
+registry — control missed, baseline verified green first.
+
+#### R40 · S3 · An anchor satisfied by the sibling
+
+Four mutants survived the first run, all for one reason. The page has two
+pagers, one per table, and the assertions were `toContain`:
+
+```ts
+expect(page).toContain('q = q.gt("id", after)');
+expect(page).toContain("{ maxRows: RUN_ROW_SCAN_MAX }");
+expect(page).toContain('.order("id", { ascending: true })');
+```
+
+Remove the cursor from the STEP pager and the EDGE pager's identical line is
+still in the file, and every one of those passes. The mutants that reverted one
+pager to a single capped request, that ordered one by a non-unique column, and
+that quietly capped one scan at 1,000 all went green.
+
+This is the presence-is-not-use family again, one symmetry along: not a token
+that no longer does anything, and not a comment quoting the code — a **sibling**
+standing in for the site under test. The remedy is to count rather than to look:
+`occurrences(page, needle) === 2`, which says what was actually meant — _both_
+pagers are cursor-paged, ordered by a unique key, and bounded. Where a rule must
+hold at several symmetric sites, an anchor that does not count checks nothing.
+
 ### 2026-09-21 — Group budgets were summed in a browser from a page of the traces
 
 #### R39 · S1 · Three findings of this sweep in a single read

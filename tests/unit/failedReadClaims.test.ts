@@ -98,6 +98,18 @@ const CONVERTED: {
     what: "'0 swarm runs' + 'No swarm runs yet' for an account holding 26",
   },
   {
+    file: "src/routes/_authenticated/analytics_.observability.$runId.tsx",
+    module: "22 — Swarm Traces",
+    what: "'No steps recorded.' and 'Run not found.' for a run whose detail read failed",
+    // Both reads were `?? []` and the run read's error was dropped entirely,
+    // so a failed query rendered an empty timeline, an empty data flow and an
+    // empty DAG — a run that looks like it did nothing. The second claim is
+    // the other half of the same round: the reads were also unbounded, and
+    // runStepsCaveat is what says so when the list is a prefix of the run the
+    // header describes.
+    claim: ["loadError", "runStepsCaveat"],
+  },
+  {
     file: "src/components/observability/QualityTrends.tsx",
     module: "22 — Swarm Traces",
     what: "the onboarding card telling a user to add Evaluate nodes they already have",
