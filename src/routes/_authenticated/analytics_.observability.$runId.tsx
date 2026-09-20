@@ -2,6 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { scanRows } from "@/lib/cursorScan";
+import { UNKNOWN_COUNT } from "@/lib/listClaim";
 import { runStepsCaveat } from "@/lib/traceWindow";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -161,7 +162,16 @@ function TraceDetail() {
 
   // step_count is a column on the run row, written by the executor, so it is
   // the whole run's figure however much of the detail came back.
-  const stepsCaveat = runStepsCaveat({ fetched: steps.length, total: run.step_count });
+  //
+  // Only when the read SUCCEEDED, though. MEASURED by driving the page with
+  // the step read failing: the banner said the detail could not be read, and
+  // under it this sentence said "Showing the first 0 of 4 steps" — which is
+  // what a successful read of a prefix looks like. A truncation caveat over a
+  // failed read is not a caveat, it is a second and different wrong claim
+  // about the same rows.
+  const stepsCaveat = loadError
+    ? null
+    : runStepsCaveat({ fetched: steps.length, total: run.step_count });
 
   const startedAt = new Date(run.started_at).getTime();
   const totalDuration = Math.max(
@@ -251,8 +261,8 @@ function TraceDetail() {
           <TabsTrigger value="dataflow">
             {/* A bare count from a scan that stopped early is the same
                 claim as the one on the header, one screen down. */}
-            Data flow ({edges.length}
-            {edgesComplete ? "" : "+"})
+            Data flow ({loadError ? UNKNOWN_COUNT : edges.length}
+            {!loadError && !edgesComplete ? "+" : ""})
           </TabsTrigger>
         </TabsList>
 

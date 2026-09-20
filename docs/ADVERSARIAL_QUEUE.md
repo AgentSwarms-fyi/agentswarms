@@ -127,6 +127,13 @@ least twice, not a hypothetical.
 - `git add` a new module before running the gate. `scripts/check-md-docs.mjs`
   resolves a documented path against git's index, so a paragraph naming an
   untracked file fails — correctly.
+- Drive the page. Seven rounds of unit tests and mutants missed a shipped S1
+  (every group spend query returning 400) and a defect in a fix from the round
+  before, both of which a browser found in minutes. A source-anchored test reads
+  the code; it never puts an argument on the wire.
+- A disclosure helper is written for ONE situation. The call site decides
+  whether it is in that situation — "partial" and "failed" both produce an empty
+  array, and only the caller knows which happened.
 - An anchor a SIBLING can satisfy checks nothing. Where a rule must hold at
   several symmetric sites — two pagers, three branches — count the occurrences
   instead of looking for one. Four mutants survived a run on that alone.

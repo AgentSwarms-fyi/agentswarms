@@ -109,6 +109,91 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-21 — Group budgets asked the database for a user with no id
+
+Both findings below came out of driving the pages in a browser, after seven
+rounds of unit tests and mutants had found neither. That is the entry's point
+as much as the defects are.
+
+#### R42 · S1 · Every group spend query the product has ever made was a 400
+
+The admin Budgets tab had nothing to show, because this deployment has no IAM
+groups. So a throwaway group was created — one member, a $5 cap — and the spend
+cell rendered:
+
+> unknown
+
+with the reason in its tooltip: **`invalid input syntax for type uuid: ""`**.
+
+`budget_spend_since(_user_id uuid, ...)` is called by both group callers with
+`userId: ""` and a member array, so Postgres was being asked to cast an empty
+string to `uuid`. Proven directly against the database:
+
+```
+_user_id ""    -> 400  invalid input syntax for type uuid: ""
+_user_id null  -> 200  1.677463
+single user    -> 200  1.677463   (control)
+```
+
+That error does not match the "function is missing" test in `spendSince`, so it
+returns `ok:false` without trying the row-scan fallback, and `groupSpend` turns
+that into `null`. What `null` costs depends on a setting:
+
+- **`BUDGET_FAIL_CLOSED` off** — the default — the guard `continue`s past the
+  group cap. A team ceiling is configured, rendered in the admin UI, and
+  **enforces nothing**.
+- **`BUDGET_FAIL_CLOSED` on** — `decision = { over: true, scope: "group", spend: 0 }`.
+  **Every member of every capped group is refused on every call**, with the
+  spend that justified it reported as $0.
+
+Neither is visible outside one `console.warn`. The function's own authorisation
+branch is written for the right shape — `_user_ids IS NULL AND auth.uid() = _user_id`
+— so a group query was always meant to arrive with `_user_id` null.
+
+**Why the suite missed it.** All 100 budget tests passed before the fix and
+after. Every one of them is source-anchored: they read `budgetSpend.server.ts`
+and assert on its text. Not one had ever put an argument on the wire. The new
+`groupSpendRpc` test mocks the admin client and asserts what is actually sent —
+null, never `""`, and never anything that is not a uuid — and it was checked
+against the code as shipped, where it fails.
+
+R39's display is the reason this surfaced at all: it printed "unknown" rather
+than the confident `$0.00` the old browser-side sum would have produced from an
+empty array. The fix it received was to say when it does not know, and the first
+thing it did was say so.
+
+#### R42 · S2 · The fallback sum had R41's defect, on the path that gates spend
+
+`fallbackSum` — the pre-migration path that still enforces on an un-migrated
+instance — ended each page with `if ((data?.length ?? 0) < PAGE) return { ok: true, ... }`.
+Same assumption as `lib/pagedSelect` before R41: a page shorter than the
+REQUEST proves nothing, because `db-max-rows` is the operator's setting. It now
+advances by what came back and only ends on a page shorter than one the server
+has already produced. It sums as it goes rather than collecting, so it cannot
+call the shared helper — a budget path must not hold fifty thousand rows to add
+up one column.
+
+#### R42 · S2 · A truncation caveat over a failed read (in R40's own fix)
+
+Driving the run detail page with the step read failing showed the banner
+working — "The detail of this run could not be read — ... The totals above come
+from the run itself and still stand" — and directly beneath it:
+
+> Showing the first 0 of 4 steps. The canvas, the timeline and the per-step
+> figures cover these only …
+
+That is what a SUCCESSFUL read of a prefix looks like. Two sentences, one
+failure, different stories — and the tab beside them said `Data flow (0)`,
+claiming zero edges from a read that never returned any. The unit tests could
+not see it: `runStepsCaveat({ fetched: 0, total: 4 })` is correct in isolation,
+and the defect was entirely at the call site. Both now defer to `loadError`, and
+the harness kills a mutant for each.
+
+**The rule this round adds.** A disclosure helper is written for one situation;
+the call site has to decide whether that is the situation it is in. "Partial"
+and "failed" produce the same empty array, and only the caller knows which
+happened.
+
 ### 2026-09-21 — The paging helper assumed the server's cap was its own
 
 #### R41 · S2 · The module written to stop the undercount could produce it

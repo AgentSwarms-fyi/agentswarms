@@ -402,7 +402,7 @@ describe("what the run detail page actually reads", () => {
 
   it("renders the caveat it computes", () => {
     // Presence is not use, for the seventh time this session.
-    expect(page).toContain("const stepsCaveat = runStepsCaveat({");
+    expect(page).toMatch(/const stepsCaveat = loadError\s*\?\s*null\s*:\s*runStepsCaveat\(\{/);
     // Reflow-proof: prettier decides whether a short JSX guard stays on one
     // line, and it collapsed this one the first time it saw it.
     expect(page).toMatch(/\{stepsCaveat && </);
@@ -429,6 +429,17 @@ describe("what the run detail page actually reads", () => {
   });
 
   it("marks the data-flow count when the scan stopped early", () => {
-    expect(page).toMatch(/\{edgesComplete \? "" : "\+"\}\)/);
+    expect(page).toMatch(/\{!loadError && !edgesComplete \? "\+" : ""\}\)/);
+  });
+
+  it("claims no count and no caveat at all when the read failed", () => {
+    // Found by driving the page with the step read failing, not by reading it.
+    // The banner said the detail could not be read; the caveat directly under it
+    // said "Showing the first 0 of 4 steps", and the tab said "Data flow (0)".
+    // Both are what a SUCCESSFUL read of a prefix looks like, so the page told
+    // two different stories about one failure. A truncation caveat over a failed
+    // read is not a caveat — it is a second wrong claim about the same rows.
+    expect(page).toContain("const stepsCaveat = loadError");
+    expect(page).toContain("Data flow ({loadError ? UNKNOWN_COUNT : edges.length}");
   });
 });

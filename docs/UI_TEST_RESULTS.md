@@ -15,6 +15,84 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-21 — The partiality sweep, driven page by page, ADVERSARIAL_LOG R36–R42
+
+**Why this round exists.** Rounds 36 to 41 were proved by unit tests, mutation
+harnesses and read-only database probes, and not one of them had been driven in
+a browser. Driving them found **two defects the whole apparatus had missed** —
+one of them shipped, load-bearing, and years old in spirit: every group budget
+query the product has ever made returned a 400.
+
+The app was rebuilt from source and the `agentswarms` service recreated; every
+other container stayed up. The failure paths were reached by patching
+`window.fetch` in the page to reject the specific requests under test, which is
+the real catch branch running against a real failure rather than a stub.
+
+### What was driven, and against what truth
+
+| Round | Driven                                                             | Read back                                                                                                                                                                                                          |
+| ----- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| R36   | `/monitoring`, every `/_serverFn/` POST rejecting, Refresh pressed | before: `2 needing attention · checked 12:55:18 AM`; after: `3 needing attention at the last successful check` + `Live updates have stopped — every figure below is from the last successful check, not from now.` |
+| R37   | `/model-registry`                                                  | `Browse 770 live models across all major providers.` — unchanged by the rewrite to an exact count plus paging                                                                                                      |
+| R38   | `/knowledge`, "RAG eval · Halvard Systems"                         | `Indexed 12/12 documents`; twelve badges 8, 6, 9, 6, 3, 4, 29, 11, 6, 9, 4, 5 — summing to **100**, the base's true `kb_chunks` count                                                                              |
+| R40   | run `97b11bf3`                                                     | `STEPS 4`, four rows in canvas order, `Data flow (3)`, `$0.0001` — identical to the pre-change baseline                                                                                                            |
+| R40   | the same run with `swarm_run_steps` / `swarm_run_edges` rejecting  | banner `The detail of this run could not be read … The totals above come from the run itself and still stand`, no truncation caveat, `Data flow (—)`                                                               |
+| R41   | `/dashboard`                                                       | `Spend (month to date) $1.68`, panel `$1.69 / 1.1k runs / 1.6M tokens` — unchanged, against a DB truth of `$1.677463` over `1,104` traces                                                                          |
+| R42   | `/admin/iam` → Budgets, with one real group                        | `$1.68+?` and `(≥34%)`, tooltip `At least this much: 1 call used a model with no known price…` — DB truth: `$1.677463`, cap `$5.00`, exactly **1** unpriced row                                                    |
+
+### The two things only the browser found
+
+**Group budgets had never worked (R42, S1).** With a real group on screen the
+spend cell read `unknown`, and its tooltip carried
+`invalid input syntax for type uuid: ""`. `budget_spend_since(_user_id uuid, ...)`
+is called by both group callers with `userId: ""`. Confirmed straight against the
+database: `""` → 400, `null` → 200 `1.677463`, single-user control → 200
+`1.677463`. So `groupSpend` always returned null, and a team cap either enforced
+nothing or refused every member of the group on every call, depending on
+`BUDGET_FAIL_CLOSED`. All 100 budget tests passed throughout — every one of them
+is source-anchored and none had ever put an argument on the wire.
+
+R39's own change is why it surfaced: the cell said "unknown" instead of the
+confident `$0.00` the previous browser-side sum would have produced.
+
+**A truncation caveat over a failed read (R42, S2).** With the step read
+failing, the run detail page showed its error banner and, directly beneath it,
+`Showing the first 0 of 4 steps` — what a SUCCESSFUL read of a prefix looks like
+— while the tab beside it said `Data flow (0)`. Two sentences, one failure,
+different stories. A unit test could not see it: the helper is correct for
+`{ fetched: 0, total: 4 }`, and the defect was entirely at the call site.
+
+### Not driven, and why
+
+**The capped branches of R38 and R40.** Reaching them needs more than 50,000
+chunks in one collection, or more than 20,000 steps in one run. This deployment
+holds 104 and 28. Covered by unit tests and mutants, and by nothing else.
+
+**R41's defect itself.** It only bites where PostgREST's `db-max-rows` is below
+the page size requested; on this project the two are both 1,000. Changing a
+hosted project's setting is not this campaign's to make, so the UI round proves
+the REGRESSION half — `$1.68` survives the rewrite — and the defect stays proved
+by the mutant that restores the original loop and fails.
+
+### Fixtures
+
+One IAM group, `ZZ UI check — group budgets (delete me)`, with one member and a
+$5.00 cap, created so the Budgets tab had a figure to compute. Deleted after the
+round along with its membership and its `budget_limits` row.
+
+`MODEL_REGISTRY_MAX_ROWS` was set in `.env` and the registry's page size lowered
+in source to force the truncation branch on real data; both were reverted and
+the service rebuilt from the restored files.
+
+**One unintended write.** "Refresh now" on the Model Registry page runs a real
+sync against AIMLAPI rather than re-reading the table, and pressing it took the
+registry from **770 to 792 models**. Not destructive — it is the page's own
+maintenance action over a public catalog that was eight weeks stale — but it was
+not the read it was mistaken for, and it is recorded here rather than left to be
+noticed later.
+
+Findings from this round: R42 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-20 — An alert's aggregate, run against the real engine, ADVERSARIAL_LOG R28
 
 **Driven.** Not a dashboard round. The fix makes an alert ask the database for
