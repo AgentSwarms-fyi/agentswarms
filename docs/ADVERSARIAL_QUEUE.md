@@ -64,28 +64,28 @@ The three shapes it takes:
 - **A sentence that outlived its rows** — prose or a caveat stored beside data
   that a later refresh replaced.
 
-| Module / surface        | Status   | Date       | Result                                                                                        |
-| ----------------------- | -------- | ---------- | --------------------------------------------------------------------------------------------- |
-| BI widgets & refresh    | ✅ fixed | 2026-09-19 | R24, R27 — notes outlived their rows on three write paths                                     |
-| BI insight card         | ✅ fixed | 2026-09-20 | R29 — a prefix's total stated as the total, and the checker grounded it                       |
-| BI reports & PDF        | ✅ fixed | 2026-09-20 | R30 — the Partial badge did not survive the export                                            |
-| BI alerts               | ✅ fixed | 2026-09-20 | R28 — thresholds compared against the first 500 rows; `count` = the cap                       |
-| Data quality            | ✅ fixed | 2026-09-20 | R31 — freshness called data stale on rows it never read                                       |
-| Analytics `/analytics`  | ✅ fixed | 2026-09-20 | R32 — a spend trend from two floors, on the card that already said "+?"                       |
-| AI analyst              | ✅ clear | 2026-09-20 | Already states the truncation first and drops shares — nothing to do                          |
-| Scan / insight sweep    | ✅ clear | 2026-09-20 | Refuses truncated widgets by name, with the remedy                                            |
-| Public embeds           | ✅ clear | 2026-09-20 | Reuses `BiWidgetCard`, so it inherits Partial and freshness                                   |
-| Evaluations             | ✅ fixed | 2026-09-20 | R33 — baselines were filtered out of the 50 most recent runs across ALL datasets              |
-| Traces & Logs           | ✅ clear | 2026-09-20 | Every figure exact, scoped to "loaded traces", or covered by its own banner; costs carry `+?` |
-| Audit log               | ✅ clear | 2026-09-20 | `auditWindowHeadline` already states shown-of-total and the retention boundary                |
-| Budgets                 | ✅ fixed | 2026-09-20 | R34 — the cap was enforced against a total that counted unpriced calls as free                |
-| Swarm traces            | ✅ fixed | 2026-09-20 | R35 — `.limit(200)` then "N swarm runs"; the sibling page's fix had not been applied here     |
-| Monitoring              | ✅ fixed | 2026-09-20 | R36 — a failed poll kept the probes and the verdict; the board froze green                    |
-| Model registry          | ✅ fixed | 2026-09-20 | R37 — `.limit(2000)` against a 1,000-row server cap, on an alphabetical read                  |
-| Knowledge base          | ✅ fixed | 2026-09-20 | R38 — membership asked of a 1,000-row prefix; indexed documents re-embedded                   |
-| **Agent swarms / runs** | ⬜ next  |            |                                                                                               |
-| Semantic layer          | ⬜       |            |                                                                                               |
-| ML predictions          | ⬜       |            |                                                                                               |
+| Module / surface        | Status   | Date       | Result                                                                                                       |
+| ----------------------- | -------- | ---------- | ------------------------------------------------------------------------------------------------------------ |
+| BI widgets & refresh    | ✅ fixed | 2026-09-19 | R24, R27 — notes outlived their rows on three write paths                                                    |
+| BI insight card         | ✅ fixed | 2026-09-20 | R29 — a prefix's total stated as the total, and the checker grounded it                                      |
+| BI reports & PDF        | ✅ fixed | 2026-09-20 | R30 — the Partial badge did not survive the export                                                           |
+| BI alerts               | ✅ fixed | 2026-09-20 | R28 — thresholds compared against the first 500 rows; `count` = the cap                                      |
+| Data quality            | ✅ fixed | 2026-09-20 | R31 — freshness called data stale on rows it never read                                                      |
+| Analytics `/analytics`  | ✅ fixed | 2026-09-20 | R32 — a spend trend from two floors, on the card that already said "+?"                                      |
+| AI analyst              | ✅ clear | 2026-09-20 | Already states the truncation first and drops shares — nothing to do                                         |
+| Scan / insight sweep    | ✅ clear | 2026-09-20 | Refuses truncated widgets by name, with the remedy                                                           |
+| Public embeds           | ✅ clear | 2026-09-20 | Reuses `BiWidgetCard`, so it inherits Partial and freshness                                                  |
+| Evaluations             | ✅ fixed | 2026-09-20 | R33 — baselines were filtered out of the 50 most recent runs across ALL datasets                             |
+| Traces & Logs           | ✅ clear | 2026-09-20 | Every figure exact, scoped to "loaded traces", or covered by its own banner; costs carry `+?`                |
+| Audit log               | ✅ clear | 2026-09-20 | `auditWindowHeadline` already states shown-of-total and the retention boundary                               |
+| Budgets                 | ✅ fixed | 2026-09-21 | R34 the gate counted unpriced calls as free; R39 the admin display re-implemented the sum from a capped page |
+| Swarm traces            | ✅ fixed | 2026-09-20 | R35 — `.limit(200)` then "N swarm runs"; the sibling page's fix had not been applied here                    |
+| Monitoring              | ✅ fixed | 2026-09-20 | R36 — a failed poll kept the probes and the verdict; the board froze green                                   |
+| Model registry          | ✅ fixed | 2026-09-20 | R37 — `.limit(2000)` against a 1,000-row server cap, on an alphabetical read                                 |
+| Knowledge base          | ✅ fixed | 2026-09-20 | R38 — membership asked of a 1,000-row prefix; indexed documents re-embedded                                  |
+| **Agent swarms / runs** | ⬜ next  |            |                                                                                                              |
+| Semantic layer          | ⬜       |            |                                                                                                              |
+| ML predictions          | ⬜       |            |                                                                                                              |
 
 ## Sweeps after this one
 

@@ -11,7 +11,12 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Loader2, Wallet } from "lucide-react";
 
+import { useServerFn } from "@tanstack/react-start";
+
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/use-auth";
+import { floorTotal, formatSpend, spendCaveat, type SpendTotal } from "@/lib/spendCompleteness";
+import { groupSpendTotals, type GroupSpend } from "@/utils/budgetAdmin.functions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -39,8 +44,12 @@ type BudgetLimitRow = {
 };
 
 export function GroupBudgetsTab({ groups }: { groups: GroupOption[] }) {
+  const { session } = useAuth();
+  const readGroupSpend = useServerFn(groupSpendTotals);
   const [limits, setLimits] = useState<BudgetLimitRow[] | null>(null);
-  const [spend, setSpend] = useState<Record<string, number>>({});
+  // Per group: the figure, or why there isn't one. A number alone cannot
+  // carry "we could not tell", and $0 is a perfectly ordinary right answer.
+  const [spend, setSpend] = useState<Record<string, GroupSpend>>({});
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
 
@@ -63,32 +72,28 @@ export function GroupBudgetsTab({ groups }: { groups: GroupOption[] }) {
     // removes this.
     setLimits((data ?? []) as unknown as BudgetLimitRow[]);
 
-    // Month-to-date spend per group = sum over its members' traces. Done
-    // client-side over the admin's readable rows; the enforcement path
-    // recomputes this server-side, this is only for display.
-    const monthStart = new Date();
-    const iso = new Date(
-      Date.UTC(monthStart.getUTCFullYear(), monthStart.getUTCMonth(), 1),
-    ).toISOString();
-    const [{ data: members }, { data: traces }] = await Promise.all([
-      supabase.from("iam_group_members").select("group_id, user_id"),
-      supabase.from("execution_traces").select("user_id, cost_usd").gte("created_at", iso),
-    ]);
-    const costByUser = new Map<string, number>();
-    for (const t of traces ?? []) {
-      // A trace whose owner was deleted keeps its cost but loses its user_id
-      // (ON DELETE SET NULL — see 20260818000000). It belongs to no group, so
-      // it must not be bucketed; keying a Map on null would have quietly
-      // attributed every detached trace to one phantom "user".
-      if (!t.user_id) continue;
-      costByUser.set(t.user_id, (costByUser.get(t.user_id) ?? 0) + Number(t.cost_usd ?? 0));
+    // Month-to-date spend per group, asked of the path that ENFORCES it.
+    //
+    // This used to be a browser sum over the month's execution_traces rows,
+    // selected by user_id and cost_usd with no bound at all, which is three of
+    // this sweep's findings in one read. (Written in prose rather than as the
+    // call it was: a test asserts the chained form is gone, and a comment
+    // quoting it would satisfy that assertion forever.) PostgREST caps the
+    // response at db-max-rows (1,000 on a default Supabase project, against
+    // 1,104 traces in the current month when this was measured) so the sum was
+    // over a prefix; `traces ?? []` read a failed query as an empty month; and
+    // `cost_usd ?? 0` counted calls on unpriced models as free, which is the
+    // thing R34 had already fixed in budgetGuard. A display of a governed
+    // figure has to be the same figure.
+    try {
+      setSpend(await readGroupSpend({ data: { access_token: session?.access_token ?? "" } }));
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Spend could not be read";
+      const failed: Record<string, GroupSpend> = {};
+      for (const g of groups) failed[g.id] = { ok: false, error: msg };
+      setSpend(failed);
     }
-    const totals: Record<string, number> = {};
-    for (const m of members ?? []) {
-      totals[m.group_id] = (totals[m.group_id] ?? 0) + (costByUser.get(m.user_id) ?? 0);
-    }
-    setSpend(totals);
-  }, []);
+  }, [groups, readGroupSpend, session?.access_token]);
 
   useEffect(() => {
     void load();
@@ -197,7 +202,12 @@ export function GroupBudgetsTab({ groups }: { groups: GroupOption[] }) {
             <TableBody>
               {groups.map((g) => {
                 const row = byGroup.get(g.id);
-                const used = spend[g.id] ?? 0;
+                // A group with no members has spent nothing, and that is a
+                // fact rather than a gap — the server only returns groups it
+                // found memberships for.
+                const s = spend[g.id] ?? { ok: true as const, total: 0, unpricedRows: 0 };
+                const total: SpendTotal | null = s.ok ? floorTotal(s.total, s.unpricedRows) : null;
+                const used = total?.total ?? 0;
                 const cap = row ? Number(row.monthly_cap_usd) : 0;
                 const pct = cap > 0 ? Math.min(100, Math.round((used / cap) * 100)) : 0;
                 const draft = drafts[g.id];
@@ -217,18 +227,37 @@ export function GroupBudgetsTab({ groups }: { groups: GroupOption[] }) {
                       />
                     </TableCell>
                     <TableCell>
-                      <span
-                        className={
-                          cap > 0 && used >= cap
-                            ? "text-destructive"
-                            : pct >= 80
-                              ? "text-amber-600 dark:text-amber-400"
-                              : "text-muted-foreground"
-                        }
-                      >
-                        ${used.toFixed(2)}
-                        {cap > 0 && <span className="ml-1 text-[11px]">({pct}%)</span>}
-                      </span>
+                      {total === null ? (
+                        // The figure is unavailable. "$0.00" is the one thing
+                        // it must not say, because that is also what an
+                        // untouched group legitimately shows.
+                        <span className="text-muted-foreground" title={s.ok ? undefined : s.error}>
+                          unknown
+                        </span>
+                      ) : (
+                        <span
+                          className={
+                            cap > 0 && used >= cap
+                              ? "text-destructive"
+                              : pct >= 80
+                                ? "text-amber-600 dark:text-amber-400"
+                                : "text-muted-foreground"
+                          }
+                          title={spendCaveat(total) ?? undefined}
+                        >
+                          {formatSpend(total)}
+                          {cap > 0 && (
+                            // A partial total is a FLOOR, so the percentage is
+                            // one too — and "over cap" stays sound while
+                            // "under cap" does not, which is why only the
+                            // number moves and the red stays.
+                            <span className="ml-1 text-[11px]">
+                              ({total.partial ? "≥" : ""}
+                              {pct}%)
+                            </span>
+                          )}
+                        </span>
+                      )}
                     </TableCell>
                     <TableCell>
                       {row ? (

@@ -109,6 +109,91 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-21 — Group budgets were summed in a browser from a page of the traces
+
+#### R39 · S1 · Three findings of this sweep in a single read
+
+The IAM → Budgets tab read every trace of the current month into the browser and
+bucketed the costs by group:
+
+```ts
+supabase.from("execution_traces").select("user_id, cost_usd").gte("created_at", iso);
+```
+
+**It is capped.** PostgREST answers with at most `db-max-rows`, 1,000 on a
+default Supabase project. Measured on this deployment while writing this:
+**1,104 traces in the current month**. So the sum was already over a prefix — a
+group's spend rendered low, its percentage of cap rendered low, and the red
+over-cap colouring withheld from a team that may well be over it. The comment
+above the read called this "only for display", but a spend figure shown beside a
+cap, in the admin tool for setting caps, is the thing someone acts on.
+
+**A failed read is $0.** `traces ?? []` sums to zero and renders as "nothing
+spent" — and `$0.00` is also exactly what an untouched group legitimately shows,
+so the two are indistinguishable.
+
+**Unpriced calls are free.** `cost_usd ?? 0` counts a call on a model with no
+known price as costing nothing. R34 fixed precisely that in the path that
+ENFORCES the cap; the display beside it kept doing it, so the two surfaces
+disagreed about the same figure while sitting on the same screen.
+
+The fix asks the enforcing path rather than writing a fourth version of the sum.
+`groupSpendTotals` is superadmin-only, reads group membership by cursor — an
+unbounded membership select has the same cap and would quietly make a group's
+total too small — and calls `spendSince`, which prefers the database aggregate
+and reports how many calls went unpriced. A membership list that could not be
+read in full yields no total at all rather than a floor of a floor.
+
+`floorTotal` moves the rule that decides whether a figure is the answer or a
+lower bound out of JSX and into `spendCompleteness`, beside `formatSpend` and
+`spendCaveat`. An unknown unpriced count is a floor, not a complete figure — the
+same reading `budgetGuard` already uses — and having it in one place is what
+stops the display and the gate from drifting apart again. The percentage carries
+`≥` when the total is a floor, and the red stays: over a floor, "over cap" is
+sound and "under cap" is not.
+
+An unavailable figure says "unknown".
+
+**Tests:** 11 in `groupSpend`, 11 behaviour-changing mutants applied one at a
+time and each killed — including one that drops the superadmin guard and one
+that declares the membership ceiling without passing it — control missed,
+baseline verified green first.
+
+#### R39 · S3 · The comment satisfied the assertion about the code
+
+`expect(tab).not.toMatch(/\.from\("execution_traces"\)/)` failed on its first
+run — against the comment above the new read, which quoted the old query to
+explain why it went. The test's own comment claimed it was "anchored on the
+chained call, not the table name"; it was not.
+
+The remedy this time was to change the PROSE rather than the pattern: the
+comment now describes the old read in words, and says why. A negative assertion
+— "this call is gone" — cannot be satisfied by a comment if no comment spells
+the call. Sixth of this family, and the first where the fix belonged on the
+other side of the anchor.
+
+#### R39 · process · A guard test that had to follow its property
+
+`ownerFkCascades` asserts that a trace whose owner was deleted — `user_id` NULL
+under `ON DELETE SET NULL` — is never bucketed under one phantom person and shown
+as a team's spend. It pinned that with:
+
+```ts
+expect(GROUP_BUDGETS).toMatch(/if \(!t\.user_id\) continue;/);
+```
+
+Deleting the browser sum deleted that line, and the test went red. The property
+itself did not go anywhere: the panel now asks the server for a per-group total,
+and the server scopes the sum to the group's explicit member ids, so a detached
+row matches no id and is excluded by the database rather than by a guard someone
+has to remember to write — stronger than before.
+
+So the assertion followed the property to where it lives now: the panel must not
+bucket traces at all, the server function must pass `userIds`, and `spendSince`
+must filter on them. That is the useful shape for a guard test whose subject
+moves — re-anchor it at the new home and say in the comment why it moved, rather
+than deleting it as stale or leaving it pinned to a line that no longer exists.
+
 ### 2026-09-20 — The knowledge base asked a membership question of a prefix
 
 #### R38 · S1 · Documents that were already indexed got embedded a second time

@@ -82,6 +82,24 @@ export function spendCaveat(t: SpendTotal): string | null {
   );
 }
 
+/**
+ * A total that arrived already summed, plus how many calls went unpriced.
+ *
+ * `unpricedRows` null means the count could not be established, which is NOT
+ * the same as zero: the total is a floor either way, and only the explanation
+ * for it is missing. The gate reads it the same way — budgetGuard's `partial`
+ * is `unpriced === null || unpriced > 0` — and having the rule in one place is
+ * what stops the display and the enforcement from disagreeing about whether a
+ * figure is the answer or a lower bound.
+ */
+export function floorTotal(total: number, unpricedRows: number | null): SpendTotal {
+  return {
+    total,
+    unpricedRows: unpricedRows ?? 0,
+    partial: unpricedRows === null || unpricedRows > 0,
+  };
+}
+
 export type SpendTrend = {
   /** Percent change, or null when the two totals cannot honestly be compared. */
   pct: number | null;
