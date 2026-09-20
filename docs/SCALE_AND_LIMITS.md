@@ -132,6 +132,16 @@ what you want for real volume.
 
 ### BI dashboards — `src/lib/biDashboards.ts`
 
+| Setting                       | Default  | What it bounds                                                  |
+| ----------------------------- | -------- | --------------------------------------------------------------- |
+| `BI_LOCAL_ROWS_PER_TABLE_CAP` | `20,000` | Rows one un-mirrored dataset may contribute to a widget refresh |
+
+Reaching that ceiling **fails the refresh** rather than computing the widget
+over the first N rows — nothing downstream can tell a figure derived from a
+prefix from one derived from the table. Datasets this size normally have a
+Parquet mirror (`PARQUET_MIN_ROWS`, 5,000) and never reach it; one that does,
+with mirroring off or not yet synced, names the knob in the error.
+
 | Setting / field             | Default                  | What it bounds                     |
 | --------------------------- | ------------------------ | ---------------------------------- |
 | `VITE_BI_SNAPSHOT_ROWS_CAP` | `500` (ceiling `100000`) | Rows cached in a widget's snapshot |

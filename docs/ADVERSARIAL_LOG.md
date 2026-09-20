@@ -109,6 +109,68 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-21 — The pagers that write, not the ones that print
+
+#### R43 · S1 · A failed page replaced a lakehouse table with a prefix of itself
+
+R41 fixed the shared helper. Grepping for the assumption it removed found
+**seventeen** hand-rolled copies, twelve of them against PostgREST. Three of
+those do not render a sentence — they produce a lakehouse table, a materialised
+Parquet mirror, and the rows a dashboard widget computes its stored answer from.
+
+Each carried some combination of the same three faults:
+
+- the page's error folded into the exhaustion test, so a statement timeout was
+  indistinguishable from the end of the data;
+- `chunk.length < PAGE` as proof of the end, which holds only when the server
+  returns everything it is asked for;
+- offset paging with **no `ORDER BY` at all**, which Postgres makes no promise
+  about. That one does not undercount — two pages can repeat one row and drop
+  another, moving the answer in either direction.
+
+| Site                     | Error            | Ordering | Short page |
+| ------------------------ | ---------------- | -------- | ---------- |
+| `lakehouse.functions.ts` | **discarded**    | by `id`  | breaks     |
+| `bi/refresh.server.ts`   | **folded in**    | **none** | breaks     |
+| `data/parquet.server.ts` | thrown (correct) | **none** | breaks     |
+
+The lakehouse import is the sharpest. It bound no `error` at all — a failed page
+simply ended the loop — and the rows gathered so far went into
+`CREATE OR REPLACE TABLE ... AS SELECT * FROM read_json_auto(...)`. So a
+statement timeout did not fail the import; it **replaced an existing lakehouse
+table with a prefix of itself**, which SQL models, BI widgets and training runs
+then read as the dataset. Nothing anywhere says a table is short rather than
+small.
+
+All three now read through `selectAllPages`, order by `id`, and **refuse at
+their ceiling rather than persisting a prefix**. Refusing is the point: a
+truncated display can carry a caveat, but a truncated table cannot.
+
+**This round changes behaviour under load, and that is worth saying plainly.** A
+workspace with a dataset over `BI_LOCAL_ROWS_PER_TABLE_CAP` (20,000, and now an
+env knob precisely because reaching it is a refusal) and no Parquet mirror will
+get a failed widget refresh naming the knob, where before it silently got a
+number computed from the first 20,000 rows. Datasets that size normally have a
+mirror — `PARQUET_MIN_ROWS` defaults to 5,000 — so this is reachable only with
+mirroring off or not yet synced. It is the correct trade, and it is a real change
+in what an operator sees.
+
+**Tests:** 16 in `rowPagers`, 9 behaviour-changing mutants applied one at a time
+and each killed, control missed, baseline verified green first.
+
+#### R43 · S3 · The same two anchor traps, in one round
+
+The negative assertion "the folded-in error is gone" failed on its first run —
+against the comment above the new code, which quoted the old expression to
+explain why it went. Same shape as R39, and the remedy was the same: change the
+PROSE, not the pattern.
+
+And a mutant that passed a bare `20_000` to the scan while leaving
+`localRowsPerTableCap()` in the error message survived a plain `toContain`. The
+sibling occurrence answered for the one under test — third time this session a
+symmetric copy has stood in for the site being checked. The assertion pins the
+argument position now.
+
 ### 2026-09-21 — Group budgets asked the database for a user with no id
 
 Both findings below came out of driving the pages in a browser, after seven

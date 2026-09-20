@@ -17,6 +17,7 @@ import { beginDecision } from "@/utils/provenance/decision.server";
 import { createRequire } from "node:module";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { selectAllPages } from "@/lib/pagedSelect";
 import type { Json } from "@/integrations/supabase/types";
 import type { SemanticQuery, SqlDialect } from "@/lib/semanticLayer";
 import type { ChartSpec } from "@/lib/biAgent";
@@ -51,7 +52,18 @@ import { localEngineName } from "@/utils/data/localEngine.server";
 // One definition, shared with the client that creates the snapshot in the
 // first place — a second copy here is how the two silently drift apart.
 const WIDGET_ROW_CAP = widgetRowCap();
-const LOCAL_ROWS_PER_TABLE_CAP = 20_000;
+/**
+ * Rows one un-mirrored dataset may contribute to a refresh.
+ *
+ * An env knob rather than a constant because reaching it is now a refusal
+ * rather than a silent truncation, so an operator has to be able to move it.
+ */
+function localRowsPerTableCap(): number {
+  const raw = (process.env.BI_LOCAL_ROWS_PER_TABLE_CAP ?? "").trim();
+  if (!raw) return 20_000;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : 20_000;
+}
 const MIN_PROCESS_INTERVAL_MS = 30_000;
 const SCHEDULES_PER_RUN = 10;
 
@@ -170,18 +182,40 @@ async function loadLocalTables(userId: string): Promise<LocalTable[]> {
       });
       continue;
     }
-    const rows: Record<string, unknown>[] = [];
-    const PAGE = 1000;
-    for (let start = 0; start < LOCAL_ROWS_PER_TABLE_CAP; start += PAGE) {
-      const { data: chunk, error: rowErr } = await supabaseAdmin
-        .from("user_data_rows")
-        .select("row")
-        .eq("table_id", t.id)
-        .range(start, start + PAGE - 1);
-      if (rowErr || !chunk || chunk.length === 0) break;
-      rows.push(...chunk.map((c) => c.row as Record<string, unknown>));
-      if (chunk.length < PAGE) break;
+    // Through selectAllPages. Three things were wrong here, on the path that
+    // decides what a dashboard widget STORES as its answer.
+    //
+    // The page's own error used to be folded into the exhaustion test, which
+    // made a failed page indistinguishable from the end of the data: a
+    // statement timeout produced a smaller dataset and a confident number
+    // computed over it. (Described rather than quoted — a test asserts that
+    // expression is gone, and a comment carrying it would satisfy the
+    // assertion forever.) The
+    // exhaustion test was the short page. And the offsets had no ORDER BY at
+    // all, so two pages could repeat a row and drop another — which does not
+    // merely undercount, it changes the answer in either direction.
+    const scanned = await selectAllPages<{ row: unknown }>(
+      () =>
+        supabaseAdmin
+          .from("user_data_rows")
+          .select("row")
+          .eq("table_id", t.id)
+          .order("id", { ascending: true }),
+      localRowsPerTableCap(),
+    );
+    if (scanned.truncated) {
+      // Datasets this size normally have a Parquet mirror and never reach here
+      // (PARQUET_MIN_ROWS defaults to 5,000). One that does — mirroring off, or
+      // not yet synced — must fail its refresh rather than publish a figure
+      // over the first N rows, because nothing downstream can tell a widget
+      // computed from a prefix from one computed from the table.
+      throw new Error(
+        `"${t.name}" has more than ${localRowsPerTableCap().toLocaleString()} rows and no Parquet ` +
+          `mirror — enable PARQUET_MIRROR or raise BI_LOCAL_ROWS_PER_TABLE_CAP; refusing to ` +
+          `refresh from a prefix of it`,
+      );
     }
+    const rows = scanned.rows.map((c) => c.row as Record<string, unknown>);
     let columns = Array.isArray(t.columns) ? (t.columns as LocalTable["columns"]) : [];
     let visibleRows = rows;
     if (isShared) {

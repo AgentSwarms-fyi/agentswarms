@@ -6,6 +6,7 @@ import { z } from "zod";
 import { createServerFn } from "@tanstack/react-start";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { selectAllPages } from "@/lib/pagedSelect";
 import { auditEvent } from "@/utils/audit.server";
 import {
   accessibleSchemas,
@@ -492,6 +493,9 @@ export const createLakehouseTable = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+/** Rows one import may pull through the app. Refused, never truncated. */
+const IMPORT_MAX_ROWS = 500_000;
+
 export const importDatasetToLakehouse = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) =>
     z
@@ -527,19 +531,28 @@ export const importDatasetToLakehouse = createServerFn({ method: "POST" })
 
     // Page the rows out of the platform store and CREATE TABLE AS from a
     // JSON read — types inferred by DuckDB, columns preserved.
-    const rows: Record<string, unknown>[] = [];
-    for (let from = 0; ; from += 1000) {
-      const { data: chunk } = await supabaseAdmin
-        .from("user_data_rows")
-        .select("row")
-        .eq("table_id", data.table_id)
-        .order("id", { ascending: true })
-        .range(from, from + 999);
-      if (!chunk?.length) break;
-      rows.push(...chunk.map((r) => r.row as Record<string, unknown>));
-      if (rows.length >= 500_000) throw new Error("Dataset too large to import (500k row cap)");
-      if (chunk.length < 1000) break;
-    }
+    //
+    // Through selectAllPages rather than by hand, because what this loop did
+    // wrong is written to disk. It dropped the page's error — `const { data:
+    // chunk }` — so a statement timeout became `break`, and the rows collected
+    // so far went straight into `CREATE OR REPLACE TABLE`: an existing
+    // lakehouse table silently REPLACED by a prefix of itself, then read as the
+    // dataset by SQL models, widgets and training runs. It also ended on a
+    // short page, which is only the end when the server returns everything it
+    // is asked for, and db-max-rows belongs to whoever runs the database.
+    const imported = await selectAllPages<{ row: unknown }>(
+      () =>
+        supabaseAdmin
+          .from("user_data_rows")
+          .select("row")
+          .eq("table_id", data.table_id)
+          .order("id", { ascending: true }),
+      IMPORT_MAX_ROWS,
+    );
+    // Refusing beats importing a prefix: the caller can raise the ceiling, but
+    // nothing downstream can tell a short table from a small one.
+    if (imported.truncated) throw new Error("Dataset too large to import (500k row cap)");
+    const rows = imported.rows.map((r) => r.row as Record<string, unknown>);
     if (!rows.length) throw new Error("Dataset has no rows");
 
     // Stage as a server-local temp file and let DuckDB's JSON reader infer

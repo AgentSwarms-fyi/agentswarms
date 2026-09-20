@@ -85,10 +85,36 @@ The three shapes it takes:
 | Knowledge base         | ✅ fixed | 2026-09-20 | R38 — membership asked of a 1,000-row prefix; indexed documents re-embedded                                  |
 | Agent swarms / runs    | ✅ fixed | 2026-09-21 | R40 — a run's steps, data flow and canvas DAG were an unbounded read of a bounded API                        |
 | `lib/pagedSelect`      | ✅ fixed | 2026-09-21 | R41 — out of order: the shared pager read a short page as the end of the filter                              |
+| Pagers that persist    | ✅ fixed | 2026-09-21 | R43 — lakehouse import, Parquet mirror and widget refresh; a failed page became a shorter table              |
 | **Semantic layer**     | ⬜ next  |            |                                                                                                              |
 | ML predictions         | ⬜       |            |                                                                                                              |
 
 ## Sweeps after this one
+
+### Next: the remaining hand-rolled pagers
+
+R43 took the three that WRITE. These nine read by offset against PostgREST and
+still end on a short page, which is only the end when the server returns
+everything it is asked for. None of them persists, so each is a figure or a list
+rather than a table — but the same three questions apply to every one: does it
+keep the page's error, does it order by a unique column, and what does it claim
+when it stops early?
+
+| Site                              | What it feeds                           |
+| --------------------------------- | --------------------------------------- |
+| `src/lib/traceWindow.ts`          | `pageTraces` — written by this campaign |
+| `src/lib/sqlEngine.ts`            | rows a local SQL query reads            |
+| `src/routes/api/audit.export.ts`  | the audit export, i.e. evidence         |
+| `src/utils/audit.functions.ts`    | the user list behind audit attribution  |
+| `src/utils/bi/prep.server.ts`     | prep flows                              |
+| `src/utils/bi/quality.server.ts`  | data-quality checks                     |
+| `src/utils/bi/versions.server.ts` | widget version history                  |
+| `src/utils/etl/service.server.ts` | ETL reads                               |
+| `src/utils/tools/sql.server.ts`   | the SQL tool agents call                |
+
+The five under `src/utils/saas/*` and `kb/confluence.server.ts` are NOT in this
+class: they page third-party APIs, which honour their own page sizes and have
+their own pagination contracts.
 
 Queued, in the order the evidence supports. Each is a class already seen at
 least twice, not a hypothetical.
