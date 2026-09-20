@@ -110,6 +110,7 @@ import {
   saveDashboardVersion,
   syncWidgetResults,
   snapshotRows,
+  widgetForLiveResult,
   widgetRowCap,
   touchDashboardView,
   updateDashboard,
@@ -1270,11 +1271,12 @@ function BiProjectPage() {
         const live = directRows.get(w.id);
         if (live && live !== "loading" && live !== "error") {
           // Carry truncation through so a live result that hit the row ceiling
-          // gets the same "Partial" badge a capped snapshot does.
-          return [
-            w.id,
-            { ...w, columns: live.columns, rows: live.rows, truncated: live.truncated },
-          ] as const;
+          // gets the same "Partial" badge a capped snapshot does — and derive
+          // the two SENTENCES from the live rows rather than the snapshot's.
+          // A direct widget draws a result its stored rows know nothing about,
+          // so the refresh-time restatements never reach it: the card could
+          // read "The data has 3 rows, not 5." above five live bars.
+          return [w.id, widgetForLiveResult(w, live)] as const;
         }
         return [w.id, w] as const;
       }

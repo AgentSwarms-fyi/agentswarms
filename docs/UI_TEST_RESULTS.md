@@ -15,6 +15,28 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-20 — A direct widget's sentences follow its live result, ADVERSARIAL_LOG R27
+
+**Driven.** Generated one widget over the lakehouse, switched it to **direct
+query** from its own menu, then narrowed it with a dashboard filter so the live
+result stopped matching the snapshot. Widget objects read out of React state,
+which is the only place the derived display object exists — by design, since it
+is never written anywhere.
+
+| Driven                                        | Live rows | Displayed note                                       |
+| --------------------------------------------- | --------- | ---------------------------------------------------- |
+| Generated, import mode                        | 3         | `The data has 3 rows, not 5.` — and stored           |
+| Menu → **Use direct query (live)**, no filter | 3         | `The data has 3 rows, not 5.` — unchanged, correct   |
+| Dashboard filter `region = AMER`              | **1**     | **`The data has 1 row, not 5.`** — derived from live |
+| Filter cleared                                | 3         | back to `The data has 3 rows, not 5.`                |
+
+**The last row is the proof that nothing is persisted.** The sentence returned
+to its original wording when the filter came off, which it could only do if it
+were being derived per view rather than written back. Before this change the
+middle row would have read "3 rows" over a single live bar.
+
+Findings from this round: R27 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-20 — Stale prose withdrawn when its figures stop holding, ADVERSARIAL_LOG R26
 
 **Driven.** The existing dashboard on the rebuilt image, 30 chart widgets of

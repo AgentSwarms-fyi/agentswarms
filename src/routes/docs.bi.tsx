@@ -814,6 +814,15 @@ GROUP BY region`}</Code>
         note that is still exactly right is left exactly as it is, so a refresh that changes nothing
         writes nothing.
       </P>
+      <P>
+        A widget set to <strong>direct query</strong> draws a live result rather than its stored
+        snapshot, so both sentences are derived per view instead — from the rows actually on screen,
+        including whatever the dashboard's filters narrowed them to. The same card can therefore say
+        different things to two people looking at it through different filters, which is the only
+        honest answer when they are looking at different rows. Nothing is written back: a live
+        result belongs to one view, and persisting it would make one viewer's filter everybody's
+        snapshot.
+      </P>
 
       <H3 id="chart-fields">A chart names its columns, and those are checked too</H3>
       <P>

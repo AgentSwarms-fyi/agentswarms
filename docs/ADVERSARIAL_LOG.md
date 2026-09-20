@@ -109,6 +109,43 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-20 — A live result under sentences written about a snapshot
+
+#### R27 · S1 · The one widget the restatements could not reach
+
+`query_mode: "direct"` re-runs the SQL at view time and draws that instead of
+the stored snapshot. The render substitution carried the live columns, rows and
+truncation onto the widget — and left the two SENTENCES alone:
+
+```
+{ ...w, columns: live.columns, rows: live.rows, truncated: live.truncated }
+```
+
+`w.title` still held the reconciliation note and `w.narrative` the prose, both
+computed against the snapshot. So a direct widget could read "The data has 3
+rows, not 5." above a live result with five bars in it, and its hover text could
+quote a total from whenever the snapshot was last written.
+
+The refresh-time restatements built in R24 and R26 cannot reach this. They
+rewrite the widget's STORED rows, and a direct widget's stored rows are not what
+it is drawing. Nothing in the dashboard ever compared the sentences to the live
+answer.
+
+`widgetForLiveResult` derives both from the live result at render. Nothing is
+persisted, which is the point twice over: a live result belongs to one view —
+two people looking through different filters are looking at different rows, and
+the only honest answer is for the card to say different things to them — and a
+sentence that is never stored is a sentence that can never go stale.
+
+**Tests:** 8 in `biDirectWidgetDisplay`, 8 behaviour-changing mutants applied one
+at a time and each killed, control missed, baseline verified green first.
+
+One mutant survived the first run and was a real gap: the fixture gave the
+stored widget and the live result the SAME column names, so "took the live
+columns" and "kept its own" were indistinguishable. A test whose fixture cannot
+tell the two branches apart asserts the right answer for the wrong reason, which
+is the second time this session mutation testing has caught exactly that.
+
 ### 2026-09-20 — Prose about a result the widget no longer has
 
 #### R26 · S2 · The narrative outlived its rows, with the figures still in it

@@ -9,6 +9,8 @@ import { supabase } from "@/integrations/supabase/client";
 import type { Json } from "@/integrations/supabase/types";
 import type { BiTurn, ChartSpec } from "@/lib/biAgent";
 import { isAggregatableChart } from "@/lib/biAggregate";
+import { restateWidgetNarrative } from "@/lib/biNumericClaims";
+import { restateWidgetNote } from "@/lib/biTitleClaims";
 import type { ComparePeriod, SemanticFilter, TimeGrain } from "@/lib/semanticLayer";
 
 export const GRID_COLS = 12;
@@ -1491,4 +1493,38 @@ export async function restoreDashboardVersion(v: BiVersionRow): Promise<void> {
     filters: v.filters,
     theme: v.theme,
   });
+}
+
+/**
+ * A direct-query widget as it should be DISPLAYED, given a live result.
+ *
+ * `query_mode: "direct"` re-runs the SQL at view time and draws the answer
+ * instead of the stored snapshot. What it used to keep from the snapshot were
+ * the two sentences: the title's reconciliation note and the narrative. Both
+ * were computed against rows that are not the rows on screen, so a card could
+ * read "The data has 3 rows, not 5." above five live bars, and its hover text
+ * could quote a total from whenever the snapshot was last written.
+ *
+ * The refresh-time restatements cannot reach this: they rewrite the widget's
+ * stored rows, and a direct widget's stored rows are not what it is drawing.
+ *
+ * Nothing here is persisted, and that is the point. A live result differs per
+ * viewer and per filter, so the sentences have to be derived per view — which
+ * also means they cannot go stale, because nothing keeps them.
+ */
+export function widgetForLiveResult(
+  w: BiWidget,
+  live: { columns: string[]; rows: Record<string, unknown>[]; truncated?: boolean },
+): BiWidget {
+  const merged: BiWidget = {
+    ...w,
+    columns: live.columns,
+    rows: live.rows,
+    truncated: live.truncated,
+  };
+  const restated = restateWidgetNote(merged);
+  const withNote = restated
+    ? { ...merged, title: restated.title, reconcile_note: restated.reconcile_note }
+    : merged;
+  return restateWidgetNarrative(withNote) ? { ...withNote, narrative: undefined } : withNote;
 }
