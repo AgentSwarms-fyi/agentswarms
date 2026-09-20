@@ -44,6 +44,7 @@ import { executeWarehouseQuery } from "@/utils/warehouse/drivers.server";
 import { parsePrepConfig } from "@/lib/dataPrepCore";
 import { assertLocalReadOnlySql } from "@/lib/sqlSafety";
 import { restateWidgetNote } from "@/lib/biTitleClaims";
+import { restateWidgetNarrative } from "@/lib/biNumericClaims";
 import { STAGING_PREFIX } from "@/lib/datasetParse";
 import { localEngineName } from "@/utils/data/localEngine.server";
 
@@ -361,6 +362,17 @@ function applyResult(
     w.title = restated.title;
     w.reconcile_note = restated.reconcile_note;
   }
+  // The stored narrative describes the rows that were just replaced. Its
+  // figures are re-checked against the new ones and the prose is withdrawn if
+  // they no longer hold — the same reasoning as the note above, applied to the
+  // sentence that actually carries numbers.
+  const staleProse = restateWidgetNarrative({
+    narrative: typeof w.narrative === "string" ? w.narrative : undefined,
+    columns: w.columns,
+    rows: w.rows,
+    truncated: w.truncated,
+  });
+  if (staleProse) w.narrative = undefined;
 }
 
 // ── Dashboard refresh ────────────────────────────────────────────────────

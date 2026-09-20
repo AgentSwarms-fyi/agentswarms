@@ -14,8 +14,11 @@
 import { describe, expect, it } from "vitest";
 
 import { computeInsightFacts } from "@/lib/biInsightFacts";
+import fs from "node:fs";
+
 import {
   extractClaims,
+  restateWidgetNarrative,
   unsupportedFigures,
   valuesStatedIn,
   verifyClaims,
@@ -302,5 +305,93 @@ describe("the shape of the verdict", () => {
     const v = verifyClaims("EMEA is 1,042,800.", null, ROWS);
     expect(unsupportedFigures(v)).toEqual([]);
     expect(verifyClaims("EMEA is 999.", null, ROWS)[0].matched).toBeNull();
+  });
+});
+
+describe("prose about a result the widget no longer has", () => {
+  // Taken off a generated dashboard. The narrative is stored on the widget and
+  // shown on hover; refresh replaced the rows under it and never touched it, so
+  // the sentence outlived its data exactly as a reconciliation note did — and
+  // this one carries the figures.
+  const REGIONS = [
+    { region: "AMER", total_revenue: 25874.92 },
+    { region: "EMEA", total_revenue: 15524.94 },
+    { region: "APAC", total_revenue: 10349.98 },
+  ];
+  const PROSE = "The top region, AMER, generated $25.9k in revenue.";
+  const COLUMNS = ["region", "total_revenue"];
+
+  it("leaves prose alone while its figures still hold", () => {
+    // The common case by far: a refresh that returns the same rows must not
+    // churn the document, and must not delete an insight that is still true.
+    expect(
+      restateWidgetNarrative({ narrative: PROSE, columns: COLUMNS, rows: REGIONS }),
+    ).toBeNull();
+  });
+
+  it("withdraws prose whose figure the new rows cannot support", () => {
+    // AMER fell to 9,000. "$25.9k" is now a number from nowhere.
+    const moved = [
+      { region: "AMER", total_revenue: 9000 },
+      { region: "EMEA", total_revenue: 8000 },
+      { region: "APAC", total_revenue: 7000 },
+    ];
+    const out = restateWidgetNarrative({ narrative: PROSE, columns: COLUMNS, rows: moved });
+    expect(out).not.toBeNull();
+    expect(out!.narrative).toBeUndefined();
+    expect(out!.dropped).toContain("$25.9k");
+  });
+
+  it("says nothing about a capped snapshot", () => {
+    // The figure may be perfectly true of the table and simply not derivable
+    // from the part of it kept here. Withdrawing on that evidence would delete
+    // correct prose, and the Partial badge is what explains this widget.
+    expect(
+      restateWidgetNarrative({
+        narrative: PROSE,
+        columns: COLUMNS,
+        rows: [{ region: "AMER", total_revenue: 1 }],
+        truncated: true,
+      }),
+    ).toBeNull();
+  });
+
+  it("does not delete sentences it cannot check", () => {
+    // A numeric verifier has nothing to say about "AMER leads the regions",
+    // which survives AMER falling to third. That is a limit of the check, not
+    // a reason to delete prose on suspicion.
+    expect(
+      restateWidgetNarrative({
+        narrative: "AMER leads the regions.",
+        columns: COLUMNS,
+        rows: [{ region: "APAC", total_revenue: 1 }],
+      }),
+    ).toBeNull();
+  });
+
+  it("has nothing to do without prose, or without rows to check it against", () => {
+    expect(restateWidgetNarrative({ columns: COLUMNS, rows: REGIONS })).toBeNull();
+    expect(
+      restateWidgetNarrative({ narrative: "   ", columns: COLUMNS, rows: REGIONS }),
+    ).toBeNull();
+    expect(restateWidgetNarrative({ narrative: PROSE, columns: COLUMNS, rows: [] })).toBeNull();
+  });
+
+  it("runs wherever the rows are replaced, not on one path of three", () => {
+    // A caveat that depends on which button the owner pressed is not a caveat.
+    for (const f of [
+      "src/utils/bi/refresh.server.ts",
+      "src/routes/_authenticated/bi_.$dashboardId.tsx",
+      "src/components/bi/BiBuilderPane.tsx",
+    ]) {
+      expect(fs.readFileSync(f, "utf8"), f).toContain("restateWidgetNarrative");
+    }
+    // And each one has to ACT on the verdict, not merely compute it.
+    const server = fs.readFileSync("src/utils/bi/refresh.server.ts", "utf8");
+    expect(server).toContain("if (staleProse) w.narrative = undefined;");
+    const route = fs.readFileSync("src/routes/_authenticated/bi_.$dashboardId.tsx", "utf8");
+    expect(route).toContain("...(staleProse ? { narrative: undefined } : {}),");
+    const pane = fs.readFileSync("src/components/bi/BiBuilderPane.tsx", "utf8");
+    expect(pane).toContain("{ ...withNote, narrative: undefined }");
   });
 });

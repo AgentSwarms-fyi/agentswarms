@@ -852,6 +852,29 @@ GROUP BY region`}</Code>
         repair onto the wrong column, which is worse than the blank chart it set out to fix.
       </P>
 
+      <H3 id="stale-prose">Written insight is withdrawn when its figures stop holding</H3>
+      <P>
+        A widget keeps the sentence the AI wrote about it —{" "}
+        <em>"The top region, AMER, generated $25.9k in revenue"</em> — and shows it when you hover
+        the title. A refresh replaces the rows underneath that sentence, which is how prose ends up
+        describing data the widget no longer has, with the figures still in it.
+      </P>
+      <P>
+        Every refresh re-checks those figures against the rows the widget now holds, using the same
+        verifier that checked them when they were written, and no model call. Prose whose numbers
+        still ground is left exactly as it is — which is almost always, because most refreshes
+        return the same rows. Prose that states a figure the data no longer supports is{" "}
+        <strong>withdrawn</strong> rather than corrected: nothing here can rewrite an English
+        sentence truthfully, and no tooltip is better than a confidently wrong one.
+      </P>
+      <P>
+        Two limits, stated rather than hidden. A snapshot that hit the row cap is not checked — the
+        figure may be true of the table and simply not derivable from the part of it kept here, and
+        deleting correct prose on that evidence would be the worse error. And a numeric check has
+        nothing to say about <em>"AMER leads the regions"</em>, which survives AMER falling to
+        third; sentences with no figures in them are left alone rather than deleted on suspicion.
+      </P>
+
       <H3 id="one-of-many">A single-value card says which row it is showing</H3>
       <P>
         A KPI draws the first row of its result and nothing else. When the query returned one row

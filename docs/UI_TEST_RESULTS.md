@@ -15,6 +15,34 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-20 — Stale prose withdrawn when its figures stop holding, ADVERSARIAL_LOG R26
+
+**Driven.** The existing dashboard on the rebuilt image, 30 chart widgets of
+which 23 carry a narrative. Narratives were read out of React state, because
+the widget's prose is only shown on hover and the DOM does not carry it until
+you are pointing at it.
+
+| Driven                                                      | Read back                                                                                                                                                                           |
+| ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Read narratives before touching anything                    | The R24 artifact — a widget now querying five MONTHS — still carried "The top region, AMER, generated $25.9k… The three regions together generated $51.7k". Its rows total about 9k |
+| Press **Refresh** (first run of the check on these widgets) | That narrative **withdrawn**. Seven of the nine Region-titled narratives kept theirs. One more went: Units Sold by Region — see below                                               |
+| Press **Refresh** again, nothing changed in between         | 23 narratives before, **23 after, zero withdrawn**. The check does not churn, and does not delete prose from widgets whose data has not moved                                       |
+
+**One withdrawal is unverified, and is recorded that way.** Units Sold by Region
+has rows APAC 2121, EMEA 2118, AMER 2115 — total 6354, average 2118 — and prose
+beginning "A total of 6.4k units were sold across all regions, with an average
+of 2.1k units per region. APAC led with the highest sales at 2…". Every figure
+in that fragment grounds. Whatever failed lies past the 130 characters that were
+captured, and the prose was gone before that mattered; version history offers
+restore, not read, and restoring would have destroyed the demonstration. It is
+not claimed as a correct catch.
+
+**The second refresh is the result that matters.** A check that deletes content
+is dangerous in proportion to how often it fires wrongly, and over 23 narratives
+whose data was untouched it fired not once.
+
+Findings from this round: R26 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-20 — A single-value card says which row it draws, ADVERSARIAL_LOG R25
 
 **Driven.** The existing generated dashboard on the rebuilt image — no new

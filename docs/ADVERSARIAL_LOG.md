@@ -109,6 +109,65 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-20 — Prose about a result the widget no longer has
+
+#### R26 · S2 · The narrative outlived its rows, with the figures still in it
+
+The same defect as R24, one field over, and this one carries numbers. A widget
+stores the sentence the AI wrote about it and shows it on hover. Neither refresh
+path has ever touched it, so the prose describes rows that were replaced
+underneath it.
+
+Found live rather than reasoned about. The widget left on the dashboard from
+R24's failed first attempt queries five MONTHS, and was still carrying:
+
+> The top region, AMER, generated $25.9k in revenue. The three regions together
+> generated $51.7k in total revenue.
+
+Its five rows are monthly figures totalling about 9k. There are no regions in
+them at all.
+
+`restateWidgetNarrative` re-checks the figures against the rows the widget now
+holds, with the verifier built in R19 and R21 and no model call, and withdraws
+prose whose numbers no longer ground. Withdrawn rather than corrected: nothing
+here can rewrite an English sentence truthfully, and an absent tooltip beats a
+confidently wrong one. The narrative is derived content about one result — when
+the result is gone the prose is not about anything the widget has.
+
+Two limits, deliberate. A capped snapshot is not checked: the figure may be true
+of the table and simply not derivable from the part of it kept here, and
+deleting correct prose on that evidence is the worse error. And a numeric
+verifier has nothing to say about "AMER leads the regions", which survives AMER
+falling to third — sentences with no figures are left alone rather than deleted
+on suspicion.
+
+**Tests:** 33 in `biNumericClaims`, 8 behaviour-changing mutants applied one at a
+time and each killed, control missed, baseline verified green first. A ninth
+candidate was dropped as EQUIVALENT rather than counted: removing the no-figures
+guard changes no outcome, because prose with zero claims yields zero unsupported
+figures and the same null a line later. It earns its place by skipping a scan of
+the rows, not by changing a result.
+
+#### R26 · S3 · One withdrawal this round could not be checked
+
+The first run of the check over widgets built in earlier rounds withdrew two
+narratives. One is the R24 artifact above, and arithmetic settles it. The other
+was **Units Sold by Region**, whose rows are APAC 2121, EMEA 2118, AMER 2115 —
+total 6354, average 2118 — against prose beginning "A total of 6.4k units were
+sold across all regions, with an average of 2.1k units per region. APAC led with
+the highest sales at 2…". Every figure in that fragment grounds: 6.4k is within
+tolerance of 6354, 2.1k of 2118, and APAC did lead.
+
+Whatever failed is in the part after the 130 characters that were captured, and
+by the time that mattered the prose was gone. Version history offers restore,
+not read, and restoring would have destroyed the demonstration. So it is
+recorded as unverified rather than assumed correct.
+
+What IS established is that the check does not churn: a second refresh over the
+same 23 narratives, with none of their data changed, withdrew **zero**. The risk
+worth worrying about with a destructive check is that it fires on prose that is
+still true, and on this dashboard it does not fire twice on anything.
+
 ### 2026-09-20 — A headline number that was one row of three
 
 #### R25 · S1 · `rows[0]` in the type size reserved for a total

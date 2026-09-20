@@ -101,6 +101,7 @@ import {
   type SemanticChartType,
 } from "@/lib/biDashboards";
 import { restateWidgetNote } from "@/lib/biTitleClaims";
+import { restateWidgetNarrative } from "@/lib/biNumericClaims";
 import type { SemanticQuery, TimeGrain } from "@/lib/semanticLayer";
 import { isAggregatableChart } from "@/lib/biAggregate";
 import { buildOntology, type OntologyBuildStage, type OntologySpec } from "@/lib/biOntology";
@@ -1014,6 +1015,8 @@ export function BiBuilderPane({
       // `truncated: false` and the card's "Partial" badge could never fire.
       // A chart missing rows with nothing saying so is the worst outcome here.
       truncated: preview.capped || preview.rows.length > snapshotRows(preview.rows).length,
+      // Carried, then checked below: the owner may have just pointed this
+      // widget at different data, and the prose was written about the old.
       narrative: initial?.narrative,
       // New widgets aggregate in SQL by default so their totals are complete
       // regardless of table size. An EXISTING widget keeps whatever it had:
@@ -1044,11 +1047,10 @@ export function BiBuilderPane({
       rows: edited.rows,
       truncated: edited.truncated,
     });
-    onSubmit(
-      restated
-        ? { ...edited, title: restated.title, reconcile_note: restated.reconcile_note }
-        : edited,
-    );
+    const withNote = restated
+      ? { ...edited, title: restated.title, reconcile_note: restated.reconcile_note }
+      : edited;
+    onSubmit(restateWidgetNarrative(withNote) ? { ...withNote, narrative: undefined } : withNote);
     toast.success(initial ? "Widget updated" : "Widget added to the dashboard");
   }
 

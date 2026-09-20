@@ -19,7 +19,7 @@
 // It is also the first half of citations: once a figure is matched to the fact
 // that produced it, showing the reader WHICH fact is presentation over data
 // this already computes.
-import type { InsightFacts } from "@/lib/biInsightFacts";
+import { computeInsightFacts, type InsightFacts } from "@/lib/biInsightFacts";
 
 /** A numeral found in prose, with the value it denotes. */
 export type NumericClaim = {
@@ -217,4 +217,49 @@ export function unsupportedFigures(verdicts: ClaimVerdict[]): string[] {
     out.push(v.raw);
   }
   return out;
+}
+
+/**
+ * Whether a widget's stored narrative still describes the rows it now has.
+ *
+ * The narrative is prose the AI wrote about ONE result — "The top region, AMER,
+ * generated $25.9k in revenue" — and it is stored on the widget. Refresh
+ * replaces the rows underneath it and has never touched it, so the sentence
+ * outlives the data it describes in exactly the way a reconciliation note did.
+ * This one is worse in one respect and better in another: it carries real
+ * figures, and it is only shown on hover.
+ *
+ * No model call. The figures the prose states are checked against the rows the
+ * widget now holds, with the same verifier that checked them when they were
+ * written, and prose that no longer holds is WITHDRAWN rather than corrected —
+ * nothing here can rewrite an English sentence truthfully, and an absent
+ * tooltip beats a confidently wrong one.
+ *
+ * Returns null when nothing should change, which is most of the time: a refresh
+ * that returns the same rows leaves every figure grounded.
+ */
+export function restateWidgetNarrative(w: {
+  narrative?: string;
+  columns?: string[];
+  rows?: Record<string, unknown>[];
+  truncated?: boolean;
+}): { narrative: undefined; dropped: string[] } | null {
+  const prose = typeof w.narrative === "string" ? w.narrative.trim() : "";
+  if (!prose) return null;
+  // A snapshot that hit the row cap cannot ground a total: the figure may be
+  // perfectly true of the table and simply not derivable from the part of it
+  // kept here. Withdrawing on that evidence would delete correct prose.
+  if (w.truncated) return null;
+  const rows = Array.isArray(w.rows) ? w.rows : [];
+  if (!rows.length) return null;
+  // Prose with no figures in it states nothing this can check. It can still go
+  // stale — "AMER leads the regions" survives AMER falling to third — and that
+  // is a limit of a numeric verifier, not something to paper over by deleting
+  // sentences on suspicion.
+  if (!extractClaims(prose).length) return null;
+  const dropped = unsupportedFigures(
+    verifyClaims(prose, computeInsightFacts(w.columns ?? [], rows), rows),
+  );
+  if (!dropped.length) return null;
+  return { narrative: undefined, dropped };
 }

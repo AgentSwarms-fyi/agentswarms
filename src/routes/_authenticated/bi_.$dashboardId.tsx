@@ -127,6 +127,7 @@ import {
   type BiWidgetTheme,
 } from "@/lib/biDashboards";
 import { restateWidgetNote } from "@/lib/biTitleClaims";
+import { restateWidgetNarrative } from "@/lib/biNumericClaims";
 import { isAggregatableChart } from "@/lib/biAggregate";
 import { exportDashboardPdf } from "@/lib/biPdf";
 import { BiDeckDialog } from "@/components/bi/BiDeckDialog";
@@ -998,9 +999,19 @@ function BiProjectPage() {
           rows,
           truncated: capped,
         });
+        // Same check the scheduled refresh runs, for the same reason both run
+        // the note restatement: a caveat that depends on which button was
+        // pressed is not a caveat.
+        const staleProse = restateWidgetNarrative({
+          narrative: next[idx].narrative,
+          columns: res.columns,
+          rows,
+          truncated: capped,
+        });
         next[idx] = {
           ...next[idx],
           ...(restated ? { title: restated.title, reconcile_note: restated.reconcile_note } : {}),
+          ...(staleProse ? { narrative: undefined } : {}),
           columns: res.columns,
           rows,
           // Carry the engine's own verdict. Refreshing used to clear nothing
