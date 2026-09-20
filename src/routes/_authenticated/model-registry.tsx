@@ -7,6 +7,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { countLabels } from "@/lib/countClaim";
 import { listClaim, UNKNOWN_COUNT } from "@/lib/listClaim";
+import { catalogueCaveat, catalogueCount, windowComplete } from "@/lib/traceWindow";
 import { useAuth } from "@/hooks/use-auth";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -86,11 +87,16 @@ export const Route = createFileRoute("/_authenticated/model-registry")({
   component: ModelRegistryPage,
 });
 
+// One noun for the catalogue, so the headline and the caveat cannot drift.
+const MODEL_NOUN = { one: "live model", many: "live models" };
+
 function ModelRegistryPage() {
   const { user, session } = useAuth();
   const isAdmin = useIsSuperadmin();
   const [models, setModels] = useState<RegistryModel[]>([]);
   const [meta, setMeta] = useState<RegistryMeta | null>(null);
+  // Rows the table holds, which is not the same question as rows we read.
+  const [total, setTotal] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   // Why the registry could not be read, or null. Every number on this page is
   // derived from `models`, which starts empty, so without this a failed read
@@ -115,6 +121,7 @@ function ModelRegistryPage() {
       const res = await getModelRegistry({ data: { access_token: session.access_token } });
       setModels(res.models);
       setMeta(res.meta);
+      setTotal(res.total);
       setLoadError(null);
     } catch (e) {
       // MEASURED: the server threw Unauthorized and this branch left `models`
@@ -202,6 +209,12 @@ function ModelRegistryPage() {
   // Every figure on this page comes from the same read, so they are true
   // together or unknown together. countLabels is what makes that structural.
   const claim = listClaim({ loaded: !loading, error: loadError, count: models.length });
+  // What the read holds against what the table holds. Every figure and every
+  // filter below is computed from `models`, so if that is a prefix the whole
+  // page is describing a prefix.
+  const registryWindow = { fetched: models.length, total: total ?? models.length };
+  const wholeCatalogue = windowComplete(registryWindow);
+  const cappedCaveat = loadError ? null : catalogueCaveat(registryWindow, MODEL_NOUN);
   const { total: totalLabel } = countLabels(
     { loaded: !loading, error: loadError },
     { total: models.length },
@@ -209,7 +222,9 @@ function ModelRegistryPage() {
   // The headline keeps its thousands separator when it is allowed to be a
   // number at all; countLabels decides whether it is.
   const totalDisplay =
-    totalLabel === UNKNOWN_COUNT ? UNKNOWN_COUNT : models.length.toLocaleString();
+    totalLabel === UNKNOWN_COUNT
+      ? `${UNKNOWN_COUNT} live models`
+      : catalogueCount(registryWindow, MODEL_NOUN);
   // "never" is a claim about the registry. With meta unread it is a claim
   // about nothing, and it is the one that argues hardest for running a sync.
   const lastRefreshedLabel = loadError ? "unknown" : timeAgo(meta?.last_synced_at || null);
@@ -226,8 +241,9 @@ function ModelRegistryPage() {
               <Boxes className="h-7 w-7 text-primary" /> Model Registry
             </h1>
             <p className="text-muted-foreground mt-1 max-w-2xl">
-              Browse {totalDisplay} live models across all major providers. Filter by capability,
-              copy the exact model id, and paste it into the Agent Builder or any swarm node.
+              Browse {totalDisplay}
+              {wholeCatalogue ? " across all major providers" : ""}. Filter by capability, copy the
+              exact model id, and paste it into the Agent Builder or any swarm node.
             </p>
             <p className="text-xs text-muted-foreground mt-2">
               Source:{" "}
@@ -311,6 +327,15 @@ function ModelRegistryPage() {
                 </Badge>
               ))}
             </div>
+            {/* The filters here sort and search the array in hand, so a capped
+                read does not merely undercount — it puts models out of reach of
+                every control on this card. Said once, above them. */}
+            {cappedCaveat && (
+              <p className="md:col-span-4 text-xs text-warning">
+                {cappedCaveat}
+                {isAdmin ? " Raise MODEL_REGISTRY_MAX_ROWS to load more." : ""}
+              </p>
+            )}
             <div className="md:col-span-4 flex flex-wrap items-center gap-1.5 pt-1 border-t border-border/40 mt-1">
               <span className="text-xs text-muted-foreground mr-1">Integration:</span>
               <Badge

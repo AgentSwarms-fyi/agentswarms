@@ -11,6 +11,8 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
+  catalogueCaveat,
+  catalogueCount,
   countHeadline,
   pageTraces,
   traceCountHeadline,
@@ -232,5 +234,103 @@ describe("the same sentence for a list that is not traces (module 22)", () => {
     expect(src).toContain("setExactTotal(countError ? rows.length : (exact ?? rows.length));");
     // And the list itself says when it is cut.
     expect(src).toContain("Only the most recent");
+  });
+});
+
+describe("a catalogue rather than a time window (model registry)", () => {
+  // The Model Registry read `.limit(2000)` and printed `models.length` as the
+  // population. Two separate wrongs. The order is ALPHABETICAL by developer, so
+  // truncation does not thin the list evenly — it deletes late-alphabet
+  // developers outright, and they then never appear in the provider filter
+  // either. And the 2,000 was fiction: PostgREST's max-rows on this deployment
+  // is 1,000 — measured while writing this, a `limit=2000` against a 1,109-row
+  // table returned exactly 1,000 — so the declared ceiling was twice the real
+  // one, and nothing on the page could tell.
+  const MODELS = { one: "live model", many: "live models" };
+
+  it("states the count plainly when the catalogue is whole", () => {
+    expect(catalogueCount({ fetched: 770, total: 770 }, MODELS)).toBe("770 live models");
+  });
+
+  it("says first-N-of-M when the read stopped short", () => {
+    expect(catalogueCount({ fetched: 1000, total: 3412 }, MODELS)).toBe(
+      "the first 1,000 of 3,412 live models",
+    );
+  });
+
+  it("never lets the cap pass as the population", () => {
+    const capped = catalogueCount({ fetched: 1000, total: 3412 }, MODELS);
+    expect(capped).toContain("3,412");
+    expect(capped.startsWith("1,000 live models")).toBe(false);
+  });
+
+  it("does not borrow the trace sentence's sense of order", () => {
+    // "the most recent 1,000" would be a lie about an alphabetical list; that
+    // is the whole reason this is a second sentence and not another noun.
+    expect(catalogueCount({ fetched: 1000, total: 3412 }, MODELS)).not.toContain("most recent");
+  });
+
+  it("uses the singular only for exactly one", () => {
+    expect(catalogueCount({ fetched: 1, total: 1 }, MODELS)).toBe("1 live model");
+    expect(catalogueCount({ fetched: 0, total: 0 }, MODELS)).toBe("0 live models");
+  });
+
+  it("stays silent about filters when nothing was cut", () => {
+    expect(catalogueCaveat({ fetched: 770, total: 770 }, MODELS)).toBeNull();
+  });
+
+  it("warns that a capped catalogue puts models beyond the filters", () => {
+    const note = catalogueCaveat({ fetched: 1000, total: 3412 }, MODELS);
+    // The filters and the search box are client-side over the rows in hand, so
+    // the missing models are not one page away — they are unreachable here.
+    expect(note).toContain("1,000");
+    expect(note).toContain("2,412");
+    expect(note).toContain("cannot be found from here");
+  });
+});
+
+describe("what the model registry actually reads and renders", () => {
+  const fn = readFileSync("src/utils/modelRegistry.functions.ts", "utf8");
+  const page = readFileSync("src/routes/_authenticated/model-registry.tsx", "utf8");
+
+  it("asks how many rows the table holds before reading any", () => {
+    expect(fn).toContain('.select("id", { count: "exact", head: true })');
+  });
+
+  it("pages instead of trusting a single .limit()", () => {
+    // The bug was not the number 2,000, it was believing it. PostgREST caps
+    // every response at max-rows regardless of what .limit() asks for.
+    // Anchored on a CHAINED CALL, not the token: the comment above the new
+    // read names `.limit(2000)` to explain why it went, and a substring
+    // assertion would have been satisfied by that prose forever.
+    expect(fn).not.toMatch(/^\s*\.limit\(/m);
+    expect(fn).toContain("pageTraces<RegistryModel>");
+    expect(fn).toContain("const PAGE = 1000;");
+  });
+
+  it("makes the ceiling an env knob, not a constant", () => {
+    expect(fn).toContain('envInt("MODEL_REGISTRY_MAX_ROWS", 5000)');
+    // And that the knob reaches the loop. Declaring MAX_ROWS and then passing
+    // PAGE would leave the env call sitting in the file doing nothing.
+    expect(fn).toContain("{ pageSize: PAGE, maxRows: MAX_ROWS }");
+  });
+
+  it("orders by a unique column last so paging cannot skip or repeat", () => {
+    // developer + display_name is not unique across modalities; a page boundary
+    // inside a tie is how .range() paging loses rows.
+    expect(fn).toContain('.order("id", { ascending: true })');
+  });
+
+  it("lets a failed count degrade to the rows in hand", () => {
+    expect(fn).toContain("total: countError ? models.length : (count ?? models.length),");
+  });
+
+  it("renders the catalogue sentence and the filter caveat", () => {
+    // Presence is not use: both have to reach the page, and the headline must
+    // stop promising coverage it no longer has.
+    expect(page).toContain("catalogueCount(registryWindow, MODEL_NOUN)");
+    expect(page).toContain("catalogueCaveat(registryWindow, MODEL_NOUN)");
+    expect(page).toContain("{cappedCaveat && (");
+    expect(page).toContain('{wholeCatalogue ? " across all major providers" : ""}');
   });
 });

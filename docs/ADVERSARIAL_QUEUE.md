@@ -81,8 +81,8 @@ The three shapes it takes:
 | Budgets                | ✅ fixed | 2026-09-20 | R34 — the cap was enforced against a total that counted unpriced calls as free                |
 | Swarm traces           | ✅ fixed | 2026-09-20 | R35 — `.limit(200)` then "N swarm runs"; the sibling page's fix had not been applied here     |
 | Monitoring             | ✅ fixed | 2026-09-20 | R36 — a failed poll kept the probes and the verdict; the board froze green                    |
-| **Model registry**     | ⬜ next  |            |                                                                                               |
-| Knowledge base         | ⬜       |            |                                                                                               |
+| Model registry         | ✅ fixed | 2026-09-20 | R37 — `.limit(2000)` against a 1,000-row server cap, on an alphabetical read                  |
+| **Knowledge base**     | ⬜ next  |            |                                                                                               |
 | Agent swarms / runs    | ⬜       |            |                                                                                               |
 | Semantic layer         | ⬜       |            |                                                                                               |
 | ML predictions         | ⬜       |            |                                                                                               |

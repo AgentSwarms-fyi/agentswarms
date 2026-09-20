@@ -109,6 +109,80 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-20 — The model registry's ceiling was half what the code thought
+
+#### R37 · S2 · A cap of 2,000 that the database enforces at 1,000
+
+`getModelRegistry` read the catalogue with a single `.limit(2000)` and the page
+printed `models.length` as the population: "Browse 770 live models across all
+major providers", with the provider dropdown, the modality badges, the
+capability list and the search box all derived from the same array.
+
+Two things are wrong with that, and the second is the one that makes it urgent.
+
+**The truncation is not even.** The order is `developer, display_name`, so a
+prefix is not a thinned-out sample of the catalogue — it is every developer up
+to a letter. Measured against the live table just now: first row `AI21 / Jamba
+Large 1.7`, last row `Zhipu AI / GLM-OCR`. Cut at any point and the providers
+past the cut do not get fewer models on the page, they vanish from it entirely,
+including from the provider filter that is supposed to find them. And because
+the search box filters the array in hand, they cannot be searched for either.
+
+**The 2,000 does not exist.** PostgREST caps every response at `db-max-rows`,
+1,000 on a default Supabase project, and supabase-js returns the short page
+without an error — the same mechanism recorded in `lib/traceWindow`'s header
+when `/analytics` asked for 2,000 traces and got 1,000. Re-measured on this
+deployment while writing this:
+
+```
+execution_traces | total 1,109 | returned for limit=2000: 1000
+model_registry   | total   770 | returned for limit=2000:  770
+```
+
+So the registry's real ceiling is **1,000**, not 2,000, and the table holds
+**770** — 77% of the way there, against a third-party catalogue that only grows
+and is pruned to match upstream on every sync. This is the sweep's first finding
+that is not yet wrong on the screen; it is wrong in the code, and the distance
+to it being wrong on the screen is a few hundred models AIMLAPI has not shipped
+yet. Recorded as S2 rather than S1 for exactly that reason.
+
+The fix is the one the repo already has: read the exact count first, then page
+with `pageTraces`, and let the header say which of the two situations it is in.
+Three details worth keeping:
+
+- The ceiling is `MODEL_REGISTRY_MAX_ROWS` (default 5,000) rather than a
+  constant, because the thing it bounds is somebody else's catalogue.
+- The ORDER BY gained `id` last. `developer, display_name` is not unique across
+  modalities, and a page boundary inside a tie is how `.range()` paging starts
+  repeating or dropping rows — a bug that would have arrived with the paging
+  rather than being fixed by it.
+- A count that fails does not fail the page. Rows on screen beat a perfect
+  label; the label then claims only what it holds.
+
+`catalogueCount` is a second sentence rather than another noun passed to
+`countHeadline` because "the most recent 1,000" is a lie about an alphabetical
+list. `catalogueCaveat` is its own sentence because the cost here is not an
+undercount but an unreachable filter.
+
+**Verified live** against the running deployment: exact count 770, paged read
+770 rows, 770 distinct ids, `windowComplete` true — the new read returns the
+whole catalogue today and knows that it does.
+
+**Tests:** 37 in `traceWindow`, 13 behaviour-changing mutants applied one at a
+time and each killed — including one that declares the env ceiling and then
+passes the page size instead, and one that drops the unique tiebreaker — control
+missed, baseline verified green first.
+
+#### R37 · S3 · An anchor satisfied by the comment that explained the fix
+
+`expect(fn).not.toContain(".limit(2000)")` failed the moment it was written,
+because the comment above the new read names `` `.limit(2000)` `` to say why it
+went. Had the wording been slightly different it would have passed forever while
+the call sat there. It now matches a chained call at the start of a line, which
+is a thing only code can be. Fourth of its kind this session, and the first
+where the decoy was prose rather than a dead identifier: **pin the branch that
+runs, not the token that appears** — and the token can appear in a comment.
+
 ### 2026-09-20 — The monitoring board went green when the probes stopped coming
 
 #### R36 · S1 · A health verdict that outlived the probes it was made from

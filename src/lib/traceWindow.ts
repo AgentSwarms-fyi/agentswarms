@@ -101,3 +101,47 @@ export function countHeadline(
     `${w.total.toLocaleString()} ${noun.many} from ${rangeLabel}`
   );
 }
+
+/**
+ * The same sentence a third time, for a catalogue rather than a time window.
+ *
+ * The Model Registry read `.limit(2000)` and printed `models.length` as the
+ * population. Two things were wrong with it. The cap is a prefix of an
+ * ALPHABETICAL order, so truncation does not thin the list evenly — it removes
+ * late-alphabet developers entirely, and they then never appear in the provider
+ * filter either. And the declared 2,000 does not exist: PostgREST's max-rows on
+ * this deployment is 1,000, measured again while writing this (a `limit=2000`
+ * on a 1,109-row table returned exactly 1,000), so the ceiling the code thought
+ * it had was twice the one it got.
+ *
+ * "most recent" is meaningless here, which is the only reason this is a second
+ * sentence rather than another noun passed to `countHeadline`.
+ */
+export function catalogueCount(w: TraceWindow, noun: { one: string; many: string }): string {
+  if (windowComplete(w)) {
+    const word = w.total === 1 ? noun.one : noun.many;
+    return `${w.total.toLocaleString()} ${word}`;
+  }
+  return `the first ${w.fetched.toLocaleString()} of ${w.total.toLocaleString()} ${noun.many}`;
+}
+
+/**
+ * What a truncated catalogue costs the controls beside it, or null when the
+ * page holds everything.
+ *
+ * Worth its own sentence because the filters here are client-side: they sort
+ * and search the array in hand. On a capped read the missing rows are not one
+ * page away, they are unreachable from this screen — and a filter that silently
+ * cannot reach a model is worse than a count that is merely low.
+ */
+export function catalogueCaveat(
+  w: TraceWindow,
+  noun: { one: string; many: string },
+): string | null {
+  if (windowComplete(w)) return null;
+  const rest = (w.total - w.fetched).toLocaleString();
+  return (
+    `Filters, counts and search on this page cover these ${w.fetched.toLocaleString()} ` +
+    `${noun.many} only — the other ${rest} were not loaded and cannot be found from here.`
+  );
+}

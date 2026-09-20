@@ -183,6 +183,27 @@ A crawl lists at most **2,000 objects** per bucket and infers a schema for the
 sample; Parquet schemas come from the file's **footer**, which is also where
 its exact row count is read from — neither downloads the file.
 
+### Model registry — `src/utils/modelRegistry.functions.ts`
+
+| Setting                   | Default | What it bounds                           |
+| ------------------------- | ------- | ---------------------------------------- |
+| `MODEL_REGISTRY_MAX_ROWS` | `5,000` | Models the browse page loads in one read |
+
+The registry is read by paging in **1,000-row** steps up to that ceiling, with
+the exact row count read first so the page can tell a whole catalogue from a
+prefix of one. When the ceiling bites, the header says "the first N of M live
+models" and a line above the filters says the rest are not loaded — the filters
+and the search box work over the rows in hand, so a model past the ceiling is
+not one page away, it is unreachable from that screen.
+
+**`.limit()` is not a ceiling you control.** PostgREST caps every response at
+its `db-max-rows`, which is **1,000** on a default Supabase project; a
+`.limit(2000)` above that is silently halved and supabase-js returns the short
+page with no error. Any read that must be complete has to page and compare
+against an exact count, which is what `pageTraces` in `src/lib/traceWindow.ts`
+exists for. Paging also needs a unique column last in the ORDER BY — without it
+a page boundary landing inside a tie can repeat or skip rows.
+
 ### Object-store queries — `src/utils/catalog/objectStoreQuery.server.ts`
 
 | Setting           | Default  | What it bounds                              |
