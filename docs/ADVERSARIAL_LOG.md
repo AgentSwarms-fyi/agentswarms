@@ -109,6 +109,52 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-20 — A freshness test that blamed the data for the reader's cap
+
+#### R31 · S1 · "Stale: 412 days old" about a dataset written five minutes ago
+
+The quality evaluator reads at most `DATA_QUALITY_ROW_CAP` rows — 200,000 by
+default — and threads a `capped` flag to every check. The row-scoped tests use
+it: `not_null`, `unique`, `accepted_values` and `range` all append "(checked the
+first N rows)". **Freshness did not.**
+
+A column-based freshness test takes the newest value it can SEE. On a table
+larger than the cap that prefix need not hold the newest row, and if the source
+is ordered oldest-first it certainly does not. The test then declares the
+dataset stale and names the watermark column as the reason — which is the log's
+opening line, _a message that names a cause it cannot support_, occurring in the
+one part of the product whose entire job is to say whether data can be trusted.
+
+**The two verdicts are not symmetric under capping**, and the fix turns on that
+rather than on suppressing both:
+
+- **pass** — the whole table's maximum is at least the maximum of any prefix, so
+  a prefix inside the limit proves the dataset is inside it. Sound. Left as a
+  pass, and given the cap note the other tests already carried.
+- **fail** — the row that would refute "stale" is exactly the row the cap did
+  not read. Now reported as unrunnable, which is what this module does with any
+  assertion it cannot evaluate, naming the way out: raise the cap, or order the
+  source so the newest rows are read first.
+
+The same reasoning covers "no parseable dates in this column", which a prefix
+cannot establish either. The load-time fallback is untouched: with no watermark
+column the stamp comes from the dataset's recorded load time rather than from
+rows, so no cap can affect it.
+
+**Tests:** 28 in `dataQualityCore`, 7 behaviour-changing mutants applied one at a
+time and each killed, control missed, baseline verified green first. One mutant
+exists to pin the asymmetry itself — downgrading the PASSING capped case is
+caught, because that verdict IS supported and must not be discarded along with
+the unsupported one.
+
+#### R31 · S3 · en-IN again
+
+Two new assertions compared against `"1,000,000"` and met `"10,00,000"`. Node on
+this machine resolves en-IN and the code formats with `toLocaleString()`. They
+assert the contract — the same formatter — rather than a literal, which is the
+only form that holds wherever CI runs. Third time this has been recorded; the
+rule is that a test must never hard-code the output of a locale-aware call.
+
 ### 2026-09-20 — The Partial badge did not survive the export
 
 #### R30 · S2 · A caveat that exists on screen and not in the artifact
