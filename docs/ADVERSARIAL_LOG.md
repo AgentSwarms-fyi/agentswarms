@@ -109,6 +109,56 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-20 — A baseline that fell off the end of a list
+
+#### R33 · S2 · The compare control did not shrink, it disappeared
+
+The run detail page offers "Compare against": pick an earlier run on the same
+dataset, see which cases improved or regressed. It built that list by filtering
+`runs` — the **fifty most recent runs across every dataset**.
+
+On an account that evaluates regularly, a perfectly good baseline stops being
+offered once fifty newer runs exist elsewhere. And the control is rendered
+behind `comparable.length > 0`, so the user does not get a shorter list: the
+feature is absent. No picker, no message, nothing to separate "there is nothing
+to compare" from "your baseline is run fifty-one".
+
+The list now comes from a query scoped to the dataset, excluding this run,
+newest first — so the fifty is a bound on the PICKER rather than a filter that
+removes valid answers, and when the dataset holds more than fifty it says so
+beside the control. An empty result states why instead of vanishing.
+
+The rule moved to `evalScoring.isComparableRun`, because one of its three
+conditions is subtle: two runs whose `dataset_id` are both null are not on the
+same dataset, they are each on no dataset, and pairing them invents a
+comparison.
+
+**Tests:** 24 in `evalScoring`, 7 behaviour-changing mutants applied one at a
+time and each killed, control missed, baseline verified green first.
+
+One survivor was a gap in an assertion rather than in the code: the source check
+said the page contains `olderThanShown`, which stayed true under a mutant that
+always set it to zero — silencing the disclosure while leaving the identifier
+in place. It pins the computation now.
+
+#### R33 · S1 · The fix reintroduced module 28's own defect, and a guard caught it
+
+`tests/unit/failedReadClaims.test.ts` failed on the first gate run. The new
+query destructured `data` and `count` and ignored `error`, so a failed read
+would have set an empty list and the page would have stated "there is nothing to
+compare against" — the exact false-empty this module was converted to prevent,
+arriving through the repair for a different defect.
+
+That guard exists because a previous mutation showed the same thing: dropping a
+`setLoadError` beside a `setSecrets([])` restored an S1 while the suite stayed
+green. It earned its keep here.
+
+The read now separates a failure from an absence. Worth noting what the shared
+guard does NOT cover: it checks that an error setter sits _near_ the emptying
+line, and two mutants — deleting the error branch, and hiding what it records —
+both preserved that proximity and survived. Those two lines are pinned
+explicitly now.
+
 ### 2026-09-20 — A spend trend built from two floors
 
 #### R32 · S1 · The uncaveated number sat on the caveated card

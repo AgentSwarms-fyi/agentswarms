@@ -50,6 +50,7 @@ import { cn } from "@/lib/utils";
 import { parseCsv } from "@/lib/sqlEngine";
 import {
   compareRuns,
+  isComparableRun,
   DEFAULT_JUDGE_METRICS,
   DEFAULT_JUDGE_THRESHOLD,
   type EvalEvaluator,
@@ -120,6 +121,8 @@ const JUDGE_MODELS = [
   { id: "openai/gpt-5.2", label: "GPT-5.2" },
 ];
 const CONCURRENCY = 2;
+/** How many baseline runs the compare picker offers, newest first. */
+const COMPARE_CHOICES = 50;
 
 /**
  * Pass rate, or null when nothing has been scored yet.
@@ -870,12 +873,56 @@ function RunPanel({ run, runs, onChanged }: { run: Run; runs: Run[]; onChanged: 
   // Same dataset AND same evaluator kind. Comparing a `contains` run (scores
   // are 0 or 1) against a judge run (continuous 0-1) would produce score
   // deltas that mean nothing — the scales are different, not the swarm.
-  const comparable = runs.filter(
-    (r) =>
-      r.id !== run.id &&
-      r.dataset_id === run.dataset_id &&
-      r.evaluator?.kind === run.evaluator?.kind,
-  );
+  //
+  // Queried for this dataset rather than filtered out of `runs`, which holds
+  // the fifty most recent runs ACROSS every dataset. On a busy account a
+  // perfectly good baseline falls off the end of that list, and the compare
+  // control then vanishes entirely — no picker, no message, no way to tell
+  // "there is nothing to compare" from "your baseline is run fifty-one".
+  const [comparable, setComparable] = useState<Run[]>([]);
+  const [olderThanShown, setOlderThanShown] = useState(0);
+  // A read that FAILS must not arrive at the same screen as a read that found
+  // nothing. Without this the catch-all below would set an empty list and the
+  // page would state "there is nothing to compare against" — the module-28
+  // defect, reintroduced by the fix for a different one.
+  const [compareError, setCompareError] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      if (!run.dataset_id) {
+        if (cancelled) return;
+        // Not a failure: this run is not on a dataset, so there is genuinely
+        // nothing to compare it with.
+        setCompareError(null);
+        setComparable([]);
+        setOlderThanShown(0);
+        return;
+      }
+      const { data, count, error } = await supabase
+        .from("eval_runs")
+        .select("*", { count: "exact" })
+        .eq("dataset_id", run.dataset_id)
+        .neq("id", run.id)
+        .order("created_at", { ascending: false })
+        .limit(COMPARE_CHOICES);
+      if (cancelled) return;
+      if (error) {
+        setCompareError(error.message);
+        setComparable([]);
+        setOlderThanShown(0);
+        return;
+      }
+      // The evaluator kind lives in a JSON column, so it is matched here
+      // rather than in the query — but the POPULATION is now the right one.
+      const rows = ((data as unknown as Run[]) ?? []).filter((r) => isComparableRun(r, run));
+      setCompareError(null);
+      setComparable(rows);
+      setOlderThanShown(Math.max(0, (count ?? 0) - (data?.length ?? 0)));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [run.id, run.dataset_id, run.evaluator?.kind]);
   const pending = run.case_count - run.done_count;
   const judge = run.evaluator.kind === "llm_judge" ? run.evaluator : null;
 
@@ -934,6 +981,20 @@ function RunPanel({ run, runs, onChanged }: { run: Run; runs: Run[]; onChanged: 
         </Card>
       </div>
 
+      {compareError !== null && (
+        <p className="text-xs text-destructive">
+          Couldn&apos;t load baseline runs ({compareError}) — this is not a statement that there are
+          none.
+        </p>
+      )}
+      {compareError === null && comparable.length === 0 && run.dataset_id && (
+        // Silence here used to be indistinguishable from "your baseline is
+        // older than the fifty most recent runs".
+        <p className="text-xs text-muted-foreground">
+          No other run on this dataset uses the same evaluator, so there is nothing to compare
+          against yet.
+        </p>
+      )}
       {comparable.length > 0 && (
         <div className="flex items-center gap-2">
           <Label className="text-xs text-muted-foreground">Compare against</Label>
@@ -949,6 +1010,12 @@ function RunPanel({ run, runs, onChanged }: { run: Run; runs: Run[]; onChanged: 
               ))}
             </SelectContent>
           </Select>
+          {olderThanShown > 0 && (
+            <span className="text-xs text-muted-foreground">
+              most recent {comparable.length} of {comparable.length + olderThanShown} on this
+              dataset
+            </span>
+          )}
         </div>
       )}
 

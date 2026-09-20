@@ -4,8 +4,11 @@
 // scorecard strictness, comparison ranking) are pinned here and the suite is
 // mutation-verified: break any rule in src/lib/evalScoring.ts and a test
 // below must fail.
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 import {
+  isComparableRun,
   compareRuns,
   DEFAULT_JUDGE_METRICS,
   deterministicVerdict,
@@ -184,5 +187,78 @@ describe("compareRuns", () => {
   it("reports unmatched cases on either side", () => {
     const deltas = compareRuns([r("only-in-a", "pass", 1)], [r("only-in-b", "pass", 1)]);
     expect(deltas.map((d) => d.change).sort()).toEqual(["only_a", "only_b"]);
+  });
+});
+
+describe("which runs can serve as a baseline", () => {
+  // The page used to pick baselines by filtering the fifty most recent runs
+  // ACROSS every dataset. On a busy account a perfectly good baseline falls off
+  // the end of that list, and the compare control then vanished entirely — no
+  // picker and no message, so "there is nothing to compare" looked exactly like
+  // "your baseline is run fifty-one".
+  const run = (over: Partial<Parameters<typeof isComparableRun>[0]> = {}) => ({
+    id: "a",
+    dataset_id: "d1",
+    evaluator: { kind: "contains" },
+    ...over,
+  });
+
+  it("accepts another run on the same dataset with the same evaluator", () => {
+    expect(isComparableRun(run({ id: "b" }), run())).toBe(true);
+  });
+
+  it("never compares a run against itself", () => {
+    expect(isComparableRun(run(), run())).toBe(false);
+  });
+
+  it("refuses a run on a different dataset", () => {
+    expect(isComparableRun(run({ id: "b", dataset_id: "d2" }), run())).toBe(false);
+  });
+
+  it("refuses a different evaluator kind, whose scores are on another scale", () => {
+    // `contains` scores 0 or 1; a judge scores a continuous 0-1. A delta
+    // between them measures the scale change, not the swarm.
+    expect(isComparableRun(run({ id: "b", evaluator: { kind: "llm_judge" } }), run())).toBe(false);
+  });
+
+  it("refuses when either run has no dataset at all", () => {
+    // Two runs that both have `dataset_id: null` are not on the same dataset;
+    // they are each on no dataset, and pairing them invents a comparison.
+    expect(isComparableRun(run({ id: "b", dataset_id: null }), run())).toBe(false);
+    expect(isComparableRun(run({ id: "b" }), run({ dataset_id: null }))).toBe(false);
+    expect(isComparableRun(run({ id: "b", dataset_id: null }), run({ dataset_id: null }))).toBe(
+      false,
+    );
+  });
+
+  it("treats a missing evaluator as its own kind, matching only another missing one", () => {
+    expect(isComparableRun(run({ id: "b", evaluator: null }), run({ evaluator: null }))).toBe(true);
+    expect(isComparableRun(run({ id: "b", evaluator: null }), run())).toBe(false);
+  });
+
+  it("is chosen by a query scoped to the dataset, not by filtering a global list", () => {
+    // The rule above is only half the fix. The other half is asking the
+    // database for runs on THIS dataset — filtering a capped list of recent
+    // runs would still lose an older baseline however correct the rule is.
+    const src = readFileSync("src/routes/_authenticated/evaluations.tsx", "utf8");
+    expect(src).toContain('.eq("dataset_id", run.dataset_id)');
+    expect(src).toContain('.neq("id", run.id)');
+    expect(src).toContain("isComparableRun(r, run)");
+    // And the old global filter is gone.
+    expect(src).not.toMatch(/runs\.filter\(\s*\(r\) =>/);
+    // The picker's own bound is disclosed rather than silent, and an empty
+    // result now says so instead of removing the control.
+    // The COMPUTATION, not the identifier: asserting that `olderThanShown`
+    // merely appears was satisfied by a mutant that always set it to 0, which
+    // silences the disclosure while leaving the variable in place.
+    expect(src).toContain("setOlderThanShown(Math.max(0, (count ?? 0) - (data?.length ?? 0)));");
+    expect(src).toContain("there is nothing to compare");
+    // And a FAILED read must not arrive at that same sentence. The shared
+    // failed-read guard only checks that an error setter sits near the
+    // emptying line, which both of these mutants preserved — so the branch and
+    // its rendering are pinned here.
+    expect(src).toContain("if (error) {");
+    expect(src).toContain("setCompareError(error.message);");
+    expect(src).toContain("{compareError !== null && (");
   });
 });

@@ -64,28 +64,28 @@ The three shapes it takes:
 - **A sentence that outlived its rows** — prose or a caveat stored beside data
   that a later refresh replaced.
 
-| Module / surface       | Status   | Date       | Result                                                                                              |
-| ---------------------- | -------- | ---------- | --------------------------------------------------------------------------------------------------- |
-| BI widgets & refresh   | ✅ fixed | 2026-09-19 | R24, R27 — notes outlived their rows on three write paths                                           |
-| BI insight card        | ✅ fixed | 2026-09-20 | R29 — a prefix's total stated as the total, and the checker grounded it                             |
-| BI reports & PDF       | ✅ fixed | 2026-09-20 | R30 — the Partial badge did not survive the export                                                  |
-| BI alerts              | ✅ fixed | 2026-09-20 | R28 — thresholds compared against the first 500 rows; `count` = the cap                             |
-| Data quality           | ✅ fixed | 2026-09-20 | R31 — freshness called data stale on rows it never read                                             |
-| Analytics `/analytics` | ✅ fixed | 2026-09-20 | R32 — a spend trend from two floors, on the card that already said "+?"                             |
-| AI analyst             | ✅ clear | 2026-09-20 | Already states the truncation first and drops shares — nothing to do                                |
-| Scan / insight sweep   | ✅ clear | 2026-09-20 | Refuses truncated widgets by name, with the remedy                                                  |
-| Public embeds          | ✅ clear | 2026-09-20 | Reuses `BiWidgetCard`, so it inherits Partial and freshness                                         |
-| **Evaluations**        | 🔎 found | 2026-09-20 | `comparable` filters the 50 most recent runs — an older baseline silently disappears. NOT yet fixed |
-| Traces & Logs          | ⬜ next  |            |                                                                                                     |
-| Audit log              | ⬜       |            |                                                                                                     |
-| Budgets                | ⬜       |            |                                                                                                     |
-| Swarm traces           | ⬜       |            |                                                                                                     |
-| Monitoring             | ⬜       |            |                                                                                                     |
-| Model registry         | ⬜       |            |                                                                                                     |
-| Knowledge base         | ⬜       |            |                                                                                                     |
-| Agent swarms / runs    | ⬜       |            |                                                                                                     |
-| Semantic layer         | ⬜       |            |                                                                                                     |
-| ML predictions         | ⬜       |            |                                                                                                     |
+| Module / surface       | Status   | Date       | Result                                                                           |
+| ---------------------- | -------- | ---------- | -------------------------------------------------------------------------------- |
+| BI widgets & refresh   | ✅ fixed | 2026-09-19 | R24, R27 — notes outlived their rows on three write paths                        |
+| BI insight card        | ✅ fixed | 2026-09-20 | R29 — a prefix's total stated as the total, and the checker grounded it          |
+| BI reports & PDF       | ✅ fixed | 2026-09-20 | R30 — the Partial badge did not survive the export                               |
+| BI alerts              | ✅ fixed | 2026-09-20 | R28 — thresholds compared against the first 500 rows; `count` = the cap          |
+| Data quality           | ✅ fixed | 2026-09-20 | R31 — freshness called data stale on rows it never read                          |
+| Analytics `/analytics` | ✅ fixed | 2026-09-20 | R32 — a spend trend from two floors, on the card that already said "+?"          |
+| AI analyst             | ✅ clear | 2026-09-20 | Already states the truncation first and drops shares — nothing to do             |
+| Scan / insight sweep   | ✅ clear | 2026-09-20 | Refuses truncated widgets by name, with the remedy                               |
+| Public embeds          | ✅ clear | 2026-09-20 | Reuses `BiWidgetCard`, so it inherits Partial and freshness                      |
+| Evaluations            | ✅ fixed | 2026-09-20 | R33 — baselines were filtered out of the 50 most recent runs across ALL datasets |
+| **Traces & Logs**      | ⬜ next  |            |                                                                                  |
+| Audit log              | ⬜       |            |                                                                                  |
+| Budgets                | ⬜       |            |                                                                                  |
+| Swarm traces           | ⬜       |            |                                                                                  |
+| Monitoring             | ⬜       |            |                                                                                  |
+| Model registry         | ⬜       |            |                                                                                  |
+| Knowledge base         | ⬜       |            |                                                                                  |
+| Agent swarms / runs    | ⬜       |            |                                                                                  |
+| Semantic layer         | ⬜       |            |                                                                                  |
+| ML predictions         | ⬜       |            |                                                                                  |
 
 ## Sweeps after this one
 
