@@ -276,9 +276,14 @@ describe("where the check is actually spent", () => {
     // defined, the assertion above green, and nothing checked at all.
     expect(body).toMatch(/let bad = check\(insight\)/);
     expect(body).toMatch(/if \(bad\.length > 0\)/);
-    // A truncated result must not hand the checker shares to accept, or a
+    // A partial result must not hand the checker shares to accept, or a
     // "100%" written against one row of a LIMIT 1 query verifies happily.
-    expect(body).toMatch(/rowLimit != null \? \{ \.\.\.measured0, shares: \[\] \}/);
+    // Widened from `rowLimit != null` to `partial`: a snapshot that hit the
+    // row cap is a prefix too, and its shares are shares of a fragment. The
+    // condition has to cover BOTH reasons, so assert the union rather than
+    // one of its arms.
+    expect(body).toContain("const partial = rowLimit != null || cappedAt != null;");
+    expect(body).toContain("measured0 && partial ? { ...measured0, shares: [] } : measured0");
     // One retry, and it must NAME the figures — "try again" produces the same
     // number in a new sentence.
     expect(body).toMatch(/must not appear in the card: \$\{bad\.join/);

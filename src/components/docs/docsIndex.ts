@@ -398,6 +398,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "$837k",
       "2.6×",
       "410,379.26",
+      "LIMIT",
       "VITE_BI_SNAPSHOT_ROWS_CAP",
       "answer",
       "area",
@@ -619,7 +620,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       },
       {
         "id": "partial-results",
-        "text": "A query that caps itself says so",
+        "text": "A result that is only part of the data says so",
         "level": 3
       },
       {

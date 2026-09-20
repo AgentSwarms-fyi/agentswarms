@@ -1201,20 +1201,29 @@ export async function generateWidgetInsight(args: {
   sql?: string;
   columns: string[];
   rows: Record<string, unknown>[];
+  /** True when `rows` is a capped snapshot and the query returned more. */
+  truncated?: boolean;
   model?: string;
 }): Promise<string> {
   const sample = args.rows.slice(0, 30);
-  // Totals and shares are computed here, over EVERY row, because a model
-  // asked to divide will divide wrongly and the card is headed "What the
-  // data shows". Measured: it reported regional shares of 48% / 39% / 19%,
-  // which sum to 106%.
+  // Totals and shares are computed here, over every row THE CARD WAS GIVEN,
+  // because a model asked to divide will divide wrongly and the card is headed
+  // "What the data shows". Measured: it reported regional shares of
+  // 48% / 39% / 19%, which sum to 106%.
   const rowLimit = queryRowLimit(args.sql);
+  // ...and "every row it was given" is not "every row" when the snapshot hit
+  // the row cap. Reading the SQL cannot tell you that — the query asked for
+  // everything and the cap took the tail — so the widget has to say so. Without
+  // this the card states a prefix's total as the total, and the numeric checker
+  // GROUNDS it, because the figure really is derivable from the rows it holds.
+  const cappedAt = args.truncated ? args.rows.length : null;
+  const partial = rowLimit != null || cappedAt != null;
   const measured0 = computeInsightFacts(args.columns, args.rows);
-  // A capped query has no meaningful shares, so they are removed from the
+  // A partial result has no meaningful shares, so they are removed from the
   // facts AND from what the checker will accept — a "100%" written against
   // one row of a LIMIT 1 result should be caught, not grounded.
-  const measured = measured0 && rowLimit != null ? { ...measured0, shares: [] } : measured0;
-  const facts = measured ? formatInsightFacts(measured, rowLimit) : "";
+  const measured = measured0 && partial ? { ...measured0, shares: [] } : measured0;
+  const facts = measured ? formatInsightFacts(measured, rowLimit, cappedAt) : "";
   const out = await llmJson<{ insight: string }>({
     model: args.model,
     systemPrompt:

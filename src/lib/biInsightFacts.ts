@@ -147,8 +147,20 @@ export function queryRowLimit(sql: string | undefined): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-/** The digest as the prompt carries it. */
-export function formatInsightFacts(f: InsightFacts, rowLimit?: number | null): string {
+/**
+ * The digest as the prompt carries it.
+ *
+ * A result can be a prefix for two different reasons and the card has to say
+ * which. `rowLimit` is the query capping ITSELF with a trailing LIMIT. `cappedAt`
+ * is the SNAPSHOT hitting the row cap while the query had more to give — which
+ * no amount of reading the SQL will reveal, and which is the normal case on a
+ * warehouse table rather than an exotic one.
+ */
+export function formatInsightFacts(
+  f: InsightFacts,
+  rowLimit?: number | null,
+  cappedAt?: number | null,
+): string {
   const lines: string[] = [`ROWS: ${f.rowCount}`];
   for (const m of f.measures) {
     lines.push(`${m.name}: total=${m.total} min=${m.min} max=${m.max} mean=${m.mean}`);
@@ -163,6 +175,15 @@ export function formatInsightFacts(f: InsightFacts, rowLimit?: number | null): s
         `cover just these rows. Do not state shares of a total, do not call ` +
         `anything 100%, and do not say other categories are absent — the query ` +
         `did not ask for them.`,
+    );
+  } else if (cappedAt != null) {
+    lines.push(
+      `PARTIAL: this snapshot holds ${cappedAt} row(s) and the query returned ` +
+        `more — the rows beyond the cap are not here. The totals above cover ` +
+        `just the rows present. Do not state shares of a total, do not call ` +
+        `anything 100%, and do not say a category is absent or that a value is ` +
+        `the largest or smallest — the rows that would say otherwise were not ` +
+        `fetched.`,
     );
   } else if (f.shares.length > 0 && f.dimension) {
     const parts = f.shares.map((s) => `${s.label}=${s.value} (${s.pct.toFixed(1)}%)`);
@@ -182,7 +203,9 @@ export function insightFacts(
   columns: string[],
   rows: Record<string, unknown>[],
   sql?: string,
+  /** Set when `rows` is a capped snapshot rather than the whole result. */
+  cappedAt?: number | null,
 ): string {
   const f = computeInsightFacts(columns, rows);
-  return f ? formatInsightFacts(f, queryRowLimit(sql)) : "";
+  return f ? formatInsightFacts(f, queryRowLimit(sql), cappedAt) : "";
 }

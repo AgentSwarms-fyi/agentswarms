@@ -757,7 +757,7 @@ GROUP BY region`}</Code>
         doing as it was told, which is the fastest way to make a warning worth ignoring.
       </P>
 
-      <H3 id="partial-results">A query that caps itself says so</H3>
+      <H3 id="partial-results">A result that is only part of the data says so</H3>
       <P>
         If a visual&rsquo;s SQL ends in <C>LIMIT 5</C>, its rows are the top five and not the whole
         picture. An insight over them is told exactly that, and is barred from stating shares of a
@@ -768,6 +768,26 @@ GROUP BY region`}</Code>
         This is the one failure a check on the wording cannot catch. A card reading &ldquo;AMER
         accounts for 100% of revenue&rdquo; over a <C>LIMIT 1</C> query is <em>true of its data</em>{" "}
         and false about the business, and every figure in it verifies.
+      </P>
+
+      <P>
+        There are two ways a result can be part of the data, and only one of them is visible in the
+        SQL. The first is a query that caps <em>itself</em> with a trailing <C>LIMIT</C>. The second
+        is the <strong>snapshot</strong> hitting its row cap while the query had more to give — the
+        query asked for everything and the cap took the tail, so nothing in the SQL says a word
+        about it. On a large table that is the ordinary case rather than an exotic one.
+      </P>
+      <P>
+        Both now reach the insight. Totals are still stated, because they are true of the rows that
+        are there; the shares are withheld, because shares of a fragment are not shares; and the
+        caveat rules out the superlatives a prefix cannot support — <em>the largest region</em>,{" "}
+        <em>no other category</em> — since the rows that would contradict them were never fetched.
+      </P>
+      <P>
+        This one matters more than it looks. The figures in a prefix are real: they are genuinely
+        derivable from the rows the card was given, so the numeric check <em>passes</em> them. A
+        verifier can only compare prose against the data it holds — it cannot know the data is a
+        fragment unless the widget says so, which is why the widget now does.
       </P>
 
       <H3 id="title-claims">A title is a claim, and it is checked too</H3>

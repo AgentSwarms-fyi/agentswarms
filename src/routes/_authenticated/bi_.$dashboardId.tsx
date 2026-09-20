@@ -1057,6 +1057,9 @@ function BiProjectPage() {
         sql: w.sql,
         columns: w.columns ?? [],
         rows: w.rows,
+        // Without this the card cannot tell a whole result from the first
+        // page of one, and says "the total" about a prefix.
+        truncated: w.truncated,
         model: biModel ?? undefined,
       });
       const widget: BiWidget = {

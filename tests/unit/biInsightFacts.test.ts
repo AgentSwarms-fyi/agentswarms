@@ -13,6 +13,8 @@
 //
 // This file is about the arithmetic. What the model then writes is its own
 // business — but it can no longer be asked to compute what it is bad at.
+import fs from "node:fs";
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -175,11 +177,92 @@ describe("the prompt that consumes them", () => {
   it("tells the model the facts are authoritative and not to divide", async () => {
     const src = await import("node:fs").then((fs) => fs.readFileSync("src/lib/biAgent.ts", "utf8"));
     const at = src.indexOf("export async function generateWidgetInsight");
-    const body = src.slice(at, at + 2600);
+    // Bounded by the next top-level export, not by a byte count. A fixed
+    // window silently starts asserting about a DIFFERENT function's text as
+    // the one under test grows — this slice was 2600 characters and a few
+    // lines of comment pushed the last assertion out of it.
+    const next = src.indexOf("\nexport ", at + 1);
+    const body = src.slice(at, next > at ? next : undefined);
     expect(body).toContain("computeInsightFacts(args.columns, args.rows)");
     expect(body).toMatch(/FACTS is authoritative/);
     expect(body).toMatch(/Do NOT calculate a percentage/);
     // And the facts have to actually reach the model.
     expect(body).toContain("FACTS (authoritative)");
+  });
+});
+
+describe("a snapshot that is a prefix, which the SQL cannot tell you about", () => {
+  // The other PARTIAL case is the query capping ITSELF with a trailing LIMIT,
+  // and reading the SQL finds it. This one is the snapshot hitting the row cap
+  // while the query had more to give: the SQL asked for everything, so nothing
+  // in it says the tail is missing. On a warehouse table that is the normal
+  // case, not an exotic one.
+  const cols = ["region", "total_sales"];
+  const rows = [
+    { region: "AMER", total_sales: 60 },
+    { region: "EMEA", total_sales: 40 },
+  ];
+
+  it("says the rows beyond the cap are missing", () => {
+    const out = insightFacts(cols, rows, "SELECT region, SUM(x) FROM t GROUP BY region", 2);
+    expect(out).toContain("PARTIAL");
+    expect(out).toContain("this snapshot holds 2 row(s)");
+  });
+
+  it("withholds the shares, which would be shares of a prefix", () => {
+    // 60 and 40 really do sum to 100 of the rows present. Stating that as
+    // "60% / 40%" is the sentence this exists to prevent, because the rows that
+    // would move it were never fetched.
+    const out = insightFacts(cols, rows, "SELECT region, SUM(x) FROM t GROUP BY region", 2);
+    expect(out).not.toContain("SHARE OF");
+    expect(out).not.toContain("sum to 100%");
+  });
+
+  it("forbids the superlatives a prefix cannot support", () => {
+    // "AMER is the largest region" is unknowable from the first page of a
+    // result ordered or not — the largest may be in the part that was dropped.
+    const out = insightFacts(cols, rows, undefined, 2);
+    expect(out).toMatch(/largest or smallest/);
+    expect(out).toMatch(/category is absent/);
+  });
+
+  it("still states the totals, which are true of the rows it has", () => {
+    const out = insightFacts(cols, rows, undefined, 2);
+    expect(out).toContain("total=100");
+    expect(out).toContain("ROWS: 2");
+  });
+
+  it("leaves a complete result exactly as it was", () => {
+    const out = insightFacts(cols, rows, "SELECT region, SUM(x) FROM t GROUP BY region");
+    expect(out).not.toContain("PARTIAL");
+    expect(out).toContain("SHARE OF");
+  });
+
+  it("prefers the query's own LIMIT when both are true", () => {
+    // A LIMIT 1 query whose snapshot also hit the cap is still best described
+    // by the limit the author wrote — and either way the shares are gone.
+    const out = insightFacts(cols, rows, "SELECT region, SUM(x) FROM t LIMIT 1", 2);
+    expect(out).toContain("ends with LIMIT 1");
+    expect(out).not.toContain("this snapshot holds");
+    expect(out).not.toContain("SHARE OF");
+  });
+
+  it("is actually wired from the widget to the card", () => {
+    // The card takes rows from a widget snapshot, and only the widget knows
+    // whether that snapshot is whole. Source-anchored because no unit test of
+    // the digest can see an argument that was never passed.
+    const agent = fs.readFileSync("src/lib/biAgent.ts", "utf8");
+    expect(agent).toContain("const cappedAt = args.truncated ? args.rows.length : null;");
+    expect(agent).toContain("const partial = rowLimit != null || cappedAt != null;");
+    // Shares must go for EITHER reason, not just the LIMIT one.
+    expect(agent).toContain(
+      "const measured = measured0 && partial ? { ...measured0, shares: [] } : measured0;",
+    );
+    // Computing the reason is not the same as handing it over. Dropping the
+    // third argument still removes the shares, so nothing else here would
+    // notice — the caveat would simply stop being written.
+    expect(agent).toContain("formatInsightFacts(measured, rowLimit, cappedAt)");
+    const route = fs.readFileSync("src/routes/_authenticated/bi_.$dashboardId.tsx", "utf8");
+    expect(route).toContain("truncated: w.truncated,");
   });
 });

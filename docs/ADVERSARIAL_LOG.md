@@ -109,6 +109,56 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-20 — The insight card called a prefix "the total"
+
+#### R29 · S1 · The second way a result is partial, which the SQL never says
+
+The card already discloses one: a query that caps ITSELF with a trailing LIMIT,
+which `queryRowLimit` finds by reading the SQL. There is a second, and reading
+the SQL can never find it — the SNAPSHOT hitting the row cap while the query had
+more to give. The query asked for everything; the cap took the tail.
+
+So `generateWidgetInsight` was handed a prefix and told, in its own comment,
+that its totals were "computed over EVERY row". Below the cap that is true.
+Above it the card states a prefix's total as the total, and its shares as shares
+of it, summing to 100% of a fragment.
+
+**What makes this worse than a wrong number: the checker grounds it.** The
+figures really are derivable from the rows the card was given. Every mechanism
+built in R19 and R21 to stop the model inventing a figure passes this one
+through, because nothing was invented — it is an honest summary of the wrong
+rows. A verifier can only compare prose against the data it is handed; it cannot
+know the data is a fragment unless something tells it.
+
+The widget knows. `truncated` is set by both refresh paths and is what the
+Partial badge already reads. It now reaches the insight: the digest gains a
+second PARTIAL reason with its own sentence, the shares are withheld for either
+reason rather than only for a LIMIT, and the caveat forbids the superlatives a
+prefix cannot support — "the largest region", "no other category" — because the
+rows that would contradict them were never fetched.
+
+**Tests:** 22 in `biInsightFacts`, 8 behaviour-changing mutants applied one at a
+time and each killed, control missed, baseline verified green first.
+
+One mutant survived the first run and was a real gap: computing the reason and
+handing it over are different things. Dropping the third argument to
+`formatInsightFacts` still removed the shares, so every other assertion stayed
+green while the caveat simply stopped being written.
+
+#### R29 · S3 · Two source anchors, and what each was really pinning
+
+Both broke, and both deserved to.
+
+`biInsightFacts` sliced `src.slice(at, at + 2600)` to get the function's body.
+A few lines of comment pushed its last assertion past the window — one edit from
+silently asserting about a DIFFERENT function's text. The slice is now bounded
+by the next top-level export, which is what "the body" always meant.
+
+`biNumericClaims` pinned `rowLimit != null ? { ...measured0, shares: [] }`. That
+condition was widened to `partial`, which covers both reasons — so the anchor
+was pinning one arm of a union that had grown. It now asserts the union itself.
+Mutation-checked by narrowing it back: caught.
+
 ### 2026-09-20 — An alert that watched the first 500 rows
 
 #### R28 · S1 · The threshold was compared against a prefix, and emailed as fact
