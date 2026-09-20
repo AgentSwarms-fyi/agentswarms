@@ -57,7 +57,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { seedTraces } from "@/utils/observability.functions";
 import { toast } from "sonner";
 import type { DateRange } from "react-day-picker";
-import { formatSpend, spendCaveat, sumSpend } from "@/lib/spendCompleteness";
+import { formatSpend, spendCaveat, spendTrend, sumSpend } from "@/lib/spendCompleteness";
 
 type RangePreset = "24h" | "7d" | "1m" | "6m" | "custom";
 const PRESETS: { id: RangePreset; label: string }[] = [
@@ -230,22 +230,22 @@ function AnalyticsPage() {
   const mtd = sumSpend(traces.filter((t) => new Date(t.created_at).getTime() >= monthStart));
   const mtdSpend = mtd.total;
 
-  const lastWeekSpend = traces
-    .filter((t) => {
-      const ts = new Date(t.created_at).getTime();
-      return ts >= lastWeekStart;
-    })
-    .reduce((acc, t) => acc + Number(t.cost_usd), 0);
-
-  const prevWeekSpend = traces
-    .filter((t) => {
+  // Through sumSpend for the same reason the MTD total above is: a call on a
+  // model with no known rate is recorded at $0, so a bare reduce produces a
+  // floor that looks like an answer. These two fed a PERCENTAGE printed on the
+  // very card whose value already carries a "+?" — one card saying both "this
+  // total is at least this much" and "spend is down 40%", where the 40% could
+  // be entirely an artifact of which week had the unpriced calls.
+  const lastWeek = sumSpend(
+    traces.filter((t) => new Date(t.created_at).getTime() >= lastWeekStart),
+  );
+  const prevWeek = sumSpend(
+    traces.filter((t) => {
       const ts = new Date(t.created_at).getTime();
       return ts >= prevWeekStart && ts < lastWeekStart;
-    })
-    .reduce((acc, t) => acc + Number(t.cost_usd), 0);
-
-  const spendTrend =
-    prevWeekSpend > 0 ? ((lastWeekSpend - prevWeekSpend) / prevWeekSpend) * 100 : 0;
+    }),
+  );
+  const trend = spendTrend(lastWeek, prevWeek);
 
   const totalTokensIn = traces.reduce((a, t) => a + t.tokens_in, 0);
   const totalTokensOut = traces.reduce((a, t) => a + t.tokens_out, 0);
@@ -445,8 +445,12 @@ function AnalyticsPage() {
           icon={DollarSign}
           label="Spend (MTD)"
           value={formatSpend(mtd)}
-          subtext={spendCaveat(mtd) ?? undefined}
-          trend={spendTrend}
+          // Both caveats, because they are different facts: one about this
+          // month's total, one about whether last week can be compared at all.
+          subtext={[spendCaveat(mtd), trend.caveat].filter(Boolean).join(" ") || undefined}
+          // Absent rather than zero. A 0% arrow is a claim that nothing
+          // changed, which is not what "cannot be compared" means.
+          trend={trend.pct ?? undefined}
           trendLabel="vs last week"
         />
         <KpiCard

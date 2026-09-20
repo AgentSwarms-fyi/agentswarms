@@ -81,3 +81,45 @@ export function spendCaveat(t: SpendTotal): string | null {
     `Refresh the price catalog (npm run prices:refresh) so those calls can be re-priced.`
   );
 }
+
+export type SpendTrend = {
+  /** Percent change, or null when the two totals cannot honestly be compared. */
+  pct: number | null;
+  /** Why there is no percentage, or null when there is one. */
+  caveat: string | null;
+};
+
+/**
+ * Week-over-week change between two spend totals — or nothing, when the two
+ * cannot be compared.
+ *
+ * A total built from rows with unknown prices is a FLOOR, and the difference
+ * between two floors is not a floor: it can be wrong in either direction. A
+ * week with many unpriced calls measured against one without shows a drop that
+ * never happened, and a percentage is read as a fact about the business rather
+ * than about the price catalogue.
+ *
+ * This matters more than the totals it compares. `formatSpend` can mark a total
+ * "+?" and stay useful; a trend has no such half-state — the arrow points down
+ * or it does not — so when the inputs are partial the honest output is no
+ * percentage at all, with the reason in its place.
+ */
+export function spendTrend(last: SpendTotal, prev: SpendTotal): SpendTrend {
+  if (last.partial || prev.partial) {
+    const n = last.unpricedRows + prev.unpricedRows;
+    return {
+      pct: null,
+      caveat:
+        `No week-over-week figure: ${n === 1 ? "1 call" : `${n} calls`} across the two weeks ` +
+        `used a model with no known price, so the two totals are floors and their ` +
+        `difference could point either way.`,
+    };
+  }
+  if (prev.total <= 0) {
+    return {
+      pct: null,
+      caveat: "No week-over-week figure: the previous week recorded no spend to compare against.",
+    };
+  }
+  return { pct: ((last.total - prev.total) / prev.total) * 100, caveat: null };
+}

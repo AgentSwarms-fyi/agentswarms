@@ -109,6 +109,50 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-20 — A spend trend built from two floors
+
+#### R32 · S1 · The uncaveated number sat on the caveated card
+
+`spendCompleteness` exists because a call to a model with no known price is
+recorded at $0 — honest on the row, silently under-counted once summed. Its
+header says the row-level honesty "never reached the numbers people actually
+look at", and the fix at the time routed the analytics month-to-date card
+through `sumSpend`: it prints `$41.20+?` with a sentence explaining the mark.
+
+Directly beneath that, on the SAME card, `trend={spendTrend}` — "vs last week" —
+was computed from two bare reduces over `cost_usd`. One card saying both "this
+total is at least this much" and "spend is down 40%", where the 40% could be
+entirely an artifact of which of the two weeks held the unpriced calls.
+
+**A trend is worse than a total, and that decides the fix.** A total has a
+half-state: marked `+?` it is still a floor and still useful. A percentage has
+none — the arrow points down or it does not — and the difference between two
+floors is not a floor, it can be wrong in either direction. So when either week
+is partial there is no honest percentage, and the reason is printed in its
+place. The card shows no arrow rather than a 0% one, because 0% is a claim that
+nothing changed. A zero baseline is treated the same way, by the same reasoning
+that produced "0% pass" on an unscored evaluation run in R28 of the first pass.
+
+**Tests:** 23 in `spendCompleteness`, 8 behaviour-changing mutants applied one at
+a time and each killed, control missed, baseline verified green first. One puts
+the bare reduce back on the page, because the defect was never in the arithmetic
+— it was that the page did the arithmetic itself instead of asking the module
+that knows what the rows are worth.
+
+#### R32 · S3 · The hunt now has a queue
+
+`docs/ADVERSARIAL_QUEUE.md`. The coverage map above finished a first pass over
+all 31 modules in August; running it again module-by-module would mostly re-read
+pages already read. What has been finding things for thirteen rounds is the
+opposite shape — one defect class swept across every module — so the queue names
+the current sweep, states the single question to ask, and tracks a row per
+module with a cursor.
+
+Nine rows are settled, three of them **clear** rather than fixed. That is the
+point: "checked, on this date, against this question" is a result, and three of
+the last five candidates turned out to be already correct. Marking them stops
+the next session re-deriving that.
+
 ### 2026-09-20 — A freshness test that blamed the data for the reader's cap
 
 #### R31 · S1 · "Stale: 412 days old" about a dataset written five minutes ago

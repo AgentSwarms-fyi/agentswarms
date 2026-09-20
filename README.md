@@ -376,6 +376,8 @@ One focused guide per topic in [`docs/`](./docs):
   [Testing](./docs/TESTING.md) ·
   [Adversarial log](./docs/ADVERSARIAL_LOG.md), the running record of passes
   that check what the screen says against what the data says ·
+  [Adversarial queue](./docs/ADVERSARIAL_QUEUE.md), what that hunt looks at
+  next and how far it has got ·
   [UI test results](./docs/UI_TEST_RESULTS.md), the per-round record of what
   was driven in the browser and what the rows said
 - **Data** — [Data sources & connectors](./docs/DATA_SOURCES.md) ·
