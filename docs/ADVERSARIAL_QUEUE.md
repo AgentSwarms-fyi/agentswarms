@@ -87,6 +87,7 @@ The three shapes it takes:
 | `lib/pagedSelect`      | ✅ fixed | 2026-09-21 | R41 — out of order: the shared pager read a short page as the end of the filter                              |
 | Pagers that persist    | ✅ fixed | 2026-09-21 | R43 — lakehouse import, Parquet mirror and widget refresh; a failed page became a shorter table              |
 | Offsets that skipped   | ✅ fixed | 2026-09-21 | R44 — `start += PAGE` left holes, not a tail; the SQL tool an agent calls, prep, and version copies          |
+| Audit export           | ✅ fixed | 2026-09-21 | R45 — the one close that ended the evidence stream without an error line                                     |
 | **Semantic layer**     | ⬜ next  |            |                                                                                                              |
 | ML predictions         | ⬜       |            |                                                                                                              |
 
@@ -106,18 +107,17 @@ left:
 
 | Site                              | What it feeds                           | Still wrong                       |
 | --------------------------------- | --------------------------------------- | --------------------------------- |
-| `src/routes/api/audit.export.ts`  | the audit export, i.e. evidence         | short page closes, no error line  |
 | `src/lib/sqlEngine.ts`            | rows a local SQL query reads            | PARALLEL pages, error → stop      |
 | `src/lib/traceWindow.ts`          | `pageTraces` — written by this campaign | short page ends the read          |
 | `src/utils/audit.functions.ts`    | the user list behind audit attribution  | Auth admin API, error folded in   |
 | `src/utils/bi/quality.server.ts`  | data-quality checks                     | skips, but `capped` catches it    |
 | `src/utils/etl/service.server.ts` | ETL reads                               | skips, but `truncated` catches it |
 
-`audit.export` is the one to take first. It already emits an `_export_error`
-line so a consumer can tell a truncated export from a complete one, and the
-short-page close is the ONE path that ends the stream without emitting it — a
-silently truncated audit export, indistinguishable from a full one, which is
-the worst property evidence can have.
+`sqlEngine` is the one to take next, and it is the hardest of these: it fires
+its pages in PARALLEL and folds any page's error into a `stop` flag, so one
+failed request among several ends the read with whatever the others returned.
+Parallel offset paging with no ordering is the skip defect of R44 with more
+ways to go wrong at once.
 
 The five under `src/utils/saas/*` and `kb/confluence.server.ts` are NOT in this
 class: they page third-party APIs, which honour their own page sizes and have

@@ -109,6 +109,77 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-21 — The one path that ended the evidence stream without saying so
+
+#### R45 · S1 · A complete-looking export of a third of the audit trail
+
+`/api/audit/export` streams the compliance trail as NDJSON so an enterprise can
+ship it to its own SIEM. It is careful nearly everywhere: superadmin only,
+invalid dates rejected rather than silently widening the range, one page per
+`pull` so backpressure is honest, and — the part that matters — a mid-stream
+failure emits a final error line, with a comment saying exactly why:
+
+> Mid-stream failure: emit a final error line so the consumer can tell a
+> truncated export from a complete one.
+
+Then it closed on a short page:
+
+```ts
+if (data.length < PAGE) controller.close();
+```
+
+That is the ONE exit that ends the stream without emitting that line, and it
+fires whenever the server hands back fewer rows than asked for — `db-max-rows`,
+which belongs to whoever runs the database, not to this code. On a project tuned
+below `PAGE` the export closes after a single page and writes a file that is
+byte-for-byte a valid, complete-looking export of a fraction of the trail. For
+evidence that is the worst available property: not missing, not erroring, just
+quietly less. Measured here: `audit_events` holds **2,010 rows**, so a full
+export is three pages and a cap below 1,000 is all it takes.
+
+A short page proves nothing; an empty one proves the end, and the branch above
+already handled it. The close is gone. The cost is one extra request, and only
+where a page was actually short — two full pages already needed an empty third
+to know they were done, which is why removing it is free in the common case.
+
+**The ORDER BY gained `id`.** `spec.ts` is `created_at` or `started_at`, and two
+events can share a timestamp to the microsecond. Offset paging over a non-unique
+order is not a sequence: the planner may return one of them at the end of page
+one and again at the start of page two, and the other never — a row that did not
+happen beside a row that happened twice, in the file someone opens precisely
+because they need to know which.
+
+**Tests:** 9 in `auditExportStream`, 8 behaviour-changing mutants applied one at
+a time and each killed — including one that drops the superadmin guard — control
+missed, baseline verified green first.
+
+The behavioural half runs the route's loop shape against a table that clamps
+like PostgREST does, at caps of 1, 7, 500, 999, 1,000 and 4,096, because the fix
+is a DELETION and "the line is gone" is the weakest possible assertion about
+one. Its honest limit: `drain` replicates the loop rather than importing it, so
+it documents the defect while the source anchors pin the code. Driving the real
+handler would mean restructuring the route for testability, which is a larger
+change than this round should carry.
+
+#### R45 · S3 · The comment answered for the code, again
+
+`expect(SRC).toContain("_export_error")` passed under a mutant that emitted a
+bare newline instead of the error object — because the token appears in the
+comment above the branch, explaining the feature. Fourth of this family in one
+session, third caused by prose in the file under test.
+
+The remedy differed this time. Twice before, the comment was reworded. Here the
+key name in prose is genuinely useful to a reader ("look for `_export_error`"),
+so the ASSERTION moved instead, onto the encode expression:
+
+```ts
+expect(SRC).toMatch(/JSON\.stringify\(\{ _export_error: error\.message \}\)/);
+```
+
+Which suggests the general rule is not "never mention the code in a comment" but
+**pin something only code can be**: a chained call, an expression, an argument
+position. A bare identifier is prose as easily as it is code.
+
 ### 2026-09-21 — The offset that advanced by what it asked for
 
 #### R44 · S1 · Not a short tail. Holes.

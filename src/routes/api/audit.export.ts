@@ -75,6 +75,14 @@ export const Route = createFileRoute("/api/audit/export")({
               .from(spec.table)
               .select("*")
               .order(spec.ts, { ascending: true })
+              // `id` breaks the tie. Two events can share a timestamp to the
+              // microsecond, and offset paging over a non-unique order is not a
+              // sequence: the planner may return one of them at the end of page
+              // one and again at the start of page two, and the other never. In
+              // an export that is a row which did not happen beside a row that
+              // happened twice, in the file someone reaches for precisely
+              // because they need to know which.
+              .order("id", { ascending: true })
               .range(from, from + PAGE - 1);
             if (since) q = q.gte(spec.ts, new Date(since).toISOString());
             if (until) q = q.lt(spec.ts, new Date(until).toISOString());
@@ -97,7 +105,23 @@ export const Route = createFileRoute("/api/audit/export")({
               encoder.encode(data.map((r) => JSON.stringify(r)).join("\n") + "\n"),
             );
             from += data.length;
-            if (data.length < PAGE) controller.close();
+            // There is deliberately no close-on-a-short-page here, and the
+            // expression is described rather than quoted: a test asserts it
+            // is gone, and a comment carrying it would satisfy that
+            // assertion forever.
+            //
+            // This file is careful everywhere else: a mid-stream failure emits
+            // `{"_export_error": …}` as a final line "so the consumer can tell a
+            // truncated export from a complete one". The short-page close was
+            // the one path that ended the stream WITHOUT emitting it — and it
+            // fires whenever the server hands back less than it was asked for,
+            // which is the operator's `db-max-rows` and not ours. A project
+            // tuned below PAGE would have closed after one page, silently, and
+            // produced a file indistinguishable from the whole trail.
+            //
+            // A short page proves nothing; an empty one proves the end, and the
+            // branch above already handles it. The cost is one extra request per
+            // export, against an export that is already one request per page.
           },
         });
 
