@@ -16,12 +16,21 @@
 // instance is used — so it looks most trustworthy on a new deployment and
 // degrades exactly as the numbers start to matter.
 //
+// For MEMBERSHIP — "which of these ids have any row at all" — use
+// `lib/cursorScan`'s `scanKeysPresent` instead. Offset paging reads every row
+// of every key to answer that; a cursor skips the rest of a key the moment
+// one of its rows proves the point.
+//
 // Aggregating in SQL is the cheaper fix and the codebase already does it where
 // a migration was available (`budget_spend_since`, `admin_spend_by_user`). This
 // is for the call sites that need the rows themselves, or that cannot ship a
 // migration.
 
-/** The largest page PostgREST will return. Asking for more is silently capped. */
+/**
+ * The page this module ASKS for — not a promise about what comes back.
+ * `db-max-rows` belongs to whoever runs the database, and a project tuned
+ * below this answers every request short without saying so.
+ */
 export const PAGE = 1000;
 
 /**
@@ -54,15 +63,42 @@ export async function selectAllPages<T>(
   maxRows: number = DEFAULT_MAX_ROWS,
 ): Promise<PagedResult<T>> {
   const rows: T[] = [];
-  for (let from = 0; from < maxRows; from += PAGE) {
+  let from = 0;
+  // The largest page the server has ACTUALLY handed back.
+  //
+  // The exhaustion test used to be `page.length < what we asked for`, which is
+  // only sound when the server gives everything it is asked for. `db-max-rows`
+  // is the operator's setting: a project tuned below PAGE answers every request
+  // short, and the very first page would have ended the read with
+  // `truncated: false` holding a fraction of the rows. That flag is what the
+  // dashboard's spend panel renders as "partial", so the failure mode was this
+  // module's own reassurance printed over the undercount it exists to prevent.
+  //
+  // A page shorter than one the server has already produced proves the filter
+  // is exhausted, whatever the cap turns out to be. It costs no extra requests
+  // in the ordinary case, and the offset advances by what came back rather than
+  // by what was requested so a smaller cap simply takes more rounds.
+  let observedMax = 0;
+  while (from < maxRows) {
     const to = Math.min(from + PAGE, maxRows) - 1;
+    const want = to - from + 1;
     const { data, error } = await build().range(from, to);
     if (error) throw new Error(error.message);
     const page = data ?? [];
+    if (page.length === 0) return { rows, truncated: false };
     rows.push(...page);
-    // A short page means the filter is exhausted. Only a page that came back
-    // completely full can have more behind it.
-    if (page.length < to - from + 1) return { rows, truncated: false };
+    from += page.length;
+    const prevMax = observedMax;
+    observedMax = Math.max(observedMax, page.length);
+    // Only judge a full-width request: the last window before `maxRows` can be
+    // narrower by design, and a page that fills it is not evidence of an end.
+    if (want === PAGE && page.length < prevMax) return { rows, truncated: false };
   }
-  return { rows, truncated: true };
+  // The ceiling stopped the loop, which is not the same as the ceiling biting:
+  // a filter matching exactly `maxRows` rows would otherwise be reported as
+  // truncated, and a caveat on a complete answer teaches readers to ignore
+  // caveats. One more row settles it.
+  const { data: probe, error: probeError } = await build().range(maxRows, maxRows);
+  if (probeError) throw new Error(probeError.message);
+  return { rows, truncated: (probe ?? []).length > 0 };
 }

@@ -196,6 +196,12 @@ models" and a line above the filters says the rest are not loaded — the filter
 and the search box work over the rows in hand, so a model past the ceiling is
 not one page away, it is unreachable from that screen.
 
+Two helpers exist for reading past it. `src/lib/pagedSelect.ts` pages by
+offset for the rows themselves and reports whether its own ceiling stopped
+it; `src/lib/cursorScan.ts` pages by cursor, which is what a MEMBERSHIP
+question needs and what stays correct when the server's cap is smaller than
+the page requested. Neither treats a short page as proof of the end.
+
 **`.limit()` is not a ceiling you control.** PostgREST caps every response at
 its `db-max-rows`, which is **1,000** on a default Supabase project; a
 `.limit(2000)` above that is silently halved and supabase-js returns the short

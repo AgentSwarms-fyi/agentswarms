@@ -109,6 +109,76 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-21 — The paging helper assumed the server's cap was its own
+
+#### R41 · S2 · The module written to stop the undercount could produce it
+
+Chasing the `db-max-rows` class upstream found where it was already known.
+`src/lib/pagedSelect.ts` was written by an earlier round for exactly this
+defect — its header records the dashboard reporting **$1.84 for a window whose
+real cost was $5.77**, a 68% undercount — and every page it reads ends on this
+test:
+
+```ts
+// A short page means the filter is exhausted. Only a page that came back
+// completely full can have more behind it.
+if (page.length < to - from + 1) return { rows, truncated: false };
+```
+
+That is sound only if the server returns everything it is asked for. It does not
+have to: `db-max-rows` is the OPERATOR's setting, and the module hard-codes
+`PAGE = 1000` while calling it "the largest page PostgREST will return" — an
+assumption about somebody else's configuration, in a file whose own header
+insists the ceiling "is a CEILING, not a default". On a project tuned below
+1,000, or a self-hosted Supabase with its own `postgrest.conf`, every page comes
+back short and **the first one ends the read with `truncated: false` holding a
+fraction of the rows**.
+
+`truncated` is what `dashboard.functions.ts` renders as `partial`. So the failure
+mode is this module's own reassurance printed over the undercount it exists to
+prevent — and the smaller the operator's cap, the worse the undercount and the
+more confident the label.
+
+The fix keeps the offset API and costs the ordinary case nothing. Track the
+largest page the server has ACTUALLY handed back, and treat a page shorter than
+that as the end: shorter than what was _requested_ proves nothing, shorter than
+one the server already produced proves exhaustion at any cap. The offset
+advances by what came back rather than by what was asked for, so a smaller cap
+simply takes more rounds. All seven pre-existing tests pass unchanged, request
+counts included — `seen` is still `[0, 1000, 2000]`.
+
+Two smaller things in the same spirit. A filter matching exactly `maxRows` rows
+was reported truncated; a caveat on a complete answer teaches readers to ignore
+caveats, so one extra row settles it. And the probe's own error is propagated
+rather than swallowed, because it decides the one flag this module exists to
+set.
+
+**The finding was available in the test file all along.** `fakeTable(total, cap)`
+has always taken a cap, and nothing ever passed one below `PAGE`. The parameter
+that would have shown this was sitting in the fixture, unused.
+
+**Tests:** 15 in `pagedSelect`, 8 behaviour-changing mutants applied one at a
+time and each killed — the first of them being **the original loop restored in
+full**, which is the only way to know the new tests would have caught the old
+code — control missed, baseline verified green first.
+
+One mutant survived the first run: dropping the `want === PAGE` guard. When
+`maxRows` is not a whole number of pages the last window is narrow by design,
+and a page that fills it is not evidence of an end — it is the ceiling arriving.
+Reading it as exhaustion returns `truncated: false` on a read that stopped
+short: the original silent undercount, moved from the cap to the boundary. The
+existing truncation test used `maxRows` of 3,000, a clean multiple, so the
+narrow window never occurred. Now one uses 2,500.
+
+#### R41 · note · Why this jumped the queue
+
+The cursor said Semantic layer. This is the shared mechanism under the
+dashboard's spend figure and the metrics page, the defect is in the same class
+the sweep is working through, and it could be demonstrated deterministically
+from a fixture already in the repo rather than argued from configuration. The
+two paging modules now cross-reference each other, so the next person choosing
+between them is told which question each answers.
+
 ### 2026-09-21 — A swarm run's canvas could be a prefix of the run it draws
 
 #### R40 · S2 · A DAG from a prefix is not a smaller graph, it is a wrong one

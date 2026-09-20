@@ -107,3 +107,95 @@ describe("selectAllPages reads past the server's row ceiling", () => {
     await expect(selectAllPages(build)).rejects.toThrow("statement timeout");
   });
 });
+
+describe("the server's ceiling is the operator's setting, not ours", () => {
+  // `fakeTable` has always taken a `cap`, and nothing ever passed one below
+  // PAGE. That is the whole finding: the loop's exhaustion test was
+  // `page.length < what we asked for`, which reads EVERY page as the last one
+  // as soon as the server hands back less than it was asked for. db-max-rows
+  // belongs to whoever runs the database — a project tuned to 500, or a
+  // self-hosted Supabase with a different postgrest.conf — and this module's
+  // `truncated` flag is what the dashboard's spend panel renders as "partial".
+  // So the failure mode was this module's own reassurance printed over the
+  // undercount it exists to prevent.
+
+  it("reads past a ceiling smaller than the page it asks for", async () => {
+    const t = fakeTable(2500, 400);
+    const { rows, truncated } = await selectAllPages(t.build);
+    // The old loop: one request, 400 rows, truncated false, and a total 84% low.
+    expect(rows).toHaveLength(2500);
+    expect(truncated).toBe(false);
+  });
+
+  it("does not mistake a clamped first page for the whole table", async () => {
+    const t = fakeTable(900, 300);
+    const { rows, truncated } = await selectAllPages(t.build);
+    expect(rows).toHaveLength(900);
+    expect(truncated).toBe(false);
+  });
+
+  it("sums to the real total under a small ceiling", async () => {
+    const t = fakeTable(2500, 400);
+    const { rows } = await selectAllPages<{ cost: number }>(t.build);
+    expect(rows.reduce((s, r) => s + r.cost, 0)).toBe(2500);
+  });
+
+  it("costs the ordinary case nothing", async () => {
+    // The rule is "shorter than a page the server has already produced", not
+    // "shorter than requested", so the common path is unchanged: a full page
+    // then a short one still ends the read in two requests.
+    const t = fakeTable(1500);
+    await selectAllPages(t.build);
+    expect(t.requests()).toBe(2);
+  });
+
+  it("pays one extra request only when the very first page comes back short", async () => {
+    // A first short page is genuinely ambiguous — the whole table, or the
+    // server's cap exactly? One more request answers it, and that is the only
+    // case where correctness costs a round trip.
+    const t = fakeTable(300);
+    const { rows, truncated } = await selectAllPages(t.build);
+    expect(rows).toHaveLength(300);
+    expect(truncated).toBe(false);
+    expect(t.requests()).toBe(2);
+  });
+
+  it("does not call a filter of exactly maxRows a truncated read", async () => {
+    // A caveat on a complete answer teaches readers to ignore caveats. The old
+    // loop ran out of iterations and reported truncated: true on a whole read.
+    const t = fakeTable(3000);
+    const { rows, truncated } = await selectAllPages(t.build, 3000);
+    expect(rows).toHaveLength(3000);
+    expect(truncated).toBe(false);
+  });
+
+  it("reports truncation when the ceiling is not a whole number of pages", async () => {
+    // A mutation survived without this. When maxRows is not a multiple of PAGE
+    // the final window is NARROW by design, and a page that fills it is not
+    // evidence of an end — it is the ceiling arriving. Reading it as exhaustion
+    // returns truncated: false on a read that stopped short, which is the
+    // original silent undercount at the boundary instead of at the cap.
+    const t = fakeTable(10_000);
+    const { rows, truncated } = await selectAllPages(t.build, 2500);
+    expect(rows).toHaveLength(2500);
+    expect(truncated).toBe(true);
+  });
+
+  it("propagates an error from the probe rather than guessing", async () => {
+    // The probe decides `truncated`. Swallowing its failure would mean
+    // guessing at the one flag this module exists to set.
+    let calls = 0;
+    const build = () => ({
+      range: async (from: number, to: number) => {
+        calls++;
+        if (from >= 2000) return { data: null, error: { message: "statement timeout" } };
+        return {
+          data: Array.from({ length: Math.min(to - from + 1, 1000) }, (_, i) => ({ id: from + i })),
+          error: null,
+        };
+      },
+    });
+    await expect(selectAllPages(build, 2000)).rejects.toThrow("statement timeout");
+    expect(calls).toBeGreaterThan(1);
+  });
+});

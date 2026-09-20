@@ -22,6 +22,12 @@
 //   embedding" badge while "N of M indexed" and "Embed X pending" count them as
 //   missing.
 //
+// `lib/pagedSelect` is the offset-based sibling of this module, for reading
+// every row a filter matches when the rows themselves are wanted. Reach for
+// this one when the question is MEMBERSHIP — a cursor skips the rest of a key
+// as soon as one row answers it — or when a caller must stop early without
+// pretending it saw everything.
+//
 // The two helpers below page with a CURSOR rather than an offset, and neither
 // uses a short page as proof of the end. That matters: `.range()` paging that
 // stops at the first short page is wrong the moment the server's cap is smaller
