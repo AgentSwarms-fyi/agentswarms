@@ -135,7 +135,12 @@ export function buildDirectQuerySql(args: {
     ? renderAggregateClauses(args.agg, args.columns, args.dialect ?? "postgres")
     : null;
   if (clauses) {
-    return `SELECT ${clauses.select} FROM (${base}) AS _dq${where} GROUP BY ${clauses.groupBy} LIMIT ${cap}`;
+    // A plan with no dimensions is a SCALAR aggregate — one row, no grouping —
+    // and `GROUP BY` with nothing after it is a syntax error in every dialect.
+    // `aggregationPlan` never produces one (it refuses an empty `dims`), so no
+    // chart reaches this; an alert asking the database for one measure does.
+    const group = clauses.groupBy ? ` GROUP BY ${clauses.groupBy}` : "";
+    return `SELECT ${clauses.select} FROM (${base}) AS _dq${where}${group} LIMIT ${cap}`;
   }
   return `SELECT * FROM (${base}) AS _dq${where} LIMIT ${cap}`;
 }

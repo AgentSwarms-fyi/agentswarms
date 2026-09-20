@@ -27,7 +27,7 @@ import {
   type ForecastSetting,
 } from "@/lib/mlForecast";
 import { syncForecastVersions } from "@/utils/ml/forecast.server";
-import { aggregationPlan } from "@/lib/biAggregate";
+import { aggregationPlan, isMeasureAgg, renderAggregateClauses } from "@/lib/biAggregate";
 import { buildDirectQuerySql } from "@/lib/biDirectQuery";
 import {
   incrementalCutoffIso,
@@ -876,6 +876,97 @@ export function forecastAlertValue(
   );
 }
 
+/**
+ * The SQL that answers an alert exactly, or null when it cannot be written.
+ *
+ * An alert's value is computed from the widget's stored rows, and those rows
+ * are a PREFIX: `applyResult` slices to WIDGET_ROW_CAP and the engines cap at
+ * the same number. On a table smaller than the cap the prefix IS the result and
+ * nothing is wrong. On a warehouse table it is not, and the alert then compares
+ * a threshold against the sum of the first N rows and emails the figure as
+ * fact. `count` is the worst of them: it returns `rows.length`, which on a
+ * capped snapshot is exactly the cap, so "row count above 1000" can never fire
+ * and "row count below 600" always does.
+ *
+ * So when the snapshot is partial the aggregate is asked of the database
+ * instead, through the same validated builder pushdown uses — identifiers
+ * quoted per dialect, unknown columns refused — rather than hand-written SQL.
+ *
+ * Null for the cases that cannot be expressed as one scalar aggregate over the
+ * widget's own query: a row count (COUNT(*) is not COUNT(col), which skips
+ * nulls), `first` (an order-dependent pick, not an aggregate), and anything
+ * whose column the widget's stored columns do not contain.
+ */
+export function alertAggregateSql(
+  w: WidgetJson,
+  columnName: string,
+  aggregation: string,
+  dialect: SqlDialect,
+): string | null {
+  if (!w.sql || !columnName) return null;
+  if (!isMeasureAgg(aggregation)) return null;
+  const columns = w.columns ?? [];
+  const plan = { dims: [], measures: [{ field: columnName, agg: aggregation }] };
+  // Ask the validator whether it will render this, rather than inferring from
+  // what comes back. When it refuses, buildDirectQuerySql still wraps the query
+  // as SELECT * — and running THAT would fetch raw rows for scalarFrom to read
+  // a number out of, which is a wrong alert value dressed as an exact one.
+  // Found by a mutant: comparing the result against the base SQL looked like it
+  // caught this and did not.
+  if (!renderAggregateClauses(plan, columns, dialect)) return null;
+  return buildDirectQuerySql({ baseSql: w.sql, columns, agg: plan, dialect, rowCap: 1 });
+}
+
+/** Read the single number out of a one-row, one-measure aggregate result. */
+function scalarFrom(rows: Record<string, unknown>[]): number | null {
+  const row = rows[0];
+  if (!row) return null;
+  for (const v of Object.values(row)) {
+    if (isBlank(v)) continue;
+    const n = Number(v);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
+}
+
+/**
+ * Ask the database for an alert's value, for a widget whose snapshot is a
+ * prefix. Null whenever that cannot be done — the caller must then decline to
+ * fire rather than fall back to the prefix.
+ */
+async function exactAlertValue(
+  w: WidgetJson,
+  userId: string,
+  columnName: string,
+  aggregation: string,
+): Promise<number | null> {
+  try {
+    if (w.source?.kind === "warehouse" && w.source.connection_id) {
+      const conn = await loadWarehouseConnectionForUser(
+        supabaseAdmin,
+        { connectionId: w.source.connection_id },
+        userId,
+      );
+      const sql = alertAggregateSql(w, columnName, aggregation, conn.config.provider as SqlDialect);
+      if (!sql) return null;
+      const res = await executeWarehouseQuery(conn.config, sql, 1, { userId });
+      return scalarFrom(res.rows);
+    }
+    // A semantic-source widget has no SQL of its own to aggregate over; it is
+    // answered by the governed runner, which is a different question from this
+    // one. Declining is correct — inventing a query would not be.
+    if (w.source?.kind === "semantic") return null;
+    const dialect = await localEngineName();
+    const sql = alertAggregateSql(w, columnName, aggregation, dialect as SqlDialect);
+    if (!sql) return null;
+    const res = await runLocalSqlForUser(userId, sql);
+    return scalarFrom(res.rows);
+  } catch (e) {
+    console.warn(`[bi-alert] exact aggregate failed: ${(e as Error).message}`);
+    return null;
+  }
+}
+
 export async function evaluateAlerts(
   dashboardId: string,
   dashboardName: string,
@@ -913,14 +1004,40 @@ export async function evaluateAlerts(
     if (!widget) continue;
     const basis = (a as { basis?: string }).basis ?? "actual";
     const horizon = (a as { horizon?: number | null }).horizon ?? null;
-    const value =
-      basis === "forecast"
+    // A partial snapshot is not the data. Every aggregation over it is wrong
+    // — and a forecast fitted to a prefix of the series is wrong too, which is
+    // why this covers both bases rather than only the arithmetic one.
+    const partial = widget.truncated === true;
+    const value = partial
+      ? basis === "forecast"
+        ? null
+        : await exactAlertValue(widget, userId, a.column_name, a.aggregation)
+      : basis === "forecast"
         ? forecastAlertValue(widget, {
             column_name: a.column_name,
             aggregation: a.aggregation,
             horizon,
           })
         : alertValue(widget.rows ?? [], a.column_name, a.aggregation);
+    if (partial && value === null) {
+      // Silence would be the same bug one layer down: the owner would think
+      // the rule was watching. Said once, on the way into the state.
+      if (a.last_state !== "partial") {
+        await notify(
+          a.user_id,
+          a.label || `Alert on "${widget.title ?? "widget"}" could not be checked`,
+          `This widget's snapshot hit the row cap, so ${
+            a.column_name ? `${a.aggregation}(${a.column_name})` : "the row count"
+          } over it would not be the real figure. The alert was not evaluated on "${dashboardName}".`,
+          `/bi/${dashboardId}`,
+        );
+      }
+      await supabaseAdmin
+        .from("bi_alerts")
+        .update({ last_state: "partial", last_value: null, last_checked_at: now })
+        .eq("id", a.id);
+      continue;
+    }
     if (value === null) continue;
     const fires = alertFires(value, a.operator, Number(a.threshold));
     if (fires && a.last_state !== "triggered") {

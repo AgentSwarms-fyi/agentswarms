@@ -13,7 +13,14 @@
 // aggregates ignore NULL; these now do too.
 import { describe, expect, it } from "vitest";
 
-import { alertFires, alertValue, computeNextRun } from "@/utils/bi/refresh.server";
+import fs from "node:fs";
+
+import {
+  alertAggregateSql,
+  alertFires,
+  alertValue,
+  computeNextRun,
+} from "@/utils/bi/refresh.server";
 
 describe("alertValue ignores NULL, like SQL does", () => {
   const rows = [{ ms: 120 }, { ms: 140 }, { ms: null }, { ms: 130 }];
@@ -158,5 +165,97 @@ describe("computeNextRun always moves forward", () => {
     for (const day of ["2026-03-28T12:00:00Z", "2026-03-29T12:00:00Z", "2026-10-25T12:00:00Z"]) {
       expect(computeNextRun("daily", 6, 0, new Date(day)).getUTCHours()).toBe(6);
     }
+  });
+});
+
+describe("an alert on a widget whose snapshot is a prefix", () => {
+  // `applyResult` slices to WIDGET_ROW_CAP and the engines cap at the same
+  // number, so a widget over a warehouse table stores a PREFIX. Every
+  // aggregation over it is then wrong, and the alert emails the figure as fact.
+  // `count` is the worst: it returns rows.length, which on a capped snapshot is
+  // exactly the cap — so "row count above 1000" can never fire.
+  const widget = {
+    id: "w1",
+    title: "Orders",
+    sql: "SELECT region, amount FROM orders",
+    columns: ["region", "amount"],
+    source: { kind: "warehouse", connection_id: "c1" },
+    truncated: true,
+  };
+
+  it("asks the database for the aggregate instead of the prefix", () => {
+    const sql = alertAggregateSql(widget, "amount", "sum", "postgres");
+    expect(sql).not.toBeNull();
+    expect(sql).toContain("SELECT region, amount FROM orders");
+    // Identifiers come from the shared builder, quoted for the dialect — not
+    // pasted in, which is what makes an alert column safe to accept at all.
+    expect(sql).toContain('SUM("amount")');
+    // One row, one number, no grouping. Asserting the SHAPE rather than a
+    // substring: the first version of this test checked only that SUM( and the
+    // base query appeared, and passed while the SQL carried a dangling
+    // `GROUP BY ` — a syntax error in every dialect — because the plan has no
+    // dimensions to group by.
+    expect(sql).not.toContain("GROUP BY");
+    expect(sql).toMatch(/^SELECT SUM\("amount"\) AS "amount" FROM \(.+\) AS _dq LIMIT 1$/);
+  });
+
+  it("quotes for the dialect it was given", () => {
+    const pg = alertAggregateSql(widget, "amount", "avg", "postgres");
+    const my = alertAggregateSql(widget, "amount", "avg", "mysql");
+    expect(pg).toContain('"amount"');
+    expect(my).toContain("`amount`");
+  });
+
+  it("refuses a column the widget's result does not contain", () => {
+    // The alert's column is stored text; a widget whose query changed under it
+    // must not produce SQL naming something that is not there.
+    expect(alertAggregateSql(widget, "profit", "sum", "postgres")).toBeNull();
+  });
+
+  it("refuses a row count, which is not COUNT of a column", () => {
+    // COUNT(col) skips nulls, so it is not the row count the alert means. This
+    // is the case that is most broken today, and declining it is what turns a
+    // wrong number into a disclosure.
+    expect(alertAggregateSql(widget, "", "count", "postgres")).toBeNull();
+  });
+
+  it("refuses `first`, which is a pick and not an aggregate", () => {
+    expect(alertAggregateSql(widget, "amount", "first", "postgres")).toBeNull();
+  });
+
+  it("refuses a widget with no SQL of its own", () => {
+    expect(
+      alertAggregateSql({ ...widget, sql: undefined }, "amount", "sum", "postgres"),
+    ).toBeNull();
+  });
+
+  it("declines rather than handing back the widget's own query", () => {
+    // The builder returns baseSql UNCHANGED when it refuses a plan, and running
+    // that would fetch raw rows to be aggregated in memory again — the exact
+    // thing this exists to avoid. So an unchanged string has to read as null.
+    //
+    // Reaching that branch needs a column the widget really has and the
+    // builder still will not quote: its identifier rule is
+    // /^[a-zA-Z_][a-zA-Z0-9_]*$/, so a space is enough. An empty `columns` list
+    // does NOT reach it — the membership check above returns first, which is
+    // why the earlier version of this test passed with the branch deleted.
+    const spaced = { ...widget, columns: ["region", "total amount"] };
+    expect(alertAggregateSql(spaced, "total amount", "sum", "postgres")).toBeNull();
+    // And the membership check still does its own job.
+    expect(alertAggregateSql({ ...widget, columns: [] }, "amount", "sum", "postgres")).toBeNull();
+  });
+
+  it("is what evaluateAlerts actually does with a partial snapshot", () => {
+    const src = fs.readFileSync("src/utils/bi/refresh.server.ts", "utf8");
+    // Refuses to fire on a prefix...
+    expect(src).toContain("const partial = widget.truncated === true;");
+    expect(src).toContain("await exactAlertValue(widget, userId, a.column_name, a.aggregation)");
+    // ...including for a forecast, which fitted to a prefix is no better.
+    expect(src).toContain(
+      '    const value = partial\n      ? basis === "forecast"\n        ? null',
+    );
+    // ...and says so once rather than going quiet.
+    expect(src).toContain('if (a.last_state !== "partial") {');
+    expect(src).toContain('last_state: "partial"');
   });
 });

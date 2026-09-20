@@ -109,6 +109,76 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-20 — An alert that watched the first 500 rows
+
+#### R28 · S1 · The threshold was compared against a prefix, and emailed as fact
+
+`evaluateAlerts` computes an alert's value with
+`alertValue(widget.rows ?? [], ...)`, and `widget.rows` is a PREFIX:
+`applyResult` slices to WIDGET_ROW_CAP and the engines cap at the same number.
+On a table smaller than the cap the prefix IS the result and nothing is wrong.
+On a warehouse table it is not — and the alert then compares a threshold
+against the sum of the first N rows and sends a notification and an email
+stating that figure as fact.
+
+`count` is the worst of them. It returns `rows.length`, which on a capped
+snapshot is exactly the cap, so **"row count above 1000" can never fire** and
+"row count below 600" always does.
+
+This is invisible at demo scale, which is why it survived: every table in the
+seeded data is smaller than the cap. It is systematic on anything real.
+
+When the snapshot is partial the aggregate is now asked of the database, built
+through the same validated path pushdown uses — `renderAggregateClauses` for
+identifier resolution and per-dialect quoting, `buildDirectQuerySql` for the
+wrapping. Where that cannot be done the alert does NOT fall back to the prefix:
+it declines to fire and tells the owner once, because a rule that has silently
+stopped watching is the same bug one layer down.
+
+A forecast basis is included in the refusal. A curve fitted to a prefix of a
+series is not a forecast of the series.
+
+**Verified against a real engine.** The SQL this produces for the live "Revenue
+by Region" widget was run on the lakehouse through the Workbench and returned
+**51,749.84** — the seeded truth total, and the figure the alert needs instead
+of a prefix sum.
+
+**Tests:** 26 in `biRefreshScheduling`, 7 behaviour-changing mutants applied one
+at a time and each killed, control missed, baseline verified green first.
+
+#### R28 · S1 · Two defects in the fix, both found by its own tests
+
+The first version built the scalar aggregate with `dims: []` and trusted
+`buildDirectQuerySql`. That emits `GROUP BY` **followed by nothing** — a syntax
+error in every dialect — because the builder assumed every plan has dimensions.
+`aggregationPlan` refuses an empty `dims`, so no chart had ever reached it; an
+alert asking for one measure does. The builder now omits an empty GROUP BY.
+
+The tests did not catch that, because they asserted `toMatch(/SUM\(/)` and
+"contains the base query" — both true of the malformed string. They assert the
+whole SHAPE now.
+
+The second was worse and a mutant found it. The function decided the plan had
+been refused by comparing the result against the base SQL — but the builder does
+not return the base SQL when it refuses a plan, it returns `SELECT * FROM (…)`.
+So a column the validator would not quote produced a RAW-ROW query, which
+`scalarFrom` would have read a number out of: a wrong alert value dressed as an
+exact one. It now asks `renderAggregateClauses` whether it will render the plan,
+rather than inferring from what comes back.
+
+#### R28 · S2 · The harness emptied a source file
+
+Recorded because it nearly cost uncommitted work. A mutation harness restored
+files with `io.open(path, "w").write(original)`. That truncates on open and
+evaluates the argument afterwards, so when a rename left `original` undefined
+the file was emptied and never rewritten — and the `finally: restore()` raised
+the same error. 1491 lines gone; `git checkout` recovered them only because the
+file was committed.
+
+Harnesses in this repo now compute the bytes first, assert they are non-empty,
+and only then open for writing — and assert every target file is non-empty
+before starting, so a second run cannot mutate what the first run emptied.
+
 ### 2026-09-20 — A live result under sentences written about a snapshot
 
 #### R27 · S1 · The one widget the restatements could not reach

@@ -15,6 +15,29 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-20 — An alert's aggregate, run against the real engine, ADVERSARIAL_LOG R28
+
+**Driven.** Not a dashboard round. The fix makes an alert ask the database for
+its aggregate when the widget's snapshot is a prefix, and the risk a unit test
+cannot cover is whether that SQL parses and answers correctly on a real engine
+— which is exactly the class the dangling `GROUP BY` bug belonged to. So the
+generated string was run through the **Workbench** against the lakehouse.
+
+| Driven                                                                     | Read back                                      |
+| -------------------------------------------------------------------------- | ---------------------------------------------- |
+| The SQL `alertAggregateSql` builds for the live "Revenue by Region" widget | `51749.84` in one row — the seeded truth total |
+
+That is the number an alert on `sum(total_revenue)` should compare against. The
+prefix it used before is whatever the first N rows happened to add up to.
+
+**Not driven.** The notification and email that a partial widget now produces,
+and the once-only transition into the `partial` state. Reaching them needs a
+scheduled refresh over a widget whose snapshot actually hits the row cap, and
+nothing in the seeded data is that large. They are covered by unit tests and
+mutants, and by nothing else.
+
+Findings from this round: R28 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-20 — A direct widget's sentences follow its live result, ADVERSARIAL_LOG R27
 
 **Driven.** Generated one widget over the lakehouse, switched it to **direct
