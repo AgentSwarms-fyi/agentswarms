@@ -428,3 +428,22 @@ export const DEFAULT_FOOTER: ReportBand = {
 };
 
 export const DEFAULT_HEADER: ReportBand = { right: "{{date}}" };
+
+/**
+ * The caveat a report block needs when its widget holds only part of the data.
+ *
+ * A dashboard card shows an amber "Partial" badge for this. A report does not:
+ * it draws a title and a chart and nothing else, and the PDF it exports is the
+ * artifact that gets circulated and read as final. So the same fact has to
+ * survive the export, in words, because there is no badge to look at.
+ *
+ * Scoped to `truncated` — the snapshot hitting the row cap while the query had
+ * more to give, which nothing on the page reveals. A table block's `maxRows` is
+ * NOT included: that is the author deciding how many rows to print, visible to
+ * them in the editor, and not a fact about the data being unavailable.
+ */
+export function partialRowsCaveat(widget: BiWidget | undefined): string | null {
+  if (!widget?.truncated) return null;
+  const n = widget.rows?.length ?? 0;
+  return `Partial: ${n.toLocaleString()} row${n === 1 ? "" : "s"} shown — the query returned more.`;
+}

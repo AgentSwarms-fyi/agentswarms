@@ -15,6 +15,7 @@ import {
   reportCellText,
   reportColumnKinds,
   substituteTokens,
+  partialRowsCaveat,
   tableColumns,
   tableRows,
   type BiReport,
@@ -170,6 +171,7 @@ function PreviewItem({
       return null;
     case "chart": {
       const h = block.height ?? 200;
+      const chartCaveat = partialRowsCaveat(block.widget);
       const spec = (block.widget.rows ?? []).length ? block.widget.chart : undefined;
       const drawable = Boolean(spec);
       return wrap(
@@ -193,6 +195,11 @@ function PreviewItem({
               </div>
             )}
           </div>
+          {chartCaveat ? (
+            <div className="text-muted-foreground" style={{ fontSize: px(7.5, scale) }}>
+              {chartCaveat}
+            </div>
+          ) : null}
         </div>,
       );
     }
@@ -201,6 +208,7 @@ function PreviewItem({
       const rows = tableRows(block);
       const kinds = reportColumnKinds(rows, cols);
       const slice = item.slice ?? { from: 0, to: rows.length, continued: false };
+      const tableCaveat = partialRowsCaveat(block.widget);
       return wrap(
         <div>
           {block.widget.title && !slice.continued ? (
@@ -240,6 +248,15 @@ function PreviewItem({
               ))}
             </tbody>
           </table>
+          {/* Only on the final slice: repeated under every page of a flowing
+              table it reads as a different problem each time. And only when
+              there is one — an empty div still takes height in a paginated
+              layout, which would shift where the next block breaks. */}
+          {tableCaveat && slice.to >= rows.length ? (
+            <div className="text-muted-foreground" style={{ fontSize: px(7.5, scale) }}>
+              {tableCaveat}
+            </div>
+          ) : null}
         </div>,
       );
     }

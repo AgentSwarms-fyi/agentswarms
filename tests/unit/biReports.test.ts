@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 
 import type { BiWidget } from "@/lib/biDashboards";
 import {
+  partialRowsCaveat,
   DEFAULT_FOOTER,
   DEFAULT_PAGE,
   PAGE_SIZES,
@@ -399,4 +400,54 @@ describe("the rendered document", () => {
     expect(width).toBeCloseTo(PAGE_SIZES.letter.h, 0);
     expect(height).toBeCloseTo(PAGE_SIZES.letter.w, 0);
   }, 30000);
+});
+
+describe("a report block whose widget holds only part of the data", () => {
+  // A dashboard card shows an amber "Partial" badge for this. A report draws a
+  // title and a chart and nothing else, and the PDF it exports is the copy that
+  // gets circulated and read as final — so the fact has to survive as words.
+  const widget = (over: Partial<BiWidget> = {}): BiWidget => ({
+    id: "w1",
+    kind: "chart",
+    title: "Orders",
+    columns: ["region", "amount"],
+    rows: Array.from({ length: 500 }, (_, i) => ({ region: `r${i}`, amount: i })),
+    ...over,
+  });
+
+  it("says how many rows are shown and that there were more", () => {
+    expect(partialRowsCaveat(widget({ truncated: true }))).toBe(
+      "Partial: 500 rows shown — the query returned more.",
+    );
+  });
+
+  it("says nothing about a complete result", () => {
+    expect(partialRowsCaveat(widget({ truncated: false }))).toBeNull();
+    expect(partialRowsCaveat(widget())).toBeNull();
+    expect(partialRowsCaveat(undefined)).toBeNull();
+  });
+
+  it("counts one row as a row", () => {
+    expect(partialRowsCaveat(widget({ truncated: true, rows: [{ region: "a", amount: 1 }] }))).toBe(
+      "Partial: 1 row shown — the query returned more.",
+    );
+  });
+
+  it("is drawn by the PDF under BOTH a chart and a table", () => {
+    // The PDF is the artifact this exists for. Source-anchored because no unit
+    // test of a pure string can see whether anything drew it.
+    const pdf = readFileSync("src/lib/biReportPdf.ts", "utf8");
+    expect(pdf).toContain("drawCaveat(partialRowsCaveat(block.widget));");
+    // Twice: once in the chart case, once in the table case.
+    expect(pdf.split("drawCaveat(partialRowsCaveat(block.widget));").length - 1).toBe(2);
+  });
+
+  it("is shown in the preview too, so the designer sees what will export", () => {
+    const view = readFileSync("src/components/bi/ReportPagePreview.tsx", "utf8");
+    expect(view).toContain("const chartCaveat = partialRowsCaveat(block.widget);");
+    expect(view).toContain("const tableCaveat = partialRowsCaveat(block.widget);");
+    // A flowing table repeats its header on every page but must NOT repeat the
+    // caveat, which would read as a fresh problem each time.
+    expect(view).toContain("tableCaveat && slice.to >= rows.length");
+  });
 });

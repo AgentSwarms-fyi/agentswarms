@@ -16,6 +16,7 @@ import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf
 import { encLine, wrapText } from "@/lib/biPdf";
 import {
   BAND_H,
+  partialRowsCaveat,
   pageGeometry,
   sliceTable,
   substituteTokens,
@@ -93,6 +94,13 @@ export async function buildReportPdfBytes(args: {
       color: o.color ?? INK,
     });
   };
+  /** One muted line under a block, or nothing when there is nothing to say. */
+  const drawCaveat = (text: string | null) => {
+    if (!text) return;
+    ensure(14);
+    draw(text, { size: SIZE.band, color: MUTED });
+    y -= 12;
+  };
   const flow = (s: string, o: { font?: PDFFont; size?: number; color?: typeof INK } = {}) => {
     const font = o.font ?? regular;
     const size = o.size ?? SIZE.body;
@@ -166,6 +174,10 @@ export async function buildReportPdfBytes(args: {
         const png = await pdf.embedPng(bmp.dataUrl);
         page.drawImage(png, { x: margin, y: y - h, width: w, height: h });
         y -= h + 12;
+        // A dashboard card shows this as an amber badge. A PDF has no badge and
+        // is the copy that gets circulated, so the fact travels as words here
+        // or it does not travel at all.
+        drawCaveat(partialRowsCaveat(block.widget));
         break;
       }
 
@@ -246,6 +258,7 @@ export async function buildReportPdfBytes(args: {
           });
         }
         y -= 12;
+        drawCaveat(partialRowsCaveat(block.widget));
         break;
       }
     }

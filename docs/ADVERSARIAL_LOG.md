@@ -109,6 +109,39 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-20 — The Partial badge did not survive the export
+
+#### R30 · S2 · A caveat that exists on screen and not in the artifact
+
+A dashboard card whose snapshot hit the row cap wears an amber **Partial**
+badge. The dashboard PDF keeps it, and by luck rather than design: that exporter
+rasterises each card with html2canvas, so the badge travels as pixels.
+
+A **report** does not. `biReportPdf` is a vector builder — it draws the title
+and places the chart bitmap itself — and neither it, nor the designer's preview,
+nor the report generator contained the word `truncated`. Three surfaces, zero
+mentions. So a section whose query returned more rows than the cap exported a
+chart of the first N with nothing anywhere saying so, in the one artifact that
+leaves the product and gets read as final.
+
+One string, `partialRowsCaveat`, and both surfaces render it: the preview under
+the chart and under the table, so the designer sees what will export; the PDF as
+vector text in the same two places, beside the title it already draws that way.
+
+Scoped to `truncated` on purpose. A table block's `maxRows` also shows fewer
+rows than exist, but that is the author choosing how many to print and it is
+visible to them in the editor. The cap is the one nothing on the page reveals.
+
+A flowing table repeats its header on every page and must NOT repeat this —
+under each slice it reads as a fresh problem each time — so it appears once,
+under the last.
+
+**Tests:** 34 in `biReports`, 9 behaviour-changing mutants applied one at a time
+and each killed, control missed, baseline verified green first. Two of them exist
+because a caveat is easy to compute and forget to draw: one removes the PDF's
+call under the chart, one under the table, and no test of the string itself
+would have noticed either.
+
 ### 2026-09-20 — The insight card called a prefix "the total"
 
 #### R29 · S1 · The second way a result is partial, which the SQL never says
