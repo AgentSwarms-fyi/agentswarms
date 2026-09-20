@@ -35,6 +35,7 @@ import {
   type ServiceProbe,
   type SystemMetrics,
   servicesSummary,
+  stalenessNotice,
 } from "@/lib/serviceHealth";
 import { serviceHealth, systemMetrics } from "@/utils/monitoring.functions";
 
@@ -212,6 +213,11 @@ function MonitoringPage() {
   const diskPct = metrics?.disk ? pct(metrics.disk.usedBytes, metrics.disk.totalBytes) : null;
   const cpuPct = metrics?.cpu.usage === null || !metrics ? null : metrics.cpu.usage * 100;
   const unhealthy = services.filter((s) => s.status === "degraded" || s.status === "down");
+  const staleNote = stalenessNotice({
+    errored: error !== null,
+    hasServices: services.length > 0,
+    hasMetrics: metrics !== null,
+  });
 
   return (
     <main className="mx-auto w-full max-w-[1400px] px-4 py-6 md:px-8">
@@ -255,6 +261,11 @@ function MonitoringPage() {
           {error}
         </div>
       )}
+
+      {/* The refresh failed and the previous values are still on screen. Saying
+          so once, here, is cheaper and harder to miss than qualifying every
+          figure below it. */}
+      {staleNote && <p className="mb-4 text-xs text-muted-foreground">{staleNote}</p>}
 
       {/* WHOSE numbers these are.
           Behind a load balancer or a Kubernetes Service, each refresh can be
@@ -348,7 +359,12 @@ function MonitoringPage() {
         </div>
         <div className="divide-y">
           {services.length === 0 && !loading && (
-            <p className="p-4 text-sm text-muted-foreground">No probe results yet.</p>
+            <p className="p-4 text-sm text-muted-foreground">
+              {/* "yet" belongs to a load still in flight, not to one that came
+                  back an error — an empty list that failed to read is absence of
+                  an answer, not an answer of none. */}
+              {error ? "The probes could not be read." : "No probe results yet."}
+            </p>
           )}
           {services.map((s) => (
             <ServiceRow key={s.id} s={s} />

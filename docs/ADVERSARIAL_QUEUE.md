@@ -80,8 +80,8 @@ The three shapes it takes:
 | Audit log              | ✅ clear | 2026-09-20 | `auditWindowHeadline` already states shown-of-total and the retention boundary                |
 | Budgets                | ✅ fixed | 2026-09-20 | R34 — the cap was enforced against a total that counted unpriced calls as free                |
 | Swarm traces           | ✅ fixed | 2026-09-20 | R35 — `.limit(200)` then "N swarm runs"; the sibling page's fix had not been applied here     |
-| **Monitoring**         | ⬜ next  |            |                                                                                               |
-| Model registry         | ⬜       |            |                                                                                               |
+| Monitoring             | ✅ fixed | 2026-09-20 | R36 — a failed poll kept the probes and the verdict; the board froze green                    |
+| **Model registry**     | ⬜ next  |            |                                                                                               |
 | Knowledge base         | ⬜       |            |                                                                                               |
 | Agent swarms / runs    | ⬜       |            |                                                                                               |
 | Semantic layer         | ⬜       |            |                                                                                               |

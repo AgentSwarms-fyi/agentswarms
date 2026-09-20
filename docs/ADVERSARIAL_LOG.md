@@ -98,7 +98,7 @@ Never infer it from what rendered.
 | 23  | Traces & Logs       | `/traces`                  | ✅ 1 | 2026-08-18 | 1 (1×S1) — the capped page presented as the population; error paths already sound |
 | 24  | Audit Log           | `/audit`                   | ✅ 1 | 2026-08-18 | 2 (2×S1) — exculpatory empty claim; non-uniform silent truncation                 |
 | 25  | Budgets             | `/budgets`                 | ✅ 1 | 2026-08-18 | 3 (1×S2, 2×S1) — skeleton-forever, false empty, caps shown unset                  |
-| 26  | Monitoring          | `/monitoring`              | ✅ 1 | 2026-08-18 | 1 (1×S3) — health claimed over an empty probe set; page otherwise sound           |
+| 26  | Monitoring          | `/monitoring`              | ✅ 1 | 2026-08-18 | 2 (1×S3, +R36) — health claimed over an empty probe set; then over a STALE one    |
 | 27  | Prompt Compare      | `/prompt-compare`          | ✅ 1 | 2026-08-18 | 1 (1×S1) — the model that failed fastest was crowned fastest                      |
 | 28  | Evaluations         | `/evaluations`             | ✅ 1 | 2026-08-18 | 2 (2×S1) — "0% pass" on an unscored run; false empty on a failed read             |
 | 29  | Image Playground    | `/image-playground`        | ✅ 1 | 2026-08-18 | 1 (1×S1) — false "none connected", memoised for the whole session                 |
@@ -108,6 +108,80 @@ Never infer it from what rendered.
 ## Findings
 
 <!-- newest first -->
+
+### 2026-09-20 — The monitoring board went green when the probes stopped coming
+
+#### R36 · S1 · A health verdict that outlived the probes it was made from
+
+`/monitoring` polls every 15 seconds. When a poll throws, the catch does one
+thing:
+
+```ts
+} catch (e) {
+  setError((e as Error).message);
+}
+```
+
+`setServices` is never called, so the previous probes stay on screen — and so
+does the sentence made from them:
+
+> No problems detected · checked 14:02:11
+
+An hour later, that line still says **No problems detected**. The timestamp is
+technically honest (it is also only set on success) but nobody reads a clock and
+does subtraction, least of all on a page that advertises itself as auto-
+refreshing. The reader sees a red banner — which says the _refresh_ failed — and
+a green verdict beside it, and concludes the estate is fine and the UI is being
+fussy. This is the canonical monitoring failure: the board that freezes green
+when the collector dies, on the one page whose entire job is to say whether
+anything is wrong.
+
+**The first pass blessed this in a test**, which is the part worth recording.
+Module 26 fixed the empty-probe case and then wrote:
+
+> `it("keeps reporting the last-good status when a refresh fails but data remains")`
+> — the error banner carries the failure separately.
+
+Two surfaces, one claim. The banner carries _that the refresh failed_; it does
+not carry _that the sentence beside it is therefore old_, and a reader who takes
+the header at its word takes a reassurance the page can no longer support. A
+test that encodes the defect is worse than no test, because the next pass reads
+it as a decision already made.
+
+The fix is the asymmetry this sweep keeps meeting. Over a stale snapshot the two
+verdicts are not equally salvageable: **`N needing attention` is a floor** —
+those services were broken and nothing has since confirmed a fix, so it is still
+worth acting on — while **`No problems` is sound in no direction at all**, since
+anything could have broken in the interval. The reassuring half is the unsound
+half, exactly as with freshness (R31) and budget spend (R34). So both verdicts
+move into the past tense and name the check they came from, which is what the
+timestamp beside them has meant all along:
+
+> No problems at the last successful check · checked 14:02:11
+
+#### R36 · S2 · The gauges froze too, under a subtitle promising "right now"
+
+`metrics` is set in the same `try`, so a failed poll freezes CPU, memory, disk
+and process RSS at their last values as well — beneath a subtitle that reads
+"what the machine running it is doing **right now**". Qualifying eight figures
+individually would bury the page; `stalenessNotice` says it once, directly under
+the banner, covering everything below it. It stays quiet when there is nothing
+stale to warn about — a first load that failed with an empty page already has a
+banner and an unknown-health header, and a third line there would be noise.
+
+#### R36 · S3 · "No probe results yet" for a read that came back an error
+
+The services table's empty state says "No probe results yet." The word _yet_
+belongs to a load still in flight, not to one that returned an error: an empty
+list that failed to read is the absence of an answer, not an answer of none.
+That is the next queued sweep's class, found on a page already open, so it was
+fixed here rather than filed.
+
+**Tests:** 13 in `servicesSummary.test.ts` (the overturned one rewritten, with
+the reason in the comment), 8 behaviour-changing mutants applied one at a time
+and each killed — including one that restores the old `&& services.length === 0`
+gate and one that computes the notice but never renders it — control missed,
+baseline verified green first.
 
 ### 2026-09-20 — Swarm Observability presented its first page as the account
 

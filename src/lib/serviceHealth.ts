@@ -318,8 +318,42 @@ export function servicesSummary(args: {
   /** A load error is present — the probes on hand are stale or absent. */
   errored: boolean;
 }): string {
-  if (args.errored && args.services.length === 0) return "Health unknown — could not probe";
+  // A failed refresh leaves the PREVIOUS probes on screen — the page's catch
+  // sets the error and nothing else — and the page re-polls every 15s, so a
+  // network that stays down freezes this line on its last value for as long as
+  // the tab is open. The first pass let the verdict stand and left the banner to
+  // carry the failure; that is two surfaces for one claim, and a reader who
+  // takes the header at its word takes a reassurance the page can no longer
+  // support. The asymmetry is the familiar one: over a stale snapshot a
+  // needs-attention count is a floor still worth acting on, while "no problems"
+  // is sound in no direction at all — anything could have broken since. So the
+  // verdict moves into the past tense and names the check it came from, which is
+  // what the timestamp beside it has meant all along.
+  if (args.errored) {
+    if (args.services.length === 0) return "Health unknown — could not probe";
+    return args.unhealthy === 0
+      ? "No problems at the last successful check"
+      : `${args.unhealthy} needing attention at the last successful check`;
+  }
   if (args.services.length === 0) return "No services to probe";
   if (args.unhealthy === 0) return "No problems detected";
   return `${args.unhealthy} needing attention`;
+}
+
+// The banner says the refresh failed. It does not say that the gauges, the
+// service rows and the capacity figures beneath it all stopped moving at that
+// moment — while the page's own subtitle promises what the machine is doing
+// "right now". One line, once, above everything that is no longer live. A
+// monitoring board that quietly freezes on its last good reading is the exact
+// failure this page exists to catch.
+export function stalenessNotice(args: {
+  errored: boolean;
+  hasServices: boolean;
+  hasMetrics: boolean;
+}): string | null {
+  if (!args.errored) return null;
+  // Nothing was ever loaded: the banner and the unknown-health header already
+  // say so, and there is no stale figure to warn about.
+  if (!args.hasServices && !args.hasMetrics) return null;
+  return "Live updates have stopped — every figure below is from the last successful check, not from now.";
 }
