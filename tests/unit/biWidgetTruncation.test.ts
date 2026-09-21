@@ -141,7 +141,11 @@ describe("creation and refresh both record truncation", () => {
     expect(REFRESH, "pushdown is being treated as making truncation harmless").not.toMatch(
       /truncated\s*=\s*!w\.agg_pushdown/,
     );
-    expect(REFRESH).toMatch(/w\.truncated\s*=\s*result\.rows\.length\s*>=\s*WIDGET_ROW_CAP/);
+    // R61: the runner's own verdict is preferred when it has one (a governed
+    // query fetches one past its cap); the row-count guess stays for SQL paths.
+    expect(REFRESH).toMatch(
+      /w\.truncated\s*=\s*result\.truncated\s*\?\?\s*result\.rows\.length\s*>=\s*WIDGET_ROW_CAP/,
+    );
   });
 });
 

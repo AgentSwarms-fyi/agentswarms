@@ -217,7 +217,11 @@ function SemanticsPage() {
         otherwise surfaces as an engine error much later, on a dashboard refresh. The{" "}
         <strong>query runner</strong> below the editor picks metrics and dimensions, adds filters
         (dimension filters become <C>WHERE</C>, metric filters <C>HAVING</C>) and time rollups, and
-        the result can be sent straight to a dashboard as a governed widget.
+        the result can be sent straight to a dashboard as a governed widget. Every governed query
+        fetches one row past its cap, so a result that stopped at the cap is known to be partial and
+        said to be: the preview says &ldquo;first 100 rows of a larger result&rdquo;, a widget wears
+        the Partial badge, and the AI Analyst notes it on the step &mdash; never presented as the
+        whole.
       </P>
       <Code lang="Compiled preview">{`SELECT date_trunc('month', o.created_at) AS month,
        o.region                          AS region,

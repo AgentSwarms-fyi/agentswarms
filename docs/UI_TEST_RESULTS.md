@@ -15,6 +15,36 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-21 — A governed query at its cap, before and after, ADVERSARIAL_LOG R61
+
+**Why this round exists.** Sweep 2, the semantic layer: a prefix presented
+as the whole. The Semantics page's query runner asks for a hundred rows and
+counted whatever came back as the result.
+
+### Before the fix
+
+| Driven                                                                                                  | Read back                                                                                              |
+| ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Semantic Layer → SaaS Sales model (`saas_sales`, 9,994 rows) → Query → `total_sales` × `order_id` → Run | `100 row(s)`; compiled statement ends `LIMIT 100`; 100 rows in the table — nothing says the query has 9,894 more groups |
+
+### After the rebuild
+
+The `agentswarms` service rebuilt and recreated (container `e4b0a5c268a3`);
+the page reloaded onto it. Same model, same query, same Run.
+
+| Driven                                                                                                  | Read back                                                                                                                                                                                       |
+| ------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Semantic Layer → SaaS Sales model → Query → `total_sales` × `order_id` → Run                            | `first 100 rows of a larger result — the preview stops at 100; add a filter or a coarser grain to see everything`; compiled statement ends `LIMIT 101`; 100 rows in the table                    |
+
+The runner fetched the hundred-and-first row, found it, cut the result at
+the hundred the page asked for and said so; the statement shown is the one
+that ran. The analyst's step note and the dashboard's parameter re-run share
+the same verdict from the same runner and are held by the source-anchored
+tests; the scheduled refresh's flag is the R26 test's anchor, moved to the
+new line.
+
+Findings from this round: R61 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-21 — A SQL model edited after its build, before and after, ADVERSARIAL_LOG R60
 
 **Why this round exists.** Sweep item 2: a badge that outlives what it vouched

@@ -560,6 +560,7 @@ function AiAnalystPage() {
                   rows: res.rows as Record<string, unknown>[],
                   rollup: res.rollup,
                   access_note: res.access_note,
+                  truncated: res.truncated,
                 };
               }
             : undefined,

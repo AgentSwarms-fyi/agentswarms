@@ -267,6 +267,7 @@ export async function runAnalystTurnServer(args: {
           rows: res.rows as Record<string, unknown>[],
           rollup: res.rollup,
           access_note: res.access_note,
+          truncated: res.truncated,
         };
       },
       onUpdate: (t) => args.onUpdate?.(t),

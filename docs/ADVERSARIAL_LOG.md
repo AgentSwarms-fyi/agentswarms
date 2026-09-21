@@ -109,6 +109,55 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-21 — The governed query that stopped at its cap and never said so
+
+#### R61 · S2 · "100 row(s)" over 9,994 groups, and three more places the prefix was the whole
+
+Sweep 2's next row, the semantic layer. `total_sales` by `order_id` on the
+SaaS Sales model — 9,994 orders — run from the Semantics page: `100 row(s)`,
+`LIMIT 100` in the compiled statement, a hundred rows in the table. The page
+asks for a hundred and nothing says the query has more. The cause is one
+level down: `runSemanticQuery` fetched AT its cap and so could not tell a
+result of exactly cap rows from one of more, and returned no verdict either
+way. Every consumer then decided for itself, and most decided "whole":
+
+- the Semantics page counted the prefix;
+- a dashboard widget's **parameter re-run** asked for `limit: 100` — a tenth
+  of the widget's own cap — and stored the rows over whatever `truncated` the
+  widget already had, so a widget of a thousand rows quietly became a hundred
+  with no Partial badge;
+- the AI Analyst's governed step wrote `capped: false` over a result the
+  runner had cut at a thousand, so a total or a ranking over "revenue by
+  customer" was summarised from a thousand of many more, and the write-up was
+  never told;
+- the scheduled BI refresh guessed from `rows.length >= cap`, which also
+  flags a result of exactly a thousand rows that was complete.
+
+Only the agent's `metric_query` tool and the metrics gateway fetched one past
+their caps and said so — each on its own, above the runner.
+
+The runner is now the one place that knows. `semanticFetchPlan` takes the
+smaller of the query's limit and the caller's budget as the cap and fetches
+one row past it; `semanticTrim` cuts at the cap and says whether it did; the
+result carries `truncated` and `cap`. The preview says "first 100 rows of a
+larger result — the preview stops at 100; add a filter or a coarser grain to
+see everything". The parameter re-run asks for the widget's cap and stores
+the runner's verdict. The analyst's step is `capped` when it was, with a
+note the self-check keeps and the write-up reads: "Partial: the governed
+model returned the first N groups of a larger result…". The refresh trusts
+the verdict when it has one and keeps its guess for the SQL paths. The tool
+and the gateway are untouched — their own cap+1 still lands above the
+runner's, and the arithmetic stays right.
+
+Driven, before: `100 row(s)`, `LIMIT 100`, a hundred rows. After the
+rebuild, the same query: `first 100 rows of a larger result — the preview
+stops at 100; add a filter or a coarser grain to see everything`, `LIMIT
+101` in the statement that ran, a hundred rows in the table.
+
+**Tests:** 7 behavioural on `semanticFetchPlan` and `semanticTrim`, 7
+source-anchored on the runner and every consumer; 9 behaviour-changing
+mutants each killed, control missed, baseline green first.
+
 ### 2026-09-21 — A build's stamps outlived the definition they were about
 
 #### R60 · S2 · "built · 836 rows" beside SQL that had just been replaced

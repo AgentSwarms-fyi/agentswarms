@@ -491,6 +491,9 @@ export const semanticRunQuery = createServerFn({ method: "POST" })
       columns: res.columns,
       sql: res.sql,
       rows,
+      // Whether the rows above are the whole result, and where they were cut.
+      truncated: res.truncated,
+      cap: res.cap,
       access_note: res.access_note,
       rollup: res.rollup,
     };

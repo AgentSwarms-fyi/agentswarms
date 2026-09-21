@@ -960,16 +960,28 @@ function BiProjectPage() {
             filters: orig.source.filters,
             compare: orig.source.compare,
             params,
-            limit: 100,
+            // The widget's own cap, not 100: the scheduled refresh keeps up to
+            // widgetRowCap() rows, and a parameter change must not quietly
+            // shrink the widget to a tenth of that.
+            limit: widgetRowCap(),
           },
         },
-      })) as { columns: string[]; rows: Record<string, unknown>[]; sql: string };
+      })) as {
+        columns: string[];
+        rows: Record<string, unknown>[];
+        sql: string;
+        truncated?: boolean;
+      };
       replaceWidget({
         ...orig,
         source: { ...orig.source, params },
         sql: res.sql,
         columns: res.columns,
         rows: snapshotRows(res.rows),
+        // The runner says whether it cut the result; before, this re-run
+        // kept whatever `truncated` the widget had, over rows it had just
+        // replaced.
+        truncated: res.truncated ?? false,
         refreshed_at: new Date().toISOString(),
       });
       setParamsWidget(null);

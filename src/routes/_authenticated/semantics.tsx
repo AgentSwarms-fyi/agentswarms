@@ -419,6 +419,9 @@ function SemanticsPage() {
     columns: string[];
     rows: Record<string, unknown>[];
     sql: string;
+    /** The rows are a prefix: the query has more than `cap`. */
+    truncated?: boolean;
+    cap?: number;
     access_note?: string;
     /** Set when a declared rollup answered instead of the fact table. */
     rollup?: string;
@@ -962,6 +965,8 @@ function SemanticsPage() {
         columns: string[];
         rows: Record<string, unknown>[];
         sql: string;
+        truncated?: boolean;
+        cap?: number;
         access_note?: string;
         rollup?: string;
       };
@@ -3450,8 +3455,15 @@ function SemanticsPage() {
                           </Table>
                         </div>
                         <div className="flex items-center justify-between">
+                          {/* FOUND FROM THE UI. This said "100 row(s)" for a
+                              query with 9,994 groups: the preview asks for
+                              100 and nothing said the query had more. The
+                              runner now fetches one past the cap and says
+                              whether it cut. */}
                           <p className="text-[11px] text-muted-foreground">
-                            {result.rows.length} row(s)
+                            {result.truncated
+                              ? `first ${result.rows.length} rows of a larger result — the preview stops at ${result.cap ?? result.rows.length}; add a filter or a coarser grain to see everything`
+                              : `${result.rows.length} row(s)`}
                           </p>
                           <Button size="sm" variant="outline" onClick={() => setAddOpen(true)}>
                             <LayoutDashboard className="mr-1 h-4 w-4" /> Add to dashboard

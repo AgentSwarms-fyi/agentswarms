@@ -1711,6 +1711,8 @@ export async function runAnalystTurn(args: {
     rows: Record<string, unknown>[];
     rollup?: string;
     access_note?: string;
+    /** The rows are a prefix: the governed query has more than were returned. */
+    truncated?: boolean;
   }>;
   /**
    * How to reach the model. Defaults to the browser session, which is the
@@ -2031,15 +2033,28 @@ export async function runAnalystTurn(args: {
             };
             step.status = "running";
             emit();
+            // `capped: false` used to be written here unconditionally — a
+            // claim of completeness over a result the runner had cut at its
+            // cap. The runner now says; the step says after it, in the note
+            // the self-check keeps and the write-up reads.
             const governedResult: QueryResult = {
               columns: res.columns,
               rows: res.rows,
               row_count: res.rows.length,
               total_matched: res.rows.length,
-              capped: false,
+              capped: res.truncated === true,
               duration_ms: 0,
             };
             captureResult(step, governedResult);
+            if (res.truncated) {
+              step.check = {
+                verdict: "suspect",
+                note:
+                  `Partial: the governed model returned the first ${res.rows.length} groups of a larger ` +
+                  `result, so totals and rankings from this step may be incomplete — narrow with a ` +
+                  `filter or a coarser grain to see everything.`,
+              };
+            }
             results[i] = governedResult;
             await scoreStep(step, governedResult, i);
             step.status = "done";

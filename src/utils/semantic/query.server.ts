@@ -11,6 +11,8 @@ import type { Database } from "@/integrations/supabase/types";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import {
   compileSemanticQuery,
+  semanticFetchPlan,
+  semanticTrim,
   type SemanticDimension,
   type SemanticJoin,
   type SemanticMetric,
@@ -112,6 +114,14 @@ export type SemanticResult = {
   model: string;
   columns: string[];
   rows: Record<string, unknown>[];
+  /**
+   * True when the result was cut at `cap`: the query has more rows than are
+   * here. Known for certain — the runner fetches one row past the cap — so a
+   * consumer that shows `rows` must say the list is partial when this is set.
+   */
+  truncated: boolean;
+  /** The row cap the result was cut at (the query's limit or the caller's budget). */
+  cap: number;
   /** The compiled SQL — surfaced for explainability/trust. */
   sql: string;
   /**
@@ -194,6 +204,12 @@ export async function runSemanticQuery(opts: {
     }
   }
 
+  // One row PAST the cap is fetched, so "exactly cap rows" and "more than
+  // cap rows" are distinguishable; the result is trimmed to the cap and says
+  // which. The compiled SQL carries the fetch limit — it is the statement
+  // that ran.
+  const plan = semanticFetchPlan(query.limit, opts.maxRows);
+  query = { ...query, limit: plan.fetch };
   if (model.source.kind === "warehouse") {
     if (!model.source.connectionId) {
       throw new Error(`Model "${model.name}" is a warehouse model but has no connection`);
@@ -220,13 +236,16 @@ export async function runSemanticQuery(opts: {
     // is exactly the shape that convention exists for, and without a tenant the
     // governor applies no per-user gate at all
     // (`userId ? gateFor(userId) : null`), only the global one.
-    const res = await executeWarehouseQuery(conn.config, compiled.sql, opts.maxRows ?? 1000, {
+    const res = await executeWarehouseQuery(conn.config, compiled.sql, plan.fetch, {
       userId: ownerId,
     });
+    const cut = semanticTrim(res.rows, plan.cap);
     return {
       model: model.name,
       columns: compiled.columns,
-      rows: res.rows,
+      rows: cut.rows,
+      truncated: cut.truncated,
+      cap: plan.cap,
       sql: compiled.sql,
       ...(compiled.rollup ? { rollup: compiled.rollup } : {}),
       ...(accessNote ? { access_note: accessNote } : {}),
@@ -241,10 +260,13 @@ export async function runSemanticQuery(opts: {
   const { localEngineName } = await import("@/utils/data/localEngine.server");
   const compiled = compileSemanticQuery(model, query, { dialect: await localEngineName() });
   const res = await runLocalSqlForUser(ownerId, compiled.sql);
+  const cut = semanticTrim(res.rows, plan.cap);
   return {
     model: model.name,
     columns: compiled.columns,
-    rows: res.rows,
+    rows: cut.rows,
+    truncated: cut.truncated,
+    cap: plan.cap,
     sql: compiled.sql,
     ...(compiled.rollup ? { rollup: compiled.rollup } : {}),
     ...(accessNote ? { access_note: accessNote } : {}),

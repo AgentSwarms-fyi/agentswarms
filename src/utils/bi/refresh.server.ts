@@ -356,7 +356,7 @@ function incrementalWindow(w: WidgetJson): { column: string; fromIso: string } |
  */
 function applyResult(
   w: WidgetJson,
-  result: { columns: string[]; rows: Record<string, unknown>[] },
+  result: { columns: string[]; rows: Record<string, unknown>[]; truncated?: boolean },
   inc?: { column: string; fromIso: string },
 ): void {
   const prior = Array.isArray(w.rows) ? w.rows : [];
@@ -369,7 +369,8 @@ function applyResult(
     w.rows = merged.slice(0, WIDGET_ROW_CAP);
     // Partial either when the merge overflowed the cap (rows dropped) or when
     // the window itself came back capped.
-    w.truncated = merged.length > WIDGET_ROW_CAP || result.rows.length >= WIDGET_ROW_CAP;
+    w.truncated =
+      merged.length > WIDGET_ROW_CAP || (result.truncated ?? result.rows.length >= WIDGET_ROW_CAP);
   } else {
     w.rows = result.rows.slice(0, WIDGET_ROW_CAP);
     // The `!w.agg_pushdown` qualifier that used to be here was wrong. It read
@@ -377,7 +378,7 @@ function applyResult(
     // VALUE, false of the row LIST. A GROUP BY over 364 days still returns 364
     // rows, and a cap drops the tail of the series whether or not the sums
     // inside it were pushed down.
-    w.truncated = result.rows.length >= WIDGET_ROW_CAP;
+    w.truncated = result.truncated ?? result.rows.length >= WIDGET_ROW_CAP;
   }
   w.columns = result.columns;
   w.refreshed_at = new Date().toISOString();
@@ -464,7 +465,7 @@ export async function refreshDashboardServer(dashboardId: string): Promise<{
     if (w.kind !== "chart") continue;
     if (!w.sql && w.source?.kind !== "semantic") continue;
     try {
-      let result: { columns: string[]; rows: Record<string, unknown>[] };
+      let result: { columns: string[]; rows: Record<string, unknown>[]; truncated?: boolean };
       // Incremental only applies to SQL-backed widgets: a semantic widget
       // re-runs its governed metric query in full, so a metric-definition
       // change is always reflected immediately.
@@ -498,7 +499,9 @@ export async function refreshDashboardServer(dashboardId: string): Promise<{
           },
           maxRows: WIDGET_ROW_CAP,
         });
-        result = { columns: r.columns, rows: r.rows };
+        // The runner knows whether it cut (it fetched one past the cap);
+        // the SQL paths below still infer it from the row count.
+        result = { columns: r.columns, rows: r.rows, truncated: r.truncated };
       } else if (w.source?.kind === "warehouse" && w.source.connection_id) {
         const conn = await loadWarehouseConnectionForUser(
           supabaseAdmin,

@@ -103,8 +103,8 @@ The three shapes it takes:
 | KB retrieval              | ✅ fixed | 2026-09-21 | R58 — a failed ACL read showed restricted documents; every failed search told the model "no match"                     |
 | Scheduler surface         | ✅ fixed | 2026-09-21 | R59 — the pass's failures and a stopped scheduler now show on Monitoring, beside every other service                   |
 | SQL model stamps          | ✅ fixed | 2026-09-21 | R60 — a definition edit is marked by the database and the page stops calling the previous build this one's             |
-| **Semantic layer**     | ⬜ next  |            |                                                                                                              |
-| ML predictions         | ⬜       |            |                                                                                                              |
+| Semantic layer            | ✅ fixed | 2026-09-21 | R61 — the runner fetches one past its cap and says when it cut; the preview, a widget's parameter re-run, the analyst's step and the refresh all say partial|
+| **ML predictions**     | ⬜ next  |            |                                                                                                              |
 
 ## Sweeps after this one
 
@@ -257,6 +257,10 @@ least twice, not a hypothetical.
 - "It returned no matching passages" is a claim about the documents. A
   search that could not be completed has no standing to make it, and the
   model it is told to will repeat it as fact.
+- A cap the fetch stops AT cannot be seen; fetch one past it. `rows.length
+  >= cap` is a guess that flags a complete result of exactly cap rows and
+  is the only thing a consumer can do when the runner said nothing. Say it
+  once, at the runner, and every consumer inherits the verdict (R61).
 - A stamp is about the row it was written on, not the row it sits on. A
   save that rewrites the definition and leaves `last_*` alone has moved the
   stamp onto a different thing. Either the save withdraws it, or something
