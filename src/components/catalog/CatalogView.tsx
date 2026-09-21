@@ -170,6 +170,13 @@ export function CatalogView({
   const [localError, setLocalError] = useState<string | null>(null);
   /** The local half of the catalog is UNKNOWN, not merely empty. */
   const localUnknown = localError !== null && localAssets.length === 0;
+  // Where each synced dataset came from — the last answer that was READ, kept
+  // across a failed re-read so a connector's tables are not re-filed as
+  // uploads. Null until a read has landed.
+  const lastAttributionRef = useRef<SaasAttributionRow[] | null>(null);
+  const lastConnsRef = useRef<SaasConnectionSummary[] | null>(null);
+  const [attributionError, setAttributionError] = useState<string | null>(null);
+  const [attributionKnown, setAttributionKnown] = useState(false);
   const [quality, setQuality] = useState<Map<string, QualityRollup>>(new Map());
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -212,26 +219,44 @@ export function CatalogView({
       // under "Local tables", which is true about their storage and useless
       // about their origin. saas_connection_id (migration 20260832000000) is
       // the fact; source_filename was only ever a label to read.
-      const [{ data: attribution }, connections] = await Promise.all([
+      const [attributionRes, connectionsRes] = await Promise.all([
         // Cast through unknown: types.ts is generated from the DEPLOYED schema
         // and these columns ship in migration 20260832000000. Regenerating
         // types after applying it removes the need.
         supabase.from("user_data_tables").select("id, saas_connection_id") as unknown as Promise<{
           data: SaasAttributionRow[] | null;
+          error: { message: string } | null;
         }>,
         // The SAME server function the Integration Hub calls, not a direct
         // table read. Two pages that answer "when did this last sync?" from
         // two different queries eventually disagree — and the direct read
         // cannot see sources reached through an IAM grant at all.
         token
-          ? listConnectionsFn({ data: { access_token: token } }).catch(() => [])
-          : Promise.resolve([]),
+          ? listConnectionsFn({ data: { access_token: token } }).then(
+              (c) => ({ conns: c, error: null as string | null }),
+              (e: unknown) => ({ conns: null, error: (e as Error).message }),
+            )
+          : Promise.resolve({ conns: [] as SaasConnectionSummary[], error: null as string | null }),
       ]);
-      const conns = connections;
+      // MEASURED with the attribution read rejected: "Local tables 33" where 26,
+      // the connector's row gone from the Sources panel and its seven synced
+      // datasets filed as uploads — no toast, no banner. A failed read of WHERE
+      // a table came from is not "it came from here". The last known answer
+      // stands; until there is one, the tables sit under Local tables and the
+      // banner says so.
+      const failures = [attributionRes.error?.message, connectionsRes.error].filter(
+        (m): m is string => typeof m === "string",
+      );
+      if (!attributionRes.error) lastAttributionRef.current = attributionRes.data ?? [];
+      if (connectionsRes.conns) lastConnsRef.current = connectionsRes.conns;
+      const attribution = lastAttributionRef.current ?? [];
+      const conns = lastConnsRef.current ?? [];
+      setAttributionError(failures.length ? failures.join("; ") : null);
+      setAttributionKnown(lastAttributionRef.current !== null && lastConnsRef.current !== null);
       setSaasConnections(conns);
       const saasList = saasSourcesFrom(conns);
       setSaasSources(saasList);
-      const saasByTable = datasetSourceIds(attribution ?? [], conns);
+      const saasByTable = datasetSourceIds(attribution, conns);
       const providerBySource = new Map(saasList.map((s) => [s.id, s.provider]));
       const mapped: UnifiedAsset[] = tables.map((d) => {
         const columns = d.columns.map((c) => ({
@@ -995,6 +1020,22 @@ export function CatalogView({
               {localUnknown
                 ? `Local tables could not be loaded: ${localError}`
                 : `Local tables may be stale — the last reload failed: ${localError}`}
+            </span>
+            <button type="button" className="underline" onClick={() => void reloadLocal()}>
+              Retry
+            </button>
+          </div>
+        ) : null}
+        {attributionError ? (
+          <div
+            className="flex items-center gap-2 border-b border-amber-300/60 bg-amber-50 px-3 py-1.5 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300"
+            data-testid="catalog-attribution-error"
+          >
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+            <span className="min-w-0 flex-1">
+              {attributionKnown
+                ? `Where synced datasets came from could not be re-read — showing the last known attribution: ${attributionError}`
+                : `Where synced datasets came from could not be read — they are listed under Local tables until it can be: ${attributionError}`}
             </span>
             <button type="button" className="underline" onClick={() => void reloadLocal()}>
               Retry

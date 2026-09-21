@@ -109,6 +109,41 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-21 — A failed read of where a table came from, answered as "here"
+
+#### R51 · S2 · "Local tables 33" where 26, and a connector's row gone
+
+First seen by accident, and first explained wrongly. After R50's rebuild the
+Sources panel read **Local tables 33** with the `sftest` connector row missing,
+and R50's notes blamed the connections server call failing while the container
+was still `health: starting`. Sampled every two seconds during this round's
+validation: the first `reloadLocal` runs before the session has resolved, with
+no token, so it never asks for the connections at all — zero server-function
+calls — and paints 33 at 18 s; the token-driven re-run makes the one call at
+18 s and paints 26 at 20 s. Two seconds of a wrong attribution, by design, not
+a failure. Then measured on purpose: with only the attribution read
+(`select=id,saas_connection_id`) rejected, the same 33, the same missing row,
+and the seven synced `sftest_*` datasets listed with SOURCE "Local tables". No
+toast, no banner; 8 rejected requests.
+
+Two reads decide where a table came from, and both dropped their failure: the
+attribution query was destructured as `const { data: attribution }`, and the
+connections call was `listConnectionsFn(...).catch(() => [])`. Either one
+failing made every connector-synced dataset an upload — which is the wrong
+source, the wrong sync status, and the wrong "re-crawl" affordance, presented
+as fact.
+
+Both failures are read now. The last attribution and connection list that were
+actually READ are kept in refs and used across a failed re-read; until a read
+has landed, the tables sit under Local tables and a banner says so —
+`Where synced datasets came from could not be read — they are listed under
+Local tables until it can be: …` — with a Retry. After a failed RE-read the
+banner says the attribution shown is the last known one. Each wording is
+gated on whether an answer exists, so a first-load failure cannot claim one.
+
+**Tests:** 5 source-anchored; 6 behaviour-changing mutants each killed, control
+missed, baseline green first.
+
 ### 2026-09-21 — The catalog counted a failed read as zero
 
 #### R50 · S1 · "All assets 21 · Local tables 0" over a rejected read

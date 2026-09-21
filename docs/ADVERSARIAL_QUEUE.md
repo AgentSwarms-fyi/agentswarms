@@ -93,6 +93,7 @@ The three shapes it takes:
 | Workbench refresh      | ✅ fixed | 2026-09-21 | R48 — the first caller to meet R46's throw had no try; spun forever and said nothing                         |
 | Dataset list read      | ✅ fixed | 2026-09-21 | R49 — a failed table list answered as an empty account: sidebar wiped, samples seeded, seeder's own reads unchecked|
 | Catalog local half     | ✅ fixed | 2026-09-21 | R50 — a failed local hydration counted as zero: 21 · 0 · "21 of 21" over a warn nobody sees                        |
+| Catalog attribution    | ✅ fixed | 2026-09-21 | R51 — a failed read of where a table came from filed every synced dataset as an upload                             |
 | **Semantic layer**     | ⬜ next  |            |                                                                                                              |
 | ML predictions         | ⬜       |            |                                                                                                              |
 
@@ -123,14 +124,11 @@ least twice, not a hypothetical.
    surface hydrates from. Three of its callers still render absence on catch
    and are next. Two seen in the browser during R49's validation were fixed
    as R50 — the catalog's `setLocalAssets([])` and the prep tab's section
-   badge. Next, measured by accident during R50's validation: the catalog's
-   `listConnectionsFn(...).catch(() => [])`. With the rebuilt container still
-   reporting `health: starting`, that server call failed, the Sources panel
-   read `Local tables 33` in place of 26, and the `sftest` connector row was
-   gone — its 7 synced datasets silently re-filed as local uploads. A retry a
-   minute later read 26. Then `lib/docGen/biData` (drops every chart),
-   `bi_.report` (bare catch), and `audit.functions` (a failed Auth page shows
-   ids where it should show people).
+   badge; and as R51 the catalog's attribution reads, seen by accident after
+   a rebuild and first misattributed to the container starting up — the paint
+   before the session resolves is R52's. Then `lib/docGen/biData` (drops
+   every chart), `bi_.report` (bare catch), and `audit.functions` (a failed
+   Auth page shows ids where it should show people).
 2. **A badge that outlives what it vouched for.** Verified/priced/fresh/healthy
    stamped once and never revisited. R24 and R26 are the BI instances.
 3. **A cause named that the evidence cannot support.** R31's freshness test, and
@@ -194,6 +192,11 @@ least twice, not a hypothetical.
   decide, and only after a read that succeeded.
 - A comment that says "not an empty account" above `setLocalAssets([])` is
   not a disclosure. Read what the catch DOES, not what it says.
+- A reading taken once is not a measurement. "Local tables 33" after a rebuild
+  was blamed on a server call failing while the container came up; sampled
+  every two seconds it is a two-second paint made before the session had
+  resolved, with zero server calls. Sample a first load over time before
+  naming its cause.
 - `const { data } = await …` is a guard that passes on failure. Every
   destructuring that drops `error` before a decision is one of these.
 - Verify a Radix picker's trigger text before submit: it keeps the previous

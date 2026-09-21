@@ -15,6 +15,49 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-21 — Where a synced dataset came from, under a failed read, ADVERSARIAL_LOG R51
+
+**Why this round exists.** The first normal reading after R50's rebuild was
+`Local tables 33`, not 26, with the `sftest` connector row missing from the
+Sources panel. R50's entry blamed a connections server call failing while the
+container was still starting; that was a reading taken once, and it was wrong
+(see the sampled timeline below). The symptom itself — a failed attribution
+read filed as "local" — was then reproduced on purpose by rejecting that read
+alone.
+
+### Before the fix
+
+| Driven                                                                            | Read back                                                                                                                                       |
+| --------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Data Catalog, loaded normally                                                     | `All assets 54` · `Local tables 26`; Sources panel lists `sftest 7`                                                                             |
+| Data Catalog mounted with the attribution read (`select=id,saas_connection_id`) rejected | `All assets 54` · `Local tables 33`; no `sftest` row; the seven `sftest_*` datasets shown with SOURCE `Local tables`; no toast, no banner; 8 rejected requests |
+
+### After the rebuild
+
+The `agentswarms` service rebuilt and recreated; the page reloaded onto the new
+bundle (`data-sql-tERoPyTu.js`).
+
+| Driven                                                                            | Read back                                                                                                                                                                                            |
+| --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Data Catalog mounted with the attribution read rejected                           | `Local tables 33`, no `sftest` row, and the banner `Where synced datasets came from could not be read — they are listed under Local tables until it can be: … Retry`; 14 s                            |
+| Retry, `fetch` restored                                                           | `Local tables 26` · `sftest 7`; banner gone; 11.5 s                                                                                                                                                  |
+| Re-read under the rejection over the known attribution (Workbench → Catalog)      | `Local tables 26` · `sftest 7` stand; banner `Where synced datasets came from could not be re-read — showing the last known attribution: … Retry`; 18 s                                              |
+| The same toggle with `fetch` restored                                             | banner gone, 26 · `sftest 7`; 15.5 s                                                                                                                                                                 |
+
+### The first load, sampled instead of read once
+
+| Driven                                        | Read back                                                                                                                                                                                                                              |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Fresh full load, untouched, sampled every 2 s | 8 s: `Local tables 0` (loading), 0 server-function calls · 18 s: `Local tables 33`, no `sftest` row, still **0** server-function calls · 20 s: `Local tables 26` · `sftest 7`, after the one call at 17.97 s |
+
+So the 33 after a rebuild is not a failed call: the first `reloadLocal` runs
+before the session has resolved, with no token, skips the connections read by
+design and paints every synced dataset as an upload; the token-driven re-run
+corrects it two seconds later. A wrong paint for two seconds, after a ten
+second wait, on every full page load — R52, next.
+
+Findings from this round: R51 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-21 — The catalog under a failed local read, before and after, ADVERSARIAL_LOG R50
 
 **Why this round exists.** R49's validation left the page on the Data Catalog
@@ -52,7 +95,9 @@ bundle (`data-sql-Cofp-IJh.js`).
 Sources panel. The container was still `health: starting`; the catalog's
 `listConnectionsFn(...).catch(() => [])` swallowed that failure and the 7
 connector-synced datasets were filed as local uploads. The Retry a minute later
-read 26. That is the next round.
+read 26. That is the next round. *(Corrected in R51: sampled every two seconds,
+this is a two-second paint made before the session resolved; no server call had
+been made, let alone failed.)*
 
 Findings from this round: R50 in the [Adversarial log](./ADVERSARIAL_LOG.md).
 
