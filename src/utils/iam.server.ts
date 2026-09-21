@@ -68,12 +68,15 @@ export async function requireSuperadmin(accessToken: string | undefined): Promis
     }
     const email = (user.email ?? "").toLowerCase();
 
-    const { data: roleRow } = await supabaseAdmin
+    const { data: roleRow, error: roleErr } = await supabaseAdmin
       .from("user_roles")
       .select("id")
       .eq("user_id", user.id)
       .eq("role", "superadmin")
       .maybeSingle();
+    // A failed read is not "no role": answered that way it fell through to the
+    // bootstrap claim below, which writes.
+    if (roleErr) return { ok: false, error: `could not read roles: ${roleErr.message}` };
     if (roleRow) return { ok: true, userId: user.id, email };
 
     const bootstrap = bootstrapAdminEmail();
@@ -156,13 +159,25 @@ export async function getEffectiveModelRules(
   sb: SupabaseClient<Database>,
   userId: string,
 ): Promise<ModelRule[] | null> {
-  const [{ data: memberships }, { data: rules }, { data: roles }, { data: settings }] =
-    await Promise.all([
-      sb.from("iam_group_members").select("group_id").eq("user_id", userId),
-      sb.from("iam_model_rules").select("principal_type, principal_id, provider, model_pattern"),
-      sb.from("user_roles").select("role").eq("user_id", userId),
-      sb.from("iam_settings").select("model_access_default").eq("id", true).maybeSingle(),
-    ]);
+  const [membershipsRes, rulesRes, rolesRes, settingsRes] = await Promise.all([
+    sb.from("iam_group_members").select("group_id").eq("user_id", userId),
+    sb.from("iam_model_rules").select("principal_type, principal_id, provider, model_pattern"),
+    sb.from("user_roles").select("role").eq("user_id", userId),
+    sb.from("iam_settings").select("model_access_default").eq("id", true).maybeSingle(),
+  ]);
+  // A failed read of the policy is not "no policy". Each of these used to drop
+  // its error: settings unreadable became allow mode, memberships unreadable
+  // dropped every group rule, and under allow mode both collapse to null —
+  // unrestricted. A policy that cannot be read fails CLOSED: every caller
+  // answers the model call with an error rather than making it.
+  const failed = [membershipsRes.error, rulesRes.error, rolesRes.error, settingsRes.error].find(
+    (e) => e !== null && e !== undefined,
+  );
+  if (failed) throw new Error(`could not read model access policy: ${failed.message}`);
+  const memberships = membershipsRes.data;
+  const rules = rulesRes.data;
+  const roles = rolesRes.data;
+  const settings = settingsRes.data;
   const groupIds = new Set((memberships ?? []).map((m) => m.group_id));
   const applicable = (rules ?? []).filter(
     (r) =>
@@ -202,13 +217,19 @@ export async function resolveGrantedResourceIds(
     | "saas_connection"
     | "ml_model",
 ): Promise<Set<string>> {
-  const [{ data: memberships }, { data: grants }] = await Promise.all([
+  const [membershipsRes, grantsRes] = await Promise.all([
     sb.from("iam_group_members").select("group_id").eq("user_id", userId),
     sb
       .from("iam_resource_grants")
       .select("principal_type, principal_id, resource_id")
       .eq("resource_type", resourceType),
   ]);
+  // A failed read is not an empty grant list: answered that way, everything
+  // shared with this user vanished from every listing that asks, silently.
+  const failed = membershipsRes.error ?? grantsRes.error;
+  if (failed) throw new Error(`could not read resource grants: ${failed.message}`);
+  const memberships = membershipsRes.data;
+  const grants = grantsRes.data;
   const groupIds = new Set((memberships ?? []).map((m) => m.group_id));
   const ids = new Set<string>();
   for (const g of grants ?? []) {

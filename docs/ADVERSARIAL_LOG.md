@@ -109,6 +109,51 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-21 — A policy read that fails must fail closed
+
+#### R53 · S1 · A failed IAM read evaluated as "no policy"
+
+Found by reading, not by driving: R51's false lead pointed at the grants
+resolver, and the resolver's neighbours turned out to be the finding.
+`getEffectiveModelRules` read four tables and dropped the error of each:
+
+```ts
+const [{ data: memberships }, { data: rules }, { data: roles }, { data: settings }] = …
+const mode = settings?.model_access_default === "deny" ? "deny" : "allow";
+```
+
+Under allow mode `collapseModelPolicy` turns "no applicable rules" into
+`null` — unrestricted. So a failed `iam_settings` read evaluated a
+deny-by-default org as allow, and a failed `iam_group_members` read dropped
+every group rule; in both cases a model the policy forbade was called. Four
+callers gate model calls on this — the chat API, the embed chat, the notebook
+model proxy and the BI planner — and each would have proceeded.
+
+The same shape three more times in the same file and its callers:
+`resolveGrantedResourceIds` dropped both of its reads (a failed grants read →
+"nothing is shared with you", at sixteen call sites); `requireSuperadmin`
+dropped its role read and fell through to the bootstrap claim, which writes;
+and two callers of the resolver — `grantedDatasetIds` and `grantedIdsFor` —
+caught its throw and answered "no grants", so a prep flow or BI refresh ran
+over a short source list and a granted credential became "no credential
+configured".
+
+Every one of these reads its error now and throws with the reason. A policy
+that cannot be read fails CLOSED: each caller answers the model call with an
+error instead of making it, the listings fail with the reason instead of
+answering short, and the superadmin guard refuses instead of claiming.
+
+This round's UI half is the regression half only, as R41's was: the failure
+cannot be injected from the browser (the reads are the server's own), so it is
+proved by behavioural tests on the real functions against a client whose reads
+fail one table at a time — the settings case resolved `null` before the fix and the memberships case `[]`
+— and the browser confirms that under the live policy (deny-by-default off, no
+rules) a model call still succeeds and the IAM page reads the same.
+
+**Tests:** 10 behavioural on `getEffectiveModelRules`, `resolveGrantedResourceIds`
+and `requireSuperadmin`, 2 source-anchored on the two callers; 8
+behaviour-changing mutants each killed, control missed, baseline green first.
+
 ### 2026-09-21 — Loading is not zero, and a pass without a session is not an answer
 
 #### R52 · S2 · "Local tables 0" for ten seconds, then "33" for two, on every full load

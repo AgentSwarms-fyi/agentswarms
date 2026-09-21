@@ -15,6 +15,53 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-21 — The model policy under a live read, before and after, ADVERSARIAL_LOG R53
+
+**Why this round exists.** R53 makes four IAM reads fail closed instead of
+answering "no policy". The failure cannot be injected from the browser — the
+reads are the server's own — so, as in R41, the browser proves the REGRESSION
+half: the live policy still resolves and a model call still goes through. The
+defect half is proved by behavioural tests on the real functions
+(`tests/unit/iamPolicyReadFailure.test.ts`): against the unpatched source a
+failed `iam_settings` read resolved `null` — unrestricted — and a failed
+`iam_group_members` or `iam_model_rules` read resolved `[]`; a failed role
+read answered "Forbidden: superadmin access only", closed but for the wrong
+reason.
+
+### Before the fix — the live policy
+
+| Driven                                          | Read back                                                                                          |
+| ----------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| IAM → Settings                                  | `Deny by default (allow-list only)` switch **off**; `Allow anyone to sign up` on                    |
+| IAM → Access → Model access                     | no rules — "By default everyone can use every model"                                               |
+
+So the live policy collapses to `null`, unrestricted, and every model call
+this deployment makes goes through `getEffectiveModelRules` first.
+
+### After the rebuild
+
+The `agentswarms` service rebuilt and recreated (server code only — the client
+chunk `data-sql-CiXUwY60.js` is unchanged from R52, as it should be).
+
+| Driven                                                                        | Read back                                                                                                                                                    |
+| ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| IAM → Settings                                                                | `Deny by default (allow-list only)` still **off**; `Allow anyone to sign up` on — the policy this deployment runs under is unchanged                          |
+| Workbench → BI Agent → "How many rows does saas_sales have?" (submit pressed) | `The 'saas_sales' table contains 9,994 rows of data.` as a KPI chart (`10.0k`, 1 row) in 6 s; every `/api/bi` POST in the exchange answered **200**           |
+
+The model call goes through `llmJsonServer` → `getEffectiveModelRules` first;
+after the fix a failed policy read would have been an error response here
+instead of an answer, and the four reads succeeded. That is the regression
+half. The defect half — a failed settings read resolving `null`, unrestricted —
+is proved by `tests/unit/iamPolicyReadFailure.test.ts` against the real
+function, which resolved exactly that before the fix and rejects after it.
+
+One thing learned about the panel on the way: Return in the question box does
+nothing — it is not a form — and the first `/api/bi` 200 I read was the
+panel's suggested-questions call, not a question. The icon button beside the
+box is the submit, and the round above pressed it.
+
+Findings from this round: R53 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-21 — The catalog's first paint, sampled before and after, ADVERSARIAL_LOG R52
 
 **Why this round exists.** R51's validation sampled a fresh load every two

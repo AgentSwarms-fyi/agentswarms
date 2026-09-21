@@ -141,8 +141,9 @@ async function grantedIdsFor(
     const { resolveGrantedResourceIds } = await import("@/utils/iam.server");
     return await resolveGrantedResourceIds(supabaseAdmin, userId, type);
   } catch (e) {
-    console.warn("[shared-creds] grant lookup failed:", (e as Error).message);
-    return new Set();
+    // A failed grants read answered as "none" made the call fail later with
+    // "no credential configured" — the wrong reason, at the wrong place.
+    throw new Error(`could not read credential grants: ${(e as Error).message}`);
   }
 }
 

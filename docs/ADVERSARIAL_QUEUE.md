@@ -95,6 +95,7 @@ The three shapes it takes:
 | Catalog local half     | ✅ fixed | 2026-09-21 | R50 — a failed local hydration counted as zero: 21 · 0 · "21 of 21" over a warn nobody sees                        |
 | Catalog attribution    | ✅ fixed | 2026-09-21 | R51 — a failed read of where a table came from filed every synced dataset as an upload                             |
 | Catalog first paint    | ✅ fixed | 2026-09-21 | R52 — loading rendered as `Local tables 0`; a pass before the session painted 33 for two seconds                   |
+| IAM policy reads       | ✅ fixed | 2026-09-21 | R53 — a failed settings or memberships read evaluated the model policy as unrestricted; grants and roles the same shape|
 | **Semantic layer**     | ⬜ next  |            |                                                                                                              |
 | ML predictions         | ⬜       |            |                                                                                                              |
 
@@ -204,6 +205,10 @@ least twice, not a hypothetical.
 - A pass that cannot ask the question must not paint an answer. Before the
   session resolved the catalog could not ask for its connections, ran
   anyway, and filed every synced dataset as an upload until the re-run.
+- A policy read that fails must fail CLOSED. `settings?.mode === "deny"`
+  reads a failed settings query as allow; a dropped memberships error reads
+  as "no groups". Every access decision that reads `{ data }` without
+  `error` is a decision made on a failure.
 - `const { data } = await …` is a guard that passes on failure. Every
   destructuring that drops `error` before a decision is one of these.
 - Verify a Radix picker's trigger text before submit: it keeps the previous
