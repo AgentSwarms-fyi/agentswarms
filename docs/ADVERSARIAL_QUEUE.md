@@ -264,6 +264,12 @@ least twice, not a hypothetical.
 - "It returned no matching passages" is a claim about the documents. A
   search that could not be completed has no standing to make it, and the
   model it is told to will repeat it as fact.
+- An optimistic switch is a promise about the database (R70): a control
+  that flips before the write lands must flip back when it does not, and
+  say what the stored state will do — an alert still on will still fire.
+  The write survey's remaining files: the notification bell, evaluations'
+  two deletes, the swarm chat dialog, the add-source dialog, and Agent
+  Chat's conversation and message deletes and updates.
 - A survey that reads one line at a time misses a statement that spans four
   (R69): the bare `await supabase\n .from(…)\n .update(…)` OpenRouter's
   disconnect takes was not in the write survey's count, and the browser

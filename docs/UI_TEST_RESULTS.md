@@ -15,6 +15,41 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-22 — A BI data alert switched off, before and after, ADVERSARIAL_LOG R70
+
+**Why this round exists.** The write-side survey's next file, the BI
+schedule dialog: every write in it — removing the schedule, deleting an
+alert, switching one on or off, its email setting — dropped its error.
+
+### Before the fix
+
+| Driven                                                                                                                                       | Read back                                                                                       |
+| -------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| BI → "AI verification - generated from saas_sales" → Scheduled refresh & data alerts → Widget `Total Sales`, threshold `1` → Add alert         | toast `Alert added — it's checked after every scheduled refresh`; `Total Sales · row count > 1`, switch on |
+| The alert's switch pressed, with every `PATCH /rest/v1/bi_alerts` rejected                                                                    | switch **off** on screen; one PATCH rejected; **no toast**                                       |
+| Reload → Scheduled refresh & data alerts                                                                                                     | `Total Sales · row count > 1`, switch **on** — the alert was never switched off                   |
+
+An alert switched off on screen that is still on in the database will
+still fire; the dialog showed the switch the person made, not the one that
+was stored.
+
+### After the rebuild
+
+The `agentswarms` service rebuilt and recreated (container `0e9ad05ab36b`);
+the dashboard reloaded onto it. Same alert, same rejection.
+
+| Driven                                                                                            | Read back                                                                                                                                  |
+| ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Scheduled refresh & data alerts → `Total Sales · row count > 1`, switch on                          | as left                                                                                                                                    |
+| The alert's switch pressed, with every `PATCH /rest/v1/bi_alerts` rejected                          | switch **back on**; toast **`Could not switch the alert off · TypeError: Failed to fetch. It is still on and will still fire.`**; one PATCH rejected |
+| `fetch` restored → the alert's delete                                                             | the alert is gone from the dialog; only the schedule switch remains — the fixture is gone for real                                          |
+
+The switch shows what is stored, and the words say what that means. The
+schedule removal, the alert delete and the email setting share the shape and
+are held by the tests.
+
+Findings from this round: R70 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-22 — Integrations, a disconnect that failed, before and after, ADVERSARIAL_LOG R69
 
 **Why this round exists.** The write-side survey's next page. The

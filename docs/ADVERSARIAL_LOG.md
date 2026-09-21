@@ -109,6 +109,36 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-22 — An alert switched off that was still on, and would still fire
+
+#### R70 · S1 · The BI schedule dialog's writes
+
+The write-side survey's next file. Add a data alert to a dashboard —
+`Total Sales · row count > 1`, switch on — and press its switch with every
+`PATCH` to `bi_alerts` rejected: the switch goes off on screen, and nothing
+is said. Reload: the switch is on. The alert was never switched off, and
+would have fired on the next scheduled refresh while its owner believed it
+silenced. Every write in the dialog was like this: removing the schedule
+(the refresh kept running, the dialog showed none), deleting an alert (it
+left the list and kept firing), the alert's email setting.
+
+Each keeps its error now. A switch that could not be switched is undone on
+screen and says "Could not switch the alert off: <why>. It is still on and
+will still fire."; a delete that failed says "It is still set and will
+still fire."; a schedule that could not be removed says "It is still
+scheduled."; the email setting says "It is unchanged." The dialog shows
+what is stored, never only what was pressed.
+
+Driven, before: the switch off on screen over a rejected update, nothing
+said, on again after a reload. After the rebuild, the same rejection: the
+switch back on at once and the toast `Could not switch the alert off ·
+TypeError: Failed to fetch. It is still on and will still fire.`; with
+`fetch` restored, the fixture alert deleted for real.
+
+**Tests:** 5 source-anchored on the four writes, their undo and their
+messages; 5 behaviour-changing mutants each killed, control missed,
+baseline green first.
+
 ### 2026-09-22 — "Provider disconnected", with the key still stored and the card still Connected
 
 #### R69 · S1 · The Integration Hub's three disconnects
