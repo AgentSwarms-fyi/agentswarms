@@ -264,6 +264,12 @@ least twice, not a hypothetical.
 - "It returned no matching passages" is a claim about the documents. A
   search that could not be completed has no standing to make it, and the
   model it is told to will repeat it as fact.
+- The two builder lists (R64): `No agents yet` with a "New Agent" button over
+  nine agents the page could not read. A list surface has four states, not
+  two; the pure `listState` in `lib/listState` names them, and an error is
+  ahead of empty. The client-side survey that found it (55 error-less reads
+  in 25 files) still has: the playground (12 reads), swarms (6), evaluations
+  (5), the swarm node inspector (4) — next, in that order.
 - The home dashboard's seven counts (R63): a failed read was zero, and the
   SQL-models chip asked for a value its column cannot hold, so it never
   fired. A predicate is a claim about what the column holds; check it

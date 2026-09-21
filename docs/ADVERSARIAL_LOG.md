@@ -109,6 +109,42 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-21 — "No agents yet", over nine agents it could not read
+
+#### R64 · S1 · The Agent Builder and Knowledge Base lists
+
+The failed-read survey (55 error-less client reads in 25 files), taken to
+the two builder pages every other page starts from. Reject every request for
+`agents` and reload the Agent Builder in-app: `No agents yet` — "Create your
+first agent to get started — pick a model, write a system prompt, and add
+tools as you go." — and a `New Agent` button, over nine agents. Reject
+`knowledge_bases` and reload the Knowledge Bases page: `No knowledge bases
+yet.` over six. Nothing on either page says a read failed; the obvious
+response to either screen is to make another one.
+
+Both pages dropped their read's `error`. The Agent Builder had already
+learned that "not fetched yet" is not "none" (its `loaded` flag, for the
+first paint), and still had no third state for "could not fetch". A pure
+`listState` now says which of loading, error, empty and list a surface may
+show — an error ahead of empty and ahead of loading, because a read that
+failed is not still loading and is not nothing — and the Agent Builder
+renders "Could not load your agents" with the reason and a "Try again"
+ahead of its empty state. The Knowledge Bases page keeps the error of each
+of its three list reads (bases, documents, sources) and renders each ahead
+of the empty state it used to hide behind, as an alert with the reason.
+
+Driven, before: `No agents yet` with its call to action over nine agents,
+`No knowledge bases yet.` over six, each with every request for the table
+rejected. After the rebuild, the same rejections: `Could not load your
+agents · TypeError: Failed to fetch · Try again`, and the nine agents back
+when `fetch` is restored and Try again pressed; `Could not load your
+knowledge bases: TypeError: Failed to fetch` as an alert, and no empty state
+on either page.
+
+**Tests:** 3 behavioural on `listState`, 3 source-anchored on both pages'
+reads and the order of their states; 6 behaviour-changing mutants each
+killed, control missed, baseline green first.
+
 ### 2026-09-21 — "Everything is running", from counts that could not be read and one that could never fire
 
 #### R63 · S1 · The home dashboard's status band

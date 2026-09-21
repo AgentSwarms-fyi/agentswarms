@@ -15,6 +15,42 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-21 — The Agent Builder and Knowledge Base lists, before and after, ADVERSARIAL_LOG R64
+
+**Why this round exists.** The failed-read survey, taken to the two builder
+pages every other page starts from: each dropped its list read's error and
+showed the empty state — with a call to action — over rows it could not read.
+
+### Before the fix
+
+| Driven                                                                                                            | Read back                                                                                                                                                                  |
+| ----------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Agent Builder                                                                                                     | nine agents listed (`RAG eval · Halvard support`, `Predictive Analyst`, `Sample · Graph RAG Explorer (Acme Corp)`, …)                                                       |
+| Agent Builder with every `/rest/v1/agents?…` request rejected (`Failed to fetch`, eight attempts), reloaded in-app | **`No agents yet` · "Create your first agent to get started — pick a model, write a system prompt, and add tools as you go." · a `New Agent` button** — nothing about a failure |
+| Knowledge Bases                                                                                                   | six knowledge bases listed (`RAG eval · Halvard Systems`, `Sample · People Operations Playbook`, …)                                                                          |
+| Knowledge Bases with every `/rest/v1/knowledge_bases?…` request rejected (eight attempts), reloaded in-app         | **`No knowledge bases yet.`** — nothing about a failure                                                                                                                      |
+
+The obvious response to either screen is to make another one.
+
+### After the rebuild
+
+The `agentswarms` service rebuilt and recreated (container `3154635e5810`);
+both pages reloaded onto it. Same rejections, same in-app reloads.
+
+| Driven                                                                                        | Read back                                                                                                                    |
+| --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Agent Builder                                                                                 | nine agents listed                                                                                                           |
+| Agent Builder with every `/rest/v1/agents?…` request rejected (eight attempts), reloaded in-app | **`Could not load your agents` · `TypeError: Failed to fetch` · a `Try again` button**; no "No agents yet", no call to action |
+| `fetch` restored, `Try again` pressed                                                          | the nine agents are back (`RAG eval · Halvard support`, `Predictive Analyst`, …)                                             |
+| Knowledge Bases with every `/rest/v1/knowledge_bases?…` request rejected (eight attempts), reloaded in-app | an alert: **`Could not load your knowledge bases: TypeError: Failed to fetch`**; no "No knowledge bases yet."           |
+
+A read that failed now reads as a failure, with the reason and a way back;
+the empty states are reserved for a read that answered with nothing. The
+documents and sources lists of a knowledge base carry the same alert and are
+held by the source-anchored tests.
+
+Findings from this round: R64 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-21 — The home dashboard's status band, before and after, ADVERSARIAL_LOG R63
 
 **Why this round exists.** The landing page's one sentence — "Everything is

@@ -28,6 +28,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import {
+  AlertTriangle,
   Bot,
   Plus,
   Pencil,
@@ -48,6 +49,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { EmptyState } from "@/components/ui/empty-state";
+import { listState } from "@/lib/listState";
 import { AgentForm, type Agent } from "@/components/agents/AgentForm";
 import { useLangChainExportAnnouncement } from "@/hooks/use-langchain-export-announcement";
 import { ExportAgentDialog } from "@/components/agents/ExportAgentDialog";
@@ -87,6 +89,8 @@ function AgentsPage() {
   // state — a "Create your first agent" call to action, on an account with
   // seven agents. The obvious response to that screen is to make another one.
   const [loaded, setLoaded] = useState(false);
+  /** Why the last load failed. An error is never "No agents yet". */
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Agent | null>(null);
@@ -113,10 +117,14 @@ function AgentsPage() {
   }, [search.new, navigate]);
 
   async function loadAgents() {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("agents")
       .select("*")
       .order("created_at", { ascending: false });
+    // FOUND FROM THE UI. This dropped `error`, so a read that failed left the
+    // list empty and the page said "No agents yet" with a "New Agent" call to
+    // action — over the agents it could not read.
+    setLoadError(error ? error.message : null);
     if (data) setAgents(data as Agent[]);
     setLoaded(true);
   }
@@ -224,6 +232,17 @@ function AgentsPage() {
               <Skeleton key={i} className="h-40 rounded-xl" />
             ))}
           </div>
+        ) : listState({ loaded, error: loadError, count: agents.length }) === "error" ? (
+          <EmptyState
+            icon={AlertTriangle}
+            title="Could not load your agents"
+            description={loadError ?? ""}
+            action={
+              <Button variant="outline" onClick={() => void loadAgents()}>
+                Try again
+              </Button>
+            }
+          />
         ) : agents.length === 0 ? (
           <EmptyState
             icon={Bot}

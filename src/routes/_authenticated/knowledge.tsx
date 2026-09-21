@@ -53,6 +53,7 @@ import {
   Cloud,
   Clock,
   Lock,
+  AlertTriangle,
 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
@@ -285,6 +286,11 @@ function KnowledgePage() {
   const [selectedBase, setSelectedBase] = useState<KnowledgeBase | null>(null);
   const [docs, setDocs] = useState<KnowledgeDoc[]>([]);
   const [sources, setSources] = useState<KbSource[]>([]);
+  // Why a list could not be read. Each is rendered ahead of its empty state:
+  // a read that failed is not "No knowledge bases yet".
+  const [basesError, setBasesError] = useState<string | null>(null);
+  const [docsError, setDocsError] = useState<string | null>(null);
+  const [sourcesError, setSourcesError] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [docOpen, setDocOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -491,10 +497,11 @@ function KnowledgePage() {
   }, [selectedBase]);
 
   async function loadBases() {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("knowledge_bases")
       .select("*")
       .order("created_at", { ascending: false });
+    setBasesError(error ? error.message : null);
     if (data) setBases(data);
   }
 
@@ -577,11 +584,12 @@ function KnowledgePage() {
   }
 
   async function loadDocs(kbId: string) {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("knowledge_documents")
       .select("*")
       .eq("knowledge_base_id", kbId)
       .order("created_at", { ascending: false });
+    setDocsError(error ? error.message : null);
     if (data) setDocs(data as KnowledgeDoc[]);
     await loadChunkCounts(kbId);
   }
@@ -631,13 +639,14 @@ function KnowledgePage() {
   async function loadSources(kbId: string) {
     // Explicit columns — the row also carries encrypted connector credentials,
     // which have no business in a browser even ciphertext-form.
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("kb_sources")
       .select(
         "id, knowledge_base_id, kind, label, status, config, last_synced_at, error, is_sample, created_at, sync_schedule, next_sync_at, access_scope, last_sync_stats",
       )
       .eq("knowledge_base_id", kbId)
       .order("created_at", { ascending: false });
+    setSourcesError(error ? error.message : null);
     if (data) setSources(data as KbSource[]);
   }
 
@@ -1677,11 +1686,16 @@ function KnowledgePage() {
                 )}
               </Card>
             ))}
-            {bases.length === 0 && (
+            {basesError ? (
+              <p className="text-sm text-destructive py-8 text-center" role="alert">
+                <AlertTriangle className="inline h-4 w-4 mr-1 align-text-bottom" />
+                Could not load your knowledge bases: {basesError}
+              </p>
+            ) : bases.length === 0 ? (
               <p className="text-sm text-muted-foreground py-8 text-center">
                 No knowledge bases yet.
               </p>
-            )}
+            ) : null}
           </div>
 
           <div className="lg:col-span-2 space-y-4">
@@ -1887,7 +1901,11 @@ function KnowledgePage() {
                           </div>
                         );
                       })()}
-                    {docs.length === 0 ? (
+                    {docsError ? (
+                      <p className="text-sm text-destructive py-8 text-center" role="alert">
+                        Could not load the documents: {docsError}
+                      </p>
+                    ) : docs.length === 0 ? (
                       <p className="text-sm text-muted-foreground py-8 text-center">
                         No documents in this knowledge base.
                       </p>
@@ -2022,7 +2040,11 @@ function KnowledgePage() {
                   </TabsContent>
 
                   <TabsContent value="sources" className="mt-3">
-                    {sources.length === 0 ? (
+                    {sourcesError ? (
+                      <p className="text-sm text-destructive py-8 text-center" role="alert">
+                        Could not load the sources: {sourcesError}
+                      </p>
+                    ) : sources.length === 0 ? (
                       <div className="text-center py-8 space-y-3">
                         <p className="text-sm text-muted-foreground">
                           No sources yet — add a URL or GitHub repo, upload a file, or connect
