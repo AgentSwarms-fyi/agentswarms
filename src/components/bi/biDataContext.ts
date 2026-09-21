@@ -24,6 +24,8 @@ export type MetricModelOption = {
 export type BiDataContext = {
   userId: string | null;
   datasets: DatasetMeta[];
+  /** Set when the local datasets could not be read; the list is then the last good one, or empty. */
+  datasetsError?: string | null;
   /** Names of datasets produced by data-prep flows (badged in pickers). */
   preparedTables?: Set<string>;
   /** Preferred text model for generative features (null = server default). */

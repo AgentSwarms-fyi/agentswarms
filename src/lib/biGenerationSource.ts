@@ -68,6 +68,8 @@ export function generationSource(args: {
   warehouses: WarehouseConnectionSummary[];
   whTables: Record<string, WarehouseTable[] | "loading" | "error">;
   userId: string | null;
+  /** Why the local list could not be READ, when that is why it is empty. */
+  datasetsError?: string | null;
 }): GenerationSource {
   const local: GenerationSource = {
     datasets: args.datasets,
@@ -75,9 +77,14 @@ export function generationSource(args: {
     metrics: args.metrics,
     source: { kind: "local" },
     warehouse: null,
+    // MEASURED with the table list rejected: the dialog said "upload data on
+    // the Data & SQL page first" — advice to upload, over a read that failed.
+    // An empty list with a reason says the reason.
     notReady: args.datasets.length
       ? null
-      : "No local datasets — upload data on the Data & SQL page first.",
+      : args.datasetsError
+        ? `Local datasets could not be read — ${args.datasetsError}`
+        : "No local datasets — upload data on the Data & SQL page first.",
   };
   if (args.sourceKey === LOCAL_SOURCE_KEY) return local;
 

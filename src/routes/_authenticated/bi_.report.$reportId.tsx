@@ -98,6 +98,7 @@ function ReportDesigner() {
   // Only what the generator needs: it plans and answers against local
   // datasets, the same path the dashboard's "table" source takes.
   const [datasets, setDatasets] = useState<DatasetMeta[]>([]);
+  const [datasetsError, setDatasetsError] = useState<string | null>(null);
   const [semantics, setSemantics] = useState<Map<string, SemanticEntry>>(new Map());
   const [metrics, setMetrics] = useState<SavedMetric[]>([]);
 
@@ -127,14 +128,18 @@ function ReportDesigner() {
       try {
         const tables = await hydrateFromSupabase();
         setDatasets(tables);
+        setDatasetsError(null);
         const [sem, mets] = await Promise.all([
           loadSemantics(tables.map((d) => d.id)),
           loadSavedMetrics(),
         ]);
         setSemantics(sem);
         setMetrics(mets);
-      } catch {
-        // The designer still works without them; only generation needs them.
+      } catch (e) {
+        // The designer still works without them; generation is what needs
+        // them, and its dialog said "upload data" over this bare catch.
+        toast.error(`Could not load local datasets: ${(e as Error).message}`);
+        setDatasetsError((e as Error).message);
       }
     })();
   }, [user?.id]);
@@ -200,6 +205,7 @@ function ReportDesigner() {
     () => ({
       userId: user?.id ?? null,
       datasets,
+      datasetsError,
       semantics,
       metrics,
       warehouses,
@@ -207,7 +213,17 @@ function ReportDesigner() {
       ensureSchema,
       runSql,
     }),
-    [user?.id, datasets, semantics, metrics, warehouses, whTables, ensureSchema, runSql],
+    [
+      user?.id,
+      datasets,
+      datasetsError,
+      semantics,
+      metrics,
+      warehouses,
+      whTables,
+      ensureSchema,
+      runSql,
+    ],
   );
 
   const patch = useCallback((next: Partial<BiReport>) => {

@@ -109,6 +109,35 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-21 — "Upload data first", over a read that failed
+
+#### R55 · S2 · The generate dialogs advised uploading data when the data could not be read
+
+Driven: a saved report opened with every `user_data_tables` request rejected
+— two rejected reads on mount and no toast, because the report route's
+hydration catch was bare ("the designer still works without them; only
+generation needs them"). Then Generate with AI: the source picker's placeholder
+and its notice both read **"No local datasets — upload data on the Data & SQL
+page first."**, and Plan the report was disabled. Four rejected reads by then.
+The account has thirty-three local datasets.
+
+Both generate dialogs take their table list and their "not ready" reason from
+`generationSource()`, which turned an empty list into advice to upload. The
+dashboard route toasted the failure and moved on; the report route said
+nothing at all; either way the dialog received `[]` and had no way to tell a
+failed read from an empty account.
+
+The BI data context now carries `datasetsError`. Both routes set it in their
+catch (the report route gains the toast it never had), both dialogs pass it
+through, and `generationSource` answers an empty list WITH a reason with the
+reason — "Local datasets could not be read — …" — while an empty list without
+one still says where to get data, and a kept list after a failed re-read is
+not blocked.
+
+**Tests:** 3 behavioural on the real `generationSource` and 4 source-anchored
+across the context, both dialogs and both routes; 6 behaviour-changing mutants
+each killed, control missed, baseline green first.
+
 ### 2026-09-21 — A deck whose data could not be read, delivered without a word
 
 #### R54 · S2 · "Here's your PowerPoint" over four rejected reads

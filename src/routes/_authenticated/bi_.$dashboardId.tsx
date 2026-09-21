@@ -308,6 +308,7 @@ function BiProjectPage() {
 
   // Connected data (owner only — viewers render snapshots).
   const [datasets, setDatasets] = useState<DatasetMeta[]>([]);
+  const [datasetsError, setDatasetsError] = useState<string | null>(null);
   const [semantics, setSemantics] = useState<Map<string, SemanticEntry>>(new Map());
   const [metrics, setMetrics] = useState<SavedMetric[]>([]);
   const [warehouses, setWarehouses] = useState<WarehouseConnectionSummary[]>([]);
@@ -550,6 +551,7 @@ function BiProjectPage() {
       try {
         const tables = await hydrateFromSupabase();
         setDatasets(tables);
+        setDatasetsError(null);
         const [sem, mets] = await Promise.all([
           loadSemantics(tables.map((d) => d.id)),
           loadSavedMetrics(),
@@ -558,6 +560,7 @@ function BiProjectPage() {
         setMetrics(mets);
       } catch (e) {
         toast.error(`Could not load local datasets: ${(e as Error).message}`);
+        setDatasetsError((e as Error).message);
       }
       listPrepFlows()
         .then((fs) =>
@@ -671,6 +674,7 @@ function BiProjectPage() {
     () => ({
       userId: user?.id ?? null,
       datasets,
+      datasetsError,
       preparedTables,
       model: biModel,
       onModelChange: setBiModel,
@@ -687,6 +691,7 @@ function BiProjectPage() {
     [
       user?.id,
       datasets,
+      datasetsError,
       preparedTables,
       biModel,
       semantics,

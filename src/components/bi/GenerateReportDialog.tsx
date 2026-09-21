@@ -85,6 +85,7 @@ export function GenerateReportDialog({
   const gen = generationSource({
     sourceKey,
     datasets: ctx.datasets,
+    datasetsError: ctx.datasetsError ?? null,
     semantics: ctx.semantics,
     metrics: ctx.metrics,
     warehouses: ctx.warehouses,

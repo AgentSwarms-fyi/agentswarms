@@ -185,6 +185,7 @@ export function GenerateDashboardDialog({
   const gen = generationSource({
     sourceKey,
     datasets: ctx.datasets,
+    datasetsError: ctx.datasetsError ?? null,
     semantics: ctx.semantics,
     metrics: ctx.metrics,
     warehouses: ctx.warehouses,

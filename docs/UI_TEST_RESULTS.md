@@ -15,6 +15,41 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-21 — The report generator over a failed read, before and after, ADVERSARIAL_LOG R55
+
+**Why this round exists.** The queue's next "failed read rendered as absence"
+was the BI report route's bare hydration catch. The dialogs it feeds are
+reachable from the browser, and the rejection is armed before the in-app
+navigation so the route mounts under it — the real catch meeting a real
+failure.
+
+### Before the fix
+
+| Driven                                                                                      | Read back                                                                                                                                                        |
+| ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| BI Workspace → Reports → "Revenue pack - known series", every `user_data_tables` request rejected | the designer, **no toast**; 2 rejected reads                                                                                                                     |
+| Generate with AI                                                                            | Source `Local & prepared datasets`; Table placeholder and notice both `No local datasets — upload data on the Data & SQL page first.`; `Plan the report` disabled; 4 rejected reads |
+
+The account holds thirty-three local datasets.
+
+### After the rebuild
+
+The `agentswarms` service rebuilt and recreated; the page reloaded onto the new
+bundle (`bi-D0lePUV8.js`). Same report, same rejection armed before the
+in-app navigation.
+
+| Driven                                                                          | Read back                                                                                                                                                                                             |
+| ------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Reports → "Revenue pack - known series", every `user_data_tables` request rejected | toast `Could not load local datasets: could not list datasets: Error: injected: user_data_tables unreachable` at 7 s — the catch that used to be bare; 4 rejected reads                              |
+| Generate with AI                                                                | placeholder and notice both `Local datasets could not be read — could not list datasets: Error: injected: user_data_tables unreachable`; `Plan the report` disabled — the advice to upload is gone |
+| The same report reloaded with `fetch` untouched → Generate with AI              | Table `sftest_users` selected, no notice, `Plan the report` enabled, no toast                                                                                                                          |
+
+An empty list with a reason now shows the reason; an empty list without one
+still says where to get data (the behavioural test holds that case); a kept
+list is not blocked by a failed re-read.
+
+Findings from this round: R55 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-21 — A deck generated over a failed read, before and after, ADVERSARIAL_LOG R54
 
 **Why this round exists.** The queue's next "failed read rendered as absence"

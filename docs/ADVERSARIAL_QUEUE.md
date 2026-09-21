@@ -97,6 +97,7 @@ The three shapes it takes:
 | Catalog first paint    | ✅ fixed | 2026-09-21 | R52 — loading rendered as `Local tables 0`; a pass before the session painted 33 for two seconds                   |
 | IAM policy reads       | ✅ fixed | 2026-09-21 | R53 — a failed settings or memberships read evaluated the model policy as unrestricted; grants and roles the same shape|
 | Deck generation fill   | ✅ fixed | 2026-09-21 | R54 — a failed dataset read answered as "no data connected"; the deck shipped chartless and silent                     |
+| BI generate dialogs    | ✅ fixed | 2026-09-21 | R55 — "upload data on the Data & SQL page first" over a failed read of thirty-three datasets                           |
 | **Semantic layer**     | ⬜ next  |            |                                                                                                              |
 | ML predictions         | ⬜       |            |                                                                                                              |
 
@@ -129,9 +130,12 @@ least twice, not a hypothetical.
    as R50 — the catalog's `setLocalAssets([])` and the prep tab's section
    badge; and as R51 the catalog's attribution reads, seen by accident after
    a rebuild and first misattributed to the container starting up; and as R52
-   the paint before the session resolves; and as R54 `lib/docGen/biData`.
-   Then `bi_.report` (bare catch) and `audit.functions` (a failed Auth page
-   shows ids where it should show people).
+   the paint before the session resolves; as R54 `lib/docGen/biData`; and as
+   R55 `bi_.report` with both generate dialogs. Then `audit.functions` (a
+   failed Auth page shows an 8-character id where it should show a person,
+   for trace and swarm rows) and `credentials.server`'s
+   `loadCredentialRowShared`, folded inside and at its caller — both
+   server-side, regression-only browser halves.
 2. **A badge that outlives what it vouched for.** Verified/priced/fresh/healthy
    stamped once and never revisited. R24 and R26 are the BI instances.
 3. **A cause named that the evidence cannot support.** R31's freshness test, and
@@ -214,6 +218,9 @@ least twice, not a hypothetical.
   count. "N of M could be filled" needs M > 0; the read that failed
   reported M = 0 and was the one case that said nothing. Count what was
   asked for before reading anything.
+- Advice is a claim. "Upload data first" asserts there is no data; over a
+  failed read it is wrong twice — the data exists, and uploading changes
+  nothing. An empty list that has a reason shows the reason.
 - `const { data } = await …` is a guard that passes on failure. Every
   destructuring that drops `error` before a decision is one of these.
 - Verify a Radix picker's trigger text before submit: it keeps the previous
