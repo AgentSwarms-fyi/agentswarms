@@ -142,8 +142,8 @@ export async function runKbSearch(
   if (!hasAnyKb)
     return JSON.stringify({ error: "No knowledge base wired — kb_search unavailable" });
   // Reuse the same retrieval the chat route uses for auto-RAG.
-  const { retrieveCitationsServer } = await import("./kb.server");
-  const cits = await retrieveCitationsServer({
+  const { retrieveCitationsReport } = await import("./kb.server");
+  const { citations: cits, degraded } = await retrieveCitationsReport({
     sb: ctx.sb,
     agentId: ctx.agentId,
     extraKbIds,
@@ -174,10 +174,16 @@ export async function runKbSearch(
   if (cits.length === 0) {
     return JSON.stringify({
       results: [],
-      note: "No matching documents in any connected knowledge base.",
+      // An empty result with a reason is not "no documents": the model was
+      // told the latter over a search that could not be completed.
+      note: degraded.length
+        ? `The search could not be completed — ${degraded.join("; ")}. Documents may exist that this search could not reach.`
+        : "No matching documents in any connected knowledge base.",
+      degraded,
     });
   }
   return JSON.stringify({
+    degraded,
     results: cits.map((c) => ({
       document: c.documentName,
       knowledge_base: c.knowledgeBaseName,
@@ -442,11 +448,17 @@ export async function runMlPredict(
       });
     if (!model.production_version_id)
       return JSON.stringify({ error: `"${model.name}" has no production version yet.` });
-    const { data: version } = await ctx.sb
+    const { data: version, error: versionErr } = await ctx.sb
       .from("ml_model_versions")
       .select("*")
       .eq("id", model.production_version_id)
       .maybeSingle();
+    // A failed read is not a missing version: the model was told the
+    // production version did not exist, and answered on that.
+    if (versionErr)
+      return JSON.stringify({
+        error: `Could not read the production version: ${versionErr.message}`,
+      });
     if (!version) return JSON.stringify({ error: "Production version not found" });
     // A prediction never arrives without the model's health beside it: the
     // latest drift reading and evaluation, as the owner already heard them.

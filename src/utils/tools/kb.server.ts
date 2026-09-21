@@ -81,6 +81,8 @@ export function buildGroundingPrompt(
      * opposed to there being no knowledge base wired at all.
      */
     searched?: boolean;
+    /** Every way the search fell short; see RetrievalReport. */
+    degraded?: string[];
   },
 ): string {
   // A SEARCH THAT FOUND NOTHING IS A FACT THE MODEL NEEDS.
@@ -100,6 +102,18 @@ export function buildGroundingPrompt(
   if (citations.length === 0) {
     const base = userSystemPrompt?.trim() ?? "";
     if (!opts?.searched) return userSystemPrompt || "";
+    if (opts.degraded?.length) {
+      // Nothing came back AND the search fell short: the model must not be
+      // told the documents lack it. It was told exactly that, over a failed
+      // ACL read, a failed vector search and a failed keyword scan alike.
+      return (
+        (base ? base + "\n\n" : "") +
+        "A knowledge base is attached to this assistant and was searched for this question, but " +
+        `the search could not be completed: ${opts.degraded.join("; ")}. ` +
+        "Do not say the documents lack the information — say that the search could not be " +
+        "completed and what could not be checked, and do not cite sources you were not given."
+      );
+    }
     return (
       (base ? base + "\n\n" : "") +
       "A knowledge base is attached to this assistant and was searched for this question. " +
@@ -108,7 +122,11 @@ export function buildGroundingPrompt(
       "than answering from general knowledge, and do not cite sources you were not given."
     );
   }
-  const header = userSystemPrompt?.trim() ? userSystemPrompt.trim() + "\n\n" : "";
+  const header =
+    (userSystemPrompt?.trim() ? userSystemPrompt.trim() + "\n\n" : "") +
+    (opts?.degraded?.length
+      ? `Retrieval was partial — ${opts.degraded.join("; ")}. Say so where it bears on the answer.\n\n`
+      : "");
   // Names are interpolated too, and a document's name is often the <title> of
   // an ingested page — attacker-controlled in exactly the same way the body is.
   const sources = citations
@@ -321,7 +339,7 @@ function citationText(row: {
   return trimSnippet(row.content);
 }
 
-export async function retrieveCitationsServer(opts: {
+export type RetrievalOpts = {
   sb: SupabaseClient<Database>;
   agentId?: string | null;
   query: string;
@@ -345,8 +363,18 @@ export async function retrieveCitationsServer(opts: {
    * grounded (groundingPasses). Unset or 0 = every match grounds.
    */
   minSimilarity?: number;
-}): Promise<Citation[]> {
+};
+
+/** What came back, and every way the search fell short of a complete, checked one. */
+export type RetrievalReport = { citations: Citation[]; degraded: string[] };
+
+export async function retrieveCitationsReport(opts: RetrievalOpts): Promise<RetrievalReport> {
   const { sb } = opts;
+  // Every way this search fell short. A caller that gets [] with nothing in
+  // here has a knowledge base with no match; a caller that gets [] with
+  // something in here has a search that could not be completed, and the
+  // two must never be told to the model the same way.
+  const degraded: string[] = [];
   const topK = Math.max(1, Math.min(opts.topK ?? 5, 8));
   // Optional re-ranker (from the agent's tools.reranker) — when set we
   // over-fetch candidates and let the model reorder them.
@@ -355,11 +383,18 @@ export async function retrieveCitationsServer(opts: {
   // 1) Resolve KB ids — agent's own + any extras passed by the caller.
   const agentKbIds: string[] = [];
   if (opts.agentId) {
-    const { data: agent } = await sb
+    const { data: agent, error: agentErr } = await sb
       .from("agents")
       .select("knowledge_base_id, tools")
       .eq("id", opts.agentId)
       .maybeSingle();
+    // A failed read of the agent's configuration is not "no knowledge base":
+    // answered that way the search covered nothing and the model was told
+    // the documents had no match.
+    if (agentErr)
+      throw new Error(
+        `could not read the agent's knowledge-base configuration: ${agentErr.message}`,
+      );
     if (agent) {
       const tools = (agent.tools ?? {}) as {
         knowledgeBaseIds?: unknown;
@@ -376,7 +411,7 @@ export async function retrieveCitationsServer(opts: {
     }
   }
   let kbIds = Array.from(new Set([...agentKbIds, ...(opts.extraKbIds ?? [])]));
-  if (kbIds.length === 0) return [];
+  if (kbIds.length === 0) return { citations: [], degraded };
 
   // Headless tenant guard: with RLS off, restrict the resolved KB ids to what
   // the owner may read — own KBs, public samples, and KBs shared to them via an
@@ -394,7 +429,7 @@ export async function retrieveCitationsServer(opts: {
         .map((k) => k.id),
     );
     kbIds = kbIds.filter((id) => allowed.has(id));
-    if (kbIds.length === 0) return [];
+    if (kbIds.length === 0) return { citations: [], degraded };
   }
 
   // 1b) Retrieval settings live on the knowledge base, not the agent: they
@@ -541,7 +576,9 @@ export async function retrieveCitationsServer(opts: {
       vectorScores = vectorRows.map((r) => ({ id: r.id, score: scoreOf.get(r.id) ?? 0 }));
     } catch (err) {
       vectorSearchFailed = true;
+      const msg = err instanceof Error ? err.message : String(err);
       console.warn("[kb.server] vector search failed, falling back to keyword scan:", err);
+      degraded.push(`vector search failed, keyword search only: ${msg}`);
     }
   }
 
@@ -657,9 +694,10 @@ export async function retrieveCitationsServer(opts: {
   let keywordCits: Citation[] = [];
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: chunkedRows } = await (sb.from("kb_chunks" as any) as any)
+    const { data: chunkedRows, error: chunkedErr } = await (sb.from("kb_chunks" as any) as any)
       .select("document_id")
       .in("knowledge_base_id", kbIds);
+    if (chunkedErr) throw new Error(`could not list embedded documents: ${chunkedErr.message}`);
     const embedded = new Set<string>(
       ((chunkedRows ?? []) as { document_id: string }[]).map((c) => c.document_id),
     );
@@ -672,18 +710,23 @@ export async function retrieveCitationsServer(opts: {
     const KEYWORD_SCAN_CAP = 5000;
     const KEYWORD_PAGE = 1000;
     type DocRow = { id: string; name: string; content: string | null; knowledge_base_id: string };
-    const allDocs: DocRow[] = [];
-    for (let offset = 0; offset < KEYWORD_SCAN_CAP; offset += KEYWORD_PAGE) {
-      const { data: page } = await sb
-        .from("knowledge_documents")
-        .select("id, name, content, knowledge_base_id")
-        .in("knowledge_base_id", kbIds)
-        .range(offset, offset + KEYWORD_PAGE - 1);
-      if (!page || page.length === 0) break;
-      allDocs.push(...page);
-      if (page.length < KEYWORD_PAGE) break;
-    }
-    if (allDocs.length >= KEYWORD_SCAN_CAP) {
+    // The checked pager: it reads the error of every page (this loop dropped
+    // it and stopped, so a failed page was "no more documents"), advances by
+    // what the server actually returned rather than KEYWORD_PAGE (db-max-rows
+    // below the page size used to end the scan after one page), and probes
+    // the cap instead of guessing from the count.
+    void KEYWORD_PAGE;
+    const { selectAllPages } = await import("@/lib/pagedSelect");
+    const scan = await selectAllPages<DocRow>(
+      () =>
+        sb
+          .from("knowledge_documents")
+          .select("id, name, content, knowledge_base_id")
+          .in("knowledge_base_id", kbIds),
+      KEYWORD_SCAN_CAP,
+    );
+    const allDocs: DocRow[] = scan.rows;
+    if (scan.truncated) {
       console.warn(
         `[kb.server] keyword scan hit ${KEYWORD_SCAN_CAP}-doc cap; back-fill embeddings to ensure full coverage`,
       );
@@ -756,7 +799,9 @@ export async function retrieveCitationsServer(opts: {
       }
     }
   } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
     console.warn("[kb.server] keyword fallback failed:", err);
+    degraded.push(`keyword search over un-embedded documents failed: ${msg}`);
   }
 
   // 4) Append the unembedded-document fallback beneath the fused results.
@@ -813,15 +858,26 @@ export async function retrieveCitationsServer(opts: {
         })
         .map((c, i) => ({ ...c, index: i + 1 }));
     } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
       // Availability guard for ONE state only: an instance whose database
       // predates the connector migration (acl columns missing → the select
-      // errors). In that state no source can have a restrictive scope, so
-      // keeping the candidates IS the correct pre-migration behaviour. Once
-      // migrated, the query succeeds and enforcement is unconditional.
-      console.warn(
-        "[kb.server] ACL filter unavailable (pre-migration schema?) — applying legacy visibility:",
-        err instanceof Error ? err.message : err,
-      );
+      // errors with "does not exist"). In that state no source can have a
+      // restrictive scope, so keeping the candidates IS the correct
+      // pre-migration behaviour. It used to keep them on EVERY failure — a
+      // timeout on the ACL read showed restricted documents to whoever
+      // asked. Any other failure fails closed and says so.
+      if (/does not exist|42703/i.test(msg)) {
+        console.warn(
+          "[kb.server] ACL filter unavailable (pre-migration schema) — applying legacy visibility:",
+          msg,
+        );
+      } else {
+        console.warn("[kb.server] ACL filter failed — withholding candidates:", msg);
+        degraded.push(
+          `document access could not be checked, ${merged.length} candidate document(s) withheld: ${msg}`,
+        );
+        merged = [];
+      }
     }
   }
 
@@ -836,13 +892,21 @@ export async function retrieveCitationsServer(opts: {
       candidates: merged,
       topK,
     });
-    if (ranked) return applyGroundingBudget(ranked, groundingMaxChars());
+    if (ranked) return { citations: applyGroundingBudget(ranked, groundingMaxChars()), degraded };
   }
   // The turn's budget, applied last so it counts what the model will read.
-  return applyGroundingBudget(
-    merged.slice(0, topK).map((c, i) => ({ ...c, index: i + 1 })),
-    groundingMaxChars(),
-  );
+  return {
+    citations: applyGroundingBudget(
+      merged.slice(0, topK).map((c, i) => ({ ...c, index: i + 1 })),
+      groundingMaxChars(),
+    ),
+    degraded,
+  };
+}
+
+/** The citations alone. Callers that can say "the search fell short" use the report. */
+export async function retrieveCitationsServer(opts: RetrievalOpts): Promise<Citation[]> {
+  return (await retrieveCitationsReport(opts)).citations;
 }
 
 /** Cohere/Jina-style POST {base}/rerank — supported by NVIDIA NIM, vLLM,

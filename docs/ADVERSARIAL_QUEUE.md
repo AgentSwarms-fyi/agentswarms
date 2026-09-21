@@ -100,6 +100,7 @@ The three shapes it takes:
 | BI generate dialogs    | ✅ fixed | 2026-09-21 | R55 — "upload data on the Data & SQL page first" over a failed read of thirty-three datasets                           |
 | Credential and audit reads| ✅ fixed | 2026-09-21 | R56 — a failed own-credential read became "not configured"; a failed Auth page showed people as ids                    |
 | Scheduler pass            | ✅ fixed | 2026-09-21 | R57 — twenty folded sweeps and three folded reads answered ok: true with zeros; the result carries errors now          |
+| KB retrieval              | ✅ fixed | 2026-09-21 | R58 — a failed ACL read showed restricted documents; every failed search told the model "no match"                     |
 | **Semantic layer**     | ⬜ next  |            |                                                                                                              |
 | ML predictions         | ⬜       |            |                                                                                                              |
 
@@ -142,8 +143,9 @@ least twice, not a hypothetical.
    reads folded to "nothing due", `/api/bi/cron` answering ok: true over
    all of it) and the KB keyword path (`tools/kb.server`: a failed page
    breaks the loop, and `page.length < KEYWORD_PAGE` is R41's short-page
-   assumption again). The scheduler is R57; the KB keyword path is next,
-   and after it a surface for the pass result, which no page shows.
+   assumption again). The scheduler is R57 and the retrieval path R58 —
+   which turned out to hold a fail-open ACL catch as well. Next: a surface
+   for the scheduler's pass result, which no page shows.
 2. **A badge that outlives what it vouched for.** Verified/priced/fresh/healthy
    stamped once and never revisited. R24 and R26 are the BI instances.
 3. **A cause named that the evidence cannot support.** R31's freshness test, and
@@ -235,6 +237,12 @@ least twice, not a hypothetical.
 - A job that folds every step to a warning has one observable outcome,
   success. `console.warn` is not a report; a result the caller can read is.
   Fold the step, record the fold.
+- A catch written for one failure catches every failure. The comment says
+  "availability guard for ONE state only"; the code has no test for the
+  state. Match the error you mean, and fail closed on the rest.
+- "It returned no matching passages" is a claim about the documents. A
+  search that could not be completed has no standing to make it, and the
+  model it is told to will repeat it as fact.
 - `const { data } = await …` is a guard that passes on failure. Every
   destructuring that drops `error` before a decision is one of these.
 - Verify a Radix picker's trigger text before submit: it keeps the previous

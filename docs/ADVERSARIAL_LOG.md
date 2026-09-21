@@ -109,6 +109,60 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-21 — Retrieval that could not be checked or completed says so
+
+#### R58 · S1 · A failed ACL read showed restricted documents; every failed search said "no match"
+
+`retrieveCitationsServer` answered a bare `Citation[]`, and four things
+inside it fell short without a word reaching the model:
+
+- The ACL filter's catch was written for one state — a database that predates
+  the connector migration, where the ACL columns do not exist — and its
+  comment says so. The catch itself caught EVERY failure and kept the
+  unfiltered candidates. A timeout on the ACL read showed restricted documents
+  to whoever asked.
+- A failed vector search was folded into keyword mode with a warn.
+- A failed keyword scan was a bare warn; and the document scan under it
+  dropped the error of every page (a failed page was "no more documents") and
+  stopped at the first page shorter than it asked for — R41's assumption, with
+  `KEYWORD_PAGE` equal to `db-max-rows` by luck.
+- The chat route's own catch, "don't block the chat — just continue without
+  grounding", let the model answer from memory over a failed retrieval with
+  no word that anything had been searched.
+
+And the grounding prompt, told `[]` by any of these, instructed the model:
+"It returned no matching passages. … say plainly that you could not find it
+in the available documents." The `kb_search` tool said "No matching documents
+in any connected knowledge base." Absence asserted over a search that failed.
+
+Now the function reports `{ citations, degraded }` and the old name delegates.
+The ACL catch keeps the legacy path only for the pre-migration error
+(`does not exist` / `42703`) and otherwise fails CLOSED — the candidates are
+withheld and the reason recorded. The vector and keyword failures are
+recorded. The document scan pages through `selectAllPages`, which reads every
+page's error and does not stop on a short one. The grounding prompt, given
+nothing back and a reason, tells the model the search could not be completed
+and not to say the documents lack the information; given citations and a
+reason, that retrieval was partial. The tool's empty answer carries the reason
+instead of "no matching documents", and the chat route's catch tells the
+model retrieval failed instead of saying nothing.
+
+Two more reads on the same path answered absence over a failure and go with
+this round: the agent's own configuration (`const { data: agent }` — a
+failed read left the search covering no knowledge base) and an ML model's
+production version (`Production version not found`, over a failed read).
+Both read their error now; the first throws with the reason, the second
+tells the model the version could not be read.
+
+Server-side throughout, so the browser half is the regression half: a
+grounded agent still answers with citations under the live deployment. The
+defect half is behavioural on the pure prompt builder and source-anchored on
+the rest.
+
+**Tests:** 4 behavioural on `buildGroundingPrompt`, 9 source-anchored on the
+report, the ACL catch, the scan, the tool, the route and the two reads; 9
+behaviour-changing mutants each killed, control missed, baseline green first.
+
 ### 2026-09-21 — A scheduler that reported success over its own failures
 
 #### R57 · S1 · `/api/bi/cron` answered `ok: true` with zeros over a failed schedule read

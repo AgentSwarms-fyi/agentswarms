@@ -1665,7 +1665,7 @@ export const Route = createFileRoute("/api/chat")({
               try {
                 const sbAuto = getServerSupabase(authToken);
                 if (sbAuto) {
-                  const { retrieveCitationsServer, buildGroundingPrompt, autoRagMinSimilarity } =
+                  const { retrieveCitationsReport, buildGroundingPrompt, autoRagMinSimilarity } =
                     await import("@/utils/tools/kb.server");
                   // The asker's email, for matching provider-mirrored ACLs on
                   // connector documents (source_acl scope). Absent claim →
@@ -1678,7 +1678,7 @@ export const Route = createFileRoute("/api/chat")({
                   } catch {
                     principalEmail = null;
                   }
-                  citations = await retrieveCitationsServer({
+                  const report = await retrieveCitationsReport({
                     sb: sbAuto,
                     agentId: body.agentId,
                     extraKbIds,
@@ -1689,6 +1689,7 @@ export const Route = createFileRoute("/api/chat")({
                     principal: { email: principalEmail },
                     minSimilarity: autoRagMinSimilarity(),
                   });
+                  citations = report.citations;
                   // Audited for the same reason it is called unconditionally:
                   // the search happened, and a provenance record that omits it
                   // would say the answer consulted nothing. This is the path a
@@ -1719,11 +1720,21 @@ export const Route = createFileRoute("/api/chat")({
                   // it searched rather than left to answer from memory.
                   effectiveSystemPrompt = buildGroundingPrompt(citations, body.systemPrompt, {
                     searched: true,
+                    degraded: report.degraded,
                   });
                 }
               } catch (err) {
                 console.error("RAG retrieval failed:", err);
-                // Don't block the chat — just continue without grounding.
+                // Don't block the chat — but do not continue as if nothing was
+                // searched either: the model answered from memory over a failed
+                // retrieval, with no word that it had. Tell it.
+                const { buildGroundingPrompt } = await import("@/utils/tools/kb.server");
+                effectiveSystemPrompt = buildGroundingPrompt([], body.systemPrompt, {
+                  searched: true,
+                  degraded: [
+                    `retrieval failed: ${err instanceof Error ? err.message : String(err)}`,
+                  ],
+                });
               }
             }
           }

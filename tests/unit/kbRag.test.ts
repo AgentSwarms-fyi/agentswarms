@@ -680,8 +680,12 @@ describe("retrieval wiring — what the model reads", () => {
   });
 
   it("applies the turn budget on both return paths, after reranking", () => {
-    expect(KB).toContain("if (ranked) return applyGroundingBudget(ranked, groundingMaxChars());");
-    expect(KB).toMatch(/return applyGroundingBudget\(\s*merged\.slice\(0, topK\)/);
+    // R58: both paths answer { citations, degraded } now; the budget is still
+    // applied to what the model will read, on both.
+    expect(KB).toContain(
+      "if (ranked) return { citations: applyGroundingBudget(ranked, groundingMaxChars()), degraded };",
+    );
+    expect(KB).toMatch(/citations: applyGroundingBudget\(\s*merged\.slice\(0, topK\)/);
   });
 
   it("the three settings are environment knobs with the library defaults", () => {

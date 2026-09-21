@@ -15,6 +15,45 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-21 — Grounded retrieval, before and after, ADVERSARIAL_LOG R58
+
+**Why this round exists.** R58 changes what the model is told when a
+knowledge-base search cannot be checked or completed, and makes the ACL filter
+fail closed. Every one of those failures is the server's own — the vector RPC,
+the ACL read, the document scan — so the browser proves the REGRESSION half:
+a grounded agent answers as before when nothing fell short. The defect half is
+behavioural on the pure prompt builder (`tests/unit/retrievalDegraded.test.ts`)
+and source-anchored on the retrieval function, the tool and the route.
+
+### Before the fix
+
+| Driven                                                                                                   | Read back                                                                                                                                                                                                       |
+| -------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Agent Chat → "Sample · Graph RAG Explorer (Acme Corp)" → "According to the documents, what products does Acme Corp sell?" | 24 s: `I could not find any information regarding the products sold by Acme Corp in the available documents. The knowledge graph returned no matches for "Acme Corp" or "products."` — zero citations, no toast |
+
+Whether that is a true absence or a search that fell short is exactly what
+the answer could not say: the same words come back from an empty knowledge
+base and from a failed one.
+
+### After the rebuild
+
+The `agentswarms` service rebuilt and recreated; the page reloaded onto the new
+bundle (`playground-V1hgo98G.js`). Same agent, same question, same submit.
+
+| Driven                                                                                                   | Read back                                                                                                                                                                                                       |
+| -------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Agent Chat → "Sample · Graph RAG Explorer (Acme Corp)" → "According to the documents, what products does Acme Corp sell?" | 48 s: `I could not find any information in the available documents regarding the products sold by Acme Corp. The knowledge graph search returned no results for this entity or its related products.` — zero citations, no toast |
+
+The answer has the same shape as before the fix, and now that shape means
+something: none of the new wording — "the search could not be completed",
+"retrieval was partial", "could not be checked" — appears, so this is a
+knowledge base with no match, not a search that fell short. The wording for a
+search that fell short is held by the behavioural tests on the prompt builder,
+which cannot be reached from the browser without failing the server's own
+reads.
+
+Findings from this round: R58 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-21 — The scheduler's pass, before and after, ADVERSARIAL_LOG R57
 
 **Why this round exists.** R57 makes the scheduler's pass record every folded
