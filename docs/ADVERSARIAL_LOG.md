@@ -109,6 +109,42 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-21 — Two server reads whose failure became an answer
+
+#### R56 · S2 · "No credentials configured" over a failed read, and a person shown as an id
+
+Found by reading, in the two files the failed-read sweep had left: both are
+the server's own reads, so neither is injectable from the browser and both
+rounds' browser halves are regression only.
+
+`loadCredentialRowShared` fetched the user's OWN credential through
+`loadCredentialRow(...).catch(() => null)`. `loadCredentialRow` answers `null`
+for "no row" and throws only for a failed read, so the catch turned a failed
+read into "no own credential", the lookup fell through to the IAM grants, and
+the call then failed downstream with **"No credentials configured. Add them in
+Provider Integrations."** — the wrong reason, at the wrong place, for a
+credential that exists. `getProviderDefaultModel` folded the same read into
+"no default model", which silently changes which model a call uses.
+
+`emailMap` in `audit.functions` paged the Auth admin API and `break`-ed on
+error, so a failed page handed back a SHORT map and the audit list attributed
+every trace and swarm row after it to an 8-character id where it should show
+a person — under an `ok: true` answer (event rows have an `actor_email`
+fallback; trace and swarm rows do not). `adminSpendBreakdown` consumed the same
+map and dropped the errors of its groups and members reads too: a failed read
+answered `ok: true` with an empty group breakdown.
+
+The two catches are gone — a failed read propagates with its reason and the
+"not configured" message is said only over a genuine null. `emailMap` reports
+a failed page, and both handlers answer `{ ok: false, error }` — which the
+Audit Log page already toasts — instead of attributing spend or actions to
+ids.
+
+**Tests:** 3 behavioural on the real `loadCredentialRowShared` and
+`getProviderDefaultModel` against an admin client whose credential read fails,
+3 source-anchored on the two audit handlers; 7 behaviour-changing
+mutants each killed, control missed, baseline green first.
+
 ### 2026-09-21 — "Upload data first", over a read that failed
 
 #### R55 · S2 · The generate dialogs advised uploading data when the data could not be read

@@ -15,6 +15,33 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-21 — Credential and audit reads, the regression half, ADVERSARIAL_LOG R56
+
+**Why this round exists.** R56 makes two server-side reads fail with their
+reason instead of answering "not configured" and "an id". The failures are
+the server's own and cannot be injected from the browser, so — as in R41 and
+R53 — the browser proves the REGRESSION half: a model call that resolves its
+credential still answers, and the Audit Log still shows people. The defect
+half is proved behaviourally (`tests/unit/serverReadFolds.test.ts`): against
+the unpatched source a failed credential read resolved `null`.
+
+### After the rebuild
+
+The `agentswarms` service rebuilt and recreated; the pages reloaded onto the
+new bundle (`audit-D7coIzc4.js`).
+
+| Driven                                                                    | Read back                                                                                                                               |
+| ------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Audit Log, before the rebuild                                             | 333 rows, 334 email mentions, no 8-character ids, no "deleted account", no toast                                                         |
+| Audit Log, after the rebuild                                              | 333 rows, 334 email mentions, no 8-character ids, no "deleted account", no toast — identical                                             |
+| Workbench → BI Agent → "How many rows does saas_sales have?" (submit pressed) | `The 'saas_sales' table contains 9,994 rows` as a KPI in 14 s; every `/api/bi` POST in the exchange 200 — the credential lookup resolved |
+
+The user list behind attribution and the credential behind the model call
+both read cleanly under the live deployment; what changed is only what each
+answers when it cannot, which the behavioural tests hold.
+
+Findings from this round: R56 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-21 — The report generator over a failed read, before and after, ADVERSARIAL_LOG R55
 
 **Why this round exists.** The queue's next "failed read rendered as absence"

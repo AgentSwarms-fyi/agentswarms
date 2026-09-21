@@ -174,7 +174,11 @@ async function loadGrantedLegacyConfig(userId: string, provider: ProviderId) {
 
 /** Own encrypted credential first, then one granted via IAM. */
 export async function loadCredentialRowShared(userId: string, provider: ProviderId) {
-  const own = await loadCredentialRow(userId, provider).catch(() => null);
+  // loadCredentialRow answers null for "no row" and throws only for a failed
+  // read. Catching the throw here made a failed read "no own credential", and
+  // the call then failed downstream with "No credentials configured" — the
+  // wrong reason, at the wrong place.
+  const own = await loadCredentialRow(userId, provider);
   if (own) return own;
   const ids = await grantedIdsFor(userId, "provider_credential");
   if (ids.size === 0) return null;
@@ -695,7 +699,9 @@ export async function getProviderDefaultModel(
   userId: string,
   provider: ProviderId,
 ): Promise<string | null> {
-  const cred = await loadCredentialRowShared(userId, provider).catch(() => null);
+  // A failed read of the configured default is not "no default": folded to
+  // null it silently changed which model the call used.
+  const cred = await loadCredentialRowShared(userId, provider);
   if (cred?.default_model) return cred.default_model;
   let legacy = await loadLegacyConfig(userId, provider).catch(() => null);
   if (!legacy?.is_active) legacy = await loadGrantedLegacyConfig(userId, provider);
