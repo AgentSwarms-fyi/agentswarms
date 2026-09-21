@@ -15,6 +15,107 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-21 — The pager sweep driven to its end, and two defects only the browser found, ADVERSARIAL_LOG R43–R49
+
+**Why this round exists.** R43 to R47 closed the hand-rolled-pager sweep on
+unit tests and mutants. This round drove each of them against the live
+deployment and read the figures back from the rows they claim to describe —
+and then made the same pages' reads fail, which is where R48 and R49 came from.
+The failure paths were reached by patching `window.fetch` in the page to reject
+one table's requests; the real handler ran against a real rejection.
+
+### What was driven, and against what truth
+
+| Round | Driven                                                                          | Read back                                                                                                                                      |
+| ----- | ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| R43   | Lakehouse → import `saas_sales`                                                 | `SELECT COUNT(*)` in the lakehouse: **9,994**; the Workbench's own count of the source: **9,994**; audit event `lakehouse.import` `rows: 9994` |
+| R44   | BI → Data Prep → run "Summary data"                                             | `9,992 rows · 3 cols`; `user_data_table_versions` and quality `total_rows` **9,992** — the prep source's exact count                             |
+| R45   | Audit Log → Export                                                              | **1,960** lines, every one parsed, ids distinct, no error line — equal to the live `audit_events` count                                          |
+| R46   | Workbench, first load (five-window parallel reader)                             | `saas_sales` **9,994** rows and `nba_team_seasons` **1,050**, both equal to the database                                                        |
+| R47   | Analytics → traces (`pageTraces`)                                               | headline `1,109 traces over the last 30 days` — `execution_traces` holds exactly 1,109                                                           |
+| R48   | Workbench → Refresh, every `user_data_rows` request rejected — BEFORE           | console `Uncaught (in promise) could not count rows of …`; icon spinning indefinitely; no toast; list intact                                    |
+| R49   | Workbench → Refresh, every `user_data_tables` request rejected — BEFORE         | thirty tables replaced by `No tables yet. Upload a file to get started.`; no toast; spinner cleared at ~3.5 s; 38 rejected requests             |
+| R49   | the same, with `fetch` restored and Refresh pressed again                       | the same list back, `sftest_users` first — nothing had been lost                                                                               |
+
+### After the rebuild
+
+The `agentswarms` service was rebuilt from source and recreated; every other
+container stayed up. The page was reloaded so it took the new bundle
+(`data-sql-nbwNpl_R.js` — the pre-rebuild chunk was `data-sql-Dh2zJ77u.js`).
+
+| Round | Driven                                                                                      | Read back                                                                                                                                                                                                                         |
+| ----- | ------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| R49   | Workbench → Refresh, every `user_data_tables` request rejected                              | toast `Could not refresh datasets: could not list datasets: Error: injected: user_data_tables unreachable`; list intact, `sftest_users` first; `Last refresh failed: could not list datasets: … — showing the previous list.`; spinner cleared at 8 s |
+| R49   | `fetch` restored, Refresh                                                                   | the same list, note gone, 11.5 s                                                                                                                                                                                                   |
+| R48   | Workbench → Refresh, every `user_data_rows` request rejected                                | toast `Could not refresh datasets: could not count rows of "sftest_users": …`; spinner cleared at 7.5 s; list intact; the stale note; 132 rejected requests                                                                        |
+| R48   | `fetch` restored, Refresh                                                                   | the same list, note gone, 12 s                                                                                                                                                                                                     |
+| R49   | Workbench MOUNTED under the rejection (in-app navigation away and back, patch kept)         | `Datasets could not be loaded: could not list datasets: … Retry` in place of "No tables yet"; the injection log held only the list read — **zero** seeder existence checks; Retry with `fetch` restored brought the list back in 12 s |
+| R49   | Workbench → `SELECT COUNT(*) AS n FROM saas_sales`                                          | **9,994** — unchanged by the seeder's no-op RPCs in the pre-fix round                                                                                                                                                              |
+| R49   | BI → Data preparation, MOUNTED under the rejection                                          | toast `Could not load datasets: could not list datasets: …`; with the Local tables section expanded, `Tables could not be loaded: … Retry`; Retry with `fetch` restored → `Local tables 33` in 8 s                                  |
+| R49   | Data preparation → Reload tables under the rejection, list populated                        | the toast; badge still `Local tables 33`; no error state, no "No local tables yet"; a restored reload → 33                                                                                                                         |
+
+**Observed, not fixed here.** While the prep tab is in its failed state the
+collapsed section header still reads `Local tables 0`, and the Catalog view's
+Sources panel read `Local tables 0` under the same failed list — the count of
+an empty list stated as a fact beside an error. Both are the first items of the
+next round.
+
+### The two things only the browser found
+
+**A Refresh with nowhere to put the throw (R48, S2).** R46 made the checked
+reader throw instead of registering a partial table, and the first call site to
+meet that throw was the workbench's Refresh handler — four lines, no try. Every
+unit test of the reader passed; the spinner that never stopped was visible only
+on the page.
+
+**A failed list answered as an empty account (R49, S1).** `hydrateFromSupabase`
+returned `[]` when the table list could not be read, and the page took `[]` at
+its word. The injection log then filled with the sample seeder's own existence
+checks, every one rejected — the mount path had read the empty list as an empty
+account and started seeding. Its registration RPC returns the existing id
+without writing, which is the only reason that round changed nothing; the row
+insert beneath it is guarded by a count read whose error is dropped the same
+way. Both are proved by behavioural tests now: the real seeder, a client whose
+reads fail one at a time, and both failure cases resolving `true` before the
+fix.
+
+### Not driven, and why
+
+**The seeder's insert-on-failed-count path.** Reaching it on the live project
+means making the `user_data_rows` count fail while the registration RPC
+succeeds, and success would append 9,994 duplicate rows to a shared sample
+table. It is proved by the behavioural test and the mutant that deletes the
+guard, and by nothing else.
+
+**The three callers queued from R49.** `docGen/biData`, `bi_.report` and
+`chatBi` render absence on a failed list; each needs its own page driven and
+gets its own round.
+
+### Fixtures and side effects
+
+**One mis-click, corrected.** The lakehouse import dialog's Radix picker kept
+`f1_constructor_standings` selected from a previous open, and the first import
+brought in that 10-row table instead of `saas_sales`. The table was dropped, the
+picker's trigger text verified before the second submit, and the 9,994-row
+import above is the second attempt. The imported `analytics.zz_ui_check_saas_sales`
+was deleted afterwards; the lakehouse is back at its 20 tables.
+
+**One flow re-pointed, restored.** Running "Summary data" with a throwaway
+output name wrote that name into the user's flow (`user_prep_flows.output_table_name`
+became `zz_ui_prep_check`). It was restored to `summary_segment_data` directly
+in the database and the fixture table and its versions deleted; quality tests
+and results are back at 0.
+
+**The injected window fired the seeder.** While `user_data_tables` requests
+were being rejected, the mount path's background `ensureSampleDataset` ran its
+18 existence checks against the rejection and called `upsert_sample_dataset`
+for each. The RPC body was read: it returns the existing id and writes nothing
+when the sample is registered, and no row insert followed because the
+`user_data_rows` count was not injected. `saas_sales` still counts 9,994 in the
+"after" table above.
+
+Findings from this round: R48 and R49 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-21 — The partiality sweep, driven page by page, ADVERSARIAL_LOG R36–R42
 
 **Why this round exists.** Rounds 36 to 41 were proved by unit tests, mutation

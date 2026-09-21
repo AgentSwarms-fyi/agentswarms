@@ -211,6 +211,7 @@ export function DataPrepTab() {
   const token = session?.access_token ?? null;
 
   const [datasets, setDatasets] = useState<DatasetMeta[] | null>(null);
+  const [datasetsError, setDatasetsError] = useState<string | null>(null);
   const [flows, setFlows] = useState<PrepFlowRow[]>([]);
   const [flowId, setFlowId] = useState<string | null>(null);
   const [flowName, setFlowName] = useState("");
@@ -406,9 +407,15 @@ export function DataPrepTab() {
   const reloadDatasets = useCallback(async () => {
     try {
       setDatasets(await hydrateFromSupabase());
+      setDatasetsError(null);
     } catch (e) {
+      // A failed reload is not an empty account: the last good list stays.
+      // A first load that fails says so, instead of the empty-state copy
+      // (which reads as "upload something") or the skeleton (which reads as
+      // "still loading").
       toast.error(`Could not load datasets: ${(e as Error).message}`);
-      setDatasets([]);
+      setDatasetsError((e as Error).message);
+      setDatasets((d) => d ?? []);
     }
   }, []);
 
@@ -1018,6 +1025,16 @@ export function DataPrepTab() {
                 <Skeleton className="h-12 w-full" />
                 <Skeleton className="h-12 w-full" />
               </>
+            ) : datasetsError && localDatasets.length === 0 ? (
+              <p
+                className="py-3 text-center text-xs text-amber-700 dark:text-amber-400"
+                data-testid="prep-tables-error"
+              >
+                Tables could not be loaded: {datasetsError}{" "}
+                <button type="button" className="underline" onClick={() => void reloadDatasets()}>
+                  Retry
+                </button>
+              </p>
             ) : localDatasets.length === 0 ? (
               <p className="py-3 text-center text-xs text-muted-foreground">
                 {paletteQ

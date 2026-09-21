@@ -192,13 +192,19 @@ export async function forceSeedSampleDataset(_userId: string): Promise<void> {
 }
 
 async function ensureOneSample(spec: SampleSpec): Promise<boolean> {
-  const { data: existing } = await supabase
+  const { data: existing, error: existErr } = await supabase
     .from("user_data_tables")
     .select("id")
     .eq("name", spec.tableName)
     .eq("is_sample", true)
     .is("user_id", null)
     .maybeSingle();
+  // A failed check is not an absent sample. MEASURED: with user_data_tables
+  // unreachable every one of these checks rejected, and every rejection went
+  // on to seed — the registration RPC returned the existing id without
+  // writing, which is the only reason that round changed nothing.
+  if (existErr)
+    throw new Error(`could not check for sample ${spec.tableName}: ${existErr.message}`);
   if (existing) return false;
   await seedPublicSample(spec);
   return true;
@@ -218,10 +224,13 @@ async function seedPublicSample(spec: SampleSpec): Promise<void> {
   if (upsertErr || !tableId)
     throw new Error(upsertErr?.message || "Failed to register sample table");
 
-  const { count } = await supabase
+  const { count, error: countErr } = await supabase
     .from("user_data_rows")
     .select("id", { count: "exact", head: true })
     .eq("table_id", tableId);
+  // A failed count read as 0 here, and 0 means "insert every row" — on top
+  // of the rows already in the table.
+  if (countErr) throw new Error(`could not count rows of ${spec.tableName}: ${countErr.message}`);
   if ((count ?? 0) > 0) return;
 
   const BATCH = 1000;

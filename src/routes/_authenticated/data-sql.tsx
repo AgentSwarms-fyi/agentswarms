@@ -294,6 +294,7 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
   const { user, session } = useAuth();
   const [datasets, setDatasets] = useState<DatasetMeta[]>([]);
   const [loadingTables, setLoadingTables] = useState(true);
+  const [tablesError, setTablesError] = useState<string | null>(null);
   const [activeTable, setActiveTable] = useState<string | null>(null);
   const [sql, setSql] = useState("");
   const [result, setResult] = useState<QueryResult | null>(null);
@@ -584,6 +585,7 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
         // Load existing tables first so the UI is interactive ASAP.
         let tables = await hydrateFromSupabase();
         setDatasets(tables);
+        setTablesError(null);
         if (tables.length > 0) {
           setActiveTable(tables.find((t) => t.name === SAMPLE_TABLE_NAME)?.name ?? tables[0].name);
         }
@@ -605,6 +607,7 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
         }
       } catch (e) {
         toast.error(`Could not load datasets: ${(e as Error).message}`);
+        setTablesError((e as Error).message);
       } finally {
         setLoadingTables(false);
       }
@@ -613,9 +616,24 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
 
   async function refreshTables() {
     setLoadingTables(true);
-    const tables = await hydrateFromSupabase();
-    setDatasets(tables);
-    setLoadingTables(false);
+    // MEASURED by driving the page with every user_data_rows read rejected:
+    // the mount path above catches a failed hydration and toasts it, but this
+    // handler had no try at all. The rejection went unhandled, the spinner
+    // never cleared, and nothing said the refresh had failed — the datasets
+    // stayed as they were, which was right, but a control that silently does
+    // nothing under failure is a control the user keeps pressing. Datasets are
+    // deliberately left untouched here: a failed refresh is not an empty
+    // account, and the list on screen is still the last good read.
+    try {
+      const tables = await hydrateFromSupabase();
+      setDatasets(tables);
+      setTablesError(null);
+    } catch (e) {
+      toast.error(`Could not refresh datasets: ${(e as Error).message}`);
+      setTablesError((e as Error).message);
+    } finally {
+      setLoadingTables(false);
+    }
   }
 
   async function handleResetSample() {
@@ -1079,9 +1097,27 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
             <p className="text-[10px] uppercase tracking-wider text-slate-500 dark:text-muted-foreground px-2 py-1">
               Local Tables
             </p>
+            {tablesError && datasets.length > 0 ? (
+              <p
+                className="px-2 py-1 text-[11px] text-amber-700 dark:text-amber-400"
+                data-testid="tables-stale"
+              >
+                Last refresh failed: {tablesError} — showing the previous list.
+              </p>
+            ) : null}
             {loadingTables && datasets.length === 0 ? (
               <div className="px-2 py-3 text-xs text-slate-500 flex items-center gap-2">
                 <Loader2 className="h-3 w-3 animate-spin" /> Loading…
+              </div>
+            ) : datasets.length === 0 && tablesError ? (
+              <div
+                className="px-2 py-3 text-xs text-amber-700 dark:text-amber-400"
+                data-testid="tables-error"
+              >
+                Datasets could not be loaded: {tablesError}{" "}
+                <button type="button" className="underline" onClick={refreshTables}>
+                  Retry
+                </button>
               </div>
             ) : datasets.length === 0 ? (
               <div className="px-2 py-3 text-xs text-slate-500">

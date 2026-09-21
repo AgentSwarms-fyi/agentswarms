@@ -187,7 +187,12 @@ async function hydrateFromSupabaseUncoordinated(): Promise<DatasetMeta[]> {
     // it would put a half-written table in the picker.
     .not("name", "like", `${STAGING_PREFIX}%`)
     .order("created_at", { ascending: false });
-  if (error || !tables) return [];
+  // MEASURED by driving the workbench with every user_data_tables read
+  // rejected: this returned [], the caller took [] for an empty account, the
+  // sidebar replaced thirty real tables with "No tables yet", and the mount
+  // path went on to seed the samples. A failed list is not an empty list.
+  if (error) throw new Error(`could not list datasets: ${error.message}`);
+  if (!tables) throw new Error("dataset list returned no rows array");
 
   // Who we are decides HOW rows are read: own/sample tables come straight
   // from user_data_rows, while a dataset SHARED with us goes through the

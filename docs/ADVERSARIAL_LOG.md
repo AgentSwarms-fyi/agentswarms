@@ -109,6 +109,80 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-21 — A failed list is not an empty account
+
+Both of these were found by driving the page, and neither could have been found
+another way: the first is a handler with no try, the second is a `[]` that
+twelve callers each read as "nothing here".
+
+#### R48 · S2 · The first caller to meet R46's throw had nowhere to put it
+
+R46 made the checked reader THROW on a failed window instead of registering a
+partial table. Driving `/data-sql` with every `user_data_rows` request rejected
+and pressing Refresh: the console showed `Uncaught (in promise) could not count
+rows of …`, the icon spun indefinitely, and nothing on screen said the refresh
+had failed. The dataset list stayed as it was — right, a failed refresh is not
+an empty account — but a control that silently does nothing under failure is a
+control the user keeps pressing.
+
+The mount path had a try and toasted; `refreshTables` was four lines with no
+try at all. It has one now, the toast says `Could not refresh datasets: …`,
+the spinner clears in a `finally`, and the datasets are deliberately left
+untouched.
+
+One of the round's own tests matched the word "catch**es**" in the comment above
+the try — a bare `/catch[^}]*setDatasets/` ran forward from the prose into the
+try's own `setDatasets(tables)`. Pinned as `catch (e) {` now, reading only the
+body that opens.
+
+**Tests:** 5, four behaviour-changing mutants each killed, control missed.
+
+#### R49 · S1 · A failed table list answered as an empty account
+
+`hydrateFromSupabase` read the dataset list as
+
+```ts
+if (error || !tables) return [];
+```
+
+Driving the workbench with every `user_data_tables` request rejected and
+pressing Refresh: the thirty real tables in the sidebar were replaced by
+**"No tables yet. Upload a file to get started."** — no toast, spinner cleared
+after about 3.5 s, 38 rejected requests by then. Restoring `fetch` and pressing
+Refresh brought the same list back; nothing was lost, the page had only said so.
+
+The same `[]` reaches the mount path, which reads an empty list as an empty
+account and calls `ensureSampleDataset`. The injection log filled with the
+seeder's own existence checks — `select=id&name=eq.saas_sales&is_sample=eq.true`
+— every one rejected, and `ensureOneSample` reads that result as
+`const { data: existing }`: a failed check IS an absent sample, and it seeds.
+The registration RPC returns the existing id without writing (its body was
+checked), which is the only reason that round changed nothing. The row insert
+below it is guarded by a count read whose error is dropped the same way; a
+failed count reads as 0, and 0 means "insert every sample row" — on top of the
+rows already in the table.
+
+The Data Prep tab's reload wiped its list to `[]` on failure, a false empty
+with the copy "upload a CSV on the Workbench tab"; leaving it `null` instead
+would have shown the loading skeleton forever, which is R48's shape again. So
+both surfaces now have an explicit failed state — "Datasets could not be
+loaded: …" with a Retry — tested BEFORE the empty branch, and a list that a
+failed refresh could not replace carries "Last refresh failed … showing the
+previous list" for longer than a toast lasts.
+
+The list read throws with the server's reason; the existence check and the
+count read throw; twelve callers meet that throw, and all twelve already met
+the rows-path throw from R46, so no new failure shape reaches any of them.
+Three of them render absence on catch and are queued rather than fixed here:
+`docGen/biData` drops every chart of a document when the list cannot be read,
+`bi_.report` swallows the failure entirely, and `chatBi` answers "no datasets"
+— now only on a true empty.
+
+**Tests:** 5 behavioural on the real `ensureSampleDataset` against a client
+whose reads fail one at a time — both failure cases resolved `true` before the
+fix — and 8 source-anchored on the three call sites; 8 behaviour-changing
+mutants each killed, control missed, baseline green first.
+
 ### 2026-09-21 — A flag that named the wrong defect, and the last of the pagers
 
 #### R47 · S2 · Two sites I had recorded as mitigated were not

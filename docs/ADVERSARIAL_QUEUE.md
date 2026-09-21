@@ -90,6 +90,8 @@ The three shapes it takes:
 | Audit export           | ✅ fixed | 2026-09-21 | R45 — the one close that ended the evidence stream without an error line                                     |
 | Local SQL engine       | ✅ fixed | 2026-09-21 | R46 — five parallel windows, any one of which could end the read; a failed shared read registered empty      |
 | Pager sweep tail       | ✅ fixed | 2026-09-21 | R47 — `capped` and `truncated` described a prefix over rows that were a scatter                              |
+| Workbench refresh      | ✅ fixed | 2026-09-21 | R48 — the first caller to meet R46's throw had no try; spun forever and said nothing                         |
+| Dataset list read      | ✅ fixed | 2026-09-21 | R49 — a failed table list answered as an empty account: sidebar wiped, samples seeded, seeder's own reads unchecked|
 | **Semantic layer**     | ⬜ next  |            |                                                                                                              |
 | ML predictions         | ⬜       |            |                                                                                                              |
 
@@ -115,7 +117,16 @@ least twice, not a hypothetical.
 
 1. **A failed read rendered as absence.** "No results", "none connected", "0
    items" shown when the read threw. Pass 1 found this in eight modules, each
-   fixed locally — the sweep asks whether the NEXT eight have it too.
+   fixed locally — the sweep asks whether the NEXT eight have it too. R49 is
+   the first of them and it was load-bearing: the dataset list every data
+   surface hydrates from. Three of its callers still render absence on catch
+   and are next. Two were SEEN in the browser during R49's validation and go
+   first: `components/catalog/CatalogView` answers a failed hydrate with
+   `setLocalAssets([])` and the Sources panel reads `Local tables 0` under a
+   warn nobody sees, and the prep tab's collapsed section header reads
+   `Local tables 0` beside its own error state. Then `lib/docGen/biData`
+   (drops every chart), `bi_.report` (bare catch), and `audit.functions` (a
+   failed Auth page shows ids where it should show people).
 2. **A badge that outlives what it vouched for.** Verified/priced/fresh/healthy
    stamped once and never revisited. R24 and R26 are the BI instances.
 3. **A cause named that the evidence cannot support.** R31's freshness test, and
@@ -166,5 +177,22 @@ least twice, not a hypothetical.
 - Before the gate, grep `tests/` for the files the round touched and run those
   first. Three rounds in a row cost an extra ten-minute gate to an existing
   source-anchored test that a two-second run would have shown.
+- A caller that meets a new throw needs somewhere to put it. R46 made the
+  reader throw; the first call site to meet it had no try, and only a browser
+  saw the spinner. When a fix changes a function from returning to throwing,
+  read every caller before the gate, not after.
+- A word in a comment satisfies a keyword regex. `/catch[^}]*…/` matched
+  "catches" in prose and ran into the next block. Pin the keyword with its
+  syntax — `catch (e) {` — and read only the block it opens.
+- A read that answers `[]` on failure reaches every caller as an empty
+  account, and the callers that act on emptiness — seed, wipe, drop the
+  charts — act on the failure. The read throws; absence is the caller's to
+  decide, and only after a read that succeeded.
+- `const { data } = await …` is a guard that passes on failure. Every
+  destructuring that drops `error` before a decision is one of these.
+- Verify a Radix picker's trigger text before submit: it keeps the previous
+  selection across a dialog reopen, and a mis-click imported the wrong table.
+- Running a prep flow persists its output name. A "read-only" run with a
+  throwaway output table re-pointed the user's flow and had to be restored.
 - Read `GATE EXIT` from the shell. The background-task notification reports the
   wrapper's status, not npm's; three times now it has said 0 over a red gate.
