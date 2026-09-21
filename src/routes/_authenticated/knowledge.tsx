@@ -758,10 +758,23 @@ function KnowledgePage() {
     // default pgvector store this is a no-op — the vector is a column on the
     // chunk and the cascade takes it.
     await forgetVectorsFn({ data: { sourceIds: [src.id] } }).catch(() => {});
-    await supabase.from("knowledge_documents").delete().eq("source_id", src.id);
+    // FOUND FROM THE UI (R68). The documents delete here, and the base and
+    // document deletes below, dropped their error and said "Deleted" over a
+    // row that was still there. Each keeps its error now — and says what the
+    // forget above means: the embeddings are gone, the row is not.
+    const { error: docsError } = await supabase
+      .from("knowledge_documents")
+      .delete()
+      .eq("source_id", src.id);
+    if (docsError) {
+      toast.error("Could not remove the source's documents", {
+        description: `${docsError.message}. Their embeddings were already removed — re-index the knowledge base to restore retrieval.`,
+      });
+      return;
+    }
     const { error } = await supabase.from("kb_sources").delete().eq("id", src.id);
     if (error) {
-      toast.error(error.message);
+      toast.error("Could not remove the source", { description: error.message });
       return;
     }
     toast.success("Source removed");
@@ -809,7 +822,13 @@ function KnowledgePage() {
     )
       return;
     await forgetVectorsFn({ data: { knowledgeBaseIds: [id] } }).catch(() => {});
-    await supabase.from("knowledge_bases").delete().eq("id", id);
+    const { error } = await supabase.from("knowledge_bases").delete().eq("id", id);
+    if (error) {
+      toast.error("Could not delete the knowledge base", {
+        description: `${error.message}. Its embeddings were already removed — re-index it to restore retrieval.`,
+      });
+      return;
+    }
     if (selectedBase?.id === id) {
       setSelectedBase(null);
       setDocs([]);
@@ -960,7 +979,13 @@ function KnowledgePage() {
     )
       return;
     await forgetVectorsFn({ data: { documentIds: [id] } }).catch(() => {});
-    await supabase.from("knowledge_documents").delete().eq("id", id);
+    const { error } = await supabase.from("knowledge_documents").delete().eq("id", id);
+    if (error) {
+      toast.error("Could not delete the document", {
+        description: `${error.message}. Its embeddings were already removed — re-index the knowledge base to restore retrieval.`,
+      });
+      return;
+    }
     if (selectedBase) loadDocs(selectedBase.id);
     toast.success("Document deleted");
   }

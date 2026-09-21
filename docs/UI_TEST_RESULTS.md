@@ -15,6 +15,39 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-22 — Knowledge Bases, a document delete that failed, before and after, ADVERSARIAL_LOG R68
+
+**Why this round exists.** The write-side survey's next page. The Knowledge
+Bases page deletes a base, a document, or a source's documents, and said
+"Deleted" whatever the request answered.
+
+### Before the fix
+
+| Driven                                                                                                                       | Read back                                                                                  |
+| ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Knowledge Bases → `Test` → Add Document: name `R68 probe`, a one-sentence body → Add 1 Document & Process                     | `Documents (1)`, `R68 probe` listed                                                        |
+| Delete on the document → "Delete "R68 probe"? Its chunks and embeddings go with it…" → Delete document, with every `DELETE /rest/v1/knowledge_documents` rejected | toast **`Document deleted`**; one DELETE rejected; **`Documents (1)`, `R68 probe` still listed** |
+| Reload → `Test`                                                                                                              | `Documents (1)`, `R68 probe` still there                                                   |
+
+The page said the document was deleted and showed it in the same breath.
+
+### After the rebuild
+
+The `agentswarms` service rebuilt and recreated (container `ce7602e87093`);
+the page reloaded onto it. Same fixture, same rejection.
+
+| Driven                                                                                                   | Read back                                                                                                                                                                       |
+| -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Knowledge Bases → `Test` (`Documents (1)`, `R68 probe`)                                                  | as left                                                                                                                                                                         |
+| Delete on the document → confirm, with every `DELETE /rest/v1/knowledge_documents` rejected              | toast **`Could not delete the document · TypeError: Failed to fetch. Its embeddings were already removed — re-index the knowledge base to restore retrieval.`**; `Documents (1)`, `R68 probe` still listed; **no "Document deleted"** |
+| `fetch` restored → Delete → confirm                                                                       | toast `Document deleted`; `Documents (0)`; the fixture is gone for real                                                                                                         |
+
+A delete that fails is said, with what the earlier step already did and what
+to do about it; a delete that lands says so and is gone. The base and
+source variants share the shape and are held by the tests.
+
+Findings from this round: R68 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-22 — The swarm canvas's delete, before and after, ADVERSARIAL_LOG R67
 
 **Why this round exists.** The write-side survey's next page. The swarm

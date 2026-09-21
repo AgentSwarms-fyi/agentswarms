@@ -264,6 +264,11 @@ least twice, not a hypothetical.
 - "It returned no matching passages" is a claim about the documents. A
   search that could not be completed has no standing to make it, and the
   model it is told to will repeat it as fact.
+- A write with a side effect that came first (R68): the Knowledge Bases
+  page forgets a document's vectors, then deletes the row. When the row
+  delete fails, the honest message is not "could not delete" alone but
+  what the earlier step already did — the embeddings are gone, the row is
+  not, and what to do about it.
 - Two paths to one action, one honest and one not (R67): the swarm gallery
   said "Failed to delete"; the canvas said "Swarm deleted" over the same
   rejected request. When a page grows a second way to do a thing, the

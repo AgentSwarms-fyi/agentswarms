@@ -109,6 +109,39 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-22 — "Document deleted", and the document listed in the same breath
+
+#### R68 · S1 · The Knowledge Bases page's three deletes
+
+The write-side survey's next page. Add a document to a knowledge base,
+press Delete, confirm "Its chunks and embeddings go with it…" with every
+`DELETE` to `knowledge_documents` rejected: `Document deleted` — and
+`Documents (1)`, the document still listed, because the list reloads from
+the table where the row still is. Reload: still there. The base delete and
+the documents-of-a-source delete did the same; only the source row's own
+delete checked its error.
+
+The order on this page is deliberate and kept: the vectors are forgotten
+first, while the rows that prove ownership still exist. That order gives a
+failed row delete a consequence worth saying — the embeddings are gone, the
+row is not — and the message now says it: "Could not delete the document:
+<why>. Its embeddings were already removed — re-index the knowledge base to
+restore retrieval." Each of the three deletes keeps its error, returns
+before "Deleted" or a reload, and the base and source variants say the same
+in their own words.
+
+Driven, before: `Document deleted` over a rejected delete, the document
+listed in the same breath and after a reload. After the rebuild, the same
+rejection: `Could not delete the document · TypeError: Failed to fetch. Its
+embeddings were already removed — re-index the knowledge base to restore
+retrieval.`, the document still listed and no "Document deleted"; with
+`fetch` restored, `Document deleted` and `Documents (0)` — the fixture gone
+for real.
+
+**Tests:** 4 source-anchored on the three deletes, their messages, their
+returns and the vectors-first order; 5 behaviour-changing mutants each
+killed, control missed, baseline green first.
+
 ### 2026-09-22 — "Swarm deleted", and the swarm was still there
 
 #### R67 · S1 · The swarm canvas's own create and delete

@@ -381,13 +381,18 @@ describe("writes and deletes reach the store in the right order", () => {
   it("forgets the vectors BEFORE the rows that authorise forgetting them", () => {
     // Once the row is gone there is nothing left to check ownership against.
     const page = rd("src/routes/_authenticated/knowledge.tsx");
+    // The delete statements keep their error since R68, and one of them now
+    // spans lines — so each is matched as a chain, not as one line of text.
     for (const [forget, del] of [
-      ["sourceIds: [src.id]", 'from("knowledge_documents").delete().eq("source_id", src.id)'],
-      ["knowledgeBaseIds: [id]", 'from("knowledge_bases").delete().eq("id", id)'],
-      ["documentIds: [id]", 'from("knowledge_documents").delete().eq("id", id)'],
-    ]) {
+      [
+        "sourceIds: [src.id]",
+        /from\("knowledge_documents"\)\s*\.delete\(\)\s*\.eq\("source_id", src\.id\)/,
+      ],
+      ["knowledgeBaseIds: [id]", /from\("knowledge_bases"\)\s*\.delete\(\)\s*\.eq\("id", id\)/],
+      ["documentIds: [id]", /from\("knowledge_documents"\)\s*\.delete\(\)\s*\.eq\("id", id\)/],
+    ] as const) {
       const f = page.indexOf(forget);
-      const d = page.indexOf(del);
+      const d = page.search(del);
       expect(f, `${forget} is not called at all`).toBeGreaterThan(-1);
       expect(d, `${del} is gone`).toBeGreaterThan(-1);
       expect(f, `${forget} runs after the delete`).toBeLessThan(d);
