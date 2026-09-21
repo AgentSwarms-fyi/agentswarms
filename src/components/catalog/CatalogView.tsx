@@ -170,6 +170,13 @@ export function CatalogView({
   const [localError, setLocalError] = useState<string | null>(null);
   /** The local half of the catalog is UNKNOWN, not merely empty. */
   const localUnknown = localError !== null && localAssets.length === 0;
+  // The local half has not been READ yet — a different thing from empty or
+  // failed. MEASURED on a fresh load, sampled every two seconds: "Local tables
+  // 0" for the first ten seconds, then "33" for two more (a pass made before
+  // the session had resolved, with no token and so no connections), then 26.
+  // Zero and thirty-three were both painted as facts.
+  const [localLoaded, setLocalLoaded] = useState(false);
+  const localLoading = !localLoaded && localError === null;
   // Where each synced dataset came from — the last answer that was READ, kept
   // across a failed re-read so a connector's tables are not re-filed as
   // uploads. Null until a read has landed.
@@ -209,6 +216,11 @@ export function CatalogView({
    * refetched CRAWLED assets.
    */
   const reloadLocal = useCallback(async (): Promise<UnifiedAsset[]> => {
+    // No session yet means no connections can be asked for, and a pass made
+    // now files every synced dataset as an upload until the token-driven
+    // re-run lands two seconds later. Wait for it: this callback is rebuilt
+    // on the token, and the mount effect runs again with it.
+    if (!token) return [];
     try {
       const tables = await hydrateFromSupabase();
       // WHERE A SYNCED DATASET CAME FROM.
@@ -307,6 +319,7 @@ export function CatalogView({
       });
       setLocalAssets(mapped);
       setLocalError(null);
+      setLocalLoaded(true);
       return mapped;
     } catch (e) {
       // Local tables disappearing from the catalog while the Workbench and
@@ -315,6 +328,7 @@ export function CatalogView({
       // thing: an empty "Local tables" filter and no way to tell which.
       console.warn("[Catalog] local table hydration failed", e);
       setLocalError((e as Error).message);
+      setLocalLoaded(true);
       return [];
     }
   }, [myId, token, listConnectionsFn]);
@@ -685,11 +699,13 @@ export function CatalogView({
                 title={
                   localUnknown
                     ? "Local tables could not be loaded — crawled assets only"
-                    : undefined
+                    : localLoading
+                      ? "Local tables are still loading — crawled assets only"
+                      : undefined
                 }
               >
                 {allAssets.length}
-                {localUnknown ? "+" : ""}
+                {localUnknown || localLoading ? "+" : ""}
               </span>
             </button>
             <button
@@ -705,7 +721,9 @@ export function CatalogView({
               <span className="ml-auto text-[10px] text-muted-foreground">
                 {localUnknown
                   ? "—"
-                  : localAssets.filter((a) => a.source_id === LOCAL_SOURCE_ID).length}
+                  : localLoading
+                    ? "…"
+                    : localAssets.filter((a) => a.source_id === LOCAL_SOURCE_ID).length}
               </span>
             </button>
 
@@ -1006,7 +1024,7 @@ export function CatalogView({
           </Button>
           <span className="ml-auto text-[11px] text-muted-foreground">
             {filtered.length} of {allAssets.length}
-            {localUnknown ? "+" : ""} assets
+            {localUnknown || localLoading ? "+" : ""} assets
           </span>
         </div>
 

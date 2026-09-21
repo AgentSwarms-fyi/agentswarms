@@ -15,6 +15,38 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-21 — The catalog's first paint, sampled before and after, ADVERSARIAL_LOG R52
+
+**Why this round exists.** R51's validation sampled a fresh load every two
+seconds instead of reading it once, and the sample showed two wrong answers
+before the right one. Same technique here: a full reload, the page left alone,
+the Sources panel and the resource log read every two seconds.
+
+### Before the fix
+
+| t    | Read back                                                    |
+| ---- | ------------------------------------------------------------ |
+| 8 s  | `Local tables 0` — loading, rendered as a count; 0 server-function calls |
+| 18 s | `Local tables 33`, no `sftest` row; still 0 server-function calls — a pass made before the session resolved |
+| 20 s | `Local tables 26` · `sftest 7`; 1 call, made at 17.97 s      |
+
+### After the rebuild
+
+The `agentswarms` service rebuilt and recreated; the page reloaded onto the new
+bundle (`data-sql-CiXUwY60.js`) and left alone, sampled every two seconds.
+
+| t    | Read back                                                                                              |
+| ---- | ------------------------------------------------------------------------------------------------------ |
+| 11 s | `Local tables …` · `All assets 21+` · footer `21 of 21+ assets`; no banner; 0 server-function calls   |
+| 23 s | `Local tables 26` · `sftest 7` · `All assets 54` · `54 of 54 assets`; 1 call, made at 21.6 s          |
+
+No sample read `0`, and none read `33`: the loading state is an ellipsis with
+floored totals, and the first pass waited for the session, so the first
+attribution painted is the right one. The one server-function call is the
+only one made.
+
+Findings from this round: R52 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-21 — Where a synced dataset came from, under a failed read, ADVERSARIAL_LOG R51
 
 **Why this round exists.** The first normal reading after R50's rebuild was

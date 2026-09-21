@@ -94,6 +94,7 @@ The three shapes it takes:
 | Dataset list read      | ✅ fixed | 2026-09-21 | R49 — a failed table list answered as an empty account: sidebar wiped, samples seeded, seeder's own reads unchecked|
 | Catalog local half     | ✅ fixed | 2026-09-21 | R50 — a failed local hydration counted as zero: 21 · 0 · "21 of 21" over a warn nobody sees                        |
 | Catalog attribution    | ✅ fixed | 2026-09-21 | R51 — a failed read of where a table came from filed every synced dataset as an upload                             |
+| Catalog first paint    | ✅ fixed | 2026-09-21 | R52 — loading rendered as `Local tables 0`; a pass before the session painted 33 for two seconds                   |
 | **Semantic layer**     | ⬜ next  |            |                                                                                                              |
 | ML predictions         | ⬜       |            |                                                                                                              |
 
@@ -125,8 +126,8 @@ least twice, not a hypothetical.
    and are next. Two seen in the browser during R49's validation were fixed
    as R50 — the catalog's `setLocalAssets([])` and the prep tab's section
    badge; and as R51 the catalog's attribution reads, seen by accident after
-   a rebuild and first misattributed to the container starting up — the paint
-   before the session resolves is R52's. Then `lib/docGen/biData` (drops
+   a rebuild and first misattributed to the container starting up; and as R52
+   the paint before the session resolves. Then `lib/docGen/biData` (drops
    every chart), `bi_.report` (bare catch), and `audit.functions` (a failed
    Auth page shows ids where it should show people).
 2. **A badge that outlives what it vouched for.** Verified/priced/fresh/healthy
@@ -197,6 +198,12 @@ least twice, not a hypothetical.
   every two seconds it is a two-second paint made before the session had
   resolved, with zero server calls. Sample a first load over time before
   naming its cause.
+- "Not read yet" is a third state. Empty, failed and loading all render as
+  the same zero unless each has its own mark; R50 covered failed and left
+  loading as a count for ten seconds of every page load.
+- A pass that cannot ask the question must not paint an answer. Before the
+  session resolved the catalog could not ask for its connections, ran
+  anyway, and filed every synced dataset as an upload until the re-run.
 - `const { data } = await …` is a guard that passes on failure. Every
   destructuring that drops `error` before a decision is one of these.
 - Verify a Radix picker's trigger text before submit: it keeps the previous

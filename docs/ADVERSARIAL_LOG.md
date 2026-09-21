@@ -109,6 +109,38 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-21 — Loading is not zero, and a pass without a session is not an answer
+
+#### R52 · S2 · "Local tables 0" for ten seconds, then "33" for two, on every full load
+
+The timeline that corrected R51's cause. A fresh load of `/data-sql`, sampled
+every two seconds, untouched:
+
+| t    | Sources panel                         | server-function calls |
+| ---- | ------------------------------------- | --------------------- |
+| 8 s  | `Local tables 0`                      | 0                     |
+| 18 s | `Local tables 33`, no `sftest` row    | **0**                 |
+| 20 s | `Local tables 26` · `sftest 7`        | 1 (made at 17.97 s)   |
+
+Two wrong answers before the right one. The first is the loading state rendered
+as a count: R50 taught the panel to say `—` when the read FAILED, and nothing
+covered "not read yet", so the ten seconds of hydration read as an account
+with no local tables. The second is a pass that ran before the session had
+resolved: `token` was `""`, `reloadLocal` skipped the connections call by
+design, filed every synced dataset as an upload, and painted it; the
+token-driven re-run corrected it two seconds later. Both were painted as
+facts, and the 33 had already sent two rounds of notes after the wrong cause.
+
+Now the local half has a `localLoaded` flag set by the first read's success
+OR failure — a failed read is a read — and while it is neither, the panel
+shows `Local tables …`, the totals carry `+` with the title "still loading —
+crawled assets only". And `reloadLocal` returns before doing anything when
+there is no token: the callback is rebuilt on the token, the mount effect runs
+again with it, and the first paint is the right one.
+
+**Tests:** 5 source-anchored, R50's moved with the expressions they pin; 6
+behaviour-changing mutants each killed, control missed, baseline green first.
+
 ### 2026-09-21 — A failed read of where a table came from, answered as "here"
 
 #### R51 · S2 · "Local tables 33" where 26, and a connector's row gone

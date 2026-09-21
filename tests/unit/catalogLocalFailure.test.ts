@@ -50,7 +50,7 @@ describe("the catalog, when its local tables cannot be read", () => {
   it("shows no count for local tables while they are unknown", () => {
     // "0" is a count. "—" is the absence of one.
     expect(CAT).toMatch(
-      /Local tables\s*<span[^>]*>\s*\{localUnknown\s*\?\s*"—"\s*:\s*localAssets\.filter\(\(a\) => a\.source_id === LOCAL_SOURCE_ID\)\.length\}/,
+      /Local tables\s*<span[^>]*>\s*\{localUnknown\s*\?\s*"—"\s*:\s*localLoading\s*\?\s*"…"\s*:\s*localAssets\.filter\(\(a\) => a\.source_id === LOCAL_SOURCE_ID\)\.length\}/,
     );
   });
 
@@ -58,12 +58,12 @@ describe("the catalog, when its local tables cannot be read", () => {
     // Two totals carry the marker, and either alone satisfies a bare pattern:
     // the Sources panel's is pinned by its label, and both are counted.
     expect(CAT).toMatch(
-      /All assets\s*<span[\s\S]{0,300}?>\s*\{allAssets\.length\}\s*\{localUnknown \? "\+" : ""\}\s*<\/span>/,
+      /All assets\s*<span[\s\S]{0,600}?>\s*\{allAssets\.length\}\s*\{localUnknown \|\| localLoading \? "\+" : ""\}\s*<\/span>/,
     );
     expect(CAT).toMatch(
-      /\{filtered\.length\} of \{allAssets\.length\}\s*\{localUnknown \? "\+" : ""\} assets/,
+      /\{filtered\.length\} of \{allAssets\.length\}\s*\{localUnknown \|\| localLoading \? "\+" : ""\} assets/,
     );
-    expect(CAT.match(/\{localUnknown \? "\+" : ""\}/g)).toHaveLength(2);
+    expect(CAT.match(/\{localUnknown \|\| localLoading \? "\+" : ""\}/g)).toHaveLength(2);
   });
 
   it("says so on the page, with a way back", () => {
