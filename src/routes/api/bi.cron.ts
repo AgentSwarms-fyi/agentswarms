@@ -40,7 +40,9 @@ async function handle(request: Request) {
     // inside the scheduler (see internalOrigin.server), never from this
     // request's Host header, which a caller controls.
     const result = await runCronPass({ force: bearer === cronToken });
-    return json({ ok: true, skipped: !result.ran, ...result });
+    // ok means the pass ran AND nothing in it failed; the counts and the
+    // errors travel either way.
+    return json({ ok: result.errors.length === 0, skipped: !result.ran, ...result });
   } catch (e) {
     return json({ error: (e as Error).message }, 500);
   }

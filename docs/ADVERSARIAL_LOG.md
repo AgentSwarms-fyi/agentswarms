@@ -109,6 +109,41 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-21 — A scheduler that reported success over its own failures
+
+#### R57 · S1 · `/api/bi/cron` answered `ok: true` with zeros over a failed schedule read
+
+The scheduler's pass, `runCronPass`, runs some twenty sweeps — BI schedules,
+prep flows, analyses, quality checks, catalog crawls, ETL, materialized views,
+SQL models, workflows, swarm schedules, retention purges, health checks. All
+but the first two were folded to `console.warn` and `return 0`; the three
+reads that decide what is due were folded to "nothing due" (`due ?? []`,
+`flows` → `return 0`, `alerts ?? []`); and the pass result had no field for
+any of it. So the cron endpoint the page polls every few minutes answered
+`{ ok: true, processed: 0, prep_flows: 0, … }` over a pass that could not
+read its own schedule, and a refresh that crossed an alert threshold, under
+a failed alerts read, notified nobody. Per-row failures were already recorded
+on the schedule and flow rows; the failures BEFORE a row was reached were the
+silent ones.
+
+Every folded step now records itself — `fold(step, e)` warns as before and
+pushes `step: reason` into `errors` on the result, and the first two steps
+are folded the same way so a failed read does not abort the sweeps after it.
+The three reads throw with their reason, which is what `errors` then carries.
+The route's `ok` is `result.errors.length === 0`; the counts and the errors
+travel either way, still as a 200, so an external cron keeps calling.
+
+Nothing in the UI shows the pass result — the page polls the endpoint and
+discards the body — which is the next thing to give a surface. This round's
+browser half is the regression half: the endpoint the page polls answers
+`ok: true, errors: []` under the live deployment.
+
+**Tests:** 4 behavioural on the real `processDueSchedules` and
+`processDuePrepFlows`, forced past their interval guards, against an admin
+client whose read fails; 5 source-anchored on the pass, the alerts read and
+the route; 7 behaviour-changing mutants each killed, control missed,
+baseline green first.
+
 ### 2026-09-21 — Two server reads whose failure became an answer
 
 #### R56 · S2 · "No credentials configured" over a failed read, and a person shown as an id

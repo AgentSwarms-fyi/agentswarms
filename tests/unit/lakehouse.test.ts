@@ -194,7 +194,9 @@ describe("lakehouse maintenance", () => {
     expect(fn).toContain("steps.push({ step, ok: false");
     const refresh = read("src/utils/bi/refresh.server.ts");
     expect(refresh).toContain("runLakehouseMaintenance");
-    expect(refresh).toContain('console.warn("[lakehouse] maintenance pass failed:');
+    // R57: the maintenance catch is folded into the pass result now, and still
+    // never blocks the sweep.
+    expect(refresh).toContain('fold("lakehouse-maintenance", e)');
   });
 });
 

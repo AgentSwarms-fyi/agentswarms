@@ -1026,12 +1026,15 @@ export async function evaluateAlerts(
   //
   // So alerts belong to the dashboard owner, and the query says so rather than
   // leaving it to the UI.
-  const { data: alerts } = await supabaseAdmin
+  const { data: alerts, error: alertsErr } = await supabaseAdmin
     .from("bi_alerts")
     .select("*")
     .eq("dashboard_id", dashboardId)
     .eq("user_id", userId)
     .eq("is_active", true);
+  // A failed read is not "no alerts": evaluated as none, a refresh that
+  // crossed a threshold notified nobody.
+  if (alertsErr) throw new Error(`could not read alerts: ${alertsErr.message}`);
   const now = new Date().toISOString();
   for (const a of alerts ?? []) {
     const widget = widgets.find((w) => w.id === a.widget_id);
@@ -1139,13 +1142,15 @@ export async function processDueSchedules(force = false): Promise<number> {
   processing = true;
   lastProcessed = now;
   try {
-    const { data: due } = await supabaseAdmin
+    const { data: due, error: dueErr } = await supabaseAdmin
       .from("bi_schedules")
       .select("*")
       .eq("enabled", true)
       .lte("next_run_at", new Date().toISOString())
       .order("next_run_at")
       .limit(SCHEDULES_PER_RUN);
+    // A failed read is not "nothing due".
+    if (dueErr) throw new Error(`could not read due schedules: ${dueErr.message}`);
     let ran = 0;
     for (const s of due ?? []) {
       let status = "ok";
@@ -1338,13 +1343,14 @@ export async function processDuePrepFlows(force = false): Promise<number> {
   const now = Date.now();
   if (!force && now - lastPrepProcessed < MIN_PROCESS_INTERVAL_MS) return 0;
   lastPrepProcessed = now;
-  const { data: flows } = await supabaseAdmin
+  const { data: flows, error: flowsErr } = await supabaseAdmin
     .from("user_prep_flows")
     .select("id, name, user_id, refresh_interval_minutes, last_refresh_at, output_table_id")
     .eq("refresh_enabled", true)
     .not("output_table_id", "is", null)
     .order("last_refresh_at", { ascending: true, nullsFirst: true })
     .limit(SCHEDULES_PER_RUN);
+  if (flowsErr) throw new Error(`could not read prep flows due: ${flowsErr.message}`);
   if (!flows || flows.length === 0) return 0;
   let ran = 0;
   for (const f of flows) {
@@ -1379,6 +1385,12 @@ export async function processDuePrepFlows(force = false): Promise<number> {
 export type CronPassResult = {
   /** false when another instance/runner held the lease and we skipped. */
   ran: boolean;
+  /**
+   * Every step or read that failed this pass, as "step: reason". A pass that
+   * could not read its schedule used to answer with zeros and no word; the
+   * zeros are still here, and so is why.
+   */
+  errors: string[];
   processed: number;
   prep_flows: number;
   /** Saved analyses whose pinned SQL was re-run this pass. */
@@ -1429,52 +1441,49 @@ export async function runCronPass(opts: { force?: boolean } = {}): Promise<CronP
     swarm_schedules: 0,
     kernels_reaped: 0,
     ml_evaluations: 0,
+    errors: [],
   };
 
   const { acquireCronLease, releaseCronLease } = await import("@/utils/cronLock.server");
   if (!(await acquireCronLease("scheduler"))) return empty;
+  // A failed step is still folded — one sweep must not stop the others — but
+  // it is RECORDED now, not only warned about. MEASURED: /api/bi/cron
+  // answered { ok: true, processed: 0, … } over a pass whose schedule read
+  // had failed, and nothing anywhere said so.
+  const errors: string[] = [];
+  const fold = <T>(step: string, e: unknown, value?: T): T => {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn(`[${step}] failed:`, msg);
+    errors.push(`${step}: ${msg}`);
+    return value as T;
+  };
   try {
-    const processed = await processDueSchedules(force);
-    const prep_flows = await processDuePrepFlows(force);
+    const processed = await processDueSchedules(force).catch((e) => fold("bi-schedules", e, 0));
+    const prep_flows = await processDuePrepFlows(force).catch((e) => fold("prep-flows", e, 0));
     // Scheduled analyses re-run their pinned SQL. Lazy import for the same
     // reason as the others: it keeps the module graph out of server boot.
     const analyses = await import("@/utils/analyst/schedule.server")
       .then((m) => m.processDueAnalyses(force))
-      .catch((e) => {
-        console.warn("[analyst-schedule] sweep failed:", (e as Error).message);
-        return 0;
-      });
+      .catch((e) => fold("analyst-schedule", e, 0));
     // Freshness SLAs only mean something if they fire when nothing happens —
     // a table that stopped refreshing raises no event of its own.
     const quality_checks = await import("@/utils/bi/quality.server")
       .then((m) => m.processDueQualityChecks(force))
-      .catch((e) => {
-        console.warn("[data-quality] sweep failed:", (e as Error).message);
-        return 0;
-      });
+      .catch((e) => fold("data-quality", e, 0));
     // Lazy imports keep these module graphs out of server boot and avoid cycles.
     const catalog_crawls = await import("@/utils/catalog/schedule.server")
       .then((m) => m.processDueCatalogCrawls(force))
-      .catch((e) => {
-        console.warn("[catalog-scheduler] processing failed:", (e as Error).message);
-        return 0;
-      });
+      .catch((e) => fold("catalog-scheduler", e, 0));
     // Scheduled ETL pipelines ride the same sweep and lease.
     const etl_runs = await import("@/utils/etl/schedule.server")
       .then((m) => m.processDueEtlPipelines(force))
-      .catch((e) => {
-        console.warn("[etl-scheduler] processing failed:", (e as Error).message);
-        return 0;
-      });
+      .catch((e) => fold("etl-scheduler", e, 0));
 
     // Scheduled materialized-view refreshes ride the same sweep and the same
     // compare-and-set claim, so every replica can run this pass safely.
     const matview_refreshes = await import("@/utils/lakehouse/matviews.server")
       .then((m) => m.processDueMaterializedViews(force))
-      .catch((e) => {
-        console.warn("[lakehouse-matview] sweep failed:", (e as Error).message);
-        return 0;
-      });
+      .catch((e) => fold("lakehouse-matview", e, 0));
 
     // SQL models ride the same sweep. A due model builds itself AND its
     // ancestors, and several due models for one owner become one build, so a
@@ -1486,17 +1495,11 @@ export async function runCronPass(opts: { force?: boolean } = {}): Promise<CronP
     // query that returns nothing.
     const ml_evaluations = await import("@/utils/ml/evaluate.server")
       .then((m) => m.runDueEvaluations().then((r) => r.evaluated))
-      .catch((e) => {
-        console.warn("[ml-evaluate] sweep failed:", (e as Error).message);
-        return 0;
-      });
+      .catch((e) => fold("ml-evaluate", e, 0));
 
     const sql_model_builds = await import("@/utils/sqlModels/run.server")
       .then((m) => m.processDueSqlModels(force))
-      .catch((e) => {
-        console.warn("[sql-models] sweep failed:", (e as Error).message);
-        return 0;
-      });
+      .catch((e) => fold("sql-models", e, 0));
 
     // Lakehouse maintenance rides the same pass, but hourly: compaction is
     // cheap on an idle catalog and pointless every minute. Any replica may run
@@ -1513,93 +1516,84 @@ export async function runCronPass(opts: { force?: boolean } = {}): Promise<CronP
           );
         }
       } catch (e) {
-        console.warn("[lakehouse] maintenance pass failed:", (e as Error).message);
+        fold("lakehouse-maintenance", e);
       }
     }
     await import("@/utils/audit.server")
       .then((m) => m.purgeAuditEvents(force))
-      .catch((e) => console.warn("[audit-purge] failed:", (e as Error).message));
+      .catch((e) => fold("audit-purge", e));
     await import("@/utils/chatRetention.server")
       .then(async (m) => {
         await m.purgeExpiredChats(force);
         await m.purgeExpiredEmbedTranscripts(force);
       })
-      .catch((e) => console.warn("[chat-retention] failed:", (e as Error).message));
+      .catch((e) => fold("chat-retention", e));
     await import("@/utils/swarmWebhook.server")
       .then((m) => m.purgeIdempotencyRecords())
-      .catch((e) => console.warn("[idempotency-purge] failed:", (e as Error).message));
+      .catch((e) => fold("idempotency-purge", e));
     // A process killed mid-upload leaves a staging dataset nobody can see and
     // nothing else will ever delete.
     await import("@/utils/data/ingest.server")
       .then((m) => m.sweepAbandonedUploads())
-      .catch((e) => console.warn("[upload-sweep] failed:", (e as Error).message));
+      .catch((e) => fold("upload-sweep", e));
     // Rebuild columnar mirrors that browser-side saves left stale, and drop
     // objects whose dataset is gone.
     await import("@/utils/data/parquet.server")
       .then((m) => m.sweepDatasetMirrors())
-      .catch((e) => console.warn("[parquet-sweep] failed:", (e as Error).message));
+      .catch((e) => fold("parquet-sweep", e));
     await import("@/utils/integrations/health.server")
       .then(async (m) => {
         await m.checkIntegrationHealth(force);
         // Independent of health checks: retire legacy plaintext secrets.
         await m.sweepPlaintextSecrets();
       })
-      .catch((e) => console.warn("[integration-health] failed:", (e as Error).message));
+      .catch((e) => fold("integration-health", e));
     // Data connections get the same treatment as LLM keys: a warehouse
     // password expires on the customer's rotation policy, and without this the
     // first sign is a dashboard erroring in front of someone.
     await import("@/utils/integrations/connectionHealth.server")
       .then((m) => m.checkConnectionHealth(force))
-      .catch((e) => console.warn("[connection-health] failed:", (e as Error).message));
+      .catch((e) => fold("connection-health", e));
     await import("@/utils/observability/retention.server")
       .then((m) => m.purgeTraces(force))
-      .catch((e) => console.warn("[trace-retention] failed:", (e as Error).message));
+      .catch((e) => fold("trace-retention", e));
     await import("@/utils/observability/otelExport.server")
       .then((m) => m.exportOtelTraces())
-      .catch((e) => console.warn("[otel-export] failed:", (e as Error).message));
+      .catch((e) => fold("otel-export", e));
     await import("@/utils/saas/schedule.server")
       .then((m) => m.processDueSaasSyncs(force))
-      .catch((e) => console.warn("[saas-sync] processing failed:", (e as Error).message));
+      .catch((e) => fold("saas-sync", e));
     // KB connector sources (Drive / Notion / SharePoint / Dropbox) on the same
     // cadence and claim discipline as SaaS data sources.
     await import("@/utils/kb/schedule.server")
       .then((m) => m.processDueKbSyncs(force))
-      .catch((e) => console.warn("[kb-sync] processing failed:", (e as Error).message));
+      .catch((e) => fold("kb-sync", e));
     // Traces recorded before their model had a known price re-resolve here —
     // an alias mapping or a price refresh corrects history, not just the
     // future, so budgets stop summing real spend as $0.
     await import("@/utils/observability/reprice.server")
       .then((m) => m.repriceUnpricedTraces(force))
-      .catch((e) => console.warn("[trace-reprice] failed:", (e as Error).message));
+      .catch((e) => fold("trace-reprice", e));
     // Workflow graphs ride the same sweep, in two halves. Due workflows
     // start; runs already in flight take a step. The second half is what makes
     // a graph move at all — a step only begins once the step before it has
     // been seen to finish, and this is where that is noticed.
     const workflow_runs = await import("@/utils/workflows/run.server")
       .then((m) => m.processDueWorkflows(force))
-      .catch((e) => {
-        console.warn("[workflow] sweep failed:", (e as Error).message);
-        return 0;
-      });
+      .catch((e) => fold("workflow", e, 0));
     const workflow_steps = await import("@/utils/workflows/run.server")
       .then((m) => m.advanceLiveWorkflowRuns())
-      .catch((e) => {
-        console.warn("[workflow] advance failed:", (e as Error).message);
-        return 0;
-      });
+      .catch((e) => fold("workflow", e, 0));
     const swarm_schedules = await import("@/utils/swarmSchedules.server")
       .then((m) => m.processDueSwarmSchedules(force))
-      .catch((e) => {
-        console.warn("[swarm-scheduler] processing failed:", (e as Error).message);
-        return 0;
-      });
+      .catch((e) => fold("swarm-scheduler", e, 0));
     let kernels_reaped = 0;
     try {
       kernels_reaped = await import("@/utils/notebookRuntime/service.server").then((m) =>
         m.reapSessions(),
       );
     } catch (e) {
-      console.warn("[cron] notebook kernel reap failed:", (e as Error).message);
+      fold("kernel-reap", e);
     }
     return {
       ran: true,
@@ -1616,6 +1610,7 @@ export async function runCronPass(opts: { force?: boolean } = {}): Promise<CronP
       swarm_schedules,
       kernels_reaped,
       ml_evaluations,
+      errors,
     };
   } finally {
     await releaseCronLease("scheduler");

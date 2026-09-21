@@ -99,6 +99,7 @@ The three shapes it takes:
 | Deck generation fill   | ✅ fixed | 2026-09-21 | R54 — a failed dataset read answered as "no data connected"; the deck shipped chartless and silent                     |
 | BI generate dialogs    | ✅ fixed | 2026-09-21 | R55 — "upload data on the Data & SQL page first" over a failed read of thirty-three datasets                           |
 | Credential and audit reads| ✅ fixed | 2026-09-21 | R56 — a failed own-credential read became "not configured"; a failed Auth page showed people as ids                    |
+| Scheduler pass            | ✅ fixed | 2026-09-21 | R57 — twenty folded sweeps and three folded reads answered ok: true with zeros; the result carries errors now          |
 | **Semantic layer**     | ⬜ next  |            |                                                                                                              |
 | ML predictions         | ⬜       |            |                                                                                                              |
 
@@ -141,7 +142,8 @@ least twice, not a hypothetical.
    reads folded to "nothing due", `/api/bi/cron` answering ok: true over
    all of it) and the KB keyword path (`tools/kb.server`: a failed page
    breaks the loop, and `page.length < KEYWORD_PAGE` is R41's short-page
-   assumption again). Those are next.
+   assumption again). The scheduler is R57; the KB keyword path is next,
+   and after it a surface for the pass result, which no page shows.
 2. **A badge that outlives what it vouched for.** Verified/priced/fresh/healthy
    stamped once and never revisited. R24 and R26 are the BI instances.
 3. **A cause named that the evidence cannot support.** R31's freshness test, and
@@ -230,6 +232,9 @@ least twice, not a hypothetical.
 - `.catch(() => null)` around a function that already answers null for
   "none" has exactly one effect: it makes a failure look like none. Read
   what the callee answers before deciding what its throw means.
+- A job that folds every step to a warning has one observable outcome,
+  success. `console.warn` is not a report; a result the caller can read is.
+  Fold the step, record the fold.
 - `const { data } = await …` is a guard that passes on failure. Every
   destructuring that drops `error` before a decision is one of these.
 - Verify a Radix picker's trigger text before submit: it keeps the previous

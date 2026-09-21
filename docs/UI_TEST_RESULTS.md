@@ -15,6 +15,39 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-21 — The scheduler's pass, before and after, ADVERSARIAL_LOG R57
+
+**Why this round exists.** R57 makes the scheduler's pass record every folded
+sweep and every failed read in an `errors` field, and the cron endpoint's `ok`
+follow it. The reads and steps are the server's own, so the browser proves the
+REGRESSION half through the one thing it can see: the body of the
+`/api/bi/cron` POST the page makes every few minutes. The defect half is
+behavioural (`tests/unit/cronPassFailures.test.ts`): against the unpatched
+source a failed schedule read resolved `0` — nothing due — with no error
+anywhere.
+
+### Before the fix
+
+| Driven                                                  | Read back                                                                                                                                                                                             |
+| ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The page's own `/api/bi/cron` POST, read from the network log | `{"ok":true,"skipped":false,"ran":true,"processed":0,"prep_flows":0,"quality_checks":0,"catalog_crawls":0,"etl_runs":0,"matview_refreshes":0,"sql_model_builds":0,"workflow_runs":0,"workflow_steps":0,"analyses":0,"swarm_schedules":0,"kernels_reaped":0,"ml_evaluations":0}` — no field for anything that failed |
+
+### After the rebuild
+
+The `agentswarms` service rebuilt and recreated; the Monitoring page reloaded
+(client chunk `monitoring-Dbmpp_RF.js`, unchanged — this round is server-side).
+
+| Driven                                                          | Read back                                                                                                                                                                                                                                   |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The page's next `/api/bi/cron` POST, read from the network log  | `{"ok":true,"skipped":false,"ran":true,"processed":0,"prep_flows":0,"quality_checks":0,"catalog_crawls":0,"etl_runs":0,"matview_refreshes":0,"sql_model_builds":0,"workflow_runs":0,"workflow_steps":0,"analyses":0,"swarm_schedules":0,"kernels_reaped":0,"ml_evaluations":0,"errors":[]}` |
+| Monitoring                                                      | `2 needing attention · checked 7:16:50 PM`; the same twelve services; no scheduler row — the surface is R59's                                                                                                                                 |
+
+The pass ran clean under the live deployment, and for the first time the
+answer says so with a field rather than by the absence of one: `errors: []`,
+and `ok` computed from it.
+
+Findings from this round: R57 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-21 — Credential and audit reads, the regression half, ADVERSARIAL_LOG R56
 
 **Why this round exists.** R56 makes two server-side reads fail with their
