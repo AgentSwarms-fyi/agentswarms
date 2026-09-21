@@ -109,6 +109,37 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-22 — "Swarm deleted", and the swarm was still there
+
+#### R67 · S1 · The swarm canvas's own create and delete
+
+The write-side survey's next page. The swarm gallery already says "Failed
+to create swarm" and "Failed to delete" — with every `POST` to `swarms`
+rejected, its New Swarm says exactly that. The canvas has its own create
+and delete, and neither said anything. Open a swarm, press Delete swarm,
+confirm "Swarm 16 will be permanently removed…" with every `DELETE`
+rejected: `Swarm deleted`, and the canvas moves on to Swarm 1. Reload the
+gallery: `My Swarms 16`, Swarm 16 still there. The canvas said the swarm
+was gone and moved on; the swarm was not gone. Its create did the opposite:
+a failed insert did nothing at all — no swarm, no word.
+
+The delete keeps its error, and a delete that fails changes nothing on
+screen and says "Could not delete the swarm" with the reason; the list and
+the canvas stay as they are. The create keeps its error and says "Could not
+create a swarm"; the fresh swarm the canvas opens after the last delete
+says when it could not be created instead of leaving an empty canvas with
+no swarm behind it.
+
+Driven, before: `Swarm deleted` over a rejected delete, the canvas moving
+on, the swarm back in the gallery on reload. After the rebuild, the same
+rejection: `Could not delete the swarm · TypeError: Failed to fetch` and the
+canvas staying on the swarm; with `fetch` restored, `Swarm deleted` and the
+gallery back to fifteen — the fixture gone for real.
+
+**Tests:** 3 source-anchored on the canvas's create, delete and the fresh
+swarm after the last delete; 4 behaviour-changing mutants each killed,
+control missed, baseline green first.
+
 ### 2026-09-22 — A cap that was never saved, under a button that said "auto-saved"
 
 #### R66 · S1 · The Budgets page's writes

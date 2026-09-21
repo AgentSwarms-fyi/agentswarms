@@ -15,6 +15,42 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-22 — The swarm canvas's delete, before and after, ADVERSARIAL_LOG R67
+
+**Why this round exists.** The write-side survey's next page. The swarm
+gallery already says "Failed to create swarm" and "Failed to delete"; the
+canvas, which has its own create and delete, did not.
+
+### Before the fix
+
+| Driven                                                                                                                 | Read back                                                                                                          |
+| ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Swarms gallery → New Swarm (with every `POST /rest/v1/swarms` rejected)                                                 | toast `Failed to create swarm` — the gallery's own path, already honest; `My Swarms 15` unchanged                    |
+| `fetch` restored → New Swarm                                                                                            | `Swarm 16` created and opened in the canvas                                                                        |
+| Canvas → Delete swarm → "Delete this swarm? Swarm 16 will be permanently removed…" → Delete swarm, with every `DELETE /rest/v1/swarms` rejected | toast **`Swarm deleted`**; the canvas switched to `Swarm 1`; one DELETE rejected                                     |
+| Reload the gallery                                                                                                     | **`My Swarms 16`; `Swarm 16` is still there**                                                                        |
+
+The canvas said the swarm was gone and moved on; the swarm was not gone.
+
+### After the rebuild
+
+The `agentswarms` service rebuilt and recreated (container `8f15b4f4261f`);
+the gallery reloaded onto it. Same fixture, same rejection.
+
+| Driven                                                                                                                | Read back                                                                                              |
+| --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Swarms gallery (`My Swarms 16`) → Open `Swarm 16` → canvas                                                            | canvas on `Swarm 16`                                                                                   |
+| Delete swarm → confirm, with every `DELETE /rest/v1/swarms` rejected                                                   | toast **`Could not delete the swarm · TypeError: Failed to fetch`**; the canvas **stays on `Swarm 16`**; one DELETE rejected |
+| `fetch` restored → Delete swarm → confirm                                                                              | toast `Swarm deleted`; the canvas moves to `Swarm 1`                                                   |
+| Reload the gallery                                                                                                    | `My Swarms 15`; no `Swarm 16` — the fixture is gone for real                                           |
+
+A delete that fails now changes nothing and says why; a delete that lands
+says so and is gone. The canvas's create failure is held by the tests: its
+control is not on the canvas toolbar, and the gallery's own create already
+said "Failed to create swarm".
+
+Findings from this round: R67 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-22 — Budgets, a cap whose save failed, before and after, ADVERSARIAL_LOG R66
 
 **Why this round exists.** The write-side survey's next page. Budgets saves

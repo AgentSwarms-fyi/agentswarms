@@ -264,6 +264,10 @@ least twice, not a hypothetical.
 - "It returned no matching passages" is a claim about the documents. A
   search that could not be completed has no standing to make it, and the
   model it is told to will repeat it as fact.
+- Two paths to one action, one honest and one not (R67): the swarm gallery
+  said "Failed to delete"; the canvas said "Swarm deleted" over the same
+  rejected request. When a page grows a second way to do a thing, the
+  second way inherits none of the first's care unless it shares the code.
 - A settings page that says "auto-saved" must derive that from the last
   write, not toast a constant (R66, Budgets). The write survey (40
   error-less client writes in 10 files) still has: swarms (3 inserts, a

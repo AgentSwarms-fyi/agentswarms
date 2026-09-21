@@ -1078,7 +1078,7 @@ function SwarmsCanvas({
 
   const handleNewSwarm = async () => {
     if (!user) return;
-    const { data: created } = await supabase
+    const { data: created, error } = await supabase
       .from("swarms")
       .insert({
         user_id: user.id,
@@ -1088,6 +1088,15 @@ function SwarmsCanvas({
       })
       .select()
       .single();
+    // FOUND FROM THE UI. A create that failed did nothing at all — no swarm,
+    // no word — and a delete that failed (below) said "Swarm deleted" and
+    // dropped the swarm from the list until a reload brought it back.
+    if (error || !created) {
+      toast.error("Could not create a swarm", {
+        description: error?.message ?? "no row came back from the insert",
+      });
+      return;
+    }
     if (created) {
       setSwarmList((prev) => [...prev, { id: created.id, name: created.name }]);
       setSwarmId(created.id);
@@ -1103,13 +1112,18 @@ function SwarmsCanvas({
 
   const performDeleteSwarm = async () => {
     if (!swarmId || !user) return;
-    await supabase.from("swarms").delete().eq("id", swarmId);
+    const { error: deleteError } = await supabase.from("swarms").delete().eq("id", swarmId);
+    if (deleteError) {
+      // The swarm is still there; the list and the canvas stay as they are.
+      toast.error("Could not delete the swarm", { description: deleteError.message });
+      return;
+    }
     const remaining = swarmList.filter((s) => s.id !== swarmId);
     setSwarmList(remaining);
     if (remaining.length > 0) {
       await handleSwitchSwarm(remaining[0].id);
     } else {
-      const { data: created } = await supabase
+      const { data: created, error } = await supabase
         .from("swarms")
         .insert({
           user_id: user.id,
@@ -1119,6 +1133,12 @@ function SwarmsCanvas({
         })
         .select()
         .single();
+      if (error || !created) {
+        toast.error("Deleted, but could not create a fresh swarm to open", {
+          description: error?.message ?? "no row came back from the insert",
+        });
+        return;
+      }
       if (created) {
         setSwarmList([{ id: created.id, name: created.name }]);
         setSwarmId(created.id);
