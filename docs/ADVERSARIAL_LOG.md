@@ -109,6 +109,38 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-21 — The scheduler's last pass has a surface
+
+#### R59 · S2 · A page that lists every service except the one that runs every schedule
+
+R57 made the scheduler's pass record every folded failure in `errors`, and
+the only place that answer went was the JSON of `/api/bi/cron`, which the
+page polls and discards. The Monitoring page — "N needing attention" — listed
+every service the deployment runs and never the scheduler, so a pass that
+could not read its own schedule, or a scheduler that had stopped, changed
+nothing on the one page built to say so.
+
+The pass now keeps its last result in process memory (`getLastCronPass`), and
+the health handler reports it as a service beside the others through a pure
+`schedulerProbe`: **up** with the last pass's age and counts; **degraded**
+naming the failures when the last pass had any, or when no pass has run for
+five minutes (the tick is one a minute), or when a process has been up that
+long without ever passing; and an honest **up** with a note when the
+in-process scheduler is disabled by configuration and an external cron drives
+the passes. The page's "needing attention" count includes it like any other
+service, and the row shows the failures in its message.
+
+Process memory on purpose, and said in the code: the probe answers for the
+instance that served the request; a multi-instance deployment reads the one
+that answered.
+
+Driven: the Monitoring page after the rebuild shows the Scheduler row — up,
+last pass seconds ago, the pass's counts — beside the other services.
+
+**Tests:** 6 behavioural on `schedulerProbe` and 2 source-anchored on the
+wiring; 6 behaviour-changing mutants each killed, control missed,
+baseline green first.
+
 ### 2026-09-21 — Retrieval that could not be checked or completed says so
 
 #### R58 · S1 · A failed ACL read showed restricted documents; every failed search said "no match"

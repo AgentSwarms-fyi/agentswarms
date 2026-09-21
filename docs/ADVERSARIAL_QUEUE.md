@@ -101,6 +101,7 @@ The three shapes it takes:
 | Credential and audit reads| ✅ fixed | 2026-09-21 | R56 — a failed own-credential read became "not configured"; a failed Auth page showed people as ids                    |
 | Scheduler pass            | ✅ fixed | 2026-09-21 | R57 — twenty folded sweeps and three folded reads answered ok: true with zeros; the result carries errors now          |
 | KB retrieval              | ✅ fixed | 2026-09-21 | R58 — a failed ACL read showed restricted documents; every failed search told the model "no match"                     |
+| Scheduler surface         | ✅ fixed | 2026-09-21 | R59 — the pass's failures and a stopped scheduler now show on Monitoring, beside every other service                   |
 | **Semantic layer**     | ⬜ next  |            |                                                                                                              |
 | ML predictions         | ⬜       |            |                                                                                                              |
 
@@ -144,8 +145,8 @@ least twice, not a hypothetical.
    all of it) and the KB keyword path (`tools/kb.server`: a failed page
    breaks the loop, and `page.length < KEYWORD_PAGE` is R41's short-page
    assumption again). The scheduler is R57 and the retrieval path R58 —
-   which turned out to hold a fail-open ACL catch as well. Next: a surface
-   for the scheduler's pass result, which no page shows.
+   which turned out to hold a fail-open ACL catch as well; the surface for
+   the pass result is R59, on the Monitoring page.
 2. **A badge that outlives what it vouched for.** Verified/priced/fresh/healthy
    stamped once and never revisited. R24 and R26 are the BI instances.
 3. **A cause named that the evidence cannot support.** R31's freshness test, and
@@ -243,6 +244,9 @@ least twice, not a hypothetical.
 - "It returned no matching passages" is a claim about the documents. A
   search that could not be completed has no standing to make it, and the
   model it is told to will repeat it as fact.
+- A report nobody reads is a warning with extra steps. R57 recorded the
+  failures; until a page showed them, the recording changed nothing for the
+  person who would act on it.
 - `const { data } = await …` is a guard that passes on failure. Every
   destructuring that drops `error` before a decision is one of these.
 - Verify a Radix picker's trigger text before submit: it keeps the previous

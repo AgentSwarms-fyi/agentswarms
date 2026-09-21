@@ -15,6 +15,39 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-21 — The scheduler on the Monitoring page, before and after, ADVERSARIAL_LOG R59
+
+**Why this round exists.** R57 gave the scheduler's pass a record of its
+failures and nowhere to show them. R59 adds the scheduler to the Monitoring
+page's services. This is a new surface, so the browser proves both halves:
+that the row was absent, and that it is present with the live pass's figures.
+
+### Before the fix
+
+| Driven                | Read back                                                                                                                                                                                                                               |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Monitoring            | `2 needing attention · checked 6:30:34 PM`; twelve services — Application server, Supabase, Document renderer, JS sandbox, Notebook gateway, Notebook egress proxy, Lakehouse catalog, Spark Connect, Docker API proxy, Online feature store, Vector store (Qdrant), Object store (MinIO) — and no scheduler |
+
+### After the rebuild
+
+The `agentswarms` service rebuilt and recreated; the page reloaded onto the new
+container (`ba1fe8ede7eb`, up 4 minutes). Same page, same health check.
+
+| Driven                | Read back                                                                                                                                                                                                                                                                             |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Monitoring            | `No problems detected · checked 8:37:06 PM`; thirteen services — the twelve above and, third in the list after Supabase, **Scheduler · Healthy** · "Runs every schedule the platform has — BI refreshes, prep flows, crawls, ETL, retention — once a minute, in this process." · `last_pass=5 s ago · processed=0 · prep_flows=0 · failures=0` |
+
+The row's figures are the live pass, not a fixture: `last_pass=5 s ago` on a
+process four minutes old is the tick that ran just before the check. The two
+services that needed attention before the rebuild were optional services that
+were down at the time and are up now; the count is unrelated to this round.
+The degraded branches — a pass with failures, a scheduler that has stopped, a
+process that never passed — cannot be produced from the browser without
+breaking the server's own reads, and are held by the six behavioural tests on
+`schedulerProbe`.
+
+Findings from this round: R59 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-21 — Grounded retrieval, before and after, ADVERSARIAL_LOG R58
 
 **Why this round exists.** R58 changes what the model is told when a

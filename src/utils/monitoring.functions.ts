@@ -10,7 +10,16 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSuperadmin } from "@/utils/iam.server";
-import { SERVICE_CATALOGUE, type ServiceProbe, type SystemMetrics } from "@/lib/serviceHealth";
+import {
+  SERVICE_CATALOGUE,
+  schedulerProbe,
+  type ServiceProbe,
+  type SystemMetrics,
+} from "@/lib/serviceHealth";
+
+// When this process started: a scheduler that has never passed is fine for
+// the first minutes after boot and a failure after that.
+const BOOTED_AT = Date.now();
 import { resolveInternalOrigin } from "@/utils/internalOrigin.server";
 import { appRole } from "@/utils/appRole";
 
@@ -221,9 +230,21 @@ export const serviceHealth = createServerFn({ method: "POST" })
       }
     };
 
+    // The scheduler is a service like the others: it lives in this process,
+    // so its probe is the last pass it ran, not a port.
+    const scheduler = async (): Promise<ServiceProbe> => {
+      const { getLastCronPass } = await import("@/utils/bi/refresh.server");
+      return schedulerProbe({
+        last: getLastCronPass(),
+        now: new Date(),
+        bootedAt: BOOTED_AT,
+        inProcessDisabled: /^(1|true|yes)$/i.test(process.env.DISABLE_INPROCESS_SCHEDULER ?? ""),
+      });
+    };
     const [app, db, ...rest] = await Promise.all([
       appProbe(),
       dbProbe(),
+      scheduler(),
       ...SERVICE_CATALOGUE.map(probeOne),
     ]);
     return { services: [app, db, ...rest], checkedAt: new Date().toISOString() };

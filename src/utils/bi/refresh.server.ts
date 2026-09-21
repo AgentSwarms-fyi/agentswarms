@@ -1424,6 +1424,14 @@ export type CronPassResult = {
  * `/api/bi/cron`. Both share the "scheduler" lease, so at most one pass runs at
  * a time across the whole fleet.
  */
+// The last pass THIS process ran, for the Monitoring page's scheduler probe.
+// Process memory on purpose: it answers for the instance that served the
+// request, and a multi-instance deployment reads the one that answered.
+let lastCronPass: { at: string; result: CronPassResult } | null = null;
+export function getLastCronPass(): { at: string; result: CronPassResult } | null {
+  return lastCronPass;
+}
+
 export async function runCronPass(opts: { force?: boolean } = {}): Promise<CronPassResult> {
   const force = opts.force ?? false;
   const empty: CronPassResult = {
@@ -1595,7 +1603,7 @@ export async function runCronPass(opts: { force?: boolean } = {}): Promise<CronP
     } catch (e) {
       fold("kernel-reap", e);
     }
-    return {
+    const result: CronPassResult = {
       ran: true,
       processed,
       prep_flows,
@@ -1612,6 +1620,8 @@ export async function runCronPass(opts: { force?: boolean } = {}): Promise<CronP
       ml_evaluations,
       errors,
     };
+    lastCronPass = { at: new Date().toISOString(), result };
+    return result;
   } finally {
     await releaseCronLease("scheduler");
   }

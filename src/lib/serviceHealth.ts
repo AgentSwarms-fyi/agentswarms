@@ -17,7 +17,8 @@ export type ServiceId =
   | "spark-connect"
   | "qdrant"
   | "valkey"
-  | "minio";
+  | "minio"
+  | "scheduler";
 
 export type ServiceStatus =
   /** Answered, and answered correctly. */
@@ -40,6 +41,89 @@ export type ServiceStatus =
    * hand — and a status page that lies about one row is not trusted about any.
    */
   | "unreachable";
+
+/** The last scheduler pass this process ran — see getLastCronPass in bi/refresh.server. */
+export type LastCronPass = {
+  at: string;
+  result: { ran: boolean; errors: string[]; processed: number; prep_flows: number };
+};
+
+/** A pass is expected every minute; five without one is a scheduler that stopped. */
+export const SCHEDULER_STALE_MS = 5 * 60_000;
+
+/**
+ * The scheduler as a service. Pure: the health handler hands it the last pass
+ * from process memory, the clock, when this process booted, and whether the
+ * in-process scheduler is disabled (an external cron then drives the passes
+ * and this instance may legitimately never record one).
+ *
+ * R57 made the pass record its failures; this is where they are seen.
+ */
+export function schedulerProbe(input: {
+  last: LastCronPass | null;
+  now: Date;
+  bootedAt: number;
+  inProcessDisabled: boolean;
+}): ServiceProbe {
+  const base = {
+    id: "scheduler" as const,
+    label: "Scheduler",
+    purpose:
+      "Runs every schedule the platform has — BI refreshes, prep flows, crawls, ETL, retention — once a minute, in this process.",
+    latencyMs: null,
+    endpoint: null,
+  };
+  const minutes = (ms: number) => Math.max(1, Math.round(ms / 60_000));
+  if (!input.last) {
+    if (input.inProcessDisabled) {
+      return {
+        ...base,
+        status: "up",
+        message:
+          "In-process scheduler disabled (DISABLE_INPROCESS_SCHEDULER) — passes come from the external cron, and this instance records none.",
+      };
+    }
+    const sinceBoot = input.now.getTime() - input.bootedAt;
+    if (sinceBoot < SCHEDULER_STALE_MS) {
+      return {
+        ...base,
+        status: "up",
+        message: "No pass recorded yet — the first runs a minute after start.",
+      };
+    }
+    return {
+      ...base,
+      status: "degraded",
+      message: `No pass in the ${minutes(sinceBoot)} minutes since this process started.`,
+    };
+  }
+  const age = input.now.getTime() - new Date(input.last.at).getTime();
+  const detail = {
+    last_pass: `${Math.round(age / 1000)} s ago`,
+    processed: input.last.result.processed,
+    prep_flows: input.last.result.prep_flows,
+    failures: input.last.result.errors.length,
+  };
+  if (age > SCHEDULER_STALE_MS) {
+    return {
+      ...base,
+      status: "degraded",
+      message: `Last pass ${minutes(age)} minutes ago — the scheduler has stopped.`,
+      detail,
+    };
+  }
+  if (input.last.result.errors.length > 0) {
+    const shown = input.last.result.errors.slice(0, 3).join("; ");
+    const more = input.last.result.errors.length - 3;
+    return {
+      ...base,
+      status: "degraded",
+      message: `Last pass had ${input.last.result.errors.length} failure(s): ${shown}${more > 0 ? `; and ${more} more` : ""}`,
+      detail,
+    };
+  }
+  return { ...base, status: "up", detail };
+}
 
 export type ServiceProbe = {
   id: ServiceId;
