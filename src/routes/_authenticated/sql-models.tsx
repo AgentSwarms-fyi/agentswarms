@@ -37,7 +37,9 @@ import {
   buildPlan,
   describeTest,
   refNames,
+  modelBuildState,
   validateModelName,
+  type BuildState,
   type Materialization,
   type SqlModel,
   type SqlModelTest,
@@ -134,17 +136,25 @@ function draftOf(m: SqlModelRow): Draft {
   };
 }
 
-function StatusDot({ status, active }: { status: string | null; active: boolean }) {
+// Takes the STATE, not last_status: a model edited since its last build has
+// a last_status of "built" that describes the previous definition, and the
+// dot must not vouch for it (modelBuildState).
+function StatusDot({ state, active }: { state: BuildState; active: boolean }) {
   if (!active) return <span className="h-2 w-2 shrink-0 rounded-full bg-muted-foreground/40" />;
   const tone =
-    status === "built"
+    state === "built"
       ? "bg-emerald-500"
-      : status === "failed"
+      : state === "failed"
         ? "bg-destructive"
-        : status === "skipped"
+        : state === "skipped" || state === "edited"
           ? "bg-amber-500"
           : "bg-muted-foreground/40";
-  return <span className={cn("h-2 w-2 shrink-0 rounded-full", tone)} />;
+  return (
+    <span
+      className={cn("h-2 w-2 shrink-0 rounded-full", tone)}
+      title={state === "edited" ? "Edited since its last build" : undefined}
+    />
+  );
 }
 
 function OutcomeBadge({ outcome }: { outcome: string }) {
@@ -206,7 +216,7 @@ function BuildGraph({ models, deps }: { models: SqlModelRow[]; deps: Record<stri
                     : "reads no other model"
                 }
               >
-                <StatusDot status={m.last_status ?? null} active={m.is_active} />
+                <StatusDot state={modelBuildState(m)} active={m.is_active} />
                 {m.name}
               </span>
             ))}
@@ -286,6 +296,7 @@ function SqlModelsPage() {
   }, [reload]);
 
   const selected = draft?.id ? models.find((m) => m.id === draft.id) : null;
+  const selectedState = selected ? modelBuildState(selected) : null;
   const draftRefs = draft ? refNames(draft.sql) : [];
   const unknownRefs = draftRefs.filter(
     (r) => !models.some((m) => m.name === r && m.id !== draft?.id),
@@ -510,7 +521,7 @@ function SqlModelsPage() {
                     draft?.id === m.id && "bg-muted",
                   )}
                 >
-                  <StatusDot status={m.last_status ?? null} active={m.is_active} />
+                  <StatusDot state={modelBuildState(m)} active={m.is_active} />
                   <span className={cn("flex-1 truncate", !m.is_active && "text-muted-foreground")}>
                     {m.name}
                   </span>
@@ -990,14 +1001,31 @@ function SqlModelsPage() {
                   {selected ? (
                     <div className="flex flex-wrap items-center gap-3 border-t pt-3 text-xs text-muted-foreground">
                       <span className="flex items-center gap-1">
-                        <StatusDot
-                          status={selected.last_status ?? null}
-                          active={selected.is_active}
-                        />
-                        {selected.last_status ?? "never built"}
-                        {selected.last_run_at ? ` · ${relTime(selected.last_run_at)}` : ""}
+                        <StatusDot state={selectedState ?? "never"} active={selected.is_active} />
+                        {/* FOUND FROM THE UI. This read last_status, which a
+                            save never touches, so a model whose SQL had just
+                            been replaced still said "built · 9,994 rows" —
+                            the previous definition's build, presented as this
+                            one's. The database now marks a definition change
+                            and the runner clears the mark only for a build
+                            that read it; while the mark stands, the last
+                            build is named as the previous definition's. */}
+                        {selectedState === "edited" && selected.definition_changed_at
+                          ? `edited ${relTime(selected.definition_changed_at)} · not built since`
+                          : (selected.last_status ?? "never built")}
+                        {selectedState !== "edited" && selected.last_run_at
+                          ? ` · ${relTime(selected.last_run_at)}`
+                          : ""}
                       </span>
-                      {selected.last_row_count != null ? (
+                      {selectedState === "edited" && selected.last_status ? (
+                        <span>
+                          last build, of the previous definition: {selected.last_status}
+                          {selected.last_row_count != null
+                            ? ` · ${selected.last_row_count.toLocaleString()} rows`
+                            : ""}
+                          {selected.last_run_at ? ` · ${relTime(selected.last_run_at)}` : ""}
+                        </span>
+                      ) : selected.last_row_count != null ? (
                         <span>{selected.last_row_count.toLocaleString()} rows</span>
                       ) : null}
                       <span>

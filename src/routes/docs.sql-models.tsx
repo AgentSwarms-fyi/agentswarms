@@ -141,6 +141,14 @@ group by 1`}</Code>
         never a half-built one. A <strong>failed</strong> build leaves the previous table in place:
         stale data someone can see and diagnose beats no data at all.
       </P>
+      <P>
+        A build&apos;s status and row count describe the definition that was built. Change a
+        model&apos;s SQL, target, materialization or tests and it is marked <strong>edited</strong>{" "}
+        until its next build: the previous build&apos;s figures are still shown, named as the
+        previous definition&apos;s, and the table in the lakehouse is still that build&apos;s.
+        Changing the description, tags or schedule changes nothing about what was built, and does
+        not mark it.
+      </P>
 
       <H2 id="tests">Tests</H2>
       <P>Tests run after a model builds, against the table it just wrote.</P>

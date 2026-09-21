@@ -15,6 +15,47 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-21 — A SQL model edited after its build, before and after, ADVERSARIAL_LOG R60
+
+**Why this round exists.** Sweep item 2: a badge that outlives what it vouched
+for. The SQL Models page shows a model's last build — status, time, row
+count — and a save that replaces the model's SQL leaves all three standing.
+
+### Before the fix
+
+| Driven                                                                                       | Read back                                                                                                                                   |
+| -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| SQL Models → `stg_revenue`                                                                    | `built · 11d ago` · `836 rows` · `builds into analytics.stg_revenue`; list dot `bg-emerald-500`; SQL ends `where net_usd is not null`      |
+| Append `limit 5` to the SQL, press Save                                                      | toast `Saved stg_revenue`; header **still** `built · 11d ago` · `836 rows`; list dot **still** `bg-emerald-500`; SQL now ends `limit 5`    |
+
+The row count is the previous definition's; the SQL on the row can produce at
+most five. Nothing on the page distinguishes this from a model whose build is
+current.
+
+### After the rebuild
+
+The `agentswarms` service rebuilt and recreated (container `7396b05ad49f`);
+the page reloaded onto it. The migration is **not yet applied** to the live
+database — `npx supabase db push` was refused by this session's permission
+gate — so this half proves the rebuilt app against the un-migrated database;
+the edited state is driven once the migration is pushed (below, when it is).
+
+| Driven                                                                 | Read back                                                                                                                                                         |
+| ---------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| SQL Models → `stg_revenue` (SQL still ends `limit 5` from the save above) | `built · 11d ago` · `836 rows`, dot `bg-emerald-500` — no mark column, so the page falls back to the last build's stamps exactly as before                        |
+| "Build this and what it reads"                                         | toast `Built 1 model`; Builds tab, newest run: `success · manual · 25s ago · 18.5s · selected stg_revenue · stg_revenue built 5 rows`; Model tab: `built · 22s ago` · `5 rows` |
+
+The runner's guarded clear skipped cleanly on a row with no mark, and the
+stamps landed; the page reads them as before. The trigger itself was proven in
+both directions against the empty local Postgres twin in a throwaway schema
+(set by a SQL, name, schema, materialization or tests change; not by a
+description, tags, schedule or pause change; not by a jsonb-equal re-save of
+the tests; not cleared by a build's own stamp; cleared by the runner's guarded
+update), and the schema was dropped afterwards. `stg_revenue` is left with
+`limit 5` for the post-migration drive, which restores it.
+
+Findings from this round: R60 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-21 — The scheduler on the Monitoring page, before and after, ADVERSARIAL_LOG R59
 
 **Why this round exists.** R57 gave the scheduler's pass a record of its

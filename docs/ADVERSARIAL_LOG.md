@@ -109,6 +109,67 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-21 — A build's stamps outlived the definition they were about
+
+#### R60 · S2 · "built · 836 rows" beside SQL that had just been replaced
+
+Sweep item 2, taken up at last: a badge that outlives what it vouched for.
+Open `stg_revenue` on the SQL Models page: `built · 11d ago · 836 rows`, a
+green dot. Append `limit 5` to its SQL and press Save: "Saved stg_revenue" —
+and `built · 11d ago · 836 rows`, the green dot. The save writes every column
+of the definition and none of the stamps; the page reads `last_status` as if
+it were about the row it sits on. So the status, the row count and the time
+all describe the previous definition, and nothing on the page can tell.
+
+The database now marks a definition change: a `BEFORE UPDATE` trigger on
+`sql_models` (migration `20260921000000`) sets `definition_changed_at` when
+the SQL, target schema or name, materialization or tests change — and not
+when the description, tags, schedule or pause state do, because a model
+paused or rescheduled still holds the table its last build wrote. A trigger
+for the same reason the semantic layer decertifies in one: every writer goes
+through the row, and none can forget.
+
+The runner clears the mark, not the trigger, and only when the mark on the
+row is still the one it loaded at plan time. A trigger cannot tell a build
+that read the new definition from one that started before the edit and
+stamped after it; the runner holds the mark it read, so its clear is the
+claim-by-clock pattern the sweeps already use. A mark that survives a build
+is one that build did not read.
+
+The page derives what it may claim from both (`modelBuildState`): an edited
+model's dot is amber, its header reads `edited <when> · not built since`, and
+the previous build's figures are still shown — named as the previous
+definition's — because the table in the lakehouse is still that build's.
+
+**Not yet on the live database.** The migration is written, tested and in
+the tree; `npx supabase db push` was refused by this session's permission
+gate, so the trigger is not applied and the edited state cannot yet be
+produced in the browser. The runner tolerates a row without the column (a
+guard on a column the database lacks would fail the stamp), so the rebuilt
+container is safe against the un-migrated database.
+
+Driven, before: `stg_revenue` at `built · 11d ago · 836 rows`, `limit 5`
+appended and saved — `Saved stg_revenue`, and `built · 11d ago · 836 rows`,
+green dot. After the rebuild, against the un-migrated database: the same
+header (no mark to read), then Build — `Built 1 model`, `built · 22s ago ·
+5 rows`. The trigger was proven in both directions against the empty local
+Postgres twin in a throwaway schema, dropped afterwards; the edited state
+in the browser waits on the push.
+
+**The family.** Every other definition edit in the product keeps its last
+result the same way, and none was in the named list: the lakehouse
+materialized-view upsert (`last_status`, `last_refreshed_at`, "Last rebuilt
+…"), the ETL pipeline save (`last_run_status` chip), the workflow saves, the
+data-monitor config update (a rule changed while its `ok` and `last_value`
+stand — reachable only through the server function today), and the app-source
+re-save (`last_test_status` "Healthy" over credentials that were replaced —
+the warehouse and provider saves clear it; this one does not, and the Apps
+tab cannot reach it). Listed under sweep item 2; each is a round of its own.
+
+**Tests:** 5 behavioural on `modelBuildState` and 9 source-anchored on the
+trigger, the runner and the page; 7 behaviour-changing mutants each killed,
+control missed, baseline green first.
+
 ### 2026-09-21 — The scheduler's last pass has a surface
 
 #### R59 · S2 · A page that lists every service except the one that runs every schedule

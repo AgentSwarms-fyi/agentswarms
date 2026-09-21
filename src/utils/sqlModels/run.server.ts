@@ -56,6 +56,8 @@ export type SqlModelRow = SqlModel & {
   last_error: string | null;
   last_row_count: number | null;
   last_duration_ms: number | null;
+  /** Set by the database when the definition changes after a build; see modelBuildState. */
+  definition_changed_at: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -292,12 +294,12 @@ async function buildOne(
       ? `${broke.kind} on ${broke.column ?? "the table"} failed: ${broke.failing} row(s)`
       : undefined;
 
-    await stampModel(model.id, outcome, error, rows, ms);
+    await stampModel(model.id, outcome, error, rows, ms, model.definition_changed_at);
     return { ...base, outcome, ms, rows, tests, ...(error ? { error } : {}) };
   } catch (e) {
     const message = (e as Error).message;
     const ms = Date.now() - started;
-    await stampModel(model.id, "failed", message, null, ms);
+    await stampModel(model.id, "failed", message, null, ms, model.definition_changed_at);
     // A failed build leaves the PREVIOUS table in place. Stale data someone
     // can see and diagnose beats no data at all.
     return { ...base, outcome: "failed", ms, error: message };
@@ -343,6 +345,7 @@ async function stampModel(
   error: string | undefined,
   rows: number | null,
   ms: number,
+  markAtLoad: string | null,
 ): Promise<void> {
   await supabaseAdmin
     .from("sql_models")
@@ -354,6 +357,20 @@ async function stampModel(
       last_duration_ms: ms,
     })
     .eq("id", id);
+  // These stamps answer for the definition this build LOADED. The edited mark
+  // (set by the database on any definition change) is cleared only if it is
+  // still the one loaded: an edit saved while this build ran set a newer mark,
+  // and that definition has not been built — the stamps above are not about it.
+  // Truthiness, not `!== null`: a row read before the column's migration has
+  // no mark at all (undefined), and a conditional update on a column the
+  // database does not have would fail the whole stamp.
+  if (markAtLoad) {
+    await supabaseAdmin
+      .from("sql_models")
+      .update({ definition_changed_at: null })
+      .eq("id", id)
+      .eq("definition_changed_at", markAtLoad);
+  }
 }
 
 /**

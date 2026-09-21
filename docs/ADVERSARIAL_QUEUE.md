@@ -102,6 +102,7 @@ The three shapes it takes:
 | Scheduler pass            | ✅ fixed | 2026-09-21 | R57 — twenty folded sweeps and three folded reads answered ok: true with zeros; the result carries errors now          |
 | KB retrieval              | ✅ fixed | 2026-09-21 | R58 — a failed ACL read showed restricted documents; every failed search told the model "no match"                     |
 | Scheduler surface         | ✅ fixed | 2026-09-21 | R59 — the pass's failures and a stopped scheduler now show on Monitoring, beside every other service                   |
+| SQL model stamps          | ✅ fixed | 2026-09-21 | R60 — a definition edit is marked by the database and the page stops calling the previous build this one's             |
 | **Semantic layer**     | ⬜ next  |            |                                                                                                              |
 | ML predictions         | ⬜       |            |                                                                                                              |
 
@@ -148,7 +149,19 @@ least twice, not a hypothetical.
    which turned out to hold a fail-open ACL catch as well; the surface for
    the pass result is R59, on the Monitoring page.
 2. **A badge that outlives what it vouched for.** Verified/priced/fresh/healthy
-   stamped once and never revisited. R24 and R26 are the BI instances.
+   stamped once and never revisited. R24 and R26 are the BI instances. R60
+   is the SQL model whose `built · N rows` survived a replaced SQL — fixed
+   with a definition-change mark set by the database. The same shape, an
+   edit that keeps the last result, is in: the lakehouse materialized-view
+   upsert (`matviews.server` — `last_status`, "Last rebuilt"); the ETL
+   pipeline save (`etl.functions` — `last_run_status` chip); the workflow
+   saves (`workflows.functions`); the data-monitor config update
+   (`dataMonitors.functions` — `ok` and `last_value` over a changed rule;
+   server-function only, the page has no edit); the app-source re-save
+   (`saas.functions` — `last_test_status` over replaced credentials; the
+   warehouse and provider saves clear it; the Apps tab cannot reach the
+   update path). Next: the materialized view, which the Lakehouse page can
+   edit.
 3. **A cause named that the evidence cannot support.** R31's freshness test, and
    Prompt Compare crowning the model that failed fastest.
 4. **Two surfaces, two answers.** The same figure computed twice by different
@@ -244,6 +257,10 @@ least twice, not a hypothetical.
 - "It returned no matching passages" is a claim about the documents. A
   search that could not be completed has no standing to make it, and the
   model it is told to will repeat it as fact.
+- A stamp is about the row it was written on, not the row it sits on. A
+  save that rewrites the definition and leaves `last_*` alone has moved the
+  stamp onto a different thing. Either the save withdraws it, or something
+  records that the thing changed — in the database, so no writer can forget.
 - A report nobody reads is a warning with extra steps. R57 recorded the
   failures; until a page showed them, the recording changed nothing for the
   person who would act on it.

@@ -386,3 +386,28 @@ export function buildStatus(outcomes: ModelOutcome[]): "success" | "error" | "pa
   }
   return "success";
 }
+
+/** What the status dot and the header may claim about a model's build. */
+export type BuildState = "never" | "edited" | ModelOutcome;
+
+/**
+ * The state a model's stamps actually support.
+ *
+ * `definition_changed_at` is set by the database whenever the SQL, target,
+ * materialization or tests change (trigger in 20260921000000) and cleared by
+ * the runner only for a build that read that definition. While it is set,
+ * last_status and last_row_count describe a PREVIOUS definition, so the model
+ * is "edited" whatever last_status says. Presence is the whole test: the
+ * runner's clear is conditioned on the mark it loaded, so a mark that survived
+ * a build is one that build did not read.
+ */
+export function modelBuildState(m: {
+  last_status: string | null;
+  definition_changed_at?: string | null;
+}): BuildState {
+  if (m.definition_changed_at) return "edited";
+  if (m.last_status === "built" || m.last_status === "failed" || m.last_status === "skipped") {
+    return m.last_status;
+  }
+  return "never";
+}
