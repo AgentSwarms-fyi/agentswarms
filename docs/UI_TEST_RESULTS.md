@@ -15,6 +15,41 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-21 — The ML model page's Jobs count, before and after, ADVERSARIAL_LOG R62
+
+**Why this round exists.** Sweep 2's last named row, ML predictions: the
+model page printed the length of a capped list as the count of jobs, and its
+two list handlers dropped the errors of every read they made.
+
+### Before the fix
+
+| Driven                                                       | Read back                                                                                                                   |
+| ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| ML Models → `revenue_facts · groups` (card: "21 versions")   | tabs `Versions (21)` · `Jobs (20)`                                                                                          |
+| Jobs tab                                                     | 20 rows, oldest `17d ago · succeeded · 12s · kmeans_k2 · Silhouette 0.249`; nothing says older jobs exist                   |
+
+Twenty-one versions came from at least twenty-one jobs; the tab counted the
+twenty it was given.
+
+### After the rebuild
+
+The `agentswarms` service rebuilt and recreated (container `4cc73580b8f3`);
+the same model page reloaded onto it.
+
+| Driven                                          | Read back                                                                                                                            |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| ML Models → `revenue_facts · groups`            | tabs `Versions (21)` · **`Jobs (20+)`**                                                                                              |
+| Jobs tab                                        | 20 rows, oldest `17d ago · succeeded · 12s · kmeans_k2 · Silhouette 0.249`; under the table: **The newest 20 jobs. Older jobs exist and are not listed here.** |
+| Predictions tab                                 | 11 runs listed (newest `7d ago · succeeded · rows via ai_analyst · 10 row(s)`), no note — the list is under its cap of fifty          |
+
+The count and the note come from the extra row the handler now fetches. The
+failed-read half — a versions, jobs or runs read that errors — is server-side
+and cannot be produced from the browser without failing the database; it is
+held by the source-anchored tests on both handlers, and the page's own error
+state (which the client already had) shows what it throws.
+
+Findings from this round: R62 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-21 — A governed query at its cap, before and after, ADVERSARIAL_LOG R61
 
 **Why this round exists.** Sweep 2, the semantic layer: a prefix presented

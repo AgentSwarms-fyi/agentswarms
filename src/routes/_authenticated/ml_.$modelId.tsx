@@ -336,7 +336,7 @@ function ModelPage() {
     );
   }
 
-  const { model, shared, versions, jobs, limits } = detail;
+  const { model, shared, versions, jobs, jobs_truncated, limits } = detail;
   const src = model.source as MlSource;
   const task = model.task as MlTask;
   const primary = ML_PRIMARY_METRIC[task];
@@ -449,7 +449,11 @@ function ModelPage() {
           <TabsTrigger value="versions">Versions ({versions.length})</TabsTrigger>
           <TabsTrigger value="predictions">Predictions</TabsTrigger>
           <TabsTrigger value="accuracy">Accuracy</TabsTrigger>
-          <TabsTrigger value="jobs">Jobs ({jobs.length})</TabsTrigger>
+          {/* "20+" when the model has more jobs than the newest twenty listed:
+              the count used to be the length of a capped list. */}
+          <TabsTrigger value="jobs">
+            Jobs ({jobs_truncated ? `${jobs.length}+` : jobs.length})
+          </TabsTrigger>
           <TabsTrigger value="automation">Automation</TabsTrigger>
         </TabsList>
 
@@ -724,6 +728,11 @@ function ModelPage() {
                 )}
               </tbody>
             </table>
+            {jobs_truncated ? (
+              <p className="px-3 py-2 text-xs text-muted-foreground">
+                The newest {jobs.length} jobs. Older jobs exist and are not listed here.
+              </p>
+            ) : null}
           </div>
         </TabsContent>
       </Tabs>

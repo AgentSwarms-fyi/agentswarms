@@ -159,12 +159,17 @@ export function AccuracyPanel({
   const measureNow = async () => {
     setBusy(true);
     try {
-      const { predictions } = await predictionsFn({
+      const { predictions, truncated, shown } = await predictionsFn({
         data: { access_token: token, model_id: modelId },
       });
       const batch = predictions.find((p) => p.kind === "batch" && p.status === "succeeded");
       if (!batch) {
-        toast.error("No successful batch run to measure yet");
+        // The list is the newest runs: an older batch run is not "none".
+        toast.error(
+          truncated
+            ? `No successful batch run among the newest ${shown} runs — older runs are not searched`
+            : "No successful batch run to measure yet",
+        );
         return;
       }
       const res = await evalFn({ data: { access_token: token, prediction_id: batch.id } });

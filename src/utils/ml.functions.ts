@@ -10,6 +10,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { capList } from "@/lib/listCap";
 import type { Json } from "@/integrations/supabase/types";
 import { auditEvent } from "@/utils/audit.server";
 import { getPlatformResources } from "@/utils/notebookRuntime/config.server";
@@ -458,11 +459,20 @@ export const mlTrainVersion = createServerFn({ method: "POST" })
     },
   );
 
+/** How many training jobs the model page lists — the newest; older ones exist. */
+export const JOBS_SHOWN = 20;
+/** How many prediction runs the Predictions tab lists — the newest; older ones exist. */
+export const PREDICTIONS_SHOWN = 50;
+
 export type MlModelDetail = {
   model: MlModelRow;
   shared: boolean;
   versions: MlVersionRow[];
+  /** The newest `jobs_shown` jobs. */
   jobs: MlJobRow[];
+  /** True when the model has more jobs than are listed. */
+  jobs_truncated: boolean;
+  jobs_shown: number;
   limits: MlLimits;
 };
 
@@ -475,13 +485,19 @@ export const mlGetModel = createServerFn({ method: "POST" })
     const { model, shared } = await loadModelForUser(data.model_id, userId);
     // Bring live jobs up to date before reading, so a finished sandbox whose
     // callback was missed resolves the moment someone looks.
-    const { data: live } = await supabaseAdmin
+    const { data: live, error: liveErr } = await supabaseAdmin
       .from("ml_training_jobs")
       .select("id")
       .eq("model_id", model.id)
       .in("status", [...ML_JOB_LIVE]);
+    if (liveErr) {
+      throw new Error(`could not read the model's live training jobs: ${liveErr.message}`);
+    }
     for (const j of live ?? []) await refreshMlJob(j.id);
-    const [{ data: versions }, { data: jobs }, { data: fresh }] = await Promise.all([
+    // Every read here used to drop its error: a failed versions read was
+    // "Versions (0)" and no production version, a failed jobs read "No jobs
+    // yet." A read that fails throws, and the page shows the failure.
+    const [versionsRead, jobsRead, freshRead] = await Promise.all([
       supabaseAdmin
         .from("ml_model_versions")
         .select("*")
@@ -492,14 +508,25 @@ export const mlGetModel = createServerFn({ method: "POST" })
         .select("*")
         .eq("model_id", model.id)
         .order("created_at", { ascending: false })
-        .limit(20),
+        // One past what is shown, so the page can say the list goes on.
+        .limit(JOBS_SHOWN + 1),
       supabaseAdmin.from("ml_models").select("*").eq("id", model.id).maybeSingle(),
     ]);
+    if (versionsRead.error) {
+      throw new Error(`could not read the model's versions: ${versionsRead.error.message}`);
+    }
+    if (jobsRead.error) {
+      throw new Error(`could not read the model's training jobs: ${jobsRead.error.message}`);
+    }
+    if (freshRead.error) throw new Error(`could not read the model: ${freshRead.error.message}`);
+    const jobs = capList(jobsRead.data ?? [], JOBS_SHOWN);
     return {
-      model: fresh ?? model,
+      model: freshRead.data ?? model,
       shared,
-      versions: versions ?? [],
-      jobs: jobs ?? [],
+      versions: versionsRead.data ?? [],
+      jobs: jobs.rows,
+      jobs_truncated: jobs.truncated,
+      jobs_shown: JOBS_SHOWN,
       limits: await limits(),
     };
   });
@@ -783,19 +810,34 @@ export const mlListPredictions = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) =>
     z.object({ access_token: z.string().min(1), model_id: z.string().uuid() }).parse(input),
   )
-  .handler(async ({ data }): Promise<{ predictions: MlPredictionRow[] }> => {
-    const userId = await resolveCaller(data.access_token);
-    const { model, shared } = await loadModelForUser(data.model_id, userId);
-    // A grantee sees their own runs; the owner sees every run made with the model.
-    let query = supabaseAdmin.from("ml_predictions").select("*").eq("model_id", model.id);
-    if (shared) query = query.eq("user_id", userId);
-    const { data: live } = await query.in("status", [...ML_JOB_LIVE]);
-    for (const r of live ?? []) await refreshPrediction(r.id);
-    let fresh = supabaseAdmin.from("ml_predictions").select("*").eq("model_id", model.id);
-    if (shared) fresh = fresh.eq("user_id", userId);
-    const { data: rows } = await fresh.order("created_at", { ascending: false }).limit(50);
-    return { predictions: rows ?? [] };
-  });
+  .handler(
+    async ({
+      data,
+    }): Promise<{ predictions: MlPredictionRow[]; truncated: boolean; shown: number }> => {
+      const userId = await resolveCaller(data.access_token);
+      const { model, shared } = await loadModelForUser(data.model_id, userId);
+      // A grantee sees their own runs; the owner sees every run made with the model.
+      let query = supabaseAdmin.from("ml_predictions").select("*").eq("model_id", model.id);
+      if (shared) query = query.eq("user_id", userId);
+      const { data: live, error: liveErr } = await query.in("status", [...ML_JOB_LIVE]);
+      if (liveErr) {
+        throw new Error(`could not read the model's live prediction runs: ${liveErr.message}`);
+      }
+      for (const r of live ?? []) await refreshPrediction(r.id);
+      let fresh = supabaseAdmin.from("ml_predictions").select("*").eq("model_id", model.id);
+      if (shared) fresh = fresh.eq("user_id", userId);
+      // A failed read used to come back as `[]` — "No predictions yet." over a
+      // read that failed — and the newest fifty as every run there was. The
+      // read throws, and one row past the cap is fetched so the tab can say
+      // the list goes on.
+      const { data: rows, error } = await fresh
+        .order("created_at", { ascending: false })
+        .limit(PREDICTIONS_SHOWN + 1);
+      if (error) throw new Error(`could not read the model's prediction runs: ${error.message}`);
+      const cut = capList(rows ?? [], PREDICTIONS_SHOWN);
+      return { predictions: cut.rows, truncated: cut.truncated, shown: PREDICTIONS_SHOWN };
+    },
+  );
 
 export const mlCancelPrediction = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) =>

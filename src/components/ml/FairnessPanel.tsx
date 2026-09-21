@@ -146,11 +146,18 @@ export function FairnessPanel({
   const run = async () => {
     setBusy("run");
     try {
-      const { predictions } = await predictionsFn({
+      const { predictions, truncated, shown } = await predictionsFn({
         data: { access_token: token, model_id: modelId },
       });
       const batch = predictions.find((p) => p.kind === "batch" && p.status === "succeeded");
-      if (!batch) return toast.error("No successful batch run to compare yet");
+      // The list is the newest runs: an older batch run is not "none".
+      if (!batch) {
+        return toast.error(
+          truncated
+            ? `No successful batch run among the newest ${shown} runs — older runs are not searched`
+            : "No successful batch run to compare yet",
+        );
+      }
       const res = await runFn({ data: { access_token: token, prediction_id: batch.id } });
       if (!res.ok) toast.error(res.error);
       else {

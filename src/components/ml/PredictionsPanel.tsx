@@ -49,6 +49,8 @@ export function PredictionsPanel({
   const listFn = useServerFn(mlListPredictions);
   const cancelFn = useServerFn(mlCancelPrediction);
   const [runs, setRuns] = useState<MlPredictionRow[] | null>(null);
+  /** The list is the newest runs and older ones exist (the server says). */
+  const [truncated, setTruncated] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [batchOpen, setBatchOpen] = useState(false);
   const [logsFor, setLogsFor] = useState<MlPredictionRow | null>(null);
@@ -62,6 +64,7 @@ export function PredictionsPanel({
       setError(null);
       const r = await listFn({ data: { access_token: token, model_id: model.id } });
       setRuns(r.predictions);
+      setTruncated(r.truncated);
     } catch (e) {
       setError((e as Error).message);
     }
@@ -219,6 +222,11 @@ export function PredictionsPanel({
             )}
           </tbody>
         </table>
+        {truncated ? (
+          <p className="px-3 py-2 text-xs text-muted-foreground">
+            The newest {runs?.length ?? 0} runs. Older runs exist and are not listed here.
+          </p>
+        ) : null}
       </div>
 
       <BatchDialog

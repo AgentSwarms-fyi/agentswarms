@@ -109,6 +109,43 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-21 — "Jobs (20)" on a model with twenty-one versions
+
+#### R62 · S2 · The ML model page and its runs: a capped list's length as the count, and failed reads as "nothing yet"
+
+Sweep 2's last named row, ML predictions. Open `revenue_facts · groups` —
+"21 versions" on its card — and the tabs read `Versions (21)` and `Jobs (20)`;
+the Jobs tab lists twenty rows, oldest "17d ago", and nothing says there
+are more. `mlGetModel` read the newest twenty training jobs and the page
+printed the length of what came back. The Predictions tab did the same with
+the newest fifty runs (`mlListPredictions`), and the Accuracy and Fairness
+panels searched those fifty for the newest successful batch run and called
+an older one "No successful batch run to measure yet".
+
+The same two handlers dropped the error of every read they made: a failed
+versions read was `Versions (0)` and no production version, a failed jobs
+read "No jobs yet.", a failed runs read "No predictions yet." — sweep item 1's
+shape, in the one module the named list never reached.
+
+Each read now throws with what could not be read, and the page shows the
+failure. Each list fetches one row past what it shows (`capList`, the twin of
+R61's `semanticTrim` for lists that are not queries) and says when it goes
+on: `Jobs (20+)` with "The newest 20 jobs. Older jobs exist and are not listed
+here." under the table; the same note under the Predictions tab; and the two
+panels say "No successful batch run among the newest 50 runs — older runs
+are not searched" instead of "none". The docs say which lists are the newest
+N and that a failed read is shown as one.
+
+Driven, before: `Versions (21)` · `Jobs (20)`, twenty rows, no note. After
+the rebuild, the same model: `Jobs (20+)`, and under the twenty rows "The
+newest 20 jobs. Older jobs exist and are not listed here."; the Predictions
+tab lists its eleven runs with no note, being under its cap. The failed-read
+half is server-side and held by the tests.
+
+**Tests:** 2 behavioural on `capList`, 7 source-anchored on both handlers
+and every surface; 9 behaviour-changing mutants each killed, control missed,
+baseline green first.
+
 ### 2026-09-21 — The governed query that stopped at its cap and never said so
 
 #### R61 · S2 · "100 row(s)" over 9,994 groups, and three more places the prefix was the whole

@@ -73,6 +73,14 @@ function MlPredictionsPage() {
         <C>ml.predict_query</C>) with a digest over the prediction column and the row cap, so a
         replay can tell &ldquo;same model, same rows, same answers&rdquo; from drift.
       </P>
+      <P>
+        The Predictions tab lists the newest fifty runs and the model page&apos;s Jobs tab the
+        newest twenty training jobs; each fetches one row past that and says when older ones exist
+        (&ldquo;Jobs (20+)&rdquo;, a note under the table) rather than presenting the newest as all.
+        A read that fails shows as a failure on the page, never as &ldquo;no runs yet&rdquo;. The
+        Accuracy and Fairness panels measure the newest successful batch run among those fifty, and
+        say so when there is none among them.
+      </P>
       <H3 id="agents">Agents</H3>
       <P>
         Enable <strong>ML Predictions</strong> in an agent&apos;s tools. The agent gets{" "}

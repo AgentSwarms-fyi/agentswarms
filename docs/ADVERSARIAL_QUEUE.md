@@ -104,7 +104,7 @@ The three shapes it takes:
 | Scheduler surface         | ✅ fixed | 2026-09-21 | R59 — the pass's failures and a stopped scheduler now show on Monitoring, beside every other service                   |
 | SQL model stamps          | ✅ fixed | 2026-09-21 | R60 — a definition edit is marked by the database and the page stops calling the previous build this one's             |
 | Semantic layer            | ✅ fixed | 2026-09-21 | R61 — the runner fetches one past its cap and says when it cut; the preview, a widget's parameter re-run, the analyst's step and the refresh all say partial|
-| **ML predictions**     | ⬜ next  |            |                                                                                                              |
+| ML predictions            | ✅ fixed | 2026-09-21 | R62 — Jobs (20) on a model with twenty-one versions; both list handlers now throw on a failed read and say when the list is the newest N|
 
 ## Sweeps after this one
 
@@ -257,6 +257,11 @@ least twice, not a hypothetical.
 - "It returned no matching passages" is a claim about the documents. A
   search that could not be completed has no standing to make it, and the
   model it is told to will repeat it as fact.
+- Sweep 2's named rows are closed with R62. The failed-read shape (item 1)
+  turned up again in the one module the named list never reached — the
+  ML page's two list handlers — which is the argument for the survey,
+  not the list. Next: the badge family under item 2, starting with the
+  materialized view the Lakehouse page can edit.
 - A cap the fetch stops AT cannot be seen; fetch one past it. `rows.length
   >= cap` is a guess that flags a complete result of exactly cap rows and
   is the only thing a consumer can do when the runner said nothing. Say it
