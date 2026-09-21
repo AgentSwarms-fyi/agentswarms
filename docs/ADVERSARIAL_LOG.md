@@ -109,6 +109,40 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-21 — A turn that was never saved looked exactly like one that was
+
+#### R65 · S1 · Agent Chat's message inserts
+
+The failed-read survey's largest file, the Agent Chat page, and the
+write-side twin of the class. Reject every insert to `messages` and send a
+probe: "You: R65 probe: reply with the single word OK" · "Assistant: OK" —
+twelve bubbles where there were ten, two POSTs rejected, no toast, no mark.
+Reload: ten bubbles; the probe turn is gone. Nothing distinguished the two
+unsaved messages from the ten saved ones until they were not there.
+
+Five of the page's six message inserts — the user's message, its edited
+resend, the assistant's reply on both paths, the BI answer, the document
+prompt — read `const { data } = await …insert()` and dropped the error; only
+the document save warned ("built, but not saved to this conversation").
+Every insert now goes through one `persistMessage`: on failure the on-screen
+message is marked `unsaved` with the reason, the bubble says "not saved — it
+will not be here after a reload" under the sender's name, and a toast says
+why. The two conversation reads keep their error too: a failed
+`conversations` read used to be an empty list, and an empty list creates a
+fresh "New Chat" — so a network blip could bury the real conversations
+under a new one; it now says so and creates nothing.
+
+Driven, before: twelve bubbles, no mark, no toast, ten after a reload.
+After the rebuild, the same rejection: under both new bubbles `not saved —
+it will not be here after a reload` with the fetch error on hover, and the
+toast `This message was not saved to the conversation · TypeError: Failed
+to fetch. It will not be here after a reload.` read seconds after the send;
+ten bubbles after a reload, as the marks said.
+
+**Tests:** 6 source-anchored on the helper, the six call sites, the bubble
+and the two reads; 6 behaviour-changing mutants each killed, control
+missed, baseline green first.
+
 ### 2026-09-21 — "No agents yet", over nine agents it could not read
 
 #### R64 · S1 · The Agent Builder and Knowledge Base lists

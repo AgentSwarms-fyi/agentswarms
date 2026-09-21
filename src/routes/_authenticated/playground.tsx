@@ -139,7 +139,15 @@ type Source = {
   snippet?: string;
   tool?: string;
 };
-type Message = { id: string; role: string; content: string; created_at: string; metadata?: any };
+type Message = {
+  id: string;
+  role: string;
+  content: string;
+  created_at: string;
+  metadata?: any;
+  /** Why this message could not be saved to the conversation, when it could not. */
+  unsaved?: string;
+};
 
 // Hoisted to module scope so helper components (AttachmentChips, ToolEventsPanel)
 // can share the exact same shape as the playground component's state.
@@ -250,6 +258,39 @@ function PlaygroundPage() {
   // loaded fresh from loadMessages() already carry their real id, so a miss
   // here just falls back to the message's own id (see resolveDbId).
   const dbIdMap = useRef(new Map<string, string>());
+
+  /**
+   * Insert one message row and remember its real id.
+   *
+   * FOUND FROM THE UI. Every insert on this page dropped its error, so a
+   * message whose save failed stayed on screen exactly like one that was
+   * saved — and was gone after a reload, with nothing ever said. The
+   * document path already warned ("built, but not saved"); this is the
+   * same warning for every message. The on-screen message is marked, the
+   * bubble says it will not survive a reload, and a toast says why.
+   */
+  async function persistMessage(
+    localId: string,
+    row: {
+      conversation_id: string;
+      user_id: string;
+      role: string;
+      content: string;
+      metadata?: Json;
+    },
+  ): Promise<string | null> {
+    const { data, error } = await supabase.from("messages").insert(row).select("id").single();
+    if (error || !data?.id) {
+      const why = error?.message ?? "no id came back from the insert";
+      setMessages((prev) => prev.map((m) => (m.id === localId ? { ...m, unsaved: why } : m)));
+      toast.warning("This message was not saved to the conversation", {
+        description: `${why}. It will not be here after a reload.`,
+      });
+      return null;
+    }
+    dbIdMap.current.set(localId, data.id);
+    return data.id;
+  }
 
   // Aborts the in-flight /api/chat stream when the user hits "Stop".
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -391,11 +432,18 @@ function PlaygroundPage() {
   }, [selectedAgent]);
 
   async function loadConversations() {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("conversations")
       .select("*")
       .eq("agent_id", selectedAgent)
       .order("updated_at", { ascending: false });
+    // A failed read used to be an empty list — and an empty list creates a
+    // fresh "New Chat", so a network blip could bury the real conversations
+    // under a new one. A read that fails is said, and creates nothing.
+    if (error) {
+      toast.error("Could not load this agent's conversations", { description: error.message });
+      return;
+    }
     if (data) {
       setConversations(data);
       if (data.length > 0) {
@@ -417,11 +465,17 @@ function PlaygroundPage() {
   }
 
   async function loadMessages() {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("messages")
       .select("*")
       .eq("conversation_id", activeConvo)
       .order("created_at", { ascending: true });
+    // A failed read used to leave whatever was on screen, or nothing, with
+    // no word — an empty conversation that is not empty.
+    if (error) {
+      toast.error("Could not load this conversation's messages", { description: error.message });
+      return;
+    }
     if (data) setMessages(data as Message[]);
   }
 
@@ -647,18 +701,13 @@ function PlaygroundPage() {
               durationMs: Date.now() - startedAt,
               traceId: null,
             });
-            const { data: insertedBi } = await supabase
-              .from("messages")
-              .insert({
-                conversation_id: activeConvo,
-                user_id: user.id,
-                role: "assistant",
-                content,
-                metadata: meta as unknown as Json,
-              })
-              .select("id")
-              .single();
-            if (insertedBi?.id) dbIdMap.current.set(assistantId, insertedBi.id);
+            await persistMessage(assistantId, {
+              conversation_id: activeConvo,
+              user_id: user.id,
+              role: "assistant",
+              content,
+              metadata: meta as unknown as Json,
+            });
             if (opts.isFirstUserMessage && lastUserMsg) {
               await supabase
                 .from("conversations")
@@ -864,23 +913,16 @@ function PlaygroundPage() {
         };
       }
 
-      const { data: insertedAssistant } = await supabase
-        .from("messages")
-        .insert({
-          conversation_id: activeConvo,
-          user_id: user.id,
-          role: "assistant",
-          content: assistantContent,
-          metadata: {
-            ...(citations.length > 0 ? { citations } : {}),
-            ...(sources.length > 0 ? { sources } : {}),
-          },
-        })
-        .select("id")
-        .single();
-      if (insertedAssistant?.id) {
-        dbIdMap.current.set(assistantId, insertedAssistant.id);
-      }
+      await persistMessage(assistantId, {
+        conversation_id: activeConvo,
+        user_id: user.id,
+        role: "assistant",
+        content: assistantContent,
+        metadata: {
+          ...(citations.length > 0 ? { citations } : {}),
+          ...(sources.length > 0 ? { sources } : {}),
+        } as unknown as Json,
+      });
 
       // (Visual BI answers are produced up-front by the BI-first branch above;
       // reaching here means either BI is off or the question wasn't answerable
@@ -913,23 +955,16 @@ function PlaygroundPage() {
           traceId,
         });
         if (assistantContent) {
-          const { data: insertedAssistant } = await supabase
-            .from("messages")
-            .insert({
-              conversation_id: activeConvo,
-              user_id: user.id,
-              role: "assistant",
-              content: assistantContent,
-              metadata: {
-                ...(citations.length > 0 ? { citations } : {}),
-                ...(sources.length > 0 ? { sources } : {}),
-              },
-            })
-            .select("id")
-            .single();
-          if (insertedAssistant?.id) {
-            dbIdMap.current.set(assistantId, insertedAssistant.id);
-          }
+          await persistMessage(assistantId, {
+            conversation_id: activeConvo,
+            user_id: user.id,
+            role: "assistant",
+            content: assistantContent,
+            metadata: {
+              ...(citations.length > 0 ? { citations } : {}),
+              ...(sources.length > 0 ? { sources } : {}),
+            } as unknown as Json,
+          });
         } else {
           setMessages((prev) => prev.filter((m) => m.id !== assistantId));
         }
@@ -1207,18 +1242,13 @@ function PlaygroundPage() {
       };
       setMessages((prev) => [...prev, docPrompt]);
       if (activeConvo && user) {
-        const { data: insertedPrompt } = await supabase
-          .from("messages")
-          .insert({
-            conversation_id: activeConvo,
-            user_id: user.id,
-            role: "user",
-            content: p,
-            metadata: { docRequest: fmt } as unknown as Json,
-          })
-          .select("id")
-          .single();
-        if (insertedPrompt?.id) dbIdMap.current.set(docPrompt.id, insertedPrompt.id);
+        await persistMessage(docPrompt.id, {
+          conversation_id: activeConvo,
+          user_id: user.id,
+          role: "user",
+          content: p,
+          metadata: { docRequest: fmt } as unknown as Json,
+        });
         // Doc-gen never went through the normal reply path, so a conversation
         // that only ever generated documents stayed titled "New Chat".
         if (isFirstDocMessage) {
@@ -1262,17 +1292,12 @@ function PlaygroundPage() {
             .map((a) => (a.kind === "image" ? `📎 image: ${a.name}` : `📎 document: ${a.name}`))
             .join("\n")
         : "";
-    const { data: insertedUser } = await supabase
-      .from("messages")
-      .insert({
-        conversation_id: activeConvo,
-        user_id: user.id,
-        role: "user",
-        content: userMsg + attachmentSummary,
-      })
-      .select("id")
-      .single();
-    if (insertedUser?.id) dbIdMap.current.set(tempUserMsg.id, insertedUser.id);
+    await persistMessage(tempUserMsg.id, {
+      conversation_id: activeConvo,
+      user_id: user.id,
+      role: "user",
+      content: userMsg + attachmentSummary,
+    });
 
     await runAndHandleFallback({ historySnapshot, isFirstUserMessage: isFirstMessage });
   }
@@ -1339,17 +1364,12 @@ function PlaygroundPage() {
     if (toRemoveDbIds.length > 0) {
       await supabase.from("messages").delete().in("id", toRemoveDbIds);
     }
-    const { data: insertedUser } = await supabase
-      .from("messages")
-      .insert({
-        conversation_id: activeConvo,
-        user_id: user.id,
-        role: "user",
-        content: trimmed,
-      })
-      .select("id")
-      .single();
-    if (insertedUser?.id) dbIdMap.current.set(editedMsg.id, insertedUser.id);
+    await persistMessage(editedMsg.id, {
+      conversation_id: activeConvo,
+      user_id: user.id,
+      role: "user",
+      content: trimmed,
+    });
 
     await runAndHandleFallback({ historySnapshot, isFirstUserMessage: isFirstMessage });
   }
@@ -2784,6 +2804,15 @@ function MessageBubble({
           <p className="text-xs font-medium text-muted-foreground">
             {isUser ? "You" : "Assistant"}
           </p>
+          {message.unsaved ? (
+            <span
+              className="text-[11px] text-amber-600 dark:text-amber-400"
+              title={message.unsaved}
+              role="status"
+            >
+              not saved — it will not be here after a reload
+            </span>
+          ) : null}
           {/* Hover-revealed action row — hidden while a response is streaming
               so actions can't target a message mid-turn. */}
           {!disabled && (

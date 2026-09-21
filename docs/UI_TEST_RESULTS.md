@@ -15,6 +15,41 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-21 — Agent Chat, a message whose save failed, before and after, ADVERSARIAL_LOG R65
+
+**Why this round exists.** The failed-read survey's largest file, the Agent
+Chat page, turned out to have the write-side twin of the problem: five of
+its six message inserts dropped their error, so a turn that was never saved
+looked exactly like one that was.
+
+### Before the fix
+
+| Driven                                                                                                                       | Read back                                                                                                                                       |
+| ---------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Agent Chat → "Sample · Graph RAG Explorer (Acme Corp)", its conversation of 10 messages                                      | 10 bubbles, last: "According to the documents, what products does Acme Corp sell?" / "I could not find any information…"                       |
+| Every `POST /rest/v1/messages` rejected (`Failed to fetch`); "R65 probe: reply with the single word OK" sent by the icon button | 12 bubbles: `You R65 probe: reply with the single word OK` · `Assistant OK`; **two POSTs rejected, no toast, no mark of any kind**                |
+| Reload, same agent, same conversation                                                                                        | 10 bubbles; the probe turn is **gone**                                                                                                          |
+
+Nothing distinguished the two unsaved messages from the ten saved ones until
+they were not there.
+
+### After the rebuild
+
+The `agentswarms` service rebuilt and recreated (container `c643ca45cde6`);
+the same agent and conversation reloaded onto it. Same rejection, same
+send.
+
+| Driven                                                                                                   | Read back                                                                                                                                                                                                             |
+| -------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Every `POST /rest/v1/messages` rejected; "R65 probe two: reply with the single word OK" sent by the icon | 12 bubbles; under both new bubbles: **`not saved — it will not be here after a reload`**, hover text `TypeError: Failed to fetch`; two POSTs rejected                                                                    |
+| A third probe, read 2.5 s after the send                                                                 | toast **`This message was not saved to the conversation · TypeError: Failed to fetch. It will not be here after a reload.`**                                                                                            |
+| `fetch` restored, reload                                                                                 | 10 bubbles again once the one reply that landed after the restore (an orphan "OK") was deleted through its bubble; nothing marked, nothing missing that was not said to be                                                |
+
+The two halves the page needed: the mark on the message, and the reason at
+the moment of failure. The conversation is back to its ten messages.
+
+Findings from this round: R65 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-21 — The Agent Builder and Knowledge Base lists, before and after, ADVERSARIAL_LOG R64
 
 **Why this round exists.** The failed-read survey, taken to the two builder

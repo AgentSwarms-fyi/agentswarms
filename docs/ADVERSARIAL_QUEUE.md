@@ -264,6 +264,11 @@ least twice, not a hypothetical.
 - "It returned no matching passages" is a claim about the documents. A
   search that could not be completed has no standing to make it, and the
   model it is told to will repeat it as fact.
+- A write that failed, shown as done (R65): Agent Chat's message inserts.
+  The read-side rule has a write-side twin — `const { data } = await
+  …insert()` is a save that passes on failure — and a page that shows the
+  optimistic row must also show when the row did not land. Survey next:
+  every error-less `.insert(`/`.update(`/`.upsert(` on the client.
 - The two builder lists (R64): `No agents yet` with a "New Agent" button over
   nine agents the page could not read. A list surface has four states, not
   two; the pure `listState` in `lib/listState` names them, and an error is
