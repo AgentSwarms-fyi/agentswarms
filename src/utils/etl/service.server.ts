@@ -11,6 +11,7 @@
 // sandbox process's memory — never in container env, never in the script text,
 // and scrubbed from captured logs before they are persisted.
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { selectAllPages } from "@/lib/pagedSelect";
 import type { Database, Json } from "@/integrations/supabase/types";
 import { loadStorageConfig } from "@/utils/catalog/crawler.server";
 import {
@@ -841,24 +842,26 @@ export async function etlDatasetFor(
     .eq("user_id", userId)
     .maybeSingle();
   if (!table) return { error: "Dataset not found for this session" };
-  const PAGE = 1000;
-  const rows: Record<string, unknown>[] = [];
+  // Ordered and error-checked already; what it lacked was an offset that
+  // advances by the response. Under a server cap below PAGE this read a scatter
+  // and called it truncated, and an ETL step over a scatter produces output that
+  // is wrong rather than short.
+  let rows: Record<string, unknown>[];
   let truncated = false;
-  for (let start = 0; ; start += PAGE) {
-    const { data: chunk, error } = await supabaseAdmin
-      .from("user_data_rows")
-      .select("row")
-      .eq("table_id", tableId)
-      .order("id", { ascending: true })
-      .range(start, start + PAGE - 1);
-    if (error) return { error: error.message };
-    if (!chunk?.length) break;
-    rows.push(...chunk.map((c) => c.row as Record<string, unknown>));
-    if (chunk.length < PAGE) break;
-    if (rows.length >= ETL_DATASET_MAX_ROWS) {
-      truncated = true;
-      break;
-    }
+  try {
+    const scan = await selectAllPages<{ row: unknown }>(
+      () =>
+        supabaseAdmin
+          .from("user_data_rows")
+          .select("row")
+          .eq("table_id", tableId)
+          .order("id", { ascending: true }),
+      ETL_DATASET_MAX_ROWS,
+    );
+    rows = scan.rows.map((c) => c.row as Record<string, unknown>);
+    truncated = scan.truncated;
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "could not read the dataset" };
   }
   return { rows, truncated };
 }

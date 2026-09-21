@@ -97,3 +97,46 @@ describe("row pagers that persist or compute", () => {
     expect(scanBlock(REFRESH, "widget refresh")).toMatch(/localRowsPerTableCap\(\),/);
   });
 });
+
+describe("the tail of the sweep: flags that described the wrong defect", () => {
+  // `capped` and `truncated` report that fewer rows were read than the count,
+  // which a reader takes to mean the work below ran over a PREFIX. Under a
+  // server cap smaller than PAGE these two also SKIPPED — their offsets advanced
+  // by the request size — so the rows on hand were a scatter. A null rate over a
+  // scatter, or an ETL step over one, is wrong rather than short, and a flag
+  // that names the wrong defect is worse than no flag.
+  const QUALITY = readFileSync("src/utils/bi/quality.server.ts", "utf8");
+  const ETL = readFileSync("src/utils/etl/service.server.ts", "utf8");
+
+  for (const [label, src] of [
+    ["data quality", QUALITY],
+    ["etl dataset read", ETL],
+  ] as const) {
+    describe(label, () => {
+      it("reads through the shared pager", () => {
+        expect(src).toContain('from "@/lib/pagedSelect"');
+        expect(src).toContain("await selectAllPages<{ row: unknown }>(");
+      });
+
+      it("no longer advances an offset by the page it asked for", () => {
+        expect(src).not.toMatch(/(?:start|from)\s*\+=\s*PAGE\b/);
+      });
+
+      it("orders by a unique column", () => {
+        const i = src.indexOf("selectAllPages<");
+        expect(src.slice(i, i + 500)).toContain('.order("id", { ascending: true })');
+      });
+    });
+  }
+
+  it("data quality's capped flag now means what it says", () => {
+    expect(QUALITY).toContain("capped: scan.truncated || total > rows.length,");
+  });
+
+  it("the etl read reports truncation from the scan rather than from a guess", () => {
+    expect(ETL).toContain("truncated = scan.truncated;");
+    // And a failed read still returns an error rather than throwing out of a
+    // function whose callers expect `{ error }`.
+    expect(ETL).toMatch(/return \{ error: err instanceof Error \? err\.message/);
+  });
+});

@@ -109,6 +109,61 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-21 — A flag that named the wrong defect, and the last of the pagers
+
+#### R47 · S2 · Two sites I had recorded as mitigated were not
+
+R44 fixed the three offset-advance sites where nothing downstream could tell,
+and left `bi/quality` and `etl/service` in the queue with "skips, but `capped`
+catches it" and "skips, but `truncated` catches it". That was wrong, and it was
+wrong in an interesting way.
+
+Both flags report the same thing: **fewer rows were read than the count**. A
+reader takes that to mean the work below ran over a PREFIX of the table — the
+first N rows, missing a tail. Under a server cap smaller than `PAGE` that is not
+what happened. Their offsets advanced by the request size, so every clamped page
+left a hole, and the rows on hand were a SCATTER.
+
+A null rate, a distinct count or a min/max over a scatter is not a partial
+answer, it is a wrong one. An ETL step over a scatter produces output that is
+wrong rather than short. And the flag sitting beside the result tells the reader
+the wrong thing about it, which is worse than no flag: it converts a defect into
+a caveat, and caveats get accepted.
+
+The general shape, worth keeping: **a disclosure is only a mitigation if it
+describes the defect that actually occurred.** "We read fewer rows" and "the rows
+we read have gaps" produce identical flags and completely different answers.
+
+Both read through `selectAllPages` now, ordered by `id`, and `capped` /
+`truncated` come from the scan rather than from a count comparison that could
+not tell the two apart.
+
+#### R47 · S3 · The sweep's own module had the milder half
+
+`pageTraces` in `lib/traceWindow` — written by this campaign, for exactly this
+class — stopped at the first page shorter than the one it asked for.
+
+It never skipped: it stopped rather than advancing past a short page, so the
+window headline it feeds stayed honest. On a deployment whose `db-max-rows` sits
+below the page size it simply said "showing the most recent 400 of 2,731 traces"
+where it could have said 2,731 — truthful, and needlessly degraded. It advances
+by what it received now, and ends on a page shorter than one the server has
+already produced.
+
+**Tests:** 5 behavioural for `pageTraces` (including every row read at a cap of
+400 against 2,731 rows) and 7 for the two server sites, 10 behaviour-changing
+mutants applied one at a time and each killed, control missed, baseline verified
+green first.
+
+#### R47 · The sweep is closed
+
+Nine hand-rolled pagers were found by grepping for one assumption. All nine are
+done: three that persisted (R43), three that skipped unnoticed (R44), the audit
+export (R45), the parallel reader (R46), and these three. `audit.functions`
+remains and is deliberately out of scope — it pages the Auth admin API, which
+honours its own page size and has its own pagination contract; its only issue is
+a folded error, which belongs to the failed-read sweep rather than this one.
+
 ### 2026-09-21 — Five windows at once, and any one of them could end the read
 
 #### R46 · S1 · Four defects in one loop, feeding the SQL engine

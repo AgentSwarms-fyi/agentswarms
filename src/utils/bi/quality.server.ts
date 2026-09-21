@@ -6,6 +6,7 @@
 // lib/dataQualityCore, so the same logic is testable without a database.
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { selectAllPages } from "@/lib/pagedSelect";
 import type { Json } from "@/integrations/supabase/types";
 import {
   anyTestNeedsRows,
@@ -67,19 +68,31 @@ async function loadRows(
     .eq("table_id", tableId);
   const total = count ?? 0;
 
-  const rows: Record<string, unknown>[] = [];
-  for (let start = 0; start < cap; start += PAGE) {
-    const { data: chunk, error } = await supabaseAdmin
-      .from("user_data_rows")
-      .select("row")
-      .eq("table_id", tableId)
-      .range(start, Math.min(start + PAGE, cap) - 1);
-    if (error) throw new Error(error.message);
-    if (!chunk || chunk.length === 0) break;
-    rows.push(...chunk.map((c) => c.row as Record<string, unknown>));
-    if (chunk.length < PAGE) break;
-  }
-  return { rows, total: Math.max(total, rows.length), capped: total > rows.length };
+  // `capped` was doing honest work on a dishonest read.
+  //
+  // It reports that fewer rows were read than the count, which a reader takes
+  // to mean the checks below ran over a PREFIX of the table. Under a server cap
+  // smaller than PAGE they did not: the offsets advanced by the request size,
+  // so a clamped page left a hole and the rows on hand were a scatter. A null
+  // rate, a distinct count or a min/max over a scatter is not a partial answer,
+  // it is a wrong one — and the flag beside it describes the wrong defect,
+  // which is worse than no flag at all.
+  const scan = await selectAllPages<{ row: unknown }>(
+    () =>
+      supabaseAdmin
+        .from("user_data_rows")
+        .select("row")
+        .eq("table_id", tableId)
+        .order("id", { ascending: true }),
+    cap,
+  );
+  const rows = scan.rows.map((c) => c.row as Record<string, unknown>);
+  return {
+    rows,
+    total: Math.max(total, rows.length),
+    // Now it means what it says: the ceiling stopped us, or the table grew.
+    capped: scan.truncated || total > rows.length,
+  };
 }
 
 /**

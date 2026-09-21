@@ -443,3 +443,70 @@ describe("what the run detail page actually reads", () => {
     expect(page).toContain("Data flow ({loadError ? UNKNOWN_COUNT : edges.length}");
   });
 });
+
+describe("pageTraces reads to the end, not to the first short page", () => {
+  // This module's own pager, and it had the milder half of the defect the sweep
+  // went on to find elsewhere. It stopped at the first page shorter than the one
+  // it asked for — which is only the end when the server gives everything it is
+  // asked for, and `db-max-rows` belongs to whoever runs the database.
+  //
+  // It never SKIPPED, because it stopped rather than advancing past a short
+  // page, so the window headline it feeds stayed honest. It just said "showing
+  // the most recent N of M" for a far smaller N than it needed to.
+
+  /** A page source that clamps every response, as PostgREST does. */
+  const source = (total: number, cap: number) => {
+    let calls = 0;
+    return {
+      calls: () => calls,
+      fetch: async (offset: number, pageSize: number) => {
+        calls++;
+        const take = Math.min(pageSize, cap, Math.max(0, total - offset));
+        return { rows: Array.from({ length: take }, (_, i) => ({ id: offset + i })) };
+      },
+    };
+  };
+
+  it("reads every row when the server honours the page size", async () => {
+    const s = source(2731, 1000);
+    const rows = await pageTraces<{ id: number }>(s.fetch, { pageSize: 1000, maxRows: 5000 });
+    expect(rows).toHaveLength(2731);
+  });
+
+  it("reads every row when the server's cap is SMALLER than the page asked for", async () => {
+    // The finding. Before, this returned 400 of 2,731 and the header said so —
+    // honestly, and needlessly.
+    const s = source(2731, 400);
+    const rows = await pageTraces<{ id: number }>(s.fetch, { pageSize: 1000, maxRows: 5000 });
+    expect(rows).toHaveLength(2731);
+    expect(rows.map((r) => r.id)).toEqual(Array.from({ length: 2731 }, (_, i) => i));
+  });
+
+  it("still stops at its ceiling", async () => {
+    const s = source(20_000, 1000);
+    const rows = await pageTraces<{ id: number }>(s.fetch, { pageSize: 1000, maxRows: 5000 });
+    expect(rows).toHaveLength(5000);
+  });
+
+  it("stops on an empty page rather than asking forever", async () => {
+    const s = source(0, 1000);
+    const rows = await pageTraces<{ id: number }>(s.fetch, { pageSize: 1000, maxRows: 5000 });
+    expect(rows).toEqual([]);
+    expect(s.calls()).toBe(1);
+  });
+
+  it("lets an errored page abort the whole load", async () => {
+    // Unchanged, and the reason the analytics page can trust what it totals: a
+    // half-fetched window summed as if whole is the original defect wearing an
+    // error instead of a limit.
+    await expect(
+      pageTraces<{ id: number }>(
+        async (offset) => {
+          if (offset > 0) throw new Error("statement timeout");
+          return { rows: Array.from({ length: 1000 }, (_, i) => ({ id: i })) };
+        },
+        { pageSize: 1000, maxRows: 5000 },
+      ),
+    ).rejects.toThrow("statement timeout");
+  });
+});

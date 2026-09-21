@@ -67,12 +67,24 @@ export async function pageTraces<Row>(
 ): Promise<Row[]> {
   const { pageSize, maxRows } = opts;
   const all: Row[] = [];
-  for (let offset = 0; offset < maxRows; offset += pageSize) {
+  // This campaign's own, and it had the milder half of the defect it went on to
+  // find elsewhere: it stopped at the first short page. It never SKIPPED, since
+  // it stopped rather than advancing past one, so the window headline it feeds
+  // stayed honest — it just said "showing the most recent N of M" for a much
+  // smaller N than it needed to, on any deployment whose db-max-rows sits below
+  // the page size asked for. A page shorter than one the server has already
+  // produced is the end; a page shorter than the REQUEST is only news about the
+  // server.
+  let offset = 0;
+  let observedMax = 0;
+  while (offset < maxRows) {
     const { rows } = await fetchPage(offset, pageSize);
+    if (rows.length === 0) break;
     all.push(...rows);
-    // A short page is the only proof the end was reached; a full page could
-    // be a coincidence exactly at the boundary, so we ask once more.
-    if (rows.length < pageSize) break;
+    offset += rows.length;
+    const prevMax = observedMax;
+    observedMax = Math.max(observedMax, rows.length);
+    if (rows.length < prevMax) break;
   }
   return all;
 }

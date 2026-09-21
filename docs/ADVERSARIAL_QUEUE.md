@@ -89,41 +89,26 @@ The three shapes it takes:
 | Offsets that skipped   | ✅ fixed | 2026-09-21 | R44 — `start += PAGE` left holes, not a tail; the SQL tool an agent calls, prep, and version copies          |
 | Audit export           | ✅ fixed | 2026-09-21 | R45 — the one close that ended the evidence stream without an error line                                     |
 | Local SQL engine       | ✅ fixed | 2026-09-21 | R46 — five parallel windows, any one of which could end the read; a failed shared read registered empty      |
+| Pager sweep tail       | ✅ fixed | 2026-09-21 | R47 — `capped` and `truncated` described a prefix over rows that were a scatter                              |
 | **Semantic layer**     | ⬜ next  |            |                                                                                                              |
 | ML predictions         | ⬜       |            |                                                                                                              |
 
 ## Sweeps after this one
 
-### Next: the remaining hand-rolled pagers
+### Closed: the hand-rolled pagers
 
-R43 took the three that WRITE. These nine read by offset against PostgREST and
-still end on a short page, which is only the end when the server returns
-everything it is asked for. None of them persists, so each is a figure or a list
-rather than a table — but the same three questions apply to every one: does it
-keep the page's error, does it order by a unique column, and what does it claim
-when it stops early?
+Nine were found by grepping for one assumption — `chunk.length < PAGE` as
+proof that a filter is exhausted — and all nine are done: three that persisted
+what they read (R43), three that skipped rows with nothing downstream able to
+tell (R44), the audit export (R45), the five-window parallel reader (R46), and
+the tail whose disclosure flags described the wrong defect (R47).
 
-R44 took the three of these that could not disclose a short read. What is
-left:
-
-| Site                              | What it feeds                           | Still wrong                       |
-| --------------------------------- | --------------------------------------- | --------------------------------- |
-| `src/lib/traceWindow.ts`          | `pageTraces` — written by this campaign | short page ends the read          |
-| `src/utils/audit.functions.ts`    | the user list behind audit attribution  | Auth admin API, error folded in   |
-| `src/utils/bi/quality.server.ts`  | data-quality checks                     | skips, but `capped` catches it    |
-| `src/utils/etl/service.server.ts` | ETL reads                               | skips, but `truncated` catches it |
-
-Three left, and they are the mild ones. `traceWindow`'s `pageTraces` is this
-campaign's own, and its window headline already says when the read was cut.
-`bi/quality` and `etl/service` skip rows under a small cap, but both compare
-what they read against an exact count, so a short read shows up as `capped`
-or `truncated` rather than as a confident figure. `audit.functions` folds its
-error on the Auth admin API, which is a different contract from PostgREST and
-honours its own page size.
-
-The five under `src/utils/saas/*` and `kb/confluence.server.ts` are NOT in this
-class: they page third-party APIs, which honour their own page sizes and have
-their own pagination contracts.
+`src/utils/audit.functions.ts` is deliberately not in this set. It pages the
+Supabase Auth admin API, which honours its own `perPage` and has its own
+pagination contract, so a short page there really is the end. Its `error ||`
+fold belongs to the failed-read sweep instead, where a failed page means the
+user list behind audit attribution is quietly short and audit rows show ids
+where they should show people.
 
 Queued, in the order the evidence supports. Each is a class already seen at
 least twice, not a hypothetical.
