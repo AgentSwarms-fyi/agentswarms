@@ -264,6 +264,14 @@ least twice, not a hypothetical.
 - "It returned no matching passages" is a claim about the documents. A
   search that could not be completed has no standing to make it, and the
   model it is told to will repeat it as fact.
+- A settings page that says "auto-saved" must derive that from the last
+  write, not toast a constant (R66, Budgets). The write survey (40
+  error-less client writes in 10 files) still has: swarms (3 inserts, a
+  delete), the BI schedule dialog (4 bare writes), Knowledge Bases' three
+  deletes, Integrations' credential delete and two updates, the
+  notification bell, evaluations' two deletes, the swarm chat dialog, the
+  add-source dialog — and Agent Chat's own conversation and message
+  deletes and updates, left for a round of their own.
 - A write that failed, shown as done (R65): Agent Chat's message inserts.
   The read-side rule has a write-side twin — `const { data } = await
   …insert()` is a save that passes on failure — and a page that shows the

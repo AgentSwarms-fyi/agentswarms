@@ -15,6 +15,43 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-22 — Budgets, a cap whose save failed, before and after, ADVERSARIAL_LOG R66
+
+**Why this round exists.** The write-side survey's next page. Budgets saves
+every change optimistically, and the page has a button that says the
+settings are auto-saved.
+
+### Before the fix
+
+| Driven                                                                                                            | Read back                                                                                                  |
+| ----------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Budgets & Guardrails                                                                                              | Monthly Hard Cap `20`; `Month-to-date spend: $1.79 / $20.00`                                                |
+| Every `PATCH /rest/v1/budget_settings` rejected (`Failed to fetch`); cap typed as `25`, focus moved on             | cap `25`; **`Month-to-date spend: $1.79 / $25.00`**; one PATCH rejected; **no toast**                        |
+| The page's "Settings auto-save on change" button pressed                                                          | toast **`All settings auto-saved`**                                                                          |
+| Reload                                                                                                            | cap `20`; `Month-to-date spend: $1.79 / $20.00`                                                            |
+
+A cap that was never saved was the cap on screen, and the page said so in
+so many words.
+
+### After the rebuild
+
+The `agentswarms` service rebuilt and recreated (container `cb763ab67128`);
+the page reloaded onto it. Same rejection, same edit.
+
+| Driven                                                                                                | Read back                                                                                                                                                                                                  |
+| ----------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Budgets & Guardrails                                                                                  | cap `20`; status button `Settings auto-save on change`                                                                                                                                                      |
+| Every `PATCH /rest/v1/budget_settings` rejected; cap typed as `25`, focus moved on                     | cap **back to `20`**; `Month-to-date spend: $1.79 / $20.00`; toast **`Could not save the budget · TypeError: Failed to fetch. The value shown is what is saved.`**; status **`Not saved — budget: TypeError: Failed to fetch`** |
+| The status button pressed                                                                             | toast `Not saved — budget: TypeError: Failed to fetch`                                                                                                                                                      |
+| `fetch` restored; cap typed as `21`, focus moved on                                                    | cap `21`; `Month-to-date spend: $1.79 / $21.00`; status **`Saved 12:56 AM`**                                                                                                                                 |
+| Cap typed back to `20`; reload                                                                        | cap `20`; `$1.79 / $20.00`; status `Settings auto-save on change`                                                                                                                                            |
+
+A write that fails is undone on screen and said; a write that lands is
+said with its time; the button says only what the last write did. The cap
+is back at its saved 20.
+
+Findings from this round: R66 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-21 — Agent Chat, a message whose save failed, before and after, ADVERSARIAL_LOG R65
 
 **Why this round exists.** The failed-read survey's largest file, the Agent

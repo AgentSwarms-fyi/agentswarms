@@ -26,6 +26,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { toast } from "sonner";
 
+import { saveStatusText, type SaveState } from "@/lib/saveStatus";
+
 export const Route = createFileRoute("/_authenticated/budgets")({
   component: BudgetsPage,
 });
@@ -70,6 +72,8 @@ function BudgetsPage() {
   // guardrail, so a discarded error reads as "unprotected" rather than
   // "unknown" — see lib/budgetLoad.
   const [loadError, setLoadError] = useState<string | null>(null);
+  /** What the last auto-save did; the status line and its toast read this, never a constant. */
+  const [saveState, setSaveState] = useState<SaveState>(null);
   // Whether this deployment actually enforces the cap. Server-side env, so it
   // has to be asked for; null until it answers, so the page never guesses.
   const [policy, setPolicy] = useState<BudgetPolicy | null>(null);
@@ -112,10 +116,28 @@ function BudgetsPage() {
     void load();
   }, [load]);
 
+  // FOUND FROM THE UI. Every write here was optimistic and dropped its
+  // error, so a cap whose save was rejected stayed on screen as the cap
+  // until a reload. A write that fails is undone on screen, said in a
+  // toast, and recorded so the status line below tells the truth.
+  const failedSave = (what: string, error: { message: string }) => {
+    setSaveState({ ok: false, error: `${what}: ${error.message}`, at: new Date() });
+    toast.error(`Could not save the ${what}`, {
+      description: `${error.message}. The value shown is what is saved.`,
+    });
+  };
+
   const updateBudget = async (patch: Partial<Budget>) => {
     if (!budget) return;
+    const before = budget;
     setBudget({ ...budget, ...patch });
-    await supabase.from("budget_settings").update(patch).eq("id", budget.id);
+    const { error } = await supabase.from("budget_settings").update(patch).eq("id", budget.id);
+    if (error) {
+      setBudget(before);
+      failedSave("budget", error);
+      return;
+    }
+    setSaveState({ ok: true, at: new Date() });
   };
 
   const upsertLimit = async (agent_id: string, patch: Partial<AgentLimit>) => {
@@ -123,8 +145,14 @@ function BudgetsPage() {
     const existing = limits[agent_id];
     if (existing) {
       const updated = { ...existing, ...patch };
+      const before = limits;
       setLimits({ ...limits, [agent_id]: updated });
-      await supabase.from("agent_limits").update(patch).eq("id", existing.id);
+      const { error } = await supabase.from("agent_limits").update(patch).eq("id", existing.id);
+      if (error) {
+        setLimits(before);
+        failedSave("agent limit", error);
+        return;
+      }
     } else {
       const newRow = {
         user_id: user.id,
@@ -132,9 +160,14 @@ function BudgetsPage() {
         max_spend_per_day_usd: patch.max_spend_per_day_usd ?? 10,
         auto_disable_on_limit: patch.auto_disable_on_limit ?? false,
       };
-      const { data } = await supabase.from("agent_limits").insert(newRow).select().single();
-      if (data) setLimits({ ...limits, [agent_id]: data as AgentLimit });
+      const { data, error } = await supabase.from("agent_limits").insert(newRow).select().single();
+      if (error || !data) {
+        failedSave("agent limit", error ?? { message: "no row came back" });
+        return;
+      }
+      setLimits({ ...limits, [agent_id]: data as AgentLimit });
     }
+    setSaveState({ ok: true, at: new Date() });
   };
 
   if (loadError !== null) {
@@ -399,12 +432,21 @@ function BudgetsPage() {
       </Card>
 
       <div className="flex justify-end">
+        {/* This used to toast "All settings auto-saved" on every click, over
+            writes whose failure the page had dropped. The status is what the
+            last write did, and so is the toast. */}
         <Button
-          onClick={() => toast.success("All settings auto-saved")}
+          onClick={() =>
+            saveState && !saveState.ok
+              ? toast.error(saveStatusText(saveState))
+              : toast.success(saveStatusText(saveState))
+          }
           variant="outline"
           size="sm"
+          className={saveState && !saveState.ok ? "border-destructive text-destructive" : undefined}
+          role="status"
         >
-          Settings auto-save on change
+          {saveStatusText(saveState)}
         </Button>
       </div>
     </div>

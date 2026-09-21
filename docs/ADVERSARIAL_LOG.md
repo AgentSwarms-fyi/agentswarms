@@ -109,6 +109,38 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-22 — A cap that was never saved, under a button that said "auto-saved"
+
+#### R66 · S1 · The Budgets page's writes
+
+The write-side survey's next page. Reject every `PATCH` to
+`budget_settings` and type a monthly cap of 25 over the saved 20: the cap
+reads 25, the strip reads `Month-to-date spend: $1.79 / $25.00`, and there
+is no toast. Press the page's own button: `All settings auto-saved`. Reload:
+20. A cap that was never saved was the cap on screen, and the page said so
+in so many words — on a page whose one job is to state what the platform
+will refuse to spend past.
+
+Every write on the page was optimistic and dropped its error: the budget
+update, the per-agent limit update, the per-agent limit insert. The button
+toasted a constant. A write that fails is now undone on screen, said in a
+toast with the reason ("The value shown is what is saved."), and recorded;
+the page's status line is derived by a pure `saveStatusText` from what the
+last write did — "Settings auto-save on change" before any write, "Saved
+HH:MM" after one that landed, "Not saved — budget: …" after one that did
+not — and pressing it toasts the same truth.
+
+Driven, before: cap 25 on screen over a rejected save, `All settings
+auto-saved` on the button, 20 after a reload. After the rebuild, the same
+rejection: the cap back to 20 at once, the toast `Could not save the budget
+· TypeError: Failed to fetch. The value shown is what is saved.`, the status
+`Not saved — budget: TypeError: Failed to fetch`; with `fetch` restored, a
+real change to 21 reads `Saved 12:56 AM`, and back to 20 for the fixture.
+
+**Tests:** 3 behavioural on `saveStatusText`, 3 source-anchored on the
+page's three writes, the undo and the status; 6 behaviour-changing mutants
+each killed, control missed, baseline green first.
+
 ### 2026-09-21 — A turn that was never saved looked exactly like one that was
 
 #### R65 · S1 · Agent Chat's message inserts
