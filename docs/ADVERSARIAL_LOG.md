@@ -109,6 +109,79 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-21 — Five windows at once, and any one of them could end the read
+
+#### R46 · S1 · Four defects in one loop, feeding the SQL engine
+
+`lib/sqlEngine` loads a whole dataset into the in-page SQL engine five windows at
+a time. What a user's query answers — and what the AI SQL path reads — is
+whatever this put into the engine.
+
+```ts
+let stop = false;
+for (const { data: chunk, error: rowErr } of results) {
+  if (rowErr || !chunk || chunk.length === 0) { stop = true; break; }
+  allRows.push(...chunk.map(...));
+  if (chunk.length < PAGE) { stop = true; break; }
+}
+if (stop) break;
+pageIndex += PARALLEL_PAGES;
+```
+
+1. **A window's ERROR became `stop`.** One failed request out of five ended the
+   read, and the table registered with whatever the other four returned. No
+   error surfaced anywhere; the query simply answered from less data.
+2. **No `ORDER BY`, while issuing five concurrent windows.** Postgres promises
+   no order without one, so the five were not guaranteed consistent with each
+   other, let alone a partition of the table.
+3. **The first short window ended everything** — including the windows already
+   fetched and paid for in the same batch, which were discarded.
+4. **Offsets were `pageIndex * PAGE`**, the request size, so a server handing
+   back less than a full page left a hole at every window boundary. R44's defect,
+   with five chances per batch.
+
+The replacement is `selectAllWindows` in `lib/pagedSelect`, beside the sequential
+pager: count, one probe window whose LENGTH is the page size this server
+actually honours, then batches of `concurrency` windows of that size, then a
+check that the rows add up. Any error aborts the whole load. More rows than the
+count is fine — that is a concurrent insert, not a gap.
+
+The count check is what makes parallel offsets safe to use at all: windows
+derived from a count either cover the filter or they do not, and a clamped
+window, a skipped row or a short page surfaces there rather than in someone's
+query result.
+
+#### R46 · S1 · A failed shared read registered an empty table
+
+In the same file, four lines up:
+
+```ts
+if (rpcErr || !Array.isArray(data)) return [];
+```
+
+A failed `shared_dataset_rows` RPC registered the table with no rows, so a query
+against it answered "no results" — which is also exactly what an empty dataset
+answers. Nothing on screen separated the two. It throws now.
+
+#### R46 · note · Extracted so the tests could be real
+
+The first version of this fix was written inline in `sqlEngine`, and the tests
+for it would have been what the last two rounds settled for: a replica of the
+algorithm in the test file, plus source anchors on the production code. That is
+weak, and this algorithm — probe, derive the window size, batch, verify — is
+intricate enough that a replica proves very little.
+
+So it moved into `lib/pagedSelect` and the tests drive the real thing: every row
+read exactly once at a cap BELOW the page size, one failing window aborting the
+load, a count mismatch refusing, a stale count accepted, a single-window table
+costing one request, and — because a correct-but-sequential version would have
+passed everything else — an assertion that the windows really do overlap in
+flight.
+
+**Tests:** 14 in `parallelWindows`, 9 behaviour-changing mutants applied one at a
+time and each killed. Six of the nine attack the algorithm itself rather than a
+source anchor, which is the return on extracting it.
+
 ### 2026-09-21 — The one path that ended the evidence stream without saying so
 
 #### R45 · S1 · A complete-looking export of a third of the audit trail

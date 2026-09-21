@@ -102,3 +102,72 @@ export async function selectAllPages<T>(
   if (probeError) throw new Error(probeError.message);
   return { rows, truncated: (probe ?? []).length > 0 };
 }
+
+/**
+ * Every row a filter matches, read in PARALLEL windows and checked at the end.
+ *
+ * `selectAllPages` above is sequential: it cannot know where the next page
+ * starts until the last one lands. That is the right shape for a server-side
+ * read. A browser loading a whole dataset into an in-page SQL engine wants the
+ * windows in flight together, and the moment they are concurrent the offsets
+ * have to be decided in advance — which needs a count, and needs the window
+ * size to be what the server will actually GIVE rather than what we ask for.
+ *
+ * MEASURED in `lib/sqlEngine`, which fired five windows at a time and:
+ *
+ *   - folded any window's error into a `stop` flag, so one failed request out
+ *     of five registered the table with whatever the other four returned;
+ *   - ordered by nothing while issuing concurrent windows, so the windows were
+ *     not guaranteed consistent with each other, let alone in sequence;
+ *   - ended the whole read on the first short window;
+ *   - computed offsets as `pageIndex * PAGE` — the REQUEST size — so a server
+ *     giving less than a full page left a hole at every window boundary.
+ *
+ * The shape here: count, one probe window whose length is the real page size,
+ * then batches of `concurrency` windows of that size, then a check. Any error
+ * aborts the whole load. `fetchWindow` must order by a unique column; without
+ * one, concurrent offset windows are not a partition of anything.
+ */
+export async function selectAllWindows<Row>(args: {
+  /** Rows the filter matches, exactly. */
+  count: () => Promise<number>;
+  /** Rows [from, from + size). Throw to abort the entire load. */
+  fetchWindow: (from: number, size: number) => Promise<Row[]>;
+  /** Windows in flight at once. */
+  concurrency: number;
+  /** The window size to ASK for. The server may hand back fewer. */
+  pageSize?: number;
+  /** Named in the error when the read does not add up. */
+  label?: string;
+}): Promise<Row[]> {
+  const want = args.pageSize ?? PAGE;
+  const label = args.label ?? "dataset";
+  const total = await args.count();
+
+  const rows: Row[] = [];
+  // The probe is the first window, not a wasted call: whatever comes back for a
+  // full-width request is the page size this server actually honours.
+  rows.push(...(await args.fetchWindow(0, want)));
+  const step = rows.length;
+
+  if (total > step) {
+    if (step === 0) throw new Error(`"${label}" reports ${total} rows but returned none`);
+    for (let start = step; start < total; start += step * args.concurrency) {
+      const offsets = Array.from({ length: args.concurrency }, (_, i) => start + i * step).filter(
+        (from) => from < total,
+      );
+      const pages = await Promise.all(offsets.map((from) => args.fetchWindow(from, step)));
+      for (const page of pages) rows.push(...page);
+    }
+  }
+
+  // What makes parallel offsets safe to use at all. Windows derived from a
+  // count either cover the filter or they do not, and anything that went wrong
+  // on the way — a clamped window, a skipped row, a short page — surfaces here
+  // rather than in someone's query result. MORE rows than the count is not a
+  // gap, it is a concurrent insert, and it is fine.
+  if (rows.length < total) {
+    throw new Error(`"${label}": read ${rows.length} of ${total} rows — not loading it in part`);
+  }
+  return rows;
+}

@@ -22,6 +22,7 @@
 
 import Papa from "papaparse";
 import { supabase } from "@/integrations/supabase/client";
+import { selectAllWindows } from "@/lib/pagedSelect";
 // Type inference and coercion are shared with the streaming server upload —
 // two implementations would eventually disagree about what a date is.
 import {
@@ -205,7 +206,12 @@ async function hydrateFromSupabaseUncoordinated(): Promise<DatasetMeta[]> {
     const { data, error: rpcErr } = await supabase.rpc("shared_dataset_rows", {
       _table_id: tableId,
     });
-    if (rpcErr || !Array.isArray(data)) return [];
+    // A failed read is not an empty dataset. Returning [] here registered the
+    // table with no rows, so a query against it answered "no results" — which
+    // is also exactly what an empty dataset answers, and nothing on screen
+    // separated the two.
+    if (rpcErr) throw new Error(`could not read shared dataset: ${rpcErr.message}`);
+    if (!Array.isArray(data)) throw new Error("shared dataset returned no row array");
     return data as Record<string, unknown>[];
   }
 
@@ -239,33 +245,35 @@ async function hydrateFromSupabaseUncoordinated(): Promise<DatasetMeta[]> {
         parquet_bytes: t.parquet_bytes,
       };
     }
-    const allRows: Record<string, unknown>[] = [];
-    let pageIndex = 0;
-    for (;;) {
-      const ranges = Array.from({ length: PARALLEL_PAGES }, (_, i) => {
-        const start = (pageIndex + i) * PAGE;
-        return { start, end: start + PAGE - 1 };
-      });
-      const results = await Promise.all(
-        ranges.map((r) =>
-          supabase.from("user_data_rows").select("row").eq("table_id", t.id).range(r.start, r.end),
-        ),
-      );
-      let stop = false;
-      for (const { data: chunk, error: rowErr } of results) {
-        if (rowErr || !chunk || chunk.length === 0) {
-          stop = true;
-          break;
-        }
-        allRows.push(...chunk.map((c) => c.row as Record<string, unknown>));
-        if (chunk.length < PAGE) {
-          stop = true;
-          break;
-        }
-      }
-      if (stop) break;
-      pageIndex += PARALLEL_PAGES;
-    }
+    // Windows in parallel, sized to what the server gives, checked at the end.
+    // The loop this replaces is described in selectAllWindows' header; the
+    // short version is that it read the rows a SQL query answers from, and a
+    // single failed request out of five registered the table anyway.
+    const allRows = await selectAllWindows<Record<string, unknown>>({
+      label: t.name,
+      concurrency: PARALLEL_PAGES,
+      pageSize: PAGE,
+      count: async () => {
+        const { count, error } = await supabase
+          .from("user_data_rows")
+          .select("id", { count: "exact", head: true })
+          .eq("table_id", t.id);
+        if (error) throw new Error(`could not count rows of "${t.name}": ${error.message}`);
+        return count ?? 0;
+      },
+      fetchWindow: async (from, size) => {
+        const { data, error } = await supabase
+          .from("user_data_rows")
+          .select("row")
+          .eq("table_id", t.id)
+          // Concurrent offset windows are a partition of nothing without a
+          // unique order: two of them can return the same row and miss another.
+          .order("id", { ascending: true })
+          .range(from, from + size - 1);
+        if (error) throw new Error(`could not read "${t.name}": ${error.message}`);
+        return (data ?? []).map((c) => c.row as Record<string, unknown>);
+      },
+    });
     await registerTable(t.name, allRows, cols);
     return {
       id: t.id,

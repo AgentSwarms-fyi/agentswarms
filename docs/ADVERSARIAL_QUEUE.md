@@ -88,6 +88,7 @@ The three shapes it takes:
 | Pagers that persist    | ✅ fixed | 2026-09-21 | R43 — lakehouse import, Parquet mirror and widget refresh; a failed page became a shorter table              |
 | Offsets that skipped   | ✅ fixed | 2026-09-21 | R44 — `start += PAGE` left holes, not a tail; the SQL tool an agent calls, prep, and version copies          |
 | Audit export           | ✅ fixed | 2026-09-21 | R45 — the one close that ended the evidence stream without an error line                                     |
+| Local SQL engine       | ✅ fixed | 2026-09-21 | R46 — five parallel windows, any one of which could end the read; a failed shared read registered empty      |
 | **Semantic layer**     | ⬜ next  |            |                                                                                                              |
 | ML predictions         | ⬜       |            |                                                                                                              |
 
@@ -107,17 +108,18 @@ left:
 
 | Site                              | What it feeds                           | Still wrong                       |
 | --------------------------------- | --------------------------------------- | --------------------------------- |
-| `src/lib/sqlEngine.ts`            | rows a local SQL query reads            | PARALLEL pages, error → stop      |
 | `src/lib/traceWindow.ts`          | `pageTraces` — written by this campaign | short page ends the read          |
 | `src/utils/audit.functions.ts`    | the user list behind audit attribution  | Auth admin API, error folded in   |
 | `src/utils/bi/quality.server.ts`  | data-quality checks                     | skips, but `capped` catches it    |
 | `src/utils/etl/service.server.ts` | ETL reads                               | skips, but `truncated` catches it |
 
-`sqlEngine` is the one to take next, and it is the hardest of these: it fires
-its pages in PARALLEL and folds any page's error into a `stop` flag, so one
-failed request among several ends the read with whatever the others returned.
-Parallel offset paging with no ordering is the skip defect of R44 with more
-ways to go wrong at once.
+Three left, and they are the mild ones. `traceWindow`'s `pageTraces` is this
+campaign's own, and its window headline already says when the read was cut.
+`bi/quality` and `etl/service` skip rows under a small cap, but both compare
+what they read against an exact count, so a short read shows up as `capped`
+or `truncated` rather than as a confident figure. `audit.functions` folds its
+error on the Auth admin API, which is a different contract from PostgREST and
+honours its own page size.
 
 The five under `src/utils/saas/*` and `kb/confluence.server.ts` are NOT in this
 class: they page third-party APIs, which honour their own page sizes and have
