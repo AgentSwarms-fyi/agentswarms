@@ -15,6 +15,53 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-21 — A deck generated over a failed read, before and after, ADVERSARIAL_LOG R54
+
+**Why this round exists.** The queue's next "failed read rendered as absence"
+was the document generator's data fill. It is reachable from the browser: the
+fill hydrates the datasets client-side, so rejecting `user_data_tables` in the
+page is the real failure the real code meets. Each drive is a real model round
+trip (Gemini 2.5 Flash via OpenRouter) that plans the deck, then the browser
+builds it.
+
+### Before the fix
+
+| Driven                                                                                                                   | Read back                                                                                                                                     |
+| ------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| Agent Chat → PowerPoint mode, every `user_data_tables` request rejected, "a 2-slide deck: bar chart of sales by region, KPI of row count", send | 21 s: `Here's your PowerPoint — Make-a-2-slide-PowerPoint-about-the-saas.pptx` · `PowerPoint · ready` · Download; **4 rejected reads, no toast, no error** |
+
+The plan asked for a chart and a KPI; the fill could read nothing; the deck
+was delivered as if it had.
+
+### After the rebuild
+
+The `agentswarms` service rebuilt and recreated; the page reloaded onto the new
+bundle (`playground-DZ4tALaf.js`). Same page, same prompt, same submit.
+
+| Driven                                                                     | Read back                                                                                                                                                                                                                                                       |
+| -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PowerPoint mode, every `user_data_tables` request rejected, the same prompt | 31 s: the deck card, **and** the toast `Charts could not be filled — could not read your datasets: could not list datasets: Error: injected: user_data_tables unreachable · The deck was built with its chart slides falling back to text. Check the data connection and generate it again.`; 4 rejected reads |
+| PowerPoint mode, `fetch` restored, the same prompt                          | 60 s: the deck card (`SaaS Sales Executive Overview`); **no toast** — neither the read-failure error nor the partial-fill warning; no rejected reads                                                                                                              |
+
+So the failure now says what happened and the deck still ships; the clean run
+is unchanged: charts filled, nothing to warn about.
+
+Two things about driving this panel, for the next round that needs it: Return
+in the box does not send (the icon beside it does, and after a generation the
+document mode resets to plain chat), and a 12-second toast that the pointer
+happens to rest on never expires — it sat over the send icon for several
+minutes and swallowed every click until it was removed.
+
+### Fixtures
+
+Each drive leaves a conversation in Agent Chat titled after its prompt, with
+the generated `.pptx` attached (uploaded to the `chat-docs` bucket by the page
+as part of delivery). They are kept — deleting chat history is not this
+round's to do — and are listed here so they are not mistaken for the user's
+own work.
+
+Findings from this round: R54 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-21 — The model policy under a live read, before and after, ADVERSARIAL_LOG R53
 
 **Why this round exists.** R53 makes four IAM reads fail closed instead of

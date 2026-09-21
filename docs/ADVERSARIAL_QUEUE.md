@@ -96,6 +96,7 @@ The three shapes it takes:
 | Catalog attribution    | ✅ fixed | 2026-09-21 | R51 — a failed read of where a table came from filed every synced dataset as an upload                             |
 | Catalog first paint    | ✅ fixed | 2026-09-21 | R52 — loading rendered as `Local tables 0`; a pass before the session painted 33 for two seconds                   |
 | IAM policy reads       | ✅ fixed | 2026-09-21 | R53 — a failed settings or memberships read evaluated the model policy as unrestricted; grants and roles the same shape|
+| Deck generation fill   | ✅ fixed | 2026-09-21 | R54 — a failed dataset read answered as "no data connected"; the deck shipped chartless and silent                     |
 | **Semantic layer**     | ⬜ next  |            |                                                                                                              |
 | ML predictions         | ⬜       |            |                                                                                                              |
 
@@ -128,9 +129,9 @@ least twice, not a hypothetical.
    as R50 — the catalog's `setLocalAssets([])` and the prep tab's section
    badge; and as R51 the catalog's attribution reads, seen by accident after
    a rebuild and first misattributed to the container starting up; and as R52
-   the paint before the session resolves. Then `lib/docGen/biData` (drops
-   every chart), `bi_.report` (bare catch), and `audit.functions` (a failed
-   Auth page shows ids where it should show people).
+   the paint before the session resolves; and as R54 `lib/docGen/biData`.
+   Then `bi_.report` (bare catch) and `audit.functions` (a failed Auth page
+   shows ids where it should show people).
 2. **A badge that outlives what it vouched for.** Verified/priced/fresh/healthy
    stamped once and never revisited. R24 and R26 are the BI instances.
 3. **A cause named that the evidence cannot support.** R31's freshness test, and
@@ -209,6 +210,10 @@ least twice, not a hypothetical.
   reads a failed settings query as allow; a dropped memberships error reads
   as "no groups". Every access decision that reads `{ data }` without
   `error` is a decision made on a failure.
+- A warning gated on a count is silenced by the failure that zeroes the
+  count. "N of M could be filled" needs M > 0; the read that failed
+  reported M = 0 and was the one case that said nothing. Count what was
+  asked for before reading anything.
 - `const { data } = await …` is a guard that passes on failure. Every
   destructuring that drops `error` before a decision is one of these.
 - Verify a Radix picker's trigger text before submit: it keeps the previous

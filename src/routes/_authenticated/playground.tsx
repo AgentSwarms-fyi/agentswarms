@@ -2898,7 +2898,16 @@ async function buildPptxDoc(
   const fill = await materializePptxWithBI(plan, { model });
   // A deck where half the queries failed looked identical to one where they all
   // worked — the slides just quietly lost their charts.
-  if (fill.visuals > 0 && fill.filled < fill.visuals) {
+  if (fill.error) {
+    // A deck built over a failed read: the charts fall back to bullets, and
+    // this is the only place that says why. Before, it said nothing — the
+    // warning below needs visuals > 0, and a failed read reported 0.
+    toast.error(`Charts could not be filled — ${fill.error}`, {
+      description:
+        "The deck was built with its chart slides falling back to text. Check the data connection and generate it again.",
+      duration: 12000,
+    });
+  } else if (fill.visuals > 0 && fill.filled < fill.visuals) {
     toast.warning(`${fill.filled} of ${fill.visuals} visuals could be filled with your data`, {
       description:
         "The rest could not be answered from the connected tables — those slides fall back to text or a table.",

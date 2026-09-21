@@ -109,6 +109,37 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-21 — A deck whose data could not be read, delivered without a word
+
+#### R54 · S2 · "Here's your PowerPoint" over four rejected reads
+
+Driven in the playground: PowerPoint mode, every `user_data_tables` request
+rejected, a request for a two-slide deck with a bar chart of sales by region
+and a KPI of row count. At 21 s: **Here's your PowerPoint —
+Make-a-2-slide-PowerPoint-about-the-saas.pptx**. Four rejected reads behind
+it, no toast, no error, a deck delivered with its chart slides fallen back to
+bullets.
+
+`materializePptxWithBI` caught the failed hydration as `datasets = []` and
+returned `{ visuals: 0, filled: 0 }` — the same report a plan with no charts
+gets. Its caller's "N of M visuals could be filled" warning needs `visuals > 0`
+to fire, so a failed read was the one outcome that produced no message at all:
+an unanswerable question warns, an empty account is silent by design, and an
+unreachable table list was silent by accident.
+
+The report now counts the charts the plan asked for BEFORE reading, so the
+count stands whatever happens next, and carries `error` when the datasets could
+not be read. The playground toasts that as an error — "Charts could not be
+filled — could not read your datasets: …" — with the deck still built and
+the reason on screen, and the existing partial-fill warning is unchanged
+for the case it was written for.
+
+**Tests:** 3 behavioural on the real filler (a hydration that rejects, one
+that answers no datasets, a plan with no visuals — against the unpatched
+source the first two reported `visuals: 0` alike) and 1 source-anchored on the
+caller; 4 behaviour-changing mutants each killed, control missed, baseline
+green first.
+
 ### 2026-09-21 — A policy read that fails must fail closed
 
 #### R53 · S1 · A failed IAM read evaluated as "no policy"

@@ -268,7 +268,13 @@ async function runPool(jobs: Array<() => Promise<void>>, limit: number): Promise
  * nothing to compute or no connected data.
  */
 /** How many visuals were asked for, and how many ended up carrying real data. */
-export type BiFillReport = { visuals: number; filled: number };
+export type BiFillReport = {
+  /** Charts the plan asked for — counted before any data is read. */
+  visuals: number;
+  filled: number;
+  /** Set when the datasets could not be READ. Not the same as none connected. */
+  error?: string;
+};
 
 export async function materializePptxWithBI(
   plan: PptxPlan,
@@ -276,14 +282,20 @@ export async function materializePptxWithBI(
 ): Promise<BiFillReport> {
   const slides = plan.slides ?? [];
   const needs = slides.some((s) => s.chart || s.kpiQuery || s.kpis?.some((k) => k.sql));
-  const report: BiFillReport = { visuals: 0, filled: 0 };
+  const report: BiFillReport = { visuals: slides.filter((sl) => sl.chart).length, filled: 0 };
   if (!needs) return report;
 
   let datasets: DatasetMeta[] = [];
   try {
     datasets = await hydrateFromSupabase();
-  } catch {
-    datasets = [];
+  } catch (e) {
+    // MEASURED with the table list rejected: this answered { visuals: 0,
+    // filled: 0 } — the report a plan with no charts gets — and the deck
+    // shipped with every chart silently replaced by bullets, because the
+    // caller's warning needs visuals > 0 to fire at all. A failed read is
+    // not "no data connected": the count stands and the reason travels.
+    report.error = `could not read your datasets: ${(e as Error).message}`;
+    return report;
   }
   if (!datasets.length) return report; // no data connected — leave charts to be dropped
 
@@ -308,7 +320,6 @@ export async function materializePptxWithBI(
       const ci = chartIdx++;
       const rawSql = !chart.query ? chart.dataSql?.trim() : undefined;
       const question = chart.query?.trim() || (rawSql ? "" : deriveChartQuestion(slide));
-      report.visuals++;
       jobs.push(async () => {
         let res: ResultLike | null = null;
         if (rawSql) {
