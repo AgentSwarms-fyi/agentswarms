@@ -15,6 +15,43 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-21 — The home dashboard's status band, before and after, ADVERSARIAL_LOG R63
+
+**Why this round exists.** The landing page's one sentence — "Everything is
+running" or "N things need attention" — is built from seven counts. A count
+whose read failed landed as zero, and one of the seven asked its column for
+a value it cannot hold.
+
+### Before the fix
+
+| Driven                                                                                                                   | Read back                                                                                                                                       |
+| ------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| SQL Models → `stg_revenue` → test "Minimum row count" 100 (the model has 5 rows) → Save → Build                           | Builds tab: `error · manual · 16s ago · 15.3s · stg_revenue failed 5 rows row_count_min on the table failed: 1 row(s)`                          |
+| Dashboard                                                                                                                | band `1 thing needs attention · 1 open data incidents · checked 10:35 PM`; **no "SQL models failing" chip**; the SQL models card: `2 models`, no warning |
+| Dashboard with every `/rest/v1/etl_runs` request rejected (`Failed to fetch`, four attempts recorded), reloaded in-app    | band `1 thing needs attention · 1 open data incidents · checked 10:36 PM` — the pipeline-runs check is **absent, not unknown**                     |
+
+A model that failed its build a minute earlier is not on the band because the
+band asks for `last_status = 'error'` and the column holds `failed`. A check
+that could not be read is indistinguishable from one that found nothing.
+
+### After the rebuild
+
+The `agentswarms` service rebuilt and recreated (container `5f104cac7842`);
+the dashboard reloaded onto it. Same failing model, same rejected request.
+
+| Driven                                                                                                                 | Read back                                                                                                                                                                                                                     |
+| ---------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Dashboard                                                                                                              | band `2 things need attention · 1 open data incidents · 1 SQL models failing · checked 11:24 PM`; the SQL models card: `2 models · 1 failing`                                                                                  |
+| Dashboard with every `/rest/v1/etl_runs` request rejected (`Failed to fetch`, four attempts recorded), reloaded in-app  | band `2 things need attention · 1 check could not be read · 1 open data incidents · 1 SQL models failing · ? pipeline runs failed today — could not be read · checked 11:25 PM`; the chip's hover text `TypeError: Failed to fetch`; the ETL pipelines card: `20 pipelines · could not be checked` |
+
+The model that failed its build a minute earlier is now on the band and on
+its card. The check that could not be read is a chip of its own with the
+reason, the sentence counts it separately, and the card it belongs to says
+so — none of it a zero. `stg_revenue` keeps its `row_count_min 100` test
+and `limit 5` for now; both are fixtures of this round.
+
+Findings from this round: R63 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-21 — The ML model page's Jobs count, before and after, ADVERSARIAL_LOG R62
 
 **Why this round exists.** Sweep 2's last named row, ML predictions: the

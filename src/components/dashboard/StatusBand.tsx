@@ -17,13 +17,9 @@ import { AlertTriangle, CheckCircle2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { bandSummary, type Attention } from "@/lib/dashboardStatus";
 
-export type Attention = {
-  /** What is wrong, in the words the owner would use. */
-  label: string;
-  count: number;
-  to: string;
-};
+export type { Attention };
 
 export function StatusBand({
   items,
@@ -34,9 +30,10 @@ export function StatusBand({
   loading: boolean;
   checkedAt: Date | null;
 }) {
-  const live = items.filter((i) => i.count > 0);
-  const total = live.reduce((n, i) => n + i.count, 0);
-  const ok = !loading && live.length === 0;
+  const live = items.filter((i) => (i.count ?? 0) > 0);
+  const unread = items.filter((i) => i.count === null);
+  const summary = bandSummary(items, loading);
+  const ok = summary.state === "ok";
 
   return (
     <section
@@ -44,28 +41,23 @@ export function StatusBand({
       className={cn(
         "flex flex-wrap items-center gap-x-4 gap-y-3 rounded-xl border px-4 py-3",
         ok && "border-emerald-500/30 bg-emerald-500/5",
-        !ok && live.length > 0 && "border-amber-500/40 bg-amber-500/10",
+        (summary.state === "attention" || summary.state === "unknown") &&
+          "border-amber-500/40 bg-amber-500/10",
         loading && "border-border bg-card",
       )}
     >
       <div className="flex min-w-0 items-center gap-2.5">
         {ok ? (
           <CheckCircle2 className="h-4.5 w-4.5 shrink-0 text-emerald-500" />
-        ) : live.length > 0 ? (
-          <AlertTriangle className="h-4.5 w-4.5 shrink-0 text-amber-500" />
-        ) : (
+        ) : loading ? (
           <span className="h-4.5 w-4.5 shrink-0 animate-pulse rounded-full bg-muted" />
+        ) : (
+          <AlertTriangle className="h-4.5 w-4.5 shrink-0 text-amber-500" />
         )}
-        <p className="text-sm font-medium">
-          {loading
-            ? "Checking the platform…"
-            : ok
-              ? "Everything is running"
-              : `${total} thing${total === 1 ? "" : "s"} need${total === 1 ? "s" : ""} attention`}
-        </p>
+        <p className="text-sm font-medium">{summary.text}</p>
       </div>
 
-      {live.length > 0 && (
+      {(live.length > 0 || unread.length > 0) && !loading && (
         <div className="flex flex-wrap items-center gap-2">
           {live.map((i) => (
             <Link key={i.to + i.label} to={i.to}>
@@ -75,6 +67,18 @@ export function StatusBand({
               >
                 <span className="mr-1.5 font-semibold tabular-nums">{i.count}</span>
                 {i.label}
+              </Badge>
+            </Link>
+          ))}
+          {/* A check that could not be read: a chip of its own, never a zero. */}
+          {unread.map((i) => (
+            <Link key={i.to + i.label} to={i.to} title={i.error}>
+              <Badge
+                variant="outline"
+                className="border-amber-500/40 bg-background/60 font-normal hover:bg-background"
+              >
+                <span className="mr-1.5 font-semibold tabular-nums">?</span>
+                {i.label} — could not be read
               </Badge>
             </Link>
           ))}

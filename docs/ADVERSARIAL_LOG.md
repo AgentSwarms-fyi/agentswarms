@@ -109,6 +109,58 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-21 — "Everything is running", from counts that could not be read and one that could never fire
+
+#### R63 · S1 · The home dashboard's status band
+
+The landing page opens with one sentence — "Everything is running", or "N
+things need attention" with a chip for each — built from seven counts. Two
+things were wrong with how they were built, and both were found by driving
+the page.
+
+**A chip that could never fire.** Give `stg_revenue` a row-count test of
+100 (it has 5 rows), build: `failed · row_count_min on the table failed`.
+Open the dashboard: `1 thing needs attention · 1 open data incidents` and no
+"SQL models failing" chip; the SQL models card says `2 models` with no
+warning. The count asked `sql_models` for `last_status = 'error'`, and the
+column cannot hold that value — its check constraint allows `built`, `failed`
+and `skipped`. Every failing model has been "Everything is running" since the
+chip shipped. Sweep item 3's shape — a claim the evidence cannot support —
+in its simplest form: a predicate on a value that does not exist.
+
+**A failed read as zero.** Reject every `/rest/v1/etl_runs` request and
+reload the page in-app: `1 thing needs attention · 1 open data incidents`,
+checked a minute later, and nothing about pipeline runs — the check is
+absent, not unknown. Every count landed as `count ?? 0`, with a comment
+explaining that a table a deployment has not migrated should not fail the
+page. Right for that case; wrong for a read that failed for any other reason,
+because zero is the most reassuring possible way to display "we have no
+idea". Sweep item 1's shape, on the one page built to say whether the
+platform is healthy.
+
+The predicate now asks for `failed`. Each count is a number when its read
+answered and `null` when it did not; the band is derived by a pure
+`bandSummary`: "Everything is running" only when every check answered and
+none found anything; "Nothing failing among what could be checked — N checks
+could not be read" when the unread are the only news; "N things need
+attention · M checks could not be read" when both. An unread check is a chip
+of its own — "? pipeline runs failed today — could not be read", the reason
+on hover — never a zero, and each card's warning line says "could not be
+checked" for its own. The docs say so.
+
+Driven, before: `1 thing needs attention · 1 open data incidents` over a
+model that had just failed its build, and the same sentence with every
+`etl_runs` request rejected. After the rebuild: `2 things need attention ·
+1 open data incidents · 1 SQL models failing`, the card `2 models · 1
+failing`; with the request rejected, `2 things need attention · 1 check
+could not be read` and a chip `? pipeline runs failed today — could not be
+read` whose hover text is `TypeError: Failed to fetch`, the ETL card `20
+pipelines · could not be checked`.
+
+**Tests:** 5 behavioural on `bandSummary`, 4 source-anchored on the page's
+reads, the predicate, the cards and the band; 6 behaviour-changing mutants
+each killed, control missed, baseline green first.
+
 ### 2026-09-21 — "Jobs (20)" on a model with twenty-one versions
 
 #### R62 · S2 · The ML model page and its runs: a capped list's length as the count, and failed reads as "nothing yet"

@@ -66,6 +66,23 @@ import {
   Zap,
 } from "lucide-react";
 
+const HEALTH_KEYS = [
+  "syncs",
+  "warehouses",
+  "schedules",
+  "pipelineRuns",
+  "incidents",
+  "workflows",
+  "sqlModels",
+] as const;
+type HealthKey = (typeof HEALTH_KEYS)[number];
+
+/** A card's warning line: the count when it answered, and said so when it did not. */
+function warnFor(count: number | null, say: (n: number) => string): string | null {
+  if (count === null) return "could not be checked";
+  return count ? say(count) : null;
+}
+
 export const Route = createFileRoute("/_authenticated/dashboard")({
   component: DashboardPage,
 });
@@ -165,7 +182,10 @@ function DashboardPage() {
    * weeks ago looked exactly like one that synced this morning from anywhere
    * but its own settings page.
    */
-  const [health, setHealth] = useState({
+  // A count is a number when its read answered and null when it did not.
+  // `count ?? 0` used to stand here for every read, so a dashboard whose
+  // reads had failed said "Everything is running".
+  const [health, setHealth] = useState<Record<HealthKey, number | null>>({
     syncs: 0,
     warehouses: 0,
     schedules: 0,
@@ -174,6 +194,8 @@ function DashboardPage() {
     workflows: 0,
     sqlModels: 0,
   });
+  /** Why a check could not be read, by key — shown on its chip. */
+  const [healthErrors, setHealthErrors] = useState<Partial<Record<HealthKey, string>>>({});
   /** Month-to-date spend against the cap, computed the same way /budgets does. */
   const [budget, setBudget] = useState<{ spend: number; cap: number } | null>(null);
 
@@ -275,7 +297,10 @@ function DashboardPage() {
         supabase
           .from("sql_models")
           .select("id", { count: "exact", head: true })
-          .eq("last_status", "error"),
+          // FOUND FROM THE UI. This asked for "error", a value the column
+          // cannot hold (built / failed / skipped), so the chip could never
+          // fire: a failing model was "Everything is running".
+          .eq("last_status", "failed"),
         supabase.from("budget_settings").select("monthly_cap_usd").limit(1).maybeSingle(),
         // Aggregated in the database. This used to select every trace row for
         // the month and sum cost_usd in the browser, so a truncated result set
@@ -284,15 +309,26 @@ function DashboardPage() {
           ? mySpendSince(u.data.user.id, monthStart.toISOString())
           : Promise.resolve({ ok: false as const, error: "not signed in" }),
       ]);
-      setHealth({
-        syncs: sy.count ?? 0,
-        warehouses: wh.count ?? 0,
-        schedules: sc.count ?? 0,
-        pipelineRuns: pr.count ?? 0,
-        incidents: inc.count ?? 0,
-        workflows: wfb.count ?? 0,
-        sqlModels: sqb.count ?? 0,
-      });
+      const reads: Record<HealthKey, { count: number | null; error: { message: string } | null }> =
+        {
+          syncs: sy,
+          warehouses: wh,
+          schedules: sc,
+          pipelineRuns: pr,
+          incidents: inc,
+          workflows: wfb,
+          sqlModels: sqb,
+        };
+      setHealth(
+        Object.fromEntries(
+          HEALTH_KEYS.map((k) => [k, reads[k].error ? null : (reads[k].count ?? 0)]),
+        ) as Record<HealthKey, number | null>,
+      );
+      setHealthErrors(
+        Object.fromEntries(
+          HEALTH_KEYS.flatMap((k) => (reads[k].error ? [[k, reads[k].error.message]] : [])),
+        ),
+      );
       const capUsd = Number(cap.data?.monthly_cap_usd ?? 0);
       // Only show the figure when it is known. A failed lookup used to sum to
       // zero and render as "0% of cap used", which is the most reassuring
@@ -352,13 +388,48 @@ function DashboardPage() {
     counts.knowledgeBases === 0;
 
   const attention: Attention[] = [
-    { label: "sources not syncing", count: health.syncs, to: "/integrations" },
-    { label: "warehouses unreachable", count: health.warehouses, to: "/integrations" },
-    { label: "schedules failing", count: health.schedules, to: "/swarms" },
-    { label: "pipeline runs failed today", count: health.pipelineRuns, to: "/etl" },
-    { label: "open data incidents", count: health.incidents, to: "/data-monitors" },
-    { label: "workflows failed", count: health.workflows, to: "/workflows" },
-    { label: "SQL models failing", count: health.sqlModels, to: "/sql-models" },
+    {
+      label: "sources not syncing",
+      count: health.syncs,
+      to: "/integrations",
+      error: healthErrors.syncs,
+    },
+    {
+      label: "warehouses unreachable",
+      count: health.warehouses,
+      to: "/integrations",
+      error: healthErrors.warehouses,
+    },
+    {
+      label: "schedules failing",
+      count: health.schedules,
+      to: "/swarms",
+      error: healthErrors.schedules,
+    },
+    {
+      label: "pipeline runs failed today",
+      count: health.pipelineRuns,
+      to: "/etl",
+      error: healthErrors.pipelineRuns,
+    },
+    {
+      label: "open data incidents",
+      count: health.incidents,
+      to: "/data-monitors",
+      error: healthErrors.incidents,
+    },
+    {
+      label: "workflows failed",
+      count: health.workflows,
+      to: "/workflows",
+      error: healthErrors.workflows,
+    },
+    {
+      label: "SQL models failing",
+      count: health.sqlModels,
+      to: "/sql-models",
+      error: healthErrors.sqlModels,
+    },
     {
       label: "of the monthly budget used",
       // The cap was fetched and then never rendered: the old page used it only
@@ -387,7 +458,7 @@ function DashboardPage() {
       count: counts.swarms,
       noun: "on the canvas",
       to: "/swarms",
-      warn: health.schedules ? `${health.schedules} schedule failing` : null,
+      warn: warnFor(health.schedules, (n) => `${n} schedule failing`),
       invite: "Wire agents into a workflow",
     },
     {
@@ -404,7 +475,7 @@ function DashboardPage() {
       count: counts.pipelines,
       noun: "pipelines",
       to: "/etl",
-      warn: health.pipelineRuns ? `${health.pipelineRuns} failed today` : null,
+      warn: warnFor(health.pipelineRuns, (n) => `${n} failed today`),
       invite: "Move data in on a schedule",
     },
     {
@@ -421,7 +492,7 @@ function DashboardPage() {
       count: counts.sqlModels,
       noun: "models",
       to: "/sql-models",
-      warn: health.sqlModels ? `${health.sqlModels} failing` : null,
+      warn: warnFor(health.sqlModels, (n) => `${n} failing`),
       invite: "Transform raw tables into shaped ones",
     },
     {
@@ -446,7 +517,7 @@ function DashboardPage() {
       count: counts.workflows,
       noun: "orchestrated",
       to: "/workflows",
-      warn: health.workflows ? `${health.workflows} failed` : null,
+      warn: warnFor(health.workflows, (n) => `${n} failed`),
       invite: "One graph over everything above",
     },
     {
@@ -455,7 +526,7 @@ function DashboardPage() {
       count: counts.monitors,
       noun: "watching",
       to: "/data-monitors",
-      warn: health.incidents ? `${health.incidents} open` : null,
+      warn: warnFor(health.incidents, (n) => `${n} open`),
       invite: "Get told when a table goes wrong",
     },
     {
@@ -473,7 +544,11 @@ function DashboardPage() {
       noun: "connected",
       to: "/integrations",
       warn:
-        health.syncs || health.warehouses ? `${health.syncs + health.warehouses} unhealthy` : null,
+        health.syncs === null || health.warehouses === null
+          ? "health could not be checked"
+          : health.syncs || health.warehouses
+            ? `${health.syncs + health.warehouses} unhealthy`
+            : null,
       invite: "Connect a model, a warehouse or an app",
     },
   ];

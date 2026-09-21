@@ -163,7 +163,14 @@ least twice, not a hypothetical.
    update path). Next: the materialized view, which the Lakehouse page can
    edit.
 3. **A cause named that the evidence cannot support.** R31's freshness test, and
-   Prompt Compare crowning the model that failed fastest.
+   Prompt Compare crowning the model that failed fastest. R63's dashboard
+   chip is the degenerate case: a count of `last_status = 'error'` on a
+   column whose constraint allows `built`, `failed`, `skipped` — a zero
+   that could never be anything else. Surveyed the same day: every literal
+   `.eq/.neq/.in` on a status-like column (72 predicates) against the
+   column's CHECK (78 constrained columns in the migrations) — the
+   dashboard's was the only mismatch; the survey re-run with the old
+   predicate in place catches it, so the zero is a real zero.
 4. **Two surfaces, two answers.** The same figure computed twice by different
    code — the browser engine and the server refresh disagreeing on a row cap is
    the recorded instance.
@@ -257,6 +264,10 @@ least twice, not a hypothetical.
 - "It returned no matching passages" is a claim about the documents. A
   search that could not be completed has no standing to make it, and the
   model it is told to will repeat it as fact.
+- The home dashboard's seven counts (R63): a failed read was zero, and the
+  SQL-models chip asked for a value its column cannot hold, so it never
+  fired. A predicate is a claim about what the column holds; check it
+  against the constraint, not against the word you would have used.
 - Sweep 2's named rows are closed with R62. The failed-read shape (item 1)
   turned up again in the one module the named list never reached — the
   ML page's two list handlers — which is the argument for the survey,

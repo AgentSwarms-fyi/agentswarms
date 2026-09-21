@@ -57,7 +57,9 @@ function DashboardDoc() {
         the number of things that need attention with a chip for each one. Every status behind it
         was already being recorded somewhere — by the SaaS sync, the warehouse connection test, the
         swarm scheduler, the pipeline run, the data monitor — and each chip links to the page that
-        can fix it.
+        can fix it. A check that could not be read is a chip of its own (&ldquo;? sources not
+        syncing — could not be read&rdquo;), never a zero: the sentence says &ldquo;Everything is
+        running&rdquo; only when every check answered and none found anything.
       </P>
       <Table
         headers={["Chip", "Where it comes from", "Where it takes you"]}

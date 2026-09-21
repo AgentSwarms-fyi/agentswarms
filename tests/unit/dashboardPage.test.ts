@@ -86,11 +86,13 @@ describe("what the page leads with", () => {
   });
 
   it("says the platform is healthy out loud, not only when it is not", () => {
-    const band = readFileSync("src/components/dashboard/StatusBand.tsx", "utf8");
+    // R63 moved the sentence into the pure derivation the band renders from.
+    const band = readFileSync("src/lib/dashboardStatus.ts", "utf8");
     expect(band).toContain("Everything is running");
     // A band that renders only on failure teaches nobody it exists, and its
     // absence reads as "not loaded yet".
-    expect(band).toMatch(/checked /);
+    const component = readFileSync("src/components/dashboard/StatusBand.tsx", "utf8");
+    expect(component).toMatch(/checked /);
   });
 });
 
