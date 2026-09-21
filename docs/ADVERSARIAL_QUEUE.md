@@ -264,6 +264,10 @@ least twice, not a hypothetical.
 - "It returned no matching passages" is a claim about the documents. A
   search that could not be completed has no standing to make it, and the
   model it is told to will repeat it as fact.
+- A survey that reads one line at a time misses a statement that spans four
+  (R69): the bare `await supabase\n .from(…)\n .update(…)` OpenRouter's
+  disconnect takes was not in the write survey's count, and the browser
+  found it. Survey the AST, or at least the multi-line form.
 - A write with a side effect that came first (R68): the Knowledge Bases
   page forgets a document's vectors, then deletes the row. When the row
   delete fails, the honest message is not "could not delete" alone but

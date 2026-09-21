@@ -109,6 +109,34 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-22 — "Provider disconnected", with the key still stored and the card still Connected
+
+#### R69 · S1 · The Integration Hub's three disconnects
+
+The write-side survey's next page. Disconnect OpenRouter — the dialog says
+"The stored key is deleted, not disabled" — with every write rejected:
+`Provider disconnected`, and the card reloads still `Connected`, Disconnect
+button and all. Three writes on the page dropped their error: the encrypted
+provider's credential delete, the integrations-row provider update (the
+path OpenRouter takes, which the single-line survey had not listed — the
+statement spans four lines), and the notification channel's update.
+
+Each keeps its error now and says what is still true: "Could not
+disconnect the provider: <why>. The key is still stored and the provider is
+still connected." — or "The provider is still connected." on the row path,
+and "The channel is still connected." for a channel — and none says
+"disconnected" or reloads until the write landed.
+
+Driven, before: `Provider disconnected` over a rejected update, the card
+still Connected after a reload. After the rebuild, the same rejection:
+`Could not disconnect the provider · TypeError: Failed to fetch. The
+provider is still connected.`, the card still Connected with its Disconnect,
+and no "Provider disconnected". No real disconnect was made.
+
+**Tests:** 4 source-anchored on the three writes, their messages and the
+order of failure before success; 4 behaviour-changing mutants each killed,
+control missed, baseline green first.
+
 ### 2026-09-22 — "Document deleted", and the document listed in the same breath
 
 #### R68 · S1 · The Knowledge Bases page's three deletes

@@ -15,6 +15,38 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-22 — Integrations, a disconnect that failed, before and after, ADVERSARIAL_LOG R69
+
+**Why this round exists.** The write-side survey's next page. The
+Integration Hub disconnects a provider or a notification channel and said
+"disconnected" whatever the request answered.
+
+### Before the fix
+
+| Driven                                                                                                                                          | Read back                                                                                                  |
+| ----------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Integration Hub → LLM Providers → OpenRouter (`Connected`) → Disconnect → "Disconnect openrouter? The stored key is deleted, not disabled…" → Disconnect, with every write to `provider_credentials` and `integrations` rejected | toast **`Provider disconnected`**; one `PATCH /rest/v1/integrations?id=eq.…` rejected; the card **still `Connected`, its Disconnect still there** |
+| Reload                                                                                                                                          | OpenRouter still `Connected`                                                                               |
+
+The dialog had just said the stored key is deleted, not disabled; the page
+then said it was done; nothing was.
+
+### After the rebuild
+
+The `agentswarms` service rebuilt and recreated (container `4da715363ad2`);
+the page reloaded onto it. Same provider, same rejection, same dialog.
+
+| Driven                                                                                                                       | Read back                                                                                                                                              |
+| ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Integration Hub → OpenRouter → Disconnect → confirm, with every write to `provider_credentials` and `integrations` rejected | toast **`Could not disconnect the provider · TypeError: Failed to fetch. The provider is still connected.`**; the card **still `Connected`, its Disconnect still there**; one PATCH rejected; **no "Provider disconnected"** |
+
+The page now says what is true — the provider is still connected — and
+says nothing else. No real disconnect was made: the key stays where it
+was. The encrypted-provider and notification-channel paths share the shape
+and are held by the tests.
+
+Findings from this round: R69 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-22 — Knowledge Bases, a document delete that failed, before and after, ADVERSARIAL_LOG R68
 
 **Why this round exists.** The write-side survey's next page. The Knowledge

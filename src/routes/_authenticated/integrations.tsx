@@ -846,17 +846,35 @@ function IntegrationsPage() {
       if (!encId) return;
       // Delete the encrypted credential row entirely — there is no "is_active"
       // flag in provider_credentials, only presence/absence.
-      await supabase.from("provider_credentials").delete().eq("provider", encId);
+      // FOUND FROM THE UI (R69). This dropped the delete's error, so a
+      // disconnect whose request failed said "Provider disconnected" and then
+      // reloaded the list with the provider still connected.
+      const { error } = await supabase.from("provider_credentials").delete().eq("provider", encId);
+      if (error) {
+        toast.error("Could not disconnect the provider", {
+          description: `${error.message}. The key is still stored and the provider is still connected.`,
+        });
+        return;
+      }
       toast.success("Provider disconnected");
       loadIntegrations();
       return;
     }
     const existing = integrations.find((i) => i.provider === providerId);
     if (existing) {
-      await supabase
+      // The same for a provider stored on the integrations row (R69): the
+      // OpenRouter disconnect took this path, said "Provider disconnected"
+      // over a rejected update, and reloaded the list still connected.
+      const { error } = await supabase
         .from("integrations")
         .update({ is_active: false, config: {} })
         .eq("id", existing.id);
+      if (error) {
+        toast.error("Could not disconnect the provider", {
+          description: `${error.message}. The provider is still connected.`,
+        });
+        return;
+      }
       toast.success("Provider disconnected");
       loadIntegrations();
     }
@@ -1102,7 +1120,16 @@ function IntegrationsPage() {
   async function disconnectNotifChannel(kind: string) {
     const existing = integrations.find((i) => i.type === "notification" && i.provider === kind);
     if (!existing) return;
-    await supabase.from("integrations").update({ is_active: false }).eq("id", existing.id);
+    const { error } = await supabase
+      .from("integrations")
+      .update({ is_active: false })
+      .eq("id", existing.id);
+    if (error) {
+      toast.error("Could not disconnect the channel", {
+        description: `${error.message}. The channel is still connected.`,
+      });
+      return;
+    }
     toast.success("Channel disconnected");
     loadIntegrations();
   }
