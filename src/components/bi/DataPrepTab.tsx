@@ -1016,7 +1016,7 @@ export function DataPrepTab() {
               Local tables
               {datasets !== null && (
                 <span className="ml-auto rounded-full bg-muted px-1.5 font-medium normal-case tracking-normal tabular-nums">
-                  {localDatasets.length}
+                  {datasetsError && localDatasets.length === 0 ? "—" : localDatasets.length}
                 </span>
               )}
             </button>

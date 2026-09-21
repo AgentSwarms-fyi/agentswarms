@@ -29,6 +29,7 @@ import {
   Play,
   Plug,
   Plus,
+  AlertTriangle,
   RefreshCw,
   Search,
   Server,
@@ -161,6 +162,14 @@ export function CatalogView({
   const [sources, setSources] = useState<CatalogSource[]>([]);
   const [assets, setAssets] = useState<CatalogAsset[]>([]);
   const [localAssets, setLocalAssets] = useState<UnifiedAsset[]>([]);
+  // MEASURED with every user_data_tables read rejected: the catalog answered
+  // "All assets 21 · Local tables 0 · 21 of 21 assets" over a warn nobody
+  // sees — 33 assets gone, and a search for any of them "no results". A
+  // failed local hydration is not an empty account: the last good list stays,
+  // and this says why it may not be current.
+  const [localError, setLocalError] = useState<string | null>(null);
+  /** The local half of the catalog is UNKNOWN, not merely empty. */
+  const localUnknown = localError !== null && localAssets.length === 0;
   const [quality, setQuality] = useState<Map<string, QualityRollup>>(new Map());
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -272,6 +281,7 @@ export function CatalogView({
         };
       });
       setLocalAssets(mapped);
+      setLocalError(null);
       return mapped;
     } catch (e) {
       // Local tables disappearing from the catalog while the Workbench and
@@ -279,7 +289,7 @@ export function CatalogView({
       // not an empty account. Bare, this catch reported the two as the same
       // thing: an empty "Local tables" filter and no way to tell which.
       console.warn("[Catalog] local table hydration failed", e);
-      setLocalAssets([]);
+      setLocalError((e as Error).message);
       return [];
     }
   }, [myId, token, listConnectionsFn]);
@@ -645,7 +655,17 @@ export function CatalogView({
               }`}
             >
               <Database className="h-3.5 w-3.5" /> All assets
-              <span className="ml-auto text-[10px] text-muted-foreground">{allAssets.length}</span>
+              <span
+                className="ml-auto text-[10px] text-muted-foreground"
+                title={
+                  localUnknown
+                    ? "Local tables could not be loaded — crawled assets only"
+                    : undefined
+                }
+              >
+                {allAssets.length}
+                {localUnknown ? "+" : ""}
+              </span>
             </button>
             <button
               type="button"
@@ -658,7 +678,9 @@ export function CatalogView({
             >
               <HardDrive className="h-3.5 w-3.5" /> Local tables
               <span className="ml-auto text-[10px] text-muted-foreground">
-                {localAssets.filter((a) => a.source_id === LOCAL_SOURCE_ID).length}
+                {localUnknown
+                  ? "—"
+                  : localAssets.filter((a) => a.source_id === LOCAL_SOURCE_ID).length}
               </span>
             </button>
 
@@ -958,10 +980,27 @@ export function CatalogView({
             <BookMarked className="h-3.5 w-3.5" /> Glossary
           </Button>
           <span className="ml-auto text-[11px] text-muted-foreground">
-            {filtered.length} of {allAssets.length} assets
+            {filtered.length} of {allAssets.length}
+            {localUnknown ? "+" : ""} assets
           </span>
         </div>
 
+        {localError ? (
+          <div
+            className="flex items-center gap-2 border-b border-amber-300/60 bg-amber-50 px-3 py-1.5 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300"
+            data-testid="catalog-local-error"
+          >
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+            <span className="min-w-0 flex-1">
+              {localUnknown
+                ? `Local tables could not be loaded: ${localError}`
+                : `Local tables may be stale — the last reload failed: ${localError}`}
+            </span>
+            <button type="button" className="underline" onClick={() => void reloadLocal()}>
+              Retry
+            </button>
+          </div>
+        ) : null}
         <ScrollArea className="min-h-0 flex-1">
           {loading ? (
             <div className="space-y-0 p-3" aria-label="Loading catalog">

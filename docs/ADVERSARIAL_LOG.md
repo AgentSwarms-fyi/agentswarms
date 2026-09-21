@@ -109,6 +109,33 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-21 — The catalog counted a failed read as zero
+
+#### R50 · S1 · "All assets 21 · Local tables 0" over a rejected read
+
+Seen while validating R49: with every `user_data_tables` request rejected, the
+Data Catalog's Sources panel read **All assets 21 · Local tables 0** and the
+list footer **21 of 21 assets**. Normally it reads 54 · 26 · 54 of 54. No toast,
+no banner — one `console.warn` — and 33 assets gone: the 26 local tables and
+the 7 connector-synced datasets that are stored the same way. A search for any
+of them answered "no results".
+
+`reloadLocal`'s catch had a comment saying a hydration failure "is not an empty
+account", and then did `setLocalAssets([])`. The warn was the whole
+disclosure.
+
+The catch records the failure now and leaves the last good list alone. While
+the local half is UNKNOWN — a failure with nothing loaded yet — the Sources
+panel shows `Local tables —` rather than `0`, the totals read `21+` and `21 of
+21+ assets` with the title "crawled assets only", and a banner above the list
+says `Local tables could not be loaded: …` with a Retry. After a failed RELOAD
+over a populated list the counts stand and the banner says the list may be
+stale. The prep tab's collapsed section header, which read `Local tables 0`
+beside its own R49 error state, shows `—` there too.
+
+**Tests:** 8 source-anchored; 7 behaviour-changing mutants each killed, control
+missed, baseline green first.
+
 ### 2026-09-21 — A failed list is not an empty account
 
 Both of these were found by driving the page, and neither could have been found

@@ -15,6 +15,47 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-21 — The catalog under a failed local read, before and after, ADVERSARIAL_LOG R50
+
+**Why this round exists.** R49's validation left the page on the Data Catalog
+view with the table-list read still rejected, and the Sources panel read
+`Local tables 0`. This round measured that properly, fixed it, rebuilt, and
+measured it again. Same technique: `window.fetch` patched in the page to reject
+one table's requests; the real catch running against a real rejection.
+
+### Before the fix
+
+| Driven                                                                     | Read back                                                                                              |
+| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Data Catalog, loaded normally                                              | `All assets 54` · `Local tables 26` · footer `54 of 54 assets`                                          |
+| Data Catalog mounted with every `user_data_tables` request rejected        | `All assets 21` · `Local tables 0` · footer `21 of 21 assets` — no toast, no banner, one `console.warn` |
+
+Thirty-three assets gone silently: the 26 local tables and the 7
+connector-synced datasets that are stored the same way.
+
+### After the rebuild
+
+The `agentswarms` service rebuilt and recreated; the page reloaded onto the new
+bundle (`data-sql-Cofp-IJh.js`).
+
+| Driven                                                                          | Read back                                                                                                                                                                     |
+| ------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Data Catalog mounted with every `user_data_tables` request rejected             | `All assets 21+` · `Local tables —` · footer `21 of 21+ assets`; banner `Local tables could not be loaded: could not list datasets: … Retry`; 7.5 s                             |
+| Retry, `fetch` restored                                                         | `All assets 54` · `Local tables 26` · `54 of 54 assets`; banner gone; 17.5 s                                                                                                    |
+| Reload over the populated list under the rejection (Workbench → Catalog toggle) | counts stand at 54 · 26 · `54 of 54`; banner `Local tables may be stale — the last reload failed: … Retry`; 6 s                                                                 |
+| The same toggle with `fetch` restored                                           | banner gone, 54 · 26; 7.5 s                                                                                                                                                     |
+| BI → Data preparation mounted under the rejection                               | toast `Could not load datasets: …`; section header `Local tables —` (was `0`); expanded: `Tables could not be loaded: … Retry`; 7 s                                             |
+| Retry, `fetch` restored                                                         | `Local tables 33`; error state gone; 8 s                                                                                                                                        |
+
+**Seen on the way, queued.** The first normal reading after the rebuild was
+`Local tables 33`, not 26, and the `sftest` connector row was missing from the
+Sources panel. The container was still `health: starting`; the catalog's
+`listConnectionsFn(...).catch(() => [])` swallowed that failure and the 7
+connector-synced datasets were filed as local uploads. The Retry a minute later
+read 26. That is the next round.
+
+Findings from this round: R50 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-21 — The pager sweep driven to its end, and two defects only the browser found, ADVERSARIAL_LOG R43–R49
 
 **Why this round exists.** R43 to R47 closed the hand-rolled-pager sweep on
