@@ -15,6 +15,46 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-22 — A warm endpoint deployed and stopped, before and after, ADVERSARIAL_LOG R77
+
+**Why this round exists.** The server-side write survey's largest cluster:
+the ML endpoint module, 23 writes with their result dropped. The ready
+stamp answered ok over a row left `starting`; `undeploy` said "stopped"
+over a row left `ready`; a copy whose session write failed could never be
+stopped.
+
+### Before the fix
+
+| Driven                                                                                          | Read back                                                                                                                                 |
+| ----------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| ML Models → `revenue_facts · groups` → Automation → Warm endpoint `off` → Deploy                | toast `Starting the endpoint and loading the model…`; a scorer sandbox up (`[score] listening on 0.0.0.0:8888`); the server function answering `{ ok: true, version: 1 }` |
+| the panel, a second later                                                                        | toast `Serving v1`; `Warm endpoint serving v1`, `Stop`, `Redeploy production`, `0 requests served · not called`                            |
+| Stop                                                                                             | the server function answering `{ ok: true }` after 24 s; toast `Endpoint stopped`; `Warm endpoint off`, `Deploy`                            |
+
+The endpoint runs in a sandbox the server starts and stops, so a failed
+database write cannot be produced from the browser: the defect half — ok
+over a stamp that failed, "stopped" over a row still ready — is held by
+the tests. What the browser holds is the regression half: a deploy and a
+stop whose writes land report themselves exactly as before.
+
+### After the rebuild
+
+The `agentswarms` service rebuilt and recreated (container `46df8dfdd4a3`);
+the same model reloaded onto it, Automation tab, `Warm endpoint off`.
+
+| Driven                                    | Read back                                                                                                                                |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| Deploy                                    | toast `Starting the endpoint and loading the model…`; about 80 s later the server function answering `{ ok: true, version: 1 }`, toast `Serving v1` |
+| the panel, a second later                 | `Warm endpoint serving v1`, `Stop`, `Redeploy production`                                                                                |
+| Stop                                      | the server function answering `{ ok: true }` after 19 s; toast `Endpoint stopped`; `Warm endpoint off`, `Deploy`                          |
+
+A deploy whose ready stamp lands and a stop whose three writes land report
+themselves as before. A stamp or a stop that could not be written now
+answers with the state it left — held by the tests, since a failed database
+write cannot be produced from the browser against a server function.
+
+Findings from this round: R77 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-22 — Knowledge Bases across a base change, before and after, ADVERSARIAL_LOG R76
 
 **Why this round exists.** Seen while pressing the siblings of R64: the page

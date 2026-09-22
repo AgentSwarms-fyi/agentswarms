@@ -127,7 +127,11 @@ describe("and no other path hands out its address either", () => {
       expect(SERVE).toContain(marker);
     }
     const un = SERVE.slice(SERVE.indexOf("export async function undeploy"));
-    expect(un.slice(0, 400)).toContain("await listReplicas(dep.id)");
+    // The preamble grew when undeploy began collecting its writes' errors
+    // (R77); the list is still read unfiltered, before any copy is retired.
+    expect(un.slice(0, un.indexOf("await retireReplica(replica"))).toContain(
+      "await listReplicas(dep.id)",
+    );
     // ...and clears the candidate with them. SEEN LIVE: after stopping an
     // endpoint mid-shadow the row still named a candidate with no copy behind
     // it. The totals stay — they are what the run measured.
@@ -283,7 +287,11 @@ describe("starting and stopping", () => {
     // asked, and left in place they would read as evidence about this one.
     const fn = SERVE.slice(SERVE.indexOf("export async function setCandidate"));
     expect(fn).toContain("shadow_requests: 0,");
-    expect(fn).toContain('.from("ml_shadow_disagreements").delete().eq("deployment_id", dep.id)');
+    // Chain-tolerant: the delete reads its error since R77, so it is broken
+    // across lines.
+    expect(fn).toMatch(
+      /\.from\("ml_shadow_disagreements"\)\s*\.delete\(\)\s*\.eq\("deployment_id", dep\.id\)/,
+    );
   });
 
   it("only one candidate at a time", () => {

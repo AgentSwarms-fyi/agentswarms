@@ -19,6 +19,7 @@
  * would be worse than a wait.
  */
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import type { Database } from "@/integrations/supabase/types";
 import { auditEvent } from "@/utils/audit.server";
 import { getPlatformResources, getRuntimeSettings } from "@/utils/notebookRuntime/config.server";
 import {
@@ -278,15 +279,68 @@ async function endpointOf(session: SessionRow): Promise<string | null> {
   }
 }
 
-async function markStopped(id: string, error?: string | null): Promise<void> {
-  await supabaseAdmin
+/**
+ * Mark the endpoint stopped or failed; the write's error, if any, is returned.
+ *
+ * FOUND FROM THE SURVEY (R77). This dropped its error, and it runs after every
+ * copy is already down — so a row left "ready" described an endpoint that
+ * was not there, the page said "serving", and a caller that trusted the row
+ * was handed the address of a stopped sandbox.
+ */
+async function markStopped(id: string, error?: string | null): Promise<string | null> {
+  const status = error ? "failed" : "stopped";
+  const { error: writeErr } = await supabaseAdmin
     .from("ml_deployments")
     .update({
-      status: error ? "failed" : "stopped",
+      status,
       last_error: error?.slice(0, 2000) ?? null,
       updated_at: new Date().toISOString(),
     })
     .eq("id", id);
+  if (writeErr) {
+    console.warn(
+      `[ml-serve] deployment ${id} is ${status} but its record could not be marked so: ${writeErr.message}`,
+    );
+    return writeErr.message;
+  }
+  return null;
+}
+
+/** Mark the endpoint ready. Retried once: the copy behind it is up and answering. */
+async function stampReady(id: string): Promise<string | null> {
+  const stamp = () =>
+    supabaseAdmin
+      .from("ml_deployments")
+      .update({ status: "ready", last_error: null, updated_at: new Date().toISOString() })
+      .eq("id", id);
+  let { error } = await stamp();
+  if (error) {
+    await new Promise((r) => setTimeout(r, 1_000));
+    ({ error } = await stamp());
+  }
+  if (error) {
+    console.warn(
+      `[ml-serve] deployment ${id} is serving but could not be marked ready after two attempts: ${error.message}`,
+    );
+    return error.message;
+  }
+  return null;
+}
+
+/** Write a copy's state; a failure is said with the copy and the state it holds. */
+async function markReplica(
+  id: string,
+  patch: Database["public"]["Tables"]["ml_deployment_replicas"]["Update"],
+  state: string,
+): Promise<string | null> {
+  const { error } = await supabaseAdmin.from("ml_deployment_replicas").update(patch).eq("id", id);
+  if (error) {
+    console.warn(
+      `[ml-serve] copy ${id} is ${state} but its record could not be written: ${error.message}`,
+    );
+    return error.message;
+  }
+  return null;
 }
 
 /**
@@ -401,13 +455,25 @@ export async function ensureDeployment(args: {
     waitMs: args.waitMs ?? READY_TIMEOUT_MS,
   });
   if (!first.ok) {
-    await markStopped(dep.id, first.error);
-    return { ok: false, error: first.error };
+    const stampErr = await markStopped(dep.id, first.error);
+    return {
+      ok: false,
+      error: stampErr
+        ? `${first.error} (and the endpoint's record could not be marked failed: ${stampErr} — it will show as starting until it is)`
+        : first.error,
+    };
   }
-  await supabaseAdmin
-    .from("ml_deployments")
-    .update({ status: "ready", last_error: null, updated_at: new Date().toISOString() })
-    .eq("id", dep.id);
+  // FOUND FROM THE SURVEY (R77). This stamp dropped its error and the call
+  // answered ok: the copy was up, the row said "starting", and every later
+  // call — not seeing "ready" — retired the healthy copy and started another,
+  // twenty seconds each, for as long as the row stayed so.
+  const readyErr = await stampReady(dep.id);
+  if (readyErr) {
+    return {
+      ok: false,
+      error: `The endpoint is up but its record could not be marked ready: ${readyErr}. It will show as starting, and the next Deploy will replace the copy, until it is.`,
+    };
+  }
 
   auditEvent({
     userId,
@@ -502,56 +568,93 @@ async function startReplica(args: {
       memLimitMb: args.memLimitMb,
       inputs: { __ml_score: { model_id: args.model.id, version_id: args.version.id } },
     });
-    await supabaseAdmin
+    const { error: sessErr } = await supabaseAdmin
       .from("ml_deployment_replicas")
       .update({ session_id: session.id, updated_at: new Date().toISOString() })
       .eq("id", replica.id);
+    if (sessErr) {
+      // FOUND FROM THE SURVEY (R77). A copy whose session is not on its row is
+      // a copy nothing can stop later — retireReplica stops by session id. It
+      // is stopped now, while the id is still in hand, rather than leaked.
+      await stopQuietly(args.userId, session.id);
+      await markReplica(
+        replica.id,
+        { status: "failed", last_error: sessErr.message.slice(0, 2000) },
+        "failed",
+      );
+      return {
+        ok: false,
+        error: `The copy started but its session could not be recorded: ${sessErr.message}; it was stopped again.`,
+      };
+    }
 
     const ready = await waitReady(args.userId, session.id, args.waitMs);
     if (!ready.ok) {
-      await supabaseAdmin
-        .from("ml_deployment_replicas")
-        .update({
+      await markReplica(
+        replica.id,
+        {
           status: "failed",
           last_error: ready.error.slice(0, 2000),
           updated_at: new Date().toISOString(),
-        })
-        .eq("id", replica.id);
+        },
+        "failed",
+      );
       await stopQuietly(args.userId, session.id);
       return { ok: false, error: ready.error };
     }
-    await supabaseAdmin
-      .from("ml_deployment_replicas")
-      .update({
+    const readyErr = await markReplica(
+      replica.id,
+      {
         status: "ready",
         endpoint: ready.endpoint,
         last_error: null,
         updated_at: new Date().toISOString(),
-      })
-      .eq("id", replica.id);
+      },
+      "ready",
+    );
+    if (readyErr) {
+      // A copy the record does not know as ready is a copy nobody scores
+      // against, and one the round-robin never sees — warm, useless, and
+      // counted against the caps. Stopped again rather than left so (R77).
+      await stopQuietly(args.userId, session.id);
+      await markReplica(
+        replica.id,
+        { status: "failed", endpoint: null, last_error: readyErr.slice(0, 2000) },
+        "failed",
+      );
+      return {
+        ok: false,
+        error: `The copy is up but could not be marked ready: ${readyErr}; it was stopped again.`,
+      };
+    }
     return { ok: true, endpoint: ready.endpoint, replicaId: replica.id };
   } catch (e) {
     const message = (e as Error).message;
-    await supabaseAdmin
-      .from("ml_deployment_replicas")
-      .update({ status: "failed", last_error: message.slice(0, 2000) })
-      .eq("id", replica.id);
+    await markReplica(
+      replica.id,
+      { status: "failed", last_error: message.slice(0, 2000) },
+      "failed",
+    );
     return { ok: false, error: message };
   }
 }
 
 /** Stop one copy's sandbox and mark the row, whichever way round it goes. */
-async function retireReplica(replica: MlReplicaRow, reason: string): Promise<void> {
+async function retireReplica(replica: MlReplicaRow, reason: string): Promise<string | null> {
   if (replica.session_id) await stopQuietly(replica.user_id, replica.session_id);
-  await supabaseAdmin
-    .from("ml_deployment_replicas")
-    .update({
+  // The sandbox is gone whatever the row says now. A row still "ready" is
+  // picked by the round-robin and fails the request; the next health check
+  // retires it again, and the caller is told (R77).
+  return markReplica(
+    replica.id,
+    {
       status: "stopped",
       endpoint: null,
       last_error: reason.slice(0, 2000),
       updated_at: new Date().toISOString(),
-    })
-    .eq("id", replica.id);
+    },
+    "stopped",
+  );
 }
 
 /** Is the scorer listening AND finished loading its model? */
@@ -891,7 +994,7 @@ async function maybeRollBackCanary(deploymentId: string): Promise<void> {
  */
 async function touch(deploymentId: string, replicaId: string): Promise<void> {
   try {
-    await Promise.all([
+    const [used, touched] = await Promise.all([
       // One statement: the RPC sets both the counter and the timestamp the
       // idle reaper reads. A second UPDATE here would double the writes on the
       // path this whole feature exists to keep short.
@@ -901,6 +1004,16 @@ async function touch(deploymentId: string, replicaId: string): Promise<void> {
         .update({ last_used_at: new Date().toISOString() })
         .eq("id", replicaId),
     ]);
+    // A supabase call does not throw on a failed write; it answers with one.
+    // Left unread, a request that was served went unrecorded and the idle
+    // reaper — which reads what was recorded — took a busy endpoint for an
+    // idle one (R77).
+    const err = used.error ?? touched.error;
+    if (err) {
+      console.warn(
+        `[ml-serve] could not record use of deployment ${deploymentId}: ${err.message}; the idle reaper reads what was recorded`,
+      );
+    }
   } catch (e) {
     console.warn("[ml-serve] could not record use:", (e as Error).message);
   }
@@ -916,30 +1029,53 @@ async function stopQuietly(userId: string, sessionId: string): Promise<void> {
 }
 
 /** Take an endpoint down. The model and its versions are untouched. */
-export async function undeploy(modelId: string, userId: string): Promise<void> {
+export async function undeploy(
+  modelId: string,
+  userId: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
   const dep = await getDeployment(modelId);
-  if (!dep) return;
+  if (!dep) return { ok: true };
+  // FOUND FROM THE SURVEY (R77). Three writes here dropped their errors and
+  // the function returned nothing either way, so "Endpoint stopped" was said
+  // over a row that still read "ready" — with every copy already gone.
+  const failed: string[] = [];
   for (const replica of await listReplicas(dep.id)) {
-    await retireReplica(replica, "undeployed");
+    const err = await retireReplica(replica, "undeployed");
+    if (err) failed.push(`copy ${replica.id.slice(0, 8)}: ${err}`);
   }
   // The candidate's copy went down with every other one just now, so the row
   // would otherwise go on naming a shadow that is not running. SEEN LIVE after
   // stopping an endpoint mid-shadow. Harmless while stopped — the mirror finds
   // no candidate copy and returns — but a row should not describe something
   // that is not happening. The totals stay: they are what the run measured.
-  await supabaseAdmin
+  const { error: candErr } = await supabaseAdmin
     .from("ml_deployments")
     .update({ candidate_mode: "off", candidate_version_id: null })
     .eq("id", dep.id);
-  await markStopped(dep.id);
+  if (candErr) failed.push(`candidate: ${candErr.message}`);
+  const stopErr = await markStopped(dep.id);
+  if (stopErr) failed.push(`status: ${stopErr}`);
   auditEvent({
     userId,
     action: "ml.undeploy",
     resourceType: "ml_deployment",
     resourceId: dep.id,
     resourceName: modelId,
-    detail: { model_id: modelId, requests_served: dep.request_count },
+    detail: {
+      model_id: modelId,
+      requests_served: dep.request_count,
+      ...(failed.length > 0 ? { record_errors: failed } : {}),
+    },
   });
+  if (failed.length > 0) {
+    // Every copy is down. What could not be written is what the page will go
+    // on saying until it is — said, not swallowed.
+    return {
+      ok: false,
+      error: `Every copy is stopped, but the endpoint's record could not be updated (${failed.join("; ")}). It will show as it was until it is — press Stop again.`,
+    };
+  }
+  return { ok: true };
 }
 
 /**
@@ -1394,10 +1530,17 @@ export async function setCandidate(args: {
     for (const r of await listReplicas(dep.id, true, "candidate")) {
       await retireReplica(r, "shadow stopped");
     }
-    await supabaseAdmin
+    const { error: offErr } = await supabaseAdmin
       .from("ml_deployments")
       .update({ candidate_mode: "off", candidate_version_id: null, candidate_percent: 0 })
       .eq("id", dep.id);
+    if (offErr) {
+      // The copies are down; the row still names a candidate (R77).
+      return {
+        ok: false,
+        error: `The candidate copies are stopped, but the endpoint's record still names the candidate: ${offErr.message}. Press Stop again.`,
+      };
+    }
     auditEvent({
       userId: args.userId,
       action: dep.candidate_mode === "canary" ? "ml.canary.stop" : "ml.shadow.stop",
@@ -1440,7 +1583,7 @@ export async function setCandidate(args: {
     (r) => r.version_id === version.id,
   );
   if (dep.candidate_version_id === version.id && running.length > 0) {
-    await supabaseAdmin
+    const { error: modeErr } = await supabaseAdmin
       .from("ml_deployments")
       .update({
         candidate_mode: mode,
@@ -1461,6 +1604,12 @@ export async function setCandidate(args: {
           : {}),
       })
       .eq("id", dep.id);
+    if (modeErr) {
+      return {
+        ok: false,
+        error: `The candidate is running, but its mode could not be recorded: ${modeErr.message}. It is unchanged.`,
+      };
+    }
     auditEvent({
       userId: args.userId,
       action: mode === "canary" ? "ml.canary.start" : "ml.shadow.start",
@@ -1500,7 +1649,7 @@ export async function setCandidate(args: {
   });
   if (!started.ok) return { ok: false, error: started.error };
 
-  await supabaseAdmin
+  const { error: nameErr } = await supabaseAdmin
     .from("ml_deployments")
     .update({
       candidate_version_id: args.version.id,
@@ -1522,7 +1671,27 @@ export async function setCandidate(args: {
       canary_rollback_reason: null,
     })
     .eq("id", dep.id);
-  await supabaseAdmin.from("ml_shadow_disagreements").delete().eq("deployment_id", dep.id);
+  if (nameErr) {
+    // The copy is up; the row does not name it, so the mirror would never use
+    // it and nothing would stop it. Stopped again rather than leaked (R77).
+    const copy = (await listReplicas(dep.id, true, "candidate")).find(
+      (r) => r.id === started.replicaId,
+    );
+    if (copy) await retireReplica(copy, "the record could not name the candidate");
+    return {
+      ok: false,
+      error: `The candidate copy started, but the endpoint's record could not name it: ${nameErr.message}; the copy was stopped again.`,
+    };
+  }
+  const { error: clearErr } = await supabaseAdmin
+    .from("ml_shadow_disagreements")
+    .delete()
+    .eq("deployment_id", dep.id);
+  if (clearErr) {
+    console.warn(
+      `[ml-serve] deployment ${dep.id}: the previous candidate's disagreement examples could not be cleared: ${clearErr.message}; two runs' examples may be listed together`,
+    );
+  }
 
   auditEvent({
     userId: args.userId,

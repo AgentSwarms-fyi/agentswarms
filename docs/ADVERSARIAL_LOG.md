@@ -109,6 +109,59 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-22 — "Serving", over a row that said starting; "stopped", over one that said ready
+
+#### R77 · S1 · The ML endpoint's state writes
+
+The server-side write survey's largest cluster: `serve.server.ts`, 23
+writes with their result dropped. Three of them change what the page and
+the scorer believe about a running sandbox. The ready stamp at the end of
+`ensureDeployment` — the copy up and answering, the row still `starting`
+— dropped its error and the call answered ok; the next call, not seeing
+`ready`, retired the healthy copy and started another, and did so on every
+call for as long as the row stayed so. `undeploy` returned nothing either
+way over three writes, so "Endpoint stopped" was said with every copy gone
+and the row still `ready` — the address of a stopped sandbox, handed to
+the next caller. And a copy whose `session_id` write failed was a copy
+nothing could ever stop, since retiring stops by session id. The same in
+`setCandidate`: a candidate copy up, the row not naming it, the mirror
+never using it, nothing stopping it. `touch` wrapped its writes in a
+try/catch that a failed write never reaches, so a served request could go
+unrecorded and the idle reaper, which reads what was recorded, take a busy
+endpoint for an idle one.
+
+A state the record could not take is now said, and a copy the record
+cannot describe is stopped rather than left running. The ready stamp is
+retried once and, failing twice, answered as a failure that names the
+state left: "It will show as starting, and the next Deploy will replace
+the copy, until it is." `undeploy` answers with every write that failed —
+"Every copy is stopped, but the endpoint's record could not be updated
+(…). It will show as it was until it is — press Stop again." — and the
+server function passes that on. A copy whose session or ready state could
+not be written is stopped again with the id still in hand. A candidate
+the record could not name is retired. `touch` reads its writes' answers
+and says what the reaper will see. The autoscaler's per-minute readings
+and the mirror's bookkeeping keep their fire-and-forget: a reading is
+remeasured a minute later, and nothing decides on it in between.
+
+**Driven.** Before the fix, on the R76 container: ML Models →
+`revenue_facts · groups` → Automation → Deploy — `Starting the endpoint and
+loading the model…`, a scorer sandbox up, the server function answering
+`{ ok: true, version: 1 }`, `Serving v1`, the panel `Warm endpoint serving
+v1`; Stop — `{ ok: true }` after 24 s, `Endpoint stopped`, `Warm endpoint
+off`. After the rebuild (container `46df8dfdd4a3`) the same deploy and
+stop, the same answers, toasts and panel states. A deploy whose stamp lands
+and a stop whose writes land report themselves as before; the defect half —
+ok over a stamp that failed, "stopped" over a row still ready, a copy
+nothing could stop — is held by the tests, a failed database write not
+being producible from the browser against a server function. Recorded in
+[UI test results](./UI_TEST_RESULTS.md).
+
+**Tests:** 9 source-anchored on the stamp and its retry, the copy stopped
+again on either failed write, the retire's answer, `touch`, `undeploy` and
+its server function, and the candidate paths; 6 behaviour-changing mutants
+each killed, control missed, baseline green first.
+
 ### 2026-09-22 — The previous base's documents, under the next base's name
 
 #### R76 · S2 · The Knowledge Bases page across a base change

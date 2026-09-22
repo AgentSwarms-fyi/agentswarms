@@ -472,8 +472,8 @@ export const mlUndeploy = createServerFn({ method: "POST" })
     const { model } = await loadModelForUser(data.modelId, userId, { write: true });
     if (!model) return { ok: false, error: "Model not found" };
     const { undeploy } = await import("@/utils/ml/serve.server");
-    await undeploy(model.id, userId);
-    return { ok: true };
+    // What undeploy could not write is what the page will go on saying (R77).
+    return await undeploy(model.id, userId);
   });
 
 /** Keep it warm through idle periods, or change how long idle is allowed. */

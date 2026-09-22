@@ -264,6 +264,14 @@ least twice, not a hypothetical.
 - "It returned no matching passages" is a claim about the documents. A
   search that could not be completed has no standing to make it, and the
   model it is told to will repeat it as fact.
+- A record that cannot describe what is running is corrected by stopping
+  what is running (R77): a sandbox whose session id, ready state or name
+  the row could not take is stopped again while the id is in hand, rather
+  than left warm, unused and unstoppable. Where the irreversible step is
+  already done — copies gone, row still `ready` — the answer names the
+  state left and the button to press. The survey continues:
+  `etl/service.server` (13), `ml/train.server` (9), `ml/api.server` (8),
+  `notebookRuntime/service.server` (7), `catalog/crawler.server` (6).
 - A list kept across a selection change is the previous selection's list
   (R76): the Knowledge Bases page showed the last base's documents under
   the next base's name until the next read landed, and counted them on the
