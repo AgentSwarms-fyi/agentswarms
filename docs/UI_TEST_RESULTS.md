@@ -15,6 +15,47 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-22 — The sibling paths of R60–R72, every one driven, on the R72 container
+
+**Why this round exists.** Each round above drove one path through its fix
+and left the siblings — the same guard on the next button over — to the
+tests. This round presses every sibling reachable from the browser, on the
+container that carries R72 (`f308cd0a9c0a`), with the same rejected writes
+and reads. Nothing here is a new fix; it is the proof the earlier fixes
+asked for.
+
+| Round | Driven                                                                                                                                                                  | Read back                                                                                                                                                                                                      |
+| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| R60   | SQL Models → `stg_revenue` → definition edited by one character → Save                                                                                                  | toast `Saved stg_revenue`; header `edited 1s ago · not built since` and `last build, of the previous definition: failed · 57 rows · 2m ago`; the build dot on the edited state, not the old outcome              |
+| R66   | Agent Builder → agent limit changed, with `POST /rest/v1/agent_limits` rejected                                                                                         | toast `Could not save the agent limit TypeError: Failed to fetch. The value shown is what is saved.`; status `Not saved — agent limit: TypeError: Failed to fetch`; the field back on the saved `10`             |
+| R71   | Bell (30 unread) → Mark all read, with `PATCH /rest/v1/notifications?read_at=is.null` rejected                                                                         | toast `Could not mark the notifications read …`; the popover's items still listed; badge still `30 unread`                                                                                                       |
+| R71   | Bell → one notification (`"revenue_facts · groups" v21 trained; production kept`), with `PATCH /rest/v1/notifications` rejected                                         | toast `Could not mark the notification read TypeError: Failed to fetch. It is still unread.`; badge still `30 unread`                                                                                            |
+| R72   | Agent Chat → the 10-message conversation → Regenerate on the last reply, with `DELETE /rest/v1/messages` rejected                                                      | toast `Could not regenerate the reply TypeError: Failed to fetch. The previous reply could not be removed, so it stands.`; 10 bubbles before and after; no new reply streamed                                   |
+| R72   | Agent Chat → Delete on the chat `Make a 2-slide PowerPoint about the saas_sales tab` → confirm, with `DELETE /rest/v1/messages` rejected                               | toast `Could not delete the chat …`; the chat still listed; 10 bubbles                                                                                                                                           |
+| R72   | Agent Chat → Edit a message, `(edited)` appended → Resend, with `DELETE /rest/v1/messages?id=in.(…)` rejected                                                            | toast `Could not resend the edited message TypeError: Failed to fetch. The conversation is unchanged.`; 10 bubbles; the original text still in place                                                             |
+| R64   | Knowledge Bases → `Test` selected after `RAG eval · Halvard Systems`, with every `GET /rest/v1/knowledge_documents` and `GET /rest/v1/kb_sources` rejected                | `Could not load the documents: TypeError: Failed to fetch` on the Documents tab and `Could not load the sources: TypeError: Failed to fetch` on Sources — after the client's four attempts (0 s, 1 s, 3 s, 7 s) |
+| R68   | Knowledge Bases → `Test` (0 documents) → its Trash → `Delete "Test"? …` → Delete knowledge base, with `DELETE /rest/v1/knowledge_bases` rejected                         | toast `Could not delete the knowledge base TypeError: Failed to fetch. Its embeddings were already removed — re-index it to restore retrieval.`; `Test` still listed and still selected                          |
+| R70   | BI → dashboard `db14d61a…` → Schedule & alerts → alert `Total Sales · row count > 1` added as a fixture; its Trash with `DELETE /rest/v1/bi_alerts` rejected              | toast `Could not delete the alert TypeError: Failed to fetch. It is still set and will still fire.`; the row still listed                                                                                        |
+| R70   | The alert's mail button (`Also email me when this alert triggers`), with `PATCH /rest/v1/bi_alerts` rejected                                                            | toast `Could not change the alert's email setting TypeError: Failed to fetch. It is unchanged.`                                                                                                                |
+| R70   | The alert's switch, on → off, with `PATCH /rest/v1/bi_alerts` rejected                                                                                                   | toast `Could not switch the alert off TypeError: Failed to fetch. It is still on and will still fire.`; the switch back on. Then deleted for real: the row gone, no toast                                        |
+| R69   | Integrations → the Google Gemini card → Disconnect → `Disconnect gemini? The stored key is deleted, not disabled. …` → Disconnect, with `PATCH /rest/v1/integrations` rejected    | toast `Could not disconnect the provider TypeError: Failed to fetch. The provider is still connected.`; the card still `Connected`                                                                               |
+
+**Not driven, and why.** The encrypted-provider disconnect (Bedrock, Azure
+OpenAI, Vertex, OCI) and the notification-channel disconnect: no such
+provider or channel is connected in this account, and connecting one means
+typing a key or a webhook secret, which these rounds never do. Both stay
+held by the R69 tests, which pin the `error` read and the message on each.
+
+**Seen on the way, filed rather than fixed.** While the `Test` base's
+documents were still loading — seven seconds under the client's retries —
+the previous base's 12 documents stayed listed under the `Test` heading,
+and after the load failed the tab still read `Documents (12)` for a base
+with none. Queued as a candidate: the previous base's list is a stale read
+rendered as the current one.
+
+All rejected fetches were restored afterwards; the alert fixture was
+deleted; no knowledge base, chat, provider or notification was changed.
+
 ## 2026-09-22 — Agent Chat, a message delete that failed, before and after, ADVERSARIAL_LOG R72
 
 **Why this round exists.** The write-side survey's last file, back on the
