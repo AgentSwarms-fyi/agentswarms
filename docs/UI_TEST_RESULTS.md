@@ -15,6 +15,50 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-23 — Both positions of "Reject approvals", driven against the warning that describes them, ADVERSARIAL_LOG R91
+
+**Why this round exists.** The Deploy dialog's amber warning said that
+turning "Reject approvals" OFF makes the swarm auto-approve every approval
+step and bypass human oversight. Two schedules on the same swarm, one per
+switch position, settle what each one actually does.
+
+### Before the fix
+
+| Driven | Read back |
+| ------ | --------- |
+| Swarms → My Swarms → `Approval durability check` → Open → Deploy | the amber warning: `This swarm has 1 human-approval step` / `Nobody is present to decide them on a headless run. Leave **Reject approvals** ON (the default) and those runs stop safely at the gate. Turning it OFF makes the swarm **auto-approve** every approval step — your human oversight is bypassed.` |
+| Schedules → `R91 reject probe`, the template's refund request, "Reject approvals" **ON** → Add | toast `Schedule added` |
+| Schedules → `R91 park probe`, the same input, "Reject approvals" **OFF** → Add | toast `Schedule added` |
+| the server's cron sweep | `R91 reject probe · every 1440 min · last 9/23/2026, 2:27:25 AM · error`, and under it the executor's own words: `Stopped at human-approval step "Human approval": this run has nobody to approve it. That is the safe default. To let this swarm wait for a real decision, turn off "Reject approvals" on the API key or schedule — the run will then park here and resume when someone approves it.` |
+| the same sweep | `R91 park probe · every 1440 min · last 9/23/2026, 2:27:44 AM · suspended`; the bell `Pending approvals (1)` — one request, `Human approval · paused · 1m ago · MEDIUM · Approve this request` |
+| Approve | `All caught up · No agents waiting for approval.` |
+
+Neither position approved anything on its own. ON ended the run at the
+gate and asked nobody; OFF parked it and asked a person, who decided. The
+refutation of the warning was printed by the app an inch below it, in the
+schedule row the warning is about.
+
+### After the rebuild
+
+| Driven | Read back |
+| ------ | --------- |
+| the Deploy dialog on container `b645e0532188` | `This swarm has 1 human-approval step` / `Nobody is watching a headless run, so **Reject approvals** decides what happens at the gate. Neither setting approves anything on its own. ON (the default) stops the run at the step and ends it as an **error**: nothing past the gate runs, and nobody is asked. OFF **parks** the run instead — it waits at the gate, the request lands in your approvals bell, and it carries on from that step once someone decides.` / `A parked run answers its caller with status: suspended and no output, so keep this ON for an integration that needs its answer in one call.` |
+| Schedules → `R91 reject probe (after)` with the switch **ON**, and `R91 park probe (after)` with it **OFF** → Add, then the sweep | `R91 reject probe (after) · last 9/23/2026, 2:59:13 AM · error` with the executor's same message; `R91 park probe (after) · last 9/23/2026, 2:59:25 AM · suspended`; the bell `Pending approvals (1)` — `Human approval · paused · MEDIUM · Approve this request — Customer requests a full refund for a damaged item. Refund amount is $240. Risk: potential fraudulent claim leading to loss.` |
+| Approve | `All caught up · No agents waiting for approval.` |
+| `/docs/swarms` | `Approval nodes are auto-rejected by default, which ends such a case with an error rather than a verdict. Turning that off does not approve them: the case parks as suspended and waits for a person, which is rarely what a batch wants, so remove the gate from a swarm you mean to evaluate unattended.` |
+
+The behaviour did not change in this round; only the words that describe
+it did. Both positions do now what the dialog says they do, and the
+sentence a reader is most likely to act on — which switch keeps a human in
+the loop — now points at the right one.
+
+Fixtures kept: the `Approval durability check` swarm and its four
+schedules (`R91 park probe`, `R91 reject probe`, `R90 park probe`, `R90
+park probe (after)`), all daily and all already run, left in place so both
+halves of this round can be re-driven.
+
+Findings from this round: R91 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-23 — A swarm parked at a human approval and resumed, before and after, ADVERSARIAL_LOG R90
 
 **Why this round exists.** A headless run that reaches an approval step

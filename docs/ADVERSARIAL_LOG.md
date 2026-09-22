@@ -109,6 +109,79 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-23 — The switch that meant the opposite of its label
+
+#### R91 · S1 · The Deploy dialog's warning about approval steps
+
+A swarm with a human-approval step, deployed to an API key or a schedule,
+runs with nobody watching. One switch decides what happens when such a run
+reaches the gate, and the dialog's amber warning was the only place its two
+positions were explained:
+
+> Leave **Reject approvals** ON (the default) and those runs stop safely at the
+> gate. Turning it OFF makes the swarm **auto-approve** every approval step —
+> your human oversight is bypassed.
+
+Both halves are wrong, and the second is the dangerous one. With the switch
+ON the executor throws at the gate: the run stops at the step, ends as an
+`error`, and nobody is ever asked. With it OFF the run parks — it writes a
+checkpoint, is marked `suspended`, and the request goes into the approvals
+bell for a person to decide. OFF is the setting that preserves human
+oversight; ON is the setting under which no human ever sees the request.
+
+The copy is a survivor of an older executor, and the repo still says so.
+The shipped `Approval durability check` template's own notes read: "Before
+checkpointing existed there was nothing to park: an unattended run could
+only auto-approve or fail." Checkpointing landed; this warning did not
+move.
+
+The consequence is a governance control read backwards. An operator who
+wants a person to sign off on scheduled runs is told that the position
+which asks a person bypasses their oversight, so they leave it ON — and
+the approval gate they installed becomes a wall that fails every run
+reaching it, with nothing in the bell to show for it. The one who wanted
+fail-closed gets it, but is told it is "safe" rather than "errored", which
+is what the schedule's own row will say.
+
+The executor says the true version in the error it throws, and this very
+dialog displays it: a schedule with the switch ON reports `Stopped at
+human-approval step "Human approval": ... turn off "Reject approvals" ... the
+run will then park here and resume when someone approves it` in the list of
+schedules, an inch below the warning claiming the opposite. The warning now
+says what the executor does, in the executor's terms, and adds what a
+caller needs: a parked run answers with `status: suspended` and no output,
+so an integration that wants its answer in one call should keep the switch
+ON deliberately. The evaluations note in the swarms docs carried the same
+stale belief — "unless the swarm is safe to auto-approve in a batch" —
+and was corrected with it; the eval runner itself has handled a parked case
+by name since it was written.
+
+**Driven, both positions, before and after.** On the R90 container: the
+Deploy dialog for `Approval durability check` showed the old warning, and
+two schedules were added to the same swarm, one per switch position. The
+sweep answered for both: `R91 reject probe` (switch ON) `last 9/23/2026,
+2:27:25 AM · error`, and printed under it, in the same list, the
+executor's own contradiction of the warning above it — `Stopped at
+human-approval step "Human approval": this run has nobody to approve it.
+That is the safe default. To let this swarm wait for a real decision, turn
+off "Reject approvals" on the API key or schedule — the run will then park
+here and resume when someone approves it.`; `R91 park probe` (switch OFF)
+`last 9/23/2026, 2:27:44 AM · suspended`, with `Pending approvals (1)` in
+the bell, one request, which Approve carried to `All caught up`. Neither
+position approved anything on its own: ON asked nobody, OFF asked a
+person. After the rebuild (container b645e0532188) the dialog shows the
+corrected warning, `/docs/swarms` the corrected evaluations note, and a
+second pair of schedules answered the same way — `R91 reject probe
+(after)` `2:59:13 AM · error`, `R91 park probe (after)` `2:59:25 AM ·
+suspended` and its approval resumed. The behaviour did not change in this
+round; only the words that describe it did. Recorded in
+docs/UI_TEST_RESULTS.md.
+
+**Tests:** 8 source-anchored, pinning each clause of the warning against
+the executor's own gate and message, and the docs note against the runner;
+5 behaviour-changing mutants each killed, control missed, baseline green
+first.
+
 ### 2026-09-23 — A decision that resumed nothing, and said it had
 
 #### R90 · S1 · The parked swarm run

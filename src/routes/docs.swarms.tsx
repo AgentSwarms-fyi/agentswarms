@@ -829,8 +829,11 @@ input ──▶ split ┼──▶ legal analysis ─────┼──▶ me
       <P>
         Runs are resumable and cancellable: cancelling is enforced server-side, and a case that
         already has a verdict is never scored twice, so &ldquo;run remaining&rdquo; picks up exactly
-        where it stopped. Approval nodes are auto-rejected by default — leave that on unless the
-        swarm is safe to auto-approve in a batch. Each result links to its full execution trace.
+        where it stopped. Approval nodes are auto-rejected by default, which ends such a case with
+        an error rather than a verdict. Turning that off does not approve them: the case parks as{" "}
+        <C>suspended</C> and waits for a person, which is rarely what a batch wants, so remove the
+        gate from a swarm you mean to evaluate unattended. Each result links to its full execution
+        trace.
       </P>
 
       <H2 id="export">Export</H2>

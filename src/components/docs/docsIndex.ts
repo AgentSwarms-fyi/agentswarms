@@ -4263,6 +4263,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "skillIds",
       "stateAssignments",
       "subSwarmId",
+      "suspended",
       "swarm",
       "systemPrompt",
       "technical",

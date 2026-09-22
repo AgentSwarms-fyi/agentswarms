@@ -344,6 +344,29 @@ least twice, not a hypothetical.
   two numbers are. Candidate for a round: find every pair where the caller's
   patience is shorter than the work it waits on, and make the shorter one
   say what is still happening.
+- A resume that starts a second run never closes the first (seen while
+  driving R91): `resumeSwarmRun` hands `executeSwarmServer` the checkpoint
+  and a `resume.runId`, but the tracer inserts a NEW `swarm_runs` row, and
+  nothing ever writes the parked row's ending. MEASURED, four times in one
+  session: the swarm gallery's Recent runs tab shows `Approval durability
+  check (schedule) — Running — 5m 25s` with a live duration and a Cancel
+  button three minutes AFTER its approval resumed it and the resumed run
+  `(api) — Success — 5s — 3 steps` sits above it. The parked row also
+  keeps its checkpoint (the new run clears its own id, not the old one), so
+  the R90 gate would let the same approval resume the work a second time.
+  Candidate for a round: decide whether a resume continues the run or
+  starts one, and make every record agree — the trace, the duration, the
+  cost and the checkpoint.
+- The words beside a control are part of the control (R91): the Deploy
+  dialog's warning described the "Reject approvals" switch backwards,
+  because it was written for an executor that predated checkpointing and
+  nobody re-read it when the behaviour changed. A guard whose only
+  documentation is stale UI copy is worse than an undocumented one, because
+  the copy is believed. Sweep: every sentence that explains what a switch,
+  a default or a status value DOES, checked against the code that does it
+  — start with the ones next to a `<Switch>`, and with any text that
+  survives from before a behaviour change (the shipped templates' notes
+  name several such changes explicitly).
 - Ask what a status word is FOR before trusting it (R90): the swarm resume
   gated on `status === "suspended"`, a word written by a stamp that could
   fail, when the thing a resume needs is the checkpoint. Where a guard and

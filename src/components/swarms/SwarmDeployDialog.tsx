@@ -514,11 +514,28 @@ export function SwarmDeployDialog({
                 This swarm has {approvalNodes.length} human-approval step
                 {approvalNodes.length > 1 ? "s" : ""}
               </div>
+              {/* FOUND FROM THE SURVEY (R91). This warning used to say that
+                  turning the switch OFF made the swarm auto-approve every
+                  approval step and bypass human oversight. It is the other way
+                  round, and has been since checkpointing landed: ON throws at
+                  the gate, so nobody is ever asked; OFF parks the run and asks
+                  a person. Told the old story, the operator who wants human
+                  sign-off leaves ON — the one setting under which no human
+                  ever sees the request. Keep this copy in step with
+                  swarmExecute.server.ts, which says the same thing in the
+                  error it throws. */}
               <p className="mt-1 text-muted-foreground">
-                Nobody is present to decide them on a headless run. Leave{" "}
-                <strong>Reject approvals</strong> ON (the default) and those runs stop safely at the
-                gate. Turning it OFF makes the swarm <strong>auto-approve</strong> every approval
-                step — your human oversight is bypassed.
+                Nobody is watching a headless run, so <strong>Reject approvals</strong> decides what
+                happens at the gate. Neither setting approves anything on its own. ON (the default)
+                stops the run at the step and ends it as an <strong>error</strong>: nothing past the
+                gate runs, and nobody is asked. OFF <strong>parks</strong> the run instead — it
+                waits at the gate, the request lands in your approvals bell, and it carries on from
+                that step once someone decides.
+              </p>
+              <p className="mt-1 text-muted-foreground">
+                A parked run answers its caller with{" "}
+                <code className="font-mono">status: suspended</code> and no output, so keep this ON
+                for an integration that needs its answer in one call.
               </p>
             </div>
           </div>
