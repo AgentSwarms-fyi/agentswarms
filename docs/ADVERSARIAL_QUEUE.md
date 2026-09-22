@@ -264,6 +264,13 @@ least twice, not a hypothetical.
 - "It returned no matching passages" is a claim about the documents. A
   search that could not be completed has no standing to make it, and the
   model it is told to will repeat it as fact.
+- An outcome claimed on one row and dropped on the next is two records that
+  disagree for ever (R79): a job "succeeded" over a version "training".
+  When the second write fails after a retry, un-claim the first with the
+  reason rather than leave the pair. The survey continues: `ml/api.server`
+  (8, with the API-path promotion that drops the three writes R73 fixed on
+  the page path), `notebookRuntime/service.server` (7: the container ref
+  and stopped mark every sandbox depends on), `catalog/crawler.server` (6).
 - A cancel writes its record before it stops anything (R78): stopping first
   and failing the write leaves a "running" row over nothing, which is the
   state nothing corrects. And a cursor a successful run could not save is

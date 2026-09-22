@@ -306,13 +306,18 @@ export async function startTrainingJob(args: {
     rootRef: model.id,
   });
   const snapshot = await lakehouseSnapshotId().catch(() => null);
-  await supabaseAdmin
+  const { error: snapErr } = await supabaseAdmin
     .from("ml_model_versions")
     .update({
       decision_id: version.id,
       training_snapshot_id: snapshot ? Number(snapshot) : null,
     })
     .eq("id", version.id);
+  if (snapErr) {
+    console.warn(
+      `[ml] version ${version.id}: the training snapshot could not be recorded: ${snapErr.message}; the version will not say which snapshot it was trained on`,
+    );
+  }
 
   const cfg = version.config as Partial<MlTrainConfig>;
   const budget = cfg.time_budget_minutes ?? limits.mlTrainTimeBudgetMinutes;
@@ -376,7 +381,7 @@ export async function startTrainingJob(args: {
   // `shards` is what actually started, never what was planned: the merge waits
   // for exactly this many callbacks, and a job waiting on a worker that never
   // existed would hang until the orphan sweep.
-  await supabaseAdmin
+  const { error: recErr } = await supabaseAdmin
     .from("ml_training_jobs")
     .update({
       status: "running",
@@ -386,6 +391,20 @@ export async function startTrainingJob(args: {
       started_at: new Date().toISOString(),
     })
     .eq("id", job.id);
+  if (recErr) {
+    // FOUND FROM THE SURVEY (R79). The workers are running and the job row
+    // does not know them: cancel stops by the sessions on the row, and the
+    // merge waits for as many callbacks as the row counts. Stopped now,
+    // while the ids are in hand, and the job fails as a job.
+    const { data: sessions } = await supabaseAdmin
+      .from("notebook_runtime_sessions")
+      .select("*")
+      .in("id", started);
+    for (const session of sessions ?? []) await stopSession(session).catch(() => {});
+    const message = `The workers started but the job could not record them: ${recErr.message}; they were stopped again.`;
+    await markJobFailed(job.id, message, "");
+    return { ok: false, error: message };
+  }
   if (started.length < plan.shards) {
     console.warn(
       `[ml] job ${job.id}: ${started.length} of ${plan.shards} workers started (${startError})`,
@@ -454,11 +473,17 @@ async function markJobFailed(jobId: string, error: string, logs: string): Promis
     .select("id, model_id, version_id, user_id")
     .maybeSingle();
   if (!claimed) return;
-  await supabaseAdmin
+  const { error: versionErr } = await supabaseAdmin
     .from("ml_model_versions")
     .update({ status: "failed" })
     .eq("id", claimed.version_id)
     .eq("status", "training");
+  if (versionErr) {
+    // The job is failed; the version still says training (R79).
+    console.warn(
+      `[ml-train] version ${claimed.version_id}: could not be marked failed: ${versionErr.message}; it will show as training until it is`,
+    );
+  }
   const { data: model } = await supabaseAdmin
     .from("ml_models")
     .select("name")
@@ -502,11 +527,14 @@ export async function appendMlPartialLogs(jobId: string, logs: string): Promise<
   } catch {
     /* scrub what we can */
   }
-  await supabaseAdmin
+  const { error: logErr } = await supabaseAdmin
     .from("ml_training_jobs")
     .update({ logs: scrubSecrets(logs.slice(-LOG_CAP), secretValues) })
     .eq("id", jobId)
     .eq("status", "running");
+  if (logErr) {
+    console.warn(`[ml-train] job ${jobId}: partial logs could not be written: ${logErr.message}`);
+  }
 }
 
 function isTrainResult(v: unknown): v is MlTrainResult {
@@ -986,10 +1014,15 @@ async function finishParallelFit(
     await markJobFailed(jobId, startErr ?? "No container could assemble the fitted slices.", logs);
     return;
   }
-  await supabaseAdmin
+  const { error: shardErr } = await supabaseAdmin
     .from("ml_training_jobs")
     .update({ shards: 1, shard_sessions: started })
     .eq("id", jobId);
+  if (shardErr) {
+    console.warn(
+      `[ml-train] job ${jobId}: the assembling worker could not be recorded: ${shardErr.message}; cancel will not reach it`,
+    );
+  }
   await appendMlPartialLogs(
     jobId,
     `── ${good.length} slice(s) fitted; combining them into one model ──\n`,
@@ -1105,38 +1138,72 @@ async function writeTrainOutcome(jobId: string, r: MlTrainResult, logs: string):
   if (!claimed) return;
 
   const promote = Boolean(model && !model.production_version_id);
-  await supabaseAdmin
-    .from("ml_model_versions")
-    .update({
-      status: "ready",
-      stage: promote ? "production" : "candidate",
-      algorithm: r.algorithm,
-      metrics: r.metrics as Json,
-      leaderboard: r.leaderboard as Json,
-      feature_importance: r.feature_importance as Json,
-      feature_schema: r.feature_schema as Json,
-      feature_stats: (r.feature_stats ?? null) as Json,
-      artifact_uri: r.artifact_uri,
-      artifact_sha256: r.artifact_sha256,
-      artifact_bytes: r.artifact_bytes,
-      training_rows: r.training_rows,
-      training_total_rows: r.training_total_rows,
-      training_sampled: r.training_sampled,
-      warnings: (r.warnings ?? []) as Json,
-      forecast: (r.forecast
-        ? { points: r.forecast, history: r.history ?? [], meta: r.series_meta ?? null }
-        : null) as Json,
-      trained_at: now,
-    })
-    .eq("id", job.version_id);
+  const recordVersion = () =>
+    supabaseAdmin
+      .from("ml_model_versions")
+      .update({
+        status: "ready",
+        stage: promote ? "production" : "candidate",
+        algorithm: r.algorithm,
+        metrics: r.metrics as Json,
+        leaderboard: r.leaderboard as Json,
+        feature_importance: r.feature_importance as Json,
+        feature_schema: r.feature_schema as Json,
+        feature_stats: (r.feature_stats ?? null) as Json,
+        artifact_uri: r.artifact_uri,
+        artifact_sha256: r.artifact_sha256,
+        artifact_bytes: r.artifact_bytes,
+        training_rows: r.training_rows,
+        training_total_rows: r.training_total_rows,
+        training_sampled: r.training_sampled,
+        warnings: (r.warnings ?? []) as Json,
+        forecast: (r.forecast
+          ? { points: r.forecast, history: r.history ?? [], meta: r.series_meta ?? null }
+          : null) as Json,
+        trained_at: now,
+      })
+      .eq("id", job.version_id);
+  let { error: versionErr } = await recordVersion();
+  if (versionErr) {
+    await new Promise((r) => setTimeout(r, 1_000));
+    ({ error: versionErr } = await recordVersion());
+  }
+  if (versionErr) {
+    // FOUND FROM THE SURVEY (R79). The job was just claimed "succeeded"; the
+    // version it trained is still "training", with no artifact on its row.
+    // Left so, the page shows a finished job over a version that never
+    // becomes ready. The job is failed with the reason, so the outcome and
+    // the record agree, and the person is told to train again.
+    const why = `The model trained, but its version could not be recorded: ${versionErr.message}. Train again.`;
+    const { error: undoErr } = await supabaseAdmin
+      .from("ml_training_jobs")
+      .update({ status: "failed", error: why.slice(0, 4000), finished_at: now })
+      .eq("id", jobId);
+    console.warn(
+      `[ml-train] job ${jobId}: ${why}${undoErr ? ` (and the job could not be marked failed: ${undoErr.message})` : ""}`,
+    );
+    void notifyUser(job.user_id, {
+      title: `Training failed: ${model?.name ?? "model"}`,
+      body: why.slice(0, 450),
+      link: `/ml/${job.model_id}`,
+    }).catch(() => {});
+    return;
+  }
   if (model) {
-    await supabaseAdmin
+    const { error: pointerErr } = await supabaseAdmin
       .from("ml_models")
       .update({
         updated_at: now,
         ...(promote ? { production_version_id: job.version_id } : {}),
       })
       .eq("id", model.id);
+    if (pointerErr && promote) {
+      // The version is marked production; the model does not point at it, so
+      // nothing serves it (R79) — the same state R73 named.
+      console.warn(
+        `[ml-train] model ${model.id}: version ${job.version_id} is marked production but the model's pointer could not be set: ${pointerErr.message} — promote it again`,
+      );
+    }
   }
   const value = r.metrics[r.primary_metric] ?? null;
   auditEvent({
@@ -1344,11 +1411,18 @@ export async function cancelMlJob(jobId: string, userId: string): Promise<boolea
     .select("id, session_id, shard_sessions, model_id, version_id")
     .maybeSingle();
   if (!claimed) return false;
-  await supabaseAdmin
+  const { error: versionErr } = await supabaseAdmin
     .from("ml_model_versions")
     .update({ status: "cancelled" })
     .eq("id", claimed.version_id)
     .eq("status", "training");
+  if (versionErr) {
+    // The job is cancelled and its workers are stopped below; the version
+    // still says training (R79).
+    console.warn(
+      `[ml-train] version ${claimed.version_id}: could not be marked cancelled: ${versionErr.message}; it will show as training until it is`,
+    );
+  }
   // Every worker, not just the first: a cancelled search that left three of
   // four containers running would keep burning the budget it was cancelled to
   // stop.

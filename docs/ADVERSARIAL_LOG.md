@@ -109,6 +109,54 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-22 — A job "succeeded" over a version left training, and workers the job never learned of
+
+#### R79 · S1 · The training job's records
+
+The server-side write survey's next file, `ml/train.server.ts`, 9 writes
+with their result dropped. The one that matters most sits at the end of
+`writeTrainOutcome`: the job row was claimed `succeeded` — a conditional
+update, read back — and then the version's `ready` write, with the
+artifact, the metrics and the stage, dropped its error. A write that
+failed left a finished job over a version `training` for ever, with no
+artifact on its row: the Jobs tab said succeeded, the Versions tab said
+training, nothing would ever serve it, and "promote when better" could not
+choose it. The model's production pointer after an automatic promotion
+dropped its error the same way — the state R73 named, a version marked
+production that nothing serves. `startTrainingJob` wrote the started
+workers onto the job without reading the answer: workers running that the
+row did not count, so cancel could not reach them and the merge waited for
+callbacks the row did not know to expect. And the version's `failed` and
+`cancelled` marks, the training snapshot, the partial logs and the
+assembling worker's record all went the same way.
+
+The version is now recorded with one retry and, failing twice, the job is
+failed with the reason — "The model trained, but its version could not be
+recorded: …. Train again." — written onto the job, said to the owner, and
+the success audit and promotion withheld, so the outcome and the record
+agree. Workers the job row could not take are stopped again while their
+ids are in hand, and the job fails as a job. A production pointer that
+could not be set is said with what to do. The failed and cancelled marks,
+the snapshot, the logs and the assembling worker each read their answer.
+
+**Driven.** Before the fix, on the R78 container: `revenue_facts · groups`
+→ Train new version, budget 5 → `Training started`; Jobs `running 19s` then
+`succeeded 38s kmeans_k2 · Silhouette 0.249`; Versions `v22 candidate`;
+again, `succeeded 12s`, `v23 candidate` — too fast for a cancel to be
+driven. After the rebuild (container `9112063e9cde`) the same: `Training
+started`, `succeeded 52s`, `v24 candidate kmeans_k2 0.249 836`, `v1
+production` unchanged. A job whose version write lands reports itself as
+before; the defect half — a job "succeeded" over a version left
+"training", workers the row never learned of — is held by the tests, a
+failed database write not being producible from the browser against the
+training service. Versions v22–v24 are kept as candidates. Recorded in
+[UI test results](./UI_TEST_RESULTS.md).
+
+**Tests:** 4 source-anchored on the workers stopped again, the version's
+retry and the job failed in its stead, the pointer said, and the failed and
+cancelled marks; 5 behaviour-changing mutants each killed, control missed,
+baseline green first.
+
 ### 2026-09-22 — A run cancelled on screen, a sandbox the run never learned of, a watermark not kept
 
 #### R78 · S1 · The ETL run's records

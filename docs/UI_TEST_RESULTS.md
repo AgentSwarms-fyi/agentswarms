@@ -15,6 +15,48 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-22 — Training a version, before and after, ADVERSARIAL_LOG R79
+
+**Why this round exists.** The training job's records: a job claimed
+"succeeded" and then a version write that dropped its error — a finished
+job over a version "training" for ever — and workers written onto the job
+without reading the answer.
+
+### Before the fix
+
+| Driven                                                                                                | Read back                                                                                                     |
+| ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| ML Models → `revenue_facts · groups` → Train new version → "Train a new version … trains v22", time budget 5 → Train | toast `Training started` about 45 s later                                                                    |
+| Jobs                                                                                                  | the new job `running 19s`, then `succeeded 38s kmeans_k2 · Silhouette 0.249`                                  |
+| Versions (22)                                                                                         | `v22 candidate kmeans_k2 0.249 836 45s ago`; `v1 production` unchanged                                          |
+| Train new version again → Train                                                                       | `Training started` 24 s later; the job `succeeded 12s` before its view could be opened — no cancel to drive     |
+| Versions (23)                                                                                         | `v23 candidate kmeans_k2 0.249 836 27s ago`                                                                    |
+
+A job whose outcome writes land shows the version ready, as a candidate,
+under a job that succeeded. The writes run in the training service, so a
+failed version write cannot be produced from the browser: the defect half —
+a job "succeeded" over a version left "training" — is held by the tests.
+Versions v22 and v23 are kept as candidates.
+
+### After the rebuild
+
+The `agentswarms` service rebuilt and recreated (container `9112063e9cde`);
+the same model reloaded onto it.
+
+| Driven                                                                                  | Read back                                                                                          |
+| --------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| Train new version → "Train a new version … trains v24", time budget 5 → Train           | toast `Training started` 15 s later                                                                |
+| Jobs                                                                                    | the new job `running 19s`, then `succeeded 52s kmeans_k2 · Silhouette 0.249`                        |
+| Versions (24)                                                                           | `v24 candidate kmeans_k2 0.249 836 11s ago`; `v1 production` unchanged                               |
+
+A job whose version write lands shows a ready candidate under a job that
+succeeded, as before; one whose write fails twice is now failed with the
+reason instead of left "succeeded" over a version "training" — held by the
+tests, since a failed database write cannot be produced from the browser
+against the training service. Version v24 is kept as a candidate.
+
+Findings from this round: R79 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-22 — An ETL run cancelled, before and after, ADVERSARIAL_LOG R78
 
 **Why this round exists.** The ETL run's records: a sandbox started that
