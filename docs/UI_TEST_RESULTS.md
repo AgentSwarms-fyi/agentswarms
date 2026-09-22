@@ -15,6 +15,48 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-22 — A scheduled retrain judged, before and after, ADVERSARIAL_LOG R81
+
+**Why this round exists.** The promotion the API and the schedule make
+kept the three writes in the order R73 fixed on the page path and dropped
+every error, saying "promoted" whatever happened.
+
+### Before the fix
+
+| Driven                                                                                             | Read back                                                                                                                                    |
+| -------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| ML Models → `revenue_facts · groups` → Automation → `Nightly retrain · retrain · No tuning · promote when better` → Run now | toast `Training started` 22 s later; the schedule row `started`; Versions (25)                                                              |
+| the same row, four minutes later                                                                   | `kept 4m ago` — the candidate judged against production and kept                                                                              |
+| the bell                                                                                           | `"revenue_facts · groups" v25 trained; production kept · silhouette: 0.2490 vs production 0.2490 (not better) · 3m ago`                       |
+
+A verdict whose promotion is not attempted, or whose writes land, reports
+itself. The API path — a version registered from outside — needs an ML API
+key and an artifact in the lake bucket, which these rounds never mint or
+upload; both halves of that path, and a promotion whose writes fail, are
+held by the tests.
+
+### After the rebuild
+
+The `agentswarms` service rebuilt and recreated (container `09f1a7bb3de1`);
+the same model reloaded onto it, Automation tab, the schedule `kept 23m ago`.
+
+| Driven                                                   | Read back                                                                                                                              |
+| -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `Nightly retrain · promote when better` → Run now        | toast `Training started` 20 s later; Versions (26) on reload                                                                           |
+| the schedule row, two minutes later                      | `kept 2m ago` — the candidate judged against production and kept                                                                        |
+| the bell                                                 | `"revenue_facts · groups" v26 trained; production kept · silhouette: 0.2490 vs production 0.2490 (not better) · just now`               |
+
+A verdict whose promotion is not attempted, or whose writes land, reports
+itself as before. A promotion whose writes fail is now answered as such on
+every path — `promoted: false` and `promotion_error` from the API, `kept`
+with `last_error` on the schedule and "trained, but could not be promoted"
+to the owner — held by the tests, since a failed database write cannot be
+produced from the browser against a server function, and the API path
+needs a key and an artifact these rounds never mint. Version v26 is kept as
+a candidate.
+
+Findings from this round: R81 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-22 — A server kernel started and stopped, before and after, ADVERSARIAL_LOG R80
 
 **Why this round exists.** The sandbox's own record, under every ML and ETL

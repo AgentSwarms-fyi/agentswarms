@@ -216,7 +216,10 @@ export async function registerExternalVersion(
     promote?: boolean;
   },
   opts: { userId: string; apiKeyId?: string | null },
-): Promise<{ ok: true; versionId: string; version: number } | { ok: false; error: string }> {
+): Promise<
+  | { ok: true; versionId: string; version: number; promoted: boolean; promotionError?: string }
+  | { ok: false; error: string }
+> {
   if (!/^s3:\/\/[^/]+\/.+/.test(input.artifact_uri)) {
     return { ok: false, error: "artifact_uri must be an s3://bucket/path in the lake bucket" };
   }
@@ -276,38 +279,54 @@ export async function registerExternalVersion(
       api_key_id: opts.apiKeyId ?? null,
     },
   });
+  // The version is registered whatever the promotion does; a promotion that
+  // failed is answered as such, not folded into "registered" (R81).
+  let promoted = false;
+  let promotionError: string | undefined;
   if (input.promote || !model.production_version_id) {
-    await promoteVersion(model, v.id, opts.userId);
+    const res = await promoteVersion(model, v.id, opts.userId);
+    promoted = res.ok;
+    if (!res.ok) promotionError = res.error;
   }
-  return { ok: true, versionId: v.id, version };
+  return {
+    ok: true,
+    versionId: v.id,
+    version,
+    promoted,
+    ...(promotionError ? { promotionError } : {}),
+  };
 }
 
-/** Make a version the production one; the previous production version is archived. */
+/**
+ * Make a version the production one; the previous production version is
+ * archived. The one guarded promotion serves every path.
+ *
+ * FOUND FROM THE SURVEY (R81). This made the three writes in the order R73
+ * fixed on the page path — archive, stage, pointer — and dropped every
+ * error: a promotion that failed part-way left the model serving nothing
+ * with its old version already archived, and the API and the schedule both
+ * said it had been promoted.
+ */
 export async function promoteVersion(
   model: MlModelRow,
   versionId: string,
   userId: string,
-): Promise<void> {
-  if (model.production_version_id && model.production_version_id !== versionId) {
-    await supabaseAdmin
-      .from("ml_model_versions")
-      .update({ stage: "archived" })
-      .eq("id", model.production_version_id);
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { data: version, error: readErr } = await supabaseAdmin
+    .from("ml_model_versions")
+    .select("*")
+    .eq("id", versionId)
+    .maybeSingle();
+  if (readErr || !version) {
+    return {
+      ok: false,
+      error: `Could not read the version to promote: ${readErr?.message ?? "not found"}. Nothing changed.`,
+    };
   }
-  await supabaseAdmin.from("ml_model_versions").update({ stage: "production" }).eq("id", versionId);
-  await supabaseAdmin
-    .from("ml_models")
-    .update({ production_version_id: versionId, updated_at: new Date().toISOString() })
-    .eq("id", model.id);
-  model.production_version_id = versionId;
-  auditEvent({
-    userId,
-    action: "ml.version.promote",
-    resourceType: "ml_model",
-    resourceId: model.id,
-    resourceName: model.name,
-    detail: { version_id: versionId },
-  });
+  const { applyPromotion } = await import("./promote.server");
+  const res = await applyPromotion(model, version as MlVersionRow, "production", userId);
+  if (res.ok) model.production_version_id = versionId;
+  return res;
 }
 
 // ── Predictions ──────────────────────────────────────────────────────────────

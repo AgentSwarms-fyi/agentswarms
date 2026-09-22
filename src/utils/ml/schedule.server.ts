@@ -187,18 +187,28 @@ export async function evaluateScheduledVersions(): Promise<number> {
       : { data: null };
     const better = beatsProduction(model.task, candidate, incumbent);
     let promoted = false;
+    let promotionError: string | null = null;
     if (candidate.status === "ready" && s.promote_if_better && better) {
-      await promoteVersion(model as MlModelRow, candidate.id, s.user_id);
-      promoted = true;
+      // FOUND FROM THE SURVEY (R81): this set `promoted` whatever the
+      // promotion answered, and told the owner "is now in production".
+      const res = await promoteVersion(model as MlModelRow, candidate.id, s.user_id);
+      promoted = res.ok;
+      if (!res.ok) promotionError = res.error;
     }
-    await supabaseAdmin
+    const { error: stampErr } = await supabaseAdmin
       .from("ml_schedules")
       .update({
         evaluated_version_id: candidate.id,
         last_status: candidate.status === "ready" ? (promoted ? "promoted" : "kept") : "failed",
+        ...(promotionError ? { last_error: promotionError } : {}),
         updated_at: new Date().toISOString(),
       })
       .eq("id", s.id);
+    if (stampErr) {
+      console.warn(
+        `[ml-schedule] schedule ${s.id}: its verdict could not be recorded: ${stampErr.message}`,
+      );
+    }
     const metric = ML_PRIMARY_METRIC[model.task as MlTask];
     const value = (candidate.metrics as Record<string, number | null>)?.[metric];
     await notifyUser(s.user_id, {
@@ -207,9 +217,12 @@ export async function evaluateScheduledVersions(): Promise<number> {
           ? `Scheduled retrain of "${model.name}" failed`
           : promoted
             ? `"${model.name}" v${candidate.version} is now in production`
-            : `"${model.name}" v${candidate.version} trained; production kept`,
+            : promotionError
+              ? `"${model.name}" v${candidate.version} trained, but could not be promoted`
+              : `"${model.name}" v${candidate.version} trained; production kept`,
       body:
-        candidate.status !== "ready"
+        promotionError ??
+        (candidate.status !== "ready"
           ? (((candidate.warnings as string[] | null) ?? [])[0] ?? "See the job's logs.")
           : `${metric}: ${typeof value === "number" ? value.toFixed(4) : "n/a"}` +
             (incumbent
@@ -222,7 +235,7 @@ export async function evaluateScheduledVersions(): Promise<number> {
               ? " (better)"
               : ML_NOT_A_QUALITY_METRIC.has(metric)
                 ? " — this metric describes how much was flagged, not how well, so it cannot decide a promotion. Production kept; promote by hand if this is the version you want."
-                : " (not better)"),
+                : " (not better)")),
       link: `/ml/${model.id}`,
     });
     judged++;

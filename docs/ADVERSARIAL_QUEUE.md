@@ -264,6 +264,12 @@ least twice, not a hypothetical.
 - "It returned no matching passages" is a claim about the documents. A
   search that could not be completed has no standing to make it, and the
   model it is told to will repeat it as fact.
+- A fix on one path is a defect left on its twin (R81): the page's promotion
+  was guarded in R73 while the API's and the schedule's copy of it kept the
+  old order and dropped every error. When a fix lands, grep for the second
+  implementation and route it through the first. The survey continues:
+  `catalog/crawler.server` (6, with the ETL lineage delete), then the
+  remaining single-site files.
 - The record everything else's record rests on gets the same rule (R80): a
   sandbox whose session row could not take its container ref is stopped
   while the ref is in hand, never left for a reaper that stops by the ref

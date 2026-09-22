@@ -109,6 +109,50 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-22 — "Promoted", by the API and the schedule, whatever the three writes did
+
+#### R81 · S1 · The promotion the API and the schedule make
+
+R73 fixed the page's promotion: five writes, each read, in the order a
+failure part-way leaves least — stage, pointer, archive. The survey's next
+file, `ml/api.server.ts`, holds a second promotion, `promoteVersion`, used
+when a version is registered from outside through the ML API and when a
+scheduled retrain judges its candidate better: the same three writes in
+the old order — archive, stage, pointer — and every error dropped. A
+promotion that failed at the pointer left the model serving nothing with
+its old version already archived; one that failed at the stage left the
+model pointing at a version not marked production; and either way the API
+answered `201` with the version, and the schedule wrote `promoted` and
+told the owner "v N is now in production".
+
+The API-path promotion is now the guarded one: it reads the version and
+hands it to `applyPromotion`, answering as that went. A registration whose
+promotion failed still registers the version and says so — `promoted:
+false` and `promotion_error` in the API's answer. The schedule reads the
+answer: `last_status` says `kept`, `last_error` carries the reason, and
+the owner is told "v N trained, but could not be promoted" with it; the
+schedule's own verdict write reads its answer too.
+
+**Driven.** Before the fix, on the R80 container: `revenue_facts · groups`
+→ Automation → `Nightly retrain · promote when better` → Run now —
+`Training started`; the schedule `kept 4m ago`; the bell `"revenue_facts ·
+groups" v25 trained; production kept · silhouette: 0.2490 vs production
+0.2490 (not better)`. After the rebuild (container `09f1a7bb3de1`) the
+same: `Training started`, Versions (26), the schedule `kept 2m ago`, the
+bell `v26 trained; production kept … (not better) · just now`. A verdict
+whose promotion is not attempted, or whose writes land, reports itself as
+before; the defect half — a promotion that failed part-way said as made,
+on the API and the schedule — is held by the tests, a failed database
+write not being producible from the browser against a server function,
+and the API path needing a key and an artifact these rounds never mint.
+Versions v25 and v26 are kept as candidates. Recorded in
+[UI test results](./UI_TEST_RESULTS.md).
+
+**Tests:** 3 source-anchored on the delegation and its answer, the
+registration and the route, and the schedule's verdict and notification;
+4 behaviour-changing mutants each killed, control missed, baseline green
+first.
+
 ### 2026-09-22 — A container the session never learned of, and a stopped one whose row stayed live
 
 #### R80 · S1 · The sandbox session's own record

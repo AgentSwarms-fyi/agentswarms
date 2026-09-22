@@ -52,7 +52,15 @@ export const Route = createFileRoute("/api/ml/models/register")({
           apiKeyId: auth.key.id,
         });
         if (!done.ok) return mlJson({ error: done.error }, 409);
-        return mlJson({ version_id: done.versionId, version: done.version }, 201);
+        return mlJson(
+          {
+            version_id: done.versionId,
+            version: done.version,
+            promoted: done.promoted,
+            ...(done.promotionError ? { promotion_error: done.promotionError } : {}),
+          },
+          201,
+        );
       },
     },
   },
