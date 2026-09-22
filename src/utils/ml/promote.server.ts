@@ -53,24 +53,79 @@ export async function applyPromotion(
     return { ok: false, error: "Only a trained version can serve production" };
   }
   const now = new Date().toISOString();
+  // FOUND FROM THE UI (R73). Every write here dropped its error and the
+  // function returned ok, so "vN is now in production" toasted over a
+  // rejected update and the model still served the old version. Each write
+  // keeps its error now, and the order is the one that leaves the least
+  // damage if a later step fails: the version's own stage first, then the
+  // model's pointer, then the old version's archive — so a failure part-way
+  // never leaves a model with no production version.
   if (stage === "production") {
-    if (model.production_version_id && model.production_version_id !== version.id) {
-      await supabaseAdmin
-        .from("ml_model_versions")
-        .update({ stage: "archived" })
-        .eq("id", model.production_version_id);
+    const { error: stageErr } = await supabaseAdmin
+      .from("ml_model_versions")
+      .update({ stage })
+      .eq("id", version.id);
+    if (stageErr) {
+      return {
+        ok: false,
+        error: `Could not mark v${version.version} as production: ${stageErr.message}. Nothing changed.`,
+      };
     }
-    await supabaseAdmin
+    const { error: pointerErr } = await supabaseAdmin
       .from("ml_models")
       .update({ production_version_id: version.id, updated_at: now })
       .eq("id", model.id);
-  } else if (model.production_version_id === version.id) {
-    await supabaseAdmin
-      .from("ml_models")
-      .update({ production_version_id: null, updated_at: now })
-      .eq("id", model.id);
+    if (pointerErr) {
+      return {
+        ok: false,
+        error:
+          `Could not switch the model to v${version.version}: ${pointerErr.message}. ` +
+          `The model still serves ${model.production_version_id ? "its previous version" : "no version"}; ` +
+          `v${version.version} is marked production but not served — promote it again.`,
+      };
+    }
+    if (model.production_version_id && model.production_version_id !== version.id) {
+      const { error: archiveErr } = await supabaseAdmin
+        .from("ml_model_versions")
+        .update({ stage: "archived" })
+        .eq("id", model.production_version_id);
+      if (archiveErr) {
+        return {
+          ok: false,
+          error:
+            `v${version.version} is now served, but the previous production version could not be ` +
+            `archived: ${archiveErr.message}. Two versions are marked production until it is.`,
+        };
+      }
+    }
+  } else {
+    if (model.production_version_id === version.id) {
+      const { error: pointerErr } = await supabaseAdmin
+        .from("ml_models")
+        .update({ production_version_id: null, updated_at: now })
+        .eq("id", model.id);
+      if (pointerErr) {
+        return {
+          ok: false,
+          error: `Could not take v${version.version} out of production: ${pointerErr.message}. It is still served.`,
+        };
+      }
+    }
+    const { error: stageErr } = await supabaseAdmin
+      .from("ml_model_versions")
+      .update({ stage })
+      .eq("id", version.id);
+    if (stageErr) {
+      return {
+        ok: false,
+        error:
+          `Could not mark v${version.version} as ${stage}: ${stageErr.message}.` +
+          (model.production_version_id === version.id
+            ? " It is no longer served, but still marked production."
+            : " Nothing changed."),
+      };
+    }
   }
-  await supabaseAdmin.from("ml_model_versions").update({ stage }).eq("id", version.id);
   auditEvent({
     userId,
     action: "ml.version.promote",

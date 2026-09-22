@@ -271,6 +271,14 @@ least twice, not a hypothetical.
   old base's list as this one's. Candidate for a round — clear or mark the
   list as loading on selection; the tab count follows the read, not the
   previous list.
+- A multi-step write is ordered by what a failure part-way leaves (R73):
+  promote wrote archive → pointer → stage, so a failure at the pointer left
+  a model serving nothing with its old version already archived. Write the
+  step whose failure is cheapest first, and say which step failed. The
+  server-side survey (237 error-less writes in 64 files) continues: the
+  lakehouse deletes (`lakehouse.functions`, 8), dataset deletion
+  (`data/ingest.server`), the workflow runner's status writes, ML serving
+  and training state, the catalog crawler.
 - A delete that a second write depends on must stop the second write when
   it fails (R72): regenerate and edit-and-resend insert on top of what they
   could not remove, and a reload shows both. The write survey is closed;

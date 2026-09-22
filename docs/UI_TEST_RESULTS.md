@@ -15,6 +15,43 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-22 — Promoting a model version, before and after, ADVERSARIAL_LOG R73
+
+**Why this round exists.** The server-side write survey (237 error-less
+writes in 64 files), taken to the one that changes what agents and
+dashboards compute with: promoting a version to production. All four of
+its writes dropped their error and it answered ok.
+
+### Before the fix
+
+| Driven                                                                                                                    | Read back                                                                                                                  |
+| ------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| ML Models → `revenue_facts · groups` → Versions (21) → v21 (candidate) → Promote → "Promote v21 to production? Agents and dashboards using this model switch to it immediately." → Promote | toast `v21 is now in production`; v21 `production`, v1 `archived`                                                          |
+| v1 → Promote → confirm                                                                                                     | toast `v1 is now in production`; v1 `production`, v21 `archived` — the fixture restored, v21 left archived rather than candidate |
+
+The promotion runs in a server function, so a rejected database write
+cannot be produced from the browser: the defect half — `ok: true` over a
+write that failed — is held by the tests. What the browser holds is the
+regression half: a promotion that lands reports itself exactly as before.
+
+### After the rebuild
+
+The `agentswarms` service rebuilt and recreated (container `0dd063722838`);
+the same model reloaded onto it, Versions tab.
+
+| Driven                                                                                                                        | Read back                                                                                       |
+| ----------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `revenue_facts · groups` → Versions (21): v1 `production`, v21 `archived`                                                     | the fixture as the earlier round left it                                                        |
+| v21 → Promote → "Promote v21 to production? Agents and dashboards using this model switch to it immediately." → Promote      | toast `v21 is now in production`; v21 `production`, v1 `archived` — stage, pointer and archive all landed |
+| v1 → Promote → confirm                                                                                                        | toast `v1 is now in production`; v1 `production`, v21 `archived` — the fixture restored          |
+
+A promotion whose five writes all land reports itself as before; one whose
+write fails now says which step failed and what state it left — held by the
+tests, since a failed database write cannot be produced from the browser
+against a server function.
+
+Findings from this round: R73 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-22 — The sibling paths of R60–R72, every one driven, on the R72 container
 
 **Why this round exists.** Each round above drove one path through its fix

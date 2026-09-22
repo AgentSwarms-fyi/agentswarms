@@ -109,6 +109,43 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-22 — "vN is now in production", over writes that could have failed, in an order that could leave none
+
+#### R73 · S1 · The ML promotion's four writes
+
+The server-side write survey — 237 error-less writes in 64 files — taken
+to the one that changes what agents and dashboards compute with. Promoting
+a version ran four writes in `applyPromotion` and returned `{ ok: true }`
+whatever they answered: the page then said "v21 is now in production" from
+that answer. And the order was the worst one for a failure part-way:
+archive the old production version first, then point the model at the new
+one, then mark the new one — so a failure at the second step left a model
+serving nothing, with its former production version already archived.
+
+Each write keeps its error now and the answer names the step and what is
+true after it: "Could not mark v21 as production: <why>. Nothing changed.";
+"Could not switch the model to v21: <why>. The model still serves its
+previous version; v21 is marked production but not served — promote it
+again."; "v21 is now served, but the previous production version could not
+be archived: <why>. Two versions are marked production until it is." The
+order is now the one that never leaves a model with no production version:
+the version's own stage first, the model's pointer second, the archive of
+the old one last. The audit entry is written only after every write landed.
+
+**Driven.** Before the fix, on the R72 container: `revenue_facts · groups`,
+v21 promoted and v1 promoted back — `v21 is now in production`, `v1 is now
+in production`, the states following each. After the rebuild (container
+`0dd063722838`) the same two promotions, the same toasts and states, the
+fixture left as found (v1 production, v21 archived): a promotion whose
+five writes land reports itself as before. The defect half — `ok: true`
+over a write that failed — is held by the tests; a failed database write
+cannot be produced from the browser against a server function. Recorded
+in [UI test results](./UI_TEST_RESULTS.md).
+
+**Tests:** 4 source-anchored on the writes, their errors, the order and
+the audit's place; 3 behaviour-changing mutants each killed, control
+missed, baseline green first.
+
 ### 2026-09-22 — A message deleted on screen that came back on reload
 
 #### R72 · S1 · Agent Chat's four deletes
