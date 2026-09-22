@@ -492,7 +492,21 @@ export async function materialisePrepOutput(args: {
       reason: args.reason ?? "prep_run",
       note: `Rebuilt by the "${args.flowName}" flow`,
     });
-    await supabaseAdmin.from("user_data_rows").delete().eq("table_id", tableId);
+    // FOUND FROM THE SURVEY (R87). A rebuild is a delete and an insert, and
+    // this delete's error was dropped: the old rows stayed, the new ones were
+    // appended below, and the dataset came out DOUBLED — every sum, count and
+    // average over it wrong — under a flow that reported success. Nothing
+    // downstream recomputes this; the insert must not run unless the delete
+    // did.
+    const { error: clearErr } = await supabaseAdmin
+      .from("user_data_rows")
+      .delete()
+      .eq("table_id", tableId);
+    if (clearErr) {
+      throw new Error(
+        `The dataset's previous rows could not be cleared: ${clearErr.message}. Nothing was written, so "${args.tableName}" still holds the rows it had.`,
+      );
+    }
     const { error } = await supabaseAdmin
       .from("user_data_tables")
       .update({
@@ -605,13 +619,21 @@ export async function refreshPrepIncremental(args: {
   }
 
   // The output schema can still drift (a renamed column); keep it current.
-  await supabaseAdmin
+  // The rows are in; this puts the schema they were written under on the
+  // dataset. Dropped, a renamed column would be described by its old name
+  // for every reader (R87).
+  const { error: schemaErr } = await supabaseAdmin
     .from("user_data_tables")
     .update({
       columns: result.columns as unknown as Json,
       data_loaded_at: new Date().toISOString(),
     })
     .eq("id", args.tableId);
+  if (schemaErr) {
+    throw new Error(
+      `${result.rows.length} row(s) were replaced, but the dataset's column list could not be updated: ${schemaErr.message}. It describes the previous columns until it is — refresh again.`,
+    );
+  }
 
   await import("@/utils/data/parquet.server")
     .then((m) => m.refreshDatasetMirror({ userId: args.userId, tableId: args.tableId }))
@@ -643,10 +665,15 @@ export async function savePrepSemantics(args: {
       .eq("user_id", args.userId)
       .eq("table_id", args.tableId)
       .maybeSingle();
-    if (existing) {
-      await supabaseAdmin.from("user_data_semantics").update(payload).eq("id", existing.id);
-    } else {
-      await supabaseAdmin.from("user_data_semantics").insert(payload);
+    // A supabase call answers with its error rather than throwing, so this
+    // catch never saw one: the enhancement was dropped in silence (R87).
+    const { error } = existing
+      ? await supabaseAdmin.from("user_data_semantics").update(payload).eq("id", existing.id)
+      : await supabaseAdmin.from("user_data_semantics").insert(payload);
+    if (error) {
+      console.warn(
+        `[prep] dataset ${args.tableId}: its semantics could not be saved: ${error.message}; the data is there, the descriptions are not`,
+      );
     }
   } catch {
     /* semantics are an enhancement — the data already saved successfully */

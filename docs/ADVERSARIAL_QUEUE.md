@@ -264,6 +264,11 @@ least twice, not a hypothetical.
 - "It returned no matching passages" is a claim about the documents. A
   search that could not be completed has no standing to make it, and the
   model it is told to will repeat it as fact.
+- The worst a dropped write does is not a stale badge but wrong numbers
+  (R87): a rebuild whose clearing delete failed appended its rows instead
+  of replacing them, and nothing downstream recomputes a row count. Where
+  a write is half of a replace, the other half must not run unless it
+  landed — and the action fails, leaving the data as it was.
 - A try/catch around a supabase call is not a guard, it is a comment
   (R86): the call answers with its error, so the catch never runs and the
   write is unconditionally silent. Three rounds found this shape —

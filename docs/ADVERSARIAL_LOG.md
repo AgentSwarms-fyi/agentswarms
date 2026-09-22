@@ -109,6 +109,56 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-22 — A prep flow that doubled its dataset, and called it a success
+
+#### R87 · S1 · The prep flow's rebuild
+
+`bi/prep.server.ts` materialises a flow's output into a dataset:
+snapshot the previous rows for the version history, delete them, write
+the new schema, insert the new rows. Three of those four read their
+answer. The delete did not. A delete that failed left the old rows in
+place and the insert below appended the new ones beside them, so the
+dataset came out DOUBLED — every sum, count and average over it wrong, on
+every chart and every agent question that reads it — under a flow that
+reported success and a version snapshot that said the rebuild had
+happened. Nothing downstream recomputes a row count, so nothing would
+ever have caught it. This is the same rule R82 wrote for lineage — the
+insert must wait for the delete's answer — with rows instead of edges,
+and the consequence is not a wrong graph but wrong numbers.
+
+The same file's incremental refresh replaced rows inside a guarded delete
+and insert and then set the dataset's column list in a write whose error
+went unread, so a renamed column would be described by its old name for
+every reader; and its semantics writes sat in a catch a supabase answer
+never reaches (R86's shape).
+
+The rebuild's delete now stops the write: "The dataset's previous rows
+could not be cleared: …. Nothing was written, so <name> still holds the
+rows it had." — the dataset is left exactly as it was rather than
+doubled. The incremental refresh fails with what is where. The semantics
+write reads its answer and says the data is there and the descriptions
+are not.
+
+**Driven.** Before the fix, on the R86 container: BI Workspace → Data
+preparation → `Summary data`, output set to `r87_prep_probe` → Run & save
+dataset — `Saved "r87_prep_probe" with 9,992 rows`; run again, the
+rebuild branch — the same toast; Data Catalog → `r87_prep_probe · 3
+columns · 9,992 rows · 81.6 KB`, replaced rather than appended. After the
+rebuild (container `04cfed91a5fc`) the same two runs and the same 9,992
+rows. That second run is the path this round guards: snapshot, delete,
+schema, insert. Its delete landed both times, so the count held; had it
+failed, the same success toast would have stood over 19,984 rows and
+every figure read from the dataset would have doubled — which is what the
+tests now hold, a failed database write not being producible from the
+browser against the prep service. The probe dataset was deleted
+afterwards through the impact dialog. Recorded in
+[UI test results](./UI_TEST_RESULTS.md).
+
+**Tests:** 3 source-anchored on the delete's throw standing between the
+delete and the insert loop, the schema failure, and the semantics answer;
+4 behaviour-changing mutants each killed, control missed, baseline green
+first.
+
 ### 2026-09-22 — A swarm run that finished and stayed "running", under four catches that never caught anything
 
 #### R86 · S1 · The swarm run's trace

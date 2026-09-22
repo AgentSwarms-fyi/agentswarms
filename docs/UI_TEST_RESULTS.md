@@ -15,6 +15,47 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-22 — A prep flow run twice, before and after, ADVERSARIAL_LOG R87
+
+**Why this round exists.** A rebuild is a delete and an insert, and the
+delete's error was dropped: had it failed, the new rows were appended to
+the old ones and the dataset came out doubled under a flow that said it
+had saved.
+
+### Before the fix
+
+| Driven                                                                                                   | Read back                                                                                  |
+| ---------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| BI Workspace → Data preparation → Open a flow → `Summary data`, output table set to `r87_prep_probe` → Run & save dataset | toast `Saved "r87_prep_probe" with 9,992 rows` after 27 s — the dataset created            |
+| Run & save dataset again, on the same output — the rebuild branch                                        | toast `Saved "r87_prep_probe" with 9,992 rows` after 27 s                                   |
+| Data Catalog → Local tables → `r87_prep_probe`                                                           | `table · csv · 3 columns · 9,992 rows · 81.6 KB` — replaced, not appended                  |
+
+The second run is the path this round guards: snapshot, delete, write the
+schema, insert. Its delete landed here, so the count held at 9,992. Had it
+failed, the same success toast would have stood over 19,984 rows and every
+figure read from the dataset would have doubled. That failure cannot be
+produced from the browser against the prep service, so it is held by the
+tests.
+
+### After the rebuild
+
+The `agentswarms` service rebuilt and recreated (container `04cfed91a5fc`); the
+same flow run twice again on it.
+
+| Driven                                                                           | Read back                                              |
+| ---------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| BI Workspace → Data preparation → `Summary data`, output `r87_prep_probe` → Run & save dataset | toast `Saved "r87_prep_probe" with 9,992 rows` after 24 s                                                |
+| Run & save dataset again — the rebuild branch                                    | toast `Saved "r87_prep_probe" with 9,992 rows` after 30 s                                                |
+| Data Catalog → Local tables → `r87_prep_probe`                                   | `table · csv · 3 columns · 9,992 rows · 81.6 KB` — replaced again, not appended                                             |
+| the probe dataset deleted afterwards                                             | the impact dialog `Delete “r87_prep_probe” … 1 thing depends on this dataset … PREP FLOWS THAT PRODUCE IT: Summary data`, the name typed to confirm, then `Deleted "r87_prep_probe"`                                             |
+
+A rebuild whose delete lands replaces, as before. One whose delete fails
+now stops before the insert and says so, leaving the dataset with the rows
+it had rather than doubling it — held by the tests, a failed database
+write not being producible from the browser against the prep service.
+
+Findings from this round: R87 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-22 — A swarm run and its whole trace, before and after, ADVERSARIAL_LOG R86
 
 **Why this round exists.** The tracer writes everything the Observability
