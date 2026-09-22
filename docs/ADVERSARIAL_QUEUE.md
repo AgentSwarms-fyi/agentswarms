@@ -264,6 +264,12 @@ least twice, not a hypothetical.
 - "It returned no matching passages" is a claim about the documents. A
   search that could not be completed has no standing to make it, and the
   model it is told to will repeat it as fact.
+- A try/catch around a supabase call is not a guard, it is a comment
+  (R86): the call answers with its error, so the catch never runs and the
+  write is unconditionally silent. Three rounds found this shape —
+  `writeLineage` (R83), `touch` (R77), the whole swarm tracer (R86) — so
+  `catch { /* best-effort */ }` around a `.from(...)` chain is worth a
+  grep of its own.
 - Some columns are not display: they are the clock and the edge (R85).
   `next_run_at` decides whether the work runs again; `last_state` decides
   whether a person is told again. A dropped error on either does not show

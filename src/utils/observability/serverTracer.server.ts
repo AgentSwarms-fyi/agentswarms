@@ -81,7 +81,7 @@ export async function createServerSwarmTracer(opts: {
       runId,
       async startStep(args) {
         try {
-          const { data } = await supabaseAdmin
+          const { data, error: stepErr } = await supabaseAdmin
             .from("swarm_run_steps")
             .insert({
               run_id: runId,
@@ -96,6 +96,16 @@ export async function createServerSwarmTracer(opts: {
             .select("id")
             .single();
           if (data?.id) stepIdByNode.set(args.nodeId, (data as { id: string }).id);
+          else if (stepErr) {
+            // FOUND FROM THE SURVEY (R86). A supabase call answers with its
+            // error rather than throwing, so this catch never saw one: a step
+            // that could not be recorded left no row and no id, and every
+            // later write about it — its outcome, its edges — was dropped on
+            // the floor by the `if (!stepId) return` below.
+            console.warn(
+              `[swarm-trace] run ${runId}: step "${args.nodeLabel ?? args.nodeId}" could not be recorded: ${stepErr.message}; its outcome and edges will be missing from the trace`,
+            );
+          }
         } catch {
           /* best-effort */
         }
@@ -110,7 +120,7 @@ export async function createServerSwarmTracer(opts: {
         const stepId = stepIdByNode.get(nodeId);
         if (!stepId) return;
         try {
-          await supabaseAdmin
+          const { error: finishErr } = await supabaseAdmin
             .from("swarm_run_steps")
             .update({
               status: args.status,
@@ -126,13 +136,20 @@ export async function createServerSwarmTracer(opts: {
               finished_at: new Date().toISOString(),
             } as never)
             .eq("id", stepId);
+          if (finishErr) {
+            // The step is over; its row still says running, and the run's
+            // timeline will show it so for ever (R86).
+            console.warn(
+              `[swarm-trace] run ${runId}: step ${stepId} finished ${args.status} but its record could not be written: ${finishErr.message}; the timeline will show it running`,
+            );
+          }
         } catch {
           /* best-effort */
         }
       },
       async recordEdge(args) {
         try {
-          await supabaseAdmin.from("swarm_run_edges").insert({
+          const { error: edgeErr } = await supabaseAdmin.from("swarm_run_edges").insert({
             run_id: runId,
             user_id: opts.userId,
             source_step_id: stepIdByNode.get(args.sourceNodeId) ?? null,
@@ -142,27 +159,48 @@ export async function createServerSwarmTracer(opts: {
             payload_preview: args.payloadPreview ?? null,
             bytes: args.bytes ?? 0,
           } as never);
+          if (edgeErr) {
+            console.warn(
+              `[swarm-trace] run ${runId}: the edge ${args.sourceNodeId} → ${args.targetNodeId} could not be recorded: ${edgeErr.message}; the graph will show the steps without it`,
+            );
+          }
         } catch {
           /* best-effort */
         }
       },
       async finish(args) {
         try {
-          await supabaseAdmin
-            .from("swarm_runs")
-            .update({
-              status: args.status,
-              final_output: bodyText(args.finalOutput ?? null),
-              error_message: args.errorMessage ?? null,
-              finished_at: new Date().toISOString(),
-              total_latency_ms: totals.lat,
-              total_tokens_in: totals.tin,
-              total_tokens_out: totals.tout,
-              total_cost_usd: totals.cost,
-              step_count: totals.count,
-              error_count: totals.errors,
-            } as never)
-            .eq("id", runId);
+          // FOUND FROM THE SURVEY (R86). The run's own close, in a catch a
+          // supabase answer never reaches: a swarm that had finished stayed
+          // "running" on the Observability page for ever, with no final
+          // output, no totals and no cost. Retried once — the run is over,
+          // so there is nothing to race — then said with what it left.
+          const close = () =>
+            supabaseAdmin
+              .from("swarm_runs")
+              .update({
+                status: args.status,
+                final_output: bodyText(args.finalOutput ?? null),
+                error_message: args.errorMessage ?? null,
+                finished_at: new Date().toISOString(),
+                total_latency_ms: totals.lat,
+                total_tokens_in: totals.tin,
+                total_tokens_out: totals.tout,
+                total_cost_usd: totals.cost,
+                step_count: totals.count,
+                error_count: totals.errors,
+              } as never)
+              .eq("id", runId);
+          let { error: closeErr } = await close();
+          if (closeErr) {
+            await new Promise((r) => setTimeout(r, 1_000));
+            ({ error: closeErr } = await close());
+          }
+          if (closeErr) {
+            console.warn(
+              `[swarm-trace] run ${runId} finished ${args.status} but its record could not be closed after two attempts: ${closeErr.message}. It will show as running until it is closed.`,
+            );
+          }
         } catch {
           /* best-effort */
         }

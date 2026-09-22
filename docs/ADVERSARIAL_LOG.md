@@ -109,6 +109,49 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-22 — A swarm run that finished and stayed "running", under four catches that never caught anything
+
+#### R86 · S1 · The swarm run's trace
+
+`observability/serverTracer.server.ts` writes the whole of what the
+Observability page shows: a run row, a step row per node, an edge row per
+hop, and the run's close with its totals. All four sat in
+`try { … } catch { /* best-effort */ }` — and a supabase call answers with
+its error rather than throwing, so those catches never caught anything.
+Every one of the four was unconditionally silent. The step insert was the
+compounding one: read back only for its id, a failed insert left no id in
+the map, and the `if (!stepId) return` below then dropped that step's
+outcome, while its edges were written with a null endpoint. And the close
+is the R75 shape again: a swarm that had finished stayed `running` on the
+Observability page for ever, with no final output, no step count, no
+tokens and no cost.
+
+Each write now reads its answer and says what the trace will be missing:
+a step that could not be recorded, an outcome that leaves a step showing
+as running, an edge the graph will not draw. The run's close is retried
+once — the run is over, so there is nothing to race — and, failing twice,
+said with the run, the outcome and "It will show as running until it is
+closed." The catches stay, for what can still throw.
+
+**Driven.** Before the fix, on the R85 container: Swarms → `Embed E2E
+Mini Swarm` → Open → Run with "Write one sentence about why a run record
+must say what happened." — the trace filling live, then `235 tok ↑115
+↓120 ~$0.0001`; Observability `8 swarm runs` with the new row `success ·
+4 steps · 0 errors · 9219ms · 115/120 · $0.0001`, and its trace `STEPS 4
+· ERRORS 0 · DURATION 9219ms`, four steps and `Data flow (3)`. After the
+rebuild (container `9571f511504a`) the same run: `9 swarm runs`, `success
+· 4 · 0 · 10937ms · 119/126 · $0.0001`, four steps and three edges again.
+All four write kinds are on that page and all four land. What a failure
+now says — a step that could not be recorded, an outcome that leaves a
+step showing as running, an edge the graph will not draw, a close retried
+once and then said — is held by the tests, a failed database write not
+being producible from the browser against the tracer. Recorded in
+[UI test results](./UI_TEST_RESULTS.md).
+
+**Tests:** 4 source-anchored on the step insert, the step's outcome, the
+edge and the close's retry; 5 behaviour-changing mutants each killed,
+control missed, baseline green first.
+
 ### 2026-09-22 — A schedule whose next run never moved, and an alert that fires again on every check
 
 #### R85 · S1 · The BI schedule's clock and the alert's edge

@@ -15,6 +15,46 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-22 — A swarm run and its whole trace, before and after, ADVERSARIAL_LOG R86
+
+**Why this round exists.** The tracer writes everything the Observability
+page shows — the run, a row per step, a row per edge, and the close with
+its totals — and all four sat in catches a supabase answer never reaches.
+
+### Before the fix
+
+| Driven                                                                                          | Read back                                                                                                                     |
+| ------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Swarms → `Embed E2E Mini Swarm` → Open → the run dock, input "Write one sentence about why a run record must say what happened." → Run | the trace filling live: `▶ start in`, `✓ done in`, `▶ start research`, `✓ done research …`, `▶ start edit`, `✓ done edit …`, then `235 tok ↑115 ↓120 ~$0.0001` |
+| Observability                                                                                    | `8 swarm runs` (was 7); the new row `Sep 22 20:44:21 · Embed E2E Mini Swarm · success · 4 steps · 0 errors · 9219ms · 115/120 · $0.0001` |
+| that run's trace                                                                                 | `STEPS 4 · ERRORS 0 · DURATION 9219ms · TOKENS IN 115 · TOKENS OUT 120 · COST $0.0001`; the four steps `Task input INPUT · SUCCESS 0ms`, `Researcher AGENT · SUCCESS 5710ms · 53/26t`, `Editor AGENT · SUCCESS 3509ms · 62/94t`, `Result OUTPUT · SUCCESS 0ms`; `Data flow (3)` |
+
+All four write kinds are on that page: the run, its steps, its three
+edges and the close's totals. Every one of them lands here. What a
+failure did — a step with no row and its outcome dropped, an edge with a
+null endpoint, a finished run left `running` with no totals — cannot be
+produced from the browser against the tracer, and is held by the tests.
+
+### After the rebuild
+
+The `agentswarms` service rebuilt and recreated (container `9571f511504a`); the
+same swarm run again on it.
+
+| Driven                                                                         | Read back                                                                                                                       |
+| -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Swarms → `Embed E2E Mini Swarm` → Open → the run dock, the same input → Run    | the trace filling live again, then `245 tok ↑119 ↓126 ~$0.0001`                                                                                                                         |
+| Observability                                                                  | `9 swarm runs` (was 8); the new row `Sep 22 21:05:59 · Embed E2E Mini Swarm · success · 4 steps · 0 errors · 10937ms · 119/126 · $0.0001`                                                                                                                         |
+| that run's trace                                                               | `STEPS 4 · ERRORS 0 · DURATION 10937ms · TOKENS IN 119 · TOKENS OUT 126 · COST $0.0001`; the four steps `Task input INPUT · SUCCESS 1ms`, `Researcher AGENT · SUCCESS 7242ms · 53/30t`, `Editor AGENT · SUCCESS 3692ms · 66/96t`, `Result OUTPUT · SUCCESS 2ms`; `Data flow (3)`                                                                                                                        |
+
+The four write kinds report themselves as before: the run, its steps, its
+edges and the close's totals. What a failure now says — a step that could
+not be recorded, an outcome that leaves a step showing as running, an edge
+the graph will not draw, a run retried once and then said — is held by the
+tests, a failed database write not being producible from the browser
+against the tracer.
+
+Findings from this round: R86 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-22 — The BI schedule, the alert and a dataset's versions, before and after, ADVERSARIAL_LOG R85
 
 **Why this round exists.** An alert's `last_state` decides whether a
