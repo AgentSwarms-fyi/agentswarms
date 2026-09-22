@@ -194,10 +194,15 @@ export async function startSession(opts: {
     ttlSeconds: maxMin * 60,
   });
   if (!token) {
-    await supabaseAdmin
+    const { error: markErr } = await supabaseAdmin
       .from("notebook_runtime_sessions")
       .update({ status: "error", error: "NOTEBOOK_RUNTIME_SECRET not configured" })
       .eq("id", row.id);
+    if (markErr) {
+      console.warn(
+        `[runtime] session ${row.id}: could not be marked error: ${markErr.message}; it will show as starting until it is`,
+      );
+    }
     throw new Error("NOTEBOOK_RUNTIME_SECRET is not configured on the server");
   }
 
@@ -225,16 +230,38 @@ export async function startSession(opts: {
       env,
       restartOnFailure: service ? Boolean(opts.restartOnFailure) : false,
     });
-    await supabaseAdmin
+    const { error: refErr } = await supabaseAdmin
       .from("notebook_runtime_sessions")
       .update({ container_ref: ref })
       .eq("id", row.id);
+    if (refErr) {
+      // FOUND FROM THE SURVEY (R80). The container is running and its row
+      // does not know it: stopSession stops by the ref, refreshSession
+      // returns early without one, and the reaper's stop is a no-op — a
+      // sandbox nothing can reach, under a row that stays live. Stopped
+      // now, while the ref is in hand, and the start fails as a start.
+      await orch
+        .stop(ref)
+        .catch((e) =>
+          console.warn(
+            `[runtime] session ${row.id}: an unrecorded container could not be stopped: ${(e as Error).message}`,
+          ),
+        );
+      throw new Error(
+        `The sandbox started but its session could not record it: ${refErr.message}; it was stopped again.`,
+      );
+    }
     return { session: { ...row, container_ref: ref }, token, gatewayUrl: gatewayUrl() };
   } catch (e) {
-    await supabaseAdmin
+    const { error: markErr } = await supabaseAdmin
       .from("notebook_runtime_sessions")
       .update({ status: "error", error: e instanceof Error ? e.message : String(e) })
       .eq("id", row.id);
+    if (markErr) {
+      console.warn(
+        `[runtime] session ${row.id}: could not be marked error: ${markErr.message}; it will show as starting until it is`,
+      );
+    }
     throw e;
   }
 }
@@ -279,7 +306,17 @@ export async function refreshSession(row: SessionRow): Promise<SessionRow> {
     patch.error = st.message ?? "kernel error";
     patch.stopped_at = new Date().toISOString();
   }
-  await supabaseAdmin.from("notebook_runtime_sessions").update(patch).eq("id", row.id);
+  const { error: patchErr } = await supabaseAdmin
+    .from("notebook_runtime_sessions")
+    .update(patch)
+    .eq("id", row.id);
+  if (patchErr) {
+    // The caller is handed the reconciled row; the table keeps the old one,
+    // and the caps and the reaper read the table (R80).
+    console.warn(
+      `[runtime] session ${row.id}: could not be reconciled to ${patch.status ?? row.status}: ${patchErr.message}; the table still says ${row.status}`,
+    );
+  }
   return { ...row, ...patch } as SessionRow;
 }
 
@@ -289,10 +326,17 @@ export async function stopSession(row: SessionRow): Promise<void> {
     const orch = await getOrchestrator(settings);
     await orch.stop(row.container_ref).catch(() => {});
   }
-  await supabaseAdmin
+  const { error: stopErr } = await supabaseAdmin
     .from("notebook_runtime_sessions")
     .update({ status: "stopped", stopped_at: new Date().toISOString() })
     .eq("id", row.id);
+  if (stopErr) {
+    // FOUND FROM THE SURVEY (R80). The container is gone; a row still live
+    // is counted against the caps, listed as running, and reaped again.
+    console.warn(
+      `[runtime] session ${row.id} is stopped but its record could not be marked so: ${stopErr.message}; it will show as ${row.status} until the next refresh marks it gone`,
+    );
+  }
 }
 
 /**
@@ -347,10 +391,17 @@ export async function listUserSessions(userId: string) {
 }
 
 export async function touchSession(sessionId: string): Promise<void> {
-  await supabaseAdmin
+  const { error } = await supabaseAdmin
     .from("notebook_runtime_sessions")
     .update({ last_active_at: new Date().toISOString() })
     .eq("id", sessionId);
+  if (error) {
+    // A touch that was not recorded is a kernel the idle reaper takes for
+    // idle (R80): it reads what was recorded.
+    console.warn(
+      `[runtime] session ${sessionId}: activity could not be recorded: ${error.message}; the idle reaper reads what was recorded`,
+    );
+  }
 }
 
 /** Reap idle interactive kernels, idle MCP servers, and anything past its hard expiry. */
@@ -383,7 +434,15 @@ export async function reapSessions(): Promise<number> {
     // server still reads "Running" in MCP Builder long after its container is
     // gone, which is exactly the sort of quiet lie that wastes an afternoon.
     if (row.kind === "service" && row.mcp_app_id) {
-      await supabaseAdmin.from("mcp_apps").update({ status: "stopped" }).eq("id", row.mcp_app_id);
+      const { error: appErr } = await supabaseAdmin
+        .from("mcp_apps")
+        .update({ status: "stopped" })
+        .eq("id", row.mcp_app_id);
+      if (appErr) {
+        console.warn(
+          `[runtime] app ${row.mcp_app_id}: could not be marked stopped after its session was reaped: ${appErr.message}; MCP Builder will show it running`,
+        );
+      }
     }
     reaped++;
   }

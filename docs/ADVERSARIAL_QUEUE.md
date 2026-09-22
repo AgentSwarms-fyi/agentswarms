@@ -264,6 +264,13 @@ least twice, not a hypothetical.
 - "It returned no matching passages" is a claim about the documents. A
   search that could not be completed has no standing to make it, and the
   model it is told to will repeat it as fact.
+- The record everything else's record rests on gets the same rule (R80): a
+  sandbox whose session row could not take its container ref is stopped
+  while the ref is in hand, never left for a reaper that stops by the ref
+  it does not have. Seen on the way: with `NOTEBOOK_GATEWAY_URL` unset the
+  notebook page reports `Kernel connect timed out` over a kernel that is
+  ready — a deployment gap to document, not a write. The survey continues:
+  `ml/api.server` (8, the API-path promotion), `catalog/crawler.server` (6).
 - An outcome claimed on one row and dropped on the next is two records that
   disagree for ever (R79): a job "succeeded" over a version "training".
   When the second write fails after a retry, un-claim the first with the

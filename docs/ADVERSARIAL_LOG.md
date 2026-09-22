@@ -109,6 +109,54 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-22 — A container the session never learned of, and a stopped one whose row stayed live
+
+#### R80 · S1 · The sandbox session's own record
+
+The server-side write survey reaches the file under every ML endpoint,
+training worker, ETL run and notebook kernel: `notebookRuntime/service.server.ts`,
+7 writes with their result dropped. `startSession` created the container
+and then wrote its ref onto the session row without reading the answer. A
+write that failed left a container running that its row did not know:
+`stopSession` stops by the ref, `refreshSession` returns early without
+one, the reaper's stop is a no-op — a sandbox nothing could reach, under a
+row that stayed live and counted against the caps. R77, R78 and R79 each
+guarded their own record of a session; this is the record they all rest
+on. `stopSession` stopped the container and dropped the error of marking
+the row stopped: a dead container listed as running, counted, reaped
+again. `refreshSession` handed its caller the reconciled state and dropped
+the write that would have put it in the table. `touchSession` dropped the
+write the idle reaper reads, so a kernel in use could be taken for idle.
+And the error marks on a start that failed, and the app's stopped mark
+after a reaped service, went the same way.
+
+A container the row could not take is now stopped again while the ref is
+in hand, and the start fails as a start: "The sandbox started but its
+session could not record it: …; it was stopped again." A stopped
+container's row that could not be marked is said, with what the next
+refresh will do; a reconciliation that could not be written is said with
+what the table still says; an unrecorded touch is said for the reaper's
+sake; the error and app marks read their answers.
+
+**Driven.** Before the fix, on the R79 container: Developer workspace →
+`My Python notebook` → Run cell — `Starting kernel…`, the runtime API
+answering a session `starting` then `ready`; Running kernels `1 live ·
+ready`; Stop — `Kernel stopped`, the panel gone. After the rebuild
+(container `c28597f45d18`) the same: a new session `ready` after eleven
+polls, `1 live · ready`, `Kernel stopped` 8 s after Stop. A session whose
+ref and stopped mark land reports itself as before; the defect half — a
+container the row could not take left running, a stopped container's row
+left live — is held by the tests, a failed database write not being
+producible from the browser against the runtime service. Seen both
+times: the page then reports `Kernel connect timed out` over the ready
+kernel, `NOTEBOOK_GATEWAY_URL` being unset in this deployment. Recorded in
+[UI test results](./UI_TEST_RESULTS.md).
+
+**Tests:** 6 source-anchored on the container stopped again, the two error
+marks, the reconciliation, the stop, the touch and the app mark; 5
+behaviour-changing mutants each killed, control missed, baseline green
+first.
+
 ### 2026-09-22 — A job "succeeded" over a version left training, and workers the job never learned of
 
 #### R79 · S1 · The training job's records

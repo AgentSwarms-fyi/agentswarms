@@ -15,6 +15,48 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-22 — A server kernel started and stopped, before and after, ADVERSARIAL_LOG R80
+
+**Why this round exists.** The sandbox's own record, under every ML and ETL
+sandbox: a container the session row never learned of, a stopped container
+whose row stays live, a touch the idle reaper never sees.
+
+### Before the fix
+
+| Driven                                                                                       | Read back                                                                                                                                   |
+| -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Developer workspace → `My Python notebook` → Run cell                                        | the toolbar `Starting kernel…`; `POST /api/notebook/runtime` answering a session `starting`, then — sixteen polls and about 70 s later — `ready` |
+| the same page, after                                                                         | `Kernel error: Kernel connect timed out` — the browser could not reach the kernel's gateway (`gatewayUrl: ""`; `NOTEBOOK_GATEWAY_URL` is unset in this deployment), an environment limit, not this round's |
+| Developer workspace → Running kernels                                                        | `1 live · ready · My Python notebook · started 2:06:25 PM · Stop`                                                                          |
+| Stop                                                                                         | toast `Kernel stopped` about 14 s later; the Running kernels panel gone — no live kernel                                                    |
+
+The session's container was recorded (the runtime answered `ready`, which
+needs the ref) and its stop was recorded (the panel emptied). The writes run
+in the runtime service, so a failed one cannot be produced from the browser:
+the defect half — a container the row could not take left running, a
+stopped container's row left live — is held by the tests.
+
+### After the rebuild
+
+The `agentswarms` service rebuilt and recreated (container `c28597f45d18`);
+the same notebook reloaded onto it.
+
+| Driven                                                                  | Read back                                                                                                              |
+| ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `My Python notebook` → Run cell                                         | `Starting kernel…`; `POST /api/notebook/runtime` answering a new session `starting`, then `ready` after eleven polls — the container recorded on the row, since `ready` needs its ref |
+| Developer workspace → Running kernels                                   | `1 live · ready · My Python notebook · started 2:39:43 PM · Stop`                                                     |
+| Stop                                                                    | toast `Kernel stopped` 8 s later; the Running kernels panel gone                                                       |
+
+A session whose container ref and stopped mark land reports itself as
+before. One whose ref could not be written is now stopped again and the
+start fails as a start; one whose stopped mark could not be written is
+said — held by the tests, since a failed database write cannot be produced
+from the browser against the runtime service. As before, the page then
+reports `Kernel connect timed out` over the ready kernel: `NOTEBOOK_GATEWAY_URL`
+is unset in this deployment.
+
+Findings from this round: R80 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-22 — Training a version, before and after, ADVERSARIAL_LOG R79
 
 **Why this round exists.** The training job's records: a job claimed
