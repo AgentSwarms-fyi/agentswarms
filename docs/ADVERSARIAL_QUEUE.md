@@ -264,6 +264,12 @@ least twice, not a hypothetical.
 - "It returned no matching passages" is a claim about the documents. A
   search that could not be completed has no standing to make it, and the
   model it is told to will repeat it as fact.
+- A guard added in one round is a write like any other (R83): R60's "edited
+  — not built since" mark was cleared by a write whose error was dropped,
+  so the badge could lie the other way. A state the build's own result can
+  carry is carried there, where the person who pressed Build reads it. The
+  single-site files continue: `bi/prep`, `bi/refresh`, `bi/versions`,
+  `dataMonitors/run`, `mcpApps/service`, the swarm and notification writers.
 - A replace is a delete and an insert, and the insert must wait for the
   delete's answer (R82): written beside edges that could not be cleared, a
   lineage graph shows a past that never was. Claim a removal only once the

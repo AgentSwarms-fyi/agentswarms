@@ -106,11 +106,13 @@ describe("the mark is cleared by the runner", () => {
 
   it("with the mark taken from the row the build was planned from", () => {
     // Both outcomes stamp; both pass the mark they loaded, not a fresh read.
-    expect(runner).toContain(
-      "await stampModel(model.id, outcome, error, rows, ms, model.definition_changed_at);",
+    // Whitespace-tolerant: since R83 the call reads the stamp's answer and
+    // prettier breaks its arguments across lines.
+    expect(runner).toMatch(
+      /await stampModel\(\s*model\.id,\s*outcome,\s*error,\s*rows,\s*ms,\s*model\.definition_changed_at,?\s*\)/,
     );
-    expect(runner).toContain(
-      'await stampModel(model.id, "failed", message, null, ms, model.definition_changed_at);',
+    expect(runner).toMatch(
+      /await stampModel\(\s*model\.id,\s*"failed",\s*message,\s*null,\s*ms,\s*model\.definition_changed_at,?\s*\)/,
     );
     expect(runner).toContain("definition_changed_at: string | null;");
   });

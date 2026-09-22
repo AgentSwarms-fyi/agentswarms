@@ -109,6 +109,53 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-22 — A build that finished and stayed "running", and an "edited" badge that outlived the build of that edit
+
+#### R83 · S1 · The SQL model build's records
+
+The survey's single-site files begin with the one R60 lives in,
+`sqlModels/run.server.ts`, 4 writes with their result dropped. The run's
+close dropped its error: a build that had finished — models built, tests
+run — stayed `running` on the SQL Models page for ever, with no outcome
+and no per-model results to read. `stampModel` dropped two: the model's
+`last_status` stamp, so its badge stayed on the PREVIOUS build's outcome,
+and the clear of `definition_changed_at` — the "edited … not built since"
+mark R60 added — so a model could show as edited and unbuilt over a build
+that had just been made of that very definition, the mark lying the other
+way from the one R60 fixed. And `writeLineage` deleted the models' edges
+and inserted the new ones inside a try/catch that a supabase answer never
+reaches: a failed clear drew the new graph beside the old, a failed insert
+left it partial, and neither was said.
+
+The run is closed with one retry and, failing twice, said with the run,
+the outcome and what the page will go on showing — the R75 shape. The
+model's stamps return what they could not write, and the build's own
+result carries it: "Built, but the model's record could not be stamped:
+…; the page shows the previous build until it is." and "The edited mark
+could not be cleared: …; the model shows as edited, not built since, until
+the next build." Lineage follows the R82 rule: a failed clear stops the
+rewrite and says the old edges stand; a failed insert says the graph is
+partial.
+
+**Driven.** Before the fix, on the R82 container: SQL Models →
+`stg_revenue` → Build this and what it reads — `Built 1 model`, and the
+run on top of Builds as `success · manual · 1m ago · 60.6s · stg_revenue
+built 836 rows`. After the rebuild (container `56d9a5952a68`) the same
+build, then the round's own pair: the SQL edited by one newline and saved
+— `edited 1s ago · not built since`, `last build, of the previous
+definition: built · 836 rows · 1m ago` — and built again, after which the
+edited mark is gone and the header reads `built · 18s ago · 836 rows`.
+Both stamps R83 guards are driven there: the model's outcome, and the
+clear of R60's mark by the build of that very edit. The defect half — a
+run left "running", a badge left on the previous build or on "edited", a
+graph drawn beside what could not be cleared — is held by the tests, a
+failed database write not being producible from the browser against the
+model runner. Recorded in [UI test results](./UI_TEST_RESULTS.md).
+
+**Tests:** 3 source-anchored on the close and its retry, the stamps and
+the build's result, and the lineage rule; 5 behaviour-changing mutants
+each killed, control missed, baseline green first.
+
 ### 2026-09-22 — A crawl that succeeded and left its source "crawling", and a graph drawn over what could not be cleared
 
 #### R82 · S1 · The catalog crawl's records

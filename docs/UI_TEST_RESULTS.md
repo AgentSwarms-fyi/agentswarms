@@ -15,6 +15,47 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-22 — A SQL model built, before and after, ADVERSARIAL_LOG R83
+
+**Why this round exists.** The SQL model build's records: a run left
+"running" after it finished, a model's badge left on the previous build or
+on "edited", lineage rewritten beside what could not be cleared.
+
+### Before the fix
+
+| Driven                                                                    | Read back                                                                                                     |
+| ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| SQL Models → `stg_revenue` → Build this and what it reads                 | the button disabled and spinning for about 40 s; toast `Built 1 model`                                        |
+| Builds                                                                    | the new run on top: `success · manual · 1m ago · 60.6s · selected stg_revenue · stg_revenue built 836 rows`     |
+
+A build whose close and stamps land reports itself: the run closed with
+its outcome and the model's row, the model built with its row count. The
+writes run in the model runner on the server, so a failed one cannot be
+produced from the browser: the defect half — a run left "running", a
+badge left on the previous build or on "edited", a graph drawn beside
+what could not be cleared — is held by the tests.
+
+### After the rebuild
+
+The `agentswarms` service rebuilt and recreated (container `56d9a5952a68`);
+the SQL Models page reloaded onto it.
+
+| Driven                                                                     | Read back                                                                                                                    |
+| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `stg_revenue` → Build this and what it reads                               | toast `Built 1 model` after 9 s; Builds: `success · manual · 8s ago · 7.5s · selected stg_revenue · stg_revenue built 836 rows` |
+| the model's own header                                                     | `built · 41s ago · 836 rows · builds into analytics` — the stamp landed                                                        |
+| the SQL edited by one newline → Save                                       | toast `Saved stg_revenue`; `edited 1s ago · not built since` and `last build, of the previous definition: built · 836 rows · 1m ago` |
+| Build this and what it reads, on that edit                                 | toast `Built 1 model`; the edited mark gone, the header `built · 18s ago · 836 rows · builds into analytics`                   |
+
+Both of R83's stamps are driven here: the model's outcome, and the clear
+of R60's "edited — not built since" mark by the build of that very edit.
+The writes run in the model runner on the server, so a failed one cannot
+be produced from the browser: the defect half — a run left "running", a
+badge left on the previous build or on "edited", a graph drawn beside what
+could not be cleared — is held by the tests.
+
+Findings from this round: R83 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-22 — A catalog source re-crawled, before and after, ADVERSARIAL_LOG R82
 
 **Why this round exists.** The catalog crawl's records: a crawl that

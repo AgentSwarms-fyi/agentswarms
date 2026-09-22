@@ -142,16 +142,31 @@ export async function buildSqlModels(args: {
     error?: string,
   ) => {
     const ms = Date.now() - started;
-    await supabaseAdmin
-      .from("sql_model_runs")
-      .update({
-        status,
-        models: models as unknown as Json,
-        error: error?.slice(0, 2000) ?? null,
-        finished_at: new Date().toISOString(),
-        duration_ms: ms,
-      })
-      .eq("id", runId);
+    // FOUND FROM THE SURVEY (R83). This dropped its error: a build that had
+    // finished stayed "running" on the page for ever, with no outcome and no
+    // model results to read. Retried once; a second failure is said with the
+    // run, the outcome and what the page will go on showing.
+    const close = () =>
+      supabaseAdmin
+        .from("sql_model_runs")
+        .update({
+          status,
+          models: models as unknown as Json,
+          error: error?.slice(0, 2000) ?? null,
+          finished_at: new Date().toISOString(),
+          duration_ms: ms,
+        })
+        .eq("id", runId);
+    let { error: closeErr } = await close();
+    if (closeErr) {
+      await new Promise((r) => setTimeout(r, 1_000));
+      ({ error: closeErr } = await close());
+    }
+    if (closeErr) {
+      console.warn(
+        `[sql-models] run ${runId} finished ${status} but its record could not be closed after two attempts: ${closeErr.message}. It will show as running until it is closed.`,
+      );
+    }
     auditEvent({
       userId: args.userId,
       action: "sql_model.build",
@@ -294,15 +309,30 @@ async function buildOne(
       ? `${broke.kind} on ${broke.column ?? "the table"} failed: ${broke.failing} row(s)`
       : undefined;
 
-    await stampModel(model.id, outcome, error, rows, ms, model.definition_changed_at);
-    return { ...base, outcome, ms, rows, tests, ...(error ? { error } : {}) };
+    const stampErr = await stampModel(
+      model.id,
+      outcome,
+      error,
+      rows,
+      ms,
+      model.definition_changed_at,
+    );
+    const said = [error, stampErr].filter(Boolean).join(" ");
+    return { ...base, outcome, ms, rows, tests, ...(said ? { error: said } : {}) };
   } catch (e) {
     const message = (e as Error).message;
     const ms = Date.now() - started;
-    await stampModel(model.id, "failed", message, null, ms, model.definition_changed_at);
+    const stampErr = await stampModel(
+      model.id,
+      "failed",
+      message,
+      null,
+      ms,
+      model.definition_changed_at,
+    );
     // A failed build leaves the PREVIOUS table in place. Stale data someone
     // can see and diagnose beats no data at all.
-    return { ...base, outcome: "failed", ms, error: message };
+    return { ...base, outcome: "failed", ms, error: [message, stampErr].filter(Boolean).join(" ") };
   }
 }
 
@@ -346,8 +376,14 @@ async function stampModel(
   rows: number | null,
   ms: number,
   markAtLoad: string | null,
-): Promise<void> {
-  await supabaseAdmin
+): Promise<string | null> {
+  // FOUND FROM THE SURVEY (R83). Both writes dropped their errors: the
+  // model's badge stayed on the PREVIOUS build's outcome, and the "edited —
+  // not built since" mark R60 added stayed up over a build that had just
+  // been made of that very definition. What could not be written is
+  // returned, so the build's own result can say it.
+  const notes: string[] = [];
+  const { error: stampErr } = await supabaseAdmin
     .from("sql_models")
     .update({
       last_run_at: new Date().toISOString(),
@@ -357,6 +393,11 @@ async function stampModel(
       last_duration_ms: ms,
     })
     .eq("id", id);
+  if (stampErr) {
+    notes.push(
+      `${status === "built" ? "Built" : "Failed"}, but the model's record could not be stamped: ${stampErr.message}; the page shows the previous build until it is.`,
+    );
+  }
   // These stamps answer for the definition this build LOADED. The edited mark
   // (set by the database on any definition change) is cleared only if it is
   // still the one loaded: an edit saved while this build ran set a newer mark,
@@ -365,12 +406,19 @@ async function stampModel(
   // no mark at all (undefined), and a conditional update on a column the
   // database does not have would fail the whole stamp.
   if (markAtLoad) {
-    await supabaseAdmin
+    const { error: clearErr } = await supabaseAdmin
       .from("sql_models")
       .update({ definition_changed_at: null })
       .eq("id", id)
       .eq("definition_changed_at", markAtLoad);
+    if (clearErr) {
+      notes.push(
+        `The edited mark could not be cleared: ${clearErr.message}; the model shows as edited, not built since, until the next build.`,
+      );
+    }
   }
+  if (notes.length > 0) console.warn(`[sql-models] model ${id}: ${notes.join(" ")}`);
+  return notes.length > 0 ? notes.join(" ") : null;
 }
 
 /**
@@ -399,17 +447,27 @@ async function writeLineage(userId: string, built: SqlModel[], all: SqlModelRow[
       })),
   );
   rows.push(...(await columnLineageRows(userId, built, byName)));
-  try {
-    await supabaseAdmin
-      .from("catalog_lineage")
-      .delete()
-      .eq("user_id", userId)
-      .eq("source_system", "sql_model");
-    if (rows.length > 0) await supabaseAdmin.from("catalog_lineage").insert(rows);
-  } catch (e) {
-    // Lineage is a view of the build, not part of it. Losing it must not fail
-    // a build that actually wrote the tables.
-    console.warn("[sql-models] could not record lineage:", (e as Error).message);
+  // A supabase call answers with its error rather than throwing, so the
+  // try/catch this sat in never saw one: a failed clear drew the new graph
+  // beside the old (R83, the R82 rule), a failed insert left it partial.
+  const { error: clearErr } = await supabaseAdmin
+    .from("catalog_lineage")
+    .delete()
+    .eq("user_id", userId)
+    .eq("source_system", "sql_model");
+  if (clearErr) {
+    console.warn(
+      `[sql-models] lineage not refreshed: the previous edges could not be cleared: ${clearErr.message}; the new ones were not written, so the old ones stand`,
+    );
+    return;
+  }
+  if (rows.length > 0) {
+    const { error: insErr } = await supabaseAdmin.from("catalog_lineage").insert(rows);
+    if (insErr) {
+      console.warn(
+        `[sql-models] ${rows.length} lineage edge(s) could not be written: ${insErr.message}; the graph is partial until the next build`,
+      );
+    }
   }
 }
 
