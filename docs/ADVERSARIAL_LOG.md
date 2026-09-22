@@ -109,6 +109,50 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-22 — One conversation's transcript, under another conversation's name
+
+#### R88 · S1 · Agent Chat across a selection change
+
+The class R76 opened, swept to the page where it costs the most. Agent
+Chat keys two lists on a selection: the conversations on the chosen
+agent, the messages on the chosen conversation. Neither was cleared when
+its key changed. Picking another conversation left the previous one's
+messages on screen, under the new conversation's name and its highlight,
+until the new read landed — and when that read FAILED, the early return
+after the toast left them there for good. Driven before the fix: the
+second conversation selected and highlighted, `Could not load this
+conversation's messages: TypeError: Failed to fetch`, and the first
+conversation's thirteen messages still on screen, ten seconds later,
+reading as this conversation's transcript. A reply typed into that state
+goes to the conversation the sidebar highlights, not the one the page is
+showing. The same on the agent side: the previous agent's conversation
+list stands under the new agent's name.
+
+Picking an agent now clears its predecessor's conversations, picking a
+conversation clears its predecessor's messages, and a read that comes
+back for a selection no longer on screen is dropped — so a slow read
+cannot overwrite a newer one. Both loaders mark their list read on the
+failure path too, and the message area says "Loading this conversation…"
+instead of the empty state that invites a first message over rows it has
+not read.
+
+**Driven.** Before the fix, on the R87 container: Agent Chat → `Sample ·
+Graph RAG Explorer (Acme Corp)` → the conversation `Make a 2-slide
+PowerPoint…`, 13 messages; then the second conversation `List my data
+tables…` with every `GET /rest/v1/messages` rejected — 2.5 s in, the same
+13 messages under the second conversation's highlight; 11 s in, the toast
+`Could not load this conversation's messages · TypeError: Failed to
+fetch` and still those 13 messages. After the rebuild (container
+`bc6e32cc54f1`), the same rejection: 2.5 s in, nothing listed and a
+`role="status"` line `Loading this conversation…`; 11 s in, the same
+toast over an empty transcript and the page's own invitation. The
+selection and the transcript agree. Recorded in
+[UI test results](./UI_TEST_RESULTS.md).
+
+**Tests:** 7 source-anchored on the two clears, the two late-read guards,
+the failure path's mark and the loading state; 5 behaviour-changing
+mutants each killed, control missed, baseline green first.
+
 ### 2026-09-22 — A prep flow that doubled its dataset, and called it a success
 
 #### R87 · S1 · The prep flow's rebuild

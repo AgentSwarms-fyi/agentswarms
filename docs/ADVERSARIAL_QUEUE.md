@@ -336,6 +336,14 @@ least twice, not a hypothetical.
   state left and the button to press. The survey continues:
   `etl/service.server` (13), `ml/train.server` (9), `ml/api.server` (8),
   `notebookRuntime/service.server` (7), `catalog/crawler.server` (6).
+- The stale-list class is worst where the page also WRITES to the selection
+  (R88): on Agent Chat the sidebar highlighted one conversation while the
+  transcript showed another's, so a reply would have gone somewhere the
+  reader could not see. Swept the pages that key a list on a selected row:
+  Agent Chat had it on both lists and is fixed; the ETL runs tab is clear
+  (its list starts null and the component is keyed per pipeline); the ML
+  model, swarm and dashboard pages key on a route param, so a change is a
+  navigation rather than a swap.
 - A list kept across a selection change is the previous selection's list
   (R76): the Knowledge Bases page showed the last base's documents under
   the next base's name until the next read landed, and counted them on the

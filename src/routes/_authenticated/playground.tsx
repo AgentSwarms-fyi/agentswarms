@@ -203,6 +203,17 @@ function PlaygroundPage() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConvo, setActiveConvo] = useState<string>("");
   const [messages, setMessages] = useState<Message[]>([]);
+  // Whether the lists on screen belong to the selection on screen. FOUND FROM
+  // THE SURVEY (R88), the shape R76 fixed on Knowledge Bases: neither list was
+  // cleared when its key changed, so the previous agent's conversations and
+  // the previous conversation's messages stayed under the new name until the
+  // next read landed — and STAYED there when it failed, because the failure
+  // path returns after its toast. A read that comes back for a selection no
+  // longer on screen is dropped.
+  const [convosLoaded, setConvosLoaded] = useState(false);
+  const [messagesLoaded, setMessagesLoaded] = useState(false);
+  const convoReq = useRef(0);
+  const messageReq = useRef(0);
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
   // Visual BI answers: session state seeded from the agent's saved setting.
@@ -393,11 +404,21 @@ function PlaygroundPage() {
   }, [agentId]);
 
   useEffect(() => {
-    if (selectedAgent) loadConversations();
+    if (!selectedAgent) return;
+    // The previous agent's conversations are not this agent's (R88).
+    convoReq.current += 1;
+    setConversations([]);
+    setConvosLoaded(false);
+    loadConversations();
   }, [selectedAgent]);
 
   useEffect(() => {
-    if (activeConvo) loadMessages();
+    if (!activeConvo) return;
+    // The previous conversation's messages are not this conversation's (R88).
+    messageReq.current += 1;
+    setMessages([]);
+    setMessagesLoaded(false);
+    loadMessages();
   }, [activeConvo]);
 
   useEffect(() => {
@@ -432,18 +453,22 @@ function PlaygroundPage() {
   }, [selectedAgent]);
 
   async function loadConversations() {
+    const req = convoReq.current;
     const { data, error } = await supabase
       .from("conversations")
       .select("*")
       .eq("agent_id", selectedAgent)
       .order("updated_at", { ascending: false });
+    if (req !== convoReq.current) return; // another agent was picked meanwhile
     // A failed read used to be an empty list — and an empty list creates a
     // fresh "New Chat", so a network blip could bury the real conversations
     // under a new one. A read that fails is said, and creates nothing.
     if (error) {
       toast.error("Could not load this agent's conversations", { description: error.message });
+      setConvosLoaded(true);
       return;
     }
+    setConvosLoaded(true);
     if (data) {
       setConversations(data);
       if (data.length > 0) {
@@ -465,17 +490,21 @@ function PlaygroundPage() {
   }
 
   async function loadMessages() {
+    const req = messageReq.current;
     const { data, error } = await supabase
       .from("messages")
       .select("*")
       .eq("conversation_id", activeConvo)
       .order("created_at", { ascending: true });
+    if (req !== messageReq.current) return; // another conversation was picked
     // A failed read used to leave whatever was on screen, or nothing, with
     // no word — an empty conversation that is not empty.
     if (error) {
       toast.error("Could not load this conversation's messages", { description: error.message });
+      setMessagesLoaded(true);
       return;
     }
+    setMessagesLoaded(true);
     if (data) setMessages(data as Message[]);
   }
 
@@ -1618,7 +1647,16 @@ function PlaygroundPage() {
           <div className="pointer-events-none absolute -top-24 left-1/2 h-64 w-[36rem] -translate-x-1/2 rounded-full bg-primary/5 blur-3xl" />
           <ScrollArea className="relative h-full w-full [&>[data-radix-scroll-area-viewport]>div]:!block [&>[data-radix-scroll-area-viewport]]:!w-full">
             <div className="mx-auto w-full min-w-0 max-w-3xl space-y-6 px-4 py-8">
-              {messages.length === 0 && !thinking && (
+              {messages.length === 0 && !messagesLoaded && !thinking && activeConvo && (
+                <div
+                  role="status"
+                  className="flex flex-col items-center justify-center py-24 text-center text-sm text-muted-foreground"
+                >
+                  Loading this conversation…
+                </div>
+              )}
+
+              {messages.length === 0 && (messagesLoaded || !activeConvo) && !thinking && (
                 <div className="flex flex-col items-center justify-center py-24 text-center">
                   <div className="mb-5 grid h-16 w-16 place-items-center rounded-2xl bg-gradient-to-br from-primary to-nexus-glow text-primary-foreground shadow-lg shadow-primary/20">
                     <Bot className="h-8 w-8" />

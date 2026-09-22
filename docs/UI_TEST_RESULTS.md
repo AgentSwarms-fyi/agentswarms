@@ -15,6 +15,41 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-22 — Agent Chat across a conversation change, before and after, ADVERSARIAL_LOG R88
+
+**Why this round exists.** The stale-list class R76 opened, on the page
+where it costs the most: the sidebar highlights one conversation while
+the transcript shows another's, and a reply goes to the highlighted one.
+
+### Before the fix
+
+| Driven                                                                                            | Read back                                                                                                      |
+| --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Agent Chat → `Sample · Graph RAG Explorer (Acme Corp)`, the conversation `Make a 2-slide PowerPoint…` | 13 messages, the first `You Make a 2-slide PowerPoint about the saas_sales table…`                             |
+| the second conversation `List my data tables…`, with every `GET /rest/v1/messages` rejected      | 2.5 s in: **13 messages, the same first one**; the sidebar highlighting the second conversation                |
+| the same, 10 s in, after the client's four attempts                                               | toast `Could not load this conversation's messages · TypeError: Failed to fetch`; **still 13 messages**, still the first conversation's |
+
+The selection and the transcript disagree, with nothing on the page
+saying so. A reply typed here is written to the conversation the sidebar
+highlights, not the one being read.
+
+### After the rebuild
+
+The `agentswarms` service rebuilt and recreated (container `bc6e32cc54f1`); the same
+two conversations, the same rejection.
+
+| Driven                                                                        | Read back                                                                                              |
+| ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| the conversation `Make a 2-slide PowerPoint…`                                  | 13 messages, the first `You Make a 2-slide PowerPoint about the saas_sales table…`                     |
+| the second conversation, with every `GET /rest/v1/messages` rejected — 2.5 s in | **nothing listed**; a `role="status"` line reading `Loading this conversation…`                        |
+| the same, 11 s in, after the client's four attempts                           | toast `Could not load this conversation's messages · TypeError: Failed to fetch`; the transcript empty, the page's own `Chat with Sample · Graph RAG Explorer (Acme Corp)` invitation, and the second conversation highlighted |
+
+The selection and the transcript now agree: the previous conversation's
+messages are gone the moment another is picked, the wait says so, and a
+read that failed leaves nothing to mistake for this conversation.
+
+Findings from this round: R88 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-22 — A prep flow run twice, before and after, ADVERSARIAL_LOG R87
 
 **Why this round exists.** A rebuild is a delete and an insert, and the
