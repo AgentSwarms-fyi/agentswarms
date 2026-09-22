@@ -68,9 +68,19 @@ export const resumeApprovedSwarmRun = createServerFn({ method: "POST" })
           .eq("id", approval.swarm_run_id)
           .maybeSingle();
         if (!run) return { ok: false, error: "Run not found" };
-        if (run.status !== "suspended") {
+        if (run.status === "success" || run.status === "error") {
           // Not an error worth shouting about: a second click, or a run that
           // was already resumed.
+          return { ok: true, status: run.status, runId: run.id, output: "" };
+        }
+        // FOUND FROM THE SURVEY (R90). This used to require the word
+        // "suspended", which is written by a stamp that could fail: a run
+        // whose stamp did not land read as "already resumed", the decision
+        // was swallowed, and the work stayed parked for ever under a cheerful
+        // ok. The CHECKPOINT is what a resume actually needs, so that is what
+        // decides — and a run with none really was resumed already.
+        const { loadCheckpoint } = await import("@/utils/swarmCheckpoint.server");
+        if (!(await loadCheckpoint(run.id, run.user_id))) {
           return { ok: true, status: run.status, runId: run.id, output: "" };
         }
 

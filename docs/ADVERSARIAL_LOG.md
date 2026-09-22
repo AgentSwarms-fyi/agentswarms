@@ -109,6 +109,59 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-23 — A decision that resumed nothing, and said it had
+
+#### R90 · S1 · The parked swarm run
+
+A headless swarm run that reaches a human-approval step parks: it writes
+a checkpoint, marks its run `suspended`, and inserts an approval row so
+somebody is asked. Two of those three writes dropped their answers, and
+the consequences compound.
+
+The approval insert sat in a `try/catch` a supabase answer never reaches
+(R86's shape), so a failed insert was not even the warning its own
+comment promised: the run parked, the inbox stayed empty, and nothing
+anywhere said why nobody had been asked. The suspended stamp dropped its
+error, leaving the row on `running` — which on its own is the familiar
+badge that outlived its state. But the approval path then read that word:
+`if (run.status !== "suspended") return { ok: true, … }`, with a comment
+calling it "a second click, or a run that was already resumed". So a run
+whose stamp had failed swallowed the approver's decision, resumed
+nothing, and answered ok. The work stayed parked for ever, the person was
+told it was fine, and the one path that could have resumed it had decided
+it did not need to.
+
+The insert now reads its answer and says that nobody was asked and the
+run keeps its checkpoint. The stamp is retried once and, failing twice,
+said with what it leaves. And the resume no longer gates on the word: it
+refuses only a run that is `success` or `error`, then asks for the
+CHECKPOINT, which is what a resume actually needs — a run with none
+really was resumed already, and a run with one resumes whatever its
+status column says.
+
+**Driven, both halves, end to end.** Before the fix, on the R89
+container: Swarms → Library → `Approval durability check` → Load
+template → Save; its Deploy dialog → Schedules → a daily schedule with
+the template's refund request and "Reject approvals" off; the server's
+sweep parked the run — Observability `Approval durability check
+(schedule) · suspended`, the bell `Pending approvals (1)`, the approval
+reading `Human approval paused · MEDIUM · Approve this request · Refund
+request #4821 … Biggest risk: refunding without damage verification may
+enable a false claim.` — and Approve resumed it: `Human approval is
+resuming.`, the run `success · 3 steps · 0 errors · 3534ms`. After the
+rebuild (container `8668f6fb8012`) a second schedule, the same sweep, the
+same park, and Approve resumed it in 3728ms. All three writes report
+themselves as before. The failure halves — an approval nobody was asked
+for, a stamp that did not land, and the decision that used to be
+swallowed as a duplicate click — cannot be produced from the browser
+against the server executor, and are held by the tests. Recorded in
+[UI test results](./UI_TEST_RESULTS.md).
+
+**Tests:** 5 source-anchored on the insert's answer, its message, the
+stamp's retry, the checkpoint gate and the no-checkpoint case; 5
+behaviour-changing mutants each killed, control missed, baseline green
+first.
+
 ### 2026-09-22 — "Running" over a server that died, and a deploy whose tools nobody wrote down
 
 #### R89 · S1 · The MCP app's records

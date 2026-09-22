@@ -344,6 +344,12 @@ least twice, not a hypothetical.
   two numbers are. Candidate for a round: find every pair where the caller's
   patience is shorter than the work it waits on, and make the shorter one
   say what is still happening.
+- Ask what a status word is FOR before trusting it (R90): the swarm resume
+  gated on `status === "suspended"`, a word written by a stamp that could
+  fail, when the thing a resume needs is the checkpoint. Where a guard and
+  a dropped write meet, the guard turns a lost write into a lost decision.
+  Look for `if (row.status !== …) return ok` above any resume, retry or
+  cancel, and gate on the artefact the work needs instead.
 - A status column written by every exit of one function is worth reading
   twice (R89): `setAppStatus` is the single place six outcomes are
   recorded, so one dropped error covers them all, and the two directions

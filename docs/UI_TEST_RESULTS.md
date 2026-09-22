@@ -15,6 +15,53 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-23 — A swarm parked at a human approval and resumed, before and after, ADVERSARIAL_LOG R90
+
+**Why this round exists.** A headless run that reaches an approval step
+writes three things: a checkpoint, a `suspended` stamp, and the approval
+row that asks a person. Two of them dropped their answers, and the resume
+path gated on the word the failing stamp writes.
+
+### Before the fix
+
+| Driven                                                                                                   | Read back                                                                                                    |
+| ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
+| Swarms → Library → `Approval durability check` → Load template → Save                                    | toast `Swarm saved to your library`                                                                          |
+| its Deploy dialog → Schedules → `R90 park probe`, input the template's refund request, "Reject approvals" off → Add | toast `Schedule added`; the row `every 1440 min · not run yet · active`                                      |
+| the server's sweep                                                                                       | Observability `Approval durability check (schedule) · suspended · 0 steps`; the bell `Pending approvals (1)` |
+| the pending approval                                                                                     | `🛡️ Human approval paused · 2m ago · MEDIUM · Approve this request · Refund request #4821: full refund for a reported damaged item. Amount: $240. Biggest risk: refunding without damage verification may enable a false claim.` |
+| Approve                                                                                                  | toast `Approved: Approve this request — Human approval is resuming.`; the run `success · 3 steps · 0 errors · 3534ms`; the bell back to `Pending approvals` |
+
+The whole chain lands here, which is what makes the failure modes
+invisible in normal use: the stamp writes `suspended`, so the resume's
+`status !== "suspended"` gate lets the decision through. When that stamp
+fails the same click is swallowed as a duplicate and the run stays parked
+for ever. That half cannot be produced from the browser against the
+server executor, so it is held by the tests.
+
+### After the rebuild
+
+The `agentswarms` service rebuilt and recreated (container `8668f6fb8012`); a second
+schedule added on the same swarm, again with "Reject approvals" off.
+
+| Driven                                                        | Read back                                                                                             |
+| ----------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| the sweep, on the new schedule                                | within six seconds the bell went to `Pending approvals (1)`; Observability `Approval durability check (schedule) · suspended` |
+| the pending approval                                          | `🛡️ Human approval paused · just now · MEDIUM · Approve this request · Full refund requested for damaged item (request #4821). Amount: $240. Biggest risk: Approving may encourage fraudulent damage claims…` |
+| Approve                                                       | toast `Approved: Approve this request — Human approval is resuming.`; the run `success · 3 steps · 0 errors · 3728ms`, the bell back to `Pending approvals` |
+
+All three writes report themselves as before: the approval row, the
+suspended stamp and the resume. What a failure now does — say that
+nobody was asked, retry the stamp and say what it leaves, and resume on
+the checkpoint rather than on the word the stamp writes — is held by the
+tests.
+
+Fixtures kept: the `Approval durability check` swarm and its two
+schedules (`R90 park probe`, `R90 park probe (after)`), both daily and
+both already run, left in place so this round can be re-driven.
+
+Findings from this round: R90 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-22 — An MCP server deployed, before and after, ADVERSARIAL_LOG R89
 
 **Why this round exists.** One function records six outcomes into the

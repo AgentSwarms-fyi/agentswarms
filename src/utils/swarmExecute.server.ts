@@ -219,7 +219,12 @@ async function createApprovalRequest(args: {
     approverGroupIds?: string[];
   };
   try {
-    await supabaseAdmin.from("approvals").insert({
+    // FOUND FROM THE SURVEY (R90). This insert is the ONLY thing that puts a
+    // parked run in front of a person. It sat in a try/catch a supabase
+    // answer never reaches, so a failed insert was not even the warn this
+    // comment promises: the run parked, the inbox stayed empty, and nothing
+    // anywhere said why nobody was asked.
+    const { error } = await supabaseAdmin.from("approvals").insert({
       user_id: args.userId,
       agent_name: d.label || "Approval gate",
       agent_avatar: d.avatar || "🛡️",
@@ -232,6 +237,11 @@ async function createApprovalRequest(args: {
       approver_group_ids: Array.isArray(d.approverGroupIds) ? d.approverGroupIds : [],
       swarm_run_id: args.runId,
     } as never);
+    if (error) {
+      console.warn(
+        `[swarmExecute] run ${args.runId ?? "(untracked)"} parked at "${d.label ?? "approval"}" but nobody was asked: the approval row could not be written: ${error.message}. The run keeps its checkpoint — resume it by hand.`,
+      );
+    }
   } catch (e) {
     console.warn("[swarmExecute] could not create approval request:", (e as Error).message);
   }
@@ -376,10 +386,26 @@ export async function executeSwarmServer(opts: {
       // A suspended run is deliberately left open: its timeline continues when
       // the approval is decided, so it must not be closed off as finished.
       if (status === "suspended") {
-        await supabaseAdmin
-          .from("swarm_runs")
-          .update({ status: "suspended", updated_at: new Date().toISOString() })
-          .eq("id", runId!);
+        // FOUND FROM THE SURVEY (R90). The run is parked; this is what says
+        // so. Dropped, the row stayed "running" — the Observability page
+        // showed a run in flight for ever, and the approval path below read
+        // the word rather than the checkpoint and treated the approver's
+        // decision as a second click. Retried once, then said.
+        const park = () =>
+          supabaseAdmin
+            .from("swarm_runs")
+            .update({ status: "suspended", updated_at: new Date().toISOString() })
+            .eq("id", runId!);
+        let { error: parkErr } = await park();
+        if (parkErr) {
+          await new Promise((r) => setTimeout(r, 1_000));
+          ({ error: parkErr } = await park());
+        }
+        if (parkErr) {
+          console.warn(
+            `[swarmExecute] run ${runId} is parked awaiting approval but its record could not be marked suspended after two attempts: ${parkErr.message}. It will show as running until it is; approving it still resumes it, because the checkpoint decides.`,
+          );
+        }
       } else {
         await tracer.finish({ status, finalOutput: output || null, errorMessage: error });
       }
