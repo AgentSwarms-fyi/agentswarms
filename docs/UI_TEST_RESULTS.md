@@ -465,6 +465,24 @@ the tests; not cleared by a build's own stamp; cleared by the runner's guarded
 update), and the schema was dropped afterwards. `stg_revenue` is left with
 `limit 5` for the post-migration drive, which restores it.
 
+### On the live database, after the migration (2026-09-22)
+
+`npx supabase db push` was run by the owner; `db push --dry-run` reports the
+remote up to date. Driven on the R72 container (`f308cd0a9c0a`), which
+carries the R60 page and runner:
+
+| Driven                                                                                          | Read back                                                                                                                                                                     |
+| ----------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| SQL Models → `stg_revenue` (`failed · 11h ago` · `5 rows`, red dot, from R63's row-count test)  | as left                                                                                                                                                                       |
+| SQL changed (`limit 5` → `limit 57`) → Save                                                     | `Saved stg_revenue`; header **`edited 1s ago · not built since`** · **`last build, of the previous definition: failed · 5 rows · 11h ago`**; list dot **amber**, hover `Edited since its last build` |
+| Control: `fct_region_revenue` (`built · 12d ago · 4 rows`) → description changed only → Save    | `Saved fct_region_revenue`; header **still `built · 12d ago · 4 rows`**, dot green — a description is not the definition                                                       |
+| `stg_revenue` → Build                                                                           | run `error · stg_revenue failed 57 rows row_count_min…`; header **`failed · 46s ago · 57 rows`**, red dot, **no "edited"** — the build that read the definition cleared the mark |
+| Fixture restored: test removed and limit removed → Save (`edited 1s ago · not built since` again) → Build | `success · stg_revenue built 836 rows`                                                                                                                                       |
+
+Both directions, on the live trigger: the mark on a definition change and
+not on a description change, and the mark cleared by the build that read
+it. `stg_revenue` is back to its original SQL, no tests, 836 rows.
+
 Findings from this round: R60 in the [Adversarial log](./ADVERSARIAL_LOG.md).
 
 ## 2026-09-21 — The scheduler on the Monitoring page, before and after, ADVERSARIAL_LOG R59

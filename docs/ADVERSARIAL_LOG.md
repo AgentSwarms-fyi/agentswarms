@@ -564,12 +564,14 @@ model's dot is amber, its header reads `edited <when> · not built since`, and
 the previous build's figures are still shown — named as the previous
 definition's — because the table in the lakehouse is still that build's.
 
-**Not yet on the live database.** The migration is written, tested and in
-the tree; `npx supabase db push` was refused by this session's permission
-gate, so the trigger is not applied and the edited state cannot yet be
-produced in the browser. The runner tolerates a row without the column (a
-guard on a column the database lacks would fail the stamp), so the rebuilt
-container is safe against the un-migrated database.
+**On the live database since 2026-09-22.** The migration's push was refused
+by the session's permission gate on the day, so the trigger went in when the
+owner ran `npx supabase db push`; until then the runner tolerated a row
+without the column. Driven afterwards, both directions: a SQL change marks
+the model `edited · not built since` with the previous build named as the
+previous definition's; a description-only change on a built model leaves it
+`built`; the build that reads the definition clears the mark. Recorded under
+R60 in the UI test results.
 
 Driven, before: `stg_revenue` at `built · 11d ago · 836 rows`, `limit 5`
 appended and saved — `Saved stg_revenue`, and `built · 11d ago · 836 rows`,
