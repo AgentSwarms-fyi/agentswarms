@@ -15,6 +15,47 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-22 — An ETL run cancelled, before and after, ADVERSARIAL_LOG R78
+
+**Why this round exists.** The ETL run's records: a sandbox started that
+the run row never learned of, a cancel said over a row still running, a
+watermark a successful run could not keep — and a page that said
+"Stopping", or nothing, whatever the server answered.
+
+### Before the fix
+
+| Driven                                                                                      | Read back                                                                                                                        |
+| ------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| ETL Pipelines → `bi_seed` (7 s runs, 108 rows) → Run                                        | toast `Run started` about 25 s later; `Running now 1`                                                                            |
+| the pipeline → Runs, a minute in: `Running … 1m 15s` → Cancel, as the sandbox was finishing | **no toast of any kind**; the row read `Succeeded … 1m 16s 108 rows → 1 target(s)` a moment later — the cancel had answered `false` and the page said nothing |
+| Run again → the pipeline → Runs, 14 s in: `Running … 14s` → Cancel                          | **no toast**; the row `Cancelled … 16s`                                                                                          |
+
+A cancel that lands shows the row; one that did not — the run already
+over — shows nothing at all. The server side — the cancel's write, the
+sandbox's session, the watermarks — runs in server functions and the
+sandbox, so a failed database write cannot be produced from the browser:
+that half is held by the tests.
+
+### After the rebuild
+
+The `agentswarms` service rebuilt and recreated (container `906b223c7b32`,
+after an intermediate image `53d14b03e6b1` carrying everything but the
+page's catch); the ETL page reloaded onto it. Runs of `bi_seed` now finish
+17–46 s after `Run started`, so each path below is its own run.
+
+| Driven                                                                                                       | Read back                                                                                                                      |
+| ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| `bi_seed` → Run → `Run started` → the pipeline → Runs: `Running … 10s` → Cancel                              | the row `Cancelled … 11s` six seconds later, no toast — a cancel that landed shows the row (and on `53d14b03e6b1`, `Running … 3s` → `Cancelled … 3s`) |
+| Run again → Runs: `Running … 32s` → Cancel, with every `POST /_serverFn/…` rejected                          | toast **`Could not cancel the run · Failed to fetch. It is still running.`**; the row still `Running`; the page's own reload saying `Couldn't load pipelines: Failed to fetch` |
+| Run again → Runs: `Running … 16s` → Cancel, the sandbox finishing at 17 s                                    | toast **`Could not cancel the run · That run is not running.`** — the server's own answer; the row `Succeeded … 17s 108 rows → 1 target(s)` |
+
+Before the fix the second and third rows said nothing at all. The server
+side — the cancel's write, the sandbox's session, the watermarks — is held
+by the tests, a failed database write not being producible from the
+browser against a server function.
+
+Findings from this round: R78 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-22 — A warm endpoint deployed and stopped, before and after, ADVERSARIAL_LOG R77
 
 **Why this round exists.** The server-side write survey's largest cluster:

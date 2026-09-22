@@ -264,6 +264,13 @@ least twice, not a hypothetical.
 - "It returned no matching passages" is a claim about the documents. A
   search that could not be completed has no standing to make it, and the
   model it is told to will repeat it as fact.
+- A cancel writes its record before it stops anything (R78): stopping first
+  and failing the write leaves a "running" row over nothing, which is the
+  state nothing corrects. And a cursor a successful run could not save is
+  the next run's duplicates: say it on the run, where they will be looked
+  for. The survey continues: `ml/train.server` (9), `ml/api.server` (8),
+  `notebookRuntime/service.server` (7), `catalog/crawler.server` (6, with
+  the ETL lineage delete).
 - A record that cannot describe what is running is corrected by stopping
   what is running (R77): a sandbox whose session id, ready state or name
   the row could not take is stopped again while the id is in hand, rather

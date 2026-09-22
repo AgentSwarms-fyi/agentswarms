@@ -665,9 +665,10 @@ export const cancelEtlRunFn = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) =>
     z.object({ access_token: z.string().min(1), run_id: z.string().uuid() }).parse(input),
   )
-  .handler(async ({ data }): Promise<{ ok: boolean }> => {
+  .handler(async ({ data }): Promise<{ ok: boolean; error?: string }> => {
     const userId = await resolveCaller(data.access_token);
-    return { ok: await cancelEtlRun(data.run_id, userId) };
+    // What cancel could not write is what the page will go on showing (R78).
+    return cancelEtlRun(data.run_id, userId);
   });
 
 export type EtlRunSummary = Pick<

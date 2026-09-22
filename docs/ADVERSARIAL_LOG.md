@@ -109,6 +109,61 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-22 — A run cancelled on screen, a sandbox the run never learned of, a watermark not kept
+
+#### R78 · S1 · The ETL run's records
+
+The server-side write survey's next file, `etl/service.server.ts`, 13
+writes with their result dropped, and the page above them. Three change
+what a person and the next run believe. `startRunSandbox` started the
+sandbox and then wrote the run's `running` state and `session_id` without
+reading the answer: a write that failed left a sandbox running that the
+run row did not know — nothing could cancel it, since cancelling stops by
+session id, and the reconciler saw a queued run with nothing behind it.
+`cancelEtlRun` dropped the cancel's error, returned `true`, and stopped
+the sandbox anyway: a row still `running` over nothing, for ever. And
+`persistEtlWatermarks` dropped each upsert's error after a run that
+succeeded: a cursor the next run does not have, so it reads from the
+previous one and loads the same rows again — silently, under a green
+badge. Above all three, the page: both cancel handlers said "Stopping",
+or nothing, whatever the server answered; pressed on a run that had just
+finished, Cancel did nothing and said nothing.
+
+A sandbox whose session the run row could not take is stopped again while
+the id is in hand, and the attempt fails as an attempt. A cancel writes
+the record first and, if it cannot, says so and stops nothing: "The run
+could not be marked cancelled: …. It is still running — try again." — and
+a run that is not running is answered as such. The watermarks a successful
+run could not keep are returned node by node and written onto the run:
+"Succeeded, but the watermark could not be saved for …. The next run reads
+from the previous cursor." The pipeline's status stamps, the attempt
+counter, the partial logs, the progress record, the released cluster's ref
+and the consumed ingest events each read their answer and say what a
+failure leaves. The page reads the cancel's answer — "Could not stop the
+run" and "Could not cancel the run", with the server's reason — or, when
+the call itself never reached the server, with that. Left for the catalog
+round: the lineage delete before the re-insert.
+
+**Driven.** Before the fix, on the R77 container: `bi_seed` → Run → `Run
+started`; Cancel pressed on the run as its sandbox finished — no toast of
+any kind, the row `Succeeded` a moment later; Cancel pressed 14 s into the
+next run — no toast, the row `Cancelled`. After the rebuild (container
+`906b223c7b32`): a cancel that lands shows the row `Cancelled … 11s`; one
+whose call is rejected says `Could not cancel the run · Failed to fetch.
+It is still running.` over a row still `Running`; one the server refuses,
+the sandbox having finished a second earlier, says `Could not cancel the
+run · That run is not running.` over the row `Succeeded … 17s`. The
+server side — the cancel's write, the sandbox's session, the watermarks —
+is held by the tests, a failed database write not being producible from
+the browser against a server function. Recorded in
+[UI test results](./UI_TEST_RESULTS.md).
+
+**Tests:** 6 source-anchored on the sandbox stopped again, the cancel's
+order and answer, the server function and the page on both of its failure
+paths, the watermarks returned and said, and the two stamps; 7
+behaviour-changing mutants each killed, control missed, baseline green
+first.
+
 ### 2026-09-22 — "Serving", over a row that said starting; "stopped", over one that said ready
 
 #### R77 · S1 · The ML endpoint's state writes

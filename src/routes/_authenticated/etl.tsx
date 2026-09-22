@@ -522,9 +522,17 @@ function PipelineRow({
     if (!p.live_run) return;
     setBusy(true);
     try {
-      await cancelFn({
+      const res = await cancelFn({
         data: { access_token: session?.access_token ?? "", run_id: p.live_run.id },
       });
+      if (!res.ok) {
+        // FOUND FROM THE SURVEY (R78): this said "Stopping" whatever the
+        // server answered.
+        toast.error("Could not stop the run", {
+          description: res.error ?? "The run could not be cancelled.",
+        });
+        return;
+      }
       toast.success("Stopping — pause the pipeline too if it should stay stopped");
       onChanged();
     } catch (e) {
@@ -3308,7 +3316,22 @@ function RunsTab({ pipelineId }: { pipelineId: string }) {
                         size="sm"
                         variant="ghost"
                         onClick={async () => {
-                          await cancelFn({ data: { access_token: token, run_id: r.id } });
+                          // A cancel whose call never reached the server is
+                          // as unsaid as one the server refused (R78).
+                          try {
+                            const res = await cancelFn({
+                              data: { access_token: token, run_id: r.id },
+                            });
+                            if (!res.ok) {
+                              toast.error("Could not cancel the run", {
+                                description: res.error ?? "The run could not be cancelled.",
+                              });
+                            }
+                          } catch (e) {
+                            toast.error("Could not cancel the run", {
+                              description: `${(e as Error).message}. It is still running.`,
+                            });
+                          }
                           void load();
                         }}
                       >

@@ -784,11 +784,16 @@ export async function etlIngestFor(
 
   const cursor = Number(opts.cursor);
   if (opts.consume && Number.isFinite(cursor) && cursor > 0) {
-    await supabaseAdmin
+    const { error: consumeErr } = await supabaseAdmin
       .from("etl_ingest_events")
       .delete()
       .eq("pipeline_id", pipelineId)
       .lte("id", cursor);
+    if (consumeErr) {
+      console.warn(
+        `[etl] pipeline ${pipelineId}: consumed events up to ${cursor} could not be deleted: ${consumeErr.message}; they will be offered again`,
+      );
+    }
   }
 
   const PAGE = 1000;
@@ -1073,7 +1078,15 @@ async function launchAttempt(
   // Record the attempt BEFORE trying to launch: a failed launch must count
   // against the ladder (and grow the backoff), which it silently did not when
   // the attempt number was only written on the success path.
-  await supabaseAdmin.from("etl_runs").update({ attempt }).eq("id", runId);
+  const { error: attemptErr } = await supabaseAdmin
+    .from("etl_runs")
+    .update({ attempt })
+    .eq("id", runId);
+  if (attemptErr) {
+    console.warn(
+      `[etl] run ${runId}: attempt ${attempt} could not be recorded: ${attemptErr.message}; a failed launch will not count against the retry ladder`,
+    );
+  }
 
   if (engineOf(pipeline.engine) === "spark") {
     const { sparkClusterSettings } = await import("@/utils/etl/sparkCluster.server");
@@ -1169,7 +1182,7 @@ async function startRunSandbox(
       maxMinutes:
         pipeline.schedule === CONTINUOUS_SCHEDULE ? continuousRolloverMinutes() + 10 : undefined,
     });
-    await supabaseAdmin
+    const { error: recErr } = await supabaseAdmin
       .from("etl_runs")
       .update({
         status: "running",
@@ -1177,6 +1190,21 @@ async function startRunSandbox(
         started_at: new Date().toISOString(),
       })
       .eq("id", runId);
+    if (recErr) {
+      // FOUND FROM THE SURVEY (R78). The sandbox is running and the run row
+      // does not know its session: nothing can cancel it, and the reconciler
+      // sees a queued run with nothing behind it. Stopped now, while the id
+      // is in hand, and the attempt fails as an attempt.
+      await stopSession(session).catch((e) =>
+        console.warn("[etl] could not stop an unrecorded run sandbox:", (e as Error).message),
+      );
+      await failOrRetry(
+        runId,
+        pipeline,
+        `Attempt ${attempt} started but its session could not be recorded: ${recErr.message}; the sandbox was stopped again`,
+      );
+      return { ok: false, error: recErr.message };
+    }
     return { ok: true };
   } catch (e) {
     const message = (e as Error).message;
@@ -1255,10 +1283,16 @@ async function failOrRetry(
     .select("id");
   if (!claimedFail?.length) return;
   await releaseRunCluster(runId);
-  await supabaseAdmin
+  const { error: stampErr } = await supabaseAdmin
     .from("etl_pipelines")
     .update({ last_run_at: stamp, last_run_status: "failed" })
     .eq("id", pipeline.id);
+  if (stampErr) {
+    // The run is failed; the pipeline's badge is not (R78).
+    console.warn(
+      `[etl] pipeline ${pipeline.id}: last status could not be stamped failed: ${stampErr.message}; the list shows the previous run's until it is`,
+    );
+  }
   auditEvent({
     userId: pipeline.user_id,
     action: "etl.run.failed",
@@ -1303,11 +1337,14 @@ export async function appendPartialLogs(etlRunId: string, logs: string): Promise
       /* scrub what we can */
     }
   }
-  await supabaseAdmin
+  const { error: logErr } = await supabaseAdmin
     .from("etl_runs")
     .update({ logs: scrubSecrets(logs.slice(-LOG_CAP), secretValues) })
     .eq("id", etlRunId)
     .eq("status", "running");
+  if (logErr) {
+    console.warn(`[etl] run ${etlRunId}: partial logs could not be written: ${logErr.message}`);
+  }
 }
 
 /**
@@ -1336,7 +1373,15 @@ async function releaseRunCluster(runId: string): Promise<void> {
   await releaseSparkCluster(data.spark_cluster_ref).catch((e) =>
     console.warn("[etl] could not release the run's Spark cluster:", (e as Error).message),
   );
-  await supabaseAdmin.from("etl_runs").update({ spark_cluster_ref: null }).eq("id", runId);
+  const { error: clearErr } = await supabaseAdmin
+    .from("etl_runs")
+    .update({ spark_cluster_ref: null })
+    .eq("id", runId);
+  if (clearErr) {
+    console.warn(
+      `[etl] run ${runId}: the released cluster's ref could not be cleared: ${clearErr.message}; it will read as still held`,
+    );
+  }
 }
 
 export async function reconcileOrphanedEtlRuns(): Promise<number> {
@@ -1407,10 +1452,15 @@ export async function persistEtlWatermarks(
   pipeline: { id: string; user_id: string },
   watermarks: Record<string, unknown>,
   now = new Date().toISOString(),
-): Promise<void> {
+): Promise<string[]> {
+  // FOUND FROM THE SURVEY (R78). A watermark that was not saved is a cursor
+  // the next run does not have: it reads from the previous one and loads
+  // the same rows again. The failures are returned, node by node, so the run
+  // that succeeded can say what it could not keep.
+  const failed: string[] = [];
   for (const [nodeId, value] of Object.entries(watermarks)) {
     if (value === null || value === undefined) continue;
-    await supabaseAdmin.from("etl_pipeline_state").upsert(
+    const { error } = await supabaseAdmin.from("etl_pipeline_state").upsert(
       {
         pipeline_id: pipeline.id,
         node_id: nodeId.slice(0, 64),
@@ -1420,7 +1470,14 @@ export async function persistEtlWatermarks(
       },
       { onConflict: "pipeline_id,node_id" },
     );
+    if (error) failed.push(`${nodeId}: ${error.message}`);
   }
+  if (failed.length > 0) {
+    console.warn(
+      `[etl] pipeline ${pipeline.id}: watermark(s) could not be saved — ${failed.join("; ")}. The next run reads from the previous cursor.`,
+    );
+  }
+  return failed;
 }
 
 /**
@@ -1444,11 +1501,14 @@ export async function recordEtlProgress(
       watermarks as Record<string, unknown>,
     );
   }
-  await supabaseAdmin
+  const { error: progressErr } = await supabaseAdmin
     .from("etl_runs")
     .update({ metrics: progress as Json })
     .eq("id", runId)
     .eq("status", "running");
+  if (progressErr) {
+    console.warn(`[etl] run ${runId}: progress could not be recorded: ${progressErr.message}`);
+  }
 }
 
 /** The retry sweep's entry: begin the next attempt of a retrying run. */
@@ -1558,10 +1618,16 @@ export async function finalizeEtlRun(
     // The row in hand still carries the PREVIOUS run's status — read the
     // recovery transition off it before stamping the new one.
     const wasFailing = pipeline.last_run_status === "failed";
-    await supabaseAdmin
+    const { error: stampErr } = await supabaseAdmin
       .from("etl_pipelines")
       .update({ last_run_at: now, last_run_status: "succeeded" })
       .eq("id", pipeline.id);
+    if (stampErr) {
+      // The run is closed; the pipeline's badge is not (R78).
+      console.warn(
+        `[etl] pipeline ${pipeline.id}: last status could not be stamped succeeded: ${stampErr.message}; the list shows the previous run's until it is`,
+      );
+    }
 
     const alerts = etlAlertPolicy(pipeline);
     const rowsLoaded = (metrics as { rows_loaded?: number } | null)?.rows_loaded;
@@ -1594,7 +1660,22 @@ export async function finalizeEtlRun(
     // never skipped).
     const watermarks = (metrics as { watermarks?: Record<string, unknown> } | null)?.watermarks;
     if (watermarks && typeof watermarks === "object") {
-      await persistEtlWatermarks(pipeline, watermarks, now);
+      const lost = await persistEtlWatermarks(pipeline, watermarks, now);
+      if (lost.length > 0) {
+        // Succeeded, and said so; what it could not keep is on the run, where
+        // the next run's duplicates will be looked for.
+        const { error: noteErr } = await supabaseAdmin
+          .from("etl_runs")
+          .update({
+            error: `Succeeded, but the watermark could not be saved for ${lost.join("; ")}. The next run reads from the previous cursor.`,
+          })
+          .eq("id", etlRunId);
+        if (noteErr) {
+          console.warn(
+            `[etl] run ${etlRunId}: the lost-watermark note could not be written: ${noteErr.message}`,
+          );
+        }
+      }
     }
 
     // Target schemas persist like watermarks: AFTER the durable load, keyed
@@ -1815,22 +1896,38 @@ async function crawlDestination(pipeline: EtlPipelineRow): Promise<void> {
 }
 
 /** Cancel a queued/running run and tear its sandbox down. */
-export async function cancelEtlRun(runId: string, userId: string): Promise<boolean> {
-  const { data: run } = await supabaseAdmin
+export async function cancelEtlRun(
+  runId: string,
+  userId: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { data: run, error: readErr } = await supabaseAdmin
     .from("etl_runs")
     .select("id, user_id, status, session_id")
     .eq("id", runId)
     .eq("user_id", userId)
     .maybeSingle();
-  if (!run || !["queued", "running", "retrying"].includes(run.status)) return false;
-  await supabaseAdmin
+  if (readErr) return { ok: false, error: `The run could not be read: ${readErr.message}` };
+  if (!run || !["queued", "running", "retrying"].includes(run.status)) {
+    return { ok: false, error: "That run is not running." };
+  }
+  // FOUND FROM THE SURVEY (R78). This dropped the cancel's error and returned
+  // true, then stopped the sandbox: a row still "running" over nothing, and
+  // the page saying "Stopping". The record is written first, and the
+  // sandbox is stopped only once the record says so.
+  const { error: cancelErr } = await supabaseAdmin
     .from("etl_runs")
     .update({ status: "cancelled", finished_at: new Date().toISOString() })
     .eq("id", runId);
+  if (cancelErr) {
+    return {
+      ok: false,
+      error: `The run could not be marked cancelled: ${cancelErr.message}. It is still running — try again.`,
+    };
+  }
   await releaseRunCluster(runId);
   if (run.session_id) {
     const session = await getSession(userId, run.session_id);
     if (session) await stopSession(session).catch(() => {});
   }
-  return true;
+  return { ok: true };
 }
