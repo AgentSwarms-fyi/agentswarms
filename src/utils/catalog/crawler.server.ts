@@ -742,16 +742,25 @@ export async function persistAssets(
   // Reconcile deletions locally — a NOT IN () URL filter would overflow.
   const keep = new Set(assets.map((a) => a.fqn));
   const stale = existing.filter((e) => !keep.has(e.fqn));
-  changes.removed = stale.map((e) => e.fqn);
   for (let i = 0; i < stale.length; i += 100) {
-    await supabaseAdmin
+    const { error: delErr } = await supabaseAdmin
       .from("catalog_assets")
       .delete()
       .in(
         "id",
         stale.slice(i, i + 100).map((e) => e.id),
       );
+    if (delErr) {
+      // FOUND FROM THE SURVEY (R82). This dropped its error and reported the
+      // stale rows removed: the catalog went on listing tables the source no
+      // longer had, under a crawl that said it had taken them out.
+      throw new Error(
+        `Could not remove ${stale.length - i} stale asset(s) from the catalog: ${delErr.message}`,
+      );
+    }
   }
+  // Claimed only once the rows are gone.
+  changes.removed = stale.map((e) => e.fqn);
   return changes;
 }
 
@@ -852,11 +861,18 @@ async function persistLineage(
 ): Promise<void> {
   // Only this reader's own rows: ETL runs write pipeline lineage for the same
   // source under source_system 'etl', and a crawl must not wipe those.
-  await supabaseAdmin
+  const { error: clearErr } = await supabaseAdmin
     .from("catalog_lineage")
     .delete()
     .eq("source_id", sourceId)
     .eq("source_system", "databricks");
+  if (clearErr) {
+    // The old edges stand; writing the new ones beside them would draw a graph
+    // that was never true (R82).
+    throw new Error(
+      `the previous lineage could not be cleared: ${clearErr.message}; the new edges were not written, so the old ones stand`,
+    );
+  }
   if (edges.length === 0) return;
   const rows = edges.map((e) => ({
     user_id: userId,
@@ -868,7 +884,14 @@ async function persistLineage(
     source_system: "databricks",
   }));
   for (let i = 0; i < rows.length; i += 500) {
-    await supabaseAdmin.from("catalog_lineage").insert(rows.slice(i, i + 500));
+    const { error: insErr } = await supabaseAdmin
+      .from("catalog_lineage")
+      .insert(rows.slice(i, i + 500));
+    if (insErr) {
+      throw new Error(
+        `${rows.length - i} of ${rows.length} lineage edge(s) could not be written: ${insErr.message}; the graph is partial until the next crawl`,
+      );
+    }
   }
 }
 
@@ -1075,10 +1098,15 @@ export async function runCrawl(
   decryptStorageConfig: (source: CatalogSourceRow) => Promise<ObjectStoreConfig>,
 ): Promise<CrawlStats> {
   const started = Date.now();
-  await supabaseAdmin
+  const { error: startErr } = await supabaseAdmin
     .from("catalog_sources")
     .update({ status: "crawling", last_error: null, updated_at: new Date().toISOString() })
     .eq("id", source.id);
+  if (startErr) {
+    console.warn(
+      `[catalog] source ${source.id}: could not be marked crawling: ${startErr.message}; a second crawl will not be refused while this one runs`,
+    );
+  }
   try {
     const existing = await loadExistingAssets(source.id);
     let assets: CrawledAsset[];
@@ -1113,8 +1141,12 @@ export async function runCrawl(
       try {
         const edges = await fetchDatabricksLineage(warehouseConfig);
         await persistLineage(userId, source.id, edges);
-      } catch {
-        /* lineage is optional — never fail the crawl over it */
+      } catch (e) {
+        // Lineage is optional — never fail the crawl over it — but a graph
+        // left stale or partial is said, not swallowed (R82).
+        console.warn(
+          `[catalog] source ${source.id}: lineage could not be refreshed: ${(e as Error).message}`,
+        );
       }
     }
 
@@ -1138,19 +1170,35 @@ export async function runCrawl(
         changed: changes.changed.length,
       },
     });
-    await supabaseAdmin
-      .from("catalog_sources")
-      .update({
-        status: "ready",
-        last_crawl_at: new Date().toISOString(),
-        last_error: null,
-        crawl_stats: stats as unknown as Json,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", source.id);
+    // FOUND FROM THE SURVEY (R82). This dropped its error and returned the
+    // stats: the assets were in the catalog, the crawl said done, and the
+    // source stayed "crawling" — refusing every later crawl as already
+    // running. Retried once; a second failure fails the crawl with the reason,
+    // so the row says what happened rather than what is not happening.
+    const ready = () =>
+      supabaseAdmin
+        .from("catalog_sources")
+        .update({
+          status: "ready",
+          last_crawl_at: new Date().toISOString(),
+          last_error: null,
+          crawl_stats: stats as unknown as Json,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", source.id);
+    let { error: readyErr } = await ready();
+    if (readyErr) {
+      await new Promise((r) => setTimeout(r, 1_000));
+      ({ error: readyErr } = await ready());
+    }
+    if (readyErr) {
+      throw new Error(
+        `Crawled ${stats.assets} asset(s), but the source could not be marked ready: ${readyErr.message}. It will show as crawling until it is — crawl again.`,
+      );
+    }
     return stats;
   } catch (e) {
-    await supabaseAdmin
+    const { error: markErr } = await supabaseAdmin
       .from("catalog_sources")
       .update({
         status: "error",
@@ -1158,6 +1206,11 @@ export async function runCrawl(
         updated_at: new Date().toISOString(),
       })
       .eq("id", source.id);
+    if (markErr) {
+      console.warn(
+        `[catalog] source ${source.id}: could not be marked error: ${markErr.message}; it will show as crawling until it is`,
+      );
+    }
     throw e;
   }
 }

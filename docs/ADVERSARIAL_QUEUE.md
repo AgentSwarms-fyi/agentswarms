@@ -264,6 +264,14 @@ least twice, not a hypothetical.
 - "It returned no matching passages" is a claim about the documents. A
   search that could not be completed has no standing to make it, and the
   model it is told to will repeat it as fact.
+- A replace is a delete and an insert, and the insert must wait for the
+  delete's answer (R82): written beside edges that could not be cleared, a
+  lineage graph shows a past that never was. Claim a removal only once the
+  rows are gone; a status row that cannot take its terminal state fails the
+  action with the reason rather than leaving "running". The server-side
+  write survey's multi-site files are done (R73–R82); the single-site files
+  remain (`bi/*`, `dataMonitors`, `mcpApps`, `swarms`, `sqlModels`, the
+  notification and email senders).
 - A fix on one path is a defect left on its twin (R81): the page's promotion
   was guarded in R73 while the API's and the schedule's copy of it kept the
   old order and dropped every error. When a fix lands, grep for the second

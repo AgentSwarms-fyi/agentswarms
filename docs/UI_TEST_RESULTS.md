@@ -15,6 +15,45 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-22 — A catalog source re-crawled, before and after, ADVERSARIAL_LOG R82
+
+**Why this round exists.** The catalog crawl's records: a crawl that
+succeeded but left its source "crawling", stale assets reported removed and
+still listed, lineage cleared and not rewritten — or rewritten beside what
+could not be cleared.
+
+### Before the fix
+
+| Driven                                                                                  | Read back                                                                                                        |
+| --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Data Catalog → Sources → `Lakehouse catalog` (10) → "Re-crawl, schedule, remove" → Re-crawl | a spinner on the source; the asset list growing from `21 of 21+` to `54 of …` as the crawl wrote                 |
+| about 85 s later                                                                        | toast `Crawled "Lakehouse catalog" — 21 assets, 184 columns · 11 added`; the spinner gone — the source `ready`   |
+
+A crawl whose status writes land reports itself. The writes run in the
+crawler on the server, so a failed one cannot be produced from the
+browser: the defect half — a source left "crawling" over a crawl that
+succeeded, stale assets claimed removed, a lineage graph left stale or
+mixed — is held by the tests.
+
+### After the rebuild
+
+The `agentswarms` service rebuilt and recreated (container `d218d394edca`);
+the Data Catalog reloaded onto it, `Lakehouse catalog` now 21 assets.
+
+| Driven                                                                          | Read back                                                                                         |
+| ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `Lakehouse catalog` → "Re-crawl, schedule, remove" → Re-crawl                    | a spinner on the source; 23 s later toast `Crawled "Lakehouse catalog" — 21 assets, 184 columns`   |
+| the source, after                                                               | the spinner gone — the source `ready`; nothing added or removed this time, so no drift noted        |
+
+A crawl whose ready mark and asset writes land reports itself as before.
+One whose ready mark fails twice now fails the crawl with the reason
+instead of leaving the source "crawling"; stale assets are claimed removed
+only once they are; lineage is never written beside what could not be
+cleared — held by the tests, since a failed database write cannot be
+produced from the browser against the crawler.
+
+Findings from this round: R82 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-22 — A scheduled retrain judged, before and after, ADVERSARIAL_LOG R81
 
 **Why this round exists.** The promotion the API and the schedule make

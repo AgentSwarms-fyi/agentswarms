@@ -1684,7 +1684,7 @@ export async function finalizeEtlRun(
     if (schemas && typeof schemas === "object") {
       for (const [nodeId, value] of Object.entries(schemas)) {
         if (!value || typeof value !== "object") continue;
-        await supabaseAdmin.from("etl_pipeline_state").upsert(
+        const { error: schemaErr } = await supabaseAdmin.from("etl_pipeline_state").upsert(
           {
             pipeline_id: pipeline.id,
             node_id: `schema:${nodeId}`.slice(0, 64),
@@ -1694,6 +1694,11 @@ export async function finalizeEtlRun(
           },
           { onConflict: "pipeline_id,node_id" },
         );
+        if (schemaErr) {
+          console.warn(
+            `[etl] pipeline ${pipeline.id}: the schema seen at ${nodeId} could not be recorded: ${schemaErr.message}; drift will be judged against the previous one`,
+          );
+        }
       }
     }
 
@@ -1742,7 +1747,7 @@ export async function finalizeEtlRun(
       if (targets.length && lineageSourceId) {
         // Wholesale replace of THIS pipeline's edges: targets can be renamed
         // between runs, so a delete keyed on the new fqns would strand the old.
-        await supabaseAdmin
+        const { error: clearErr } = await supabaseAdmin
           .from("catalog_lineage")
           .delete()
           .eq("pipeline_id", pipeline.id)
@@ -1801,12 +1806,20 @@ export async function finalizeEtlRun(
         // A failed insert used to vanish: the run succeeded, the graph stayed
         // empty, and nothing said why. Lineage is a view of the run, never
         // part of it, but a silent gap is not the same as an honest one.
-        const { error: lineageError } = await supabaseAdmin.from("catalog_lineage").insert(edges);
-        if (lineageError) {
+        if (clearErr) {
+          // The old edges stand; writing the new ones beside them would draw a
+          // graph that was never true (R82).
           console.warn(
-            `[etl] lineage not recorded for "${pipeline.name}" (${edges.length} edge(s)):`,
-            lineageError.message,
+            `[etl] lineage not refreshed for "${pipeline.name}": the previous edges could not be cleared: ${clearErr.message}; the new ones were not written, so the old ones stand`,
           );
+        } else {
+          const { error: lineageError } = await supabaseAdmin.from("catalog_lineage").insert(edges);
+          if (lineageError) {
+            console.warn(
+              `[etl] lineage not recorded for "${pipeline.name}" (${edges.length} edge(s)):`,
+              lineageError.message,
+            );
+          }
         }
       }
     }

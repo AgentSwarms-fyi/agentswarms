@@ -109,6 +109,54 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-22 — A crawl that succeeded and left its source "crawling", and a graph drawn over what could not be cleared
+
+#### R82 · S1 · The catalog crawl's records
+
+The server-side write survey's last multi-site file, `catalog/crawler.server.ts`,
+6 writes with their result dropped, and the ETL run's lineage delete that
+R78 left for it. `runCrawl` marked the source `crawling`, crawled, wrote
+the assets, and then dropped the error of marking it `ready`: the assets
+were in the catalog, the crawl answered its stats, the page said
+"Crawled … 21 assets", and the row stayed `crawling` — refusing every
+later crawl as "already running". `persistAssets` reported the stale rows
+removed before deleting them and dropped the delete's error, so the
+catalog went on listing tables the source no longer had under a crawl
+that said it had taken them out. `persistLineage` deleted the previous
+edges and inserted the new ones, reading neither answer: a failed delete
+drew the new graph beside the old one, a failed insert left it partial,
+and the crawl's catch swallowed both as "optional". The ETL run cleared
+its pipeline's lineage the same way before re-inserting it; the schema
+records that drift is judged against went unread too.
+
+The source is now marked ready with one retry and, failing twice, the
+crawl fails with the reason — "Crawled N asset(s), but the source could
+not be marked ready: …. It will show as crawling until it is — crawl
+again." — so the row says what happened rather than what is not
+happening. Stale assets are claimed removed only once they are, and a
+delete that failed fails the crawl. Lineage is never written beside what
+could not be cleared: a failed clear stops the rewrite and says the old
+edges stand, a failed insert says the graph is partial, and the crawl's
+catch says why instead of nothing. The ETL run's lineage follows the same
+rule, and its schema records read their answers.
+
+**Driven.** Before the fix, on the R81 container: Data Catalog → `Lakehouse
+catalog` → Re-crawl — a spinner on the source, the asset list growing as
+the crawl wrote, and 85 s later `Crawled "Lakehouse catalog" — 21 assets,
+184 columns · 11 added`, the spinner gone. After the rebuild (container
+`d218d394edca`) the same re-crawl: 23 s later `Crawled "Lakehouse catalog"
+— 21 assets, 184 columns`, the source `ready`. A crawl whose writes land
+reports itself as before; the defect half — a source left "crawling" over
+a crawl that succeeded, stale assets claimed removed, a graph drawn beside
+what could not be cleared — is held by the tests, a failed database write
+not being producible from the browser against the crawler. Recorded in
+[UI test results](./UI_TEST_RESULTS.md).
+
+**Tests:** 4 source-anchored on the stale claim, the lineage rule on both
+paths, the ready mark and its retry, and the crawling and error marks; 5
+behaviour-changing mutants each killed, control missed, baseline green
+first.
+
 ### 2026-09-22 — "Promoted", by the API and the schedule, whatever the three writes did
 
 #### R81 · S1 · The promotion the API and the schedule make
