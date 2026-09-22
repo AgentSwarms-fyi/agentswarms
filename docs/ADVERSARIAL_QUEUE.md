@@ -264,6 +264,13 @@ least twice, not a hypothetical.
 - "It returned no matching passages" is a claim about the documents. A
   search that could not be completed has no standing to make it, and the
   model it is told to will repeat it as fact.
+- A notification is a claim about a row, and it must not outrun the write
+  that would make it true (R84): "Recovered" over an incident that could
+  not be resolved is worse than silence, because the person stops looking.
+  Where the event is real but its record is not, send the message and say
+  what could not be recorded in it. The single-site files continue:
+  `mcpApps/service` (5), `bi/prep`, `bi/refresh`, `bi/versions`, the swarm
+  and notification writers.
 - A guard added in one round is a write like any other (R83): R60's "edited
   — not built since" mark was cleared by a write whose error was dropped,
   so the badge could lie the other way. A state the build's own result can

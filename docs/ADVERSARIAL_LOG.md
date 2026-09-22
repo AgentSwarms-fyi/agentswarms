@@ -109,6 +109,53 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-22 — "Recovered", over an incident still open, and an alert with no incident at all
+
+#### R84 · S1 · The data monitor's records
+
+The survey's next single-site file, `dataMonitors/run.server.ts`. A check
+runs, writes its run row — that one insert reads its error — and then
+stamps the verdict on the monitor itself, which did not: the run said
+`alert`, the monitor's own row went on saying what the previous run had
+said, and the page, and anything gating on `last_status`, read the table
+as fine. Below it `reconcileIncident` made three writes and read none of
+their answers. An alert with no open incident inserted one and read the
+row back only for its id, so a failed insert meant an alert with no
+incident anywhere and an owner told of one. An alert with an incident
+already open extended it — occurrences, last seen, last message —
+silently. And a passing check resolved the open incident and told the
+owner "Recovered: <name>" whether or not the resolve landed: the
+incident stayed open on the page, repeating, while the person had been
+told it was over.
+
+The verdict's stamp now reads its answer, says what the monitor will go
+on showing, and hands the failure back to the caller as `recordError`. An
+incident that could not be opened is said in the audit detail and in the
+notification itself — the alert is real either way, so the message goes
+out, carrying "the incident could not be recorded: …". An extend that
+failed is said. And a resolve that failed no longer says "Recovered": the
+notification's title becomes "Recovered, incident still open: <name>"
+with the reason, and the audit entry carries it.
+
+**Driven.** Before the fix, on the R83 container: Data monitors → the
+alerting monitor `revenue_facts · negative net rows`, its open incident
+`seen 16 times · last 6m ago` → Run now — toast `Value 2 is above the
+maximum of 0.` and, two seconds later, `seen 17 times · last 1s ago`.
+After the rebuild (container `fe257b08f644`) the same: `seen 17 times ·
+last 23m ago` → Run now → `seen 18 times · last 1s ago`. The two writes a
+still-failing check makes — the monitor's verdict and the incident's
+extension — report themselves as before. The resolve path needs the table
+to pass, which means changing the data under it, so the "Recovered,
+incident still open" title and the failed-open notification are held by
+the tests, along with every write that fails: a failed database write
+cannot be produced from the browser against the monitor runner. Recorded
+in [UI test results](./UI_TEST_RESULTS.md).
+
+**Tests:** 4 source-anchored on the verdict's stamp and its return, the
+extend, the open and its notification, and the resolve's title; 5
+behaviour-changing mutants each killed, control missed, baseline green
+first.
+
 ### 2026-09-22 — A build that finished and stayed "running", and an "edited" badge that outlived the build of that edit
 
 #### R83 · S1 · The SQL model build's records

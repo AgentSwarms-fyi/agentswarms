@@ -288,7 +288,10 @@ describe("a monitor is governed like everything else", () => {
     expect(run).toContain('auditVia: "data_monitor"');
     expect(run).toContain("useCache: false");
     expect(run).toContain('resolved_by: "run"');
-    expect(run).toContain("title: `Recovered: ${m.name}`");
+    // Since R84 the title says so when the resolve itself could not be
+    // written, so the plain form is the else of that choice.
+    expect(run).toContain("`Recovered: ${m.name}`");
+    expect(run).toContain("`Recovered, incident still open: ${m.name}`");
     expect((run.match(/await notifyUser\(/g) ?? []).length).toBe(2);
     expect(run).toContain('claim.select("id")');
     expect(run).toContain("if (!won?.length) continue;");

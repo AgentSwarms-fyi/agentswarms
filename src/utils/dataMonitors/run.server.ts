@@ -153,7 +153,13 @@ async function recentRuns(monitorId: string): Promise<DataMonitorRunRow[]> {
 export async function runDataMonitor(
   m: DataMonitorRow,
   trigger: "schedule" | "manual" | "pipeline" = "schedule",
-): Promise<{ status: "ok" | "alert" | "error"; message: string; runId: string | null }> {
+): Promise<{
+  status: "ok" | "alert" | "error";
+  message: string;
+  runId: string | null;
+  /** What the run could not record about itself, for the caller to say (R84). */
+  recordError?: string;
+}> {
   const started = Date.now();
   const kind = m.kind as MonitorKind;
   const config = (m.config ?? {}) as MonitorConfig;
@@ -234,7 +240,11 @@ export async function runDataMonitor(
   if (runErr) console.warn(`[data-monitor] run insert failed for "${m.name}": ${runErr.message}`);
 
   const alerts = status === "alert" ? (m.consecutive_alerts ?? 0) + 1 : 0;
-  await supabaseAdmin
+  // FOUND FROM THE SURVEY (R84). This dropped its error: the run row said
+  // "alert", the monitor's own row went on saying what the previous run had
+  // said, and the page — and anything gating on last_status — read the
+  // monitor as fine. Said, and returned with the verdict.
+  const { error: stampErr } = await supabaseAdmin
     .from("data_monitors")
     .update({
       last_run_at: new Date().toISOString(),
@@ -244,11 +254,23 @@ export async function runDataMonitor(
       consecutive_alerts: alerts,
     })
     .eq("id", m.id);
+  if (stampErr) {
+    console.warn(
+      `[data-monitor] "${m.name}" ran ${status} but its record could not be stamped: ${stampErr.message}; the monitor shows the previous run until it is`,
+    );
+  }
 
   await reconcileIncident(m, status, message, detail, run?.id ?? null).catch((e) =>
     console.warn(`[data-monitor] incident update failed for "${m.name}": ${(e as Error).message}`),
   );
-  return { status, message, runId: run?.id ?? null };
+  return {
+    status,
+    message,
+    runId: run?.id ?? null,
+    ...(stampErr
+      ? { recordError: `The verdict could not be stamped on the monitor: ${stampErr.message}` }
+      : {}),
+  };
 }
 
 /**
@@ -274,7 +296,7 @@ async function reconcileIncident(
   const where = `${m.schema_name}.${m.table_name}`;
   if (status === "alert") {
     if (open) {
-      await supabaseAdmin
+      const { error: extendErr } = await supabaseAdmin
         .from("data_incidents")
         .update({
           last_seen_at: new Date().toISOString(),
@@ -286,9 +308,18 @@ async function reconcileIncident(
           },
         })
         .eq("id", open.id);
+      if (extendErr) {
+        console.warn(
+          `[data-monitor] incident ${open.id} for "${m.name}" could not be extended: ${extendErr.message}; it shows its previous occurrence`,
+        );
+      }
       return;
     }
-    const { data: created } = await supabaseAdmin
+    // FOUND FROM THE SURVEY (R84). The insert's answer went unread: an alert
+    // with no incident row, and the owner told of one. The alert is real
+    // either way, so the notification goes out — saying the incident could
+    // not be recorded when it could not.
+    const { data: created, error: openErr } = await supabaseAdmin
       .from("data_incidents")
       .insert({
         monitor_id: m.id,
@@ -317,33 +348,53 @@ async function reconcileIncident(
         message,
         incident_id: created?.id ?? null,
         run_id: runId,
+        ...(openErr ? { incident_error: openErr.message } : {}),
       },
     });
+    if (openErr) {
+      console.warn(
+        `[data-monitor] "${m.name}" alerted but its incident could not be opened: ${openErr.message}`,
+      );
+    }
     await notifyUser(m.user_id, {
       kind: "alert",
       title: `${m.severity === "critical" ? "Critical: " : ""}${m.name}`,
-      body: `${where}: ${message}`,
+      body: `${where}: ${message}${openErr ? ` — the incident could not be recorded: ${openErr.message}` : ""}`,
       link,
     });
     return;
   }
   if (status === "ok" && open) {
-    await supabaseAdmin
+    // FOUND FROM THE SURVEY (R84). This dropped its error and said
+    // "Recovered": the incident stayed open on the page, repeating, while
+    // the owner had been told it was over.
+    const { error: resolveErr } = await supabaseAdmin
       .from("data_incidents")
       .update({ status: "resolved", resolved_at: new Date().toISOString(), resolved_by: "run" })
       .eq("id", open.id);
+    if (resolveErr) {
+      console.warn(
+        `[data-monitor] incident ${open.id} for "${m.name}" could not be marked resolved: ${resolveErr.message}; it will show as open until it is`,
+      );
+    }
     auditEvent({
       userId: m.user_id,
       action: "data.incident.resolved",
       resourceType: "data_monitor",
       resourceId: m.id,
       resourceName: m.name,
-      detail: { table: where, incident_id: open.id, by: "run", message },
+      detail: {
+        table: where,
+        incident_id: open.id,
+        by: "run",
+        message,
+        ...(resolveErr ? { incident_error: resolveErr.message } : {}),
+      },
     });
     await notifyUser(m.user_id, {
       kind: "alert",
-      title: `Recovered: ${m.name}`,
-      body: `${where}: ${message}`,
+      title: resolveErr ? `Recovered, incident still open: ${m.name}` : `Recovered: ${m.name}`,
+      body: `${where}: ${message}${resolveErr ? ` — the incident could not be marked resolved: ${resolveErr.message}` : ""}`,
       link,
     });
   }

@@ -15,6 +15,47 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-22 — A data monitor run and its incident, before and after, ADVERSARIAL_LOG R84
+
+**Why this round exists.** The data monitor's records: a verdict not
+stamped on the monitor, an incident not opened, extended or resolved
+while the owner was told it was.
+
+### Before the fix
+
+| Driven                                                                                        | Read back                                                                                                                |
+| ----------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Data monitors → the alerting monitor `revenue_facts · negative net rows`, its open incident   | `Opened 16d ago · seen 16 times · last 6m ago`                                                                            |
+| its Run now                                                                                   | toast `Value 2 is above the maximum of 0.` after 5 s                                                                      |
+| the incident, two seconds later                                                               | `Opened 16d ago · seen 17 times · last 1s ago` — the verdict stamped and the incident extended                            |
+
+A check whose stamp and incident writes land reports itself. The writes
+run in the monitor runner on the server, so a failed one cannot be
+produced from the browser: the defect half — a verdict the monitor's row
+never took, an alert with no incident, "Recovered" over an incident still
+open — is held by the tests.
+
+### After the rebuild
+
+The `agentswarms` service rebuilt and recreated (container `fe257b08f644`);
+the Data monitors page reloaded onto it.
+
+| Driven                                                                    | Read back                                                                          |
+| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| the open incident of `revenue_facts · negative net rows`                  | `Opened 16d ago · seen 17 times · last 23m ago`                                     |
+| its Run now                                                               | toast `Value 2 is above the maximum of 0.` after 3 s                                |
+| the incident, two seconds later                                           | `Opened 16d ago · seen 18 times · last 1s ago` — the verdict stamped, the incident extended |
+
+The two writes a still-failing check makes — the monitor's verdict and
+the incident's extension — are driven here and report themselves as
+before. The resolve path needs the table to pass, which means changing
+the data under it, so the "Recovered, incident still open" title and the
+failed-open notification are held by the tests, along with every write
+that fails: a failed database write cannot be produced from the browser
+against the monitor runner.
+
+Findings from this round: R84 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-22 — A SQL model built, before and after, ADVERSARIAL_LOG R83
 
 **Why this round exists.** The SQL model build's records: a run left
