@@ -109,6 +109,57 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-22 — A schedule whose next run never moved, and an alert that fires again on every check
+
+#### R85 · S1 · The BI schedule's clock and the alert's edge
+
+`bi/refresh.server.ts`, four writes with their result dropped, and the two
+that matter carry state nothing else recomputes. An alert's `last_state`
+is not a display column: it is the edge that decides whether a person is
+told. Checked and triggered, the alert notifies and then writes
+`triggered` — and that write's error was dropped, so a failure left the
+state on its previous value and the same alert was sent again on the next
+check, and the one after that, for as long as the write kept failing. The
+"could not be evaluated" branch did the same with `partial`. Worse, the
+schedule's stamp carries the CLOCK: `last_run_at`, `last_status` and
+`next_run_at` in one write. Dropped, a refresh that ran left `next_run_at`
+in the past, so the next sweep — a minute later — refreshed the whole
+dashboard again, and the one after that: a refresh loop, paid for in
+warehouse queries, with nothing on the page to say why. And in
+`bi/versions.server.ts`, restoring a version replaced the rows under a
+guarded delete and insert and then set the dataset's column list in a
+write whose error went unread, leaving exactly the state its own comment
+forbids — this version's rows under the previous version's columns —
+reported as a restore that worked.
+
+The alert's state writes now say what a failure means for the next check,
+naming the alert and the dashboard. The schedule's stamp is retried once
+and, failing twice, logged and told to the owner: "The dashboard
+refreshed, but the schedule still says it is due: …. It will keep
+refreshing every sweep until the schedule can be written." The prep
+flow's stamp says what the page will go on showing. And the restore fails
+with what is where: "The table now holds this version's rows under the
+previous column list — restore it again."
+
+**Driven.** The three writes this round guards are made by the cron
+sweep and by a restore: the alert's state and the schedule's clock are
+written only by `processDueSchedules`, and no dataset in this account has
+a version to restore. What the browser reaches is the surface they drive,
+and it is unchanged by the fix. Before, on the R84 container: BI →
+dashboard `db14d61a…` → "Scheduled refresh & data alerts" — `Scheduled
+refresh` off, the rule's wording `notifies once when it trips and re-arms
+when the condition clears`; Data Catalog → Local tables → `snow_prepared`
+— `VERSION HISTORY — No previous versions.` After the rebuild (container
+`1edfd98ba6c9`), both the same. Every failure path — an alert that would
+fire again, a schedule that would refresh again, a restore under the
+previous column list — is held by the tests. Recorded in
+[UI test results](./UI_TEST_RESULTS.md).
+
+**Tests:** 5 source-anchored on the two alert states, the schedule's retry
+and its notice, the prep flow's stamp and the restore's failure; 5
+behaviour-changing mutants each killed, control missed, baseline green
+first.
+
 ### 2026-09-22 — "Recovered", over an incident still open, and an alert with no incident at all
 
 #### R84 · S1 · The data monitor's records

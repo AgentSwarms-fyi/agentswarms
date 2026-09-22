@@ -15,6 +15,46 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-22 — The BI schedule, the alert and a dataset's versions, before and after, ADVERSARIAL_LOG R85
+
+**Why this round exists.** An alert's `last_state` decides whether a
+person is told again; a schedule's `next_run_at` decides whether the
+dashboard refreshes again; a restore's column list decides what every
+reader thinks the rows are. All three writes dropped their errors.
+
+### Before the fix
+
+| Driven                                                                                          | Read back                                                                                                                        |
+| ------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| BI → dashboard `db14d61a…` → "Scheduled refresh & data alerts"                                  | `Scheduled refresh` off; `Data alerts — Checked after each scheduled refresh; a rule notifies once when it trips and re-arms when the condition clears.` |
+| Data Catalog → Local tables → `snow_prepared` (not a sample)                                    | `QUALITY CHECKS not run` and `VERSION HISTORY — No previous versions. One is recorded automatically each time this dataset is overwritten by an upload or a prep flow.` |
+
+The three writes this round guards are made by the sweep and by a restore
+of a version this account has none of: the alert's state and the
+schedule's clock are written only by `processDueSchedules`, which runs on
+the cron pass, and no dataset here has a version to restore. What the
+browser shows is the surface they drive — the schedule's own switch, the
+alert rule's "notifies once when it trips", the version list that a
+restore would act on — and all of it is unchanged by the fix. Every
+failure path is held by the tests.
+
+### After the rebuild
+
+The `agentswarms` service rebuilt and recreated (container `1edfd98ba6c9`); the
+same two surfaces reloaded onto it.
+
+| Driven                                                                | Read back                                                                                                                       |
+| ----------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| BI → dashboard `db14d61a…` → "Scheduled refresh & data alerts"        | `Scheduled refresh` off; the alert rule's wording unchanged — `notifies once when it trips and re-arms when the condition clears` |
+| Data Catalog → Local tables → `snow_prepared`                         | `VERSION HISTORY — No previous versions.`; the panel unchanged                                                                   |
+
+Nothing the browser can reach changed, which is what this round wanted:
+the alert's state write, the schedule's clock and the restore's column
+list are written by the sweep and by a restore, and each now says what a
+failure leaves. Those paths are held by the tests.
+
+Findings from this round: R85 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-22 — A data monitor run and its incident, before and after, ADVERSARIAL_LOG R84
 
 **Why this round exists.** The data monitor's records: a verdict not

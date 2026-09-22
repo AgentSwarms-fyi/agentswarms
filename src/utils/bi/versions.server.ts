@@ -152,7 +152,7 @@ async function pruneVersions(tableId: string): Promise<void> {
       .order("created_at", { ascending: false })
       .range(keep, keep + 99);
     if (old && old.length > 0) {
-      await supabaseAdmin
+      const { error: pruneErr } = await supabaseAdmin
         .from("user_data_table_versions")
         .delete()
         .in(
@@ -247,10 +247,20 @@ export async function restoreDatasetVersion(args: {
 
   // The schema travels with the rows — restoring 2020's rows under 2026's
   // column list would leave the dataset describing columns it no longer has.
-  await supabaseAdmin
+  // FOUND FROM THE SURVEY (R85). The rows of the restored version are in
+  // place; this puts ITS columns on the dataset. Dropped, the restore
+  // answered ok with exactly the state the comment above forbids — old rows
+  // under the current column list — so it is said, as a failure, naming what
+  // is where.
+  const { error: schemaErr } = await supabaseAdmin
     .from("user_data_tables")
     .update({ columns: (version.columns ?? []) as Json, data_loaded_at: new Date().toISOString() })
     .eq("id", version.table_id);
+  if (schemaErr) {
+    throw new Error(
+      `The version's rows were restored, but the dataset's column list could not be set to this version's: ${schemaErr.message}. The table now holds this version's rows under the previous column list — restore it again.`,
+    );
+  }
 
   await import("@/utils/data/parquet.server")
     .then((m) => m.refreshDatasetMirror({ userId: args.userId, tableId: version.table_id }))

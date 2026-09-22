@@ -1072,10 +1072,19 @@ export async function evaluateAlerts(
           `/bi/${dashboardId}`,
         );
       }
-      await supabaseAdmin
+      // FOUND FROM THE SURVEY (R85). `last_state` is not a display column:
+      // it is the edge that decides whether a person is told. A write that
+      // failed left it on its previous value, so the same alert was sent
+      // again on the next check, and the one after that.
+      const { error: partialErr } = await supabaseAdmin
         .from("bi_alerts")
         .update({ last_state: "partial", last_value: null, last_checked_at: now })
         .eq("id", a.id);
+      if (partialErr) {
+        console.warn(
+          `[bi-alert] alert ${a.id} on "${dashboardName}" was not evaluated, but its state could not be recorded: ${partialErr.message}; the same notice will be sent again on the next check`,
+        );
+      }
       continue;
     }
     if (value === null) continue;
@@ -1105,10 +1114,21 @@ export async function evaluateAlerts(
         }
       }
     }
-    await supabaseAdmin
+    const { error: stateErr } = await supabaseAdmin
       .from("bi_alerts")
       .update({ last_state: fires ? "triggered" : "ok", last_value: value, last_checked_at: now })
       .eq("id", a.id);
+    if (stateErr) {
+      // Told once, and the record of having told them did not land: the same
+      // alert fires again on every check until it does (R85).
+      console.warn(
+        `[bi-alert] alert ${a.id} on "${dashboardName}" checked ${fires ? "triggered" : "ok"} but its state could not be recorded: ${stateErr.message}; ${
+          fires
+            ? "it will notify again on the next check"
+            : "it will notify again when it next trips, even if it never cleared"
+        }`,
+      );
+    }
   }
 }
 
@@ -1217,15 +1237,38 @@ export async function processDueSchedules(force = false): Promise<number> {
           "error",
         );
       }
-      await supabaseAdmin
-        .from("bi_schedules")
-        .update({
-          last_run_at: new Date().toISOString(),
-          last_status: status,
-          last_error: lastError,
-          next_run_at: computeNextRun(s.cadence, s.at_hour, s.weekday, new Date()).toISOString(),
-        })
-        .eq("id", s.id);
+      // FOUND FROM THE SURVEY (R85). This write carries the CLOCK. Dropped,
+      // a refresh that ran left `next_run_at` in the past, so the next sweep
+      // — a minute later — ran the whole dashboard again, and the one after
+      // that: a refresh loop, paid for in queries, with nothing on the page
+      // to say why. Retried once, then said with the schedule and the cost.
+      const stamp = () =>
+        supabaseAdmin
+          .from("bi_schedules")
+          .update({
+            last_run_at: new Date().toISOString(),
+            last_status: status,
+            last_error: lastError,
+            next_run_at: computeNextRun(s.cadence, s.at_hour, s.weekday, new Date()).toISOString(),
+          })
+          .eq("id", s.id);
+      let { error: stampErr } = await stamp();
+      if (stampErr) {
+        await new Promise((r) => setTimeout(r, 1_000));
+        ({ error: stampErr } = await stamp());
+      }
+      if (stampErr) {
+        console.warn(
+          `[bi-schedule] schedule ${s.id} ran ${status} but its next run could not be set after two attempts: ${stampErr.message}. It is still due, so the next sweep will refresh the dashboard again.`,
+        );
+        await notify(
+          s.user_id,
+          "Scheduled refresh could not record its next run",
+          `The dashboard refreshed, but the schedule still says it is due: ${stampErr.message}. It will keep refreshing every sweep until the schedule can be written.`,
+          `/bi/${s.dashboard_id}`,
+          "warning",
+        );
+      }
       ran++;
     }
     return ran;
@@ -1374,10 +1417,15 @@ export async function processDuePrepFlows(force = false): Promise<number> {
         "error",
       );
     }
-    await supabaseAdmin
+    const { error: flowErr } = await supabaseAdmin
       .from("user_prep_flows")
       .update({ last_refresh_at: new Date().toISOString(), last_refresh_error: lastError })
       .eq("id", f.id);
+    if (flowErr) {
+      console.warn(
+        `[bi-prep] flow ${f.id} refreshed but its record could not be stamped: ${flowErr.message}; the page shows the previous refresh until it is`,
+      );
+    }
     ran++;
   }
   return ran;

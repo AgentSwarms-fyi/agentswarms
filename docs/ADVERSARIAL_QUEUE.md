@@ -264,6 +264,11 @@ least twice, not a hypothetical.
 - "It returned no matching passages" is a claim about the documents. A
   search that could not be completed has no standing to make it, and the
   model it is told to will repeat it as fact.
+- Some columns are not display: they are the clock and the edge (R85).
+  `next_run_at` decides whether the work runs again; `last_state` decides
+  whether a person is told again. A dropped error on either does not show
+  as a stale badge — it shows as a loop. Find the writes whose value is
+  read back by the code that decides, and guard those first.
 - A notification is a claim about a row, and it must not outrun the write
   that would make it true (R84): "Recovered" over an incident that could
   not be resolved is worse than silence, because the person stops looking.
