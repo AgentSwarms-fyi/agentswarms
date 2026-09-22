@@ -525,7 +525,17 @@ function PlaygroundPage() {
       }))
     )
       return;
-    await supabase.from("conversations").delete().eq("id", id);
+    // FOUND FROM THE UI (R72). The four deletes on this page dropped their
+    // error: a message deleted over a rejected request left the screen and
+    // was back on the next reload, and so was a chat. A delete that fails is
+    // undone on screen and said.
+    const { error } = await supabase.from("conversations").delete().eq("id", id);
+    if (error) {
+      toast.error("Could not delete the chat", {
+        description: `${error.message}. It is still here.`,
+      });
+      return;
+    }
     if (activeConvo === id) {
       setActiveConvo("");
       setMessages([]);
@@ -1326,10 +1336,20 @@ function PlaygroundPage() {
     if (idx === -1) return;
     const historySnapshot = messages.slice(0, idx);
     const dbId = resolveDbId(assistantMsgId);
+    const before = messages;
     setMessages(historySnapshot);
     setToolEvents([]);
     setMemoryUsed(null);
-    await supabase.from("messages").delete().eq("id", dbId);
+    const { error } = await supabase.from("messages").delete().eq("id", dbId);
+    if (error) {
+      // The old reply is still stored; a fresh one on top would leave both
+      // after a reload. Put the old one back and stop.
+      setMessages(before);
+      toast.error("Could not regenerate the reply", {
+        description: `${error.message}. The previous reply could not be removed, so it stands.`,
+      });
+      return;
+    }
     await runAndHandleFallback({
       historySnapshot,
       isFirstUserMessage: historySnapshot.length === 1,
@@ -1357,12 +1377,22 @@ function PlaygroundPage() {
       created_at: new Date().toISOString(),
     };
     const historySnapshot = [...beforeHistory, editedMsg];
+    const before = messages;
     setMessages(historySnapshot);
     setToolEvents([]);
     setMemoryUsed(null);
 
     if (toRemoveDbIds.length > 0) {
-      await supabase.from("messages").delete().in("id", toRemoveDbIds);
+      const { error } = await supabase.from("messages").delete().in("id", toRemoveDbIds);
+      if (error) {
+        // The messages after the edit are still stored; resending on top of
+        // them would leave both threads after a reload. Restore and stop.
+        setMessages(before);
+        toast.error("Could not resend the edited message", {
+          description: `${error.message}. The conversation is unchanged.`,
+        });
+        return;
+      }
     }
     await persistMessage(editedMsg.id, {
       conversation_id: activeConvo,
@@ -1376,8 +1406,15 @@ function PlaygroundPage() {
 
   async function deleteMessage(id: string) {
     const dbId = resolveDbId(id);
+    const before = messages;
     setMessages((prev) => prev.filter((m) => m.id !== id));
-    await supabase.from("messages").delete().eq("id", dbId);
+    const { error } = await supabase.from("messages").delete().eq("id", dbId);
+    if (error) {
+      setMessages(before);
+      toast.error("Could not delete the message", {
+        description: `${error.message}. It is still in the conversation.`,
+      });
+    }
   }
 
   const currentAgent = agents.find((a) => a.id === selectedAgent);

@@ -15,6 +15,40 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-22 — Agent Chat, a message delete that failed, before and after, ADVERSARIAL_LOG R72
+
+**Why this round exists.** The write-side survey's last file, back on the
+Agent Chat page: its four deletes — a message, a chat, the reply a
+regenerate replaces, the tail an edit-and-resend replaces — all dropped
+their error.
+
+### Before the fix
+
+| Driven                                                                                                       | Read back                                                                                     |
+| ------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------- |
+| Agent Chat → "Sample · Graph RAG Explorer (Acme Corp)", its conversation of 10 messages                      | 10 bubbles                                                                                    |
+| Delete on the last bubble ("I could not find any information…"), with every `DELETE /rest/v1/messages` rejected | **9 bubbles**; one DELETE rejected; **no toast**                                                |
+| Reload                                                                                                       | **10 bubbles** — the message was never deleted                                                 |
+
+A message deleted on screen and not in the database is a message that
+comes back.
+
+### After the rebuild
+
+The `agentswarms` service rebuilt and recreated (container `f308cd0a9c0a`);
+the same agent and conversation reloaded onto it. Same bubble, same
+rejection.
+
+| Driven                                                                                                      | Read back                                                                                                                                      |
+| ----------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| Delete on the last bubble ("I could not find any information…"), with every `DELETE /rest/v1/messages` rejected | **10 bubbles** — the message back at once; toast **`Could not delete the message · TypeError: Failed to fetch. It is still in the conversation.`**; one DELETE rejected |
+
+The conversation shows what is stored, and the toast says why the press
+changed nothing. The chat delete, the regenerate and the edit-and-resend
+share the shape and are held by the tests; no real delete was made.
+
+Findings from this round: R72 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-22 — The notification bell's Clear, before and after, ADVERSARIAL_LOG R71
 
 **Why this round exists.** The write-side survey's next file. The bell

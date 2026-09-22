@@ -264,6 +264,11 @@ least twice, not a hypothetical.
 - "It returned no matching passages" is a claim about the documents. A
   search that could not be completed has no standing to make it, and the
   model it is told to will repeat it as fact.
+- A delete that a second write depends on must stop the second write when
+  it fails (R72): regenerate and edit-and-resend insert on top of what they
+  could not remove, and a reload shows both. The write survey is closed;
+  next is a survey of the same shape one level down — server functions
+  whose `.update(`/`.delete(` drop their error and return `{ ok: true }`.
 - The bell's badge is the same promise (R71): a count that goes to zero on
   screen before the delete lands must come back when it does not. The
   write survey's remaining files: evaluations' two deletes, the swarm chat

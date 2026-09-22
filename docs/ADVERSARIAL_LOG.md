@@ -109,6 +109,39 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-22 — A message deleted on screen that came back on reload
+
+#### R72 · S1 · Agent Chat's four deletes
+
+The write-side survey's last file, back on the Agent Chat page. Press
+Delete on a bubble with every `DELETE` to `messages` rejected: nine bubbles
+where there were ten, nothing said; reload: ten. Four deletes on the page
+dropped their error — a message, a chat, the reply a regenerate replaces,
+the tail an edit-and-resend replaces — and the last two were worse than
+silent: a regenerate whose old-reply delete failed streamed a fresh reply
+on top of the old one, and a resend whose tail delete failed inserted the
+edited message above the tail it was meant to replace, so a reload showed
+both threads.
+
+Each keeps its error now. A message or chat that could not be deleted comes
+back on screen — "Could not delete the message: <why>. It is still in the
+conversation." — and a regenerate or resend that could not remove what it
+replaces restores the conversation and stops: "The previous reply could not
+be removed, so it stands." The write survey (40 error-less client writes in
+10 files) is closed with this round; what remains of it — the swarm chat
+dialog's insert and update, the add-source dialog's insert, evaluations'
+two deletes — each reload from the table after the write and so cannot show
+a phantom row, and are left as noted.
+
+Driven, before: nine bubbles over a rejected delete, nothing said, ten after
+a reload. After the rebuild, the same rejection: ten bubbles at once and the
+toast `Could not delete the message · TypeError: Failed to fetch. It is
+still in the conversation.` No real delete was made.
+
+**Tests:** 5 source-anchored on the four deletes, their undo and their
+stopping; 5 behaviour-changing mutants each killed, control missed,
+baseline green first.
+
 ### 2026-09-22 — Thirty notifications cleared on screen, none in the database
 
 #### R71 · S1 · The notification bell's three writes
