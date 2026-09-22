@@ -336,6 +336,20 @@ least twice, not a hypothetical.
   state left and the button to press. The survey continues:
   `etl/service.server` (13), `ml/train.server` (9), `ml/api.server` (8),
   `notebookRuntime/service.server` (7), `catalog/crawler.server` (6).
+- Two timeouts that do not agree (seen while driving R89): the MCP deploy's
+  server budget is 90 s of cold start, and the request in front of it gives
+  up sooner — so a first deploy after a container restart reports "The
+  operation was aborted due to timeout" and marks the app Error while its
+  sandbox finishes starting and answers. The write is not the problem; the
+  two numbers are. Candidate for a round: find every pair where the caller's
+  patience is shorter than the work it waits on, and make the shorter one
+  say what is still happening.
+- A status column written by every exit of one function is worth reading
+  twice (R89): `setAppStatus` is the single place six outcomes are
+  recorded, so one dropped error covers them all, and the two directions
+  it fails in are opposite — Running over a dead server, Error over a live
+  one. Where a deploy's answer names things a caller will use, the write
+  that records them is part of the deploy, not an afterthought.
 - The stale-list class is worst where the page also WRITES to the selection
   (R88): on Agent Chat the sidebar highlighted one conversation while the
   transcript showed another's, so a reply would have gone somewhere the

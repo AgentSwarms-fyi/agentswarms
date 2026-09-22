@@ -109,6 +109,56 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-22 — "Running" over a server that died, and a deploy whose tools nobody wrote down
+
+#### R89 · S1 · The MCP app's records
+
+`mcpApps/service.server.ts`, five writes with their result dropped, and
+each one is read by something that matters. `setAppStatus` is written by
+every path that ends a start — the per-user limit, the instance cap, a
+container that died, a start that timed out, a success, a stop — and its
+column is what MCP Builder shows. Dropped, the two failures are opposite
+and both bad: a server that DIED left the app on `ready`, so the page
+said Running over nothing; a server that came up left it on its previous
+status, so the page said Error over a server answering requests. The
+deploy's own record is worse: the server is up and its tools are known,
+and that update is the only place they are written down. Dropped, the
+deploy answered ok with the new tools while the app kept the PREVIOUS
+tool list, which is the one agents call — a deploy that changed what the
+server exposes left every caller on the old contract, silently.
+`snapshotVersion` adds the row a rollback reads; `persistLogs` saves the
+container's last output, which is exactly what the start-timeout message
+tells the owner to go and read; and `touch` feeds the idle reaper.
+
+Each now reads its answer. A status that could not be written says what
+the page will go on showing. A deploy whose tools could not be recorded
+answers as a failure — "The server is running, but its tools could not be
+recorded: …. Agents keep calling the previous tool list until they are —
+deploy again." — instead of reporting the new tools. A version the
+history could not take is said as one that cannot be rolled back to, the
+logs as a Logs tab that will be empty for this attempt, and an unrecorded
+use as what the reaper will see.
+
+**Driven.** Before the fix, on the R88 container: MCP Builder → `HTTP
+Test` → Open, the app `Stopped` → Deploy — after about 90 s `The
+operation was aborted due to timeout` and the app `Error`, while its
+sandbox `nb-dbc29e1c…` was up and finished starting moments later;
+Deploy again — after 33 s `Deployed — 2 tools.` and the app `Running`
+with `Stop` beside it. That second deploy drives the whole chain this
+round guards, and every write landed. After the rebuild (container
+`00a64721c026`) the same deploy: `Deployed — 2 tools.`, the app
+`Running`. What a failure now says is held by the tests, a failed
+database write not being producible from the browser against the MCP
+service. The first attempt's `Error` over a server that came up is a
+mismatch between the request's patience and the server's 90-second
+cold-start budget, not a dropped write; it is queued as its own
+candidate. Recorded in [UI test results](./UI_TEST_RESULTS.md).
+
+**Tests:** 5 source-anchored on the status write, the deploy's record and
+its early return, the version history, the touch and the logs; 5
+behaviour-changing mutants each killed, control missed, baseline green
+first.
+
 ### 2026-09-22 — One conversation's transcript, under another conversation's name
 
 #### R88 · S1 · Agent Chat across a selection change

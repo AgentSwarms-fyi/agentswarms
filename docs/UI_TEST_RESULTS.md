@@ -15,6 +15,48 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-22 — An MCP server deployed, before and after, ADVERSARIAL_LOG R89
+
+**Why this round exists.** One function records six outcomes into the
+column MCP Builder shows, and the deploy's own record is the only place
+the tools agents call are written down. All five writes dropped their
+answers.
+
+### Before the fix
+
+| Driven                                                                    | Read back                                                                                                       |
+| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| MCP Builder → `HTTP Test` → Open                                          | `/http-test-s71kjg · Stopped · Deploy`, and the standing banner `The tool list changed … calls are blocked until you review them` |
+| Deploy, on a container image that had just restarted                      | after about 90 s, toast `The operation was aborted due to timeout`; the app **`Error`** — while its sandbox `nb-dbc29e1c…` was up and finished starting moments later |
+| Deploy again                                                              | after 33 s, toast `Deployed — 2 tools.`; the app **`Running`**, with `Stop` beside it                            |
+
+The second deploy drives the whole chain this round guards: the status
+writes, the tools record and the version snapshot. Every one of them
+landed. The first is worth keeping for a different reason: the app was
+marked `Error` over a server that came up seconds later, because the
+request gave up before the server's own 90-second cold-start budget. That
+is a mismatch between two timeouts, not a dropped write, and it is queued
+as its own candidate.
+
+### After the rebuild
+
+The `agentswarms` service rebuilt and recreated (container `00a64721c026`); the same
+app deployed again on it.
+
+| Driven                                             | Read back                                                                     |
+| ------------------------------------------------------ | --------------------------------------------------------------------------------- |
+| MCP Builder → `HTTP Test` → Deploy, app `Running`   | after about 65 s, toast `Deployed — 2 tools.`; the app still `Running`, `Stop` beside it |
+
+The chain reports itself as before: the status write, the tools record
+and the version snapshot all land. What a failure now says — a status
+the page will go on showing, a deploy answered as a failure because the
+tools agents call were not written down, a version that cannot be rolled
+back to, an empty Logs tab, an unrecorded use — is held by the tests, a
+failed database write not being producible from the browser against the
+MCP service.
+
+Findings from this round: R89 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-22 — Agent Chat across a conversation change, before and after, ADVERSARIAL_LOG R88
 
 **Why this round exists.** The stale-list class R76 opened, on the page

@@ -104,10 +104,21 @@ async function setAppStatus(
   status: McpAppRow["status"],
   deployError?: string | null,
 ): Promise<void> {
-  await supabaseAdmin
+  // FOUND FROM THE SURVEY (R89). This column is what MCP Builder shows, and
+  // every path that ends a start writes it here. Dropped, the two failures
+  // are opposite and both bad: a server that DIED left the app on "ready",
+  // so the page said Running over nothing; a server that came up left it on
+  // the previous status, so the page said Error over a server answering
+  // requests.
+  const { error } = await supabaseAdmin
     .from("mcp_apps")
     .update({ status, deploy_error: deployError ?? null })
     .eq("id", appId);
+  if (error) {
+    console.warn(
+      `[mcp] app ${appId} is ${status} but its record could not be marked so: ${error.message}; MCP Builder will show what it showed before`,
+    );
+  }
 }
 
 /**
@@ -280,10 +291,17 @@ export async function ensureRunning(app: McpAppRow): Promise<EnsureResult> {
  * be torn down mid-traffic simply because nothing had refreshed its row.
  */
 async function touch(sessionId: string): Promise<void> {
-  await supabaseAdmin
+  const { error } = await supabaseAdmin
     .from("notebook_runtime_sessions")
     .update({ last_active_at: new Date().toISOString() })
     .eq("id", sessionId);
+  if (error) {
+    // The idle reaper reads what was recorded (R89, R80's shape): a server
+    // answering requests can be taken for one nobody is using.
+    console.warn(
+      `[mcp] session ${sessionId}: use could not be recorded: ${error.message}; the idle reaper reads what was recorded`,
+    );
+  }
 }
 
 /**
@@ -341,10 +359,17 @@ export async function logsOf(appId: string): Promise<string> {
  * with the container, which is the least useful moment to lose them.
  */
 async function persistLogs(sessionId: string, logs: string): Promise<void> {
-  await supabaseAdmin
+  const { error } = await supabaseAdmin
     .from("notebook_runtime_sessions")
     .update({ logs: logs.slice(-20_000) })
     .eq("id", sessionId);
+  if (error) {
+    // These are the logs the start-timeout message tells the owner to read,
+    // saved because the container is about to be destroyed (R89).
+    console.warn(
+      `[mcp] session ${sessionId}: its last logs could not be saved: ${error.message}; the Logs tab will be empty for this attempt`,
+    );
+  }
 }
 
 /** First Python error line in a log blob, for a one-line status message. */
@@ -464,7 +489,12 @@ export async function deploy(app: McpAppRow): Promise<DeployResult> {
     Boolean(app.tools_hash) && !isLegacyFingerprint(app.tools_hash) && app.tools_hash !== hash;
   const now = new Date().toISOString();
 
-  await supabaseAdmin
+  // FOUND FROM THE SURVEY (R89). The server is up and its tools are known;
+  // this is the only place they are written down. Dropped, the deploy
+  // answered ok with the new tools while the app kept the PREVIOUS tool list
+  // — the one agents call — and its status, so a deploy that changed what
+  // the server exposes left every caller on the old contract.
+  const { error: recordErr } = await supabaseAdmin
     .from("mcp_apps")
     .update({
       tools: shook.tools as unknown as Database["public"]["Tables"]["mcp_apps"]["Update"]["tools"],
@@ -477,6 +507,11 @@ export async function deploy(app: McpAppRow): Promise<DeployResult> {
       ...(app.tools_hash ? {} : { tools_approved_at: now }),
     })
     .eq("id", app.id);
+  if (recordErr) {
+    const why = `The server is running, but its tools could not be recorded: ${recordErr.message}. Agents keep calling the previous tool list until they are — deploy again.`;
+    console.warn(`[mcp] app ${app.id}: ${why}`);
+    return { ok: false, error: why, logs: await logsOf(app.id).catch(() => "") };
+  }
 
   await snapshotVersion(app, shook.tools);
 
@@ -492,7 +527,7 @@ async function snapshotVersion(app: McpAppRow, tools: McpTool[]): Promise<void> 
     .order("version", { ascending: false })
     .limit(1);
   const next = (last?.[0]?.version ?? 0) + 1;
-  await supabaseAdmin.from("mcp_app_versions").insert({
+  const { error } = await supabaseAdmin.from("mcp_app_versions").insert({
     app_id: app.id,
     user_id: app.user_id,
     version: next,
@@ -500,4 +535,11 @@ async function snapshotVersion(app: McpAppRow, tools: McpTool[]): Promise<void> 
     requirements: app.requirements,
     tools: tools as unknown as Database["public"]["Tables"]["mcp_app_versions"]["Insert"]["tools"],
   });
+  if (error) {
+    // The version history is what a rollback reads; a deploy missing from it
+    // cannot be gone back to (R89). The deploy itself stands.
+    console.warn(
+      `[mcp] app ${app.id}: v${next} could not be added to the version history: ${error.message}; this deploy cannot be rolled back to`,
+    );
+  }
 }
