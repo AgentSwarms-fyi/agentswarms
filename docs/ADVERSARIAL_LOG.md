@@ -109,6 +109,34 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-22 — Thirty notifications cleared on screen, none in the database
+
+#### R71 · S1 · The notification bell's three writes
+
+The write-side survey's next file. Open the bell — thirty unread — and
+press Clear with every `DELETE` to `notifications` rejected: "No
+notifications — dashboard alerts and scheduled-refresh results land here.",
+the badge loses its count, and nothing is said. Reload: thirty unread. The
+bell's three writes — clear all, mark all read, mark one read — were all
+optimistic and dropped their error, so the badge a person had just silenced
+came back on the next page, and the alert they had dismissed had never been
+dismissed.
+
+Each keeps its error now and undoes itself on screen: the list and the
+badge return to what is stored, and a toast says "Could not clear the
+notifications: <why>. They are still there." — or "still unread" for the
+read marks.
+
+Driven, before: the popover empty and the badge without its count over a
+rejected delete, nothing said, thirty unread after a reload. After the
+rebuild, the same rejection: the list back at once, the badge at thirty
+unread, and the toast `Could not clear the notifications · TypeError:
+Failed to fetch. They are still there.` No notification was cleared.
+
+**Tests:** 4 source-anchored on the three writes, their undo and their
+messages; 4 behaviour-changing mutants each killed, control missed,
+baseline green first.
+
 ### 2026-09-22 — An alert switched off that was still on, and would still fire
 
 #### R70 · S1 · The BI schedule dialog's writes

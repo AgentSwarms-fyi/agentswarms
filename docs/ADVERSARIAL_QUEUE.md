@@ -264,6 +264,11 @@ least twice, not a hypothetical.
 - "It returned no matching passages" is a claim about the documents. A
   search that could not be completed has no standing to make it, and the
   model it is told to will repeat it as fact.
+- The bell's badge is the same promise (R71): a count that goes to zero on
+  screen before the delete lands must come back when it does not. The
+  write survey's remaining files: evaluations' two deletes, the swarm chat
+  dialog, the add-source dialog, and Agent Chat's conversation and message
+  deletes and updates.
 - An optimistic switch is a promise about the database (R70): a control
   that flips before the write lands must flip back when it does not, and
   say what the stored state will do — an alert still on will still fire.

@@ -3,6 +3,7 @@
 // also pings /api/bi/cron once so the in-process BI scheduler is running and
 // overdue dashboard refreshes catch up.
 import { useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
 import { Link } from "@tanstack/react-router";
 import { BellRing, CheckCheck, Trash2 } from "lucide-react";
 
@@ -72,21 +73,49 @@ export function NotificationBell() {
 
   const unread = items.filter((n) => !n.read_at).length;
 
+  // FOUND FROM THE UI (R71). All three writes were optimistic and dropped
+  // their error, so "Clear all" emptied the list over a rejected delete and
+  // the thirty notifications were back on the next open; "mark read" did the
+  // same to the unread badge. A write that fails is undone on screen and said.
   async function markAllRead() {
     const now = new Date().toISOString();
+    const before = items;
     setItems((prev) => prev.map((n) => (n.read_at ? n : { ...n, read_at: now })));
-    await supabase.from("notifications").update({ read_at: now }).is("read_at", null);
+    const { error } = await supabase
+      .from("notifications")
+      .update({ read_at: now })
+      .is("read_at", null);
+    if (error) {
+      setItems(before);
+      toast.error("Could not mark the notifications read", {
+        description: `${error.message}. They are still unread.`,
+      });
+    }
   }
 
   async function clearAll() {
+    const before = items;
     setItems([]);
-    await supabase.from("notifications").delete().not("id", "is", null);
+    const { error } = await supabase.from("notifications").delete().not("id", "is", null);
+    if (error) {
+      setItems(before);
+      toast.error("Could not clear the notifications", {
+        description: `${error.message}. They are still there.`,
+      });
+    }
   }
 
   async function markRead(id: string) {
     const now = new Date().toISOString();
+    const before = items;
     setItems((prev) => prev.map((n) => (n.id === id ? { ...n, read_at: now } : n)));
-    await supabase.from("notifications").update({ read_at: now }).eq("id", id);
+    const { error } = await supabase.from("notifications").update({ read_at: now }).eq("id", id);
+    if (error) {
+      setItems(before);
+      toast.error("Could not mark the notification read", {
+        description: `${error.message}. It is still unread.`,
+      });
+    }
   }
 
   return (

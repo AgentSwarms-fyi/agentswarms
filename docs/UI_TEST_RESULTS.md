@@ -15,6 +15,37 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-22 — The notification bell's Clear, before and after, ADVERSARIAL_LOG R71
+
+**Why this round exists.** The write-side survey's next file. The bell
+clears and marks notifications read optimistically and dropped every
+write's error.
+
+### Before the fix
+
+| Driven                                                                                          | Read back                                                                                                              |
+| ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Bell (`Alerts & notifications (30 unread)`) → open                                              | `Notifications` · `Mark all read` · `Clear`; newest: `"revenue_facts · groups" v21 trained; production kept`            |
+| Clear, with every `DELETE /rest/v1/notifications` rejected                                       | popover **`No notifications — dashboard alerts and scheduled-refresh results land here.`**; badge **`Alerts & notifications`** (no count); one DELETE rejected; **no toast** |
+| Reload                                                                                          | badge `Alerts & notifications (30 unread)` — nothing was cleared                                                        |
+
+Thirty notifications were "cleared" on screen and none in the database.
+
+### After the rebuild
+
+The `agentswarms` service rebuilt and recreated (container `5b6a98fb8215`);
+the page reloaded onto it. Same bell, same rejection.
+
+| Driven                                                                                     | Read back                                                                                                                                                                       |
+| ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Bell (`Alerts & notifications (30 unread)`) → open → Clear, with every `DELETE /rest/v1/notifications` rejected | the list **back** (`"revenue_facts · groups" v21 trained; production kept`, …); badge **`Alerts & notifications (30 unread)`**; toast **`Could not clear the notifications · TypeError: Failed to fetch. They are still there.`**; one DELETE rejected |
+
+The list and the badge show what is stored, and the toast says why the
+press changed nothing. No notification was cleared: the thirty are as they
+were. The two read-marks share the shape and are held by the tests.
+
+Findings from this round: R71 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-22 — A BI data alert switched off, before and after, ADVERSARIAL_LOG R70
 
 **Why this round exists.** The write-side survey's next file, the BI
