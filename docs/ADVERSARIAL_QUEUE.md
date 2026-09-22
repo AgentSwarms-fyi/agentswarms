@@ -271,6 +271,11 @@ least twice, not a hypothetical.
   old base's list as this one's. Candidate for a round — clear or mark the
   list as loading on selection; the tab count follows the read, not the
   previous list.
+- A write that follows an irreversible step must say what that step already
+  did (R74): the schema is dropped whatever the catalog row answers, so the
+  message names the row, not the schema. Seen in the browser on the way:
+  the explorer stays stale after "Dropped" until a reload — a refresh that
+  should follow the drop, for a later round.
 - A multi-step write is ordered by what a failure part-way leaves (R73):
   promote wrote archive → pointer → stage, so a failure at the pointer left
   a model serving nothing with its old version already archived. Write the

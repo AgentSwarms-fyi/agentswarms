@@ -435,12 +435,32 @@ export const dropLakehouseSchema = createServerFn({ method: "POST" })
     } finally {
       c.closeSync();
     }
-    await supabaseAdmin.from("lakehouse_schemas").delete().eq("id", row.id);
-    await supabaseAdmin
+    // FOUND FROM THE UI (R74). The two row deletes below dropped their error
+    // and the drop reported done, so a schema whose catalog row could not be
+    // removed stayed on the Lakehouse page pointing at a schema that no
+    // longer existed. A row that could not be removed is said, with what is
+    // already true — the schema itself is gone.
+    const { error: rowErr } = await supabaseAdmin
+      .from("lakehouse_schemas")
+      .delete()
+      .eq("id", row.id);
+    if (rowErr) {
+      throw new Error(
+        `The schema was dropped, but its catalog entry could not be removed: ${rowErr.message}. ` +
+          `It will still be listed until it is; drop it again to retry.`,
+      );
+    }
+    const { error: grantsErr } = await supabaseAdmin
       .from("iam_resource_grants")
       .delete()
       .eq("resource_type", "lakehouse_schema")
       .eq("resource_id", row.id);
+    if (grantsErr) {
+      throw new Error(
+        `The schema was dropped, but the grants on it could not be removed: ${grantsErr.message}. ` +
+          `They name a schema that no longer exists.`,
+      );
+    }
     auditEvent({
       userId,
       action: "lakehouse.schema.drop",
@@ -1391,7 +1411,17 @@ export const deleteLakehouseMatview = createServerFn({ method: "POST" })
       .single();
     if (!row) throw new Error("No such materialized view");
     if (row.user_id !== userId) throw new Error("Only its owner can remove this view");
-    await supabaseAdmin.from("lakehouse_materialized_views").delete().eq("id", data.id);
+    // A removal whose row delete fails is a view that keeps refreshing on its
+    // schedule (R74): say so instead of reporting it removed.
+    const { error: delErr } = await supabaseAdmin
+      .from("lakehouse_materialized_views")
+      .delete()
+      .eq("id", data.id);
+    if (delErr) {
+      throw new Error(
+        `Could not remove the materialized view: ${delErr.message}. It is still defined and will still refresh on its schedule.`,
+      );
+    }
     auditEvent({
       userId,
       action: "lakehouse.matview.delete",

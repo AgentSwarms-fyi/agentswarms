@@ -109,6 +109,40 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-22 — "Dropped", with the catalog row that lists it still there
+
+#### R74 · S1 · The lakehouse schema drop and materialized-view removal
+
+The server-side write survey's next file. Dropping a schema runs `DROP
+SCHEMA … CASCADE` on the lakehouse, then deletes the schema's catalog row
+and its grants — and both deletes dropped their error before the audit
+entry said dropped. A schema whose row survived stayed on the Lakehouse
+page pointing at a schema that no longer existed, and its grants named it
+still. Removing a materialized view did the same with one delete, and a
+view whose row survived kept refreshing on its schedule.
+
+Each delete keeps its error now, and the answer says what is already true:
+"The schema was dropped, but its catalog entry could not be removed: <why>.
+It will still be listed until it is; drop it again to retry." — the grants
+likewise — and "Could not remove the materialized view: <why>. It is still
+defined and will still refresh on its schedule." The audit entry is written
+only after every row is gone.
+
+**Driven.** Before the fix, on the R72 container: Lakehouse → New schema
+`r74_probe` → Create, then its drop — `Dropped r74_probe`, the explorer
+stale until a reload. After the rebuild (container `0dd063722838`) the
+same create and drop: `3 schemas · 21 tables` with `r74_probe (0)`, then
+`Dropped r74_probe` and `2 schemas · 21 tables` with the schema gone, on
+the page and after a reload. A drop whose catalog-row deletes land
+reports itself as before; the defect half — done reported over a row
+that stayed — is held by the tests, a failed database write not being
+producible from the browser against a server function. Recorded in
+[UI test results](./UI_TEST_RESULTS.md).
+
+**Tests:** 4 source-anchored on the three deletes, their messages and the
+audit's place; 3 behaviour-changing mutants each killed, control missed,
+baseline green first.
+
 ### 2026-09-22 — "vN is now in production", over writes that could have failed, in an order that could leave none
 
 #### R73 · S1 · The ML promotion's four writes

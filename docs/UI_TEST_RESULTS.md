@@ -15,6 +15,44 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-22 — Dropping a lakehouse schema, before and after, ADVERSARIAL_LOG R74
+
+**Why this round exists.** The server-side write survey's next file. Dropping
+a schema runs `DROP SCHEMA` and then two catalog-row deletes whose errors
+were dropped; removing a materialized view, one. Each reported done
+whatever the rows answered.
+
+### Before the fix
+
+| Driven                                                                                   | Read back                                                                                             |
+| ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Lakehouse → New schema → `r74_probe` → Create                                            | `3 schemas · 21 tables`, `r74_probe` in the object explorer                                             |
+| `r74_probe` → Drop schema and everything in it → "Drop schema "r74_probe"? …" → Drop schema | toast `Dropped r74_probe`; the explorer still `3 schemas` with `r74_probe` listed until a reload — stale, not undropped |
+| Reload                                                                                   | `2 schemas · 21 tables`; `r74_probe` gone                                                             |
+
+The drop runs in a server function, so a rejected row delete cannot be
+produced from the browser: the defect half — done reported over a catalog
+row that stayed — is held by the tests. The browser holds the regression
+half: a drop that lands reports itself as before.
+
+### After the rebuild
+
+The `agentswarms` service rebuilt and recreated (container `0dd063722838`);
+the Lakehouse page reloaded onto it, `2 schemas · 21 tables`.
+
+| Driven                                                                                                    | Read back                                                                                                         |
+| --------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| New schema → `r74_probe` → Create                                                                         | a few seconds later `3 schemas · 21 tables`, `r74_probe (0)` in the object explorer                               |
+| `r74_probe` → Drop schema and everything in it → "Drop schema "r74_probe"? Every table in it is dropped too. This cannot be undone." → Drop schema | toast `Dropped r74_probe`; the explorer `2 schemas · 21 tables` with `r74_probe` gone, this time without a reload |
+| Reload                                                                                                    | `2 schemas · 21 tables`; no `r74_probe`                                                                           |
+
+A drop whose catalog-row deletes land reports itself as before; one whose
+row delete fails now names the row that stayed, with the schema already
+gone — held by the tests, since a failed database write cannot be produced
+from the browser against a server function.
+
+Findings from this round: R74 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-22 — Promoting a model version, before and after, ADVERSARIAL_LOG R73
 
 **Why this round exists.** The server-side write survey (237 error-less
