@@ -109,6 +109,46 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-22 — The previous base's documents, under the next base's name
+
+#### R76 · S2 · The Knowledge Bases page across a base change
+
+Seen while driving the sibling paths of R64. Pick `RAG eval · Halvard
+Systems` (12 documents), then `Test` (none): for the seven seconds the
+second read spent failing under the client's retries, the page showed
+`Test` as the heading and the twelve Halvard documents beneath it, with the
+tab reading `Documents (12)`; and when the read had failed and the alert
+took the panel, the tab still read `Documents (12)`. Nothing cleared the
+previous base's rows: `docs` was replaced only when the next read landed,
+and the tab counted whatever `docs` held. A slow read did the same as a
+failed one, for as long as it took — and a read that came back late, for a
+base no longer selected, would have replaced the current base's list with
+the old one's.
+
+Picking a base now clears its predecessor's documents, sources and chunk
+counts before the read, marks both lists loading, and drops a read that
+comes back for a base no longer selected. The panels say `Loading
+documents…` and `Loading sources…` ahead of their empty states, and the
+tab counts follow the read: `…` while it is pending, `?` when it failed,
+the number once it has been made. The count helper, `listCountLabel`, sits
+beside `listState` in `src/lib/listState.ts`.
+
+**Driven.** Before the fix, on the R75 container: `RAG eval · Halvard
+Systems` (12 documents), then `Test` with every read of
+`knowledge_documents` rejected — 2.5 s in, the heading `Test` over the
+twelve Halvard documents and `Documents (12)`; 10 s in, the alert and
+`Documents (12)` still on the tab. After the rebuild (container
+`ae7506f1384c`), both reads rejected: 2.5 s in, nothing listed, `Loading
+documents…`, `Documents (…)` and `Sources (…)`; 10 s in, the alert,
+`Documents (?)` and `Sources (?)`; with fetch restored, `No documents in
+this knowledge base.` and `Documents (0)`. Recorded in
+[UI test results](./UI_TEST_RESULTS.md).
+
+**Tests:** 4 unit on the count label; 4 source-anchored on the clearing,
+the late-read guard, the tab counts and the loading branches; 5
+behaviour-changing mutants each killed, control missed, baseline green
+first.
+
 ### 2026-09-22 — A run that finished and stayed "running" for ever
 
 #### R75 · S1 · The workflow runner's closing writes

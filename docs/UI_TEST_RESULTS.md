@@ -15,6 +15,47 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-22 — Knowledge Bases across a base change, before and after, ADVERSARIAL_LOG R76
+
+**Why this round exists.** Seen while pressing the siblings of R64: the page
+kept the previous base's documents on screen, under the next base's name,
+until the next read landed — and kept counting them on the tab after that
+read had failed.
+
+### Before the fix
+
+| Driven                                                                                                   | Read back                                                                                                                                   |
+| -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Knowledge Bases → `RAG eval · Halvard Systems`                                                           | heading `RAG eval · Halvard Systems`; 12 documents listed, the first `04-regional-availability-and-compliance-matrix-2026-01.md`; `Documents (12)` |
+| `Test`, with every `GET /rest/v1/knowledge_documents` rejected — read 2.5 s in                           | heading **`Test`**; **the same 12 documents still listed**, the same first one; **`Documents (12)`**                                        |
+| the same, 10 s in, after the client's four attempts                                                      | `Could not load the documents: TypeError: Failed to fetch`; nothing listed; **`Documents (12)`** still on the tab                             |
+| fetch restored; `RAG eval` then `Test` again                                                             | `No documents in this knowledge base.`; `Documents (0)` — what `Test` holds                                                                 |
+
+For the seven seconds a read spends failing — or however long a slow one
+takes — the page presents the previous base's list as this base's; and a
+count that outlives the read it came from is a claim about rows the page
+never read.
+
+### After the rebuild
+
+The `agentswarms` service rebuilt and recreated (container `ae7506f1384c`);
+the Knowledge Bases page reloaded onto it. The same two bases, the same
+rejection — this time of both reads, `knowledge_documents` and
+`kb_sources`.
+
+| Driven                                                                                       | Read back                                                                                                                              |
+| -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `RAG eval · Halvard Systems`                                                                 | 12 documents listed, the first `04-regional-availability-and-compliance-matrix-2026-01.md`; `Documents (12)`, `Sources (0)`             |
+| `Test`, with every `GET` of both tables rejected — read 2.5 s in                             | heading `Test`; **nothing listed**; `Loading documents…` (a `role="status"` line); **`Documents (…)`, `Sources (…)`**                   |
+| the same, 10 s in, after the client's four attempts on each read                             | `Could not load the documents: TypeError: Failed to fetch`; nothing listed; **`Documents (?)`, `Sources (?)`**                          |
+| fetch restored; `RAG eval` then `Test` again                                                 | `No documents in this knowledge base.`; `Documents (0)`, `Sources (0)`                                                                 |
+
+The previous base's rows are gone the moment the next base is picked; the
+tab counts say what has been read — nothing yet, or nothing at all — and
+the panel says it is loading rather than that there is nothing.
+
+Findings from this round: R76 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-22 — A workflow run closing, before and after, ADVERSARIAL_LOG R75
 
 **Why this round exists.** The server-side write survey's next file, the

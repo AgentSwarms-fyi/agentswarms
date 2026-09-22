@@ -1,6 +1,7 @@
 import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { listCountLabel, listState } from "@/lib/listState";
 import { useDropzone } from "react-dropzone";
 import { supabase } from "@/integrations/supabase/client";
 import { scanRows } from "@/lib/cursorScan";
@@ -291,6 +292,15 @@ function KnowledgePage() {
   const [basesError, setBasesError] = useState<string | null>(null);
   const [docsError, setDocsError] = useState<string | null>(null);
   const [sourcesError, setSourcesError] = useState<string | null>(null);
+  // Whether the selected base's lists have been read. FOUND FROM THE UI
+  // (R76): the previous base's twelve documents stayed listed under the next
+  // base's name for the seven seconds its read spent failing, and the tab
+  // kept "Documents (12)" after it had. The lists are cleared the moment a
+  // base is picked, say "loading" until its read lands, and a read that
+  // comes back for a base no longer selected is dropped.
+  const [docsLoaded, setDocsLoaded] = useState(false);
+  const [sourcesLoaded, setSourcesLoaded] = useState(false);
+  const listReq = useRef(0);
   const [createOpen, setCreateOpen] = useState(false);
   const [docOpen, setDocOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -306,6 +316,12 @@ function KnowledgePage() {
   // about what is indexed, because a document missing from a partial scan
   // looks exactly like a document with no chunks.
   const [chunkCountsWhole, setChunkCountsWhole] = useState(true);
+  const docsState = listState({ loaded: docsLoaded, error: docsError, count: docs.length });
+  const sourcesState = listState({
+    loaded: sourcesLoaded,
+    error: sourcesError,
+    count: sources.length,
+  });
   const [backfilling, setBackfilling] = useState(false);
 
   // Open the Create dialog when navigated to with ?new=1 (Global "+" menu).
@@ -454,6 +470,15 @@ function KnowledgePage() {
   }, []);
   useEffect(() => {
     if (selectedBase) {
+      // The previous base's rows are not this base's (R76).
+      listReq.current += 1;
+      setDocs([]);
+      setSources([]);
+      setChunkCounts(new Map());
+      setDocsError(null);
+      setSourcesError(null);
+      setDocsLoaded(false);
+      setSourcesLoaded(false);
       loadDocs(selectedBase.id);
       loadSources(selectedBase.id);
     }
@@ -584,13 +609,16 @@ function KnowledgePage() {
   }
 
   async function loadDocs(kbId: string) {
+    const req = listReq.current;
     const { data, error } = await supabase
       .from("knowledge_documents")
       .select("*")
       .eq("knowledge_base_id", kbId)
       .order("created_at", { ascending: false });
+    if (req !== listReq.current) return; // another base was picked meanwhile
     setDocsError(error ? error.message : null);
     if (data) setDocs(data as KnowledgeDoc[]);
+    setDocsLoaded(true);
     await loadChunkCounts(kbId);
   }
 
@@ -637,6 +665,7 @@ function KnowledgePage() {
   }
 
   async function loadSources(kbId: string) {
+    const req = listReq.current;
     // Explicit columns — the row also carries encrypted connector credentials,
     // which have no business in a browser even ciphertext-form.
     const { data, error } = await supabase
@@ -646,8 +675,10 @@ function KnowledgePage() {
       )
       .eq("knowledge_base_id", kbId)
       .order("created_at", { ascending: false });
+    if (req !== listReq.current) return; // another base was picked meanwhile
     setSourcesError(error ? error.message : null);
     if (data) setSources(data as KbSource[]);
+    setSourcesLoaded(true);
   }
 
   // Re-sync a URL or GitHub source via the same ingest endpoint with the
@@ -1881,8 +1912,12 @@ function KnowledgePage() {
 
                 <Tabs defaultValue="documents" className="w-full">
                   <TabsList>
-                    <TabsTrigger value="documents">Documents ({docs.length})</TabsTrigger>
-                    <TabsTrigger value="sources">Sources ({sources.length})</TabsTrigger>
+                    <TabsTrigger value="documents">
+                      Documents ({listCountLabel(docsState, docs.length)})
+                    </TabsTrigger>
+                    <TabsTrigger value="sources">
+                      Sources ({listCountLabel(sourcesState, sources.length)})
+                    </TabsTrigger>
                     <TabsTrigger value="graph" className="gap-1">
                       <GitBranch className="h-3 w-3" /> Graph
                     </TabsTrigger>
@@ -1926,9 +1961,13 @@ function KnowledgePage() {
                           </div>
                         );
                       })()}
-                    {docsError ? (
+                    {docsState === "error" ? (
                       <p className="text-sm text-destructive py-8 text-center" role="alert">
                         Could not load the documents: {docsError}
+                      </p>
+                    ) : docsState === "loading" ? (
+                      <p className="text-sm text-muted-foreground py-8 text-center" role="status">
+                        Loading documents…
                       </p>
                     ) : docs.length === 0 ? (
                       <p className="text-sm text-muted-foreground py-8 text-center">
@@ -2065,9 +2104,13 @@ function KnowledgePage() {
                   </TabsContent>
 
                   <TabsContent value="sources" className="mt-3">
-                    {sourcesError ? (
+                    {sourcesState === "error" ? (
                       <p className="text-sm text-destructive py-8 text-center" role="alert">
                         Could not load the sources: {sourcesError}
+                      </p>
+                    ) : sourcesState === "loading" ? (
+                      <p className="text-sm text-muted-foreground py-8 text-center" role="status">
+                        Loading sources…
                       </p>
                     ) : sources.length === 0 ? (
                       <div className="text-center py-8 space-y-3">

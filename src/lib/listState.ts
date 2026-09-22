@@ -19,3 +19,19 @@ export function listState(args: {
   if (!args.loaded) return "loading";
   return args.count === 0 ? "empty" : "list";
 }
+
+/**
+ * The count a tab or heading may show for a list in that state.
+ *
+ * FOUND FROM THE UI (R76). The Knowledge Bases page put `docs.length` on
+ * its Documents tab, and `docs` was the previous base's list until the next
+ * base's read landed — so the tab read "Documents (12)" over a base with
+ * none, for the seven seconds its read spent failing and after it had. A
+ * count is a claim about rows the page has read; while it has none it says
+ * so, and when the read failed it says that.
+ */
+export function listCountLabel(state: ListState, count: number): string {
+  if (state === "error") return "?";
+  if (state === "loading") return "\u2026";
+  return String(count);
+}

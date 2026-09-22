@@ -264,13 +264,12 @@ least twice, not a hypothetical.
 - "It returned no matching passages" is a claim about the documents. A
   search that could not be completed has no standing to make it, and the
   model it is told to will repeat it as fact.
-- The previous base's documents shown under the next base's name while its
-  load is pending, and its count kept on the tab after the load failed
-  (seen in the R60–R72 sibling sweep, Knowledge Bases): `docs` is only
-  replaced when the new read lands, so a slow or failed read renders the
-  old base's list as this one's. Candidate for a round — clear or mark the
-  list as loading on selection; the tab count follows the read, not the
-  previous list.
+- A list kept across a selection change is the previous selection's list
+  (R76): the Knowledge Bases page showed the last base's documents under
+  the next base's name until the next read landed, and counted them on the
+  tab after it had failed. Clear on selection, say loading, drop a read that
+  comes back for a selection no longer current, and count only what was
+  read. Any page that keys a list on a selected row is a candidate.
 - A conditional write's empty result has two causes (R75): "someone else
   won" and "the write failed". Reading only the rows back conflates them,
   and the second is the one that leaves a state nothing will ever correct.
