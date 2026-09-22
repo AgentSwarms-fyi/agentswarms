@@ -271,6 +271,10 @@ least twice, not a hypothetical.
   old base's list as this one's. Candidate for a round — clear or mark the
   list as loading on selection; the tab count follows the read, not the
   previous list.
+- A conditional write's empty result has two causes (R75): "someone else
+  won" and "the write failed". Reading only the rows back conflates them,
+  and the second is the one that leaves a state nothing will ever correct.
+  Read the error first; treat a race as a race only when there was none.
 - A write that follows an irreversible step must say what that step already
   did (R74): the schema is dropped whatever the catalog row answers, so the
   message names the row, not the schema. Seen in the browser on the way:

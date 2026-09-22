@@ -109,6 +109,44 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-22 — A run that finished and stayed "running" for ever
+
+#### R75 · S1 · The workflow runner's closing writes
+
+The server-side write survey's next file, and the one where a dropped
+error is not a wrong word but a wrong state that never corrects itself.
+`closeRun` wrote the run's outcome with a conditional update — only the
+replica that still saw the run as running wins — and read back `won` alone:
+`if (!won?.length) return; // another replica closed it first`. A close
+whose write FAILED produced the same empty `won`, and so returned without
+a word. The run stayed "running" for ever on the Workflows page, the
+workflow's last status stayed "running", no audit entry said what the run
+did, and the owner who had asked to be told on failure was not told. The
+workflow's status stamp and every node's final write dropped their errors
+the same way.
+
+A failed close is now told apart from a close another replica made: it is
+retried once a second later, and a second failure is logged with the run,
+the outcome and what a person needs — "It will show as running until it is
+closed." The workflow's stamp keeps its error and says so, and the audit
+entry and the notification still go out for a run that did close. A node's
+final write says when the step is over but its record is not.
+
+**Driven.** Before the fix, on the R72 container: Workflows → `Test`, a
+Wait step of 2 seconds added and saved, Run now — `Run started`, and ten
+seconds later `Test manual · less than a minute ago succeeded`, the Runs
+tab `succeeded less than a minute ago · manual`. After the rebuild
+(container `0dd063722838`) the same run: the same toast, the list and the
+Runs tab closing it the same way, two runs now listed. A run whose close
+lands reports itself as before; the defect half — a failed close read as
+another replica's — is held by the tests, a failed database write not
+being producible from the browser against the server-side runner.
+Recorded in [UI test results](./UI_TEST_RESULTS.md).
+
+**Tests:** 5 source-anchored on the close, its retry, its message, the
+stamp and the node write; 4 behaviour-changing mutants each killed, control
+missed, baseline green first.
+
 ### 2026-09-22 — "Dropped", with the catalog row that lists it still there
 
 #### R74 · S1 · The lakehouse schema drop and materialized-view removal

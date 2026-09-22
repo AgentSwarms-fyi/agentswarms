@@ -15,6 +15,48 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-22 — A workflow run closing, before and after, ADVERSARIAL_LOG R75
+
+**Why this round exists.** The server-side write survey's next file, the
+workflow runner. Its closing write was conditional — only the replica that
+still saw the run as running wins — and it read back the rows alone, so a
+close whose write FAILED looked like a close another replica had made and
+returned without a word: a run "running" for ever, no audit entry, no
+notification.
+
+### Before the fix
+
+| Driven                                                                                       | Read back                                                                                              |
+| -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Workflows → `Test` (no steps) → a Wait step added from the palette, `Wait (seconds)` set to 2 → Save | toast `Saved`; the canvas holds one node, `Wait`                                                        |
+| Run now                                                                                      | toast `Run started`; ten seconds later the list reads `Test manual · less than a minute ago succeeded` |
+| Runs tab                                                                                     | one run, `succeeded less than a minute ago · manual`, its one step `Wait`                              |
+
+The close runs in the workflow runner on the server, so a failed row write
+cannot be produced from the browser: the defect half — a failed close read
+as "another replica closed it first" — is held by the tests. What the
+browser holds is the regression half: a run that closes still reports
+itself, in the list and on the Runs tab, exactly as before.
+
+### After the rebuild
+
+The `agentswarms` service rebuilt and recreated (container `0dd063722838`);
+the Workflows page reloaded onto it, `Test` with its one Wait step.
+
+| Driven                                   | Read back                                                                                                              |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `Test` in the list, before the run       | `Test manual · 10 minutes ago succeeded` — the earlier run                                                             |
+| Run now                                  | toast `Run started`; ten seconds later the list reads `Test manual · less than a minute ago succeeded`                 |
+| Runs tab                                 | two runs, `succeeded less than a minute ago · manual` above `succeeded 10 minutes ago · manual`, each with its `Wait`  |
+
+A run whose closing write lands reports itself as before, in the list and
+on the Runs tab; one whose write fails is now retried and, failing twice,
+logged with what a person needs — held by the tests, since a failed
+database write cannot be produced from the browser against the server-side
+runner.
+
+Findings from this round: R75 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-22 — Dropping a lakehouse schema, before and after, ADVERSARIAL_LOG R74
 
 **Why this round exists.** The server-side write survey's next file. Dropping

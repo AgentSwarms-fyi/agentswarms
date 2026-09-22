@@ -465,10 +465,17 @@ async function settleStep(
 }
 
 async function finishNode(id: string, state: WorkflowNodeState, error: string | null) {
-  await supabaseAdmin
+  const { error: writeErr } = await supabaseAdmin
     .from("workflow_node_runs")
     .update({ state, error, finished_at: new Date().toISOString() })
     .eq("id", id);
+  if (writeErr) {
+    // The step is over; its record is not. Left silent, the node shows as
+    // running until someone wonders why (R75).
+    console.warn(
+      `[workflow] node run ${id} finished ${state} but its record could not be written: ${writeErr.message}`,
+    );
+  }
 }
 
 /** Write the run's outcome, stamp the workflow, and tell the owner if asked. */
@@ -478,19 +485,45 @@ async function closeRun(
   outcome: "succeeded" | "failed" | "cancelled",
   error: string | null,
 ): Promise<void> {
-  const { data: won } = await supabaseAdmin
-    .from("workflow_runs")
-    .update({ state: outcome, error, finished_at: new Date().toISOString() })
-    .eq("id", runId)
-    .eq("state", "running")
-    .select("id, user_id");
+  // FOUND FROM THE SURVEY (R75). This read `won` and nothing else, so a
+  // close whose write FAILED looked exactly like one another replica had
+  // already made — and returned without a word. The run stayed "running"
+  // for ever, the workflow's last status stayed "running", no audit entry,
+  // no notification. A failed close is retried once; a second failure is
+  // logged with everything a person needs to close it by hand.
+  const close = () =>
+    supabaseAdmin
+      .from("workflow_runs")
+      .update({ state: outcome, error, finished_at: new Date().toISOString() })
+      .eq("id", runId)
+      .eq("state", "running")
+      .select("id, user_id");
+  let { data: won, error: closeErr } = await close();
+  if (closeErr) {
+    await new Promise((r) => setTimeout(r, 1_000));
+    ({ data: won, error: closeErr } = await close());
+  }
+  if (closeErr) {
+    console.warn(
+      `[workflow] run ${runId} finished ${outcome} but its record could not be closed after two attempts: ` +
+        `${closeErr.message}. It will show as running until it is closed.`,
+    );
+    return;
+  }
   if (!won?.length) return; // another replica closed it first
-  const { data: workflow } = await supabaseAdmin
+  const { data: workflow, error: stampErr } = await supabaseAdmin
     .from("workflows")
     .update({ last_run_status: outcome })
     .eq("id", workflowId)
     .select("name, notify_on")
     .maybeSingle();
+  if (stampErr) {
+    // The run is closed; the workflow's badge is not. Said where it can be
+    // found, and the audit and notification below still go out.
+    console.warn(
+      `[workflow] run ${runId} closed ${outcome} but the workflow's last status could not be stamped: ${stampErr.message}`,
+    );
+  }
   // Paired with `workflow.run`: the start says a run was authorised, this
   // says what it did. Written inside the conditional close, so exactly one
   // replica records the outcome however many took the pass.
