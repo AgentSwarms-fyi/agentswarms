@@ -344,19 +344,17 @@ least twice, not a hypothetical.
   two numbers are. Candidate for a round: find every pair where the caller's
   patience is shorter than the work it waits on, and make the shorter one
   say what is still happening.
-- A resume that starts a second run never closes the first (seen while
-  driving R91): `resumeSwarmRun` hands `executeSwarmServer` the checkpoint
-  and a `resume.runId`, but the tracer inserts a NEW `swarm_runs` row, and
-  nothing ever writes the parked row's ending. MEASURED, four times in one
-  session: the swarm gallery's Recent runs tab shows `Approval durability
-  check (schedule) — Running — 5m 25s` with a live duration and a Cancel
-  button three minutes AFTER its approval resumed it and the resumed run
-  `(api) — Success — 5s — 3 steps` sits above it. The parked row also
-  keeps its checkpoint (the new run clears its own id, not the old one), so
-  the R90 gate would let the same approval resume the work a second time.
-  Candidate for a round: decide whether a resume continues the run or
-  starts one, and make every record agree — the trace, the duration, the
-  cost and the checkpoint.
+- One piece of work, two records (R92): a resume inserted a second
+  `swarm_runs` row and left the parked one open for ever, although the
+  option's own comment promised the timeline would continue rather than
+  fork. Two lessons. A comment that states an intention is a claim to
+  TEST, not documentation to trust — the promise and the code sat four
+  lines apart. And a record that is only ever written by the path that
+  finishes normally is a record that the interesting path leaves wrong:
+  look for every `insert`-then-`update` pair whose update lives in one
+  branch, and ask what the other branch leaves behind. Siblings to check:
+  workflow runs, ETL runs and notebook sessions, all of which can pause
+  and be continued.
 - The words beside a control are part of the control (R91): the Deploy
   dialog's warning described the "Reject approvals" switch backwards,
   because it was written for an executor that predated checkpointing and

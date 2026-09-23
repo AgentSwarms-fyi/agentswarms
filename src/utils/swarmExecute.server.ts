@@ -369,13 +369,22 @@ export async function executeSwarmServer(opts: {
           swarmName: `${opts.swarm.name} (${opts.source})`,
           inputPrompt: opts.input,
           swarmSnapshot: { nodes, edges },
+          // FOUND FROM THE SURVEY (R92). The `resume` option above already
+          // promises that the timeline continues rather than forking; this is
+          // the line that keeps that promise. Without it the parked run was
+          // never closed and the resumed half was recorded under a new id.
+          resumeRunId: opts.resume?.runId ?? null,
         })
       : null;
   const runId: string | null = tracer?.runId ?? null;
   // The run is the decision. Every node turn (via serverChat) and every data
   // tool call (via dataToolCtx) carries this id, so the whole run's provenance
   // -- model calls, data read, cost -- keys off one value.
-  if (runId) beginDecision({ userId: opts.userId, kind: "swarm_run", id: runId, rootRef: runId });
+  // Not on a resume: the decision for this run was recorded when it started,
+  // and it carries the run's id, so a second one would be the same row (R92).
+  if (runId && !opts.resume) {
+    beginDecision({ userId: opts.userId, kind: "swarm_run", id: runId, rootRef: runId });
+  }
 
   const finish = async (
     status: "success" | "error" | "suspended",

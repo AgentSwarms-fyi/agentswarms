@@ -15,6 +15,45 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-23 — A parked run, its approval and its record, before and after, ADVERSARIAL_LOG R92
+
+**Why this round exists.** While driving R91 the gallery's Recent runs tab
+showed four `Approval durability check` runs still `Running`, with live
+durations and Cancel buttons, minutes after their approvals had been
+granted. The work was somewhere else.
+
+### Before the fix
+
+| Driven | Read back |
+| ------ | --------- |
+| Swarms → Recent runs, 33 minutes after approving a parked run | `Approval durability check (schedule) (api) · Success · started 33m ago · 5s · 3 steps · $0.0000`, and directly under it `Approval durability check (schedule) · Running · started 34m ago · 34m 59s`, still offering Open, Trace and Cancel |
+| Trace on that `Running` row | `Approval durability check (schedule)` / `suspended` / `Sep 23, 2026, 2:59:13 AM · run 3bf09de5` / `STEPS 0 · ERRORS 0 · DURATION 0ms · TOKENS IN 0 · TOKENS OUT 0 · COST $0.0000` |
+| its Timeline tab | three real steps: `Request · input · 107ms`, `Summarise for the approver · agent · openrouter/free · 9927ms · 76/495 tok`, `Human approval · approval · 339ms` |
+| Trace on the `(api)` row above it | `Approval durability check (schedule) (api)` / `success` / `Sep 23, 2026, 3:00:55 AM · run 7f9912e2` / `STEPS 3 · ERRORS 0 · DURATION 3919ms · TOKENS IN 75 · TOKENS OUT 1` |
+
+One park, one approval, one piece of work — and two records. The run a
+person opens says it has no steps, no duration and no cost, three lines
+above its own timeline of ten seconds of work; the row that holds the rest
+is named for the resume rather than for the run, and nothing links them.
+
+### After the rebuild
+
+| Driven | Read back |
+| ------ | --------- |
+| on container `693a0ae3a632`, a new schedule `R92 one-run probe` with "Reject approvals" OFF, then the sweep | the bell `Pending approvals (1)`; Recent runs `Approval durability check (schedule) · Running · started 39s ago` |
+| Trace on that row | `Approval durability check (schedule)` / `suspended` / `Sep 23, 2026, 4:03:32 AM · run c4a3f7bb` / `STEPS 0 · DURATION 0ms · COST $0.0000` — a parked run still carries no totals, because it is not over |
+| Approve | `All caught up · No agents waiting for approval.` |
+| the SAME url, `/analytics/observability/c4a3f7bb-…`, reloaded | `Approval durability check (schedule)` / `success` / `run c4a3f7bb` / `STEPS 5 · ERRORS 0 · DURATION 42818ms · TOKENS IN 155 · TOKENS OUT 948` · `Data flow (4)` |
+| its Timeline tab | five steps, each once: `Request 115ms`, `Summarise for the approver · agent · openrouter/free 37493ms · 85/947 tok`, `Human approval 343ms`, `Approved? · condition · google/gemini-3-flash-preview 4656ms · 70/1 tok`, `Result 211ms`, then `FINAL OUTPUT: Refund #4821: $240 for damaged item received. Risk: Refund granted without return verification.` |
+| Swarms → Recent runs | one row for the whole thing: `Approval durability check (schedule) · Success · started 2m ago · 1m 56s · 5 steps · $0.0000`, with no `(api)` twin beside it and no `Running` row left behind — the stranded `Running · 67m 1s` above it is from before the rebuild |
+
+The numbers add up, which is the point: 115 + 37493 + 343 + 4656 + 211 ms is
+the 42818 ms the run reports, and 85 + 70 in / 947 + 1 out are its 155 and
+948. The first half was carried, not re-counted, and nothing in the
+timeline appears twice.
+
+Findings from this round: R92 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-23 — Both positions of "Reject approvals", driven against the warning that describes them, ADVERSARIAL_LOG R91
 
 **Why this round exists.** The Deploy dialog's amber warning said that

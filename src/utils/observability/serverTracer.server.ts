@@ -57,29 +57,102 @@ export async function createServerSwarmTracer(opts: {
   swarmName?: string;
   inputPrompt?: string;
   swarmSnapshot?: unknown;
+  /**
+   * Continue THIS run rather than opening a new one.
+   *
+   * FOUND FROM THE SURVEY (R92). executeSwarmServer's `resume` option says in
+   * its own comment that "the caller supplies the existing run id (so the
+   * timeline continues rather than forking)" - and the id stopped there. Every
+   * resume inserted a second row, so the parked run was never closed: the
+   * gallery showed it Running with a live duration and a Cancel button for
+   * ever, its trace ending at the approval, while the work the approver
+   * released was recorded under a different id. Its checkpoint was never
+   * cleared either, because the new run cleared its own.
+   */
+  resumeRunId?: string | null;
 }): Promise<ServerSwarmTracer | null> {
   try {
-    const { data: runRow, error } = await supabaseAdmin
-      .from("swarm_runs")
-      .insert({
-        user_id: opts.userId,
-        swarm_id: opts.swarmId ?? null,
-        swarm_name: opts.swarmName ?? null,
-        input_prompt: bodyText(opts.inputPrompt ?? null),
-        swarm_snapshot: (opts.swarmSnapshot ?? {}) as never,
-        status: "running",
-      } as never)
-      .select("id")
-      .single();
-    if (error || !runRow?.id) return null;
-    const runId = (runRow as { id: string }).id;
-
     const stepIdByNode = new Map<string, string>();
+    // Node ids whose step rows come from the earlier attempt and are already
+    // closed: their row is left exactly as it was written and their numbers
+    // are already in `totals`, so a second visit records nothing twice.
+    const carried = new Set<string>();
+    const edgesSeen = new Set<string>();
     const totals = { lat: 0, tin: 0, tout: 0, cost: 0, count: 0, errors: 0 };
+
+    let resolved: string | null = null;
+    if (opts.resumeRunId) {
+      const { data: reopened, error: reopenErr } = await supabaseAdmin
+        .from("swarm_runs")
+        .update({ status: "running", finished_at: null } as never)
+        .eq("id", opts.resumeRunId)
+        .eq("user_id", opts.userId)
+        .select("id")
+        .maybeSingle();
+      if (reopened?.id) {
+        resolved = (reopened as { id: string }).id;
+        const { data: prior, error: priorErr } = await supabaseAdmin
+          .from("swarm_run_steps")
+          .select("id, node_id, status, latency_ms, tokens_in, tokens_out, cost_usd")
+          .eq("run_id", resolved);
+        if (priorErr) {
+          console.warn(
+            `[swarm-trace] run ${resolved} resumed, but the steps it already has could not be read: ${priorErr.message}; its totals restart from this half and a step it re-enters may be recorded twice`,
+          );
+        }
+        for (const s of prior ?? []) {
+          stepIdByNode.set(s.node_id, s.id);
+          // The step the run parked ON is still open. It is re-entered with
+          // the decision in hand and closed then, so it is not carried: its
+          // numbers are counted when it finishes, once.
+          if (s.status === "running") continue;
+          carried.add(s.node_id);
+          totals.lat += Number(s.latency_ms ?? 0);
+          totals.tin += Number(s.tokens_in ?? 0);
+          totals.tout += Number(s.tokens_out ?? 0);
+          totals.cost += Number(s.cost_usd ?? 0);
+          totals.count += 1;
+          if (s.status === "error") totals.errors += 1;
+        }
+        const { data: priorEdges } = await supabaseAdmin
+          .from("swarm_run_edges")
+          .select("source_node_id, target_node_id")
+          .eq("run_id", resolved);
+        for (const e of priorEdges ?? []) {
+          edgesSeen.add(`${e.source_node_id}->${e.target_node_id}`);
+        }
+      } else {
+        console.warn(
+          `[swarm-trace] run ${opts.resumeRunId} could not be reopened${reopenErr ? `: ${reopenErr.message}` : ""}; this resume is recorded as a new run and the parked one stays open`,
+        );
+      }
+    }
+
+    if (!resolved) {
+      const { data: runRow, error } = await supabaseAdmin
+        .from("swarm_runs")
+        .insert({
+          user_id: opts.userId,
+          swarm_id: opts.swarmId ?? null,
+          swarm_name: opts.swarmName ?? null,
+          input_prompt: bodyText(opts.inputPrompt ?? null),
+          swarm_snapshot: (opts.swarmSnapshot ?? {}) as never,
+          status: "running",
+        } as never)
+        .select("id")
+        .single();
+      if (error || !runRow?.id) return null;
+      resolved = (runRow as { id: string }).id;
+    }
+    const runId: string = resolved;
 
     return {
       runId,
       async startStep(args) {
+        // A resume keeps the run's id, so a node that already has a row keeps
+        // it too (R92): the step the run parked on is still open and is closed
+        // below, and one that already finished is left as it was recorded.
+        if (stepIdByNode.has(args.nodeId)) return;
         try {
           const { data, error: stepErr } = await supabaseAdmin
             .from("swarm_run_steps")
@@ -111,6 +184,8 @@ export async function createServerSwarmTracer(opts: {
         }
       },
       async finishStep(nodeId, args) {
+        // Carried from the earlier attempt: already written, already counted.
+        if (carried.has(nodeId)) return;
         totals.lat += args.latencyMs ?? 0;
         totals.tin += args.tokensIn ?? 0;
         totals.tout += args.tokensOut ?? 0;
@@ -148,6 +223,11 @@ export async function createServerSwarmTracer(opts: {
         }
       },
       async recordEdge(args) {
+        // The node a resume re-enters is fed by the same edges it was fed by
+        // before (R92); drawing them again would double every arrow into it.
+        const edgeKey = `${args.sourceNodeId}->${args.targetNodeId}`;
+        if (edgesSeen.has(edgeKey)) return;
+        edgesSeen.add(edgeKey);
         try {
           const { error: edgeErr } = await supabaseAdmin.from("swarm_run_edges").insert({
             run_id: runId,

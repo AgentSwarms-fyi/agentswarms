@@ -109,6 +109,83 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-23 — The run that was resumed somewhere else
+
+#### R92 · S1 · The parked run's record
+
+`executeSwarmServer`'s `resume` option says what it is for, in its own
+words: "the caller supplies the existing run id (so the timeline continues
+rather than forking)". The id arrives, is used to load the checkpoint, and
+then stops. The tracer that writes `swarm_runs` was never told about it,
+so every resume INSERTED a second run row and nothing ever closed the
+first.
+
+Four things follow, and all four are visible without looking at the
+database.
+
+The parked run is never closed. MEASURED: the swarm gallery's Recent runs
+tab listed `Approval durability check (schedule) — Running — 34m 59s`,
+with a live duration and a Cancel button, thirty-three minutes after its
+approval had been granted and the work had finished. Four such rows sat in
+that list from one session's driving.
+
+Its headline numbers are zeros. A run that parks is stamped `suspended`
+without calling the tracer's `finish` — deliberately, since it is not over
+— so its totals are still the zeros it was inserted with. MEASURED: run
+`3bf09de5` reads `suspended · STEPS 0 · ERRORS 0 · DURATION 0ms · COST
+$0.0000` above its own timeline, which lists `Request 107ms`, `Summarise
+for the approver 9927ms · 76/495 tok` and `Human approval 339ms`. Nothing
+would ever have written those totals, because the run that could have
+finished it was a different row.
+
+That row is the second one, and it is named for the wrong thing. MEASURED:
+run `7f9912e2`, `Approval durability check (schedule) (api) · success · 3
+steps · 3919ms`, holds the half the approver released — under the source
+of the RESUME rather than of the run, with the swarm's cost and step count
+split across two records that nothing links.
+
+And the parked row keeps its checkpoint. The end of a run clears the
+checkpoint for the id it is running under, which was the new one; the old
+one's row stayed. Combined with R90's gate — which refuses only a run
+that is `success` or `error`, then asks for the checkpoint — the same
+approval could be resumed a second time, and the whole remainder of the
+swarm would run again.
+
+The id now reaches the tracer. A resume reopens the run it was given,
+carries its steps, its edges and its numbers, and leaves the step it
+parked on exactly as it was recorded, so nothing is counted or drawn
+twice; `finish` then closes the run everyone was already looking at. When
+the row cannot be reopened the resume still records its work, under a new
+id, and says that is what happened and what it leaves behind. The decision
+row is not opened a second time either: it carries the run's id, so a
+resume would be writing the same row.
+
+**Driven, before and after, on the same page.** Before the fix, on the R91
+container: the gallery's Recent runs tab held `Approval durability check
+(schedule) · Running · started 34m ago · 34m 59s`, still offering Cancel,
+directly under the `(api) · Success · 5s · 3 steps` row that held the work
+its approver had released half an hour earlier. Opening the Running one
+gave run `3bf09de5`, `suspended · STEPS 0 · ERRORS 0 · DURATION 0ms · COST
+$0.0000`, three lines above its own timeline of `Request 107ms`,
+`Summarise for the approver 9927ms · 76/495 tok` and `Human approval
+339ms`; the other row was run `7f9912e2`, `success · 3 steps · 3919ms ·
+75/1 tok`. After the rebuild (container 693a0ae3a632) a fresh schedule
+parked the same way — bell `Pending approvals (1)`, run `c4a3f7bb`
+`suspended · STEPS 0 · DURATION 0ms` — and Approve closed THAT run: the
+same url reloads as `success · STEPS 5 · ERRORS 0 · DURATION 42818ms ·
+TOKENS IN 155 · TOKENS OUT 948 · Data flow (4)`, its timeline listing five
+steps once each and the final output, and the gallery showing one row,
+`Success · 1m 56s · 5 steps`, with no `(api)` twin and nothing left
+Running. The arithmetic checks: 115 + 37493 + 343 + 4656 + 211 ms is the
+42818 ms reported, and 85 + 70 / 947 + 1 are the 155 and 948. Recorded in
+docs/UI_TEST_RESULTS.md.
+
+**Tests:** 7 source-anchored on the reopen, its failure message, the
+carried steps, edges and totals, the still-open step, the three
+do-not-record-twice guards and the executor's half of the promise; 8
+behaviour-changing mutants each killed, control missed, baseline green
+first.
+
 ### 2026-09-23 — The switch that meant the opposite of its label
 
 #### R91 · S1 · The Deploy dialog's warning about approval steps
