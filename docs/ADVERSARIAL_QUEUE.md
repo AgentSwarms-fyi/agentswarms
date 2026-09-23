@@ -343,7 +343,12 @@ least twice, not a hypothetical.
   sandbox finishes starting and answers. The write is not the problem; the
   two numbers are. Candidate for a round: find every pair where the caller's
   patience is shorter than the work it waits on, and make the shorter one
-  say what is still happening.
+  say what is still happening. CORRECTED (R98): for the MCP deploy this was
+  the wrong diagnosis. The only timer on that path that produces the
+  message is the handshake's own 15 s, and what it waited for was the END
+  of a `tools/list` stream that had already delivered its answer. The
+  general question about mismatched timeouts still stands; this example
+  does not support it.
 - Two ways to end, one cleanup (R93): a sandbox could be ended BY something
   or end BY ITSELF, and the teardown lived only on the first path — so
   every kernel that finished normally left its container on the host for
@@ -368,6 +373,26 @@ least twice, not a hypothetical.
   branch, and ask what the other branch leaves behind. Siblings to check:
   workflow runs, ETL runs and notebook sessions, all of which can pause
   and be continued.
+- A reply read to the end of a stream that need not end (R98): five MCP
+  clients did `await res.text()` on an event stream the spec only asks the
+  server to close, so a server that kept it open cost each one its whole
+  timer and turned an answer into a timeout. The class is a reader whose
+  completion depends on the other side doing something OPTIONAL: closing
+  a stream, sending a trailer, ending a chunked body. Siblings to read for
+  it: the A2A client in `src/routes/api/a2a.ts`, which asks for
+  `text/event-stream`, and anything else that buffers a stream it should
+  consume. Seen in passing and not fixed:
+  - **the agents' MCP client** (`mcpRequest` in `tools/registry.server.ts`)
+    sends `tools/list` and `tools/call` with no `initialize` and no session
+    id. A stateful FastMCP server should refuse that. This is the top
+    candidate for a driven round against a registered server.
+  - A deploy whose handshake fails leaves its sandbox running under an app
+    marked Error.
+  - The Builder page's own Deploy handler awaits without a `try`, the shape
+    the console had.
+  - One stock deploy in R98's batch of eight took 119 s against a usual
+    23 s. The cron lease logged `fetch failed` 27 s after it ended, which
+    hints at the network to the database. It was not diagnosed.
 - A dropdown is not a gate (R97): the code generators left model
   governance to the model picker, and the picker starts unset, so the
   server's own fallback was the one choice the rules never saw. Wherever a

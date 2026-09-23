@@ -727,9 +727,16 @@ function ToolsTab({
     }
     setRunning(true);
     setOutput("");
-    const res = await onTest(selected ?? undefined, args);
-    setRunning(false);
-    setOutput(res.ok ? JSON.stringify(res.result, null, 2) : `Error: ${res.error}`);
+    // A call that throws must still end the run. Without this the rejection
+    // went nowhere and the button stayed on its spinner for good (R98).
+    try {
+      const res = await onTest(selected ?? undefined, args);
+      setOutput(res.ok ? JSON.stringify(res.result, null, 2) : `Error: ${res.error}`);
+    } catch (e) {
+      setOutput(`Error: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setRunning(false);
+    }
   };
 
   if (app.tools.length === 0) {

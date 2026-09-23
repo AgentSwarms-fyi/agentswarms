@@ -37,8 +37,13 @@ function isResponse(msg: any): boolean {
   return Boolean(msg) && typeof msg === "object" && ("result" in msg || "error" in msg);
 }
 
-/** Every `data:` payload in an SSE body, in order, as raw strings. */
-function dataPayloads(text: string): string[] {
+/**
+ * Every `data:` payload in an SSE body, in order, as raw strings.
+ *
+ * With `completeOnly`, an event still arriving — the tail after the last blank
+ * line — is left out. A stream read in pieces must not act on half an event.
+ */
+function dataPayloads(text: string, completeOnly = false): string[] {
   const out: string[] = [];
   let current: string[] = [];
 
@@ -47,7 +52,12 @@ function dataPayloads(text: string): string[] {
     current = [];
   };
 
-  for (const line of text.split(LINE_BREAK)) {
+  const lines = text.split(LINE_BREAK);
+  // The last piece of a split is the line still being written, or the "" after
+  // a final terminator. Neither is a blank line: `data: {…}\r\n` has ended
+  // its line, not its event.
+  if (completeOnly) lines.pop();
+  for (const line of lines) {
     // A blank line ends the event; consecutive `data:` lines within one event
     // are joined with a newline, which is how a JSON body may legally be split
     // across frames.
@@ -63,8 +73,28 @@ function dataPayloads(text: string): string[] {
       current.push(value.startsWith(" ") ? value.slice(1) : value);
     }
   }
-  flush();
+  if (!completeOnly) flush();
   return out;
+}
+
+/**
+ * The first JSON-RPC response among these payloads, and the first object of
+ * any kind — the fallback for a stream that carries no response at all.
+ */
+function pick(payloads: string[]): { response: SseParseResult; first: SseParseResult } {
+  let first: SseParseResult = null;
+  for (const payload of payloads) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(payload);
+    } catch {
+      continue; // keep scanning: a stream can carry partial or non-JSON frames
+    }
+    if (!parsed || typeof parsed !== "object") continue;
+    if (isResponse(parsed)) return { response: parsed as Record<string, any>, first };
+    if (!first) first = parsed as Record<string, any>;
+  }
+  return { response: null, first };
 }
 
 /**
@@ -81,22 +111,11 @@ function dataPayloads(text: string): string[] {
  */
 export function parseJsonOrSse(text: string, contentType: string): SseParseResult {
   if (contentType.includes("text/event-stream")) {
-    let fallback: SseParseResult = null;
-    for (const payload of dataPayloads(text)) {
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(payload);
-      } catch {
-        continue; // keep scanning: a stream can carry partial or non-JSON frames
-      }
-      if (!parsed || typeof parsed !== "object") continue;
-      if (isResponse(parsed)) return parsed as Record<string, any>;
-      // Remember the first object in case this stream carries no response at
-      // all — returning it preserves the old behaviour for odd servers rather
-      // than regressing them to null.
-      if (!fallback) fallback = parsed as Record<string, any>;
-    }
-    return fallback;
+    // The first object stands in when the stream carries no response at all —
+    // returning it preserves the old behaviour for odd servers rather than
+    // regressing them to null.
+    const { response, first } = pick(dataPayloads(text));
+    return response ?? first;
   }
   try {
     const parsed = JSON.parse(text);
@@ -104,4 +123,76 @@ export function parseJsonOrSse(text: string, contentType: string): SseParseResul
   } catch {
     return null;
   }
+}
+
+/** What {@link readRpcBody} took off the wire. */
+export type RpcBody = {
+  /**
+   * The body as read: all of it for JSON, and for a stream everything up to
+   * the chunk that completed the response event.
+   */
+  text: string;
+  /** The JSON-RPC message, picked as {@link parseJsonOrSse} picks it. */
+  message: SseParseResult;
+  /** The body passed `maxChars` before an answer arrived; nothing else is set. */
+  oversized: boolean;
+};
+
+/**
+ * Read an MCP response body, and stop at the answer.
+ *
+ * FOUND IN R98. Every caller did `await res.text()`, which on an event stream
+ * resolves only when the SERVER closes it. The Streamable HTTP spec says a
+ * server SHOULD close the stream once the response is sent: should, not must.
+ * A stream left open, with keep-alives or behind a proxy, held the caller
+ * until its abort timer fired. An answer that came back in milliseconds was
+ * then reported as "The operation was aborted due to timeout", and a deploy
+ * marked a healthy server Error that way.
+ *
+ * A JSON body is read whole, as before. A stream is read as it arrives and
+ * released the moment a complete event carries a JSON-RPC response; nothing
+ * after that on a request's stream is addressed to the caller. A stream that
+ * ends without one is parsed the old way, so odd servers keep their fallback.
+ */
+export async function readRpcBody(res: Response, maxChars = Infinity): Promise<RpcBody> {
+  const contentType = res.headers.get("content-type") ?? "";
+  if (!contentType.includes("text/event-stream") || !res.body) {
+    const text = await res.text();
+    if (text.length > maxChars) return { text: "", message: null, oversized: true };
+    return { text, message: parseJsonOrSse(text, contentType), oversized: false };
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let text = "";
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      text += decoder.decode(value, { stream: true });
+      if (text.length > maxChars) return { text: "", message: null, oversized: true };
+      const { response } = pick(dataPayloads(text, true));
+      if (response) return { text, message: response, oversized: false };
+    }
+    text += decoder.decode();
+    return { text, message: parseJsonOrSse(text, contentType), oversized: false };
+  } finally {
+    // Either way the stream is finished with: let the connection go rather
+    // than leave it open until the server gets round to closing it.
+    reader.cancel().catch(() => {});
+  }
+}
+
+/**
+ * A request's failure, in words that name the request and the wait.
+ *
+ * An abort timer surfaces as "The operation was aborted due to timeout",
+ * which says neither which request ran out nor how long it had. Since R98 a
+ * timeout here means the server really sent no answer in time, so say that.
+ */
+export function rpcFailure(step: string, e: unknown, waitedMs: number): string {
+  if (e instanceof Error && e.name === "TimeoutError") {
+    return `${step} → no answer within ${Math.round(waitedMs / 1000)}s`;
+  }
+  return `${step} → ${e instanceof Error ? e.message : String(e)}`;
 }

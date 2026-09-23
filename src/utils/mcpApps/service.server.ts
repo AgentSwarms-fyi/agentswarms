@@ -24,7 +24,8 @@ import {
 import { getOrchestrator, MCP_SERVICE_PATH } from "@/utils/notebookRuntime/orchestrator";
 import {
   MCP_PROTOCOL_VERSION,
-  parseJsonOrSse,
+  readRpcBody,
+  rpcFailure,
   isLegacyFingerprint,
   toolsFingerprint,
   toolsFromListResult,
@@ -47,6 +48,9 @@ export type McpAppRow = Database["public"]["Tables"]["mcp_apps"]["Row"];
  */
 const COLD_START_MS = 90_000;
 const POLL_MS = 750;
+
+/** How long each handshake request may take, headers and answer together. */
+const HANDSHAKE_STEP_MS = 15_000;
 
 /**
  * Staleness window on the start lease.
@@ -406,9 +410,12 @@ export async function handshake(
       method: "POST",
       headers: sessionId ? { ...headers, "Mcp-Session-Id": sessionId } : headers,
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(15_000),
+      signal: AbortSignal.timeout(HANDSHAKE_STEP_MS),
     });
 
+  // Which request a failure belongs to. A bare "The operation was aborted due
+  // to timeout" names neither the request nor the wait.
+  let step = "initialize";
   try {
     const init = await post({
       jsonrpc: "2.0",
@@ -422,16 +429,20 @@ export async function handshake(
     });
     if (!init.ok) return { ok: false, message: `initialize → HTTP ${init.status}` };
     const sessionId = init.headers.get("Mcp-Session-Id");
-    await init.text().catch(() => "");
+    // Read to the answer, not to the end of the stream: a server may keep it
+    // open (R98). Waiting for the close here spent the whole step timer on
+    // every deploy and then carried on as if nothing had happened.
+    await readRpcBody(init).catch(() => null);
 
     await post(
       { jsonrpc: "2.0", method: "notifications/initialized", params: {} },
       sessionId,
     ).catch(() => null);
 
+    step = "tools/list";
     const list = await post({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} }, sessionId);
     if (!list.ok) return { ok: false, message: `tools/list → HTTP ${list.status}` };
-    const parsed = parseJsonOrSse(await list.text(), list.headers.get("content-type") ?? "");
+    const parsed = (await readRpcBody(list)).message;
     if (parsed?.error?.message)
       return { ok: false, message: `tools/list → ${parsed.error.message}` };
     // "I could not read the answer" is not "the answer was empty". Falling
@@ -447,7 +458,7 @@ export async function handshake(
     }
     return { ok: true, tools: toolsFromListResult(parsed) };
   } catch (e) {
-    return { ok: false, message: e instanceof Error ? e.message : "handshake failed" };
+    return { ok: false, message: rpcFailure(step, e, HANDSHAKE_STEP_MS) };
   }
 }
 

@@ -109,6 +109,113 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-24 — The answers read to the end of a stream that need not end
+
+#### R98 · S1 · Five MCP clients that waited for the server to hang up
+
+Every place this app reads an MCP server's reply did `await res.text()`.
+For a reply sent as `text/event-stream` that resolves only when the SERVER
+closes the stream, and the Streamable HTTP spec leaves that to the server:
+once the response is sent it "SHOULD close the SSE stream". Should, not
+must. A stream kept open — keep-alive comments, a proxy in between, a
+server slow to tidy up — held the reader until its abort timer fired. The
+answer, which had come back in milliseconds, was then lost. The failure
+was reported as "The operation was aborted due to timeout", which names
+neither the request nor the wait. Five doors read this way:
+
+- **Deploy's handshake** in the MCP Builder: 15 s for `initialize`, whose
+  timeout was swallowed and simply spent, then 15 s for `tools/list`, whose
+  timeout failed the deploy and marked the running server **Error**;
+- the Builder's **test console**, 60 s for `tools/call`. It had no
+  try/catch, so the timeout was thrown at the page, which did not catch it
+  either and stayed on its spinner for good;
+- the public **`/api/mcp/s/<slug>` relay**, 60 s, then 502 to the client;
+- **Test connection** for a registered MCP server;
+- an agent's **MCP tool calls**, 15 s, through a third hand-written SSE
+  parser that took the LAST `data:` line rather than the response.
+
+It surfaced as an intermittent deploy failure on a stock FastMCP server,
+the `HTTP Test` app, while this round was being scoped. The deploy
+returned the timeout at 43.2 s, although the sandbox's own log had
+answered `initialize`, `notifications/initialized` and `tools/list` by
+25 s. That gap fits one
+15 s wait on a `tools/list` stream that had already delivered its answer.
+A batch of eight deploys of the same app then passed 8/8 (23–42 s, one of
+119 s left undiagnosed), so on that server it is rare. A server that uses
+the latitude the spec gives it makes it certain, and that is what was
+driven.
+
+**Driven, before the fix, with a server that keeps its streams open.** MCP
+Builder → New server `R98 held stream`. Its source is a small Streamable
+HTTP server that answers each request at once and then holds that
+request's stream open for 90 s with a keep-alive comment every 5 s.
+
+- **Deploy**, with `initialize`, `tools/list` and `tools/call` all held
+  open. The sandbox logged `answered initialize` at 22:18:42.44 UTC. The
+  next request came exactly 15 s later, at 22:18:57.44: the handshake had
+  spent its whole `initialize` timer waiting for a stream that already held
+  the answer. `answered tools/list` followed 2 ms later. The deploy
+  answered after **49.1 s** with the toast `The operation was aborted due
+  to timeout`, and the app was marked **Error** while its sandbox ran on.
+- **Test console**, with only `tools/call` held open, so Deploy succeeded
+  (`Deployed — 1 tool.`). Tools → `echo` → `{ "text": "r98 before" }` →
+  Call echo at 02:22:10. The sandbox logged `answered tools/call` at
+  22:22:09.175 UTC, 5 ms after the click. The server function came back at
+  **61.2 s**, a thrown `The operation was aborted due to timeout`. The page
+  never showed it: no output, no toast, and the button disabled on its
+  spinner still, 50 s later and for good.
+
+**After the rebuild** (container `1d2c788bbb32`), the same app, every
+stream held open, and one case added so a real timeout can be seen: `echo`
+with the text `never` gets no reply at all.
+
+- **Deploy**: `Deployed — 1 tool.` in **15.1 s**, status Running. The
+  sandbox answered `initialize` at 22:47:24.250 UTC; the next request came
+  70 ms later, not 15 s; `tools/list` was answered at 22:47:24.322.
+- **Test console**, `echo` → `{ "text": "r98 after" }`: `echo: r98 after`
+  in **1.26 s**, with the sandbox still holding the stream open.
+- **Test console**, `{ "text": "never" }`: the sandbox logged `stayed silent
+  on tools/call`, and after **61.0 s** the console showed `Error:
+  tools/call → no answer within 60s` with the button enabled again.
+- **A stock FastMCP server that closes its streams** (`HTTP Test`):
+  `Deployed — 2 tools.` in about 18 s, so nothing was lost for the common
+  case.
+
+The public relay, Test connection and agents' tool calls share the reader
+and are held by the tests.
+
+One reader now, `readRpcBody(res, maxChars?)` in the import-free
+`mcpApps/sse.ts`. A JSON body is read whole, as before. A stream is read as
+it arrives and let go the moment a complete event carries a JSON-RPC
+response. The reader stops and cancels the stream there, releasing the
+connection. "Complete" means the blank line that ends an SSE event, not
+just the end of a line: a `data:` line whose JSON parses is still half an
+event until then. A stream that closes without a response is parsed the
+old way, so odd servers keep their fallback. The relay's size cap is now
+applied while reading, so an endless stream cannot pile up in memory. All
+five doors use the reader. The agents' hand-written parser is gone, with a
+fallback kept for a stream sent under the wrong content type. The
+handshake and the console name the step that ran out: `tools/list → no answer within
+15s`. That is now true, because a timeout here means no answer came. The
+console's server function answers its failures rather than throwing them,
+and its page leaves the spinner in a `finally`.
+
+**Tests:** 22. Twelve execute the reader against streams that never close:
+it returns the answer, returns while keep-alives arrive, cancels the
+stream, passes over a notification, waits for the blank line and not the
+line end, reassembles CRLF split across chunks, joins multi-line data,
+reads JSON whole, falls back on a closed stream with no response, and caps
+an endless one. Two cover the failure wording. Eight are source-anchored:
+one per door, the handshake naming its step, the console's catch and the
+page's `finally`. 18 behaviour-changing mutants each killed, control
+missed, baseline green first.
+
+This also corrects the queue's "two timeouts that do not agree" note from
+R89, which blamed this same message on a caller's patience being shorter
+than the 90 s cold start. The only timer that produces it on that path is
+the handshake's own 15 s, and what it was waiting for was the end of a
+stream that had already answered.
+
 ### 2026-09-24 — The model calls that went round the rules
 
 #### R97 · S1 · Five features that called a provider themselves

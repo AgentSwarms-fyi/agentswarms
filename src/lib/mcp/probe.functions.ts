@@ -12,7 +12,7 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 // route. The copy carried the same CRLF bug, found only once it was measured
 // against a real server. The shared implementation has no imports of its own
 // precisely so this file can share it.
-import { parseJsonOrSse } from "@/utils/mcpApps/sse";
+import { readRpcBody } from "@/utils/mcpApps/sse";
 
 type ProbeTool = {
   name: string;
@@ -129,8 +129,9 @@ export const probeMcpServer = createServerFn({ method: "POST" })
       }
 
       const sessionId = initRes.headers.get("Mcp-Session-Id");
-      // Drain initialize response (some servers require it).
-      await initRes.text().catch(() => "");
+      // Drain the initialize response (some servers require it), up to the
+      // answer only: a server may keep the stream open after replying (R98).
+      await readRpcBody(initRes).catch(() => null);
 
       // 2) notifications/initialized — best-effort, ignore response.
       await post(
@@ -148,9 +149,7 @@ export const probeMcpServer = createServerFn({ method: "POST" })
       let tools: ProbeTool[] = [];
       let listMsg: string | undefined;
       if (listRes.ok) {
-        const ct = listRes.headers.get("content-type") ?? "";
-        const text = await listRes.text();
-        const parsed = parseJsonOrSse(text, ct);
+        const parsed = (await readRpcBody(listRes)).message;
         const arr = parsed?.result?.tools;
         if (Array.isArray(arr)) {
           toolsCount = arr.length;

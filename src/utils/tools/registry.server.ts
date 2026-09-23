@@ -34,6 +34,7 @@ import { resultDigest } from "@/utils/provenance/canonical";
 const WAREHOUSE_TOOL_ROW_CAP = 200;
 import { assertPublicUrl, safeFetch } from "@/utils/ssrfGuard.server";
 import { resolveMcpAuthToken } from "@/lib/mcp/auth.server";
+import { parseJsonOrSse, readRpcBody } from "@/utils/mcpApps/sse";
 import { resolveIntegrationConfig } from "@/utils/providers/integrationConfig.server";
 import { loadWarehouseConnectionForUser } from "@/utils/warehouse/connections.server";
 import { executeWarehouseQuery, listWarehouseTables } from "@/utils/warehouse/drivers.server";
@@ -1433,24 +1434,15 @@ async function mcpRequest(
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(15_000),
     });
-    const text = await r.text();
-    if (!r.ok) return { ok: false, error: `${r.status}: ${text.slice(0, 300)}` };
-    // Some servers return SSE for tool call results; pull the last data: event.
-    if (text.startsWith("event:") || text.includes("\ndata:")) {
-      const lines = text.split("\n");
-      let last = "";
-      for (const l of lines) if (l.startsWith("data:")) last = l.slice(5).trim();
-      try {
-        return { ok: true, result: JSON.parse(last) };
-      } catch {
-        return { ok: true, result: last };
-      }
-    }
-    try {
-      return { ok: true, result: JSON.parse(text) };
-    } catch {
-      return { ok: true, result: text };
-    }
+    // Up to the answer, not to the end of the stream (R98). A server may keep
+    // a request's stream open after replying; reading it whole held every
+    // agent tool call until the 15s timer threw, with the answer already sent.
+    const read = await readRpcBody(r);
+    if (!r.ok) return { ok: false, error: `${r.status}: ${read.text.slice(0, 300)}` };
+    // A stream sent under the wrong content type still gets read as one, as
+    // the sniffing this replaced did.
+    const message = read.message ?? parseJsonOrSse(read.text, "text/event-stream");
+    return { ok: true, result: message ?? read.text };
   } catch (e) {
     return { ok: false, error: (e as Error).message };
   }

@@ -15,6 +15,46 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-24 — Deploying and testing an MCP server that keeps its streams open, before and after, ADVERSARIAL_LOG R98
+
+**Why this round exists.** Every MCP reply was read with `res.text()`,
+which on an event stream waits for the server to close it. The spec only
+says a server SHOULD close it. On a stock FastMCP server the deploy failed
+this way once, then passed 8 of 8 (23–42 s, one of 119 s), so a server that
+keeps its streams open was written to make it certain: MCP Builder → New
+server `R98 held stream`. It is a small Streamable HTTP server that answers
+at once and then holds each stream open for 90 s with keep-alives every
+5 s.
+
+### Before the fix
+
+| Time | Driven | Read back |
+| ---- | ------ | --------- |
+| 02:18:26 | every stream held open → Deploy | after **49.1 s** the toast `The operation was aborted due to timeout`; badge **Error**. Sandbox log (UTC): `answered initialize` 22:18:42.44, next request 22:18:57.44 (15 s later), `answered tools/list` 22:18:57.45 |
+| 02:20:20 | only `tools/call` held open → Deploy | `Deployed — 1 tool.`; badge Running |
+| 02:22:10 | Tools → `echo` → `{ "text": "r98 before" }` → Call echo | sandbox `answered tools/call` 5 ms after the click; the server function threw `The operation was aborted due to timeout` at **61.2 s**; the page showed no output and no toast, and the button stayed disabled on its spinner (read again 50 s later, unchanged) |
+
+### After the rebuild
+
+| Time | Driven | Read back |
+| ---- | ------ | --------- |
+| 02:47:12 | on container `1d2c788bbb32`, every stream held open → Deploy | `Deployed — 1 tool.` in **15.1 s**; badge Running. Sandbox: `answered initialize` 22:47:24.250, next request 70 ms later, `answered tools/list` 22:47:24.322 |
+| 02:47:50 | Tools → `echo` → `{ "text": "r98 after" }` → Call echo | `{"content":[{"type":"text","text":"echo: r98 after"}]}` in **1.26 s**, the stream still held open |
+| 02:48:40 | `{ "text": "never" }` → Call echo (the server never answers this one) | sandbox `stayed silent on tools/call`; after **61.0 s** the console shows `Error: tools/call → no answer within 60s` and the button is enabled again |
+| 02:50:16 | `HTTP Test` (stock FastMCP, streams close) → Deploy | `Deployed — 2 tools.` in about 18 s |
+
+Fixtures kept: the `R98 held stream` app, whose source is the after
+version: every stream held open, and `never` left unanswered. Stop it
+from its page when done; idle reaping takes it otherwise. One slip on
+the way, recorded because it cost a deploy's worth of time: a paste over
+the editor with `execCommand("selectAll")` did not select CodeMirror's
+whole document once its lines were virtualised, so the new source was
+inserted ahead of the old one (174 lines). It was caught by reading the
+editor back line by line before deploying, and redone with the editor's
+own Ctrl+A.
+
+Findings from this round: R98 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-24 — AI-drafting an ETL pipeline under a model rule, before and after, ADVERSARIAL_LOG R97
 
 **Why this round exists.** IAM's model rules are enforced at `/api/chat`.
