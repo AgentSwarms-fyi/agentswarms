@@ -109,6 +109,77 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-23 — The sandbox nobody removed
+
+#### R93 · S1 · The kernel that ended by itself
+
+A notebook kernel, a batch job and an MCP service each run in a sandbox the
+app creates and is supposed to take away again. A sandbox can end two ways,
+and only one of them removed anything.
+
+`stopSession` stops the container and removes it. It is reached from
+`reapSessions`, which selects sessions whose status is still LIVE — idle
+past their TTL, or past `expires_at`. That is the path for a sandbox
+something decides to end.
+
+The other way is the sandbox ending on its own: the kernel exits, the batch
+job finishes, the service process dies. Nothing calls `stopSession` then.
+`refreshSession` notices — `st.state` comes back `succeeded`, `gone` or
+`error` — writes the terminal status onto the row and returns. The
+container is left standing, and the moment that row stops being LIVE it is
+invisible to the only cleanup there is, for ever.
+
+MEASURED on the development host this was found on: `docker ps -a` listed
+139 `nb-…` sandboxes, 122 of them `Exited (0)`, 16 `Exited (1)` and one
+`Created`, the oldest thirteen days old — while the reaper ran on every
+cron pass throughout. It surfaced sideways, from looking at the host during
+an unrelated memory complaint; nothing in the app says a word about it,
+which is the point. The cost is not memory — the leftovers are stopped
+and hold none — it is an inventory that grows without bound on every
+host that runs a kernel, and an operator's `docker ps -a` that stops being
+readable.
+
+The second half is the path that DOES remove. Its answer went in the bin:
+`dockerFetch` RESOLVES with the Response, so the `.catch(() => {})` around
+the DELETE only ever saw a transport failure, and a 409 or a 500 was
+silently a job well done. The kubernetes backend had the same shape, where
+a 403 from a namespace the service account may not delete in read as a
+clean teardown.
+
+So `stop` now answers `{ removed, error? }` instead of `void`; both real
+backends read their DELETE and count 404 as gone, because somebody else
+getting there first is the goal, not a failure; `refreshSession` removes
+the sandbox when it writes a terminal status, taking the failing kernel's
+logs first, since removing the container is otherwise the same act as
+destroying the evidence of why it failed; and both callers say what is left
+behind when a removal does not happen — a live session's stop says the
+sandbox is "still on the host, still holding its CPU and memory", which is
+the sentence the caps and the operator both need.
+
+**Driven, from the notebook that owns the sandbox.** The before half is the
+host itself, measured above: 139 sandboxes nothing points at, accumulated
+over thirteen days while the reaper ran on every cron pass. After the
+rebuild (container b454b7c4aaaa): Developer workspace → `My Python
+notebook` → Run on the pure-Python cell, which answered `mean: 500 ms`,
+`p50: 300.0 ms`, `max: 1450 ms`, `'2 slow calls out of 8'` from the server
+kernel, and put `nb-0d2e5be3-7f30-45f0-84a6-bf4aa4d4dc3b · Up 16 seconds`
+on the host, 140 in the list. Then a cell that ends the sandbox ON ITS OWN
+— `import os, signal; os.kill(1, signal.SIGTERM)` — which answered
+`gateway closed the connection (code 1005)` in 553 ms and left
+`nb-0d2e5be3-… · Exited (0)` sitting there, because the app had not looked
+yet. Reopening the Developer workspace is what makes it look, and that
+removed the container: gone from `docker ps -a`, the list back to 139.
+Under the old code the same reopen wrote `stopped` onto the row and left
+the container, which is exactly how the other 139 got there. They stay —
+their rows went terminal long ago, so the refresher returns before
+reaching them — and have to be removed by hand. Recorded in
+docs/UI_TEST_RESULTS.md.
+
+**Tests:** 6 source-anchored on the contract, both backends' DELETE, the
+terminal-status teardown, the logs taken before it, and the live stop's
+report; 8 behaviour-changing mutants each killed, control missed, baseline
+green first.
+
 ### 2026-09-23 — The run that was resumed somewhere else
 
 #### R92 · S1 · The parked run's record

@@ -240,13 +240,14 @@ export async function startSession(opts: {
       // returns early without one, and the reaper's stop is a no-op — a
       // sandbox nothing can reach, under a row that stays live. Stopped
       // now, while the ref is in hand, and the start fails as a start.
-      await orch
+      const orphan = await orch
         .stop(ref)
-        .catch((e) =>
-          console.warn(
-            `[runtime] session ${row.id}: an unrecorded container could not be stopped: ${(e as Error).message}`,
-          ),
+        .catch((e) => ({ removed: false, error: (e as Error).message }));
+      if (!orphan.removed) {
+        console.warn(
+          `[runtime] session ${row.id}: an unrecorded container could not be removed: ${orphan.error}; ${ref} is still on the host and no row points at it`,
         );
+      }
       throw new Error(
         `The sandbox started but its session could not record it: ${refErr.message}; it was stopped again.`,
       );
@@ -305,6 +306,28 @@ export async function refreshSession(row: SessionRow): Promise<SessionRow> {
     patch.status = "error";
     patch.error = st.message ?? "kernel error";
     patch.stopped_at = new Date().toISOString();
+    // Take the evidence before the sandbox goes: once it is removed there is
+    // nowhere left to read why it failed.
+    patch.logs = await orch.logs(row.container_ref).catch(() => "");
+  }
+
+  // FOUND FROM THE SURVEY (R93). A kernel that ends ON ITS OWN only ever comes
+  // through here, and this function's whole job is to write the terminal
+  // status. stopSession - the one path that removes the sandbox - is reached
+  // from reapSessions, which reads rows that are still LIVE, so the moment
+  // this update lands the container is invisible to every cleanup there is.
+  // MEASURED on a two-week-old dev host: 139 leftover `nb-…` containers, 122
+  // of them exit 0, the oldest thirteen days old, while the reaper had been
+  // running every minute throughout.
+  if (terminal.includes(String(patch.status ?? ""))) {
+    const teardown = await orch
+      .stop(row.container_ref)
+      .catch((e) => ({ removed: false, error: (e as Error).message }));
+    if (!teardown.removed) {
+      console.warn(
+        `[runtime] session ${row.id} ended as ${patch.status} but its sandbox ${row.container_ref} was not removed: ${teardown.error}; it will stay on this host until somebody removes it by hand`,
+      );
+    }
   }
   const { error: patchErr } = await supabaseAdmin
     .from("notebook_runtime_sessions")
@@ -324,7 +347,17 @@ export async function stopSession(row: SessionRow): Promise<void> {
   if (row.container_ref) {
     const settings = await getRuntimeSettings();
     const orch = await getOrchestrator(settings);
-    await orch.stop(row.container_ref).catch(() => {});
+    // FOUND FROM THE SURVEY (R93). The row below is about to say "stopped".
+    // It must not say that over a sandbox still running and still holding the
+    // CPU and memory it reserved.
+    const teardown = await orch
+      .stop(row.container_ref)
+      .catch((e) => ({ removed: false, error: (e as Error).message }));
+    if (!teardown.removed) {
+      console.warn(
+        `[runtime] session ${row.id} is being recorded as stopped but its sandbox ${row.container_ref} was not removed: ${teardown.error}; it is still on the host, still holding its CPU and memory`,
+      );
+    }
   }
   const { error: stopErr } = await supabaseAdmin
     .from("notebook_runtime_sessions")

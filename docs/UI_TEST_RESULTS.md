@@ -15,6 +15,48 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-23 — A kernel's sandbox after the kernel ends, before and after, ADVERSARIAL_LOG R93
+
+**Why this round exists.** The host had been running the stack for two
+weeks. Its container list had 139 sandboxes on it that no session still
+pointed at, every one of them already ended.
+
+### Before the fix
+
+| Driven | Read back |
+| ------ | --------- |
+| `docker ps -a --filter name=nb-` on the development host | 139 sandboxes: `122 exit 0`, `16 exit 1`, `1 Created` |
+| the same list by creation time | oldest `2026-09-09 21:39`, newest `2026-09-22 19:34` — thirteen days of them |
+| `docker ps` | 14 running containers, not one of them an `nb-…` sandbox: every single leftover had already ended |
+| `docker system df` | `Containers 158 ACTIVE 14` |
+
+Nothing in the app says a word about any of this. The sessions behind those
+139 sandboxes read `succeeded`, `stopped` or `error` in the table, which is
+true; what no record anywhere says is that the container each one names is
+still sitting on the host. The reaper had run on every cron pass for two
+weeks and could not have touched them: it reads rows that are still live,
+and these had all been made terminal by the refresher, which removes
+nothing.
+
+### After the rebuild
+
+| Driven | Read back |
+| ------ | --------- |
+| on container `b454b7c4aaaa`, Developer workspace → `My Python notebook` → Run on the pure-Python cell | the cell answered from the server kernel: `mean: 500 ms`, `p50: 300.0 ms`, `max: 1450 ms`, `'2 slow calls out of 8'`, `100 ms` |
+| `docker ps -a --filter name=nb-` on the host | a new sandbox `nb-0d2e5be3-7f30-45f0-84a6-bf4aa4d4dc3b · Up 16 seconds`; 140 in the list |
+| a new cell, `import os, signal; os.kill(1, signal.SIGTERM)`, Run — the sandbox ends ON ITS OWN, which is the whole point | the cell answered `gateway closed the connection (code 1005)` in 553 ms |
+| the host, straight away | `nb-0d2e5be3-… · Exited (0) 13 seconds ago`, still on the host and still 140: the app has not looked yet |
+| Developer workspace, reopened — which is what makes the app reconcile its sessions | `nb-0d2e5be3-…` is **gone** from `docker ps -a`, and the list is back to 139 |
+
+That last line is the round. Under the old code the reopen wrote `stopped`
+onto the row and left the container standing, which is how the other 139
+got there. Those 139 stay: their rows went terminal long ago, so the
+refresher returns before it reaches them, and they have to be removed by
+hand with `docker container prune`. The fix is about the ones that have not
+happened yet.
+
+Findings from this round: R93 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-23 — A parked run, its approval and its record, before and after, ADVERSARIAL_LOG R92
 
 **Why this round exists.** While driving R91 the gallery's Recent runs tab

@@ -8,7 +8,13 @@
 // to an egress-restricted network, with HTTP(S)_PROXY pointed at the filtering
 // egress proxy.
 import { existsSync } from "node:fs";
-import type { KernelKind, KernelSpec, KernelStatus, NotebookOrchestrator } from "./orchestrator";
+import type {
+  KernelKind,
+  KernelSpec,
+  KernelStatus,
+  NotebookOrchestrator,
+  TeardownResult,
+} from "./orchestrator";
 import { sandboxName, sandboxServing } from "./orchestrator";
 
 // The socket-proxy is reachable by different names depending on how the app is
@@ -261,14 +267,30 @@ export class DockerOrchestrator implements NotebookOrchestrator {
     };
   }
 
-  async stop(ref: string): Promise<void> {
-    // Stop then remove; ignore 404 (already gone).
+  async stop(ref: string): Promise<TeardownResult> {
+    // Stop first; a container that is already stopped answers 304, which is
+    // fine, and the DELETE below forces it anyway.
     await dockerFetch(`/containers/${encodeURIComponent(ref)}/stop?t=5`, { method: "POST" }).catch(
       () => {},
     );
-    await dockerFetch(`/containers/${encodeURIComponent(ref)}?force=true`, {
-      method: "DELETE",
-    }).catch(() => {});
+    // FOUND FROM THE SURVEY (R93). This DELETE is the only thing that takes a
+    // sandbox off the host, and its answer went in the bin: dockerFetch
+    // RESOLVES with the Response, so a 409 or a 500 never reached that catch
+    // and the container stayed, with nobody the wiser. 404 is the goal, not a
+    // failure - it means somebody got there first.
+    try {
+      const res = await dockerFetch(`/containers/${encodeURIComponent(ref)}?force=true`, {
+        method: "DELETE",
+      });
+      if (res.ok || res.status === 404) return { removed: true };
+      const body = await res.text().catch(() => "");
+      return {
+        removed: false,
+        error: `docker DELETE answered ${res.status}${body ? `: ${body.slice(0, 200)}` : ""}`,
+      };
+    } catch (e) {
+      return { removed: false, error: (e as Error).message };
+    }
   }
 
   async logs(ref: string): Promise<string> {

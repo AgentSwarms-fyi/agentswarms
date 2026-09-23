@@ -344,6 +344,15 @@ least twice, not a hypothetical.
   two numbers are. Candidate for a round: find every pair where the caller's
   patience is shorter than the work it waits on, and make the shorter one
   say what is still happening.
+- Two ways to end, one cleanup (R93): a sandbox could be ended BY something
+  or end BY ITSELF, and the teardown lived only on the first path — so
+  every kernel that finished normally left its container on the host for
+  ever. The shape to look for is a resource whose release hangs off a
+  cancel/stop/delete handler, and a second exit (completion, crash,
+  expiry, external removal) that merely records the outcome. Ask of every
+  such pair: which exit frees the thing? Siblings: ETL sandboxes, training
+  workers, warm scoring replicas, and anything else created with a ref
+  stored on a row that has more than one terminal status.
 - One piece of work, two records (R92): a resume inserted a second
   `swarm_runs` row and left the parked one open for ever, although the
   option's own comment promised the timeline would continue rather than

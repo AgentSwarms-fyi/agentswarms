@@ -12,7 +12,13 @@
 // limits, activeDeadlineSeconds, optional gVisor RuntimeClass. Egress is closed
 // by a NetworkPolicy + the HTTP(S)_PROXY env injected by the caller.
 import { readFileSync } from "node:fs";
-import type { KernelKind, KernelSpec, KernelStatus, NotebookOrchestrator } from "./orchestrator";
+import type {
+  KernelKind,
+  KernelSpec,
+  KernelStatus,
+  NotebookOrchestrator,
+  TeardownResult,
+} from "./orchestrator";
 import { sandboxName, sandboxServing } from "./orchestrator";
 
 const SA_DIR = "/var/run/secrets/kubernetes.io/serviceaccount";
@@ -261,14 +267,27 @@ export class K8sOrchestrator implements NotebookOrchestrator {
     return { state: "starting" };
   }
 
-  async stop(ref: string): Promise<void> {
+  async stop(ref: string): Promise<TeardownResult> {
     const ns = namespace();
     const [kind, name] = ref.split("/");
     const path =
       kind === "job"
         ? `/apis/batch/v1/namespaces/${ns}/jobs/${name}?propagationPolicy=Background`
         : `/api/v1/namespaces/${ns}/pods/${name}?gracePeriodSeconds=5`;
-    await k8sFetch(path, { method: "DELETE" }).catch(() => {});
+    // The same answer the docker backend now gives (R93): k8sFetch resolves
+    // with the Response, so a 403 from a namespace this service account may
+    // not delete in used to look exactly like a successful teardown.
+    try {
+      const res = await k8sFetch(path, { method: "DELETE" });
+      if (res.ok || res.status === 404) return { removed: true };
+      const body = await res.text().catch(() => "");
+      return {
+        removed: false,
+        error: `kubernetes DELETE answered ${res.status}${body ? `: ${body.slice(0, 200)}` : ""}`,
+      };
+    } catch (e) {
+      return { removed: false, error: (e as Error).message };
+    }
   }
 
   async logs(ref: string): Promise<string> {
