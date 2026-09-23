@@ -368,6 +368,20 @@ least twice, not a hypothetical.
   branch, and ask what the other branch leaves behind. Siblings to check:
   workflow runs, ETL runs and notebook sessions, all of which can pause
   and be continued.
+- Things that only happen while someone is looking (R95): the scheduler for
+  every clocked job was started by the notification bell's mount effect, so
+  a headless server ran nothing until a person signed in — and the page an
+  operator would open to check it started it as a side effect. Look for
+  server behaviour initiated from a client effect: anything a deployment
+  with nobody logged in would never trigger. SWEPT for mount-time server
+  kicks in layout components: the bell was the only one; every other
+  client `fetch("/api/…")` sits behind a button.
+- Investigated and NOT reproduced (R95): the cron lease stranded by a
+  graceful stop. Three restarts and a force-recreate, one fired while
+  another worker was mid-pass, and each time the first call after boot
+  ran a pass. Earlier "ten-minute stalls" after rebuilds were R95's lazy
+  start, not the lease. Re-open only with a measurement that shows a skip
+  inside the first minute after boot.
 - The words beside a control are part of the control (R91): the Deploy
   dialog's warning described the "Reject approvals" switch backwards,
   because it was written for an executor that predated checkpointing and

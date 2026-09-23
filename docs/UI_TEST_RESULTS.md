@@ -15,6 +15,43 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-23 — A 15-minute schedule across a restart with nobody looking, before and after, ADVERSARIAL_LOG R95
+
+**Why this round exists.** The in-process scheduler was started only by the
+notification bell's mount effect, so opening any page to check it would
+start it. Both halves were therefore run with every page closed, and read
+afterwards from timestamps the app wrote itself: a schedule's last-run
+stamp, Recent runs, and the app log.
+
+### Before the fix
+
+| Time | Driven | Read back |
+| ---- | ------ | --------- |
+| 22:33:39 | Swarms → `Approval durability check` → Deploy → Schedules → `R95 heartbeat`, Every 15 minutes, the refund request, Reject approvals on → Add | toast `Schedule added` |
+| 22:33:48 | — | the heartbeat's first run: `every 15 min · last 9/23/2026, 10:33:48 PM · error` (the gate refuses, as R91 describes; only the time matters here) |
+| 22:35:12 | every app tab closed; `docker restart agentswarms-share-agentswarms-1` | HTTP back at 22:35:26 |
+| 22:48:48 | — | the heartbeat is due. It does not run |
+| 23:00—23:02 | — | `docker logs` holds no `[lakehouse] maintenance:` line, which every pass in those two minutes writes, and no model call since the restart |
+| 23:03:27 | a page is opened: Swarms → Recent runs | `Approval durability check (schedule) · Error · started 13s ago` directly above `· started 30m ago`, nothing between |
+| 23:04 | the heartbeat's row | `every 15 min · last 9/23/2026, 11:03:53 PM · error` — fifteen minutes late, 26 seconds after somebody looked |
+
+### After the rebuild
+
+| Time | Driven | Read back |
+| ---- | ------ | --------- |
+| 23:05:02 | every app tab closed; the fixed image swapped in with `docker compose up -d --no-deps agentswarms` | container `b9e14441145c`, HTTP back at 23:05:38 |
+| 23:05:38 | — | `docker logs`: one line per worker, eight in all — seven `[agentswarms] worker … scheduler started; catch-up pass left to another worker` and one `… catch-up pass ran` seven seconds later |
+| 23:18:53 | — | the heartbeat is due |
+| 23:19:45 | — | `docker logs`: its model call, `[chat-turn] … "model":"openrouter/free","status":"success"`, with no page open |
+| 23:21:13 | a page is opened: the swarm's Deploy dialog → Schedules | `R95 heartbeat · every 15 min · last 9/23/2026, 11:19:46 PM · error` — 53 seconds after it was due, 87 seconds BEFORE anybody looked |
+| 23:22 | its switch turned off | the row reads `paused` |
+
+Fixtures: `R95 heartbeat` is kept and paused, so it costs nothing and can
+be switched back on to repeat either half. The seven daily schedules from
+R90—R92 are unchanged.
+
+Findings from this round: R95 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-23 — Two sandboxes that outlived their work, before and after, ADVERSARIAL_LOG R94
 
 **Why this round exists.** R93's count of what the host had kept ended `1

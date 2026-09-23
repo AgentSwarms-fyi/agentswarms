@@ -17,6 +17,7 @@
 // the framework itself uses) bridges Node HTTP to Fetch, `node:cluster` forks
 // the workers, and the parent restarts a worker that dies.
 import cluster from "node:cluster";
+import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
@@ -263,6 +264,45 @@ async function startWorker() {
     }
   }
 
+  // FOUND FROM THE SURVEY (R95). Start the scheduler now, as this worker comes
+  // up. It used to wait for the notification bell: ensureScheduler() is only
+  // reached through /api/bi/cron, and the bell calls that once, when a
+  // signed-in page mounts. So after every restart — the documented update,
+  // `docker compose up -d --build`, included — no BI refresh, alert, scheduled
+  // report, swarm schedule, ETL run, crawl, retention purge or kernel reap ran
+  // until somebody opened the app. MEASURED: see ADVERSARIAL_LOG R95.
+  //
+  // In-process, like the keyring check above, and not awaited: the pass it
+  // triggers can take seconds, and the SIGTERM handler below must be in place
+  // for all of them. Skipped when the operator has handed scheduling to an
+  // external cron, exactly as ensureScheduler() itself would skip.
+  if (!/^(1|true|yes)$/i.test(process.env.DISABLE_INPROCESS_SCHEDULER ?? "")) {
+    void (async () => {
+      try {
+        const res = await app.fetch(
+          new Request(`http://${HOSTNAME}:${PORT}/api/bi/cron`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${process.env.AGENTSWARMS_BOOT_TOKEN}` },
+          }),
+        );
+        const body = await res.json().catch(() => ({}));
+        if (res.ok) {
+          console.log(
+            `[agentswarms] ${who} scheduler started; catch-up pass ${body.skipped ? "left to another worker" : "ran"}`,
+          );
+        } else {
+          console.warn(
+            `[agentswarms] ${who} could not start the scheduler at boot (HTTP ${res.status}${body.error ? `: ${body.error}` : ""}); scheduled work will wait for the first signed-in page load`,
+          );
+        }
+      } catch (e) {
+        console.warn(
+          `[agentswarms] ${who} could not start the scheduler at boot: ${e?.message ?? e}; scheduled work will wait for the first signed-in page load`,
+        );
+      }
+    })();
+  }
+
   // SIGTERM is how a container runtime asks for a clean stop. Without a handler
   // Node exits immediately and in-flight requests are cut mid-response.
   let closing = false;
@@ -285,6 +325,12 @@ const workers = workerCount();
 // never disagree with how many processes actually exist. Unset under `vite dev`,
 // where the answer is correctly 1.
 process.env.AGENTSWARMS_WORKERS = String(workers < 1 ? 1 : workers);
+
+// The credential each worker uses to start its own scheduler at boot (below).
+// Random per boot, set before any fork so every worker inherits it, and known
+// to nothing outside this process group: it buys one ordinary pass through
+// /api/bi/cron, which is what a signed-in user's token already buys (R95).
+process.env.AGENTSWARMS_BOOT_TOKEN = randomBytes(32).toString("hex");
 
 if (workers > 1 && cluster.isPrimary) {
   console.log(

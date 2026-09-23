@@ -11,8 +11,12 @@
 //     condition clears. Refresh failures notify too.
 //
 // Triggering: `ensureScheduler()` starts a 60s interval inside the running
-// node server (lazily, on first request that imports this module) and
-// `/api/bi/cron` lets external cron services drive it on serverless hosts.
+// node server. It is reached only through `/api/bi/cron` — NOT through any
+// request that merely imports this module — and each worker calls that route
+// for itself at boot (server.mjs, R95). Before R95 the only caller was the
+// notification bell, so a restarted server ran no schedules until somebody
+// signed in. `/api/bi/cron` also lets external cron services drive the passes
+// on serverless hosts.
 import { beginDecision } from "@/utils/provenance/decision.server";
 import { createRequire } from "node:module";
 

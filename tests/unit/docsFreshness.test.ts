@@ -138,6 +138,14 @@ const UNDOCUMENTED_ON_PURPOSE = new Map<string, string>([
       "APP_ROLE, all of which ARE documented. Setting it by hand would not " +
       "change how many processes exist, only what the admin page believes",
   ],
+  [
+    "AGENTSWARMS_BOOT_TOKEN",
+    "minted by server.mjs from 32 random bytes at every boot, before any " +
+      "worker forks, so each worker can start its own scheduler through " +
+      "/api/bi/cron in-process (R95). Not an operator setting: a value set by " +
+      "hand is overwritten at boot, and documenting it would invite someone " +
+      "to put a guessable one in an .env file",
+  ],
   // Developer tooling, documented in the script/file that reads them.
   ["BENCH_N", "scripts/bench-pool.ts, documented in its header"],
   ["BENCH_PG_HOST", "scripts/bench-pool.ts"],

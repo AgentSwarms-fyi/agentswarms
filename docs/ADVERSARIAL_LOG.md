@@ -109,6 +109,88 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-23 — The scheduler that waited for someone to look
+
+#### R95 · S1 · Starting the in-process scheduler
+
+Everything this platform does on a clock runs from one pass: BI refreshes and
+data alerts, scheduled reports, prep flows, swarm schedules, ETL pipeline
+schedules, catalog crawls, data monitors, SQL model builds, workflow steps,
+audit retention, notebook-kernel reaping and lakehouse maintenance. On a
+single instance an in-process 60-second scheduler drives that pass, and the
+deployment guide makes the promise in so many words: "The in-process
+scheduler runs automatically on a single VM — **no cron setup needed.** To
+update: `git pull && docker compose up -d --build`."
+
+It did not start automatically. `ensureScheduler()` is reached through one
+route, `/api/bi/cron`, and the only regular caller of that route is the
+header's notification bell, which pings it once when a signed-in page
+mounts. So after every restart — a deploy, the very update command the guide
+gives, a crash recovery, a host reboot — nothing on a clock ran until somebody
+opened the app. The module's own header said the scheduler started "on
+first request that imports this module"; it never did. And looking was the
+cure: the Monitoring page's Scheduler card sits under that same header, so
+an operator who opened it to check would find a healthy scheduler they had
+just started themselves.
+
+**Driven, with timestamps, so that looking could not spoil it.** Opening
+any page starts the old scheduler, so both halves were run with every page
+closed and read afterwards from times the app itself wrote down. A new
+schedule on the `Approval durability check` swarm, `R95 heartbeat`, every
+15 minutes, gave the clock.
+
+Before the fix: the heartbeat ran at 22:33:48; the app was restarted at
+22:35:12 and no page was opened; the heartbeat came due at 22:48:48 and did
+not run; the hour boundary at 23:00, when every pass runs lakehouse
+maintenance and logs it, produced no maintenance line at all, and the app
+log held no model call after the restart. A page was opened at 23:03:27 and
+the heartbeat ran at 23:03:53 — fifteen minutes late, 26 seconds after
+someone looked. Recent runs showed it plainly: `started 13s ago` directly
+above `started 30m ago`, nothing between.
+
+After the fix (container `b9e14441145c`), with every page closed again: the
+image was swapped in at 23:05:02 and at 23:05:38 all eight workers logged
+`scheduler started`, seven with `catch-up pass left to another worker` and
+one with `catch-up pass ran`. The heartbeat came due at 23:18:53, its model
+call is in the log at 23:19:45, and its row reads `last 9/23/2026, 11:19:46
+PM` — 53 seconds after it was due, and 87 seconds before a page was opened
+at 23:21:13. Recorded in docs/UI_TEST_RESULTS.md.
+
+Every worker now makes the bell's call itself as it boots — in-process,
+through `app.fetch`, exactly as `server.mjs` already asks the app whether its
+keyring loaded before taking traffic. The call carries
+`AGENTSWARMS_BOOT_TOKEN`, 32 random bytes minted per boot before any worker
+forks and known to nothing outside the process group; it buys one ordinary
+pass, which is what any signed-in user's token already buys, and never the
+forced pass reserved for the operator's `BI_CRON_TOKEN`. It is skipped when
+`DISABLE_INPROCESS_SCHEDULER` hands scheduling to an external cron, it is not
+awaited so the SIGTERM handler is in place for the whole of the pass, and it
+says in the log what happened either way — including, when it fails, that
+scheduled work will wait for the first signed-in page load, which was the
+old behaviour and is now a stated fallback rather than a silent default.
+
+**Ruled out on the way, and worth recording.** Two other suspicions about the
+same scheduler did not survive measurement. (1) A graceful stop stranding the
+cron lease for its ten-minute TTL: three restarts and recreates were timed
+against the first minute after boot, when no new worker can hold the lease,
+one of them fired the instant a probe saw another worker mid-pass — and
+every time the first call after boot ran a pass. The pass finishes inside
+srvx's five-second drain. The two ten-minute stalls seen earlier today while
+waiting for schedules after rebuilds were this round's defect, not a lease:
+nobody had opened a page. (2) Eight passes a minute from eight workers:
+real, but `docs/SYSTEM_REQUIREMENTS.md` already states it ("per worker
+unless the in-process scheduler is off"), so it is a documented cost, not a
+defect.
+
+**Tests:** 8 — four behavioural on who may run a pass (the external cron,
+the boot call, a near-miss one byte short, unset tokens) and that only the
+external cron forces one, four source-anchored on the token minted before
+any fork, the in-process call and its opt-out, the pass not holding up
+SIGTERM, and both failure branches saying what they mean; 9
+behaviour-changing mutants each killed, control missed, baseline green
+first. The first mutation run MISSED one: the test proved only that one of
+the two failure messages explained itself. It now counts both.
+
 ### 2026-09-23 — The two exits that freed nothing, and a correction to R93
 
 #### R94 · S1 · The sandbox that never started

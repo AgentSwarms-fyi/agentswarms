@@ -1,7 +1,8 @@
 // Header notification bell: unread badge, dropdown list, mark-read.
 // Polls every 60s and on window focus (no realtime dependency). On mount it
-// also pings /api/bi/cron once so the in-process BI scheduler is running and
-// overdue dashboard refreshes catch up.
+// also pings /api/bi/cron once so overdue dashboard refreshes catch up. It no
+// longer has to START the scheduler: every worker does that for itself at boot
+// (server.mjs, R95). It used to be the only thing that did.
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Link } from "@tanstack/react-router";
