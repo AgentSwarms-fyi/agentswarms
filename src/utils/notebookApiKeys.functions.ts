@@ -92,6 +92,12 @@ export const nbApiKeyCreate = createServerFn({ method: "POST" })
     const owner = await ownerOf(data.access_token, data.notebook_id);
     if (!owner.ok) return owner;
 
+    // A key is a standing permission to start kernels (R96). Minting one for
+    // someone the runtime would refuse hands out what the switch withholds.
+    const { notebookRuntimeRefusal } = await import("@/utils/notebookRuntime/config.server");
+    const refused = await notebookRuntimeRefusal(owner.userId);
+    if (refused) return { ok: false, error: refused.message };
+
     const plaintext = generateNotebookApiKey();
     const { data: row, error } = await supabaseAdmin
       .from("notebook_api_keys")

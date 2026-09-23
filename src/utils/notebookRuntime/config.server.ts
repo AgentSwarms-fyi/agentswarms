@@ -368,6 +368,23 @@ export async function canUseRuntime(userId: string): Promise<boolean> {
   return data === true;
 }
 
+/**
+ * May this user run NOTEBOOK code on a server kernel, and if not, why.
+ *
+ * The one question every path that runs a user's notebook must ask (R96): the
+ * interactive kernel route, a published notebook's API, a workflow's Notebook
+ * step, and minting the key that publishes one. Platform sandboxes — ETL, ML
+ * training and serving, Spark queries — are not notebooks and do not ask.
+ */
+export async function notebookRuntimeRefusal(userId: string) {
+  const { runtimeRefusalFor } = await import("./refusal");
+  const settings = await getRuntimeSettings();
+  return runtimeRefusalFor({
+    enabled: settings.enabled,
+    permitted: settings.enabled && (await canUseRuntime(userId)),
+  });
+}
+
 const LIVE_STATUSES = ["queued", "starting", "ready", "running", "stopping"];
 
 /**

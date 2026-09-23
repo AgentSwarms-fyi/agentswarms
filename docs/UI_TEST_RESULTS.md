@@ -15,6 +15,46 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-24 — A workflow's Notebook step with the server runtime switched off, before and after, ADVERSARIAL_LOG R96
+
+**Why this round exists.** Admin → Developer runtime says the runtime
+switch decides whether notebooks may launch server kernels. Only the
+interactive route asked. The master switch applies to superadmins too, so
+it can be driven from this account; the grant half and the published-key
+half are held by the tests.
+
+### Before the fix
+
+| Time | Driven | Read back |
+| ---- | ------ | --------- |
+| earlier | Workflows → New workflow `R96 notebook step` → Notebook step → `My Python notebook` → Save | toast `Saved` |
+| 00:01:20 | Admin → Developer runtime → **Enable server runtime** off → Save settings, then reload | the switch reads off from the server |
+| 00:01 | Developer workspace → `My Python notebook` | `Server runtime required — Notebooks run on real container kernels … That runtime isn't available yet, so cells can't execute.`; no Run button |
+| 00:01:47 | `docker ps -a --filter name=nb-` | none |
+| 00:02:12 | Workflows → `R96 notebook step` → Run now | toast `Run started`; the host: `nb-f2968348-31f8-4d03-8680-971ec7a3fd7e · Up 8 seconds` |
+| 00:02:34 | — | `Showing run · succeeded`; Runs: `succeeded · manual · My Python notebook · Logs f2968348` |
+| after | the runtime switched back on for the rebuild | reads on after a reload |
+
+The same notebook, the same minute, the same switch: the workspace refused
+to run it, and the workflow ran it on a server kernel.
+
+### After the rebuild
+
+| Time | Driven | Read back |
+| ---- | ------ | --------- |
+| 00:19:26 | on container `a949a9bae152`, **Enable server runtime** off → Save settings, then reload | reads off |
+| 00:19:33 | `docker ps -a --filter name=nb-` | none |
+| 00:20:11 | `R96 notebook step` → Run now | `Showing run · failed`; Runs: `failed · less than a minute ago` above the earlier `succeeded · 18 minutes ago`, the step reading `The notebook step cannot run: The server runtime is not enabled on this instance. An administrator can enable it in Admin settings.` |
+| 00:20:17 | `docker ps -a --filter name=nb-` | still none: no kernel was started |
+| 00:21:05 | the runtime switched back on → Save settings, then reload | reads on |
+| 00:21:55 | Run now again | `Showing run · succeeded` |
+
+Fixtures: the workflow `R96 notebook step` is kept, with three runs
+(succeeded, failed, succeeded) that are the evidence above. **Enable server
+runtime is ON**, as it was before the round, read back from the server.
+
+Findings from this round: R96 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-23 — A 15-minute schedule across a restart with nobody looking, before and after, ADVERSARIAL_LOG R95
 
 **Why this round exists.** The in-process scheduler was started only by the

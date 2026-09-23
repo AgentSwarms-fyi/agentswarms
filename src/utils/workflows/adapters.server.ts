@@ -189,6 +189,15 @@ export async function startNode(args: StartArgs): Promise<StartResult> {
         if (!(await owned("user_python_notebooks", node.targetId, userId))) {
           return { ok: false, error: "That notebook no longer exists" };
         }
+        // FOUND FROM THE SURVEY (R96). A Notebook step runs the owner's code on
+        // a server kernel exactly as the Developer workspace would, so it asks
+        // the same question the workspace asks. MEASURED before: with "Enable
+        // server runtime" off, the workspace said "Server runtime required"
+        // and this step started a kernel and ran the notebook anyway.
+        const { notebookRuntimeRefusal } = await import("@/utils/notebookRuntime/config.server");
+        const refused = await notebookRuntimeRefusal(userId);
+        if (refused)
+          return { ok: false, error: `The notebook step cannot run: ${refused.message}` };
         const { startSession } = await import("@/utils/notebookRuntime/service.server");
         const { session } = await startSession({
           userId,

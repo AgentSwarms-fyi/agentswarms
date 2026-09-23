@@ -109,6 +109,79 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-24 — The notebooks the runtime switch did not reach
+
+#### R96 · S1 · Who asks the admin's runtime switches
+
+Admin → Developer runtime has two switches that decide who may run Python
+on a server kernel, and says what each does:
+
+- **Enable server runtime** — "Allow Developer-workspace notebooks to launch
+  server kernels." The page adds: "until you enable it, notebooks show a
+  short 'runtime required' prompt instead of running."
+- **Require an access grant** — "When on, only superadmins and granted
+  users/groups (below) may start a kernel."
+
+Two paths asked (`canUseRuntime`): the interactive kernel route behind the
+Developer workspace, and MCP deploys. Three did not, and each runs, or
+licenses running, a user's own notebook code:
+
+- **a published notebook's API**, `POST /api/notebook/run` with an `nbk_`
+  key, which calls `startSession` straight after checking the key;
+- **a workflow's Notebook step**, which calls `startSession` straight after
+  checking the notebook is the owner's;
+- **minting the key** that publishes a notebook, which hands out a standing
+  permission to start kernels without asking whether its owner has one.
+
+`startSession` itself asks nothing — it is shared with platform sandboxes
+that are not notebooks — so whatever a caller forgot, nothing caught. The
+consequence is a governance control that covers the front door only. An
+administrator who switches the runtime off, or restricts it to one group,
+is told notebooks will not run; every workflow with a Notebook step keeps
+running them, and every key a user ever minted keeps working for anyone
+who holds it, including after that user's grant is revoked.
+
+**Driven, the master switch with a superadmin, before and after.** The
+grant half cannot be shown from a superadmin account, which bypasses it by
+design, and a published notebook's key cannot be exercised without handling
+a secret; both are held by the tests. The master switch applies to
+everyone, so it was driven. A new workflow, `R96 notebook step`, with one
+Notebook step running `My Python notebook`.
+
+Before the fix: Admin → Developer runtime → **Enable server runtime** off →
+Save settings, read back `false` after a reload at 00:01:20. The notebook
+itself then showed `Server runtime required … That runtime isn't available
+yet, so cells can't execute.` with no Run button. Workflows → `R96 notebook
+step` → Run now: the host had no sandbox at 00:01:47, then
+`nb-f2968348-31f8-4d03-8680-971ec7a3fd7e · Up 8 seconds`, created 00:02:12,
+and the run ended `Showing run · succeeded` at 00:02:34, its step naming
+session `f2968348` — the same notebook the workspace had just refused to
+run, executed on a server kernel with the runtime switched off.
+
+After the rebuild (container `a949a9bae152`), the same switch off, read
+back `false` at 00:19:26, and the same Run now: `Showing run · failed` at
+00:20:11, the step reading `The notebook step cannot run: The server
+runtime is not enabled on this instance. An administrator can enable it in
+Admin settings.`, the host still holding no sandbox at 00:20:17, and the
+earlier `succeeded · 18 minutes ago` listed under it. With the switch back
+on, read back `true` at 00:21:05, Run now again: `Showing run ·
+succeeded` at 00:21:55. Recorded in docs/UI_TEST_RESULTS.md.
+
+Every path that runs a user's notebook now asks one question,
+`notebookRuntimeRefusal(userId)`, whose reasons come from a single pure
+function: the disabled runtime first, whatever the grant says, then the
+missing grant. The published API asks about the key's OWNER on every call
+and answers 403 with which switch stopped it, before it counts a use or
+starts anything; a workflow's Notebook step fails with the reason; minting
+a key is refused to anyone the runtime would refuse. Platform sandboxes —
+ETL, ML training and serving, Spark queries — are deliberately left alone:
+they are not notebooks, and the switch does not claim them.
+
+**Tests:** 7 — four behavioural on the reasons and their order, three
+source-anchored on each path asking before it starts or mints, and the
+published API's 403 naming the right switch; 9 behaviour-changing mutants
+each killed, control missed, baseline green first.
+
 ### 2026-09-23 — The scheduler that waited for someone to look
 
 #### R95 · S1 · Starting the in-process scheduler

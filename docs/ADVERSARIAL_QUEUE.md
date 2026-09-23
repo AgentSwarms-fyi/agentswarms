@@ -368,6 +368,15 @@ least twice, not a hypothetical.
   branch, and ask what the other branch leaves behind. Siblings to check:
   workflow runs, ETL runs and notebook sessions, all of which can pause
   and be continued.
+- A gate asked at the front door only (R96): the runtime switches were
+  checked by the interactive route and nowhere else, because the function
+  that actually starts a kernel is shared with platform features that must
+  not be gated by them. When a check cannot live in the shared function,
+  ENUMERATE the shared function's callers and ask each one which side of
+  the gate it is on. Siblings worth that treatment: model-access rules
+  (every path that calls a model, including swarm nodes, workflows, ETL AI
+  columns and scheduled analyses), and dataset permissions (every path
+  that reads a table, including exports, embeds and Delta Sharing).
 - Things that only happen while someone is looking (R95): the scheduler for
   every clocked job was started by the notification bell's mount effect, so
   a headless server ran nothing until a person signed in — and the page an
