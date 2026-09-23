@@ -109,6 +109,104 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-23 — The two exits that freed nothing, and a correction to R93
+
+#### R94 · S1 · The sandbox that never started
+
+R93 counted what the host had kept: 122 sandboxes that exited 0, 16 that
+exited 1, and one in `created` that had never run at all. R93 claimed the
+refresher now covers all of them. It does not, and the count says which is
+which. This round is the other two exits.
+
+`create()` makes the container and then starts it. When the start fails it
+takes the container away again and throws the start's error — and that
+teardown is the ONLY thing that will ever remove this container, because no
+session row carries a ref to a sandbox that did not start, so neither the
+refresher nor the reaper will ever hear of it. Its answer was discarded, in
+the shape this survey keeps finding: `await this.stop(created.Id).catch(()
+=> {})`. A cleanup that failed too left the sandbox on the host and told
+only the start's half of the story.
+
+MEASURED twice. The old one: `nb-4698447a-…`, created 18 September,
+`StartedAt` still `0001-01-01`, on the host five days later. And a fresh
+one, forced through the admin UI by asking for a GPU on a host that has
+none: the job ended `docker start failed (500): failed to create task for
+container …` and a new sandbox `nb-d8376a51-…` sat on the host in
+`dead`, named nowhere.
+
+The teardown's answer is now read, and the thrown error carries both
+halves: what the start said and, only when the removal failed as well, that
+a container is still on this host and has to be taken away by hand. The
+start's own explanation is read BEFORE the teardown runs, so the cause is
+in hand whatever the cleanup then does; the `catch` around the teardown
+exists for the same reason, to turn an unexpected throw into a result
+rather than let it replace the error that matters.
+
+#### R94 · S2 · The sandbox that reported its own result, and what R93 got wrong
+
+R93 said: "A kernel that ends ON ITS OWN only ever comes through
+[`refreshSession`]". That is true of a kernel that dies — and false of
+every batch sandbox that finishes properly, which is most of them.
+
+A batch sandbox — an ETL run, a training worker, a prediction, a Spark
+query — ends by POSTing its result to `/api/notebook/runtime/result`.
+That handler writes the terminal status onto the session row and returns.
+From that moment `refreshSession` returns at its first line and the reaper
+skips the row, so R93's new teardown never sees it: the row is terminal
+BEFORE any refresher looks. 122 of the 139 leftovers were `Exited (0)`,
+which is exactly this.
+
+It was caught by driving R93 rather than by reading: after that round
+shipped, a real training run finished cleanly and its sandbox was still on
+the host a minute later, with nothing in the log. The callback now takes
+the container away once its row is terminal — last, after the ETL, ML and
+Spark finalisations that read the same row, and with the logs already
+stored on it, so there is nothing left in the container worth keeping —
+and says what is left, and that nothing else will come looking, when it
+cannot.
+
+**With S2, the sweep is closed.** Every sandbox this platform creates —
+ETL, lakehouse Spark, ML prediction, ML training, ML serving, MCP apps,
+notebooks — is released through the shared runtime layer, whose teardown
+sites are now all read: `create()`'s cleanup, `startSession`'s unrecorded
+container, `stopSession`, R93's `refreshSession`, and this callback. The
+only direct uses of the orchestrator elsewhere are `status()` and `logs()`,
+which take nothing away.
+
+**Driven, both exits, before and after.** The failure is forced honestly,
+through the admin UI: `Training GPUs` set to 1 on a host with no GPU, so
+the container is created and the runtime refuses to start it. Before the
+fix, on the R93 container: ML Models → `threshold_probe (payment_rows)` →
+Train new version → Train ended `failed`, its Jobs row reading only
+`docker start failed (500): {"message":"failed to create task for
+container: failed to create shim task: OCI runtime create failed…`, while a
+new sandbox `nb-d8376a51-…` sat on the host in `dead`, named nowhere. And
+the second exit, found by driving R93 after it shipped: a training run that
+SUCCEEDED, `24m ago · succeeded · 84s · lightgbm · F1 (macro) 58.8%`, left
+`nb-620c9267-… · Exited (0)` on the host nine minutes later, with nothing
+in the log, because its row went terminal through the result callback
+before any refresher could look.
+
+After the rebuild: the same forced failure left the host unchanged, 139
+sandboxes and no new one; `Training GPUs` was set back to 0 and saved, read
+back from the server, and training worked again. Then the same training
+once more, on container `7ec7707c988b`: `nb-96758b65-8b4c-4740-8fb4-524d4
+bfbc4f9 · Up 18 seconds` while it ran, and gone the moment it finished —
+zero rows for it, the list back to 140 — with the Jobs tab showing `2m ago
+· succeeded · 59s · lightgbm · F1 (macro) 58.8%` above the older
+`24m ago · succeeded · 84s` whose sandbox is still there. Same training,
+twice, minutes apart, both successful: one leaves a container, the other
+does not. The sentence a FAILED removal adds is held by the tests; the
+removal worked on both of this host's attempts, and a DELETE that fails is
+not something a browser can arrange. Recorded in docs/UI_TEST_RESULTS.md.
+
+**Tests:** 8 source-anchored — the order the start's body is read, the
+teardown's answer, the sentence a failed removal adds and its absence when
+the removal worked, the callback reading the container back, tearing down
+after the finalisations, and what it says when it cannot; 9
+behaviour-changing mutants each killed, control missed, baseline green
+first.
+
 ### 2026-09-23 — The sandbox nobody removed
 
 #### R93 · S1 · The kernel that ended by itself

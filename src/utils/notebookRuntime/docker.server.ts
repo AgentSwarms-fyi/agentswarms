@@ -216,8 +216,31 @@ export class DockerOrchestrator implements NotebookOrchestrator {
     const created = (await res.json()) as { Id: string };
     const start = await dockerFetch(`/containers/${created.Id}/start`, { method: "POST" });
     if (!start.ok && start.status !== 304) {
-      await this.stop(created.Id).catch(() => {});
-      throw new Error(`docker start failed (${start.status}): ${await start.text()}`);
+      // Read the start's own explanation BEFORE the teardown, so it is in hand
+      // whatever the teardown then does.
+      const detail = await start.text().catch(() => "");
+      // FOUND FROM THE SURVEY (R94). The container exists and has never run,
+      // and this is the only thing that takes it off the host: nothing else
+      // will, because no session row will ever carry its ref. The teardown's
+      // answer used to be thrown away, so a cleanup that failed too left a
+      // sandbox stuck in `created` and told only the start's half of the
+      // story. MEASURED alongside R93's 139: one container in `created`, five
+      // days old, `StartedAt` still 0001-01-01, and one left `dead` by a
+      // removal that half-worked.
+      //
+      // The catch is not decoration: stop() is contractually non-throwing, and
+      // if it ever does, the start's error - the cause - must still be the one
+      // that reaches the caller.
+      const teardown = await this.stop(created.Id).catch((e) => ({
+        removed: false,
+        error: (e as Error).message,
+      }));
+      throw new Error(
+        `docker start failed (${start.status}): ${detail}` +
+          (teardown.removed
+            ? ""
+            : `; its container ${name} could not be removed either (${teardown.error}), so it is still on this host and has to be taken away by hand`),
+      );
     }
     // Use the stable name as the ref so the gateway can reach it by DNS on the
     // shared network (http://nb-<id>:8888) without tracking the container id.

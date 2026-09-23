@@ -350,9 +350,13 @@ least twice, not a hypothetical.
   ever. The shape to look for is a resource whose release hangs off a
   cancel/stop/delete handler, and a second exit (completion, crash,
   expiry, external removal) that merely records the outcome. Ask of every
-  such pair: which exit frees the thing? Siblings: ETL sandboxes, training
-  workers, warm scoring replicas, and anything else created with a ref
-  stored on a row that has more than one terminal status.
+  such pair: which exit frees the thing? SWEPT (R94), and it took two more
+  exits, one of them the commonest of all — the sandbox that posts its own
+  result. The lesson from that: when you fix one exit, ENUMERATE the others
+  by asking who else can write the terminal status, not by reading the
+  function you just changed. The pattern still wants looking for outside
+  sandboxes: a temp file, a lock, a lease, a reserved slot, anything whose
+  release hangs off one exit of several.
 - One piece of work, two records (R92): a resume inserted a second
   `swarm_runs` row and left the parked one open for ever, although the
   option's own comment promised the timeline would continue rather than

@@ -102,7 +102,7 @@ export const Route = createFileRoute("/api/notebook/runtime/result")({
           .eq("id", claims.sid)
           .eq("user_id", claims.sub)
           .eq("kind", "batch")
-          .select("etl_run_id, inputs")
+          .select("etl_run_id, inputs, container_ref")
           .maybeSingle();
         if (error) return json(500, { error: error.message });
 
@@ -160,6 +160,33 @@ export const Route = createFileRoute("/api/notebook/runtime/result")({
               }),
             )
             .catch((e) => console.warn("[sparkq] finalize failed:", (e as Error).message));
+        }
+
+        // FOUND FROM THE SURVEY (R94). This callback is how a batch sandbox
+        // ends NORMALLY - an ETL run, a training worker, a prediction, a Spark
+        // query - and the write above is what makes its row terminal. From
+        // that moment refreshSession returns at its first line and the reaper
+        // skips the row, so nothing left anywhere will remove the container.
+        // R93 taught the refresher to tear down what it finds; it never finds
+        // these, because they are terminal before it looks. MEASURED: 122 of
+        // the survey host's 139 leftovers had `Exited (0)`, which is this.
+        //
+        // Last, after every finalisation above, because those read `updated`
+        // and the logs are already stored on the row - the container has
+        // nothing left in it worth keeping.
+        if (updated?.container_ref) {
+          const ref = updated.container_ref as string;
+          const { getRuntimeSettings } = await import("@/utils/notebookRuntime/config.server");
+          const { getOrchestrator } = await import("@/utils/notebookRuntime/orchestrator");
+          const teardown = await getRuntimeSettings()
+            .then((s) => getOrchestrator(s))
+            .then((orch) => orch.stop(ref))
+            .catch((e) => ({ removed: false, error: (e as Error).message }));
+          if (!teardown.removed) {
+            console.warn(
+              `[runtime] session ${claims.sid} reported ${status} but its sandbox ${ref} was not removed: ${teardown.error}; it is still on this host and nothing else will look for it`,
+            );
+          }
         }
         return json(200, { ok: true });
       },

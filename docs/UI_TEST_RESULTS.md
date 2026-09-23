@@ -15,6 +15,59 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-23 — Two sandboxes that outlived their work, before and after, ADVERSARIAL_LOG R94
+
+**Why this round exists.** R93's count of what the host had kept ended `1
+Created`: a sandbox that never ran. Chasing that found a second exit as
+well, and the second one accounts for the 122 that exited 0 — including,
+as this round's own before half shows, a training run that finished
+perfectly.
+
+### Before the fix
+
+| Driven | Read back |
+| ------ | --------- |
+| Admin → Developer runtime → Machine learning → `Training GPUs` 0 → 1 → Save settings, then reload | the field reads `1` back from the server |
+| `docker ps -a --filter name=nb-` before training | 139 sandboxes, 1 of them `Created` |
+| ML Models → `threshold_probe (payment_rows)` → Train new version → Train | the job ends `failed`; its Jobs row reads `docker start failed (500): {"message":"failed to create task for container: failed to create shim task: OCI runtime create failed: runc create failed: unable to start container process: error during c…` |
+| the host | a NEW sandbox `nb-d8376a51-b932-4810-b514-5cfee162a336 · Dead`, 140 in the list, named in nothing the owner can read |
+| **and the other exit**: the same model trained with the setting restored, a run that SUCCEEDS | `24m ago · succeeded · 84s · lightgbm · F1 (macro) 58.8%` — and `nb-620c9267-4c4e-4e41-b837-90d5d4fb8ebb · Exited (0)` still on the host nine minutes later, with nothing in the app's log |
+
+The second row is the one that matters. R93 taught the refresher to tear
+down what it finds; a batch sandbox that finishes properly reports its own
+result, which makes its row terminal, and from that moment the refresher
+returns at its first line and never finds it. That is where 122 of the 139
+came from.
+
+### After the rebuild
+
+| Driven | Read back |
+| ------ | --------- |
+| S1, on container `d2e50dac6904`, the same forced failure: ML Models → `threshold_probe (payment_rows)` → Train new version → Train, with `Training GPUs` still 1 | the job ends `failed` with the same `docker start failed (500): … failed to create task for container …`, and the host is unchanged: 139 sandboxes, no new one |
+| Admin → Developer runtime → Machine learning → `Training GPUs` 1 → 0 → Save settings, then reload | the field reads `0` back from the server; training works again |
+| S2, on container `7ec7707c988b`, Train new version → Train with the setting restored | a real sandbox `nb-96758b65-8b4c-4740-8fb4-524d4bfbc4f9 · Up 18 seconds`, 141 on the host |
+| the same host once the run finished | `nb-96758b65-…` is **gone**: 0 rows for it, 140 in the list |
+| the model's Jobs tab | `2m ago · succeeded · 59s · lightgbm · F1 (macro) 58.8%` above `24m ago · succeeded · 84s · lightgbm · F1 (macro) 58.8%` |
+
+Those two job rows are the round in one line. They are the same training,
+run twice, minutes apart, and both succeeded. The older one's sandbox is
+still on this host. The newer one's was taken away the moment it reported
+its result.
+
+S1's other half — the sentence a failed removal adds — is held by the
+tests: the removal succeeded on both of this host's attempts, and a DELETE
+that fails is not something the browser can arrange.
+
+Fixtures: `Training GPUs` is back to 0, verified by reading it from the
+server after a reload, and a training run afterwards succeeded in 59s.
+`threshold_probe (payment_rows)` gained versions v3 to v5 and five job
+rows, which are the evidence above. The leftovers from before the fix were
+left on the host as the evidence they are: `nb-4698447a-…` (`Created`, 18
+September), `nb-620c9267-…` (`Exited (0)`, this round's before half), and
+the 138 older ones; `docker container prune` removes them all.
+
+Findings from this round: R94 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-23 — A kernel's sandbox after the kernel ends, before and after, ADVERSARIAL_LOG R93
 
 **Why this round exists.** The host had been running the stack for two
