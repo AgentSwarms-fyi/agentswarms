@@ -52,6 +52,13 @@ the 42818 ms the run reports, and 85 + 70 in / 947 + 1 out are its 155 and
 948. The first half was carried, not re-counted, and nothing in the
 timeline appears twice.
 
+Fixtures kept: the `Approval durability check` swarm now carries seven
+daily schedules from R90, R91 and R92 (`R90 park probe`, `R90 park probe
+(after)`, `R91 reject probe`, `R91 park probe`, `R91 reject probe
+(after)`, `R91 park probe (after)`, `R92 one-run probe`), all already
+run, left active so any of these rounds can be re-driven. Each one parks
+or errors once a day until it is switched off in the Deploy dialog.
+
 Findings from this round: R92 in the [Adversarial log](./ADVERSARIAL_LOG.md).
 
 ## 2026-09-23 — Both positions of "Reject approvals", driven against the warning that describes them, ADVERSARIAL_LOG R91
