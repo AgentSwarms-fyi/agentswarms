@@ -109,6 +109,87 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-24 — The agents that never said hello
+
+#### R99 · S1 · Every agent call to a stateful MCP server refused
+
+Agents reach MCP servers through one client, `mcpRequest`, behind the
+`mcp_list_tools` and `mcp_call_tool` tools and the swarm Tool node's MCP
+Tool Call. It sent its request cold: `tools/list` or `tools/call` with no
+`initialize` before it and no session id on it. The Streamable HTTP
+transport has a session. A stateful server issues an `Mcp-Session-Id` on
+initialize and answers anything that arrives without one with
+`400 Bad Request: Missing session ID`. Stateful is FastMCP's default, and
+so it is how every server the MCP Builder deploys runs.
+
+Measured first, outside the UI, against fastmcp 4.0.3 from the sandbox
+image: `tools/list` and `tools/call` sent the agent's way both came back
+`400 {"jsonrpc":"2.0","id":null,"error":{"code":-32600,"message":"Bad
+Request: Missing session ID"}}`.
+
+The Builder makes the failure hard to see. Its Access tab registers a server
+for this instance's agents with the toast `Registered — your agents can call
+it now.` Its deploy, test console and Test connection all do the handshake,
+so the same server reads as healthy everywhere a person looks. Only the
+agents, the one caller the registration exists for, were refused.
+
+**Driven, before the fix.** MCP Builder → New server `R99 hello` from the
+stock Hello world template → Deploy (`Deployed — 2 tools.`) → Access → Your
+agents on → `Registered — your agents can call it now.` Then Agent Swarms
+→ New Swarm (`Swarm 17`) → Input → Tool (deterministic) → Output, wired.
+The Tool node was set to MCP Tool Call, server `R99 hello`, tool `greet`,
+arguments `{"name": "r99 before"}`, then Test this node → Run node. After
+1.4 s the output was `{"error":"400: {\"jsonrpc\":\"2.0\",\"id\":null,
+\"error\":{\"code\":-32600,\"message\":\"Bad Request: Missing session
+ID\"}}"}`. The app's MCP endpoint logged `status 400`, and the sandbox
+logged one bare `POST /mcp` → 400. The deploy two minutes earlier had
+done `POST 200`, `202`, `POST 200` on the same server.
+
+**After the rebuild** (container `52e61c76e4f1`), in the same swarm, saved
+this time as `R99 MCP tool call`, with arguments `{"name": "r99 after"}`:
+
+- **With the sandbox warm**, Run node answered
+  `{"jsonrpc":"2.0",…,"result":{…,"content":[{"text":"Hello, r99
+  after!","type":"text"}],"isError":false,…}}`. The sandbox logged the
+  whole session: `POST 200` (initialize), `202` (initialized), `POST 200`
+  (the call), then `DELETE /mcp 200`. The endpoint forwards a DELETE only
+  after removing its own session row. That first call in a freshly started
+  sandbox took about 10 s inside the sandbox. Run again with
+  `{"name": "r99 again"}`, it answered `Hello, r99 again!`, and the
+  endpoint logged 1.48 s, 1.11 s and 1.17 s for the three requests. A
+  stock FastMCP called directly answered in 0.44 s the first time, so the
+  10 s is the sandbox's first call, not the session.
+- **With the sandbox cold**, the first run after the rebuild answered
+  `{"error":"The operation was aborted due to timeout"}` after about 13 s.
+  The endpoint's `initialize` was answered 200 after **35.5 s** of cold
+  start, 20 s after the agent's 15 s timer had given up. That is a
+  separate fault, a client timer shorter than the work it waits on, and
+  it is queued rather than folded in here.
+
+The call is now made in a session of its own, in `mcpApps/session.ts`. It
+sends `initialize` and takes the `Mcp-Session-Id` and the protocol version
+the server agreed to. It announces `notifications/initialized`, sends the
+request carrying both headers, and reads to the answer (R98). Then it ends
+the session with a DELETE, which the spec asks of a client. This
+instance's own MCP endpoint keeps a row per session until one is ended, so
+without the DELETE an agent calling a Builder server would leave a row
+behind per tool call. A server that refuses `initialize` at the HTTP
+level gets the request bare, as before, so an endpoint that only ever
+answered bare requests keeps working. Every request of the session still
+goes through the SSRF guard.
+
+**Tests:** 12. Nine run the session against a fake that behaves the way
+the measured server did. The fake refuses a cold request with Missing
+session ID. In a session, the call is answered, in the order initialize →
+initialized → request, carrying the issued session id and the agreed
+version. The session is ended afterwards, and also when the request
+fails. A server that refuses initialize is still called bare, and a
+stateless one, which issues no id, gets no DELETE. Three are
+source-anchored: the agents' client uses the session, keeps the SSRF
+guard, and is what both agent tools call. R98's door test moved with the
+reads. 8 behaviour-changing mutants each killed, control missed, baseline
+green first.
+
 ### 2026-09-24 — The answers read to the end of a stream that need not end
 
 #### R98 · S1 · Five MCP clients that waited for the server to hang up

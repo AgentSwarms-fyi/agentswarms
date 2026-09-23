@@ -373,6 +373,33 @@ least twice, not a hypothetical.
   branch, and ask what the other branch leaves behind. Siblings to check:
   workflow runs, ETL runs and notebook sessions, all of which can pause
   and be continued.
+- A protocol step skipped because one server let it slide (R99): the
+  agents' MCP client never sent `initialize`, and worked against whatever
+  it was first tried on. A stateless server accepts a cold request, and a
+  stateful one refuses it, and stateful is FastMCP's default. The Builder
+  deploys that default and told its owner "your agents can call it now".
+  Everything a person could look at did the handshake, so the one caller
+  that skipped it was the only one that failed. The class is a client
+  written against one server's leniency. Ask of every protocol client
+  here which steps the protocol requires and which ones this code happens
+  to get away with skipping. Siblings: the A2A client, the OAuth/token
+  refresh paths, and the webhook signature checks. Found while driving
+  it, and the TOP candidate for R100:
+  - **The first agent call to an idle Builder server always fails.** The
+    agent's `initialize` has a 15 s timer. The endpoint cold-starts the
+    sandbox inside that request, which took 35.5 s, so the agent
+    reported "The operation was aborted due to timeout". The endpoint
+    then answered 200 to nobody and wrote a session row that no one will
+    end. This is the "two timeouts that do not agree" class, real after
+    all, just not where R89 put it. The fix is probably to let the
+    endpoint say "starting, retry" quickly, or to give the handshake the
+    cold-start budget. Decide by measuring.
+  - Each request through `/api/mcp/s/<slug>` costs about 1.1 s before it
+    reaches the sandbox, because `ensureRunning` re-probes it every time.
+    A session is three requests, so an agent tool call costs about 3.8 s.
+  - The first `tools/call` in a freshly started sandbox took about 10 s,
+    against 0.44 s for the same FastMCP with no container limits. It was
+    not diagnosed.
 - A reply read to the end of a stream that need not end (R98): five MCP
   clients did `await res.text()` on an event stream the spec only asks the
   server to close, so a server that kept it open cost each one its whole
@@ -383,9 +410,9 @@ least twice, not a hypothetical.
   `text/event-stream`, and anything else that buffers a stream it should
   consume. Seen in passing and not fixed:
   - **the agents' MCP client** (`mcpRequest` in `tools/registry.server.ts`)
-    sends `tools/list` and `tools/call` with no `initialize` and no session
-    id. A stateful FastMCP server should refuse that. This is the top
-    candidate for a driven round against a registered server.
+    sent `tools/list` and `tools/call` with no `initialize` and no session
+    id. DONE (R99): FastMCP refused it with `400 Missing session ID`, and
+    the call now runs in a session of its own.
   - A deploy whose handshake fails leaves its sandbox running under an app
     marked Error.
   - The Builder page's own Deploy handler awaits without a `try`, the shape

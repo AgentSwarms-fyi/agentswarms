@@ -15,6 +15,40 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-24 — A swarm calling a Builder MCP server's tool, before and after, ADVERSARIAL_LOG R99
+
+**Why this round exists.** The agents' MCP client sent `tools/list` and
+`tools/call` with no `initialize` and no session id. Measured first against
+fastmcp 4.0.3 from the sandbox image, both came back `400 Bad Request:
+Missing session ID`. The swarm Tool node's MCP Tool Call uses the same
+client with no model in the loop, so it can be driven deterministically.
+
+### Before the fix
+
+| Time | Driven | Read back |
+| ---- | ------ | --------- |
+| 03:17 | MCP Builder → New server `R99 hello` (Hello world template) → Deploy | `Deployed — 2 tools.` |
+| 03:17:43 | Access → Your agents switch on | toast `Registered — your agents can call it now.`; switch reads on |
+| 03:19 | Agent Swarms → New Swarm (`Swarm 17`) → Input, Tool (deterministic), Output, wired; Tool → MCP Tool Call, `R99 hello`, `greet`, `{"name": "r99 before"}` | the node shows its three fields filled |
+| 03:19:59 | Test this node → Run node | after 1.4 s, OUTPUT `{"error":"400: {\"jsonrpc\":\"2.0\",\"id\":null,\"error\":{\"code\":-32600,\"message\":\"Bad Request: Missing session ID\"}}"}`. MCP endpoint log `status 400`; sandbox log one bare `POST /mcp` → 400 |
+
+The swarm was not saved. Leaving the canvas left `Swarm 17` empty, which is
+why the after-drive rebuilt the node.
+
+### After the rebuild
+
+| Time | Driven | Read back |
+| ---- | ------ | --------- |
+| 03:38 | on container `52e61c76e4f1`, `Swarm 17` renamed `R99 MCP tool call`, one Tool node set as before with `{"name": "r99 after"}` → Save | toast `Swarm saved` |
+| 03:39:05 | Test this node → Run node, sandbox cold (stopped by the rebuild) | about 13 s, OUTPUT `{"error":"The operation was aborted due to timeout"}`. The endpoint's `initialize` was answered 200 after 35.5 s of cold start. That is a separate fault, queued for R100 |
+| 03:39:49 | Run node again, sandbox now warm | OUTPUT `…"content":[{"text":"Hello, r99 after!","type":"text"}],"isError":false…`. Sandbox log: `POST 200`, `202`, `POST 200`, `DELETE /mcp 200` |
+| 03:41:24 | arguments `{"name": "r99 again"}` → Run node | `Hello, r99 again!`; endpoint log 1.48 s, 1.11 s, 1.17 s for initialize, initialized and the call; sandbox `DELETE /mcp 200` |
+
+Fixtures kept: the MCP server `R99 hello`, registered for agents, and the
+swarm `R99 MCP tool call` with its one MCP Tool Call node.
+
+Findings from this round: R99 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-24 — Deploying and testing an MCP server that keeps its streams open, before and after, ADVERSARIAL_LOG R98
 
 **Why this round exists.** Every MCP reply was read with `res.text()`,

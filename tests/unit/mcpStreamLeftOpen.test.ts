@@ -190,6 +190,7 @@ const FUNCTIONS = readFileSync("src/utils/mcpApps.functions.ts", "utf8");
 const EDGE = readFileSync("src/routes/api/mcp.s.$slug.ts", "utf8");
 const PROBE = readFileSync("src/lib/mcp/probe.functions.ts", "utf8");
 const REGISTRY = readFileSync("src/utils/tools/registry.server.ts", "utf8");
+const SESSION = readFileSync("src/utils/mcpApps/session.ts", "utf8");
 const PAGE = readFileSync("src/routes/_authenticated/mcp-builder_.$appId.tsx", "utf8");
 
 /** A function's source, from its marker to the next top-level close. */
@@ -248,8 +249,14 @@ describe("every door reads to the answer", () => {
   });
 
   it("an agent's MCP tool call", () => {
+    // Since R99 the agent's request goes through a session of its own, and
+    // the reads live in mcpApps/session.ts; mcpAgentSession.test.ts runs it.
     const body = block(REGISTRY, "async function mcpRequest(");
-    expect(body).toMatch(/readRpcBody\(r\)/);
-    expect(body).not.toMatch(/r\.text\(\)/);
+    expect(body).toMatch(/requestInSession\(send, body\)/);
+    expect(body).not.toMatch(/\.text\(\)/);
+    const session = block(SESSION, "export async function requestInSession(");
+    expect(session).toMatch(/readRpcBody\(res\)/);
+    expect(block(SESSION, "export async function openMcpSession(")).toMatch(/readRpcBody\(init\)/);
+    expect(SESSION).not.toMatch(/\.text\(\)/);
   });
 });

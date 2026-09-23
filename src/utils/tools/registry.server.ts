@@ -34,7 +34,8 @@ import { resultDigest } from "@/utils/provenance/canonical";
 const WAREHOUSE_TOOL_ROW_CAP = 200;
 import { assertPublicUrl, safeFetch } from "@/utils/ssrfGuard.server";
 import { resolveMcpAuthToken } from "@/lib/mcp/auth.server";
-import { parseJsonOrSse, readRpcBody } from "@/utils/mcpApps/sse";
+import { requestInSession, type McpSend } from "@/utils/mcpApps/session";
+import { parseJsonOrSse } from "@/utils/mcpApps/sse";
 import { resolveIntegrationConfig } from "@/utils/providers/integrationConfig.server";
 import { loadWarehouseConnectionForUser } from "@/utils/warehouse/connections.server";
 import { executeWarehouseQuery, listWarehouseTables } from "@/utils/warehouse/drivers.server";
@@ -1411,9 +1412,10 @@ async function loadMcpServer(ctx: AgentToolContext, name: string) {
   return data;
 }
 
-// Single MCP request over Streamable HTTP. The MCP spec requires the client
-// to accept BOTH application/json and text/event-stream — without it many
-// servers return 406. We always send JSON-RPC POST.
+// One MCP request over Streamable HTTP, in a session of its own (R99: it used
+// to go out cold, and a stateful server refused it — see mcpApps/session.ts).
+// The MCP spec requires the client to accept BOTH application/json and
+// text/event-stream — without it many servers return 406.
 async function mcpRequest(
   endpoint: string,
   authType: string,
@@ -1425,19 +1427,18 @@ async function mcpRequest(
     Accept: "application/json, text/event-stream",
   };
   if (authType === "token" && authToken) headers.Authorization = `Bearer ${authToken}`;
-  try {
-    // The endpoint is user-registered but fetched from inside the server's
-    // network, so it goes through the SSRF guard with a bounded timeout.
-    const r = await safeFetch(endpoint, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(15_000),
+  // The endpoint is user-registered but fetched from inside the server's
+  // network, so every request goes through the SSRF guard with a bounded
+  // timeout.
+  const send: McpSend = (method, extra, payload) =>
+    safeFetch(endpoint, {
+      method,
+      headers: { ...headers, ...extra },
+      body: payload ? JSON.stringify(payload) : undefined,
+      signal: AbortSignal.timeout(method === "DELETE" ? 5_000 : 15_000),
     });
-    // Up to the answer, not to the end of the stream (R98). A server may keep
-    // a request's stream open after replying; reading it whole held every
-    // agent tool call until the 15s timer threw, with the answer already sent.
-    const read = await readRpcBody(r);
+  try {
+    const { res: r, read } = await requestInSession(send, body);
     if (!r.ok) return { ok: false, error: `${r.status}: ${read.text.slice(0, 300)}` };
     // A stream sent under the wrong content type still gets read as one, as
     // the sniffing this replaced did.
