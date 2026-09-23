@@ -197,7 +197,34 @@ export async function getEffectiveModelRules(
 // Re-exported from the shared matcher so the server and the browser cannot
 // disagree about who may call which model. See src/lib/iamRules.ts.
 export { isModelAllowed } from "@/lib/iamRules";
-import { collapseModelPolicy } from "@/lib/iamRules";
+
+/**
+ * The sentence a model call is refused with, or null when the user's model
+ * rules allow it. Throws when the policy cannot be read, as
+ * getEffectiveModelRules does: a caller that cannot tell must not call.
+ *
+ * FOUND FROM THE SURVEY (R97). The rules are enforced at /api/chat, and the
+ * features that go through it are covered. Five did not go through it: the
+ * ETL, lakehouse and skill code generators, the knowledge-graph builder and
+ * embedded BI's analyst each called a provider directly and asked nothing.
+ * The generators' own header said governance "applies through the same
+ * picker" — the dropdown — and the dropdown starts unset, so a plain
+ * Generate click fell back to openai/gpt-4o-mini whatever the rules said.
+ * Read with the service role and filtered to this user and their groups,
+ * exactly as /api/chat's internal channel reads them.
+ */
+export async function modelAccessRefusal(
+  userId: string,
+  provider: string,
+  model: string,
+): Promise<string | null> {
+  const rules = await getEffectiveModelRules(supabaseAdmin, userId);
+  if (rules && !isModelAllowedShared(rules, provider, model)) {
+    return `Your administrator has not allowed ${provider}/${model} for your account. Ask a superadmin to adjust your model access.`;
+  }
+  return null;
+}
+import { collapseModelPolicy, isModelAllowed as isModelAllowedShared } from "@/lib/iamRules";
 
 // Resource ids of `resourceType` the user may read via an IAM grant — directly
 // or through any group they belong to. Mirrors the `has_resource_access` RLS

@@ -109,6 +109,79 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-24 — The model calls that went round the rules
+
+#### R97 · S1 · Five features that called a provider themselves
+
+IAM's model access rules restrict a user or a group to an allow-list of
+provider/model pairs, and the admin page promises what that means: in deny
+mode a user "can call no models at all until a rule allow-lists them". They
+are enforced at one door, `/api/chat`, and the design goes to some trouble
+to make that door the only one: agents, swarms, the AI gateway, the AI
+functions in SQL, document OCR and every headless run go through it,
+including `internalChatText`'s internal channel, which reads the rules with
+the service role for the owner. R96's sibling sweep asked whether anything
+went round it. Five features did, each calling a provider directly and
+asking nothing:
+
+- the **ETL**, **lakehouse** and **skill** code generators, which take the
+  provider and model from the request — and when none is given, fall back to
+  the owner's default or to `openai/gpt-4o-mini`;
+- the **knowledge-graph builder**, which sends every chunk to a fixed
+  `google/gemini-2.5-flash`;
+- **embedded BI's analyst**, which answers an anonymous viewer with the
+  dashboard owner's model through its own private copy of the JSON call.
+
+The generators' header states the design plainly: "model governance applies
+through the same picker". The picker is the dropdown in the page. It
+filters what it offers, but it starts unset, and an unset choice sends no
+model at all — so the server's fallback was never offered to the rules to
+refuse. A user restricted to one cheap model, clicking Generate without
+touching the dropdown, got a pipeline written by a model the administrator
+had not approved, on credentials the administrator may have restricted for
+exactly that reason.
+
+**Driven, with a model rule on this account, before and after.** Model
+rules apply to superadmins in the default allow mode (only deny mode exempts
+them), so the rule was put on this account: Admin → IAM →
+Access → Model access → User → this account → OpenRouter `openrouter/free`
+→ Add rule → Save rules. The door that was already guarded proved the rule
+live: a chat request for `openai/gpt-4o-mini` from the same session came
+back `403 model_not_allowed: Your administrator has not allowed
+openrouter/openai/gpt-4o-mini for your account.`
+
+Before the fix: ETL Pipelines → `Test2` (Code) → AI assist, the model
+picker left as it opens (`OpenRouter · Server default`), a one-line brief →
+Generate. `POST /api/etl/generate` answered **200** with a drafted pipeline
+and `"model":"openai/gpt-4o-mini"` — the model the rule had just refused on
+the chat path, called for a plain click on the page's default.
+
+After the rebuild (container `3c3996a4c9ad`), the same pipeline, the same
+brief, the same untouched picker, Generate: **403**, and the page's toast
+`Your administrator has not allowed openrouter/openai/gpt-4o-mini for your
+account. Ask a superadmin to adjust your model access.`, with nothing put
+in the editor. With `openrouter/free` chosen in the picker, Generate again:
+**200**, `"model":"openrouter/free"`. The rule was then removed and read
+back as `No rules — this user is unrestricted`, and `Test2` was left with
+its original code, nothing generated saved. The lakehouse and skill
+generators, the graph builder and embedded BI share the fix and are held by
+the tests. Recorded in docs/UI_TEST_RESULTS.md.
+
+One question now, `modelAccessRefusal(userId, provider, model)`, read the way
+`/api/chat`'s internal channel reads it and answering with the same
+sentence. Each generator asks once the model is FINAL — after the fallback,
+which is the whole point — and before the call, answering 403, or 503 when
+the policy cannot be read rather than calling on a guess. The graph builder
+asks about the model it will use before it wipes the graph it has, so a
+refused build leaves the old one intact. Embedded BI asks the OWNER's rules
+and closes when they cannot be read.
+
+**Tests:** 9 source-anchored — the question and its sentence, each
+generator asking after the fallback and before the call and refusing on an
+unreadable policy, the graph builder asking before the wipe, embedded BI
+asking before its call and closing; 10 behaviour-changing mutants each
+killed, control missed, baseline green first.
+
 ### 2026-09-24 — The notebooks the runtime switch did not reach
 
 #### R96 · S1 · Who asks the admin's runtime switches

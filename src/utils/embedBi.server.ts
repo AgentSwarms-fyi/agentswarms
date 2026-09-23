@@ -36,6 +36,18 @@ async function llmJsonServer(
   system: string,
   user: string,
 ): Promise<Record<string, unknown> | null> {
+  // FOUND FROM THE SURVEY (R97). An anonymous viewer's question is answered
+  // with the dashboard OWNER's model on the owner's credentials, so it is the
+  // owner's model rules that decide — asked here, where this private copy of
+  // the JSON call used to skip them, and closed when they cannot be read.
+  const { modelAccessRefusal } = await import("@/utils/iam.server");
+  const refused = await modelAccessRefusal(ownerId, provider, model).catch(
+    (e) => `could not check model access: ${(e as Error).message}`,
+  );
+  if (refused) {
+    console.warn(`[embed-bi] owner ${ownerId}: ${refused}`);
+    return null;
+  }
   const transport = await resolveOpenAICompatTransport({ userId: ownerId, provider });
   if (!transport || (!transport.apiKey && provider !== "ollama")) return null;
   const ctrl = new AbortController();

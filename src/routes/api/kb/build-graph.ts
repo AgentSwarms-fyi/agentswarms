@@ -227,6 +227,21 @@ export const Route = createFileRoute("/api/kb/build-graph")({
           return Response.json({ error: "Not authorized" }, { status: 403 });
         }
 
+        // FOUND FROM THE SURVEY (R97). Every chunk goes to EXTRACTION_MODEL on the
+        // user's behalf, so their model rules are asked first — and BEFORE the
+        // existing graph is wiped below, so a refused build leaves it intact.
+        const { modelAccessRefusal } = await import("@/utils/iam.server");
+        let refused: string | null;
+        try {
+          refused = await modelAccessRefusal(user.id, "openrouter", EXTRACTION_MODEL);
+        } catch (e) {
+          return Response.json(
+            { error: `Could not check your model access: ${(e as Error).message}` },
+            { status: 503 },
+          );
+        }
+        if (refused) return Response.json({ error: refused }, { status: 403 });
+
         // Mark building.
         await admin
           .from("knowledge_bases")

@@ -368,6 +368,12 @@ least twice, not a hypothetical.
   branch, and ask what the other branch leaves behind. Siblings to check:
   workflow runs, ETL runs and notebook sessions, all of which can pause
   and be continued.
+- A dropdown is not a gate (R97): the code generators left model
+  governance to the model picker, and the picker starts unset, so the
+  server's own fallback was the one choice the rules never saw. Wherever a
+  server resolves a default on the caller's behalf — a model, a region, a
+  warehouse, a destination — ask what checks the DEFAULT, not only what the
+  UI lets someone pick. The rule belongs where the value becomes final.
 - A gate asked at the front door only (R96): the runtime switches were
   checked by the interactive route and nowhere else, because the function
   that actually starts a kernel is shared with platform features that must

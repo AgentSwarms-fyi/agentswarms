@@ -133,6 +133,22 @@ export const Route = createFileRoute("/api/lakehouse/generate")({
             return json({ error: `Choose a model — ${provider} has no default configured.` }, 400);
           }
 
+          // FOUND FROM THE SURVEY (R97). The model is final here, fallback and
+          // all, so this is where the caller's model rules are asked. The picker
+          // in the page filters what it offers, but it starts unset, and an unset
+          // choice fell back to a model no rule had approved.
+          const { modelAccessRefusal } = await import("@/utils/iam.server");
+          let refused: string | null;
+          try {
+            refused = await modelAccessRefusal(user.id, provider, model);
+          } catch (e) {
+            return json(
+              { error: `Could not check your model access: ${(e as Error).message}` },
+              503,
+            );
+          }
+          if (refused) return json({ error: refused }, 403);
+
           const resp = await fetch(transport.endpointUrl, {
             method: "POST",
             headers: {

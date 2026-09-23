@@ -15,6 +15,41 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-24 — AI-drafting an ETL pipeline under a model rule, before and after, ADVERSARIAL_LOG R97
+
+**Why this round exists.** IAM's model rules are enforced at `/api/chat`.
+The ETL, lakehouse and skill generators, the graph builder and embedded BI
+called providers directly. Model rules apply to superadmins in the default
+allow mode, so this account can carry one.
+
+### Before the fix
+
+| Time | Driven | Read back |
+| ---- | ------ | --------- |
+| 01:13 | Admin → IAM → Access → Model access → User → this account → OpenRouter `openrouter/free` → Add rule → Save rules | the chip `OpenRouter · openrouter/free`; `Save rules` greys out |
+| 01:13:20 | from the same session, `POST /api/chat` asking for `openai/gpt-4o-mini` | `403 {"error":"model_not_allowed","message":"Your administrator has not allowed openrouter/openai/gpt-4o-mini for your account. …"}` — the guarded door refuses |
+| then | ETL Pipelines → `Test2` (Code) → AI assist, picker left as it opens (`OpenRouter · Server default`), brief `Load a three-row table called r97_probe with columns id and name.` → Generate | `POST /api/etl/generate → 200`, a drafted pipeline, and `"model":"openai/gpt-4o-mini"` |
+
+The model the rule refused on the chat path, called anyway, for a click on
+the page's own default.
+
+### After the rebuild
+
+| Time | Driven | Read back |
+| ---- | ------ | --------- |
+| 01:31 | on container `3c3996a4c9ad`, the same pipeline, brief and untouched picker → Generate | `POST /api/etl/generate → 403`; the toast `Your administrator has not allowed openrouter/openai/gpt-4o-mini for your account. Ask a superadmin to adjust your model access.`; nothing in the editor, `Save` still greyed |
+| 01:32 | the picker set to `openrouter/free` → Generate | `→ 200` with a drafted pipeline and `"model":"openrouter/free"` |
+| 01:34 | the rule removed → Save rules, then reload | `No rules — this user is unrestricted (unless rules apply from elsewhere).` |
+| 01:35 | `Test2` reopened | its original code, `# AgentSwarms ETL pipeline.` at the top; nothing generated was saved |
+
+Fixtures: none left. The rule is gone and `Test2` is as it was. One
+accident on the way, recorded because it matters: a stale element reference
+landed on the delete button of the pipeline `kafka orders`; its
+confirmation dialog stopped it, it was cancelled, and a reload showed all
+20 pipelines, that one included.
+
+Findings from this round: R97 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-24 — A workflow's Notebook step with the server runtime switched off, before and after, ADVERSARIAL_LOG R96
 
 **Why this round exists.** Admin → Developer runtime says the runtime
