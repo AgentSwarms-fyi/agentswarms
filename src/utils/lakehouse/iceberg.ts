@@ -193,16 +193,44 @@ export function icebergPublishSql(args: {
   sourceSchema: string;
   sourceTable: string;
   mode: "create" | "replace";
+  /** A replace's staging table, from icebergStagingName; unused by create. */
+  staging?: string;
 }): string[] {
-  const target = `${ident(args.alias)}.${ident(args.namespace)}.${ident(args.table)}`;
-  // The extension has no CREATE OR REPLACE for Iceberg tables: replace is a
-  // drop and a create, two statements the caller runs in order.
+  const ns = `${ident(args.alias)}.${ident(args.namespace)}`;
+  const target = `${ns}.${ident(args.table)}`;
+  const source = `${ident("lake")}.${ident(args.sourceSchema)}.${ident(args.sourceTable)}`;
+  const schema = `CREATE SCHEMA IF NOT EXISTS ${ns};`;
+  if (args.mode === "create") {
+    return [schema, `CREATE TABLE ${target} AS SELECT * FROM ${source};`];
+  }
+  // The extension has no CREATE OR REPLACE for Iceberg tables, so a replace
+  // is a drop and a create. FOUND IN R107: run in that order, a create that
+  // failed AFTER the drop (a column type Iceberg cannot store, a catalog
+  // error) left the catalog with no table at all, where the owner had asked
+  // to replace one. The new data is now written to a staging table first.
+  // Only once that has succeeded is the old table dropped and the staged
+  // copy moved into its name. A write that cannot happen fails before
+  // anything is dropped. The staging table is named afresh for each publish,
+  // so the only tables a replace drops are the one the owner named and the
+  // one it has just created itself.
+  if (!args.staging) throw new Error("A replace needs a staging table.");
+  const staging = `${ns}.${ident(args.staging)}`;
   return [
-    `CREATE SCHEMA IF NOT EXISTS ${ident(args.alias)}.${ident(args.namespace)};`,
-    ...(args.mode === "replace" ? [`DROP TABLE IF EXISTS ${target};`] : []),
-    `CREATE TABLE ${target} AS ` +
-      `SELECT * FROM ${ident("lake")}.${ident(args.sourceSchema)}.${ident(args.sourceTable)};`,
+    schema,
+    `CREATE TABLE ${staging} AS SELECT * FROM ${source};`,
+    `DROP TABLE IF EXISTS ${target};`,
+    `CREATE TABLE ${target} AS SELECT * FROM ${staging};`,
+    `DROP TABLE IF EXISTS ${staging};`,
   ];
+}
+
+/**
+ * Where a replace stages the new data before the old table is dropped. The
+ * token is new for each publish: a fixed name would be a table somebody
+ * could own, and the replace would drop it.
+ */
+export function icebergStagingName(table: string, token: string): string {
+  return `${table}__publishing_${token}`;
 }
 
 /** Copying an Iceberg table into the lakehouse (a real DuckLake table, no dependence on the catalog). */

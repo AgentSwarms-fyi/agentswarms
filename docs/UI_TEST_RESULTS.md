@@ -15,6 +15,77 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-24 — Replacing an Iceberg table with one the catalog cannot store, before and after, ADVERSARIAL_LOG R107
+
+**Why this round exists.** "Publish to Iceberg" with "Replace it (drop,
+then create)" ran a DROP and then a CREATE. A create that failed after the
+drop left the catalog with no table. A column type the Iceberg writer
+refuses, an INTERVAL, makes that failure on demand. Driven on tables and
+an Iceberg namespace made for the purpose: `analytics.r107_src` (1 row),
+`analytics.r107_bad` (an INTERVAL column), `analytics.r107_src2` (2 rows),
+and namespace `r107` in the development catalog `local_rest`. A mount is
+the read-only check of what the catalog holds: it reports "Mounted N
+tables".
+
+### Before the fix
+
+| Time | Driven | Read back |
+| ---- | ------ | --------- |
+| 22:39:47 | on container image `987d1ff3b46c`, `r107_bad` → Publish to Iceberg → `local_rest` / `r107` / `r107_probe`, Refuse | toast `Invalid Input Error: Column type INTERVAL is not a valid Iceberg Type.` The writer refuses the type, with no drop involved |
+| 22:40:28 | `r107_src` → Publish → `r107` / `r107_pub`, Refuse | `Published 1 row(s) to r107.r107_pub` |
+| 22:41:13 | the same again, Refuse | `Catalog Error: Table with name "r107_pub" already exists` |
+| 22:41:54 | `r107_bad` → Publish → `r107` / `r107_pub`, Replace it | the same INTERVAL error; the catalog's log: `Dropped table: r107.r107_pub` |
+| 22:42:45 | Iceberg → Mount a namespace → `local_rest` / `r107` as `ice_r107` | `Mounted 0 tables` |
+
+### The first fix, and what a drive found in it
+
+| Time | Driven | Read back |
+| ---- | ------ | --------- |
+| 22:59:26 | on image `d071cd16aab0` (staging under the fixed name `<table>__publishing`), `r107_src` → Publish → `r107_pub`, Refuse, to put the table back | `Published 1 row(s) to r107.r107_pub` |
+| 22:59:54 | `r107_bad` → Replace `r107_pub` | the INTERVAL error |
+| 23:00:27 | Mount `r107` as `ice_r107_after` | `Mounted 1 table`: the table survived |
+| 23:04 | Query: `CREATE TABLE analytics.r107_src2 AS SELECT * FROM (VALUES (1, 'first'), (2, 'second')) AS t(id, note)` | `Count 2` |
+| 23:05:30 | `r107_src2` → Replace `r107_pub` | `Published 2 row(s) to r107.r107_pub` |
+| 23:05 | Query: `SELECT * FROM ice_r107_after.r107_pub ORDER BY id` | `2 row(s)`: `1 first`, `2 second` |
+| 23:05:55 | Mount `r107` as `ice_r107_regress` | `Mounted 1 table`: no staging table left |
+| 23:14:01 | `r107_src` → Publish → `r107` / `r107_pub__publishing`, Refuse: a table the owner happens to give that name | `Published 1 row(s) to r107.r107_pub__publishing` |
+| 23:14:24 | Mount `r107` as `ice_r107_two` | `Mounted 2 tables` |
+| 23:15:08, 23:16:35 | `r107_src2` → Replace `r107_pub` | `… HTTP 500 for HTTP DELETE to '…/namespaces/r107/tables/r107_pub__publishing…'`. The replace was dropping the owner's table. The catalog refused it only because its SQLite store was locked (`[SQLITE_BUSY] The database file is locked` in its log) |
+| 23:15:26 | Mount `r107` as `ice_r107_three` | `Mounted 2 tables` |
+| 23:18 | restarted the catalog container, whose state is on a volume; its REST listing of `r107` | `r107_pub`, `r107_pub__publishing` |
+| 23:20:39 | `r107_src2` → Replace `r107_pub`, same dialog | `Published 2 row(s) to r107.r107_pub`; the catalog's log, first: `Dropped table: r107.r107_pub__publishing` |
+| 23:20:52 | Mount `r107` as `ice_r107_four` | `Mounted 1 table`; the REST listing shows `r107_pub` alone. The owner's table is gone |
+
+### After the rebuild
+
+| Time | Driven | Read back |
+| ---- | ------ | --------- |
+| 23:35:40 | on image `b413a02e6aad` (a staging name made for each publish), `r107_src` → Publish → `r107` / `r107_pub__publishing`, Refuse: the owner's table put back | `Published 1 row(s) to r107.r107_pub__publishing` |
+| 23:36:01 | `r107_bad` → Replace `r107_pub` | the INTERVAL error; the catalog's log looks up `r107_pub__publishing_4482b342`, which was never created, and drops nothing |
+| 23:36:23 | Mount `r107` as `ice_r107_fixed` | `Mounted 2 tables` |
+| 23:36:55 | `r107_src` → Replace `r107_pub` | `Published 1 row(s) to r107.r107_pub`; the catalog's log, in order: committed `r107_pub__publishing_81ccfb38`, dropped `r107_pub`, committed `r107_pub`, dropped `r107_pub__publishing_81ccfb38` |
+| 23:37:17 | Mount `r107` as `ice_r107_final` | `Mounted 2 tables` |
+| 23:37 | Query: `SELECT … FROM ice_r107_final.r107_pub`, then the same from `ice_r107_final.r107_pub__publishing` | `1 row(s)` each, `1 published`: the owner's table is untouched |
+
+The one path not driven is a catalog refusing the drop of the old table,
+which should now remove the staging table. The lock that produced it
+cannot be brought on at will, so a unit test covers it.
+
+Fixtures kept for review:
+
+- Lakehouse tables `analytics.r107_src`, `analytics.r107_bad` and
+  `analytics.r107_src2`.
+- Iceberg namespace `r107` in `local_rest`, with `r107_pub` and
+  `r107_pub__publishing`.
+- The mounts `ice_r107`, `ice_r107_after`, `ice_r107_regress`,
+  `ice_r107_two`, `ice_r107_three` and `ice_r107_four`, plus
+  `ice_r107_fixed` and `ice_r107_final`.
+
+Some of those mounts show views over tables that have since been dropped
+or recreated.
+
+Findings from this round: R107 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-24 — Deleting a dataset when the database refuses, before and after, ADVERSARIAL_LOG R106
 
 **Why this round exists.** The browser's `deleteDataset` never read the

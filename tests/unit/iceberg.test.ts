@@ -136,7 +136,9 @@ describe("what the engine is told", () => {
     expect(ct).toBe(
       `CREATE TABLE "${alias}"."sales"."revenue_facts" AS SELECT * FROM "lake"."analytics"."revenue_facts";`,
     );
-    // The extension has no CREATE OR REPLACE: replace is a drop then a create.
+    // The extension has no CREATE OR REPLACE, so replace is a drop and a
+    // create. Since R107 the new data is staged first, so a write that cannot
+    // happen fails before the old table is dropped.
     const replace = icebergPublishSql({
       alias,
       namespace: "sales",
@@ -144,9 +146,27 @@ describe("what the engine is told", () => {
       sourceSchema: "a",
       sourceTable: "b",
       mode: "replace",
+      staging: "t__publishing_0a1b2c3d",
     });
-    expect(replace[1]).toBe(`DROP TABLE IF EXISTS "${alias}"."sales"."t";`);
-    expect(replace[2]).toContain(`CREATE TABLE "${alias}"."sales"."t" AS`);
+    expect(replace).toEqual([
+      `CREATE SCHEMA IF NOT EXISTS "${alias}"."sales";`,
+      `CREATE TABLE "${alias}"."sales"."t__publishing_0a1b2c3d" AS SELECT * FROM "lake"."a"."b";`,
+      `DROP TABLE IF EXISTS "${alias}"."sales"."t";`,
+      `CREATE TABLE "${alias}"."sales"."t" AS SELECT * FROM "${alias}"."sales"."t__publishing_0a1b2c3d";`,
+      `DROP TABLE IF EXISTS "${alias}"."sales"."t__publishing_0a1b2c3d";`,
+    ]);
+    // Without a staging table of its own a replace would have to reuse a
+    // name somebody could own, so it refuses.
+    expect(() =>
+      icebergPublishSql({
+        alias,
+        namespace: "sales",
+        table: "t",
+        sourceSchema: "a",
+        sourceTable: "b",
+        mode: "replace",
+      }),
+    ).toThrow(/staging table/);
     expect(
       icebergImportSql({
         alias,

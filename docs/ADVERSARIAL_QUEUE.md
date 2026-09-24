@@ -428,11 +428,25 @@ least twice, not a hypothetical.
     upload. Both replace a same-named dataset deliberately and
     recoverably, snapshotting the old rows as a version first. The Iceberg
     publish and import are CLEAR too: `create` is a plain CREATE TABLE,
-    and replace is chosen by name. Iceberg's replace is still a DROP and
-    then a CREATE, two statements, so a create that fails after the drop
-    (a column type Iceberg cannot store) leaves the catalog with no table
-    at all. That is a candidate for its own round, and needs a type the
-    writer refuses to prove it.
+    and replace is chosen by name.
+  - **Iceberg's replace, R107, DONE**: it was a DROP and then a CREATE, so
+    a create that failed after the drop (an INTERVAL column) left the
+    catalog with no table. It now stages the new data under a name made
+    for that publish (`<table>__publishing_<8 hex>`) before dropping
+    anything. The first fix used a fixed staging name and dropped a
+    table the owner had given that name. A drive caught it, so any
+    staging, temp or scratch name elsewhere is worth the same look: can a
+    user own it? Still open: the swap is not atomic. Between the drop and
+    the copy into the old name, a reader of the catalog sees no table,
+    for a few seconds. An Iceberg catalog's own rename (`RENAME TABLE`,
+    if the extension gains it) or a REST `renameTable` call would close
+    that window.
+  - The development Iceberg catalog (`aswarm-iceberg-rest`,
+    `tabulario/iceberg-rest` on SQLite) can hold its store locked between
+    requests, answering every DELETE with `[SQLITE_BUSY] The database file
+    is locked` until it is restarted. That is the fixture, not this app,
+    but an Iceberg round that sees HTTP 500 on a drop should check the
+    catalog's log before blaming the code.
   - Reading them found R106: the BROWSER's copies of the dataset delete and
     replace (`lib/sqlEngine.ts`) never read the database's answer. R87 had
     fixed only the server's. Sweep: every direct `supabase.from(…).delete()`

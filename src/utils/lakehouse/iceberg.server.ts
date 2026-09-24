@@ -8,6 +8,7 @@
 // an attached catalog directly (the guard refuses every catalog but `lake`).
 // Publishing and importing run here, as the caller, after ownership checks.
 import type { DuckDBConnection } from "@duckdb/node-api";
+import { randomBytes } from "node:crypto";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { Database } from "@/integrations/supabase/types";
@@ -22,6 +23,7 @@ import {
   icebergListNamespacesSql,
   icebergListTablesSql,
   icebergPublishSql,
+  icebergStagingName,
   icebergSecretNames,
   icebergSecretSql,
   icebergViewName,
@@ -353,15 +355,49 @@ export async function publishToIceberg(args: {
     throw new Error("That namespace name is not usable here.");
   if (!TABLE_NAME.test(args.table)) throw new Error("That table name is not usable here.");
   const rows = await withCatalog(args.row, async (c, alias) => {
-    for (const sql of icebergPublishSql({
+    const staging = icebergStagingName(args.table, randomBytes(4).toString("hex"));
+    const plan = icebergPublishSql({
       alias,
       namespace: args.namespace,
       table: args.table,
       sourceSchema: args.sourceSchema,
       sourceTable: args.sourceTable,
       mode: args.mode,
-    })) {
-      await c.run(sql);
+      staging,
+    });
+    // In a replace, the statement that drops the OLD table (not the staging
+    // one). Everything before it leaves the old table untouched, so a failure
+    // there is an ordinary error.
+    const dropsOld = plan.findIndex(
+      (s) => s.startsWith("DROP TABLE IF EXISTS") && !s.includes(staging),
+    );
+    for (const [i, sql] of plan.entries()) {
+      try {
+        await c.run(sql);
+      } catch (e) {
+        const message = (e as Error).message;
+        if (dropsOld >= 0 && i <= dropsOld) {
+          // The old table stands: nothing ran, or the catalog refused its
+          // drop. The staging table is this publish's own, and the new data
+          // is still in the lakehouse, so remove it rather than leave a
+          // stray table behind for every failed attempt.
+          await c.run(plan[plan.length - 1]).catch(() => {});
+          throw e;
+        }
+        if (dropsOld >= 0 && i === dropsOld + 1) {
+          // The old table is gone and the copy into its name failed: say
+          // where the new data is rather than leave the owner guessing.
+          throw new Error(
+            `${message}. The old ${args.namespace}.${args.table} had already been dropped; the new data is in ${args.namespace}.${staging}.`,
+          );
+        }
+        if (dropsOld >= 0 && i > dropsOld + 1) {
+          // Only the staging table's cleanup: the publish itself has landed.
+          console.warn(`[iceberg] could not drop ${args.namespace}.${staging}: ${message}`);
+          continue;
+        }
+        throw e;
+      }
     }
     const [n] = await firstColumn(
       c,

@@ -109,6 +109,122 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-24 — The replace that left nothing
+
+#### R107 · S1 · Publishing to Iceberg with "Replace" dropped the table before it knew it could write the new one
+
+Queued by R106. The Lakehouse's "Publish to Iceberg" writes a lakehouse
+table into a registered Iceberg REST catalog. Its "If it exists" choice
+offers "Refuse (keep the existing table)" or "Replace it (drop, then
+create)". The DuckDB Iceberg extension has no `CREATE OR REPLACE`, so
+replace was exactly what the label says: `DROP TABLE IF EXISTS <target>`,
+then `CREATE TABLE <target> AS SELECT * FROM <source>`, two statements in
+that order. When the create failed, the catalog was left with no table at
+all. The owner had asked to replace the table, not to remove it, and
+Spark, Trino and Snowflake reading the catalog lost it. A create fails
+easily: a source column the Iceberg writer cannot store, a catalog or
+storage error, a policy on the source.
+
+**Driven, before the fix** (image `987d1ff3b46c`), on tables and a
+namespace made for the purpose:
+
+- `CREATE TABLE analytics.r107_src AS SELECT 1 AS id, 'published' AS
+  note`, and `CREATE TABLE analytics.r107_bad AS SELECT 2 AS id, INTERVAL
+  1 DAY AS span`.
+- A probe, with no drop involved: `r107_bad` → Publish to Iceberg →
+  catalog `local_rest`, namespace `r107`, table `r107_probe`, Refuse →
+  `Invalid Input Error: Column type INTERVAL is not a valid Iceberg Type.`
+- `r107_src` → Publish → `r107` / `r107_pub`, Refuse → `Published 1
+  row(s) to r107.r107_pub`. Publishing it again with Refuse gave `Catalog
+  Error: Table with name "r107_pub" already exists`, so the table was
+  there.
+- `r107_bad` → Publish → `r107` / `r107_pub`, Replace it (drop, then
+  create) → `Invalid Input Error: Column type INTERVAL is not a valid
+  Iceberg Type.`
+- Iceberg → Mount a namespace → `local_rest` / `r107` as `ice_r107` →
+  `Mounted 0 tables`. The published table was gone, and nothing had
+  replaced it.
+
+**The first fix had a flaw of its own, and a drive found it.** It staged
+the new data under a fixed name, `<table>__publishing`, and began each
+replace by dropping any table of that name "left behind by an interrupted
+replace". A fixed name is a name somebody can own. On that build (image
+`d071cd16aab0`) the failed replace above now kept the table (`Mounted 1
+table`), and a good one worked (`Published 2 row(s)`). Then `r107_src`
+published with Refuse as `r107/r107_pub__publishing` (`Published 1
+row(s)`, and a mount read `Mounted 2 tables`). Replacing `r107_pub` from
+`analytics.r107_src2` dropped that table first. The catalog logged
+`Dropped table: r107.r107_pub__publishing`, then used the name for its
+staging copy and dropped it again at the end. The next mount read
+`Mounted 1 table`. The replace had destroyed a table the owner never
+named, which is the defect this round set out to remove, moved to a
+different table.
+
+The same drive met a catalog-side fault. For two attempts the catalog
+answered HTTP 500 to every `DELETE`: `[SQLITE_BUSY] The database file is
+locked`, in the SQLite store of the development catalog
+(`tabulario/iceberg-rest`). Creates still succeeded. The owner's table
+survived those two attempts only because of the lock. A lock held between
+HTTP requests is inside the catalog server, not in anything this app
+holds. Restarting that one container cleared it, and its state lives on a
+volume, so both tables were still listed afterwards. The fault also
+showed a gap in the fix: when the catalog refuses the drop of the old
+table, the old table stands, and the staging copy was left behind.
+
+**Driven, after the fix** (image `b413a02e6aad`), with the owner's table
+put back first:
+
+- `r107_src` published with Refuse as `r107/r107_pub__publishing` gave
+  `Published 1 row(s)`.
+- `r107_bad` → Replace `r107_pub` → the INTERVAL error. The catalog's log
+  shows the staging name `r107_pub__publishing_4482b342` looked up, never
+  created, and nothing dropped. Mount `ice_r107_fixed` → `Mounted 2
+  tables`.
+- `r107_src` → Replace `r107_pub` → `Published 1 row(s) to
+  r107.r107_pub`. The catalog's log, in order: committed
+  `r107_pub__publishing_81ccfb38`, dropped `r107_pub`, committed
+  `r107_pub`, dropped `r107_pub__publishing_81ccfb38`.
+- Mount `ice_r107_final` → `Mounted 2 tables`. Through that mount,
+  `r107_pub` reads `1 published`, and so does the owner's
+  `r107_pub__publishing`, untouched.
+
+The refused drop of the old table was not driven again. The catalog lock
+that produced it cannot be brought on at will, so a test covers it.
+
+A replace now stages the new data first, under a name made for that
+publish alone: `<table>__publishing_<8 hex>`. Once that write has
+succeeded, it drops the old table, fills the old name from the staged
+copy (whose types the catalog has just accepted), and drops the staging
+table. The only tables a replace ever drops are the one the owner named
+and the one it has just created. A write that cannot happen fails before
+anything is dropped. If the staged write or the drop of the old table
+fails, the old table stands and the staging table is removed. That is
+always safe, because the new data is still in the lakehouse. If the copy
+into the old name fails in the narrow window after the drop, the error
+says so and names the staging table that holds the new data. A failed
+cleanup of the staging table is logged, and does not fail a publish that
+has landed. `create` is unchanged. The cost is that a replace writes the
+data twice.
+
+**Tests:** 8 new, run against a fake engine that fails the statements each
+test names:
+
+- A staged write that fails leaves the old table undropped, and removes
+  its own staging table.
+- A refused drop of the old table removes the staging table.
+- The new data is staged before the old table is dropped.
+- A failed copy into the old name says where the new data is.
+- A failed staging cleanup does not fail a publish that landed.
+- The only tables dropped are the named one and one created earlier in
+  the same publish.
+- Two publishes stage under different names.
+- `create` never drops.
+
+The existing test of the publish SQL now pins the whole five-statement
+replace, and pins that a replace without a staging name refuses. 11
+behaviour-changing mutants each killed, control missed, baseline green
+first.
+
 ### 2026-09-24 — Deleted, said the page, of a dataset it still listed
 
 #### R106 · S2 · The browser's dataset delete and replace did not read the database's answer
