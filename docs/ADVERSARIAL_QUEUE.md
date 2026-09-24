@@ -397,13 +397,19 @@ least twice, not a hypothetical.
     existing table, and wrote past the guard for mounts. The existence
     check is now `lakehouseTableExists` in `core.server`, shared with
     R101.
-  - **SQL models, the TOP candidate for R103** (`sqlModels/run.server.ts`).
+  - **SQL models, R103, DONE at save** (`sqlModels/run.server.ts`).
     A build runs `DROP <other shape> IF EXISTS <target>` and then `CREATE
     OR REPLACE`. A model with view materialization, named like an existing
     ordinary table in its schema, would DROP that table outright. A
     table-materialized one would replace it. The guard has to be "refuse
     a table this model did not build". A model rebuilding its own target
-    is its job.
+    is its job. Fixed at SAVE: a new or renamed model must find its name
+    free. Still open: a table created at a model's target after the model
+    was saved is replaced by its next build, and a scheduled build does it
+    unattended. Closing that needs the build to leave a mark it can
+    recognise on what it made. A table COMMENT would do, if DuckLake keeps
+    it; check that first. Then refuse to replace an object that lacks the
+    mark and that the model did not build before.
   - ML batch scoring (`ml/pyTrain.ts`, `CREATE OR REPLACE TABLE <output>`)
     and the feature training set (`featureViews/trainingSet.server.ts`)
     replace a user-named output table. Both have the same legitimate

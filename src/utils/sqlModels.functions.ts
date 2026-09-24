@@ -164,12 +164,19 @@ export const sqlModelSave = createServerFn({ method: "POST" })
     // A materialized view already owns (schema, table) globally, and a model
     // writing the same target would fight it every sweep. Refuse the collision
     // by name instead of letting two schedules overwrite each other.
-    const { data: clash } = await supabaseAdmin
+    const { data: clash, error: clashErr } = await supabaseAdmin
       .from("lakehouse_materialized_views")
       .select("id")
       .eq("schema_name", data.schema_name)
       .eq("table_name", data.name)
       .maybeSingle();
+    // An unreadable answer is not "no clash".
+    if (clashErr) {
+      return {
+        ok: false,
+        error: `Could not check whether ${data.schema_name}.${data.name} is a materialized view: ${clashErr.message}`,
+      };
+    }
     if (clash) {
       return {
         ok: false,
@@ -190,6 +197,39 @@ export const sqlModelSave = createServerFn({ method: "POST" })
     const others = existing.filter((m) => m.id !== data.id);
     if (others.some((m) => m.name === data.name)) {
       return { ok: false, error: `You already have a model called ${data.name}` };
+    }
+
+    // FOUND IN R103. A build runs DROP <the other shape> IF EXISTS on the
+    // target and then CREATE OR REPLACE, and the name IS the target. A model
+    // given the name of a table it never built took that table: stored as a
+    // view, it dropped it outright; stored as a table, it replaced it. The
+    // materialized-view clash above was checked, and an ordinary table was
+    // not. A model keeping the target it already has is rebuilding its own
+    // output. A new model, or one moved to a new name or schema, must find
+    // the name free.
+    const previous = data.id ? existing.find((m) => m.id === data.id) : undefined;
+    const retargeted =
+      !previous || previous.schema_name !== data.schema_name || previous.name !== data.name;
+    if (retargeted) {
+      let taken: boolean;
+      try {
+        const { lakehouseTableExists } = await import("@/utils/lakehouse/core.server");
+        taken = await lakehouseTableExists(data.schema_name, data.name);
+      } catch (e) {
+        return {
+          ok: false,
+          error: `Could not check whether ${data.schema_name}.${data.name} is free: ${(e as Error).message}`,
+        };
+      }
+      if (taken) {
+        return {
+          ok: false,
+          error:
+            `${data.schema_name}.${data.name} already exists, and this model did not build it. ` +
+            `Building the model would replace it${data.materialization === "view" ? " (a view-stored model drops the table first)" : ""}. ` +
+            `Give the model another name, or drop the table first if replacing it is what you mean.`,
+        };
+      }
     }
     try {
       buildPlan([...others, candidate]);

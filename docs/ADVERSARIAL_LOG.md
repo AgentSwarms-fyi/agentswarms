@@ -109,6 +109,70 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-24 — The model that took a table's name
+
+#### R103 · S1 · A SQL model named like an existing table dropped it
+
+From R101's sweep, and the sharpest of it. A SQL model's name is its
+target table, "as in dbt". A build first runs `DROP <the other shape> IF
+EXISTS <target>`, so that a model switching between table and view is not
+stuck, and then `CREATE OR REPLACE <shape> <target> AS <select>`. Saving a
+model checked the name against materialized views ("is already a
+materialized view"). It never checked it against the ordinary tables in
+the schema. A model given the name of a table it had never built took
+that table. Stored as a view, the model's build dropped the table
+outright. Stored as a table, it replaced it.
+
+**Driven, before the fix** (image `820d1915bef9`). Lakehouse → `CREATE
+TABLE analytics.r103_keep AS SELECT 103 AS id, 'a table no model built' AS
+note`, read back `103 · a table no model built`. Then SQL Models → New
+model: Name `r103_keep`, Schema `analytics`, Stored as `View — the query
+runs on every read`, SQL `SELECT 1 AS x` → Create gave the toast `Created
+r103_keep`. Build this and what it reads gave `Built 1 model`, and the
+run list showed `r103_keep · built · 1 rows`. `SELECT * FROM
+analytics.r103_keep` then read back `x · 1`. The table and its row were
+gone, dropped by the build, with a view in their place.
+
+**After the rebuild** (container `cf409cf0925a`):
+
+- `CREATE TABLE analytics.r103_keep2 AS SELECT 1032 AS id, 'still no model
+  built this' AS note`. Then New model `r103_keep2`, `analytics`, View,
+  `SELECT 1 AS x` → Create. The toast read `analytics.r103_keep2 already
+  exists, and this model did not build it. Building the model would
+  replace it (a view-stored model drops the table first). Give the model
+  another name, or drop the table first if replacing it is what you mean.`
+  No model was created.
+- A model rebuilding its own target is unchanged. Opening `r103_keep` and
+  changing its SQL to `SELECT 2 AS x` → Save gave `Saved r103_keep`. Build
+  gave `Built 1 model`.
+- Read back together, `analytics.r103_keep` gave `2` and
+  `analytics.r103_keep2` gave `still no model built this`.
+
+The save now asks the lakehouse, through R102's shared
+`lakehouseTableExists`, whether the target is taken. It asks whenever the
+target is new to this model: a new model, or one moved to another name or
+schema. A model keeping the target it already has is rebuilding its own
+output, and is not asked. Otherwise every existing model would be
+refused on its next save. An unanswerable check refuses rather than
+guessing the name is free. So does an unreadable answer from the
+materialized-view clash check, whose error the code dropped.
+
+Still open, and recorded in the queue: a table created at a model's target
+AFTER the model was saved is still replaced by that model's next build.
+Only the save is checked, because telling "the table this model built"
+from "a table made there since" needs the build to leave a mark it can
+recognise.
+
+**Tests:** 7, source-anchored, because the save is a server function (the
+check it calls is executed in `lakehouseImportNoReplace.test.ts`). The save
+asks, refuses exactly when the answer is taken, and names the reason and
+the way out. It asks only for a target new to the model, refuses when it
+cannot tell, and decides before anything is written. The view-clash read
+fails closed. 6 behaviour-changing mutants each killed, control missed,
+baseline green first. The first run left one surviving: turning `if
+(taken)` into `if (false)` passed, because the tests only proved the
+message existed. The test now pins it to the branch.
+
 ### 2026-09-24 — The new table that was an old one
 
 #### R102 · S1 · "New table → Import dataset" replaced an existing table

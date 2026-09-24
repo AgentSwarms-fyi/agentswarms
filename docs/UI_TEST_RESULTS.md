@@ -15,6 +15,37 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-24 — A SQL model named like an existing table, before and after, ADVERSARIAL_LOG R103
+
+**Why this round exists.** A model's name is its target table, and a build
+runs `DROP <other shape> IF EXISTS` and then `CREATE OR REPLACE` on it.
+Saving a model checked the name against materialized views, not ordinary
+tables. Driven only on tables made for this round.
+
+### Before the fix
+
+| Time | Driven | Read back |
+| ---- | ------ | --------- |
+| 10:13 | on container `820d1915bef9`, Lakehouse → `CREATE TABLE analytics.r103_keep AS SELECT 103 AS id, 'a table no model built' AS note` | `SELECT *` → `103 · a table no model built` |
+| 10:14:57 | SQL Models → New model → Name `r103_keep`, Schema `analytics`, Stored as `View — the query runs on every read`, SQL `SELECT 1 AS x` → Create | toast `Created r103_keep`; the list shows `r103_keep VIEW` |
+| 10:15:09 | Build this and what it reads | toast `Built 1 model`; run `r103_keep · built · 1 rows` |
+| 10:15 | Lakehouse → `SELECT * FROM analytics.r103_keep` | `x integer`, `1`. The table and its row are gone |
+
+### After the rebuild
+
+| Time | Driven | Read back |
+| ---- | ------ | --------- |
+| 10:30 | on container `cf409cf0925a`, `CREATE TABLE analytics.r103_keep2 AS SELECT 1032 AS id, 'still no model built this' AS note` | `Count 1` |
+| 10:31:12 | New model → `r103_keep2`, `analytics`, View, `SELECT 1 AS x` → Create | toast `analytics.r103_keep2 already exists, and this model did not build it. Building the model would replace it (a view-stored model drops the table first). Give the model another name, or drop the table first if replacing it is what you mean.`; no model created |
+| 10:31:40 | open `r103_keep` → SQL `SELECT 2 AS x` → Save | `Saved r103_keep`. A model keeping its own target is not asked |
+| 10:31:50 | Build this and what it reads | `Built 1 model` |
+| 10:32 | `SELECT (SELECT x FROM analytics.r103_keep), (SELECT note FROM analytics.r103_keep2)` | `2 · still no model built this` |
+
+Fixtures kept: the model `r103_keep` (a view, `SELECT 2 AS x`), and the table
+`analytics.r103_keep2`.
+
+Findings from this round: R103 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-24 — Importing a dataset as a "new" table onto an existing name, before and after, ADVERSARIAL_LOG R102
 
 **Why this round exists.** R101's sibling sweep. The Lakehouse "New table"
