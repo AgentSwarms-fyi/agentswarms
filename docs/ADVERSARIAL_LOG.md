@@ -109,6 +109,90 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-25 — My First Swarm, again
+
+#### R110 · S2 · A failed read of the swarm list made a new swarm and opened it in place of the one asked for
+
+Found by the sweep R109 queued: a read of a whole document whose error is
+dropped. The swarm canvas starts by reading the owner's swarms, their
+knowledge bases and their agents, in parallel, and it kept none of the
+three errors. A refused list read came back as `rows = []`. For an owner
+with no swarms, the canvas creates one, so it inserted "My First Swarm"
+and opened it. That happened whatever swarm the URL asked for, and it
+said nothing. The owner saw an empty canvas where their swarm should be,
+under a name they never chose, and the gallery kept the new row. It never
+overwrites the swarm that was asked for, because a Save goes to the new
+row, but it looks exactly like the swarm has been lost.
+
+Two smaller paths sat beside it:
+
+- Switching swarms from the canvas dropped its read's error and simply
+  did not switch.
+- A URL naming a swarm that is not in the list opened the first swarm
+  in the list, without a word.
+
+**Driven, before the fix** (image `b1409a24ad3d`). The gallery listed 18
+swarms. The canvas's list read (`GET swarms?select=*&order=created_at.asc`)
+was refused from the browser with a 503, and Open was pressed on "R109
+chat echo" (`d10c86c5`):
+
+- postgrest-js tried four times, and then the canvas made a `POST
+  swarms` (201).
+- The URL still said `?swarm=d10c86c5-…`, but the canvas was "My First
+  Swarm", 0 nodes, "Start wiring your swarm", with no toast.
+- Back in the gallery: 19 swarms. "My First Swarm" was new at the top,
+  and "R109 chat echo" was unchanged with its 2 nodes.
+
+**Driven, after the fix** (image `abd4e27a1a31`), from the same gallery
+of 19:
+
+- The same refused list read and Open on "R109 chat echo": four refused
+  reads and no `POST`. The canvas area said "Could not load your swarms"
+  and "R110 injected: the GET did not reach the database. Nothing was
+  opened or created, and your swarms are as you left them.", with "Try
+  again" and "Back to gallery".
+- With the fault lifted, "Try again" read the list (`GET` 200) and opened
+  "R109 chat echo" with its 2 nodes.
+- A URL naming a swarm that does not exist (`00000000-…-000000000110`)
+  gave the toast "That swarm is not in your list · Opened "Swarm 1"
+  instead."
+- The gallery still listed 19, with the one "My First Swarm" the
+  before-drive had made.
+
+What the canvas opens first is now decided by `chooseInitialSwarm`
+(`lib/swarmInitialLoad.ts`), from the list AND its error:
+
+- **A list that could not be read.** Nothing is opened and nothing is
+  created. The canvas says "Could not load your swarms", then the reason
+  and "Nothing was opened or created, and your swarms are as you left
+  them.", with "Try again" and "Back to gallery".
+- **The swarm asked for.** It is opened.
+- **A swarm asked for that is not in the list.** The toast says "That
+  swarm is not in your list", and says which swarm was opened instead.
+- **An owner who really has no swarms.** They still get "My First
+  Swarm". Its insert now reads its answer.
+
+A failed read of the knowledge bases or agents says their pickers stay
+empty. A switch that could not read the other swarm says "Could not open
+that swarm", and stays where it was.
+
+**Tests:** 8. The decision itself is tested:
+
+- A failed read opens and creates nothing, even with a swarm asked for.
+- The swarm asked for is opened.
+- A missing one opens the first swarm, marked as missing.
+- A first swarm is made only for an empty list.
+- With no swarm asked for, the first one in the list opens.
+
+Anchored in the canvas source:
+
+- The list's error decides before any `applySwarmRow` or `.insert(`.
+- "Try again" loads again.
+- A failed switch says so.
+
+8 behaviour-changing mutants each killed, control missed, baseline green
+first.
+
 ### 2026-09-25 — One message, and the conversation before it was gone
 
 #### R109 · S1 · A swarm chat opened through a failed read saved the next message over its whole transcript

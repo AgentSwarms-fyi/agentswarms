@@ -15,6 +15,37 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-25 — Opening a swarm when its list cannot be read, before and after, ADVERSARIAL_LOG R110
+
+**Why this round exists.** The swarm canvas took a failed read of the
+owner's swarms for an empty account, and created "My First Swarm". Driven
+from the gallery, where Open navigates client-side, so a fault installed
+on the page reaches the canvas's first read: `GET
+swarms?select=*&order=created_at.asc` answered 503 `R110 injected: the GET
+did not reach the database`.
+
+### Before the fix
+
+| Time | Driven | Read back |
+| ---- | ------ | --------- |
+| 01:47:57 | on image `b1409a24ad3d`, gallery (18 swarms), list read refused → Open on "R109 chat echo" | four refused `GET`s, then `POST swarms` 201 at 01:48:04 |
+| 01:48:06 | the canvas | URL `?swarm=d10c86c5-…`, name "My First Swarm", 0 nodes, "Start wiring your swarm"; no toast |
+| 01:48:25 | Back to swarm gallery | `My Swarms 19`: "My First Swarm" new at the top, "R109 chat echo · 2 nodes" unchanged |
+
+### After the rebuild
+
+| Time | Driven | Read back |
+| ---- | ------ | --------- |
+| 02:04:10 | on image `abd4e27a1a31`, gallery (19 swarms), list read refused → Open on "R109 chat echo" | four refused `GET`s and no `POST`; "Could not load your swarms · R110 injected: the GET did not reach the database. Nothing was opened or created, and your swarms are as you left them. · Try again · Back to gallery" |
+| 02:04:26 | fault lifted → Try again | `GET` 200; the canvas opens "R109 chat echo" with 2 nodes |
+| 02:04:40 | URL `?swarm=00000000-0000-4000-8000-000000000110` | toast `That swarm is not in your list · Opened "Swarm 1" instead.` |
+| 02:04:49 | the gallery | still `My Swarms 19`, one "My First Swarm" |
+
+Fixtures kept: the "My First Swarm" the before-drive created, with no
+nodes, kept as the record of the defect. "R109 chat echo" is unchanged.
+
+Findings from this round: R110 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-25 — A swarm chat opened through a failed read, and saves that failed in silence, before and after, ADVERSARIAL_LOG R109
 
 **Why this round exists.** The swarm chat dialog ("Chat with this swarm" on

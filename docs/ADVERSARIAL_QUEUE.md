@@ -538,6 +538,17 @@ least twice, not a hypothetical.
   — start with the ones next to a `<Switch>`, and with any text that
   survives from before a behaviour change (the shipped templates' notes
   name several such changes explicitly).
+- A failed read that becomes an empty ACCOUNT becomes a write (R110): the
+  swarm canvas read `rows = []` and created "My First Swarm" in place of
+  the swarm asked for. Any "first run" branch (`if (rows.length === 0)
+  create…`) must be fed from a read whose error was kept. The R109 sweep
+  continues from here. In `swarms.tsx`, the switch only ever switched on
+  data, and now says why it did not. `refreshPublished` still drops its
+  error and sets the snapshot to null, which HIDES the "draft ahead of
+  what is live" badge: no write, but a warning silenced by a failed read.
+  `playground.tsx:2509` (an execution trace) and `mcpApps.functions.ts:69`
+  are not yet read. The Recent runs "No runs yet" (R108's note) is the
+  same shape without the write.
 - A failed read that becomes an empty document becomes a data loss at the
   next save (R109): the swarm chat opened a conversation over
   `data?.messages ?? []`, kept its id, and saved the next turn over the
