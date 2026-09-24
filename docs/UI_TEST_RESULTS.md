@@ -15,6 +15,37 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-24 — Deleting a dataset when the database refuses, before and after, ADVERSARIAL_LOG R106
+
+**Why this round exists.** The browser's `deleteDataset` never read the
+database's answer, so the page said "Deleted" whatever happened. The
+refusal was injected from the browser, which reaches this write because
+it is a direct PostgREST call: the DELETE on `/rest/v1/user_data_tables`
+answered 500 with `R106 injected: the delete did not reach the database`.
+Driven on a scratch dataset only.
+
+### Before the fix
+
+| Time | Driven | Read back |
+| ---- | ------ | --------- |
+| 22:02:40 | on container `79cc1f0208c9`, BI → Data preparation → Local tables → `sftest_campaigns` onto the canvas → Flow name `r106 scratch`, Output table `r106_scratch` → Run & save dataset | toast `Saved "r106_scratch" with 4 rows`; Local tables reads 34 |
+| 22:03:25 | refusal injected → `r106_scratch` → Delete dataset (`1 thing depends on this dataset…`) → type `r106_scratch` → Delete dataset | one DELETE refused; toast `Deleted "r106_scratch"`; the dialog closes |
+| 22:03:31 | the refreshed list | `r106_scratch · 33 cols · 4 rows · prep` still at its top |
+
+### After the rebuild
+
+| Time | Driven | Read back |
+| ---- | ------ | --------- |
+| 22:20:27 | on container `987d1ff3b46c`, refusal injected → the same delete | toast `"r106_scratch" was not deleted: R106 injected: the delete did not reach the database`; the dialog stays open; the list still shows it |
+| 22:20:46 | refusal removed → Delete dataset in the same dialog | toast `Deleted "r106_scratch"`; it leaves the list |
+| 22:21 | page reloaded → Data preparation → Local tables | `33`, with no `r106_scratch` |
+
+Fixtures: the scratch dataset is gone, deleted as part of the round. The
+prep flow `r106 scratch` remains, now pointing at a dataset that no longer
+exists.
+
+Findings from this round: R106 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-24 — Building a feature view's training set onto an existing table, before and after, ADVERSARIAL_LOG R105
 
 **Why this round exists.** R101's sweep. A training set is written with

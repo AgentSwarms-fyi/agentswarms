@@ -424,8 +424,20 @@ least twice, not a hypothetical.
     if the feature is ever given a table of its own.
   - ETL sinks are CLEAR: they replace only in `write_mode: "replace"`,
     which the owner picks by that name.
-  - Not yet read: a Data Prep flow saved as a dataset over an existing
-    name, the CSV upload's table name, and the Iceberg publish.
+  - CLEAR (read in R106): a Data Prep flow saved as a dataset, and the CSV
+    upload. Both replace a same-named dataset deliberately and
+    recoverably, snapshotting the old rows as a version first. The Iceberg
+    publish and import are CLEAR too: `create` is a plain CREATE TABLE,
+    and replace is chosen by name. Iceberg's replace is still a DROP and
+    then a CREATE, two statements, so a create that fails after the drop
+    (a column type Iceberg cannot store) leaves the catalog with no table
+    at all. That is a candidate for its own round, and needs a type the
+    writer refuses to prove it.
+  - Reading them found R106: the BROWSER's copies of the dataset delete and
+    replace (`lib/sqlEngine.ts`) never read the database's answer. R87 had
+    fixed only the server's. Sweep: every direct `supabase.from(…).delete()`
+    or `.update()` in `src/lib` and `src/components` that is awaited
+    without its `error`, especially where a success toast follows.
 - A protocol step skipped because one server let it slide (R99): the
   agents' MCP client never sent `initialize`, and worked against whatever
   it was first tried on. A stateless server accepts a cold request, and a

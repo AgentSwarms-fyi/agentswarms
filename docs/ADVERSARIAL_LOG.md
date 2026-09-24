@@ -109,6 +109,75 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-24 — Deleted, said the page, of a dataset it still listed
+
+#### R106 · S2 · The browser's dataset delete and replace did not read the database's answer
+
+Found while finishing R101's sweep. The last unread writers were Data Prep's
+"Run & save dataset" and the CSV upload. Both replace a dataset of the same
+name, deliberately and recoverably: each snapshots the old rows as a
+version first ("a re-upload of the wrong file is otherwise
+unrecoverable"). They are CLEAR for that class. The Iceberg publish and
+import are CLEAR too: "create" is a plain `CREATE TABLE`, and replacing
+has to be picked by name. Reading the browser's copy of the dataset
+writes, in `lib/sqlEngine.ts`, turned up the thing R87 fixed on the
+server, still live here:
+
+- **`deleteDataset`** ran `supabase.from("user_data_tables").delete()` and
+  never looked at the answer. It dropped the table from the page's engine,
+  and both callers then toasted `Deleted "<name>"`. That is the Data
+  Catalog's workbench and BI's Data preparation. A delete that row-level
+  security filters out is not an error either, just nothing removed, and
+  it was treated the same way.
+- **`saveDataset`**, replacing a dataset of the same name (the warehouse
+  import's path), deleted the old rows and never checked. A failed delete
+  left them, the new rows were appended below, and the dataset came out
+  doubled under `Imported N rows`. That is R87 exactly, in the browser. The
+  update of the dataset's details was unchecked too, and so was the lookup
+  that decides between replacing and creating. A failed lookup read as "no
+  such dataset" and created a second one of the same name.
+
+**Driven, before the fix** (image `79cc1f0208c9`). BI → Data preparation
+→ Local tables → `sftest_campaigns` onto the canvas → Flow name `r106
+scratch`, Output table `r106_scratch` → Run & save dataset gave `Saved
+"r106_scratch" with 4 rows`. The DELETE on `/rest/v1/user_data_tables`
+was then made to answer 500 (`R106 injected: the delete did not reach the
+database`). `r106_scratch` → Delete → the dialog (`1 thing depends on this
+dataset…`) → type `r106_scratch` → Delete dataset. The one DELETE was
+refused. The toast read `Deleted "r106_scratch"`, and the refreshed list
+still showed `r106_scratch · 33 cols · 4 rows · prep` at its top.
+
+**After the rebuild** (container `987d1ff3b46c`), the same page and the
+same injected refusal:
+
+- `r106_scratch` → Delete → confirm. The one DELETE (now asking for the
+  row back, `select=id`) was refused. The toast read `"r106_scratch" was
+  not deleted: R106 injected: the delete did not reach the database`. The
+  dialog stayed open, and the list still showed the dataset, which was
+  now the truth.
+- With the refusal removed, the same dialog's Delete dataset gave
+  `Deleted "r106_scratch"`, and the dataset left the list. After a
+  reload, Local tables read 33, down from 34, and `r106_scratch` was not
+  among them.
+
+`deleteDataset` now asks for the deleted row back and counts it. An error
+or an empty answer throws, and the page's engine table is dropped only
+once the row is really gone. Both callers already hand a throw to the
+dialog, which shows it and stays open. `saveDataset` checks the lookup,
+the clear and the update, and stops before the insert when any of them
+fails. So a replace can never append to rows it could not remove.
+
+**Tests:** 8, run with the browser's database client and engine faked, so
+they see every write and its order. A refused or empty delete throws and
+leaves the page's table. A real one drops it after the row is gone. A
+failed clear, a failed update or a failed lookup stops the save before
+anything is appended, and a good replace clears before it writes. 6
+behaviour-changing mutants each killed, control missed, baseline green
+first.
+
+`runAndSavePrep` in `lib/dataPrep.ts` is a third caller of `saveDataset`
+with no callers of its own. It is dead code, left for a tidy-up.
+
 ### 2026-09-24 — The training set built over a table
 
 #### R105 · S1 · A feature view's training set replaced a table it had not made

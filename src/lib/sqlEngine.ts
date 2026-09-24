@@ -341,12 +341,17 @@ export async function saveDataset(args: {
   const safeName = safeTableName(args.tableName);
 
   // Upsert by (user_id, name) for THIS user only — never touches shared samples.
-  const { data: existing } = await supabase
+  // An unreadable answer is not "no such dataset": treating it as one would
+  // create a second dataset of the same name beside the first.
+  const { data: existing, error: lookupErr } = await supabase
     .from("user_data_tables")
     .select("id")
     .eq("name", safeName)
     .eq("user_id", args.userId)
     .maybeSingle();
+  if (lookupErr) {
+    throw new Error(`Could not check whether "${safeName}" already exists: ${lookupErr.message}`);
+  }
 
   let tableId: string;
   if (existing) {
@@ -356,8 +361,21 @@ export async function saveDataset(args: {
     // otherwise unrecoverable. Best-effort by design: a versioning problem
     // must not block the save the user asked for.
     await snapshotBeforeOverwrite(tableId, args.versionReason ?? "overwrite", args.sourceFilename);
-    await supabase.from("user_data_rows").delete().eq("table_id", tableId);
-    await supabase
+    // FOUND IN R106 — R87's bug, in the browser's copy of the same write. A
+    // replace is a delete and an insert, and this delete's error was dropped:
+    // the old rows stayed, the new ones were appended below them, and the
+    // dataset came out doubled under a success toast. The insert must not run
+    // unless the delete did.
+    const { error: clearErr } = await supabase
+      .from("user_data_rows")
+      .delete()
+      .eq("table_id", tableId);
+    if (clearErr) {
+      throw new Error(
+        `The previous rows of "${safeName}" could not be cleared: ${clearErr.message}. Nothing was written, so it still holds the rows it had.`,
+      );
+    }
+    const { error: metaErr } = await supabase
       .from("user_data_tables")
       .update({
         source_filename: args.sourceFilename,
@@ -367,6 +385,9 @@ export async function saveDataset(args: {
         data_loaded_at: new Date().toISOString(),
       })
       .eq("id", tableId);
+    if (metaErr) {
+      throw new Error(`"${safeName}" could not be updated: ${metaErr.message}`);
+    }
   } else {
     const { data: created, error } = await supabase
       .from("user_data_tables")
@@ -411,8 +432,27 @@ export async function saveDataset(args: {
   };
 }
 
+/**
+ * Delete a dataset, and say so only when it is gone.
+ *
+ * FOUND IN R106. The delete's answer was not read: a failed delete dropped the
+ * table from the page's engine anyway, and both callers then toasted
+ * `Deleted "<name>"` over a dataset the refreshed list still showed. A delete
+ * that row-level security filters out is not an error either, just nothing
+ * removed, so the deleted row is asked for back and counted.
+ */
 export async function deleteDataset(tableId: string, tableName: string): Promise<void> {
-  await supabase.from("user_data_tables").delete().eq("id", tableId);
+  const { data: gone, error } = await supabase
+    .from("user_data_tables")
+    .delete()
+    .eq("id", tableId)
+    .select("id");
+  if (error) throw new Error(`"${tableName}" was not deleted: ${error.message}`);
+  if (!gone?.length) {
+    throw new Error(
+      `"${tableName}" was not deleted: it is not yours to delete, or it was already gone. Reload to see the current list.`,
+    );
+  }
   await dropBrowserTable(tableName);
 }
 
