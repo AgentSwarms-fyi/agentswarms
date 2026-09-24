@@ -15,6 +15,38 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-24 — Importing a dataset as a "new" table onto an existing name, before and after, ADVERSARIAL_LOG R102
+
+**Why this round exists.** R101's sibling sweep. The Lakehouse "New table"
+dialog's Import dataset half built with `CREATE OR REPLACE TABLE`, while its
+Define columns half refuses an existing name. Driven only on tables made for
+R101 and this round.
+
+### Before the fix
+
+| Time | Driven | Read back |
+| ---- | ------ | --------- |
+| 09:39 | on container `91a6460a6a93`, `analytics.r101_keep2` holds `7 · still precious` (R101's after-drive) → schema `analytics` → New table (+) → Import dataset → Platform dataset `f1_constructor_standings` → Table name `r101_keep2` → Import | toasts `Imported 10 row(s)` and `Table analytics.r101_keep2 ready` |
+| 09:40 | `SELECT * FROM analytics.r101_keep2 LIMIT 3` | `wins · points · position · constructor · nationality`: `14 · 833 · 1 · McLaren · British`, …. The previous row and columns are gone |
+
+### After the rebuild
+
+| Time | Driven | Read back |
+| ---- | ------ | --------- |
+| 09:59:47 | on container `820d1915bef9`, New table → Import dataset → `f1_constructor_standings` → `r101_keep2` → Import | toast `analytics.r101_keep2 already exists. Importing would replace its rows with this dataset. Pick a new name, or drop the table first if replacing it is what you mean.`; the dialog stays open |
+| 10:00:00 | the same dialog, Table name `r102_import` → Import | `Imported 10 row(s)`, `Table analytics.r102_import ready`; `count(*)` = 10 |
+| 10:00:30 | `CREATE TABLE analytics.r102_keep AS SELECT 102 AS id, 'untouched by the import' AS note` | `Count 1` |
+| 10:00:59 | New table → Import dataset → `f1_constructor_standings` → `r102_keep` → Import | the same refusal, naming `analytics.r102_keep` |
+| then | `SELECT * FROM analytics.r102_keep` | `102 · untouched by the import` |
+| 10:01:32 | `SELECT 1 AS one` → Save as view → `analytics` / `r102_keep` (R101's check, now shared) | `analytics.r102_keep is an existing table, not a materialized view. …` |
+
+Fixtures kept, all made for R101 and R102 and holding nothing else:
+`analytics.r101_keep` (a manual view), `analytics.r101_keep2` (now the f1
+constructor standings, from the before-drive), `analytics.r102_keep` and
+`analytics.r102_import`.
+
+Findings from this round: R102 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-24 — Saving a materialized view onto an existing table's name, before and after, ADVERSARIAL_LOG R101
 
 **Why this round exists.** A materialized view is built with `CREATE OR

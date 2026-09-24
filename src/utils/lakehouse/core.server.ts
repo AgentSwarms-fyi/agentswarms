@@ -385,6 +385,34 @@ export async function lakehouseConnection(): Promise<DuckDBConnection> {
   return c;
 }
 
+/**
+ * Is there a table at this name in the lakehouse catalog right now?
+ *
+ * For every write that CREATES a table by name but would build it with a
+ * statement able to replace one (R101, R102). Compared without case, because
+ * DuckDB resolves identifiers that way: a table created as `Orders` is the one
+ * `CREATE OR REPLACE TABLE "orders"` would replace.
+ */
+export async function lakehouseTableExists(
+  schema: string,
+  table: string,
+  connect: () => Promise<Pick<DuckDBConnection, "run" | "closeSync">> = lakehouseConnection,
+): Promise<boolean> {
+  const c = await connect();
+  try {
+    const rows = await (
+      await c.run(
+        `SELECT count(*) FROM information_schema.tables ` +
+          `WHERE table_catalog = 'lake' AND lower(table_schema) = lower(${sq(schema)}) ` +
+          `AND lower(table_name) = lower(${sq(table)})`,
+      )
+    ).getRows();
+    return Number(rows[0][0]) > 0;
+  } finally {
+    c.closeSync();
+  }
+}
+
 // ── Maintenance ─────────────────────────────────────────────────────────────
 
 export type LakehouseMaintenanceResult = {

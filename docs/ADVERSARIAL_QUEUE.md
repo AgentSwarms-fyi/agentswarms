@@ -392,9 +392,26 @@ least twice, not a hypothetical.
   overwrote an existing table and reported "Built". Look for every write
   whose verb is CREATE OR REPLACE, `upsert`, `overwrite`, or `mode("overwrite")`
   behind a control that reads as "save" or "create", and ask what is
-  already at the target. Siblings to check: the ETL sink's write modes, a
-  Data Prep flow saved as a dataset over an existing name, the CSV upload's
-  table name, the Iceberg publish, and the SQL model build target.
+  already at the target. SWEPT so far:
+  - **R102, DONE.** The "New table → Import dataset" dialog replaced an
+    existing table, and wrote past the guard for mounts. The existence
+    check is now `lakehouseTableExists` in `core.server`, shared with
+    R101.
+  - **SQL models, the TOP candidate for R103** (`sqlModels/run.server.ts`).
+    A build runs `DROP <other shape> IF EXISTS <target>` and then `CREATE
+    OR REPLACE`. A model with view materialization, named like an existing
+    ordinary table in its schema, would DROP that table outright. A
+    table-materialized one would replace it. The guard has to be "refuse
+    a table this model did not build". A model rebuilding its own target
+    is its job.
+  - ML batch scoring (`ml/pyTrain.ts`, `CREATE OR REPLACE TABLE <output>`)
+    and the feature training set (`featureViews/trainingSet.server.ts`)
+    replace a user-named output table. Both have the same legitimate
+    rebuild of their own output, and so need the same shape of guard.
+  - ETL sinks are CLEAR: they replace only in `write_mode: "replace"`,
+    which the owner picks by that name.
+  - Not yet read: a Data Prep flow saved as a dataset over an existing
+    name, the CSV upload's table name, and the Iceberg publish.
 - A protocol step skipped because one server let it slide (R99): the
   agents' MCP client never sent `initialize`, and worked against whatever
   it was first tried on. A stateless server accepts a cold request, and a

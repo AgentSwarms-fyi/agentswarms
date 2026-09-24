@@ -12,6 +12,7 @@ import {
   accessibleSchemas,
   lakehouseConnection,
   lakehouseEnabled,
+  lakehouseTableExists,
   runLakehouseStatement,
   type LakehouseResult,
   type SchemaRow,
@@ -530,7 +531,27 @@ export const importDatasetToLakehouse = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<{ rows: number }> => {
     const userId = await resolveCaller(data.access_token);
     const allowed = await accessibleSchemas(userId);
-    if (!allowed.some((s) => s.name === data.schema)) throw new Error("No access to this schema");
+    const target = allowed.find((s) => s.name === data.schema);
+    if (!target) throw new Error("No access to this schema");
+    // The page offers "New table" only on regular schemas. This write does not
+    // go through runLakehouseStatement's guard, so the server has to say the
+    // same thing, or a direct call writes into a read-only mount.
+    if (target.lake_source_id || target.iceberg_catalog_id) {
+      throw new Error("Data-lake mounts are read-only");
+    }
+    // FOUND IN R102. This is the "Import dataset" half of the "New table"
+    // dialog, and it built with CREATE OR REPLACE TABLE. Given the name of a
+    // table that already existed, it replaced that table's rows and columns
+    // with the dataset and said "Table … ready". The other half of the same
+    // dialog, Define columns, refuses an existing name. A new table is new, so
+    // this now refuses too, before paging a single row out, and the write
+    // below is a plain CREATE TABLE so that a race cannot replace one either.
+    if (await lakehouseTableExists(data.schema, data.table)) {
+      throw new Error(
+        `${data.schema}.${data.table} already exists. Importing would replace its rows with ` +
+          `this dataset. Pick a new name, or drop the table first if replacing it is what you mean.`,
+      );
+    }
     // Owner OR IAM-granted — the same rule the platform's own dataset access
     // uses, so anything the picker can list, the import can read.
     const { data: table } = await supabaseAdmin
@@ -587,7 +608,7 @@ export const importDatasetToLakehouse = createServerFn({ method: "POST" })
     try {
       await writeFile(file, JSON.stringify(rows), "utf8");
       await c.run(
-        `CREATE OR REPLACE TABLE ${qi(data.schema)}.${qi(data.table)} AS ` +
+        `CREATE TABLE ${qi(data.schema)}.${qi(data.table)} AS ` +
           `SELECT * FROM read_json_auto('${file.replace(/\\/g, "/").replace(/'/g, "''")}')`,
       );
     } finally {

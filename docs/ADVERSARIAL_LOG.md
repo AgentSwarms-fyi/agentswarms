@@ -109,6 +109,73 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-24 — The new table that was an old one
+
+#### R102 · S1 · "New table → Import dataset" replaced an existing table
+
+The first sibling from R101's sweep, and the plainest. Each schema in the
+Lakehouse object explorer has a **New table** button. Its dialog, titled
+"New table in <schema>", has two halves:
+
+- **Define columns** runs `CREATE TABLE` through the per-user statement
+  guard, and an existing name is refused.
+- **Import dataset** pages a platform dataset out of the store and runs
+  `CREATE OR REPLACE TABLE <schema>.<name> AS SELECT * FROM
+  read_json_auto(...)` on a raw engine connection. An existing name was
+  replaced, rows and columns, followed by "Table … ready".
+
+The same write also skipped the rest of the guard it bypasses. The page
+offers "New table" only on regular schemas, but the server function
+never checked, so a direct call could write into a read-only data-lake
+mount.
+
+**Driven, before the fix** (image `91a6460a6a93`). `analytics.r101_keep2`
+held `7 | still precious` after R101's after-drive. The schema's New table
+(+) → Import dataset → Platform dataset `f1_constructor_standings` → Table
+name `r101_keep2` → Import. The toasts read `Imported 10 row(s)` and `Table
+analytics.r101_keep2 ready`. `SELECT * FROM analytics.r101_keep2` then
+read back `wins · points · position · constructor · nationality`, starting
+`14 · 833 · 1 · McLaren · British`. The previous row and columns were
+gone.
+
+**After the rebuild** (container `820d1915bef9`):
+
+- A fresh table: `CREATE TABLE analytics.r102_keep AS SELECT 102 AS id,
+  'untouched by the import' AS note`. Then New table → Import dataset →
+  `f1_constructor_standings` → `r102_keep` → Import. The toast read
+  `analytics.r102_keep already exists. Importing would replace its rows with
+  this dataset. Pick a new name, or drop the table first if replacing it is
+  what you mean.` The dialog stayed open, and `SELECT * FROM
+  analytics.r102_keep` read back `102 · untouched by the import`.
+- The same refusal for `r101_keep2`.
+- A free name still imports. The same dataset → `r102_import` → `Imported
+  10 row(s)` and `Table analytics.r102_import ready`, reading back 10 rows.
+- R101's refusal, now through the shared check, still holds. Save as view
+  onto `r102_keep` answered `analytics.r102_keep is an existing table, not
+  a materialized view…`.
+
+The import now refuses an existing name before it pages a single row out
+of the store. The write itself is a plain `CREATE TABLE`, so a table
+created between the check and the write makes the import fail rather than
+be replaced. A mount or Iceberg schema is refused on the server, as the
+page already implied. The existence check is one function,
+`lakehouseTableExists` in `core.server`. The materialized-view save and the
+import both call it. It compares without case and takes its connection as
+a parameter, so it can be run against a fake engine.
+
+**Tests:** 10 new, and R101's file adjusted to the shared check. Four run
+the real check against a fake engine: it answers taken or free from the
+catalog, it asks without case in the `lake` catalog and closes its
+connection, and it quotes a hostile name rather than running it. Six are
+source-anchored: the import asks, refuses with the reason, asks before
+paging, writes with `CREATE TABLE`, refuses mounts, and uses the shared
+check, which R101's save also uses. 6 behaviour-changing mutants each
+killed, control missed, baseline green first.
+
+The rest of R101's sweep list is in the queue with what each one already
+does. The sharpest is the SQL model build, which runs `DROP <other shape>
+IF EXISTS` on its target before replacing it.
+
 ### 2026-09-24 — The view that was saved over a table
 
 #### R101 · S1 · "Save as view" replaced an existing table's data, and called it built

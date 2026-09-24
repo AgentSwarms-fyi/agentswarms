@@ -11,6 +11,8 @@
 //
 // Run here against a fake catalog and a fake engine, so the test sees every
 // statement that would have reached the lakehouse.
+import { readFileSync } from "node:fs";
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = {
@@ -62,6 +64,12 @@ vi.mock("@/utils/lakehouse/core.server", () => ({
   assertSchemasAllowed: () => {},
   classifyStatement: () => ({ kind: "select" }),
   lakehouseEnabled: () => true,
+  // Since R102 the check lives in core.server, shared with the dataset
+  // import; the fake answers from the test's state and records the ask.
+  lakehouseTableExists: async (schema: string, table: string) => {
+    state.statements.push(`EXISTS? ${schema}.${table}`);
+    return state.tableExists;
+  },
   selectReferencedSchemas: async () => [],
   stripSqlComments: (s: string) => s,
   lakehouseConnection: async () => ({
@@ -109,12 +117,17 @@ describe("a table that was never a view is not replaced", () => {
     expect(state.upserts).toBe(0);
   });
 
-  it("asks the catalog without case, as DuckDB resolves the name", async () => {
+  it("asks the catalog about the exact target before writing", async () => {
     state.tableExists = true;
     await saveMatviewForUser("owner", INPUT, "save").catch(() => {});
-    const probe = state.statements.find((s) => s.includes("information_schema.tables"));
-    expect(probe).toMatch(/lower\(table_name\) = lower\('r101_keep'\)/);
-    expect(probe).toMatch(/lower\(table_schema\) = lower\('analytics'\)/);
+    expect(state.statements).toEqual(["EXISTS? analytics.r101_keep"]);
+  });
+
+  it("and the catalog is asked without case, as DuckDB resolves the name", () => {
+    const core = readFileSync("src/utils/lakehouse/core.server.ts", "utf8");
+    const fn = core.slice(core.indexOf("export async function lakehouseTableExists("));
+    expect(fn.slice(0, 900)).toMatch(/lower\(table_name\) = lower\(\$\{sq\(table\)\}\)/);
+    expect(fn.slice(0, 900)).toMatch(/lower\(table_schema\) = lower\(\$\{sq\(schema\)\}\)/);
   });
 
   it("refuses when it cannot tell whether the name is a view", async () => {

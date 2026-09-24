@@ -18,6 +18,7 @@ import {
   classifyStatement,
   lakehouseConnection,
   lakehouseEnabled,
+  lakehouseTableExists,
   selectReferencedSchemas,
   stripSqlComments,
 } from "@/utils/lakehouse/core.server";
@@ -39,28 +40,6 @@ export type MaterializedView = {
 };
 
 const qi = (v: string) => `"${v.replace(/"/g, '""')}"`;
-const sq = (v: string) => `'${v.replace(/'/g, "''")}'`;
-
-/**
- * Is there a table at this name in the lakehouse catalog right now? Compared
- * without case, because DuckDB resolves identifiers that way: a table created
- * as `Orders` is the one `CREATE OR REPLACE TABLE "orders"` would replace.
- */
-async function lakehouseTableExists(schema: string, table: string): Promise<boolean> {
-  const c = await lakehouseConnection();
-  try {
-    const rows = await (
-      await c.run(
-        `SELECT count(*) FROM information_schema.tables ` +
-          `WHERE table_catalog = 'lake' AND lower(table_schema) = lower(${sq(schema)}) ` +
-          `AND lower(table_name) = lower(${sq(table)})`,
-      )
-    ).getRows();
-    return Number(rows[0][0]) > 0;
-  } finally {
-    c.closeSync();
-  }
-}
 
 /** How many views one sweep will refresh, so a big estate can't stall it. */
 const VIEWS_PER_SWEEP = 10;
