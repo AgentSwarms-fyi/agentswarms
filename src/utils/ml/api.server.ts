@@ -6,7 +6,11 @@
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { Json } from "@/integrations/supabase/types";
 import { auditEvent } from "@/utils/audit.server";
-import { accessibleSchemas, runLakehouseStatement } from "@/utils/lakehouse/core.server";
+import {
+  accessibleSchemas,
+  lakehouseTableExists,
+  runLakehouseStatement,
+} from "@/utils/lakehouse/core.server";
 import { getPlatformResources } from "@/utils/notebookRuntime/config.server";
 import { envInt, rateLimitedGlobal } from "@/utils/rateLimit.server";
 import { clientIp, clientUserAgent } from "@/utils/requestMeta.server";
@@ -357,6 +361,57 @@ export async function startBatchPrediction(args: {
       error: `Predictions can only be written to a lakehouse schema you own (not "${args.output.schema}")`,
     };
   }
+
+  // FOUND IN R104, from R101's sweep. The sandbox writes the scored rows with
+  // CREATE OR REPLACE TABLE <output>, and nothing asked what was already
+  // there. The dialog promises it "writes a new table you own", but an
+  // existing table's name replaced that table with predictions. Scoring
+  // again into a table an earlier prediction of yours wrote is what a daily
+  // schedule does, and stays allowed. Anything else at the name is refused.
+  // So is the input table itself, which a filter would cut down to the rows
+  // it kept.
+  const outName = `${args.output.schema}.${args.output.table}`;
+  if (
+    args.output.schema.toLowerCase() === args.input.schema.toLowerCase() &&
+    args.output.table.toLowerCase() === args.input.table.toLowerCase()
+  ) {
+    return {
+      ok: false,
+      error: `${outName} is the table being scored. Writing the predictions there would replace it${args.input.where?.trim() ? " with only the rows the filter keeps" : ""}. Pick another output table.`,
+    };
+  }
+  let taken: boolean;
+  try {
+    taken = await lakehouseTableExists(args.output.schema, args.output.table);
+  } catch (e) {
+    return {
+      ok: false,
+      error: `Could not check whether ${outName} is free: ${(e as Error).message}`,
+    };
+  }
+  if (taken) {
+    const { data: prior, error: priorErr } = await supabaseAdmin
+      .from("ml_predictions")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("status", "succeeded")
+      .eq("output->>schema", args.output.schema)
+      .eq("output->>table", args.output.table)
+      .limit(1);
+    if (priorErr) {
+      return { ok: false, error: `Could not check what wrote ${outName}: ${priorErr.message}` };
+    }
+    if (!prior?.length) {
+      return {
+        ok: false,
+        error:
+          `${outName} already exists, and no prediction of yours wrote it. Scoring into it would ` +
+          `replace its rows with predictions. Pick a new output table, or drop that table first ` +
+          `if replacing it is what you mean.`,
+      };
+    }
+  }
+
   const r = await getPlatformResources();
   const rel = `${q(args.input.schema)}.${q(args.input.table)}`;
   let rows = 0;

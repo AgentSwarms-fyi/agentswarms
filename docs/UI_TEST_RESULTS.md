@@ -15,6 +15,37 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-24 — A batch prediction written onto an existing table, before and after, ADVERSARIAL_LOG R104
+
+**Why this round exists.** R101's sweep. The sandbox writes a batch
+prediction's output with `CREATE OR REPLACE TABLE`, and starting one asked
+only whether the output schema was yours. Driven only on tables made for
+this round. The input `analytics.revenue_facts` is only read.
+
+### Before the fix
+
+| Time | Driven | Read back |
+| ---- | ------ | --------- |
+| 20:18 | on container `cf409cf0925a`, Lakehouse → `CREATE TABLE analytics.r104_keep AS SELECT 104 AS id, 'not a prediction' AS note` | `Count 1` |
+| 20:21:46 | ML Models → `revenue_facts plan classifier` → Predictions → Batch prediction → Input `analytics.revenue_facts`, Output schema `analytics`, Output table `r104_keep`, `v7 · logistic_regression · production` → Predict | toast `Batch prediction started` |
+| 20:22:24 | the job list | `succeeded · batch via ui · analytics.revenue_facts → analytics.r104_keep · 836 · 10s · moderate · 0.11` |
+| 20:23 | Lakehouse → `SELECT count(*) FILTER (WHERE note = 'not a prediction') FROM analytics.r104_keep` | `Binder Error: Referenced column "note" not found … Candidate bindings: "net_usd", "order_id", "proba_enterprise", …`; `count(*)` = 836 |
+
+### After the rebuild
+
+| Time | Driven | Read back |
+| ---- | ------ | --------- |
+| 20:48 | on container `0be169f13e15`, `CREATE TABLE analytics.r104_keep2 AS SELECT 1042 AS id, 'still not a prediction' AS note` | `Count 1` |
+| 20:49:43 | Batch prediction → output `r104_keep2` → Predict | the dialog stays open: `analytics.r104_keep2 already exists, and no prediction of yours wrote it. Scoring into it would replace its rows with predictions. Pick a new output table, or drop that table first if replacing it is what you mean.` |
+| 20:49:53 | the same dialog → output `revenue_facts`, filter `region = 'EMEA'` → Predict | `analytics.revenue_facts is the table being scored. Writing the predictions there would replace it with only the rows the filter keeps. Pick another output table.` |
+| 20:50:15 | output `r104_keep` (written by the before-drive's prediction), filter cleared → Predict | `Batch prediction started`, then `succeeded · … → analytics.r104_keep · 836 · 60s` |
+| 20:52 | `SELECT (… r104_keep2 note), (… count revenue_facts), (… count r104_keep)` | `still not a prediction · 836 · 836` |
+
+Fixtures kept: `analytics.r104_keep`, now predictions, and
+`analytics.r104_keep2`, the refused target.
+
+Findings from this round: R104 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-24 — A SQL model named like an existing table, before and after, ADVERSARIAL_LOG R103
 
 **Why this round exists.** A model's name is its target table, and a build

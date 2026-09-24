@@ -109,6 +109,69 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-24 — The predictions written over a table
+
+#### R104 · S1 · A batch prediction replaced a table no prediction had made
+
+From R101's sweep. A batch prediction runs in the sandbox, which writes the
+scored rows with `CREATE OR REPLACE TABLE <output> AS SELECT * FROM _pred`.
+Starting one (from a model's Predictions tab, the `/api/ml/predict/batch`
+route, or a schedule) asked only whether the output schema was yours. The
+dialog promises it "writes a new table you own". Given the name of an
+existing table, it replaced that table with predictions. Nothing stopped
+the output from being the input table itself either. With a row filter,
+that replaced the scored table with only the rows the filter kept.
+
+**Driven, before the fix** (image `cf409cf0925a`). Lakehouse → `CREATE
+TABLE analytics.r104_keep AS SELECT 104 AS id, 'not a prediction' AS note`.
+Then ML Models → `revenue_facts plan classifier` → Predictions → Batch
+prediction → Input `analytics.revenue_facts`, Output schema `analytics`,
+Output table `r104_keep`, version `v7 · logistic_regression · production`
+→ Predict. The toast read `Batch prediction started`, and the job list
+showed `succeeded · batch via ui · analytics.revenue_facts →
+analytics.r104_keep · 836 · 10s`. A query for the table's own column
+then failed: `Referenced column "note" not found … Candidate bindings:
+"net_usd", "order_id", "proba_enterprise", "customer_id", "payment_rows"`.
+`count(*)` was 836.
+
+**After the rebuild** (container `0be169f13e15`):
+
+- A fresh `analytics.r104_keep2` (`1042 · still not a prediction`) as the
+  output → Predict. The dialog stayed open with `analytics.r104_keep2
+  already exists, and no prediction of yours wrote it. Scoring into it
+  would replace its rows with predictions. Pick a new output table, or drop
+  that table first if replacing it is what you mean.`
+- Output `revenue_facts`, the input itself, with the filter `region =
+  'EMEA'` → `analytics.revenue_facts is the table being scored. Writing the
+  predictions there would replace it with only the rows the filter keeps.
+  Pick another output table.`
+- Scoring again into its own output is unchanged. Output `r104_keep`,
+  written by the before-drive's prediction, gave `Batch prediction
+  started`, then `succeeded · 836 · 60s`.
+- Read back: `r104_keep2` gave `still not a prediction`,
+  `analytics.revenue_facts` kept 836 rows, and `r104_keep` held 836.
+
+`startBatchPrediction`, which every door calls, now refuses an output that
+is the input, compared without case. It asks the lakehouse, through the
+shared `lakehouseTableExists`, whether the output exists. If it does, the
+job may write there only when an earlier SUCCEEDED prediction of the same
+user wrote that exact table, which is what a daily schedule does. A
+failed or queued one never wrote it, and another user's cannot vouch for
+yours. Either check failing refuses rather than guessing.
+
+**Tests:** 8, run with the catalog, the prediction history and the sandbox
+start faked, so they see whether a job would start. A foreign table is
+refused. The history is asked about this user's succeeded writes to this
+exact table. An unreadable history or catalog refuses. The input is never
+the output, even when the case differs, and the refusal names the filter.
+A free name and a re-score into a prediction's own table both start. 8
+behaviour-changing mutants each killed, control missed, baseline green
+first.
+
+Seen while driving and queued rather than fixed: the output-schema picker
+offers `ice_sales`, and the server's check refuses a data-lake mount but
+not an Iceberg catalog schema. Every other writer refuses both.
+
 ### 2026-09-24 — The model that took a table's name
 
 #### R103 · S1 · A SQL model named like an existing table dropped it

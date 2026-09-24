@@ -410,10 +410,15 @@ least twice, not a hypothetical.
     recognise on what it made. A table COMMENT would do, if DuckLake keeps
     it; check that first. Then refuse to replace an object that lacks the
     mark and that the model did not build before.
-  - ML batch scoring (`ml/pyTrain.ts`, `CREATE OR REPLACE TABLE <output>`)
-    and the feature training set (`featureViews/trainingSet.server.ts`)
-    replace a user-named output table. Both have the same legitimate
-    rebuild of their own output, and so need the same shape of guard.
+  - **ML batch scoring, R104, DONE**: an existing output is allowed only if
+    a succeeded prediction of the same user wrote it, and the input is
+    never the output. Still open there: the output-schema check refuses
+    a lake mount but not an Iceberg catalog schema, and the picker offers
+    `ice_sales`.
+  - **The feature training set, NEXT** (`featureViews/trainingSet.server.ts`):
+    the same `CREATE OR REPLACE TABLE <output>` over a user-named table.
+    Find what records a training set's output (an audit event at least)
+    before choosing the "own output" rule.
   - ETL sinks are CLEAR: they replace only in `write_mode: "replace"`,
     which the owner picks by that name.
   - Not yet read: a Data Prep flow saved as a dataset over an existing
