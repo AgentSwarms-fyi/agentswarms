@@ -415,10 +415,13 @@ least twice, not a hypothetical.
     never the output. Still open there: the output-schema check refuses
     a lake mount but not an Iceberg catalog schema, and the picker offers
     `ice_sales`.
-  - **The feature training set, NEXT** (`featureViews/trainingSet.server.ts`):
-    the same `CREATE OR REPLACE TABLE <output>` over a user-named table.
-    Find what records a training set's output (an audit event at least)
-    before choosing the "own output" rule.
+  - **The feature training set, R105, DONE**: an existing output is allowed
+    only if an earlier training set of the same user wrote it, and the
+    only record of that is the audit trail's `feature_view.training_set`
+    event. That record is best-effort, so the rule fails closed. The label
+    table and the view's own table are never the output. A dedicated
+    record of training-set outputs would be sturdier than the audit trail,
+    if the feature is ever given a table of its own.
   - ETL sinks are CLEAR: they replace only in `write_mode: "replace"`,
     which the owner picks by that name.
   - Not yet read: a Data Prep flow saved as a dataset over an existing

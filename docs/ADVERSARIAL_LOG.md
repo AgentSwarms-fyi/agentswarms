@@ -109,6 +109,65 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-24 — The training set built over a table
+
+#### R105 · S1 · A feature view's training set replaced a table it had not made
+
+From R101's sweep, the last of its named writers. A feature view's
+"Training set" joins a label table to the features that were true at each
+label's moment, and writes the result with `CREATE OR REPLACE TABLE
+<output>`. The build goes through the per-user statement guard, so the
+caller must be allowed to write there. Nothing asked what was already at
+the name. An existing table was replaced by the training set. So would the
+label table be, or the view's own table: the two tables the next build has
+to read.
+
+**Driven, before the fix** (image `0be169f13e15`). ML Models → Feature
+views → New view `r105_features`: table `analytics.revenue_facts`, key
+`order_id`, latest row wins by `placed_at` → Create (`Created
+r105_features`). A scratch `analytics.r105_keep` held `105 · not a training
+set`, and a 20-row label table `analytics.r105_labels` held `order_id,
+label_at`. Then Training set → Label table `r105_labels`, As of
+`label_at`, key `order_id`, Write to `r105_keep` → Build. The toast read
+`Built analytics.r105_keep — 20 row(s)`. `SELECT * FROM analytics.r105_keep`
+then read back `order_id · label_at · net_usd · payment_rows · status ·
+…`. The row and its columns were gone.
+
+**After the rebuild** (container `79cc1f0208c9`):
+
+- A fresh `analytics.r105_keep2` (`1052 · still not a training set`) as
+  the output → Build → `analytics.r105_keep2 already exists, and no
+  training set of yours wrote it. Building there would replace its rows
+  with the training set. Pick a new output table, or drop that table first
+  if replacing it is what you mean.`
+- The label table as the output → `analytics.r105_labels is the label
+  table. Building the training set there would replace the labels it is
+  built from. Pick another output table.`
+- Rebuilding a training set's own output is unchanged. Write to
+  `r105_keep`, which the before-drive's build wrote → `Built
+  analytics.r105_keep — 20 row(s)`.
+- Read back: `r105_keep2` gave `still not a training set`, `r105_labels`
+  gave 20 rows, and `r105_keep` gave 20.
+
+`buildTrainingSet` now refuses the label table and the view's own table
+outright, compared without case. It asks the lakehouse, through the shared
+`lakehouseTableExists`, whether the output exists. If it does, the build
+may replace it only if an earlier training set of the same user wrote that
+exact table. The only record of that is the audit trail's
+`feature_view.training_set` event, whose detail names the output. That
+record is best-effort, so a rebuild whose earlier audit write failed is
+refused, and says why. The refusal fails closed. An unreadable audit trail
+or catalog refuses too.
+
+**Tests:** 8, run with the catalog, the audit trail and the engine faked,
+so they see whether the replacing statement would be sent. A foreign table
+is refused. The audit trail is asked about this user's training-set
+events for this exact output. An unreadable trail or catalog refuses. The
+label table and the view's table are refused, whatever the case. A free
+name builds, and a rebuild of the user's own training set builds. 9
+behaviour-changing mutants each killed, control missed, baseline green
+first.
+
 ### 2026-09-24 — The predictions written over a table
 
 #### R104 · S1 · A batch prediction replaced a table no prediction had made

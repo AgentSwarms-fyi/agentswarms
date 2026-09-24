@@ -20,8 +20,9 @@ import {
   type TrainingSetPlan,
   type TrainingSpine,
 } from "@/lib/featureViews";
+import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { auditEvent } from "@/utils/audit.server";
-import { runLakehouseStatement } from "@/utils/lakehouse/core.server";
+import { lakehouseTableExists, runLakehouseStatement } from "@/utils/lakehouse/core.server";
 import { describeViewTable } from "@/utils/featureViews/lookup.server";
 
 const IDENT_RE = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
@@ -87,6 +88,60 @@ export async function buildTrainingSet(args: {
 
   const invalid = trainingSetError(view, spine, features);
   if (invalid) return { ok: false, error: invalid };
+
+  // FOUND IN R105, from R101's sweep. The build is CREATE OR REPLACE TABLE
+  // <output>, and nothing asked what was at the name: an existing table was
+  // replaced by the training set. The two tables the build READS are refused
+  // outright, since replacing either would destroy what the next build needs.
+  // Anything else already at the name may be replaced only if an earlier
+  // training set of yours wrote it, which the audit trail records, because
+  // rebuilding into the same table is how a training set is refreshed.
+  const outName = `${output.schema}.${output.table}`;
+  const same = (schema: string, table: string) =>
+    schema.toLowerCase() === output.schema.toLowerCase() &&
+    table.toLowerCase() === output.table.toLowerCase();
+  if (same(spine.schema_name, spine.table_name)) {
+    return {
+      ok: false,
+      error: `${outName} is the label table. Building the training set there would replace the labels it is built from. Pick another output table.`,
+    };
+  }
+  if (same(view.schema_name, view.table_name)) {
+    return {
+      ok: false,
+      error: `${outName} is the table this feature view reads. Building the training set there would replace the features it is built from. Pick another output table.`,
+    };
+  }
+  let taken: boolean;
+  try {
+    taken = await lakehouseTableExists(output.schema, output.table);
+  } catch (e) {
+    return {
+      ok: false,
+      error: `Could not check whether ${outName} is free: ${(e as Error).message}`,
+    };
+  }
+  if (taken) {
+    const { data: prior, error: priorErr } = await supabaseAdmin
+      .from("audit_events")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("action", "feature_view.training_set")
+      .eq("detail->>output", outName)
+      .limit(1);
+    if (priorErr) {
+      return { ok: false, error: `Could not check what wrote ${outName}: ${priorErr.message}` };
+    }
+    if (!prior?.length) {
+      return {
+        ok: false,
+        error:
+          `${outName} already exists, and no training set of yours wrote it. Building there would ` +
+          `replace its rows with the training set. Pick a new output table, or drop that table first ` +
+          `if replacing it is what you mean.`,
+      };
+    }
+  }
 
   const select = trainingSetSql(view, spine, features, args.plan ?? {});
   const target = `${qi(output.schema)}.${qi(output.table)}`;

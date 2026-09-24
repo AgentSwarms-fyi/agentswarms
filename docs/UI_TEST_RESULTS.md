@@ -15,6 +15,40 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-24 — Building a feature view's training set onto an existing table, before and after, ADVERSARIAL_LOG R105
+
+**Why this round exists.** R101's sweep. A training set is written with
+`CREATE OR REPLACE TABLE <output>`, and nothing asked what was at the name.
+Driven only on tables and a feature view made for this round. The view's
+source `analytics.revenue_facts` is only read.
+
+### Before the fix
+
+| Time | Driven | Read back |
+| ---- | ------ | --------- |
+| 21:05 | on container `0be169f13e15`, ML Models → Feature views → New view `r105_features`, table `analytics.revenue_facts`, key `order_id`, latest row wins by `placed_at` → Create | toast `Created r105_features`; the card reads `key order_id · latest by placed_at · not attached to a model` |
+| 21:07 | Lakehouse → `CREATE TABLE analytics.r105_keep AS SELECT 105 AS id, 'not a training set' AS note` | `Count 1` |
+| 21:12:52 | Training set → Label table `revenue_facts`, As of `placed_at`, key `order_id`, Write to `r105_keep` → Build | toast `The label table already has a column named placed_at. …` (the view's own validation) |
+| 21:13 | Lakehouse → `CREATE TABLE analytics.r105_labels AS SELECT order_id, placed_at AS label_at FROM analytics.revenue_facts ORDER BY order_id LIMIT 20` | `Count 20` |
+| 21:13:53 | Training set → Label table `r105_labels`, As of `label_at`, key `order_id`, Write to `r105_keep` → Build | toast `Built analytics.r105_keep — 20 row(s)`; the panel shows the ASOF JOIN it ran |
+| 21:15 | `SELECT * FROM analytics.r105_keep LIMIT 2` | `order_id · label_at · net_usd · payment_rows · status · …`: `1002 · 2026-03-25 · 807.94 · …`. The row and its columns are gone |
+
+### After the rebuild
+
+| Time | Driven | Read back |
+| ---- | ------ | --------- |
+| 21:29 | on container `79cc1f0208c9`, `CREATE TABLE analytics.r105_keep2 AS SELECT 1052 AS id, 'still not a training set' AS note` | `Count 1` |
+| 21:30:23 | Training set → `r105_labels` / `label_at` / `order_id` → Write to `r105_keep2` → Build | toast `analytics.r105_keep2 already exists, and no training set of yours wrote it. Building there would replace its rows with the training set. Pick a new output table, or drop that table first if replacing it is what you mean.` |
+| 21:30:35 | Write to `r105_labels` → Build | toast `analytics.r105_labels is the label table. Building the training set there would replace the labels it is built from. Pick another output table.` |
+| 21:30:52 | Write to `r105_keep` (written by the before-drive's build) → Build | toast `Built analytics.r105_keep — 20 row(s)` |
+| 21:32 | `SELECT (… r105_keep2 note), (… count r105_labels), (… count r105_keep)` | `still not a training set · 20 · 20` |
+
+Fixtures kept: the feature view `r105_features`, and the tables
+`analytics.r105_keep` (a training set), `analytics.r105_keep2` and
+`analytics.r105_labels`.
+
+Findings from this round: R105 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-24 — A batch prediction written onto an existing table, before and after, ADVERSARIAL_LOG R104
 
 **Why this round exists.** R101's sweep. The sandbox writes a batch
