@@ -538,6 +538,22 @@ least twice, not a hypothetical.
   — start with the ones next to a `<Switch>`, and with any text that
   survives from before a behaviour change (the shipped templates' notes
   name several such changes explicitly).
+- A reader's fallback is a status word too (R108): Recent runs showed any
+  status it did not know as "Running", and `suspended`, written since the
+  checkpoint work, was one. A parked run read Running for nineteen hours,
+  with no action that could end it. And `suspended` alone did not say
+  whether anyone was still being asked: R92's four leftovers are parked
+  with their approvals long decided. The approval row says, so it
+  decides. Look for `map[status] ?? map.<something>` and `default:`
+  branches in any status display; an unknown word should read as itself.
+  Swept for that shape: `workflows.tsx`'s `STATE_STYLE … ?? pending` is
+  CLEAR, because node rows only ever take the five `NODE_STATES`, and
+  "cancelled" belongs to the run, which has its own map. Still open:
+  nothing cancels a parked run outright, and `resumeApprovedSwarmRun`
+  stops only for `success` and `error`. A cancel for parked runs must
+  close the checkpoint and the approval with it, and resume must refuse
+  `cancelled`. Recent runs also still reads a failed load of
+  `swarm_runs` as "No runs yet" (the R63 shape).
 - Ask what a status word is FOR before trusting it (R90): the swarm resume
   gated on `status === "suspended"`, a word written by a stamp that could
   fail, when the thing a resume needs is the checkpoint. Where a guard and

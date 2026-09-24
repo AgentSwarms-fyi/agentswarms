@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { resumeApprovedSwarmRun } from "@/utils/swarmResume.functions";
+import { OPEN_APPROVALS_EVENT } from "@/lib/approvalsInbox";
 import { mlApplyApprovedPromotion } from "@/utils/ml.functions";
 import {
   Inbox,
@@ -79,6 +80,13 @@ export function ApprovalInbox() {
   const seenIdsRef = useRef<Set<string>>(new Set());
   const initializedRef = useRef(false);
   const myGroupIdsRef = useRef<Set<string>>(new Set());
+
+  // A parked run's row in Recent runs asks for the inbox (R108).
+  useEffect(() => {
+    const show = () => setOpen(true);
+    window.addEventListener(OPEN_APPROVALS_EVENT, show);
+    return () => window.removeEventListener(OPEN_APPROVALS_EVENT, show);
+  }, []);
 
   // Is the current user a designated approver of this approval? When no
   // approvers are set (legacy / single-user swarms), the owner counts. This

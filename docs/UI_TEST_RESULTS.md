@@ -15,6 +15,44 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-25 — A parked swarm run in Recent runs, before and after, ADVERSARIAL_LOG R108
+
+**Why this round exists.** Recent runs showed any status it did not know as
+"Running", and a run parked at a human approval is stored as `suspended`.
+Driven on runs earlier rounds left parked: five "Approval durability check
+(schedule)" runs whose approvals are pending, and four from R92 whose
+approvals were decided before R92's fix. Swarm Observability, which prints
+the raw status, was the reference.
+
+### Before the fix
+
+| Time | Driven | Read back |
+| ---- | ------ | --------- |
+| 23:40:14 | on image `b413a02e6aad`, Agent Swarms → Recent runs | five `Approval durability check (schedule) · Running` rows, `1175m 26s`, `1240m 3s`, `1272m 8s`, `1300m 42s` and `1321m 35s`, each with only Open and Trace; the header `Cancel a running or paused run here.` |
+| 23:44:22 | Swarm Observability | the same five runs `suspended`, started Sep 24 at 04:04:38, 03:00:02, 02:27:57, 01:59:23 and 01:38:29; the header's bell `Pending approvals (5)` |
+
+### The first fix, and what two drives found in it
+
+| Time | Driven | Read back |
+| ---- | ------ | --------- |
+| 00:11:18 | on image `0bbcf3e09334` (every `suspended` run read "Awaiting approval"), Recent runs | the five read `Awaiting approval` with `Review approval` and no duration; the header `Cancel a running run here; a run waiting for an approval goes on or stops when the approval is decided.` |
+| 00:11 | "Review approval" on the first row | the inbox opens: `Pending Approvals 5`, paused 20h, 21h, 21h, 22h, 22h ago |
+| minutes later | the rest of the list | four more rows read `Awaiting approval` with `Review approval`, but none of their approvals is in the inbox. They are runs `3bf09de5`, `24e93ade`, `4f0c9e04` and `987e92ba`, from Sep 23. Trace on `3bf09de5`: `suspended`, with its `Human approval` step `SUCCESS`, which is R92's forked resume |
+| 00:29:22 | on image `a5d418394794` (the requests decide), Recent runs | five `Awaiting approval` with `Review approval`; four `Decided, not resumed` with no button, but still `45h 30m`, `46h 1m`, `46h 30m` and `46h 51m` |
+
+### After the rebuild
+
+| Time | Driven | Read back |
+| ---- | ------ | --------- |
+| 00:41:53 | on image `57b70c28882f`, Recent runs | 5 `Awaiting approval`, each with `Review approval` and no duration; 4 `Decided, not resumed`, `started 1d ago`, with no duration and no button; 7 `Error` and 14 `Success` as before, with their durations |
+| 00:42:04 | "Review approval" on the fifth parked row | the inbox opens: `Pending Approvals 5`, paused 20h, 21h, 22h, 22h, 23h ago |
+| 00:42 | scrolled to a `Decided, not resumed` row | it sits directly under `Approval durability check (schedule) (api) · Success · 5s · 3 steps`, the run that holds its work |
+
+Nothing was approved or rejected. Fixtures kept: the nine parked runs and
+their five pending approvals, all from earlier rounds.
+
+Findings from this round: R108 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-24 — Replacing an Iceberg table with one the catalog cannot store, before and after, ADVERSARIAL_LOG R107
 
 **Why this round exists.** "Publish to Iceberg" with "Replace it (drop,

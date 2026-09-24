@@ -109,6 +109,137 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-25 — Running, for nineteen hours, while it waited for a person
+
+#### R108 · S2 · Recent runs showed a run parked at an approval as "Running", and offered nothing that could end it
+
+Found while reading the browser writes that R106 queued. `cancelByDbRunId`
+cancels a run only while it is `running`, which made me ask what else the
+Recent runs panel (Agent Swarms → Recent runs) could be showing.
+
+Since the checkpoint work, a run that reaches a human-approval step on the
+server (from the API, a schedule or a webhook) parks with the status
+`suspended`. The panel's badge knew five words: `running`, `waiting`,
+`success`, `error` and `cancelled`. Any other word fell through to
+`map.running`, so a parked run read "Running", with the running icon. It
+was left out of the panel's own `ACTIVE` set, so it got no Cancel. Its
+duration was the time since it started, so it grew by the minute. All of
+this sat under a header that said "Cancel a running or paused run here."
+What ends a parked run is a decision on its approval, and nothing on the
+row said so.
+
+R92 had seen four of these rows read "Running" and traced them to the
+forked resume it fixed, which was real. The display rule was left as it
+was, and it applies to every parked run, including the ones whose
+approvals are still pending today.
+
+**Driven, before the fix** (image `b413a02e6aad`), on runs earlier rounds
+left parked on purpose:
+
+- Swarm Observability listed five runs of "Approval durability check
+  (schedule)" as `suspended`, started Sep 24 at 01:38:29, 01:59:23,
+  02:27:57, 03:00:02 and 04:04:38. The header showed "Pending approvals
+  (5)".
+- Agent Swarms → Recent runs at 23:40:14 showed the same five runs as
+  `Running`, with durations of `1321m 35s`, `1300m 42s`, `1272m 8s`,
+  `1240m 3s` and `1175m 26s`. Each row offered only Open and Trace. The
+  runs that finished around them read `Error` with `3 steps`, which was
+  correct.
+
+**The first fix went one step too far, and the drive showed where.** It
+read every `suspended` run as "Awaiting approval", with a "Review approval"
+button that opens the approvals inbox. On image `0bbcf3e09334`, the five
+rows above read that way, and the button opened the inbox with "Pending
+Approvals 5", paused 20h, 21h, 21h, 22h and 22h ago, one for each.
+Further down the list, four more rows read the same. Their approvals were
+nowhere in the inbox. They are R92's runs (`3bf09de5` and three others
+from Sep 23): their approvals were decided before R92's fix, and their
+work finished under a separate `(api)` run. No approval is waiting for
+them, so "Awaiting approval" and a button to an inbox that does not hold
+them were a new untruth for exactly those rows. `suspended` alone cannot
+say whether anyone is still being asked. The approval row can, and the
+executor writes it with the run owner's id, so the owner can always read
+it. A second pass (image `a5d418394794`) read the requests. The five
+pending runs kept "Awaiting approval", and the four read "Decided, not
+resumed" with no button, but they still showed `45h 30m` to `46h 51m`.
+Hiding the duration only for runs awaiting a decision had missed them.
+A duration is time spent running, so it now shows only for a run that is
+live or has finished.
+
+**Driven, after the fix** (image `57b70c28882f`), on the same runs, at
+00:41:53:
+
+- The five read `Awaiting approval`, started 20h to 23h ago, each with
+  "Review approval" and no duration.
+- The four read `Decided, not resumed`, started 1d ago, with no duration
+  and no button. The two in view sit directly under `(api) · Success · 5s
+  · 3 steps` rows, the runs that hold their work.
+- The panel's other 21 rows (7 Error, 14 Success) read as before.
+- "Review approval" on a row opened the inbox, `Pending Approvals 5`,
+  paused 20h, 21h, 22h, 22h and 23h ago.
+
+Nothing was approved or rejected, and the parked runs stay as fixtures.
+
+The panel now takes every status rule from one table
+(`lib/swarmRunStatus.ts`). For the parked runs on screen, it also reads
+their approval requests:
+
+- **A pending request.** The run reads "Awaiting approval", with the
+  hourglass. It is not polled, and it is not offered a Cancel that could
+  not reach it. Its row carries "Review approval", which opens the
+  approvals inbox, where the decision that ends it is made.
+- **Requests that were all decided, with the run still parked.** It reads
+  "Decided, not resumed", with nothing pointing to an inbox that no
+  longer holds it.
+- **No request at all.** This is R90's failed insert. The run reads
+  "Parked, nobody asked".
+- **Requests that could not be read.** The row says only "Parked", and
+  keeps the button to the inbox.
+
+The rest of the panel:
+
+- No parked run shows a duration. A duration is shown only for a run
+  that is live or has finished: the time since a parked run started says
+  nothing about it.
+- A run waiting at an approval inside this tab keeps its Cancel, because
+  Cancel does reach a run held in this tab.
+- A status the panel does not know reads as itself, never as "Running".
+- Durations of an hour or more read in hours: `19h 35m`, not `1175m 26s`.
+- The header says what is true: "Cancel a running run here; a run waiting
+  for an approval goes on or stops when the approval is decided."
+
+**Not changed, and queued.** Nothing cancels a parked run outright. If
+anything ever does, it has to close the checkpoint and the approval with
+it. `resumeApprovedSwarmRun` stops only for `success` and `error`, so a
+run marked `cancelled` with its checkpoint still there would be resumed by
+a later approval. The four "Decided, not resumed" rows also still hold
+their checkpoints, as R92 recorded; nothing in the UI can resume them
+again, because the inbox resumes only from a pending request.
+
+**Tests:** 16, most on the status table itself and some anchored in the
+panel and inbox source:
+
+- A parked run with a pending request reads "Awaiting approval", is
+  neither live nor cancellable, and awaits a decision.
+- A decided request, no request, and an unreadable request each read as
+  what they are.
+- A second approval step that is pending wins over a first that was
+  decided.
+- No parked run is ever cancellable or live.
+- The in-tab wait stays cancellable.
+- Every status the executor writes has a view of its own.
+- An unknown status reads as itself.
+- A duration shows for a live or finished run, and never for a parked
+  one.
+- Hours read as hours.
+- The panel reads the requests, marks a failed read, and lets the requests
+  decide.
+- A parked row opens the inbox and shows no duration.
+- The inbox listens for a row's request.
+
+19 behaviour-changing mutants each killed, control missed, baseline green
+first.
+
 ### 2026-09-24 — The replace that left nothing
 
 #### R107 · S1 · Publishing to Iceberg with "Replace" dropped the table before it knew it could write the new one
