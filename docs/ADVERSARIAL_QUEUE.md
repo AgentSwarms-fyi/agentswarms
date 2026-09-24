@@ -160,8 +160,15 @@ least twice, not a hypothetical.
    server-function only, the page has no edit); the app-source re-save
    (`saas.functions` — `last_test_status` over replaced credentials; the
    warehouse and provider saves clear it; the Apps tab cannot reach the
-   update path). Next: the materialized view, which the Lakehouse page can
-   edit.
+   update path). The materialized view was CHECKED in R101 and its stamps
+   are honest: a save always rebuilds, and a failure sets `error` while
+   "Last rebuilt" keeps the last good time. What the same path held
+   instead was worse. "Save as view" on the name of an ordinary table
+   replaced that table's data and reported "Built". That is fixed as
+   R101. Still open there, at S3: a failed rebuild shows only in the
+   badge's hover title, while the badge itself reads "materialized" as
+   before. Next in this sweep: the ETL pipeline save's `last_run_status`
+   chip.
 3. **A cause named that the evidence cannot support.** R31's freshness test, and
    Prompt Compare crowning the model that failed fastest. R63's dashboard
    chip is the degenerate case: a count of `last_status = 'error'` on a
@@ -380,6 +387,14 @@ least twice, not a hypothetical.
   branch, and ask what the other branch leaves behind. Siblings to check:
   workflow runs, ETL runs and notebook sessions, all of which can pause
   and be continued.
+- A create that is secretly a replace (R101): "Save as view" builds with
+  `CREATE OR REPLACE TABLE`, and nothing asked what was at the name, so it
+  overwrote an existing table and reported "Built". Look for every write
+  whose verb is CREATE OR REPLACE, `upsert`, `overwrite`, or `mode("overwrite")`
+  behind a control that reads as "save" or "create", and ask what is
+  already at the target. Siblings to check: the ETL sink's write modes, a
+  Data Prep flow saved as a dataset over an existing name, the CSV upload's
+  table name, the Iceberg publish, and the SQL model build target.
 - A protocol step skipped because one server let it slide (R99): the
   agents' MCP client never sent `initialize`, and worked against whatever
   it was first tried on. A stateless server accepts a cold request, and a

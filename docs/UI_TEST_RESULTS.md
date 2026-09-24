@@ -15,6 +15,36 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-24 — Saving a materialized view onto an existing table's name, before and after, ADVERSARIAL_LOG R101
+
+**Why this round exists.** A materialized view is built with `CREATE OR
+REPLACE TABLE`, and "Save as view" never asked what was already at the name
+it was given. Driven only on tables made for the purpose.
+
+### Before the fix
+
+| Time | Driven | Read back |
+| ---- | ------ | --------- |
+| 09:10 | on container `5c5895ec55d0`, Lakehouse → Query → `CREATE TABLE analytics.r101_keep AS SELECT 1 AS id, 'precious row' AS note` → Run | `1 row(s)`, `Count 1` |
+| then | `SELECT * FROM analytics.r101_keep` → Run | `id integer · note varchar`, `1 · precious row` |
+| 09:11:27 | editor `SELECT 42 AS answer` → Save as view → Schema `analytics`, Table name `r101_keep`, `manual` → Save and build | toast `Built analytics.r101_keep — 1 row(s)`; the dialog closes. It said nothing about the name |
+| then | `SELECT * FROM analytics.r101_keep` → Run | `answer integer`, `42`. The row and both columns are gone |
+
+### After the rebuild
+
+| Time | Driven | Read back |
+| ---- | ------ | --------- |
+| 09:24 | on container `91a6460a6a93`, `CREATE TABLE analytics.r101_keep2 AS SELECT 7 AS id, 'still precious' AS note` → Run, then `SELECT *` | `7 · still precious` |
+| 09:25:18 | `SELECT 42 AS answer` → Save as view → `analytics` / `r101_keep2` / `manual` → Save and build | toast `analytics.r101_keep2 is an existing table, not a materialized view. Saving a view there would replace its rows with this query's answer. Pick a new name, or drop the table first if replacing it is what you mean.`; the dialog stays open |
+| then | Escape, then `SELECT * FROM analytics.r101_keep2` | `7 · still precious`, untouched |
+| 09:25:54 | `SELECT 43 AS answer` → Save as view → `analytics` / `r101_keep` (a registered view since the before-drive) → Save and build | toast `Built analytics.r101_keep — 1 row(s)`; `SELECT *` reads `answer · 43` |
+
+Fixtures kept: `analytics.r101_keep`, now a manual materialized view of
+`SELECT 43 AS answer`, and `analytics.r101_keep2`, an ordinary table. Both
+were made for this round and hold nothing else.
+
+Findings from this round: R101 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-24 — Calling a Builder MCP server that had scaled to zero, before and after, ADVERSARIAL_LOG R100
 
 **Why this round exists.** Builder servers stop after 15 idle minutes by

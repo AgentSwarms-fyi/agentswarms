@@ -39,6 +39,28 @@ export type MaterializedView = {
 };
 
 const qi = (v: string) => `"${v.replace(/"/g, '""')}"`;
+const sq = (v: string) => `'${v.replace(/'/g, "''")}'`;
+
+/**
+ * Is there a table at this name in the lakehouse catalog right now? Compared
+ * without case, because DuckDB resolves identifiers that way: a table created
+ * as `Orders` is the one `CREATE OR REPLACE TABLE "orders"` would replace.
+ */
+async function lakehouseTableExists(schema: string, table: string): Promise<boolean> {
+  const c = await lakehouseConnection();
+  try {
+    const rows = await (
+      await c.run(
+        `SELECT count(*) FROM information_schema.tables ` +
+          `WHERE table_catalog = 'lake' AND lower(table_schema) = lower(${sq(schema)}) ` +
+          `AND lower(table_name) = lower(${sq(table)})`,
+      )
+    ).getRows();
+    return Number(rows[0][0]) > 0;
+  } finally {
+    c.closeSync();
+  }
+}
 
 /** How many views one sweep will refresh, so a big estate can't stall it. */
 const VIEWS_PER_SWEEP = 10;
@@ -202,6 +224,32 @@ export async function saveMatviewForUser(
   if (schemaRow.lake_source_id || schemaRow.iceberg_catalog_id) {
     throw new Error("Data-lake mounts are read-only");
   }
+
+  // FOUND IN R101. The build below is CREATE OR REPLACE TABLE, and nothing
+  // asked what was already at the name. "Save as view" on the name of an
+  // ordinary table (an upload, an ETL output, anything) replaced its rows
+  // with the query's answer and reported "Built … 1 row(s)". Redefining a
+  // view you already have is what the upsert is for. Writing a view over a
+  // table that was never one is refused, and saying so is the whole fix.
+  const { data: existingView, error: viewErr } = await supabaseAdmin
+    .from("lakehouse_materialized_views")
+    .select("id")
+    .eq("schema_name", input.schema)
+    .eq("table_name", input.table)
+    .maybeSingle();
+  if (viewErr) {
+    throw new Error(
+      `Could not check whether ${input.schema}.${input.table} is a view: ${viewErr.message}`,
+    );
+  }
+  if (!existingView && (await lakehouseTableExists(input.schema, input.table))) {
+    throw new Error(
+      `${input.schema}.${input.table} is an existing table, not a materialized view. ` +
+        `Saving a view there would replace its rows with this query's answer. ` +
+        `Pick a new name, or drop the table first if replacing it is what you mean.`,
+    );
+  }
+
   const { data: saved, error } = await supabaseAdmin
     .from("lakehouse_materialized_views")
     .upsert(

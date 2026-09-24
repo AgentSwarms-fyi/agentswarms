@@ -109,6 +109,68 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-24 — The view that was saved over a table
+
+#### R101 · S1 · "Save as view" replaced an existing table's data, and called it built
+
+A materialized view is a query whose answer is kept as a real lakehouse
+table. It is built, and rebuilt, with `CREATE OR REPLACE TABLE
+<schema>.<name> AS <query>`. Saving one, from the Lakehouse page's "Save as
+view" or Data Prep's "save to lakehouse", asked two things of the target:
+is the schema yours, and is it a mount. It never asked what was already at
+the name. Given the name of an ordinary table (an upload, an ETL output, a
+table made in the workbench), the first build replaced that table's rows
+and columns with the query's answer. It then reported success.
+
+The queue sent this round to the materialized view for a different class,
+a badge that outlives what it vouched for. That part checked out. A save
+always rebuilds, and a failed rebuild sets `error`, while "Last rebuilt"
+keeps the last good time, which is true. The overwrite sat on the same
+path.
+
+**Driven, before the fix** (image `5c5895ec55d0`), on a table made for the
+purpose. Lakehouse → Query → `CREATE TABLE analytics.r101_keep AS SELECT 1
+AS id, 'precious row' AS note` → Run (`Count 1`). `SELECT * FROM
+analytics.r101_keep` read back `1 | precious row`. Then the editor got
+`SELECT 42 AS answer` → Save as view → Schema `analytics`, Table name
+`r101_keep`, Rebuild `manual` → Save and build. The toast read `Built
+analytics.r101_keep — 1 row(s)`. `SELECT * FROM analytics.r101_keep` then
+read back `answer | 42`. The row was gone, and so were both of its columns.
+The dialog had said nothing about the name being taken.
+
+**After the rebuild** (container `91a6460a6a93`):
+
+- A second scratch table, `CREATE TABLE analytics.r101_keep2 AS SELECT 7 AS
+  id, 'still precious' AS note`, read back `7 | still precious`. Then
+  `SELECT 42 AS answer` → Save as view → `analytics` / `r101_keep2` /
+  `manual` → Save and build. The toast read `analytics.r101_keep2 is an
+  existing table, not a materialized view. Saving a view there would
+  replace its rows with this query's answer. Pick a new name, or drop the
+  table first if replacing it is what you mean.` The dialog stayed open,
+  and the table read back `7 | still precious`.
+- Redefining a view that IS one still works. `SELECT 43 AS answer` → Save
+  as view → `analytics` / `r101_keep`, which the before-drive had
+  registered as a view → `Built analytics.r101_keep — 1 row(s)`, and it
+  read back `answer | 43`.
+
+`saveMatviewForUser`, the one function both doors use, now looks before it
+writes. A name that is already a registered view is a redefinition, which
+is what the upsert is for. A name that exists as a table and is not a
+view is refused, with the reason and the way out. The catalog is asked
+without case, because DuckDB resolves identifiers that way, so a table
+created as `Orders` is the one a view named `orders` would replace. When
+the list of views cannot be read, the save is refused rather than guessed.
+The scheduled rebuild of a registered view is unchanged: replacing its own
+table is what it is for.
+
+**Tests:** 6, run against a fake catalog and a fake engine that record
+every statement sent. An existing table is refused by name, and nothing
+that could replace it is sent and no view is recorded. The catalog is
+asked without case. An unreadable view list refuses. A free name builds,
+and an existing view is redefined even though its table exists. 5
+behaviour-changing mutants each killed, control missed, baseline green
+first.
+
 ### 2026-09-24 — The first call after a quiet spell
 
 #### R100 · S1 · Clients that gave up on a server while it was starting
