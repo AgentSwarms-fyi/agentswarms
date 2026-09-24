@@ -538,6 +538,17 @@ least twice, not a hypothetical.
   — start with the ones next to a `<Switch>`, and with any text that
   survives from before a behaviour change (the shipped templates' notes
   name several such changes explicitly).
+- A failed read that becomes an empty document becomes a data loss at the
+  next save (R109): the swarm chat opened a conversation over
+  `data?.messages ?? []`, kept its id, and saved the next turn over the
+  stored transcript. R72 had left this dialog's writes as harmless
+  because they reload the list; the list was all they reloaded. Look for
+  a read of a whole document (`maybeSingle()`, `single()`) whose error is
+  dropped AND whose id survives into a later update: the save that
+  follows writes a blank over the original. Still open in the dialog:
+  leaving a conversation mid-turn aborts the turn, and the aborted turn's
+  save follows whichever conversation is selected when it lands. That
+  should be bound to the conversation the turn was sent in.
 - A reader's fallback is a status word too (R108): Recent runs showed any
   status it did not know as "Running", and `suspended`, written since the
   checkpoint work, was one. A parked run read Running for nineteen hours,

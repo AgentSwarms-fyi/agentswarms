@@ -109,6 +109,132 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-25 — One message, and the conversation before it was gone
+
+#### R109 · S1 · A swarm chat opened through a failed read saved the next message over its whole transcript
+
+The write survey closed in R72 left the swarm chat dialog's insert and
+update as noted, on the grounds that they "reload from the table after
+the write and so cannot show a phantom row". That is true of the chat
+list, but the list is all they reload. The thread on screen is not
+reloaded. The read that opens a conversation was never looked at either.
+
+"Chat with this swarm" (the canvas's Chat button) keeps a swarm's
+conversations in `swarm_chats`, and saves the whole transcript after
+every turn. Three of its four database calls dropped the answer:
+
+- **Opening a conversation** (`selectChat`) read its messages and state,
+  ignored the error, and selected the conversation anyway, over
+  `data?.messages ?? []`. A read that failed showed an empty thread with
+  that conversation highlighted. The next message then saved
+  `[question, reply]` over the stored row: the whole transcript and its
+  carried flow-state, replaced by one turn.
+- **A turn's save** into an existing conversation was an update that
+  never read its answer. The turn stayed on screen, and it was gone when
+  the conversation was reopened.
+- **The first save of a new conversation** was an insert that never read
+  its answer. The conversation stayed on screen, was missing from the
+  list, and nothing said so.
+
+The list read also turned a failure into "No conversations yet."
+
+**Driven, before the fix** (image `57b70c28882f`), on a swarm made for the
+purpose: "R109 chat echo", an Input and an Output, so every reply is the
+message itself and no model is called. The failures were injected from
+the browser, which reaches these calls because they are direct PostgREST
+requests; each refused call answered 503 with `R109 injected`.
+
+- "R109 turn one", then "R109 turn two": saved as chat `c7a47254`, with
+  four messages.
+- New chat, then the conversation opened with its read refused.
+  postgrest-js tried four times. Then the conversation was highlighted
+  over "Start the conversation below.", with no error.
+- The fault was lifted, as a passing blip lifts, and "R109 after a failed
+  read" was sent. It went out as a `PATCH` of `c7a47254`, and the list
+  retitled it "R109 after a failed read".
+- The dialog was closed, reopened, and the conversation opened with a
+  clean read: two messages, "R109 after a failed read" and its reply.
+  Turns one and two were gone from the database.
+- With the update refused, "R109 unsaved turn" appeared with its reply
+  and no error. Reopened, the conversation did not have it.
+- In a new chat, with the insert refused, "R109 never saved" appeared
+  with its reply and no error, and the list did not gain it.
+
+**Driven, after the fix** (image `b7d8cdf59b82`), on the same swarm and
+chat, which now held "R109 after a failed read" and "R109 after turn A":
+
+- New chat, then the conversation opened with its read refused. Four
+  attempts, then the toast "Could not open that conversation · R109
+  injected: the GET did not reach the database. You are still in the
+  conversation you had open.". The conversation was not selected.
+- The fault was lifted, and "R109 after a refused read" was sent. It went
+  out as a `POST`, a new conversation. Opened cleanly, `c7a47254` still
+  held all four of its messages.
+- With the update refused, "R109 turn B, refused save" showed "Not saved:
+  R109 injected: the PATCH did not reach the database What you see here
+  since the last save is gone when you leave this conversation.", with
+  "Save again". Pressed with the fault lifted, it went out as a `PATCH`
+  (200), and the notice went away. Reopened, the conversation held six
+  messages, turn B among them.
+- With the insert refused, "R109 insert refused" showed the same notice,
+  and the list did not gain it. "Save again" went out as a `POST` (201),
+  and the list gained it, selected.
+- With the list read refused, reopening the dialog showed "Could not load
+  conversations: R109 injected: the GET did not reach the database", over
+  the last list it had read.
+
+The notice ran the error into the next sentence ("…the database What you
+see here…"). An error without a final stop now gets one. On a rebuild
+(image `b1409a24ad3d`), a refused save of "R109 turn C, refused save"
+read "Not saved: R109 injected: the PATCH did not reach the database.
+What you see here since the last save is gone when you leave this
+conversation.". "Save again" saved it (`PATCH` 200), and it read back
+with all eight messages.
+
+The reads and saves now live in `lib/swarmChatStore.ts`, and each one
+returns what happened:
+
+- **Opening a conversation.** `openChat` returns the transcript, or why
+  it could not be read, and whether the conversation is gone. It never
+  returns an empty stand-in. The dialog enters a conversation only once
+  its read has succeeded. On a failure it says "Could not open that
+  conversation · `<why>`. You are still in the conversation you had
+  open.", or that the conversation no longer exists.
+- **Saving a turn.** `saveChat` updates by id and asks for the row back.
+  An update that reaches no row is not a save: the conversation was
+  deleted elsewhere, and the next save keeps it as a new one. An insert
+  that errs or returns no id is not a save either.
+- **A failed save** puts "Not saved: `<why>`. What you see here since the
+  last save is gone when you leave this conversation." under the thread,
+  with a "Save again" button. The next turn's save, which writes the
+  whole transcript, also clears it.
+- **A list that could not be loaded** says "Could not load conversations:
+  `<why>`".
+
+**Not changed.** Leaving a conversation while a turn is running still
+aborts that turn, as before, and the aborted turn's save still follows
+whichever conversation is selected when it lands. Whether that can write
+into the wrong conversation is queued.
+
+**Tests:** 13, against a fake client that answers each call the way the
+test names, and anchored in the dialog's source:
+
+- A refused read is reported and never becomes an empty transcript.
+- A missing row is gone, and a found row returns its transcript and
+  state.
+- An update goes by id and asks for its row back. A refused update is
+  reported, and one that reached no row is not a save.
+- An insert carries its owner and swarm. A refused insert, or one that
+  returned no id, is not a save.
+- The dialog enters a conversation only after the read's check, and
+  returns on a failure.
+- A failed save sets the notice and offers "Save again".
+- A list that could not be loaded is not shown as empty.
+- An error gets its final stop before the next sentence.
+
+13 behaviour-changing mutants each killed, control missed, baseline green
+first.
+
 ### 2026-09-25 — Running, for nineteen hours, while it waited for a person
 
 #### R108 · S2 · Recent runs showed a run parked at an approval as "Running", and offered nothing that could end it

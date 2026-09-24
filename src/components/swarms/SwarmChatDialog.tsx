@@ -31,8 +31,8 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { toast } from "sonner";
+import { asSentence, openChat, saveChat, type ChatMsg } from "@/lib/swarmChatStore";
 
-type ChatMsg = { role: "user" | "assistant"; content: string; ts: number };
 type ChatRow = { id: string; title: string; updated_at: string };
 
 // Cap replayed history so very long conversations don't blow up token usage;
@@ -70,6 +70,9 @@ export function SwarmChatDialog({
   const [running, setRunning] = useState(false);
   const [liveText, setLiveText] = useState("");
   const [error, setError] = useState<string | null>(null);
+  // Why the conversation on screen is not the one stored, when it is not (R109).
+  const [unsaved, setUnsaved] = useState<string | null>(null);
+  const [chatsError, setChatsError] = useState<string | null>(null);
   const [runningNode, setRunningNode] = useState<string | null>(null);
   const [showState, setShowState] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
@@ -88,11 +91,14 @@ export function SwarmChatDialog({
 
   const loadChats = useCallback(async () => {
     if (!swarmId) return;
-    const { data } = await supabase
+    const { data, error: listErr } = await supabase
       .from("swarm_chats")
       .select("id, title, updated_at")
       .eq("swarm_id", swarmId)
       .order("updated_at", { ascending: false });
+    // A list that could not be read is not an empty one.
+    if (listErr) return setChatsError(listErr.message);
+    setChatsError(null);
     setChats((data ?? []) as ChatRow[]);
   }, [swarmId]);
 
@@ -103,6 +109,7 @@ export function SwarmChatDialog({
     setMessages([]);
     setCarriedState({});
     setError(null);
+    setUnsaved(null);
     setLiveText("");
     setRunning(false);
   }, []);
@@ -146,18 +153,28 @@ export function SwarmChatDialog({
 
   const selectChat = async (id: string) => {
     abortRef.current?.abort();
-    const { data } = await supabase
-      .from("swarm_chats")
-      .select("messages, state")
-      .eq("id", id)
-      .maybeSingle();
+    const opened = await openChat(supabase, id);
+    // FOUND IN R109. A failed read used to select the conversation anyway,
+    // over an empty thread, and the next message saved over the stored
+    // transcript. A conversation is entered only once it has been read.
+    if (!opened.ok) {
+      toast.error(
+        opened.gone ? "That conversation no longer exists" : "Could not open that conversation",
+        {
+          description: opened.gone
+            ? "It was deleted elsewhere."
+            : `${asSentence(opened.error)} You are still in the conversation you had open.`,
+        },
+      );
+      if (opened.gone) void loadChats();
+      return;
+    }
     chatIdRef.current = id;
     setActiveChatId(id);
-    setMessages(((data?.messages as ChatMsg[] | null) ?? []) as ChatMsg[]);
-    setCarriedState(
-      ((data?.state as Record<string, string> | null) ?? {}) as Record<string, string>,
-    );
+    setMessages(opened.messages);
+    setCarriedState(opened.state);
     setError(null);
+    setUnsaved(null);
     setLiveText("");
     setRunning(false);
   };
@@ -169,37 +186,36 @@ export function SwarmChatDialog({
     if (id === activeChatId) newChat();
   };
 
+  // Saves the whole transcript, and says so on screen when it could not (R109).
   const persist = useCallback(
-    async (msgs: ChatMsg[], state: Record<string, string>): Promise<string | null> => {
-      if (!user || !swarmId) return chatIdRef.current;
-      const title = deriveTitle(msgs);
-      const existing = chatIdRef.current;
-      if (existing) {
-        await supabase
-          .from("swarm_chats")
-          .update({ messages: msgs as never, state: state as never, title })
-          .eq("id", existing);
-        void loadChats();
-        return existing;
-      }
-      const { data } = await supabase
-        .from("swarm_chats")
-        .insert({
-          user_id: user.id,
-          swarm_id: swarmId,
-          messages: msgs as never,
-          state: state as never,
-          title,
-        })
-        .select("id")
-        .single();
-      const newId = data?.id ?? null;
-      if (newId) {
-        chatIdRef.current = newId; // set synchronously so the next send updates, not inserts
-        setActiveChatId(newId);
-      }
+    async (msgs: ChatMsg[], state: Record<string, string>): Promise<boolean> => {
+      if (!user || !swarmId) return false;
+      const saved = await saveChat(supabase, {
+        chatId: chatIdRef.current,
+        userId: user.id,
+        swarmId,
+        messages: msgs,
+        state,
+        title: deriveTitle(msgs),
+      });
       void loadChats();
-      return newId;
+      if (!saved.ok) {
+        if (saved.gone) {
+          // Deleted elsewhere: the next save keeps it as a new conversation.
+          chatIdRef.current = null;
+          setActiveChatId(null);
+        }
+        setUnsaved(
+          saved.gone ? `${saved.error} Save again to keep it as a new conversation.` : saved.error,
+        );
+        return false;
+      }
+      if (!chatIdRef.current) {
+        chatIdRef.current = saved.id; // set synchronously so the next send updates, not inserts
+        setActiveChatId(saved.id);
+      }
+      setUnsaved(null);
+      return true;
     },
     [user, swarmId, loadChats],
   );
@@ -333,33 +349,40 @@ export function SwarmChatDialog({
               </div>
               <ScrollArea className="flex-1">
                 <div className="px-2 pb-2 space-y-1">
-                  {chats.length === 0 ? (
-                    <p className="text-[11px] text-muted-foreground px-1 py-2">
-                      No conversations yet.
+                  {chatsError && (
+                    <p className="text-[11px] text-destructive px-1 py-2">
+                      Could not load conversations: {chatsError}
                     </p>
-                  ) : (
-                    chats.map((c) => (
-                      <div
-                        key={c.id}
-                        className={`group flex items-center gap-1 rounded-md px-2 py-1.5 cursor-pointer text-xs ${
-                          c.id === activeChatId ? "bg-primary/15 text-foreground" : "hover:bg-muted"
-                        }`}
-                        onClick={() => selectChat(c.id)}
-                      >
-                        <span className="truncate flex-1">{c.title}</span>
-                        <button
-                          className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive"
-                          onClick={(ev) => {
-                            ev.stopPropagation();
-                            void deleteChat(c.id);
-                          }}
-                          title="Delete chat"
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </button>
-                      </div>
-                    ))
                   )}
+                  {chats.length === 0
+                    ? !chatsError && (
+                        <p className="text-[11px] text-muted-foreground px-1 py-2">
+                          No conversations yet.
+                        </p>
+                      )
+                    : chats.map((c) => (
+                        <div
+                          key={c.id}
+                          className={`group flex items-center gap-1 rounded-md px-2 py-1.5 cursor-pointer text-xs ${
+                            c.id === activeChatId
+                              ? "bg-primary/15 text-foreground"
+                              : "hover:bg-muted"
+                          }`}
+                          onClick={() => selectChat(c.id)}
+                        >
+                          <span className="truncate flex-1">{c.title}</span>
+                          <button
+                            className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive"
+                            onClick={(ev) => {
+                              ev.stopPropagation();
+                              void deleteChat(c.id);
+                            }}
+                            title="Delete chat"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </button>
+                        </div>
+                      ))}
                 </div>
               </ScrollArea>
             </div>
@@ -417,6 +440,24 @@ export function SwarmChatDialog({
                   <div className="flex justify-start">
                     <div className="max-w-[85%] rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
                       <span className="font-medium">Run failed:</span> {error}
+                    </div>
+                  </div>
+                )}
+
+                {unsaved && (
+                  <div className="flex justify-start">
+                    <div className="max-w-[85%] rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs">
+                      <span className="font-medium">Not saved:</span> {asSentence(unsaved)} What you
+                      see here since the last save is gone when you leave this conversation.
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="ml-2 h-6 text-[11px]"
+                        disabled={running}
+                        onClick={() => void persist(messages, carriedState)}
+                      >
+                        Save again
+                      </Button>
                     </div>
                   </div>
                 )}

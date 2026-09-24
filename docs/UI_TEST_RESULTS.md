@@ -15,6 +15,49 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-25 — A swarm chat opened through a failed read, and saves that failed in silence, before and after, ADVERSARIAL_LOG R109
+
+**Why this round exists.** The swarm chat dialog ("Chat with this swarm" on
+the canvas) read and wrote `swarm_chats` without reading the answers. Driven
+on a swarm made for it, "R109 chat echo": an Input and an Output, so every
+reply is the message itself and no model is called. The failures were
+injected from the browser, since these are direct PostgREST calls. Each
+refused call answered 503 with `R109 injected: the <METHOD> did not reach
+the database`.
+
+### Before the fix
+
+| Time | Driven | Read back |
+| ---- | ------ | --------- |
+| 01:01:21 | on image `57b70c28882f`, Chat → "R109 turn one", then "R109 turn two" | `POST` 201, then `PATCH` 204 of chat `c7a47254`; four bubbles |
+| 01:01:38 | New chat → open "R109 turn one" with its read refused | four refused `GET`s; at 01:01:45 the conversation is highlighted over "Start the conversation below.", with no error |
+| 01:01:54 | fault lifted → "R109 after a failed read" | `PATCH` 204 of `c7a47254`; the list retitles it "R109 after a failed read" |
+| 01:02:07 | dialog closed, reopened, the conversation opened cleanly | two bubbles, "R109 after a failed read" and its reply: turns one and two are gone |
+| 01:02:15 | update refused → "R109 unsaved turn" | the turn and its reply on screen, no error; reopened at 01:02:23 it is not there |
+| 01:02:31 | New chat, insert refused → "R109 never saved" | the turn on screen, no error, the list unchanged |
+
+### After the rebuild
+
+| Time | Driven | Read back |
+| ---- | ------ | --------- |
+| 01:20:42 | on image `b7d8cdf59b82`, the conversation opened cleanly → "R109 after turn A" | `PATCH` 200; four bubbles |
+| 01:20:49 | New chat → open it with its read refused | four refused `GET`s; toast `Could not open that conversation · R109 injected: the GET did not reach the database. You are still in the conversation you had open.`; not selected |
+| 01:21:05 | fault lifted → "R109 after a refused read" | `POST` 201: a new conversation, not a `PATCH` of `c7a47254` |
+| 01:21:13 | `c7a47254` opened cleanly | its four bubbles, intact |
+| 01:21:19 | update refused → "R109 turn B, refused save" | `Not saved: R109 injected: the PATCH did not reach the database What you see here since the last save is gone when you leave this conversation.` and "Save again" |
+| 01:21:29 | fault lifted → "Save again" | `PATCH` 200; the notice goes; reopened at 01:21:45, six bubbles, turn B among them |
+| 01:21:56 | New chat, insert refused → "R109 insert refused" | the same notice; the list does not gain it |
+| 01:22:02 | fault lifted → "Save again" | `POST` 201; the list gains "R109 insert refused", selected |
+| 01:22:23 | list read refused → dialog closed and reopened | `Could not load conversations: R109 injected: the GET did not reach the database`, over the last list read |
+| 01:36:14 | on image `b1409a24ad3d` (the notice's missing stop added), update refused → "R109 turn C, refused save" | `Not saved: R109 injected: the PATCH did not reach the database. What you see here since the last save is gone when you leave this conversation.` |
+| 01:36:21 | "Save again" | `PATCH` 200; reopened, eight bubbles |
+
+Fixtures kept: the swarm "R109 chat echo" (`d10c86c5`) and its three
+conversations: "R109 after a failed read" (`c7a47254`, eight messages),
+"R109 after a refused read" and "R109 insert refused".
+
+Findings from this round: R109 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-25 — A parked swarm run in Recent runs, before and after, ADVERSARIAL_LOG R108
 
 **Why this round exists.** Recent runs showed any status it did not know as
