@@ -109,6 +109,83 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-24 — The first call after a quiet spell
+
+#### R100 · S1 · Clients that gave up on a server while it was starting
+
+MCP Builder servers scale to zero: after an idle timeout, 15 minutes by
+default, the container stops, and the next call starts it again. This
+instance's MCP endpoint gives that start up to 90 s before it answers 503.
+Its own clients gave the first request far less. Agents and swarm Tool nodes
+gave `initialize` 15 s, and Test connection gave it 12 s. The cold starts
+measured while driving this took 17.7 s, 35.5 s, 23.4 s and 14.6 s. So the
+first call after a quiet spell failed with "The operation was aborted due
+to timeout". For an agent on a schedule that is most calls. The endpoint
+went on to answer 200 to nobody and kept the session it had opened, which
+no one would end. Test connection was worse: it wrote the result down, and
+a server that was only asleep was marked **Error**.
+
+The Deploy tab promised the opposite: "the server starts on the first call
+(a few seconds)". The docs said the same.
+
+This is the queue's "two timeouts that do not agree" class, which R98
+showed was the wrong diagnosis for the deploy error. It is real here.
+
+**Driven, before the fix** (image of R99, `52e61c76e4f1`):
+
+- MCP Builder → `R99 hello` → Stop. Then Agent Swarms → `R99 MCP tool
+  call` → the MCP Tool Call node → `{"name": "r100 before"}` → Test this
+  node → Run node. After about 12.5 s it returned `{"error":"The operation
+  was aborted due to timeout"}`. The endpoint's `initialize` was answered
+  200 after 17.7 s, and the sandbox logged no DELETE.
+- MCP Builder → Stop again. Then Integrations → MCP Servers → `R99 hello`
+  (`● Active`) → Refresh. After about 11 s the toast read `Probe failed:
+  The operation was aborted due to timeout`, and the card changed to
+  `● Error`.
+
+**After the rebuild** (container `5c5895ec55d0`), the same two paths with
+the server stopped each time:
+
+- **The swarm node**, `{"name": "r100 after"}`: `Hello, r100 after!` 28.4 s
+  after the click. The endpoint logged `initialize` 200 after 23.4 s of cold
+  start, then `initialized` (1.1 s) and the call (6.4 s, the fresh
+  sandbox's first call). The sandbox logged `DELETE /mcp 200`, so the
+  session was ended.
+- **Refresh on MCP Servers**, with the card still reading `● Error` from
+  the before-drive: after about 16 s the toast read `Discovered 2 tools`,
+  and the card went back to `● Active · 2 tools`. The endpoint's
+  `initialize` took 14.6 s, a cold start that the old 12 s would have
+  cut off.
+
+One number now, `MCP_CONNECT_BUDGET_MS` in an import-free
+`mcpApps/budgets.ts`: the endpoint's own cold-start budget
+(`MCP_COLD_START_MS`, 90 s, which the endpoint now takes from there too)
+plus the ordinary 15 s for one request. Agents, swarm Tool nodes and Test
+connection give `initialize` that long, and every other request keeps its
+ordinary budget. The client's patience outlasts the server's, so whatever
+the endpoint answers arrives: ready, or its 503 naming what went wrong. The
+only cost is for an external server whose initialize HANGS, which is now
+waited on for longer. Any answer still returns the moment it comes.
+
+The longer wait exposed a second fault, fixed with it. R99's session
+retried the request bare when initialize was refused, which is right for
+a server without sessions (a 4xx). It did the same for a server that
+FAILED (a 5xx). Behind this endpoint, that bare retry started a second
+sandbox after the first start had just been given up on. A 5xx initialize
+is now the answer, and nothing more is sent.
+
+The Deploy tab and the docs now say the first call waits around half a
+minute, and the docs name the 90 s ceiling.
+
+**Tests:** 8 new. Two check the budget: it outlasts the endpoint's own
+budget and every measured cold start. Two run the session: a 503
+initialize is handed back with nothing more sent, and a 405 still goes on
+bare. Four are source-anchored: agents and Test connection give initialize
+the budget, the endpoint takes its figure from the same place, and the
+owner is no longer promised a few seconds. `mcpStartHonesty.test.ts` now
+reads the 90 s figure where it lives. 9 behaviour-changing mutants each
+killed, control missed, baseline green first.
+
 ### 2026-09-24 — The agents that never said hello
 
 #### R99 · S1 · Every agent call to a stateful MCP server refused

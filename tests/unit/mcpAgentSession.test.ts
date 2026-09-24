@@ -175,8 +175,8 @@ describe("servers that did not need a session keep working", () => {
       });
     };
     const session = await openMcpSession(send);
-    expect(session["Mcp-Session-Id"]).toBeUndefined();
-    expect(session["MCP-Protocol-Version"]).toBe("2025-06-18");
+    expect(session.headers["Mcp-Session-Id"]).toBeUndefined();
+    expect(session.headers["MCP-Protocol-Version"]).toBe("2025-06-18");
     await requestInSession(send, CALL);
     await settle();
     expect(seen.some((s) => s.method === "DELETE")).toBe(false);

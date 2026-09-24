@@ -12,6 +12,7 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 // route. The copy carried the same CRLF bug, found only once it was measured
 // against a real server. The shared implementation has no imports of its own
 // precisely so this file can share it.
+import { MCP_CONNECT_BUDGET_MS } from "@/utils/mcpApps/budgets";
 import { readRpcBody } from "@/utils/mcpApps/sse";
 
 type ProbeTool = {
@@ -35,9 +36,13 @@ const MCP_PROBE_TIMEOUT_MS = 12_000;
 // refuses cloud-metadata / link-local targets; ordinary private/in-cluster MCP
 // addresses are allowed by default. Dynamically imported because this module is
 // bundled into the client route.
-async function guardedFetch(url: string, init: RequestInit): Promise<Response> {
+async function guardedFetch(
+  url: string,
+  init: RequestInit,
+  timeoutMs = MCP_PROBE_TIMEOUT_MS,
+): Promise<Response> {
   const { safeFetch } = await import("@/utils/ssrfGuard.server");
-  return safeFetch(url, { ...init, signal: AbortSignal.timeout(MCP_PROBE_TIMEOUT_MS) });
+  return safeFetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
 }
 
 export const probeMcpServer = createServerFn({ method: "POST" })
@@ -91,28 +96,39 @@ export const probeMcpServer = createServerFn({ method: "POST" })
       if (token) baseHeaders.Authorization = `Bearer ${token}`;
     }
 
-    const post = async (body: unknown, sessionId?: string | null) => {
+    const post = async (body: unknown, sessionId?: string | null, timeoutMs?: number) => {
       const headers = { ...baseHeaders };
       if (sessionId) headers["Mcp-Session-Id"] = sessionId;
-      return guardedFetch(probeUrl, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(body),
-      });
+      return guardedFetch(
+        probeUrl,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify(body),
+        },
+        timeoutMs,
+      );
     };
 
     try {
       // 1) initialize
-      const initRes = await post({
-        jsonrpc: "2.0",
-        id: 1,
-        method: "initialize",
-        params: {
-          protocolVersion: PROTOCOL_VERSION,
-          capabilities: {},
-          clientInfo: { name: "agentswarms-probe", version: "1.0.0" },
+      // initialize is what finds a scaled-to-zero server asleep, so it gets a
+      // cold start's worth of patience (R100). At 12 s it gave up on a healthy
+      // Builder server mid-start and wrote it down as Error.
+      const initRes = await post(
+        {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: {
+            protocolVersion: PROTOCOL_VERSION,
+            capabilities: {},
+            clientInfo: { name: "agentswarms-probe", version: "1.0.0" },
+          },
         },
-      });
+        null,
+        MCP_CONNECT_BUDGET_MS,
+      );
 
       if (!initRes.ok) {
         await supabase

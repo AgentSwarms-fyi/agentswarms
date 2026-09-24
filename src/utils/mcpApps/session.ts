@@ -22,16 +22,25 @@ export type McpSend = (
   payload?: Record<string, unknown>,
 ) => Promise<Response>;
 
+/** An opened session, or the answer of a server that failed to open one. */
+export type McpSession = { headers: Record<string, string>; failed?: Response };
+
 /**
  * Open a session: initialize, then notifications/initialized.
  *
- * Returns the headers every later request in the session must carry: the
+ * `headers` are what every later request in the session must carry: the
  * session id, when the server issued one, and the protocol version it agreed
- * to. A server that refuses initialize at the HTTP level gets no session, and
- * the request goes out bare, which is how every call was made before, so a
- * server that only ever answered bare requests keeps working.
+ * to. A server that REFUSES initialize (4xx) gets no session, and the request
+ * goes out bare, which is how every call was made before R99, so a server
+ * that only ever answered bare requests keeps working.
+ *
+ * A server that FAILS initialize (5xx) is not one that does without sessions.
+ * Its answer is handed back as `failed` and nothing more is sent. Sending the
+ * request again bare would only fail again, and behind this instance's own
+ * endpoint it would start a second sandbox after the first one's cold start
+ * had just been given up on (R100).
  */
-export async function openMcpSession(send: McpSend): Promise<Record<string, string>> {
+export async function openMcpSession(send: McpSend): Promise<McpSession> {
   const init = await send(
     "POST",
     {},
@@ -47,8 +56,9 @@ export async function openMcpSession(send: McpSend): Promise<Record<string, stri
     },
   );
   if (!init.ok) {
+    if (init.status >= 500) return { headers: {}, failed: init };
     await init.body?.cancel().catch(() => {});
-    return {};
+    return { headers: {} };
   }
   const sessionId = init.headers.get("mcp-session-id");
   const agreed = (await readRpcBody(init)).message?.result?.protocolVersion;
@@ -59,7 +69,7 @@ export async function openMcpSession(send: McpSend): Promise<Record<string, stri
   await send("POST", session, { jsonrpc: "2.0", method: "notifications/initialized" })
     .then((r) => r.body?.cancel())
     .catch(() => null);
-  return session;
+  return { headers: session };
 }
 
 /**
@@ -74,16 +84,16 @@ export async function requestInSession(
   send: McpSend,
   payload: Record<string, unknown>,
 ): Promise<{ res: Response; read: RpcBody }> {
-  let session: Record<string, string> = {};
+  let session: McpSession = { headers: {} };
   try {
     session = await openMcpSession(send);
-    const res = await send("POST", session, payload);
+    const res = session.failed ?? (await send("POST", session.headers, payload));
     // Up to the answer, not to the end of the stream (R98).
     const read = await readRpcBody(res);
     return { res, read };
   } finally {
-    if (session["Mcp-Session-Id"]) {
-      void send("DELETE", session)
+    if (session.headers["Mcp-Session-Id"]) {
+      void send("DELETE", session.headers)
         .then((r) => r.body?.cancel())
         .catch(() => {});
     }

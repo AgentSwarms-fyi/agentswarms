@@ -538,9 +538,9 @@ function DeployTab({
           <Switch checked={app.keep_warm} onCheckedChange={(v) => void onPatch({ keep_warm: v })} />
         </div>
         <p className="text-[11px] leading-relaxed text-muted-foreground">
-          Off by default: the server starts on the first call (a few seconds) and stops again after{" "}
-          {app.idle_ttl_minutes} minutes idle. Turn this on for latency-sensitive servers — it holds
-          a container permanently.
+          Off by default: the server starts on the first call, which waits around half a minute for
+          it, and stops again after {app.idle_ttl_minutes} minutes idle. Turn this on for
+          latency-sensitive servers — it holds a container permanently.
         </p>
         <div className="flex items-center gap-2">
           <Label htmlFor="ttl" className="text-xs text-muted-foreground">

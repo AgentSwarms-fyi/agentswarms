@@ -34,6 +34,7 @@ import { resultDigest } from "@/utils/provenance/canonical";
 const WAREHOUSE_TOOL_ROW_CAP = 200;
 import { assertPublicUrl, safeFetch } from "@/utils/ssrfGuard.server";
 import { resolveMcpAuthToken } from "@/lib/mcp/auth.server";
+import { MCP_CONNECT_BUDGET_MS } from "@/utils/mcpApps/budgets";
 import { requestInSession, type McpSend } from "@/utils/mcpApps/session";
 import { parseJsonOrSse } from "@/utils/mcpApps/sse";
 import { resolveIntegrationConfig } from "@/utils/providers/integrationConfig.server";
@@ -1429,13 +1430,17 @@ async function mcpRequest(
   if (authType === "token" && authToken) headers.Authorization = `Bearer ${authToken}`;
   // The endpoint is user-registered but fetched from inside the server's
   // network, so every request goes through the SSRF guard with a bounded
-  // timeout.
+  // timeout. initialize is the request that finds a scaled-to-zero server
+  // asleep, so it waits as long as a cold start may take (R100); the rest keep
+  // the ordinary budget.
+  const timeoutFor = (method: "POST" | "DELETE", payload?: Record<string, unknown>) =>
+    method === "DELETE" ? 5_000 : payload?.method === "initialize" ? MCP_CONNECT_BUDGET_MS : 15_000;
   const send: McpSend = (method, extra, payload) =>
     safeFetch(endpoint, {
       method,
       headers: { ...headers, ...extra },
       body: payload ? JSON.stringify(payload) : undefined,
-      signal: AbortSignal.timeout(method === "DELETE" ? 5_000 : 15_000),
+      signal: AbortSignal.timeout(timeoutFor(method, payload)),
     });
   try {
     const { res: r, read } = await requestInSession(send, body);

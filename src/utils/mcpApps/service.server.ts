@@ -31,6 +31,7 @@ import {
   toolsFromListResult,
   type McpTool,
 } from "./protocol";
+import { MCP_COLD_START_MS } from "./budgets";
 
 export type McpAppRow = Database["public"]["Tables"]["mcp_apps"]["Row"];
 
@@ -45,8 +46,11 @@ export type McpAppRow = Database["public"]["Tables"]["mcp_apps"]["Row"];
  * window — pushed a working server over the line. The old failure path then
  * destroyed the container it had given up on, so the next attempt paid the
  * full cold start again instead of finding it seconds from ready.
+ *
+ * Shared, because every CLIENT of this endpoint has to wait at least this long
+ * for a first answer (R100): see mcpApps/budgets.ts.
  */
-const COLD_START_MS = 90_000;
+const COLD_START_MS = MCP_COLD_START_MS;
 const POLL_MS = 750;
 
 /** How long each handshake request may take, headers and answer together. */

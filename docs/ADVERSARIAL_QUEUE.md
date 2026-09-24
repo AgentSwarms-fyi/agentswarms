@@ -348,7 +348,14 @@ least twice, not a hypothetical.
   message is the handshake's own 15 s, and what it waited for was the END
   of a `tools/list` stream that had already delivered its answer. The
   general question about mismatched timeouts still stands; this example
-  does not support it.
+  does not support it. FOUND for real in R100, one door along: the
+  endpoint's CLIENTS (agents, swarm Tool nodes, Test connection) gave
+  `initialize` 12–15 s against a cold start of up to 90 s. The rule that
+  came out of it is that a client's patience must outlast the server's own
+  budget, so the server's answer, whatever it is, is the one that arrives.
+  Other pairs to check the same way: the gateway's provider calls against
+  a provider's queueing, ETL run starts against the Spark session's
+  start-up, and warm-endpoint deploys against the runtime image pull.
 - Two ways to end, one cleanup (R93): a sandbox could be ended BY something
   or end BY ITSELF, and the teardown lived only on the first path — so
   every kernel that finished normally left its container on the host for
@@ -384,16 +391,16 @@ least twice, not a hypothetical.
   here which steps the protocol requires and which ones this code happens
   to get away with skipping. Siblings: the A2A client, the OAuth/token
   refresh paths, and the webhook signature checks. Found while driving
-  it, and the TOP candidate for R100:
-  - **The first agent call to an idle Builder server always fails.** The
-    agent's `initialize` has a 15 s timer. The endpoint cold-starts the
-    sandbox inside that request, which took 35.5 s, so the agent
-    reported "The operation was aborted due to timeout". The endpoint
-    then answered 200 to nobody and wrote a session row that no one will
-    end. This is the "two timeouts that do not agree" class, real after
-    all, just not where R89 put it. The fix is probably to let the
-    endpoint say "starting, retry" quickly, or to give the handshake the
-    cold-start budget. Decide by measuring.
+  it:
+  - **The first agent call to an idle Builder server always failed.**
+    DONE (R100): every client of the endpoint now gives `initialize` the
+    endpoint's own cold-start budget plus one request's worth. A 5xx
+    initialize is taken as the answer rather than retried bare. Still
+    open from it: Test connection (`src/lib/mcp/probe.functions.ts`)
+    opens a session and never ends it, so each press leaves a row in
+    `mcp_app_sessions` for a Builder server. That is R99's leak in its
+    other client. It should end its session, or share
+    `mcpApps/session.ts`.
   - Each request through `/api/mcp/s/<slug>` costs about 1.1 s before it
     reaches the sandbox, because `ensureRunning` re-probes it every time.
     A session is three requests, so an agent tool call costs about 3.8 s.

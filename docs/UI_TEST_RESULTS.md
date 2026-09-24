@@ -15,6 +15,38 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-24 — Calling a Builder MCP server that had scaled to zero, before and after, ADVERSARIAL_LOG R100
+
+**Why this round exists.** Builder servers stop after 15 idle minutes by
+default, and the first call starts them again, which takes up to 90 s at the
+endpoint. Agents and swarm Tool nodes gave that first request 15 s, and Test
+connection gave it 12 s. "Stop" on the server's page puts it in the same
+state an idle spell does.
+
+### Before the fix
+
+| Time | Driven | Read back |
+| ---- | ------ | --------- |
+| 03:53 | on container `52e61c76e4f1`, MCP Builder → `R99 hello` → Stop | no `nb-` container left; the Deploy tab reads "the server starts on the first call (a few seconds)" |
+| 03:53:42 | Agent Swarms → `R99 MCP tool call` → MCP Tool Call node, `{"name": "r100 before"}` → Test this node → Run node | after about 12.5 s, OUTPUT `{"error":"The operation was aborted due to timeout"}`. The endpoint answered `initialize` 200 after 17.7 s; the sandbox logged no DELETE |
+| 03:54:58 | MCP Builder → Stop again | the sandbox is gone |
+| 03:55:19 | Integrations → MCP Servers → `R99 hello` (`● Active · 2 tools · 37m ago`) → Refresh | after about 11 s, the toast `Probe failed: The operation was aborted due to timeout`; the card reads `● Error · 2 tools · 0s ago` |
+
+### After the rebuild
+
+| Time | Driven | Read back |
+| ---- | ------ | --------- |
+| 04:11 | on container `5c5895ec55d0`, MCP Builder → `R99 hello` | the Deploy tab reads "the server starts on the first call, which waits around half a minute for it, and stops again after 15 minutes idle" → Stop |
+| 04:12:28 | the same node, `{"name": "r100 after"}` → Run node | after 28.4 s, OUTPUT `…"content":[{"text":"Hello, r100 after!","type":"text"}],"isError":false…`. The endpoint logged initialize 200 in 23.4 s, then 202 and 200; the sandbox logged `DELETE /mcp 200` |
+| 04:13:23 | MCP Builder → Stop | the sandbox is gone |
+| 04:13:37 | MCP Servers → `R99 hello` (still `● Error` from before) → Refresh | after about 16 s, the toast `Discovered 2 tools`; the card reads `● Active · 2 tools · 0s ago`. The endpoint's initialize took 14.6 s |
+
+Fixtures: as R99 (`R99 hello`, registered, and the swarm `R99 MCP tool
+call`). The server is left running from the last Refresh, and idle reaping
+will stop it.
+
+Findings from this round: R100 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-24 — A swarm calling a Builder MCP server's tool, before and after, ADVERSARIAL_LOG R99
 
 **Why this round exists.** The agents' MCP client sent `tools/list` and
