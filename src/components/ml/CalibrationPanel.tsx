@@ -13,6 +13,7 @@
 // business judgement about which mistake costs more, and the person making it
 // is the one reading this screen.
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTokenRef } from "@/hooks/use-token-ref";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import { AlertTriangle, CheckCircle2, Gauge, Info, Loader2, SlidersHorizontal } from "lucide-react";
@@ -177,11 +178,15 @@ export function CalibrationPanel({
   const [picked, setPicked] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const { tokenRef, signedIn } = useTokenRef(token);
+  // Read on opening, not when the session refreshes (R125): that put the line in use back over the
+  // one just picked.
   const load = useCallback(async () => {
-    const res = await loadFn({ data: { access_token: token, model_id: modelId } });
+    const res = await loadFn({ data: { access_token: tokenRef.current, model_id: modelId } });
     setState(res);
     setPicked(res.threshold);
-  }, [loadFn, token, modelId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadFn, signedIn, modelId]);
 
   useEffect(() => {
     void load();

@@ -8,6 +8,7 @@
 // the scored rows belongs to whoever answered first, and they are rarely a
 // random sample.
 import { useCallback, useEffect, useState } from "react";
+import { useTokenRef } from "@/hooks/use-token-ref";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import { AlertTriangle, CheckCircle2, Loader2, Target, TrendingDown, X } from "lucide-react";
@@ -83,8 +84,11 @@ export function AccuracyPanel({
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({ schema: "", table: "", keys: "", outcome: "" });
 
+  const { tokenRef, signedIn } = useTokenRef(token);
+  // Read on opening, not when the session refreshes (R125): that put the saved outcome source back
+  // over the one being edited.
   const load = useCallback(async () => {
-    const res = await listFn({ data: { access_token: token, model_id: modelId } });
+    const res = await listFn({ data: { access_token: tokenRef.current, model_id: modelId } });
     setRows(res.evaluations);
     setSource(res.source);
     if (res.source) {
@@ -95,7 +99,8 @@ export function AccuracyPanel({
         outcome: res.source.outcome_column,
       });
     }
-  }, [listFn, token, modelId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listFn, signedIn, modelId]);
 
   useEffect(() => {
     void load();

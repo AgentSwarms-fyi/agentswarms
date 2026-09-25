@@ -12,6 +12,7 @@
 // too small to judge is still shown, greyed, because hiding one is how a real
 // problem stays invisible for a quarter.
 import { useCallback, useEffect, useState } from "react";
+import { useTokenRef } from "@/hooks/use-token-ref";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import { AlertTriangle, CheckCircle2, HelpCircle, Loader2, Scale, Sparkles } from "lucide-react";
@@ -91,13 +92,17 @@ export function FairnessPanel({
   const [suggestions, setSuggestions] = useState<MlSensitiveSuggestion[] | null>(null);
   const [busy, setBusy] = useState<null | "save" | "run" | "suggest" | "narrate">(null);
 
+  const { tokenRef, signedIn } = useTokenRef(token);
+  // Read on opening, not when the session refreshes (R125): that put the saved columns and
+  // favourable answer back over unsaved picks.
   const load = useCallback(async () => {
-    const res = await listFn({ data: { access_token: token, model_id: modelId } });
+    const res = await listFn({ data: { access_token: tokenRef.current, model_id: modelId } });
     setChecks(res.checks);
     setColumns(res.sensitive_columns);
     setCandidates(res.candidates);
     setFavourable(res.favourable_label ?? "");
-  }, [listFn, token, modelId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listFn, signedIn, modelId]);
 
   useEffect(() => {
     void load();

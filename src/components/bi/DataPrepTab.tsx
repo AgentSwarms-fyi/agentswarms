@@ -92,6 +92,7 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
+import { useTokenRef } from "@/hooks/use-token-ref";
 import { fmtBiNumber } from "@/components/bi/BiChartRender";
 import {
   addTableToFlow,
@@ -209,6 +210,7 @@ type SetCfg = React.Dispatch<React.SetStateAction<PrepFlowConfig>>;
 export function DataPrepTab() {
   const { user, session } = useAuth();
   const token = session?.access_token ?? null;
+  const { tokenRef } = useTokenRef(token);
 
   const [datasets, setDatasets] = useState<DatasetMeta[] | null>(null);
   const [datasetsError, setDatasetsError] = useState<string | null>(null);
@@ -857,15 +859,21 @@ export function DataPrepTab() {
     }
   }
 
-  /** Impact list for the delete dialog (server-resolved under the user's JWT). */
+  /**
+   * Impact list for the delete dialog (server-resolved under the user's JWT).
+   * Stable across session refreshes (R125): the dialog reloads it whenever it
+   * changes, which cleared the dataset name being typed to confirm.
+   */
   const loadDependents = useCallback(
     async (tableId: string): Promise<DatasetDependents> => {
+      const token = tokenRef.current;
       if (!token) throw new Error("Not signed in");
       return (await dependentsFn({
         data: { accessToken: token, tableId },
       })) as DatasetDependents;
     },
-    [token, dependentsFn],
+    // tokenRef is the same object for the component's life: listing it reloads nothing.
+    [tokenRef, dependentsFn],
   );
 
   async function confirmDeleteDataset(target: { id: string; name: string }) {

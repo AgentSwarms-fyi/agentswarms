@@ -111,6 +111,90 @@ Never infer it from what rendered.
 
 ### 2026-09-25 — Found testing Sheets rules: an hourly reload that ate edits, keys that went to the wrong place, and a dollar amount that stayed text
 
+#### R125 · S1 · Every session refresh put the saved copy back over what people were editing, in 21 places
+
+The session's access token changes on every refresh: about hourly, and when
+a tab regains focus near expiry. R120 found a Sheets load keyed on it, which
+rebuilt the editor from the saved copy each time. A sweep of every hook
+keyed on the token found the same shape in 21 more places.
+
+The worst were:
+- **Three editors: ETL pipelines, BI reports and workflows.** Each silently
+  reverted unsaved steps, blocks and names. The ETL editor's Save button stayed
+  enabled, so the next save wrote the older copy over the work.
+- **The admin runtime settings.** Every tab's unsaved fields reverted, and the
+  save bar then said there was nothing to save.
+- **Two "copy this key now" dialogs (a model's and a notebook's).** The
+  one-time plaintext of a new API key vanished with the dialog still open.
+  The key stayed valid but could never be shown again.
+
+The rest:
+- the IAM model-rules draft;
+- the audit retention box;
+- the lakehouse layout dialog;
+- the ML approvers, fairness, operating-point, outcome-source, deployment and
+  experiment-note fields;
+- the BI Git sync settings;
+- a connection import's table pick;
+- two typed delete confirmations;
+- a Sheets table sheet's selection and loaded rows;
+- the BI explore dialog's sort and page.
+
+Two needed more than the token taken out, because the refresh re-renders the
+page and they were also keyed on something new on every render:
+- **The table sheet's loader was keyed on the workbook object**, which is new
+  on every render of the page around it. Any save finishing started the sheet
+  over as well.
+- **The explore dialog's query was keyed on a fresh `[]`** that the dashboard
+  passed for "no drill path" on every render.
+
+**How it was found.** `}, [token` matched 32 hooks in 19 files. It missed
+every dependency list whose first entry is not the token (`[id, token]`) and
+every list Prettier put on its own line. The complete scan matches any
+dependency list naming the token, however it is laid out. Every hook it
+matched was read for one question: can its re-run replace something the
+user is editing? The 93 still keyed on the token after the fix only re-read
+what the user sees: lists, options for a picker, a status.
+
+**Driven, before and after**:
+- Forcing a refresh: each case set the stored session to expire in five
+  seconds and signalled the tab visible; supabase-js refreshed within 2–30 s.
+- Driven in both builds (unsaved edits, then the refresh), 14 in all:
+  - the ETL editor (a renamed pipeline and a new Filter node);
+  - the report designer (a new name and a fifth heading);
+  - the workflow editor (a new name and a SQL step, with its inspector open);
+  - the runtime settings (45 and 80 typed into two limits);
+  - the audit retention box (30 typed);
+  - the layout dialog (two keys, 256 MB, keep clustered);
+  - the IAM rules draft (a rule added);
+  - calibration (the 0.50 line picked);
+  - fairness (two columns ticked and "2" typed);
+  - the approvers box (two example.com addresses);
+  - both API-key dialogs (a key created, its banner on screen);
+  - a table sheet's selection (four cells);
+  - the explore dialog (sorted by Country, page 3).
+- **Before** (builds without the fix): every one reverted to the saved state,
+  or lost its selection or banner.
+- **After** (hot-deployed fix): every one kept what it had. Picking another
+  workflow still loads it. The IAM page's own Refresh button now leaves an
+  unsaved rules draft alone too, because the draft starts again only when that
+  principal's saved rules change. The four test keys were revoked.
+- **Not driven in the UI.** This account has no outcome source, no warm
+  deployment, no experiments, no database connection, no saved Git config
+  and no dataset with dependents. The fix there is the same line and the
+  test pins it.
+
+**The fix.** A `useTokenRef` hook: the load reads `tokenRef.current` when it
+calls the server and is keyed on `signedIn`, which changes only on sign-in
+and sign-out. The table sheet reads the workbook through a ref too, and the
+explore dialog keys its query on what the drill path and cross-filter say.
+
+**Tests.** `tests/unit/tokenReloadSweep.test.ts`:
+- It pins each of the 26 fixed dependency lists.
+- It ratchets the 93 reviewed ones per file, so a new hook keyed on the token
+  fails until someone has read it.
+- The mutation run caught 29 of 29, the control survived.
+
 #### R124 · S2 · In the dark theme, a filled cell's text could not be read
 
 A cell with a fill and no text color of its own took the theme's text

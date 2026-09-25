@@ -44,6 +44,7 @@ import { GenerateReportDialog } from "@/components/bi/GenerateReportDialog";
 import { ReportPagePreview } from "@/components/bi/ReportPagePreview";
 import type { BiDataContext } from "@/components/bi/biDataContext";
 import { useAuth } from "@/hooks/use-auth";
+import { useTokenRef } from "@/hooks/use-token-ref";
 import {
   loadSavedMetrics,
   loadSemantics,
@@ -79,6 +80,7 @@ function ReportDesigner() {
   const { reportId } = Route.useParams();
   const { session, user } = useAuth();
   const token = session?.access_token ?? "";
+  const { tokenRef, signedIn } = useTokenRef(token);
   const getFn = useServerFn(biReportGet);
   const saveFn = useServerFn(biReportSave);
 
@@ -102,7 +104,11 @@ function ReportDesigner() {
   const [semantics, setSemantics] = useState<Map<string, SemanticEntry>>(new Map());
   const [metrics, setMetrics] = useState<SavedMetric[]>([]);
 
+  // The report loads once per report, not when the session refreshes (R125):
+  // keyed on the token, that put the saved copy back over unsaved blocks
+  // and a new name every hour, and the next Save wrote the older copy.
   useEffect(() => {
+    const token = tokenRef.current;
     if (!token) return;
     void (async () => {
       const res = await getFn({ data: { accessToken: token, id: reportId } });
@@ -120,7 +126,8 @@ function ReportDesigner() {
       }
       setLoading(false);
     })();
-  }, [getFn, token, reportId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [getFn, signedIn, reportId]);
 
   useEffect(() => {
     if (!user?.id) return;

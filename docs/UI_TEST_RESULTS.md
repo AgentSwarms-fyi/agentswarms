@@ -15,6 +15,53 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-26 — A session refresh across the app: 14 editors and dialogs, before and after, ADVERSARIAL_LOG R125
+
+**Why this round exists.** R120 found a Sheets load keyed on the session's access token, which
+changes on every refresh and rebuilt the editor from the saved copy. The same shape was listed as
+open in 19 other files. This round read every hook keyed on the token (see R125 for how they were
+found) and drove each one that could lose work, before and after the fix.
+
+**How a refresh was forced.** In the page, the stored session (`sb-…-auth-token` in
+localStorage) was set to expire five seconds later and a `visibilitychange` event was sent.
+supabase-js then refreshed the session within 2–30 s. The check read only whether the token
+changed; the token itself was never printed.
+
+Fixtures: none kept. Edits were made and never saved; "Test" (ETL), "Revenue pack - known series"
+(report), "Test" (workflow), `analytics.bi_demo_sales` (layout) and the model "threshold_probe
+(payment_rows)" were left as they were. The four API keys created to show the one-time banner, all
+named "refresh test (revoke me)", were revoked in the same step. The admin settings, IAM rules and
+audit retention were typed into and never saved.
+
+| Place | The unsaved work | Before (no fix) | After |
+|---|---|---|---|
+| ETL → "Test" pipeline | renamed "Test renamed, not saved"; a Filter rows node added, its panel open | name back to "Test", the node gone, Save still enabled | name, node and Save kept |
+| BI → Reports → "Revenue pack - known series" | renamed; a fifth Heading block | name and blocks back to the saved four | kept |
+| Workflows → "Test" | renamed; a SQL statement step added, inspector open | name back, step gone, inspector closed | kept; picking "R96 notebook step" still loads it |
+| Admin → Developer runtime → Data platform | 45 and 80 in the two version limits | 30 and 50 again | 45 and 80 |
+| Audit log | retention box 30, Set not pressed | 7 again | 30 |
+| Lakehouse → bi_demo_sales → Layout | keys region then month, 256 MB, keep clustered | no keys, 128, off (the dialog blanked first) | kept |
+| Admin → IAM → Access, a user picked | an OpenRouter · * rule added to the draft | "No rules — this user is unrestricted", Save rules disabled | the draft and Save kept; the page's own Refresh keeps it too |
+| Model → Accuracy → operating point | the 0.50 line picked (its "What changes" note shown) | back to 0.30, note gone | 0.50 and its note |
+| Model → Accuracy → fairness | region and plan ticked; favourable "2" | unticked, box empty | kept |
+| Model → Versions → Require approval | two example.com addresses typed | box empty, still editing | kept |
+| Model → Publish as API → Create key | the "cannot be shown again" banner | banner gone, dialog open | banner kept |
+| Notebook → Publish → Create key | the same banner | gone | kept |
+| Sheets E2E M1 → BiDemoSales (table sheet) | four cells selected | selection gone, rows re-fetched | four cells still selected |
+| BI → Revenue Command Center → Total revenue → Explore data | sorted by Country, page 3 | page 1, unsorted | page 3, "Brazil" still first |
+
+The explore dialog kept resetting after the token was taken out of its query. The dashboard
+passed a fresh `[]` for "no drill path" on every render, and a refresh re-renders it; the dialog now
+keys its query on what the drill path says. The table sheet's loader was also keyed on the
+workbook object, which is new on every render of the page.
+
+Not driven, and why: an outcome source being changed (none set in this account), a warm
+deployment's idle time and copies (none deployed), an experiment's description (no experiments),
+a connection import's table pick (no database connection), the Git sync settings (no saved
+config; one needs a personal access token), and a typed delete confirmation (no dataset of this
+account has dependents, and without any the dialog asks for no typing). Each has the same one-line
+fix, pinned by `tests/unit/tokenReloadSweep.test.ts`.
+
 ## 2026-09-26 — The Sheets page: search, sort, thumbnails, ADVERSARIAL_LOG R122–R124
 
 **Why this round exists.** The Sheets page was a plain list of names and "No description". Asked

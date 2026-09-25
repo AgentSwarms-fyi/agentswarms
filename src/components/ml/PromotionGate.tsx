@@ -9,6 +9,7 @@
 // own promotion. Naming only yourself is refused at save, because a gate that
 // looks like a review but is not produces an audit trail that lies.
 import { useCallback, useEffect, useState } from "react";
+import { useTokenRef } from "@/hooks/use-token-ref";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import { Loader2, ShieldCheck, X } from "lucide-react";
@@ -42,12 +43,16 @@ export function PromotionGate({
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState(false);
 
+  const { tokenRef, signedIn } = useTokenRef(token);
+  // Read on opening, not when the session refreshes (R125): that put the saved approvers back over
+  // the emails being typed.
   const load = useCallback(async () => {
-    const res = await listFn({ data: { access_token: token, model_id: modelId } });
+    const res = await listFn({ data: { access_token: tokenRef.current, model_id: modelId } });
     setApprovers(res.approvers);
     setPending(res.pending);
     setDraft(res.approvers.join(", "));
-  }, [listFn, token, modelId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listFn, signedIn, modelId]);
 
   useEffect(() => {
     void load();

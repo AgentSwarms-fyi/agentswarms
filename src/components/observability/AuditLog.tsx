@@ -44,6 +44,7 @@ import {
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/use-auth";
+import { useTokenRef } from "@/hooks/use-token-ref";
 import {
   auditChainVerify,
   auditListEvents,
@@ -180,6 +181,7 @@ function describeDetail(r: AuditRow): string {
 export function AuditLog() {
   const { session } = useAuth();
   const token = session?.access_token ?? "";
+  const { tokenRef, signedIn } = useTokenRef(token);
   const listFn = useServerFn(auditListEvents);
   const retentionFn = useServerFn(auditSetRetention);
   const verifyFn = useServerFn(auditChainVerify);
@@ -203,6 +205,7 @@ export function AuditLog() {
 
   const load = useCallback(
     async (actionFilter: string) => {
+      const token = tokenRef.current;
       if (!token) return;
       setLoading(true);
       try {
@@ -228,13 +231,16 @@ export function AuditLog() {
         setLoading(false);
       }
     },
-    [token, listFn],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [signedIn, listFn],
   );
 
+  // Reloaded when the filter changes, not when the session refreshes (R125):
+  // that put the saved retention back over a number typed but not yet set.
   useEffect(() => {
     void load(action);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, action]);
+  }, [signedIn, action]);
 
   async function saveRetention() {
     const days = Number(retentionInput);

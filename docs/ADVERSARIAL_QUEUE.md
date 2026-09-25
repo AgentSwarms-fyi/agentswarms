@@ -226,10 +226,26 @@ typed stayed text), R120 (a session refresh reloaded the workbook and threw
 away the edit not yet saved), R121 (keys typed in a popover over the grid went
 to the active cell). Open from that round:
 
-- **The same token-as-dependency reload elsewhere:** 19 files list `token`
-  among the dependencies of a load (BI dashboard and report editors, ETL,
-  semantic layer, ML). Whichever of them hold unsaved edits lose them the
-  same way; each needs checking (spun off as its own task).
+- ~~**The same token-as-dependency reload elsewhere**~~: swept as R125. 21
+  places lost work and were fixed; the other 93 hooks keyed on the token
+  were read and are ratcheted by `tests/unit/tokenReloadSweep.test.ts`.
+  Open from that sweep:
+  - **The opposite: a token captured once.** A Python notebook's kernel
+    (and a sample notebook's) keeps the session it started with, so after an
+    hour its status and stop calls send an expired token and a failed stop is
+    swallowed: the kernel container may be left running until the idle
+    reaper. The lakehouse's Spark query poll captures the token when the
+    query starts, so a query running across a refresh can fail its polls.
+  - **Switching workflows drops unsaved edits without asking.** Picking
+    another workflow loads it over the open one; there is no "unsaved
+    changes" question.
+  - **Not driven in the UI** (the fix is the same line, the test pins it):
+    changing an outcome source, a warm deployment's idle time and copies, an
+    experiment's description, a connection import's table pick, the BI Git
+    sync settings, a typed delete confirmation. Each needs data this account
+    does not have.
+  - **The AI analyst's scenario callback** lists unused dependencies and
+    leaves out `catalog`, which it reads: a stale value is possible.
 - **A filter's criteria stay in Sheets:** the file gets the AutoFilter range
   and the rows it hides, not each column's criteria (ExcelJS writes no
   `filterColumn`), so Excel shows the buttons without the funnels.

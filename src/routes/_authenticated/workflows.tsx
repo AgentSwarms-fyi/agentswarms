@@ -80,6 +80,7 @@ import { StepInspector } from "@/components/workflows/StepInspector";
 import { WorkflowPalette } from "@/components/workflows/WorkflowPalette";
 import { KIND_STYLE, stepRunLink } from "@/components/workflows/nodeStyles";
 import { useAuth } from "@/hooks/use-auth";
+import { useTokenRef } from "@/hooks/use-token-ref";
 import { useTheme } from "@/hooks/use-theme";
 import { cn } from "@/lib/utils";
 import {
@@ -196,6 +197,7 @@ const NODE_TYPES = { workflow: WorkflowFlowNode };
 function WorkflowsPage() {
   const { session } = useAuth();
   const token = session?.access_token ?? "";
+  const { tokenRef, signedIn } = useTokenRef(token);
   const listFn = useServerFn(workflowsList);
   const getFn = useServerFn(workflowGet);
   const createFn = useServerFn(workflowCreate);
@@ -288,13 +290,19 @@ function WorkflowsPage() {
 
   const loadRuns = useCallback(
     async (id: string) => {
-      const res = await runsFn({ data: { accessToken: token, workflowId: id } });
+      const res = await runsFn({ data: { accessToken: tokenRef.current, workflowId: id } });
       if (res.ok) setRuns(res.runs);
     },
-    [runsFn, token],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [runsFn, signedIn],
   );
 
+  // The selected workflow loads into the editor when it is picked, not when
+  // the session refreshes (R125): keyed on the token, that put the saved graph
+  // and settings back over unsaved steps and a new name every hour, and wiped
+  // a trigger token shown once after Rotate.
   useEffect(() => {
+    const token = tokenRef.current;
     if (!token || !selectedId) return;
     // FOUND FROM THE UI. Picking a workflow while the previous one is still
     // loading used to leave whichever response landed LAST in the editor, so
@@ -326,7 +334,8 @@ function WorkflowsPage() {
     return () => {
       live = false;
     };
-  }, [getFn, token, selectedId, loadRuns]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [getFn, signedIn, selectedId, loadRuns]);
 
   // While a run is live, keep asking. The server nudges the run along on read,
   // so this is what makes a manual run visibly move rather than sit still.

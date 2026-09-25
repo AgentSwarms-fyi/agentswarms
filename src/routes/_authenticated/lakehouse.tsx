@@ -65,6 +65,7 @@ import {
 } from "@/components/lakehouse/IcebergDialog";
 import { downloadCsv } from "@/lib/exportData";
 import { useAuth } from "@/hooks/use-auth";
+import { useTokenRef } from "@/hooks/use-token-ref";
 import { supabase } from "@/integrations/supabase/client";
 import { parseModelChoice } from "@/utils/providers/modelChoice";
 import {
@@ -1654,6 +1655,7 @@ function LayoutDialog({
 }) {
   const { session } = useAuth();
   const token = session?.access_token ?? "";
+  const { tokenRef, signedIn } = useTokenRef(token);
   const readFn = useServerFn(getLakehouseLayout);
   const rewriteFn = useServerFn(rewriteLakehouseLayout);
   const clearFn = useServerFn(clearLakehouseLayout);
@@ -1664,9 +1666,12 @@ function LayoutDialog({
   const [keep, setKeep] = useState(false);
   const [busy, setBusy] = useState(false);
 
+  // Read when the dialog opens (and after a rewrite), not when the session
+  // refreshes (R125): that blanked the open dialog and put the saved keys,
+  // target size and "keep clustered" back over the ones being chosen.
   const load = useCallback(async () => {
     try {
-      const r = await readFn({ data: { access_token: token, schema, table } });
+      const r = await readFn({ data: { access_token: tokenRef.current, schema, table } });
       setInfo(r);
       setPicked(r.layout?.cluster_columns.length ? r.layout.cluster_columns : current);
       // Shown in MB with up to two decimals: a demo table's 100 KB target
@@ -1677,7 +1682,7 @@ function LayoutDialog({
       toast.error((e as Error).message);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, schema, table]);
+  }, [signedIn, schema, table]);
   useEffect(() => {
     if (open) {
       setInfo(null);

@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/dialog";
 import { WidgetDataTable } from "@/components/bi/BiWidgetCard";
 import { useAuth } from "@/hooks/use-auth";
+import { useTokenRef } from "@/hooks/use-token-ref";
 import { downloadCsv, downloadXlsx } from "@/lib/exportData";
 import { hydrateFromSupabase, isTableRegistered, runQueryUnlimited } from "@/lib/sqlEngine";
 import { runWarehouseQuery } from "@/lib/warehouseClient";
@@ -59,6 +60,7 @@ export function BiExploreDialog({
   onClose: () => void;
 }) {
   const { session } = useAuth();
+  const { tokenRef } = useTokenRef(session?.access_token);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [columns, setColumns] = useState<string[]>([]);
@@ -69,24 +71,35 @@ export function BiExploreDialog({
   const [narrow, setNarrow] = useState(true);
 
   const table = extractBaseTable(widget?.sql);
+  // Keyed on what the drill path and cross-filter say, not on the arrays
+  // themselves: the dashboard passes a fresh `[]` on every render (a session
+  // refresh re-renders it), and each one re-ran the query, dropping the sort
+  // and page being read (R125).
+  const drillKey = JSON.stringify(drillPath ?? []);
+  const contextKey = JSON.stringify(context ?? null);
   const predicates = useMemo(
     () => explorePredicates(drillPath ?? [], context),
-    [drillPath, context],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [drillKey, contextKey],
   );
   const activePredicates = useMemo(() => (narrow ? predicates : []), [narrow, predicates]);
 
-  /** One query, whichever engine the widget is wired to. */
+  /**
+   * One query, whichever engine the widget is wired to. Stable across session
+   * refreshes (R125): the open dialog queried again on each one, and the
+   * spinner unmounted the table, dropping the sort and page being read.
+   */
   const run = useCallback(
     async (sql: string, cap: number) => {
       if (widget?.source?.kind === "warehouse") {
-        const token = session?.access_token;
+        const token = tokenRef.current;
         if (!token) throw new Error("Sign in to query the warehouse.");
         return await runWarehouseQuery(token, widget.source.connection_id, sql);
       }
       if (table && !isTableRegistered(table)) await hydrateFromSupabase();
       return await runQueryUnlimited(sql, cap);
     },
-    [widget, table, session?.access_token],
+    [widget, table, tokenRef],
   );
 
   const load = useCallback(async () => {

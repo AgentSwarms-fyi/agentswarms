@@ -4,6 +4,7 @@
 // afterwards — so it is shown here, prominently, with a copy button, and the
 // dialog says so rather than letting someone close it and lose the key.
 import { useCallback, useEffect, useState } from "react";
+import { useTokenRef } from "@/hooks/use-token-ref";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import { Check, Copy, KeyRound, Loader2, Plus, Trash2 } from "lucide-react";
@@ -86,9 +87,13 @@ export function PublishNotebookDialog({
    * can reach your notebook, "still loading" is not a good enough answer.
    */
   const [keysError, setKeysError] = useState<string | null>(null);
+  const { tokenRef, signedIn } = useTokenRef(token);
 
+  // Read when the dialog opens, not when the session refreshes (R125): the
+  // reload ran with the dialog open and cleared a new key's plaintext, which
+  // is shown once and cannot be fetched again.
   const load = useCallback(() => {
-    listFn({ data: { access_token: token, notebook_id: notebookId } }).then((res) => {
+    listFn({ data: { access_token: tokenRef.current, notebook_id: notebookId } }).then((res) => {
       if (!res.ok) {
         setKeysError(res.error);
         return toast.error(res.error);
@@ -96,7 +101,8 @@ export function PublishNotebookDialog({
       setKeysError(null);
       setKeys(res.keys);
     });
-  }, [listFn, notebookId, token]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listFn, notebookId, signedIn]);
 
   useEffect(() => {
     if (open) {

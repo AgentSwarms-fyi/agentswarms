@@ -126,6 +126,7 @@ import { BiModelSelect } from "@/components/bi/BiModelSelect";
 import { parseModelChoice } from "@/utils/providers/modelChoice";
 import { listCatalogSources, type CatalogSource } from "@/lib/dataCatalog";
 import { useAuth } from "@/hooks/use-auth";
+import { useTokenRef } from "@/hooks/use-token-ref";
 import { useTheme } from "@/hooks/use-theme";
 import { cn } from "@/lib/utils";
 import {
@@ -866,6 +867,7 @@ type EditorPipeline = {
 function PipelineEditor({ id, onBack }: { id: string; onBack: () => void }) {
   const { session } = useAuth();
   const token = session?.access_token ?? "";
+  const { tokenRef, signedIn } = useTokenRef(token);
   const getFn = useServerFn(getEtlPipeline);
   const saveFn = useServerFn(saveEtlPipeline);
   const runFn = useServerFn(runEtlPipeline);
@@ -876,9 +878,14 @@ function PipelineEditor({ id, onBack }: { id: string; onBack: () => void }) {
   const [running, setRunning] = useState(false);
   const [tab, setTab] = useState("build");
 
+  // Loads the saved pipeline over the editor: on opening it, and after a
+  // version is restored. Not when the session refreshes (R125): keyed on the
+  // token, that put the saved copy back over unsaved edits every hour and
+  // left Save enabled, so saving wrote the older copy.
   const reloadPipeline = useCallback(() => {
     // The session hydrates a beat after first render; firing with an empty
     // token would bounce the editor back to the list with a zod error.
+    const token = tokenRef.current;
     if (!token) return;
     void (async () => {
       try {
@@ -919,7 +926,7 @@ function PipelineEditor({ id, onBack }: { id: string; onBack: () => void }) {
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, token]);
+  }, [id, signedIn]);
   useEffect(() => {
     reloadPipeline();
   }, [reloadPipeline]);

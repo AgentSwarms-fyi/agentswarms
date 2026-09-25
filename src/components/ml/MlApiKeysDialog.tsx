@@ -5,6 +5,7 @@
 // button, and the dialog says so rather than letting someone close it and
 // lose the key. Same arrangement as a notebook's publish dialog.
 import { useCallback, useEffect, useState } from "react";
+import { useTokenRef } from "@/hooks/use-token-ref";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import { Check, Copy, KeyRound, Loader2, Plus, Trash2 } from "lucide-react";
@@ -81,14 +82,18 @@ export function MlApiKeysDialog({
 
   const [keys, setKeys] = useState<MlApiKeyRow[] | null>(null);
   const [keysError, setKeysError] = useState<string | null>(null);
+  const { tokenRef, signedIn } = useTokenRef(token);
   const [name, setName] = useState("");
   const [scopes, setScopes] = useState<Set<MlKeyScope>>(new Set(["predict", "read"]));
   const [busy, setBusy] = useState(false);
   // Held only until the dialog closes — it cannot be fetched again.
   const [fresh, setFresh] = useState<string | null>(null);
 
+  // Read when the dialog opens, not when the session refreshes (R125): the
+  // reload ran with the dialog open and cleared a new key's plaintext, which
+  // is shown once and cannot be fetched again.
   const load = useCallback(() => {
-    listFn({ data: { access_token: token, model_id: modelId } }).then((res) => {
+    listFn({ data: { access_token: tokenRef.current, model_id: modelId } }).then((res) => {
       if (!res.ok) {
         setKeysError(res.error);
         return toast.error(res.error);
@@ -96,7 +101,8 @@ export function MlApiKeysDialog({
       setKeysError(null);
       setKeys(res.keys);
     });
-  }, [listFn, modelId, token]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listFn, modelId, signedIn]);
 
   useEffect(() => {
     if (open) {

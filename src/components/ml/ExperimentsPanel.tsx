@@ -11,6 +11,7 @@
 // which parameter actually differed between two attempts, and promoting the
 // one worth serving.
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { useTokenRef } from "@/hooks/use-token-ref";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import { ArrowUpRight, ChevronRight, FlaskConical, Loader2, Terminal, Trash2 } from "lucide-react";
@@ -103,15 +104,19 @@ export function ExperimentsPanel({ token }: { token: string }) {
   const [target, setTarget] = useState<Record<string, string>>({});
   const [note, setNote] = useState("");
 
+  const { tokenRef, signedIn } = useTokenRef(token);
+  // Read on opening, not when the session refreshes (R125): a new list reset
+  // the description being typed, and reloading the runs unmounted its box.
   const load = useCallback(async () => {
-    const res = await listFn({ data: { accessToken: token } });
+    const res = await listFn({ data: { accessToken: tokenRef.current } });
     if (res.ok) {
       setExperiments(res.experiments);
       setModels(res.models);
       setSelected((cur) => cur ?? res.experiments[0]?.id ?? null);
     } else toast.error(res.error);
     setLoading(false);
-  }, [listFn, token]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listFn, signedIn]);
 
   useEffect(() => {
     void load();
@@ -126,7 +131,7 @@ export function ExperimentsPanel({ token }: { token: string }) {
     let live = true;
     setLoadingRuns(true);
     void (async () => {
-      const res = await runsFn({ data: { accessToken: token, experimentId: selected } });
+      const res = await runsFn({ data: { accessToken: tokenRef.current, experimentId: selected } });
       if (!live) return;
       if (res.ok) setRuns(res.runs);
       else toast.error(res.error);
@@ -135,7 +140,8 @@ export function ExperimentsPanel({ token }: { token: string }) {
     return () => {
       live = false;
     };
-  }, [selected, runsFn, token]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected, runsFn, signedIn]);
 
   /** Metric columns: the run's scores, not the points of its curves. */
   const metricKeys = useMemo(() => metricColumns(runs), [runs]);

@@ -5,6 +5,7 @@
 // default and costs real memory while it is on, so the panel leads with the
 // trade rather than a switch with no explanation.
 import { useCallback, useEffect, useState } from "react";
+import { useTokenRef } from "@/hooks/use-token-ref";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import { Eye, Loader2, Play, Square, Zap } from "lucide-react";
@@ -73,8 +74,11 @@ export function DeploymentPanel({
   const [maxR, setMaxR] = useState("1");
   const [share, setShare] = useState(String(DEFAULT_SHARE));
 
+  const { tokenRef, signedIn } = useTokenRef(token);
+  // Read on opening, not when the session refreshes (R125): that put the saved idle time and copies
+  // back into a field being typed in, and the blur that followed then saved nothing.
   const load = useCallback(async () => {
-    const res = await getFn({ data: { accessToken: token, modelId } });
+    const res = await getFn({ data: { accessToken: tokenRef.current, modelId } });
     if (res.ok) {
       setDep(res.deployment);
       if (res.deployment) {
@@ -84,7 +88,8 @@ export function DeploymentPanel({
       }
     }
     setLoading(false);
-  }, [getFn, token, modelId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [getFn, signedIn, modelId]);
 
   useEffect(() => {
     void load();

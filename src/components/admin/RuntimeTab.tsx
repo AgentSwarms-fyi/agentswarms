@@ -28,6 +28,7 @@ import { VectorStorePanel } from "@/components/admin/VectorStorePanel";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { normalizeEgressHost, normalizeEgressIp } from "@/utils/notebookRuntime/egress";
+import { useTokenRef } from "@/hooks/use-token-ref";
 import {
   Select,
   SelectContent,
@@ -152,6 +153,7 @@ export function RuntimeTab({
   tab?: RuntimeTabId;
   onTabChange?: (tab: RuntimeTabId) => void;
 }) {
+  const { tokenRef, signedIn } = useTokenRef(token);
   const [localTab, setLocalTab] = useState<RuntimeTabId>(tab ?? "runtime");
   const activeTab = tab ?? localTab;
   const changeTab = (next: RuntimeTabId) => {
@@ -215,9 +217,12 @@ export function RuntimeTab({
   // enabled and who may use it.
   const [loadError, setLoadError] = useState<string | null>(null);
 
+  // Read on opening the page (and after a save), not when the session
+  // refreshes (R125): that put the saved settings back over every unsaved
+  // field on every tab, and the save bar then said there was nothing to save.
   const load = useCallback(() => {
     setLoadError(null);
-    getStateFn({ data: { access_token: token } })
+    getStateFn({ data: { access_token: tokenRef.current } })
       .then((res) => {
         if (!res.ok) {
           toast.error(res.error);
@@ -234,7 +239,8 @@ export function RuntimeTab({
         toast.error(msg);
         setLoadError(msg);
       });
-  }, [getStateFn, token]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [getStateFn, signedIn]);
 
   useEffect(() => {
     load();

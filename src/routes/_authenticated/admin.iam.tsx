@@ -94,6 +94,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 
 import { useAuth } from "@/hooks/use-auth";
+import { useTokenRef } from "@/hooks/use-token-ref";
 import { invalidateIamState, useIsSuperadmin } from "@/hooks/use-iam";
 import { clickable } from "@/lib/clickable";
 import { PROVIDER_LABELS, type ProviderId } from "@/utils/providers/types";
@@ -160,6 +161,7 @@ function AdminIamPage() {
   const { user, session } = useAuth();
   const isSuperadmin = useIsSuperadmin();
   const token = session?.access_token;
+  const { tokenRef, signedIn } = useTokenRef(token);
 
   const listUsers = useServerFn(iamListUsers);
   const listGroups = useServerFn(iamListGroups);
@@ -180,7 +182,10 @@ function AdminIamPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Not keyed on the token (R125): every session refresh reloaded the lists,
+  // and a new rules list reset the model-rules draft being edited.
   const reload = useCallback(() => {
+    const token = tokenRef.current;
     if (!token) return;
     setError(null);
     Promise.all([
@@ -223,12 +228,13 @@ function AdminIamPage() {
       })
       .catch((e) => setError(String(e?.message ?? e)))
       .finally(() => setLoading(false));
-  }, [token, listUsers, listGroups, listRules, listGrants, listResources, getSettings, listSso]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signedIn, listUsers, listGroups, listRules, listGrants, listResources, getSettings, listSso]);
 
   useEffect(() => {
-    if (!isSuperadmin || !token) return;
+    if (!isSuperadmin || !signedIn) return;
     reload();
-  }, [isSuperadmin, token, reload]);
+  }, [isSuperadmin, signedIn, reload]);
 
   const userById = useMemo(() => new Map((users ?? []).map((u) => [u.user_id, u])), [users]);
   const groupById = useMemo(() => new Map((groups ?? []).map((g) => [g.id, g])), [groups]);
@@ -1140,19 +1146,28 @@ function AccessTab({
   const [newPattern, setNewPattern] = useState("*");
   const [dirty, setDirty] = useState(false);
 
+  // The draft starts from what is saved for the chosen principal, and starts
+  // again only when that changes (another principal, or its rules saved).
+  // Keyed on the whole rules list, any reload of the page (a share created,
+  // the session refreshed) threw away rules added but not yet saved.
+  const savedRules = useMemo(
+    () =>
+      JSON.stringify(
+        rules
+          .filter((r) => r.principal_type === principalType && r.principal_id === principalId)
+          .map((r) => ({ provider: r.provider, model_pattern: r.model_pattern })),
+      ),
+    [rules, principalType, principalId],
+  );
   useEffect(() => {
     if (!principalId) {
       setDraft([]);
       setDirty(false);
       return;
     }
-    setDraft(
-      rules
-        .filter((r) => r.principal_type === principalType && r.principal_id === principalId)
-        .map((r) => ({ provider: r.provider, model_pattern: r.model_pattern })),
-    );
+    setDraft(JSON.parse(savedRules) as { provider: string; model_pattern: string }[]);
     setDirty(false);
-  }, [principalType, principalId, rules]);
+  }, [principalType, principalId, savedRules]);
 
   // Share builder state: pick the resource TYPE first, then the resource —
   // one flat dropdown across every KB/table/secret/dashboard gets unwieldy.

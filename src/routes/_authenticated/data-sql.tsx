@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/table";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useAuth } from "@/hooks/use-auth";
+import { useTokenRef } from "@/hooks/use-token-ref";
 import { DeleteDatasetDialog } from "@/components/bi/DeleteDatasetDialog";
 import { datasetDependents, type DatasetDependents } from "@/utils/dataPrep.functions";
 import { supabase } from "@/integrations/supabase/client";
@@ -292,6 +293,7 @@ function highlightSql(src: string): string {
 
 function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
   const { user, session } = useAuth();
+  const { tokenRef } = useTokenRef(session?.access_token);
   const [datasets, setDatasets] = useState<DatasetMeta[]>([]);
   const [loadingTables, setLoadingTables] = useState(true);
   const [tablesError, setTablesError] = useState<string | null>(null);
@@ -750,14 +752,19 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
     void downloadXlsx(result.columns, result.rows, "query-result", { sheet: "Query result" });
   }
 
-  /** Impact list for the delete dialog (server-resolved under the user's JWT). */
+  /**
+   * Impact list for the delete dialog (server-resolved under the user's JWT).
+   * Stable across session refreshes (R125): the dialog reloads it whenever it
+   * changes, which cleared the dataset name being typed to confirm.
+   */
   const loadDependents = useCallback(
     async (tableId: string): Promise<DatasetDependents> => {
-      const token = session?.access_token;
+      const token = tokenRef.current;
       if (!token) throw new Error("Not signed in");
       return (await dependentsFn({ data: { accessToken: token, tableId } })) as DatasetDependents;
     },
-    [session?.access_token, dependentsFn],
+    // tokenRef is the same object for the page's life: listing it reloads nothing.
+    [tokenRef, dependentsFn],
   );
 
   async function confirmDeleteDataset(target: { id: string; name: string }) {

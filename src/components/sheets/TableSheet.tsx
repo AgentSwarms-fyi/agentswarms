@@ -7,6 +7,7 @@
 // lakehouse and are never copied into the sheet.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTokenRef } from "@/hooks/use-token-ref";
 import { useServerFn } from "@tanstack/react-start";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { toast } from "sonner";
@@ -123,6 +124,13 @@ export function TableSheet({
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const configRef = useRef(config);
   configRef.current = config;
+  // Read through refs, so the page loader (and with it the "start over"
+  // effect below) changes only with the sheet: a session refresh, or any
+  // re-render of the workbook around it, used to empty the loaded rows and
+  // drop the selection (R125).
+  const { tokenRef } = useTokenRef(token);
+  const wbRef = useRef(wb);
+  wbRef.current = wb;
 
   // What changes the rows (not widths or hidden columns).
   const queryKey = useMemo(
@@ -150,7 +158,7 @@ export function TableSheet({
       try {
         const r = await pageFn({
           data: {
-            access_token: token,
+            access_token: tokenRef.current,
             tab_id: tab.id,
             config: configRef.current,
             offset: page * pageRows,
@@ -169,7 +177,7 @@ export function TableSheet({
         setPages((prev) => new Map(prev).set(page, r.rows));
         if (r.sourceColumns) {
           // The table changed shape in the lakehouse; keep the sheet in step.
-          wb.setTableConfig(tab.id, { ...configRef.current, columns: r.sourceColumns });
+          wbRef.current.setTableConfig(tab.id, { ...configRef.current, columns: r.sourceColumns });
           toast.info(`${sourceLabel(configRef.current.source)} has different columns now`);
         }
       } catch (e) {
@@ -179,7 +187,7 @@ export function TableSheet({
         if (g === gen.current) setLoading(inFlight.current.size > 0);
       }
     },
-    [pageFn, token, tab.id, pageRows, wb],
+    [pageFn, tokenRef, tab.id, pageRows],
   );
 
   // New settings: start over from the first page.

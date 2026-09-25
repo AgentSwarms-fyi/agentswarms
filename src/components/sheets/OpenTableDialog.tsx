@@ -4,6 +4,7 @@
 // schema the person owns; the sheet then reads that table.
 
 import { useEffect, useMemo, useState } from "react";
+import { useTokenRef } from "@/hooks/use-token-ref";
 import { Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { BookOpen, Database, FileUp, Loader2, Plug } from "lucide-react";
@@ -86,6 +87,7 @@ export function OpenTableDialog({
   const openAssetFn = useServerFn(sheetsOpenCatalogAsset);
   const connsFn = useServerFn(listWarehouseConnections);
   const connTablesFn = useServerFn(sheetsConnectionTables);
+  const { tokenRef, signedIn } = useTokenRef(token);
   const importFn = useServerFn(sheetsImportFromConnection);
   const csvFn = useServerFn(sheetsImportCsv);
 
@@ -165,12 +167,15 @@ export function OpenTableDialog({
       .catch((e) => setLoadError((e as Error).message));
   }, [open, mode, conns, connsFn, token]);
 
+  // A connection's tables are listed when it is picked, not when the session
+  // refreshes (R125): that cleared the table picked and hid the names typed
+  // for it, and picking it again replaced them with fresh suggestions.
   useEffect(() => {
     if (!connId) return;
     let cancelled = false;
     setConnTables(null);
     setConnTable(null);
-    connTablesFn({ data: { access_token: token, connection_id: connId } })
+    connTablesFn({ data: { access_token: tokenRef.current, connection_id: connId } })
       .then((r) => {
         if (cancelled) return;
         if (!r.ok) return setError(r.error);
@@ -180,7 +185,8 @@ export function OpenTableDialog({
     return () => {
       cancelled = true;
     };
-  }, [connId, connTablesFn, token]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connId, connTablesFn, signedIn]);
 
   const shownTables = useMemo(
     () =>
