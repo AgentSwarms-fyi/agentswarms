@@ -82,6 +82,13 @@ import { OpenTableDialog } from "./OpenTableDialog";
 import { DEFAULT_COL_W, ROW_H, SheetGrid, type Editing, type GridGeometry } from "./SheetGrid";
 import { useSheetCharts } from "./useSheetCharts";
 import { useSheetRules } from "./useSheetRules";
+import { ShiftCellsDialog, type ShiftChoice } from "./ShiftCellsDialog";
+import {
+  adjustFormulaForShift,
+  shiftCellsGrid,
+  shiftProblem,
+  type ShiftDir,
+} from "@/lib/sheets/shiftCells";
 import { SheetToolbar, ZoomControl, type ClearKind } from "./SheetToolbar";
 import { SaveToLakehouseDialog } from "./SaveToLakehouseDialog";
 import { TableSheet } from "./TableSheet";
@@ -854,6 +861,43 @@ export function WorkbookEditor({
       next[String(c)] = Math.max(16, Math.round(ch * 7 + 5));
     }
     wb.setGridMeta(tabId, { colWidths: next });
+  };
+
+  // Insert cells… / Delete cells…: which way the neighbours move.
+  const [shiftAsk, setShiftAsk] = useState<"insert" | "delete" | null>(null);
+  const shiftCells = (mode: "insert" | "delete", choice: ShiftChoice) => {
+    if (!engine || !tabId || !activeTab) return;
+    const rows = range.r1 - range.r0 + 1;
+    const cols = range.c1 - range.c0 + 1;
+    if (choice === "rows") return structural("rows", range.r0, mode === "insert" ? rows : -rows);
+    if (choice === "cols") return structural("cols", range.c0, mode === "insert" ? cols : -cols);
+    const dir: ShiftDir = choice;
+    const current = engine.snapshot(tabId);
+    if (!current) return;
+    const problem = shiftProblem(current, range, dir);
+    if (problem) {
+      toast.error(problem);
+      return;
+    }
+    const target = activeTab.name;
+    wb.structural(tabId, (eng) => {
+      for (const s of eng.listSheets()) {
+        const g = eng.snapshot(s.id);
+        if (!g) continue;
+        const shifted = s.id === tabId ? shiftCellsGrid(g, range, dir) : g;
+        const cells = { ...shifted.cells };
+        let changed = s.id === tabId;
+        for (const [k, cell] of Object.entries(cells)) {
+          if (!cell.i.startsWith("=")) continue;
+          const next = adjustFormulaForShift(cell.i, s.name, target, range, dir);
+          if (next !== cell.i) {
+            cells[k] = { ...cell, i: next };
+            changed = true;
+          }
+        }
+        if (changed) eng.replaceGrid(s.id, { ...shifted, cells });
+      }
+    });
   };
 
   const structural = (axis: Axis, at: number, count: number) => {
@@ -1735,6 +1779,8 @@ export function WorkbookEditor({
                   insertColsLeft: () => structural("cols", range.c0, range.c1 - range.c0 + 1),
                   insertColsRight: () => structural("cols", range.c1 + 1, range.c1 - range.c0 + 1),
                   deleteCols: () => structural("cols", range.c0, -(range.c1 - range.c0 + 1)),
+                  insertCells: () => setShiftAsk("insert"),
+                  deleteCells: () => setShiftAsk("delete"),
                   hideRows: () => hide("rows", true),
                   unhideRows: () => hide("rows", false),
                   hideCols: () => hide("cols", true),
@@ -1846,6 +1892,22 @@ export function WorkbookEditor({
         </div>
       </div>
       {rules.dialogs}
+      {shiftAsk && (
+        <ShiftCellsDialog
+          mode={shiftAsk}
+          range={describeRange(range)}
+          onCancel={() => {
+            setShiftAsk(null);
+            afterDialog();
+          }}
+          onApply={(c) => {
+            const mode = shiftAsk;
+            setShiftAsk(null);
+            shiftCells(mode, c);
+            afterDialog();
+          }}
+        />
+      )}
       {charts.dialogs}
       {linkEdit && engine && tabId && (
         <LinkDialog
@@ -2038,6 +2100,8 @@ type MenuAction =
   | "insertColsLeft"
   | "insertColsRight"
   | "deleteCols"
+  | "insertCells"
+  | "deleteCells"
   | "hideRows"
   | "unhideRows"
   | "hideCols"
@@ -2149,7 +2213,14 @@ function ContextMenu({
         ...(hiddenColsIn ? [item("Unhide columns", actions.unhideCols)] : []),
         item("Column width…", actions.colWidth),
       ]}
-      {kind === "cell" && [...rowItems, sep("s2"), ...colItems]}
+      {kind === "cell" && [
+        item("Insert cells…", actions.insertCells),
+        item("Delete cells…", actions.deleteCells, true),
+        sep("s2a"),
+        ...rowItems,
+        sep("s2"),
+        ...colItems,
+      ]}
       {sep("s3")}
       {item("Clear contents", actions.clear)}
       {item("Clear formats", actions.clearFormats)}

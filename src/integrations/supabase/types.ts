@@ -6156,6 +6156,8 @@ export type Database = {
           sheets_upload_max_mb: number | null;
           sheets_import_max_sheets: number | null;
           sheets_export_max_rows: number | null;
+          sheets_version_interval_minutes: number | null;
+          sheets_versions_max: number | null;
           default_image: string;
           document_vision_max_pages: number | null;
           document_vision_model: string | null;
@@ -6222,6 +6224,8 @@ export type Database = {
           sheets_upload_max_mb?: number | null;
           sheets_import_max_sheets?: number | null;
           sheets_export_max_rows?: number | null;
+          sheets_version_interval_minutes?: number | null;
+          sheets_versions_max?: number | null;
           default_image?: string;
           document_vision_max_pages?: number | null;
           document_vision_model?: string | null;
@@ -6288,6 +6292,8 @@ export type Database = {
           sheets_upload_max_mb?: number | null;
           sheets_import_max_sheets?: number | null;
           sheets_export_max_rows?: number | null;
+          sheets_version_interval_minutes?: number | null;
+          sheets_versions_max?: number | null;
           default_image?: string;
           document_vision_max_pages?: number | null;
           document_vision_model?: string | null;
@@ -6771,6 +6777,53 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "sheet_tabs_workbook_id_fkey";
+            columns: ["workbook_id"];
+            isOneToOne: false;
+            referencedRelation: "sheet_workbooks";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      sheet_workbook_versions: {
+        Row: {
+          created_at: string;
+          created_by: string | null;
+          id: string;
+          kind: string;
+          label: string | null;
+          sheet_count: number;
+          size_bytes: number;
+          snapshot: Json;
+          user_id: string;
+          workbook_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          created_by?: string | null;
+          id?: string;
+          kind: string;
+          label?: string | null;
+          sheet_count?: number;
+          size_bytes?: number;
+          snapshot: Json;
+          user_id: string;
+          workbook_id: string;
+        };
+        Update: {
+          created_at?: string;
+          created_by?: string | null;
+          id?: string;
+          kind?: string;
+          label?: string | null;
+          sheet_count?: number;
+          size_bytes?: number;
+          snapshot?: Json;
+          user_id?: string;
+          workbook_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "sheet_workbook_versions_workbook_id_fkey";
             columns: ["workbook_id"];
             isOneToOne: false;
             referencedRelation: "sheet_workbooks";

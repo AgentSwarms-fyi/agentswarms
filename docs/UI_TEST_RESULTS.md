@@ -15,6 +15,57 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-25 — Sheets: Insert cells and Delete cells, and version history
+
+**Why this round exists.** Excel's Insert and Delete cells move only part of a row or column, and a
+workbook people rely on needs a way back to how it stood yesterday. Both had to work from the menus,
+keep every formula pointing where it pointed, and survive a reload.
+
+Fixture (kept): workbook "Sheets E2E Cells & Versions (Phase F)", imported through the Sheets page
+from `cells_f.xlsx` (written with openpyxl: Item/Q1/Q2/Q3/Total with `=SUM(B2:D2)` down E and a sum
+row, pointers `G2 =C3*2`, `G3 =SUM(C1:C9)`, `G4 =D2`, a red rule over B2:D4 above 15, and A8:B9
+merged). Also kept: "Sheets E2E Cells & Versions (Phase F) (2026-09-25 18:41)", opened from a
+version before the naming fix below. Every step was a right-click, a menu item, a radio button or a
+key; formulas were read from the formula bar and versions from `sheet_workbook_versions`.
+
+| Step | Result |
+|---|---|
+| C3 → Insert cells… → Shift cells right → Insert | row 3 only moves: C3 empty, 6 and 7 in D3:E3, the total in F3 as `=SUM(B3:E3)` (18), G3's `=SUM(C1:C9)` now in H3 and unchanged (44); G2 `=D3*2` (12); C5 `=SUM(C2:C4)` stays (22) |
+| Ctrl+Z, Ctrl+Y | the sheet as imported, then the shift again |
+| C3 → Delete cells… → Shift cells left | back exactly: `=SUM(B3:D3)`, `=C3*2`, `=SUM(C1:C9)` |
+| C2:D2 → Insert cells… → Enter (Shift cells down) | C and D move down from row 2: E2 `=SUM(B2:D2)` 10, E3 55, E4 14; C6 `=SUM(C3:C5)`; G2 `=C4*2`; G3 `=SUM(C1:C10)`; G4 `=D3`; the rule over B2:D4 stays (it reaches outside the columns that moved) |
+| Ctrl+Z; D2 → Delete cells… → Enter (Shift cells up) | G4 `=#REF!`, shown as #REF!; D4 `=SUM(D2:D3)` (the range lost its deleted cell) |
+| Ctrl+Z | G4 `=D2` again |
+| B7 → Insert cells… → Shift cells down | refused: "The merged cell A8:B9 would be cut in two; unmerge it first, or insert whole rows." Nothing moved |
+| B7 → Insert cells… → Entire row | a row above 7; the merged note now A9:B10 |
+| Reload | as left; the first save had taken an automatic version (18:41:39), later saves inside 30 minutes none |
+| File → Version history… | the automatic version: "Automatic · 1 sheet · 1 KB" |
+| Type "Sent to finance" → Enter | "Saved the version "Sent to finance"", listed first as Named |
+| B2 → 999 → Enter; Version history → Restore "Sent to finance" | the question says what is kept; Enter answers Cancel (the app's safe default), the button restores: B2 10, totals 60 and 84; a version "Before restoring Sent to finance" taken first, one byte larger (999 for 10) |
+| Ctrl+Z right after | nothing: the editor starts a fresh history on the restored sheets |
+| Restore "Before restoring Sent to finance" | B2 999 again: a restore undone from the list |
+| Open a copy of the automatic version | a new workbook with that version's sheet (the shifted row 3), this one unchanged |
+| After the naming fix: restore the automatic version | "Restored the version of 9/25/2026, 10:41:39 PM"; the row written: "Before restoring the version of 9/25/2026, 10:41:39 PM" |
+| Admin → Developer runtime → Data platform | "Minutes between automatic versions" 30, "Automatic versions kept per workbook" 50 |
+
+Found while building it (new code, fixed before commit):
+
+- **The build failed with the version helper in the browser bundle.** The grid save imported
+  `takeVersion`, a plain function, from another `*.functions` module; the browser build keeps a
+  module's plain functions and their server imports, and so pulled in the Supabase admin client. The
+  error named an unrelated file (`integrations.functions.ts`), the first importer the checker met.
+  The helper moved to `versions.server.ts`, and a test now requires that a `*.functions` module
+  import only types from another (every other file in the repo already did).
+- **Version names mixed time zones.** A copy was named "(2026-09-25 18:41)", the server's UTC, beside
+  a list that said 10:41 PM; and restoring a "Before restoring …" version wrote "Before restoring
+  Before restoring …". Names now use the time as the browser shows it, and any version but a named
+  one is spoken of by its time.
+
+Seen during the round, not a finding: while the terminal was busy, the workbook gained a filter on
+A1:E5 and the pane went back to the Sheets list (saved at 18:46:30, between two of this round's
+steps; nothing in the app navigates there on its own). It was taken for someone using the same
+pane and left in place.
+
 ## 2026-09-25 — Sheets charts: every type from Insert → Chart, redrawn from the cells, to Excel and back
 
 **Why this round exists.** A spreadsheet's numbers are read as pictures. Every chart type had to be

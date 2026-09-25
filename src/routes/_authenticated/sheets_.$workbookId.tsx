@@ -1,6 +1,6 @@
 // Data & BI -> Sheets -> a workbook: the spreadsheet editor.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import {
@@ -9,6 +9,7 @@ import {
   FileDown,
   FileSpreadsheet,
   FileUp,
+  History,
   Loader2,
   Pencil,
 } from "lucide-react";
@@ -23,6 +24,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { downloadCsv, downloadXlsx } from "@/components/sheets/download";
 import { ImportFileDialog } from "@/components/sheets/ImportFileDialog";
+import { VersionHistoryDialog } from "@/components/sheets/VersionHistoryDialog";
 import { promptAsk } from "@/components/ui/confirm-dialog";
 import { WorkbookEditor } from "@/components/sheets/WorkbookEditor";
 import { useWorkbook } from "@/components/sheets/useWorkbook";
@@ -48,6 +50,8 @@ function WorkbookPage() {
   const updateFn = useServerFn(sheetsUpdateWorkbook);
   const exportFn = useServerFn(sheetsTableExport);
   const [importOpen, setImportOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const navigate = useNavigate();
   const [busy, setBusy] = useState<"xlsx" | "csv" | null>(null);
   const [name, setName] = useState<string | null>(null);
   const [tabs, setTabs] = useState<SheetTabRow[] | null>(null);
@@ -230,10 +234,30 @@ function WorkbookPage() {
               <DropdownMenuItem onSelect={() => void download("csv")} disabled={!!busy}>
                 <FileDown className="mr-2 h-4 w-4" /> Download this sheet as CSV
               </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => setHistoryOpen(true)}>
+                <History className="mr-2 h-4 w-4" /> Version history…
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
       </div>
+      {historyOpen && (
+        <VersionHistoryDialog
+          token={token}
+          workbookId={workbookId}
+          flush={() => wb.flush()}
+          onRestored={() => {
+            setHistoryOpen(false);
+            void load();
+          }}
+          onOpened={(id) => {
+            setHistoryOpen(false);
+            void navigate({ to: "/sheets/$workbookId", params: { workbookId: id } });
+          }}
+          onClose={() => setHistoryOpen(false)}
+        />
+      )}
       {importOpen && token && (
         <ImportFileDialog
           open

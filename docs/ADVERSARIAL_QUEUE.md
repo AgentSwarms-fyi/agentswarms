@@ -248,6 +248,16 @@ Open from charts:
   and number formats on the axes are Sheets' own, in the app and in the file.
 - **No chart sheets and no stock, 3-D, waterfall or map charts.**
 
+Open from insert/delete cells and version history:
+
+- **Insert cells opens on Shift cells down** whatever the selection; Excel
+  picks right for a tall selection and down for a wide one.
+- **A version is looked at by opening a copy.** There is no read-only view of
+  a version in place, and no comparison of two versions cell by cell.
+- **A restore replaces the sheets with new ids.** Anything that remembers a
+  sheet by id (a link from outside, a pinned view) would lose it; nothing in
+  the app does today.
+
 ## Rules that came out of doing this
 
 - A test that asserts source text is pinning a USE, not a definition; bound it

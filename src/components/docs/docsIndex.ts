@@ -4071,6 +4071,8 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "SHEETS_MAX_CELLS",
       "SHEETS_PAGE_ROWS",
       "SHEETS_UPLOAD_MAX_MB",
+      "SHEETS_VERSIONS_MAX",
+      "SHEETS_VERSION_INTERVAL_MINUTES",
       "WAREHOUSE_ABS_MAX_ROWS",
       "javascript:",
       "lakehouse.import"

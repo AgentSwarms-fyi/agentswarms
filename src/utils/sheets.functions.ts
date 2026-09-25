@@ -12,6 +12,7 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { Json } from "@/integrations/supabase/types";
 import { getPlatformResources } from "@/utils/notebookRuntime/config.server";
 import { gridSchema } from "@/utils/sheets/schemas";
+import { takeVersion } from "@/utils/sheets/versions.server";
 
 type Fail = { ok: false; error: string };
 
@@ -425,9 +426,18 @@ export const sheetsSaveGrid = createServerFn({ method: "POST" })
         .eq("user_id", caller.userId)
         .eq("kind", "grid")
         .eq("version", data.base_version)
-        .select("version");
+        .select("version, workbook_id");
       if (error) return { ok: false, error: `Could not save the sheet: ${error.message}` };
-      if (rows?.length) return { ok: true, version: rows[0].version };
+      if (rows?.length) {
+        // A version of the workbook as people work, at most one per
+        // SHEETS_VERSION_INTERVAL_MINUTES. A failure here never fails the save.
+        try {
+          await takeVersion(rows[0].workbook_id, caller.userId, "auto", null);
+        } catch (e) {
+          console.warn(`[sheets] automatic version skipped: ${(e as Error).message}`);
+        }
+        return { ok: true, version: rows[0].version };
+      }
       // Nothing matched: the sheet is gone, or someone saved a newer version.
       let tab;
       try {

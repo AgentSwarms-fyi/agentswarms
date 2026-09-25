@@ -80,6 +80,14 @@ the formulas that name it. Right-click a row or column header for its own menu: 
 **Row height…** (in points, as Excel measures it) and **Column width…** (in characters).
 **Paste values only** and **Paste formatting only** work on cells copied in the workbook.
 
+A cell's menu also has **Insert cells…** and **Delete cells…**, as Excel's: shift the neighbouring
+cells right or down (insert) or left or up (delete), or take whole rows or columns. Only the cells
+in the block's rows (or columns) move. Formulas that pointed at a moved cell follow it, and one
+that pointed into deleted cells shows `#REF!`. A range follows when it lies wholly in the rows (or
+columns) that move, so `=SUM(A2:E2)` grows with a cell inserted into row 2, while `=SUM(C1:C9)`
+stays. Rules, validations and charts over such a range move the same way. A merged cell that the
+shift would cut in two is refused, with a note to unmerge it first.
+
 The status bar shows the Average, Count and Sum of the selection, and the zoom (**−**, the level,
 **+**). The zoom is remembered per sheet in your browser.
 
@@ -177,6 +185,22 @@ A chart floats over the grid and redraws whenever its cells change. Drag its top
 its lower right corner to resize it; the pencil (or a double-click, or Enter) edits it and the bin
 (or Delete) removes it. All of it undoes with Ctrl+Z. Inserting or deleting rows and columns moves
 and resizes a chart's range as it does a formula's.
+
+### Version history
+
+**File → Version history** shows the workbook as it stood at earlier moments. A version is taken
+automatically while people edit (at most one every `SHEETS_VERSION_INTERVAL_MINUTES`, 30), by hand
+with a name (**Save version**), and before every restore. Each shows its time, how many sheets it
+holds and its size.
+
+- **Open a copy** creates a new workbook from the version, leaving this one as it is: the way to look
+  at an old version, or to take one sheet back from it.
+- **Restore** puts every sheet back as it was in that version. What is there now is saved as a
+  version first ("Before restoring …"), so a restore can itself be undone from the same list.
+
+A table sheet's version is its definition (source, calculated columns, filters); the lakehouse table
+it reads is not copied. Automatic versions beyond `SHEETS_VERSIONS_MAX` (50) are removed oldest
+first; named ones are kept.
 
 ### Saving
 
@@ -395,15 +419,17 @@ Workbooks are private to their owner.
 
 ## Limits
 
-| Setting                    | Default | What it bounds                                                |
-| -------------------------- | ------- | ------------------------------------------------------------- |
-| `SHEETS_MAX_CELLS`         | 200,000 | Non-empty cells one grid sheet may hold                       |
-| `SHEETS_PAGE_ROWS`         | 500     | Rows a table sheet fetches per page while scrolling           |
-| `SHEETS_UPLOAD_MAX_MB`     | 50      | The largest CSV an upload brings into the lakehouse           |
-| `SHEETS_IMPORT_MAX_SHEETS` | 100     | Sheets one Excel or CSV import may bring into a workbook      |
-| `SHEETS_EXPORT_MAX_ROWS`   | 100,000 | Rows of a table sheet written into a downloaded .xlsx or .csv |
+| Setting                           | Default | What it bounds                                                |
+| --------------------------------- | ------- | ------------------------------------------------------------- |
+| `SHEETS_MAX_CELLS`                | 200,000 | Non-empty cells one grid sheet may hold                       |
+| `SHEETS_PAGE_ROWS`                | 500     | Rows a table sheet fetches per page while scrolling           |
+| `SHEETS_UPLOAD_MAX_MB`            | 50      | The largest CSV an upload brings into the lakehouse           |
+| `SHEETS_IMPORT_MAX_SHEETS`        | 100     | Sheets one Excel or CSV import may bring into a workbook      |
+| `SHEETS_EXPORT_MAX_ROWS`          | 100,000 | Rows of a table sheet written into a downloaded .xlsx or .csv |
+| `SHEETS_VERSION_INTERVAL_MINUTES` | 30      | The least time between two automatic versions of a workbook   |
+| `SHEETS_VERSIONS_MAX`             | 50      | Automatic versions kept per workbook (named ones are kept)    |
 
-All five are editable under **Admin → Developer runtime**. A direct import from a connection is
+All seven are editable under **Admin → Developer runtime**. A direct import from a connection is
 also bounded by `WAREHOUSE_ABS_MAX_ROWS`. A larger result is refused, never truncated; land it with
 an ETL pipeline and open that table instead.
 

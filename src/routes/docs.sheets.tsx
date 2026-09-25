@@ -94,6 +94,16 @@ function SheetsDocsPage() {
           brings values, recognising percentages, currency and dates.
         </li>
         <li>
+          <strong>Insert and delete cells.</strong> A cell&apos;s menu shifts neighbouring cells
+          right or down (insert) or left or up (delete), as Excel does; formulas pointing at the
+          moved cells follow them.
+        </li>
+        <li>
+          <strong>Version history.</strong> File → Version history keeps the workbook as it stood
+          (automatically as you edit, and by name); open a version as a copy, or restore it (what is
+          there now is kept first, so a restore can be undone).
+        </li>
+        <li>
           <strong>Rows and columns.</strong> Inserting or deleting them moves every formula that
           pointed at them, workbook-wide, and merged cells and row heights with them; renaming a
           sheet rewrites the formulas that name it. A header&apos;s right-click menu hides and
@@ -236,10 +246,11 @@ function SheetsDocsPage() {
         </li>
         <li>
           <strong>Limits.</strong> <C>SHEETS_MAX_CELLS</C> (200,000), <C>SHEETS_PAGE_ROWS</C> (500),{" "}
-          <C>SHEETS_UPLOAD_MAX_MB</C> (50), <C>SHEETS_IMPORT_MAX_SHEETS</C> (100) and{" "}
-          <C>SHEETS_EXPORT_MAX_ROWS</C> (100,000) are editable under Admin → Developer runtime. A
-          direct import from a connection is also bounded by <C>WAREHOUSE_ABS_MAX_ROWS</C>; a larger
-          result is refused, never truncated.
+          <C>SHEETS_UPLOAD_MAX_MB</C> (50), <C>SHEETS_IMPORT_MAX_SHEETS</C> (100),{" "}
+          <C>SHEETS_EXPORT_MAX_ROWS</C> (100,000), <C>SHEETS_VERSION_INTERVAL_MINUTES</C> (30) and{" "}
+          <C>SHEETS_VERSIONS_MAX</C> (50) are editable under Admin → Developer runtime. A direct
+          import from a connection is also bounded by <C>WAREHOUSE_ABS_MAX_ROWS</C>; a larger result
+          is refused, never truncated.
         </li>
       </UL>
 

@@ -761,6 +761,18 @@ export function RuntimeTab({
                 onChange={(n) => set("sheets_export_max_rows", n)}
                 hint="Most rows of a table sheet written into a downloaded .xlsx or .csv. Save larger tables to the lakehouse instead."
               />
+              <NumberField
+                label="Minutes between automatic versions"
+                value={form.sheets_version_interval_minutes}
+                onChange={(n) => set("sheets_version_interval_minutes", n)}
+                hint="A workbook keeps a version of itself as people edit, at most one this often. Named versions are taken whenever someone asks."
+              />
+              <NumberField
+                label="Automatic versions kept per workbook"
+                value={form.sheets_versions_max}
+                onChange={(n) => set("sheets_versions_max", n)}
+                hint="The oldest automatic versions beyond this are removed; named versions are kept."
+              />
             </div>
           </div>
           {/* The Spark engine: where a run's cluster comes from, and how big it is. */}
