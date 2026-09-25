@@ -28,6 +28,7 @@ import {
   validationsIn,
 } from "./xlsxRules";
 import { strFromU8 } from "fflate";
+import { addChartsToXlsx, readXlsxCharts } from "./xlsxCharts";
 import {
   addTextRuleAttributes,
   patchParts,
@@ -555,6 +556,26 @@ export async function readXlsx(data: ArrayBuffer, opts: ReadOptions): Promise<Im
       cachedFormulas: cached,
     });
   }
+  // Charts, placed by each sheet's own widths and heights.
+  const byName = new Map(sheets.map((s) => [s.name, s.grid]));
+  const found = readXlsxCharts(files, (name) => {
+    const g = byName.get(name);
+    return g
+      ? {
+          colPx: (c: number) => g.colWidths?.[String(c)] ?? pxDefaultCol,
+          rowPx: (r: number) => g.rowHeights?.[String(r)] ?? pxDefaultRow,
+        }
+      : null;
+  });
+  for (const [name, list] of found.charts) {
+    const g = byName.get(name);
+    if (g) g.charts = list.slice(0, 100);
+  }
+  if (found.skipped.length) {
+    warnings.push(
+      `${found.skipped.length} chart${found.skipped.length === 1 ? "" : "s"} left out: ${found.skipped.slice(0, 3).join("; ")}${found.skipped.length > 3 ? "; …" : ""}.`,
+    );
+  }
   return { sheets, warnings };
 }
 
@@ -726,11 +747,32 @@ export async function writeXlsx(
   const textRules = sheets.some(
     (s) => s.kind === "grid" && s.grid.cond?.some((c) => c.rule.kind === "text"),
   );
-  return textRules
+  const withRules = textRules
     ? patchParts(
         written,
         (name) => /^xl\/worksheets\/sheet\d+\.xml$/.test(name),
         (_name, xml) => addTextRuleAttributes(xml),
       )
     : written;
+  // Charts: parts ExcelJS does not write, added to its zip.
+  return addChartsToXlsx(
+    withRules,
+    sheets.flatMap((s, i) =>
+      s.kind === "grid" && s.grid.charts?.length
+        ? [
+            {
+              name: fileNames[i],
+              charts: s.grid.charts,
+              value: s.value,
+              colPx: (c: number) => s.grid.colWidths?.[String(c)] ?? pxDefaultCol,
+              rowPx: (r: number) => s.grid.rowHeights?.[String(r)] ?? pxDefaultRow,
+            },
+          ]
+        : [],
+    ),
+  );
 }
+
+// The sheet's default sizes as this writer sets them (see defaultColWidth and defaultRowHeight).
+const pxDefaultCol = 104;
+const pxDefaultRow = 24;

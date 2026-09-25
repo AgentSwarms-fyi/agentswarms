@@ -80,6 +80,7 @@ import { selRange, type Selection } from "@/lib/sheets/selection";
 import { LinkDialog } from "./LinkDialog";
 import { OpenTableDialog } from "./OpenTableDialog";
 import { DEFAULT_COL_W, ROW_H, SheetGrid, type Editing, type GridGeometry } from "./SheetGrid";
+import { useSheetCharts } from "./useSheetCharts";
 import { useSheetRules } from "./useSheetRules";
 import { SheetToolbar, ZoomControl, type ClearKind } from "./SheetToolbar";
 import { SaveToLakehouseDialog } from "./SaveToLakehouseDialog";
@@ -293,6 +294,16 @@ export function WorkbookEditor({
       </div>
     );
   };
+
+  // Charts over the sheet's ranges.
+  const charts = useSheetCharts({
+    wb,
+    engine,
+    tabId,
+    grid,
+    range,
+    onDone: () => afterDialog(),
+  });
 
   // Conditional formatting, data validation, the filter.
   const rules = useSheetRules({
@@ -1426,7 +1437,7 @@ export function WorkbookEditor({
             painting={!!painter}
             zoom={zoom}
             gridlines={!grid?.hideGrid}
-            extra={rules.ribbon}
+            extra={{ ...rules.ribbon, insert: charts.ribbon }}
             actions={{
               undo: () => wb.undo(),
               redo: () => wb.redo(),
@@ -1621,6 +1632,7 @@ export function WorkbookEditor({
               renderOverlay={(geo) => (
                 <>
                   {rules.overlay(geo)}
+                  {charts.overlay(geo)}
                   {linkChip(geo)}
                 </>
               )}
@@ -1834,6 +1846,7 @@ export function WorkbookEditor({
         </div>
       </div>
       {rules.dialogs}
+      {charts.dialogs}
       {linkEdit && engine && tabId && (
         <LinkDialog
           open

@@ -236,10 +236,17 @@ to the active cell). Open from that round:
 - **Rules count hidden rows:** a top-10 or average rule ranks over the whole
   range, filtered rows included, as Excel's does; worth a note in the docs
   if people expect otherwise.
-- **Enter in a filter's search or condition box does not apply it** (Apply
-  has to be clicked); Excel's filter takes Enter.
 - **No "Circle invalid data"**, and a pasted value is not checked (Excel does
   not check one either).
+
+Open from charts:
+
+- **A chart plots one block of its own sheet.** Excel lets a series come
+  from anywhere (another sheet, non-adjacent columns); here a chart is one
+  range, so an Excel chart built that way is left out on import (it says so).
+- **Chart styling stays with the defaults**: series colors, fonts, gridlines
+  and number formats on the axes are Sheets' own, in the app and in the file.
+- **No chart sheets and no stock, 3-D, waterfall or map charts.**
 
 ## Rules that came out of doing this
 

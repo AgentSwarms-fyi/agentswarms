@@ -322,6 +322,26 @@ const filterSchemaGrid = z
   })
   .strict();
 
+const chartSchema = z
+  .object({
+    id: z.string().min(1).max(64),
+    type: z.enum(["column", "bar", "line", "area", "pie", "doughnut", "scatter", "combo", "radar"]),
+    range: z.string().regex(A1_RANGE),
+    title: z.string().max(255).optional(),
+    seriesIn: z.enum(["auto", "cols", "rows"]).optional(),
+    stacked: z.enum(["none", "normal", "percent"]).optional(),
+    legend: z.enum(["top", "bottom", "right", "none"]).optional(),
+    labels: z.boolean().optional(),
+    smooth: z.boolean().optional(),
+    xTitle: z.string().max(255).optional(),
+    yTitle: z.string().max(255).optional(),
+    x: z.number().min(0).max(10_000_000),
+    y: z.number().min(0).max(50_000_000),
+    w: z.number().min(100).max(10_000),
+    h: z.number().min(80).max(10_000),
+  })
+  .strict();
+
 export const gridSchema = z
   .object({
     // Excel's own ceiling on what one cell holds: 32,767 characters.
@@ -354,5 +374,6 @@ export const gridSchema = z
     cond: z.array(condSchema).max(1000).optional(),
     validations: z.array(validationSchema).max(1000).optional(),
     filter: filterSchemaGrid.optional(),
+    charts: z.array(chartSchema).max(100).optional(),
   })
   .strict();

@@ -160,6 +160,24 @@ not deleted; the buttons of filtered columns change to a funnel. **Clear** shows
 header row on top. Formulas move with their rows and are rewritten for the new row, as in Excel;
 blanks sort last either way.
 
+### Charts
+
+**Insert → Chart** charts the selection, or the block of data around the active cell. The range is
+read as Excel reads it: a first row of text names the series, a first column of text gives the
+categories, and the series run down the columns when the range is at least as tall as it is wide
+(across the rows otherwise; the dialog can set either). The dialog previews the chart as you
+choose:
+
+- **Column**, **Bar**, **Line**, **Area** (side by side, stacked, or 100% stacked), **Pie** and
+  **Doughnut** (the first series, with percentages as labels), **Scatter** (the first column is x,
+  the others y), **Column and line** (the first series as columns, the rest as lines) and **Radar**.
+- A title, the legend's place (or none), data labels, smooth lines, and axis titles.
+
+A chart floats over the grid and redraws whenever its cells change. Drag its top edge to move it,
+its lower right corner to resize it; the pencil (or a double-click, or Enter) edits it and the bin
+(or Delete) removes it. All of it undoes with Ctrl+Z. Inserting or deleting rows and columns moves
+and resizes a chart's range as it does a formula's.
+
 ### Saving
 
 A workbook saves itself about a second after each change; the toolbar says where it stands.
@@ -321,9 +339,14 @@ the same test on a number, because the file library cannot write a formula into 
 AutoFilter's range goes both ways and its hidden rows stay hidden; the criteria of each column are
 kept in Sheets only.
 
-Not yet carried by files: charts (they arrive with charts), and the external-link part behind a
-formula such as `[1]Budget!B2` (its value comes in; Excel may show `#REF!` for it when it
-recalculates the downloaded copy).
+Charts go both ways too. A downloaded workbook carries each chart as an Excel chart over the same
+cells (DrawingML parts beside the sheet, placed where the chart sits in the grid), so Excel draws
+it from the data and redraws it when the data changes. An imported workbook's charts come in when
+they chart a range of their own sheet with a type Sheets draws; one over another sheet's data, or of
+a kind Sheets does not draw (a stock or 3-D chart), is left out and the import says so.
+
+Not yet carried by files: the external-link part behind a formula such as `[1]Budget!B2` (its value
+comes in; Excel may show `#REF!` for it when it recalculates the downloaded copy).
 
 ## Saving to the lakehouse and the catalog
 

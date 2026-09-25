@@ -64,6 +64,19 @@ export function GridFilterMenu({
   const needs = CONDS.find((c) => c.op === op)?.needs ?? 1;
   const allShownPicked = shown.every((v) => picked.has(v.text));
 
+  const apply = () => {
+    if (mode === "values") {
+      onApply(
+        picked.size === values.length
+          ? null
+          : { values: values.map((v) => v.text).filter((t) => picked.has(t)) },
+      );
+    } else {
+      onApply({ cond: { op, ...(needs >= 1 ? { a } : {}), ...(needs === 2 ? { b } : {}) } });
+    }
+    close();
+  };
+
   const close = () => {
     setOpen(false);
     onDone();
@@ -104,6 +117,17 @@ export function GridFilterMenu({
         align="start"
         data-testid="grid-filter-menu"
         onMouseDown={(e) => e.stopPropagation()}
+        // Enter in the search or a condition's box applies, as Excel's OK does.
+        onKeyDown={(e) => {
+          if (
+            e.key === "Enter" &&
+            e.target instanceof HTMLInputElement &&
+            e.target.type !== "checkbox"
+          ) {
+            e.preventDefault();
+            apply();
+          }
+        }}
         onCloseAutoFocus={(e) => {
           e.preventDefault();
           onDone();
@@ -252,24 +276,7 @@ export function GridFilterMenu({
           >
             Clear filter
           </Button>
-          <Button
-            size="sm"
-            className="h-7 text-xs"
-            onClick={() => {
-              if (mode === "values") {
-                onApply(
-                  picked.size === values.length
-                    ? null
-                    : { values: values.map((v) => v.text).filter((t) => picked.has(t)) },
-                );
-              } else {
-                onApply({
-                  cond: { op, ...(needs >= 1 ? { a } : {}), ...(needs === 2 ? { b } : {}) },
-                });
-              }
-              close();
-            }}
-          >
+          <Button size="sm" className="h-7 text-xs" onClick={apply}>
             Apply
           </Button>
         </div>

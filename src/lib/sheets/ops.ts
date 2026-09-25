@@ -152,6 +152,11 @@ export function moveCells(grid: GridData, axis: Axis, at: number, count: number)
       .map((v) => ({ ...v, ranges: moveRanges(v.ranges) }))
       .filter((v) => v.ranges.length);
   }
+  if (grid.charts) {
+    next.charts = grid.charts
+      .map((ch) => ({ ...ch, range: shiftRangeA1(ch.range, axis, at, count) }))
+      .filter((ch): ch is typeof ch & { range: string } => ch.range !== null);
+  }
   if (grid.filter) {
     const range = shiftRangeA1(grid.filter.range, axis, at, count);
     if (!range) next.filter = undefined;

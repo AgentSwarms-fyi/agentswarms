@@ -15,6 +15,44 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-25 — Sheets charts: every type from Insert → Chart, redrawn from the cells, to Excel and back
+
+**Why this round exists.** A spreadsheet's numbers are read as pictures. Every chart type had to be
+made from the ribbon, draw the right marks from the cells, follow edits and inserted rows, move and
+resize, undo, and survive a download to Excel and an import back.
+
+Fixture (kept): workbook "Sheets E2E Charts (Phase E)", imported through the Sheets page from
+`revenue_e.csv` (Month, North, South, East, West for twelve months; Spend and Sales in G:H). Each
+chart below was made with Insert → Chart over a range typed in the name box; the checks read the
+drawn SVG (bars, lines, areas, slices, points, polygons, axis ticks).
+
+| Step | Result |
+|---|---|
+| A1:E13 → Insert → Chart | the dialog opens on Column with a live preview of the range; the preview first showed no axes (a fragment around them, fixed), then month ticks and a value axis |
+| Column, "Revenue by region" → Insert | "Chart inserted"; a 480×300 chart beside the data: 48 bars, Jan…Dec, 0–200, legend North/South/East/West |
+| B2 100 → 250 | the Jan/North bar grows from 91.5 to 176 px, the axis rescales to 260 |
+| Drag the chart's top edge | it moves below the data (42, 322) and saves |
+| Line, smooth, axis titles Month / Revenue | 4 smooth curves, the two axis titles |
+| Area, Stacked | 4 areas, the axis to 800 (the regions summed) |
+| A1:B13 → Pie, data labels | 12 slices, labels 13%, 6%, 7%…; a mistyped range first ("A1:B13North by month") was refused: "is not a range such as A1:D13" |
+| A1:C13 → Doughnut | 12 slices with a hole (inner radius 51 of 79) |
+| G1:H13 → Scatter, axis titles Spend / Sales | 12 points on a number axis 9–45, placed beside G:H |
+| Column and line | 12 columns (North) and 3 lines |
+| Radar | 4 polygons over 12 month spokes |
+| Bar, 100% stacked | 48 bars, 0%–100% along the bottom, months down the side |
+| Double-click it → Edit chart (the dialog says Save) → Column → Save | "Chart updated"; a 100% stacked column chart |
+| Click it → Delete | "Chart deleted (Ctrl+Z brings it back)", 8 charts; Ctrl+Z → 9 |
+| Drag its corner | 480×300 → 590×389, its place unchanged |
+| Rows 1–2 → Insert 2 rows above | every chart's range moves (A1:E13 → A3:E15, G1:H13 → G3:H15) and each still draws; Ctrl+Z back |
+| Reload | all nine, the resized one at 590×389 |
+| File → Download as Excel | openpyxl reads 9 charts: BarChart, LineChart, AreaChart, PieChart, DoughnutChart, ScatterChart, BarChart (the combo, with a line part), RadarChart, BarChart (percentStacked), each over `'Revenue 2026'!…` |
+| File → Import sheets… that file | "Revenue 2026 (2)" with the nine charts: same types, titles, ranges, places and sizes, every one drawing |
+| Phase D's workbook: Amount filter → By condition → type 2000 → Enter | the filter applies (Enter now does what Apply does); Data → Clear |
+
+Found while building it (new code, fixed before commit): the column and bar charts drew no axes,
+because recharts looks for its axes among a chart's direct children and they were wrapped in a
+fragment.
+
 ## 2026-09-25 — Sheets rules: conditional formatting, data validation, filter and sort, ADVERSARIAL_LOG R119–R121
 
 **Why this round exists.** A spreadsheet people run a business on colors its exceptions, refuses

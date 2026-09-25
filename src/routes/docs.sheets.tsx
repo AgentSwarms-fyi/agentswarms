@@ -122,6 +122,12 @@ function SheetsDocsPage() {
           around the active cell, formulas moving with their rows.
         </li>
         <li>
+          <strong>Charts.</strong> Insert → Chart draws column, bar, line, area, pie, doughnut,
+          scatter, column-and-line and radar charts of a range, previewed as you choose, with
+          titles, legends, labels and stacking. A chart floats over the grid, redraws as its cells
+          change, and moves, resizes and undoes like everything else.
+        </li>
+        <li>
           <strong>Links and zoom.</strong> Ctrl+K links a cell to a web address, an email or a place
           in the workbook (<C>#Summary!B6</C>); Ctrl+click follows it. <C>javascript:</C> and other
           schemes are refused. The zoom (Ctrl+wheel, or the status bar) is kept per sheet.
@@ -203,7 +209,8 @@ function SheetsDocsPage() {
         formulas and current values, table sheets as Excel tables named like the sheet (so{" "}
         <C>Orders[amount]</C> keeps working), up to <C>SHEETS_EXPORT_MAX_ROWS</C> rows each and read
         with your own grants. <strong>Download this sheet as CSV</strong> writes what the sheet
-        shows. Conditional formatting, data validation and the filter&apos;s range go both ways.
+        shows. Conditional formatting, data validation, the filter&apos;s range and charts go both
+        ways: a chart arrives in Excel as an Excel chart over the same cells.
       </P>
 
       <H2 id="save">Saving to the lakehouse and the catalog</H2>

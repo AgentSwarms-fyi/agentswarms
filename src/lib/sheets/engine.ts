@@ -18,6 +18,7 @@ import {
 } from "./formula/evaluate";
 import { FUNCTIONS } from "./formula/functions";
 import { FormulaSyntaxError, isFormula, parseFormula, type Node } from "./formula/parser";
+import type { ChartDef } from "./charts";
 import type { CondFormat } from "./condFormat";
 import type { AutoFilter } from "./filter";
 import type { Borders } from "./style";
@@ -84,6 +85,8 @@ export type GridData = {
   validations?: Validation[];
   /** The AutoFilter (Data > Filter). */
   filter?: AutoFilter;
+  /** Charts over ranges of this sheet. */
+  charts?: ChartDef[];
 };
 
 export type SheetDef = { id: string; name: string; kind: "grid" | "table"; grid?: GridData };
