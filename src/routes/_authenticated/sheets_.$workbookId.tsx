@@ -1,5 +1,5 @@
 // Data & BI -> Sheets -> a workbook: the spreadsheet editor.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
@@ -54,7 +54,15 @@ function WorkbookPage() {
   const [limits, setLimits] = useState<SheetsLimits | null>(null);
   const [error, setError] = useState<{ message: string; missing?: boolean } | null>(null);
 
+  // The session's token is read when it is needed, not watched: it changes
+  // every time the session refreshes (about hourly), and reloading the
+  // workbook then rebuilt the editor from the saved copy, dropping any edit
+  // not yet saved and saving that older state over it (R120).
+  const tokenRef = useRef(token);
+  tokenRef.current = token;
+  const signedIn = !!token;
   const load = useCallback(async () => {
+    const token = tokenRef.current;
     if (!token) return;
     setError(null);
     try {
@@ -69,7 +77,9 @@ function WorkbookPage() {
     } catch (e) {
       setError({ message: (e as Error).message });
     }
-  }, [token, workbookId, getFn]);
+    // Once per workbook (and once signed in), not once per token.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signedIn, workbookId, getFn]);
 
   useEffect(() => {
     void load();

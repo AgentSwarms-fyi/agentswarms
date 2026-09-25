@@ -4064,6 +4064,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "#SPILL!",
       "#Summary!B6",
       "-2^2",
+      "=$C2&lt;0",
       "Orders[amount]",
       "SHEETS_EXPORT_MAX_ROWS",
       "SHEETS_IMPORT_MAX_SHEETS",

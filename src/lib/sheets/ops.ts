@@ -6,13 +6,22 @@
 // it named moved), a range that spans it grows, and a reference into deleted
 // cells becomes #REF!. Fill repeats a pattern, continuing number series.
 
-import { a1, cellKey, MAX_COLS, MAX_ROWS, parseKey, type RangeAddr } from "./a1";
+import {
+  a1,
+  cellKey,
+  colLetters,
+  MAX_COLS,
+  MAX_ROWS,
+  parseKey,
+  parseRangeA1,
+  rangeA1,
+  type RangeAddr,
+} from "./a1";
 import type { CellInput, GridData } from "./engine";
 import { lex, type RefPart, type Token } from "./formula/lexer";
 import { shiftFormula } from "./formula/shift";
-import { colLetters } from "./a1";
-import { shiftIndexList, shiftIndexRecord } from "./layout";
-import { shiftMerges } from "./merge";
+import { shiftIndex, shiftIndexList, shiftIndexRecord } from "./layout";
+import { shiftMerges, shiftSpan } from "./merge";
 
 export type Axis = "rows" | "cols";
 
@@ -130,7 +139,94 @@ export function moveCells(grid: GridData, axis: Axis, at: number, count: number)
     if (grid.hiddenRows) next.hiddenRows = shiftIndexList(grid.hiddenRows, at, count);
   }
   if (grid.merges) next.merges = shiftMerges(grid.merges, axis, at, count);
+  // Rules and the filter cover ranges; they move, grow and shrink as merges do.
+  const moveRanges = (list: string[]) =>
+    list.map((a1) => shiftRangeA1(a1, axis, at, count)).filter((x): x is string => x !== null);
+  if (grid.cond) {
+    next.cond = grid.cond
+      .map((cf) => ({ ...cf, ranges: moveRanges(cf.ranges) }))
+      .filter((cf) => cf.ranges.length);
+  }
+  if (grid.validations) {
+    next.validations = grid.validations
+      .map((v) => ({ ...v, ranges: moveRanges(v.ranges) }))
+      .filter((v) => v.ranges.length);
+  }
+  if (grid.filter) {
+    const range = shiftRangeA1(grid.filter.range, axis, at, count);
+    if (!range) next.filter = undefined;
+    else {
+      // Column filters are kept by offset; a column deleted inside the range drops its own.
+      const f = { ...grid.filter, range };
+      if (axis === "rows") f.hidden = shiftIndexList(grid.filter.hidden, at, count);
+      else {
+        const r0 = parseRangeA1(grid.filter.range)!.c0;
+        const cols: typeof f.cols = {};
+        for (const [k, v] of Object.entries(grid.filter.cols)) {
+          const c = shiftIndex(r0 + Number(k), at, count);
+          const nr0 = parseRangeA1(range)!.c0;
+          if (c !== null) cols[String(c - nr0)] = v;
+        }
+        f.cols = cols;
+      }
+      next.filter = f;
+    }
+  }
   return next;
+}
+
+/**
+ * The formulas inside a sheet's rules (conditional formats, validations)
+ * rewritten for an insertion or deletion on `target`, as cell formulas are.
+ * Returns the same object when nothing changed.
+ */
+export function adjustRuleFormulas(
+  grid: GridData,
+  formulaSheet: string,
+  target: string,
+  axis: Axis,
+  at: number,
+  count: number,
+): GridData {
+  let changed = false;
+  const adj = (text: string): string => {
+    if (!text.trim().startsWith("=")) return text;
+    const next = adjustFormula(text.trim(), formulaSheet, target, axis, at, count);
+    if (next !== text.trim()) changed = true;
+    return next === text.trim() ? text : next;
+  };
+  const cond = grid.cond?.map((cf) => {
+    const r = cf.rule;
+    if (r.kind === "cell")
+      return { ...cf, rule: { ...r, a: adj(r.a), ...(r.b !== undefined ? { b: adj(r.b) } : {}) } };
+    if (r.kind === "formula") return { ...cf, rule: { ...r, formula: adj(r.formula) } };
+    return cf;
+  });
+  const validations = grid.validations?.map((v) => {
+    const r = v.rule;
+    if (r.kind === "list")
+      return r.source !== undefined ? { ...v, rule: { ...r, source: adj(r.source) } } : v;
+    if (r.kind === "custom") return { ...v, rule: { ...r, formula: adj(r.formula) } };
+    return { ...v, rule: { ...r, a: adj(r.a), ...(r.b !== undefined ? { b: adj(r.b) } : {}) } };
+  });
+  if (!changed) return grid;
+  return {
+    ...grid,
+    ...(cond ? { cond } : {}),
+    ...(validations ? { validations } : {}),
+  };
+}
+
+/** A range after rows or columns are inserted or deleted, or null when it is gone. */
+export function shiftRangeA1(a1Text: string, axis: Axis, at: number, count: number): string | null {
+  const r = parseRangeA1(a1Text);
+  if (!r) return null;
+  const span =
+    axis === "rows" ? shiftSpan(r.r0, r.r1, at, count) : shiftSpan(r.c0, r.c1, at, count);
+  if (!span) return null;
+  return rangeA1(
+    axis === "rows" ? { ...r, r0: span[0], r1: span[1] } : { ...r, c0: span[0], c1: span[1] },
+  );
 }
 
 /** A number series, if the values are one: [2, 4, 6] → step 2. */

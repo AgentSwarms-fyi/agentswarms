@@ -109,6 +109,70 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-25 — Found testing Sheets rules: an hourly reload that ate edits, keys that went to the wrong place, and a dollar amount that stayed text
+
+#### R121 · S2 · Typing in a filter's search box typed into the active cell instead
+
+A popover drawn over the grid (a filter column's menu, a validation list, a
+link's buttons) is rendered in a portal elsewhere in the page, but React
+bubbles its events up the component tree, not the DOM, so every key pressed
+in it reached the grid's key handler. A letter typed in the filter's Search
+box started editing the active cell, the menu closed, and the search box
+stayed empty; the value box of a filter condition did the same; Enter on a
+choice in a validation list moved the selection instead of picking it. The
+first round missed it because the test tool inserted text without keydown
+events; pressing real keys showed it.
+
+**Driven, before** (the image built for Phase D): Orders Q3 → Region's
+filter button → click Search → press N, o → the menu closed, cell H8 was
+open for editing holding "No", the search box never had it. Alt+Down on H5
+→ Down, Down → "Paid" focused → Enter → the list stayed open, H5 unchanged.
+**After** (rebuilt image): the same keys → the search box reads "No" and
+the menu lists only North; Down, Enter in the list picks Shipped and closes
+it; a filter condition's box takes 4000 as typed. The grid's handler now ignores a key whose
+target is not inside the grid's own DOM. Test:
+`tests/unit/sheetsGridKeys.test.ts` (a mutation removing the check is caught).
+
+#### R120 · S1 · A session refresh reloaded the workbook and threw away the edit not yet saved
+
+The workbook page loaded the workbook in a callback that listed the session's
+access token among its dependencies. The token changes every time the
+session refreshes (about hourly, and when a tab regains focus near expiry),
+so every refresh loaded the workbook again and rebuilt the editor from the
+saved copy. An edit made in the second before its save (a conditional
+format, a typed value) vanished; the selection jumped to A1; the badge said
+"All changes saved"; and the save already queued wrote the older state back
+over the change. This was in the page since Sheets first shipped.
+
+**Driven, before** ("Sheets E2E Rules (Phase D)", Orders Q3): selected
+I2:I21 → Conditional → Data bars → Blue → the bars drew and the toast said
+"Rule added to I2:I21"; moments later the view was back at A1 with no bars,
+the badge read "All changes saved", and the network showed a workbook load
+(sheetsGet) returning the sheet's grid with `cells` only, then a save. The
+stored session had been issued 105 s earlier, which matches the refresh.
+Adding the same rule again, with no refresh in between, kept it.
+
+**After** (the fixed build): the page loads the workbook once per workbook
+and reads the token through a ref when it calls the server. Forced a refresh
+(the stored session's expiry moved to 15 s ahead, then a visibility change):
+the token changed after 5 s; no workbook load followed, the selection stayed
+on J7, and every rule and value stayed. Test:
+`tests/unit/sheetsReloadOnToken.test.ts`. The same `[token]` pattern is in 19
+other files; which of them hold unsaved edits is a separate task (queue).
+
+#### R119 · S3 · A negative dollar amount typed as -$350.00 stayed text
+
+Typing `-$350.00` (or `$-350`) left a text cell, left-aligned, that SUM
+skips; Excel reads it as the number -350 in a dollar format. The number
+parser stripped a currency sign only at the very start, before a minus.
+
+**Driven, before:** Long sheet names (R118), Sheet2!B1 typed `-$350.00` →
+left-aligned text; its CSV wrote `'-$350.00` (defused as formula-looking
+text). **After:** Orders Q3!K2 typed `-$350.00` → right-aligned `-$350.00`,
+`=K2*2` → -700; Download this sheet as CSV → `-350` and `-700`. The parser
+takes a sign on either side of the currency sign, and `-$350.00`, `$-350.00`
+and `($350.00)` all pick up the dollar format. Test: `tests/unit/sheetsOps.test.ts`.
+
 ### 2026-09-25 — Found building Excel downloads: sheet names Excel cannot hold
 
 #### R118 · S2 · A sheet name over 31 characters broke the downloaded workbook

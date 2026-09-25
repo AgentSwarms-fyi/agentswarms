@@ -107,6 +107,21 @@ function SheetsDocsPage() {
           as <C>#,##0;[Red]-#,##0</C> paints negatives red.
         </li>
         <li>
+          <strong>Conditional formatting.</strong> Home → Conditional highlights by value, text,
+          date, top or bottom N, average or duplicates, draws data bars, color scales and icon sets,
+          or applies a formula rule such as <C>=$C2&lt;0</C>. Manage rules sets their order.
+        </li>
+        <li>
+          <strong>Data validation.</strong> Data → Data validation limits cells to a list (with a
+          dropdown), numbers, dates, times, text lengths or a formula, with an input message and a
+          Stop, Warning or Information alert for a value that fails.
+        </li>
+        <li>
+          <strong>Filter and sort.</strong> Data → Filter (Ctrl+Shift+L) adds header buttons that
+          sort, keep ticked values or keep rows meeting a condition; Sort A to Z sorts the data
+          around the active cell, formulas moving with their rows.
+        </li>
+        <li>
           <strong>Links and zoom.</strong> Ctrl+K links a cell to a web address, an email or a place
           in the workbook (<C>#Summary!B6</C>); Ctrl+click follows it. <C>javascript:</C> and other
           schemes are refused. The zoom (Ctrl+wheel, or the status bar) is kept per sheet.
@@ -188,7 +203,7 @@ function SheetsDocsPage() {
         formulas and current values, table sheets as Excel tables named like the sheet (so{" "}
         <C>Orders[amount]</C> keeps working), up to <C>SHEETS_EXPORT_MAX_ROWS</C> rows each and read
         with your own grants. <strong>Download this sheet as CSV</strong> writes what the sheet
-        shows.
+        shows. Conditional formatting, data validation and the filter&apos;s range go both ways.
       </P>
 
       <H2 id="save">Saving to the lakehouse and the catalog</H2>

@@ -96,7 +96,9 @@ export function impliedFormat(text: string): string | undefined {
   if (/^\d{4}-\d{1,2}-\d{1,2}[ T]\d{1,2}:\d{2}/.test(t)) return "yyyy-mm-dd hh:mm";
   if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(t)) return "yyyy-mm-dd";
   if (/^[+-]?[\d,]*\.?\d+%$/.test(t)) return t.includes(".") ? "0.00%" : "0%";
-  if (/^\$[\d,]*\.?\d+$/.test(t)) return t.includes(".") ? '"$"#,##0.00' : '"$"#,##0';
+  // $1,200, -$350.00, $-350 and ($350) are dollars, as Excel takes them.
+  if (/^(?:[+-]?\$[+-]?[\d,]*\.?\d+|\(\$[\d,]*\.?\d+\))$/.test(t))
+    return t.includes(".") ? '"$"#,##0.00' : '"$"#,##0';
   // "1,200" keeps its thousands separator, as Excel formats it.
   if (/^[+-]?\d{1,3}(,\d{3})+(\.\d+)?$/.test(t)) return t.includes(".") ? "#,##0.00" : "#,##0";
   return undefined;

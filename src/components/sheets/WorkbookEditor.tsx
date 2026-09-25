@@ -62,6 +62,7 @@ import { shiftFormula } from "@/lib/sheets/formula/shift";
 import { FUNCTION_HELP } from "@/lib/sheets/functionHelp";
 import {
   adjustFormula,
+  adjustRuleFormulas,
   describeRange,
   fillEdits,
   moveCells,
@@ -78,7 +79,8 @@ import {
 import { selRange, type Selection } from "@/lib/sheets/selection";
 import { LinkDialog } from "./LinkDialog";
 import { OpenTableDialog } from "./OpenTableDialog";
-import { DEFAULT_COL_W, ROW_H, SheetGrid, type Editing } from "./SheetGrid";
+import { DEFAULT_COL_W, ROW_H, SheetGrid, type Editing, type GridGeometry } from "./SheetGrid";
+import { useSheetRules } from "./useSheetRules";
 import { SheetToolbar, ZoomControl, type ClearKind } from "./SheetToolbar";
 import { SaveToLakehouseDialog } from "./SaveToLakehouseDialog";
 import { TableSheet } from "./TableSheet";
@@ -177,9 +179,15 @@ export function WorkbookEditor({
     [grid?.merges, rev],
   );
   const hiddenRows = useMemo(
-    () => new Set(grid?.hiddenRows ?? []),
+    () => new Set([...(grid?.hiddenRows ?? []), ...(grid?.filter?.hidden ?? [])]),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [grid?.hiddenRows, rev],
+    [grid?.hiddenRows, grid?.filter?.hidden, rev],
+  );
+  // What the grid draws: rows the filter hides are hidden too.
+  const gridView = useMemo(
+    () => (grid && grid.filter?.hidden?.length ? { ...grid, hiddenRows: [...hiddenRows] } : grid),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [grid, hiddenRows, rev],
   );
   const hiddenCols = useMemo(
     () => new Set(grid?.hiddenCols ?? []),
@@ -226,6 +234,80 @@ export function WorkbookEditor({
   const selectionMerged = merges.some(
     (m) => m.r0 >= range.r0 && m.r1 <= range.r1 && m.c0 >= range.c0 && m.c1 <= range.c1,
   );
+
+  /** The active cell's link, with what to do about it. */
+  const linkChip = (geo: GridGeometry) => {
+    if (!engine || !tabId) return null;
+    // The active cell's link, with what to do about it.
+    const url = !editing ? linkUrlAt(focus.row, focus.col) : null;
+    if (!url) return null;
+    const box = mergeAt(merges, focus.row, focus.col) ?? {
+      r0: focus.row,
+      c0: focus.col,
+      r1: focus.row,
+      c1: focus.col,
+    };
+    return (
+      <div
+        className="absolute z-30 flex max-w-sm items-center gap-1 rounded-md border border-border bg-popover px-2 py-1 text-xs shadow-md"
+        style={{ left: geo.cols.start(box.c0), top: geo.rows.end(box.r1) + 4 }}
+        data-testid="link-chip"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <button
+          type="button"
+          className="flex min-w-0 items-center gap-1 truncate text-primary underline-offset-2 hover:underline"
+          title={`Open ${url}`}
+          onClick={() => followLink(focus.row, focus.col)}
+        >
+          <ExternalLink className="h-3 w-3 shrink-0" />
+          <span className="truncate">{url}</span>
+        </button>
+        {engine.getInput(tabId, focus.row, focus.col)?.l && (
+          <>
+            <button
+              type="button"
+              className="rounded p-0.5 hover:bg-muted"
+              aria-label="Edit link"
+              title="Edit link"
+              onClick={openLinkDialog}
+            >
+              <Pencil className="h-3 w-3" />
+            </button>
+            <button
+              type="button"
+              className="rounded p-0.5 hover:bg-muted"
+              aria-label="Remove link"
+              title="Remove link"
+              onClick={() => {
+                const cur = engine.getInput(tabId, focus.row, focus.col);
+                wb.applyEdits(tabId, [
+                  { row: focus.row, col: focus.col, input: cur?.i ?? "", link: null },
+                ]);
+              }}
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </>
+        )}
+      </div>
+    );
+  };
+
+  // Conditional formatting, data validation, the filter.
+  const rules = useSheetRules({
+    wb,
+    engine,
+    tabId,
+    grid,
+    rev,
+    range,
+    focus,
+    editing: !!editing,
+    // Its menus open dialogs and popovers: the keyboard returns to the grid
+    // once they have gone (backToGrid would skip while one is still closing).
+    onDone: () => afterDialog(),
+  });
 
   // ── Editing ──────────────────────────────────────────────────────────────
 
@@ -280,7 +362,7 @@ export function WorkbookEditor({
   const tabRun = useRef<number | null>(null);
 
   const commit = useCallback(
-    (dr: number, dc: number, toCol?: number) => {
+    (dr: number, dc: number, toCol?: number, checked = false) => {
       if (!editing || !engine || !tabId) return;
       const prev = engine.getInput(tabId, editing.row, editing.col);
       let text = editing.text;
@@ -290,6 +372,21 @@ export function WorkbookEditor({
         if (open > 0 && open < 20) text += ")".repeat(open);
       }
       if ((prev?.i ?? "") !== text) {
+        // A cell's validation: a failing value waits on the alert, which keeps
+        // it, returns to the edit, or drops it.
+        if (
+          !checked &&
+          !rules.checkEdit(editing.row, editing.col, text, {
+            keep: () => commitRef.current(dr, dc, toCol, true),
+            // Once the alert has gone (its focus trap would take the keyboard back).
+            retry: () => whenNoDialog(cellEditorFocus),
+            cancel: () => {
+              setEditing(null);
+              whenNoDialog(() => gridRef.current?.focus({ preventScroll: true }));
+            },
+          })
+        )
+          return;
         const fmt = prev?.f ? undefined : impliedFormat(text);
         // Text with a line break wraps, as Excel turns Wrap Text on for it.
         const wrap = text.includes(NEWLINE) && !prev?.s?.wrap && !text.startsWith("=");
@@ -312,8 +409,28 @@ export function WorkbookEditor({
       // the next letters lost) instead of the grid.
       gridRef.current?.focus({ preventScroll: true });
     },
-    [editing, engine, tabId, wb, nextCell],
+    [editing, engine, tabId, wb, nextCell, rules],
   );
+  // The alert finishes an edit after this render's commit is gone.
+  const commitRef = useRef(commit);
+  commitRef.current = commit;
+  /** Run once no dialog is open (a closing one still traps the keyboard). */
+  const whenNoDialog = (fn: () => void) => {
+    let frames = 0;
+    const tick = () => {
+      if (document.querySelector('[role="dialog"], [role="alertdialog"]') && frames++ < 60) {
+        requestAnimationFrame(tick);
+        return;
+      }
+      fn();
+    };
+    requestAnimationFrame(tick);
+  };
+  /** Back into the edit after a refused value: its editor (cell or bar) takes the keyboard. */
+  const cellEditorFocus = () => {
+    const el = editorRef.current ?? barRef.current;
+    el?.focus();
+  };
 
   /**
    * Give the keyboard back to the grid after a menu or dialog: unless a
@@ -735,9 +852,11 @@ export function WorkbookEditor({
       for (const s of eng.listSheets()) {
         const g = eng.snapshot(s.id);
         if (!g) continue;
-        const moved = s.id === tabId ? moveCells(g, axis, at, count) : g;
+        const shifted = s.id === tabId ? moveCells(g, axis, at, count) : g;
+        // Rule formulas (a conditional format's, a validation's) follow as cell formulas do.
+        const moved = adjustRuleFormulas(shifted, s.name, target, axis, at, count);
         const cells = { ...moved.cells };
-        let changed = s.id === tabId;
+        let changed = s.id === tabId || moved !== shifted;
         for (const [k, cell] of Object.entries(cells)) {
           if (!cell.i.startsWith("=")) continue;
           const next = adjustFormula(cell.i, s.name, target, axis, at, count);
@@ -1006,6 +1125,11 @@ export function WorkbookEditor({
     if (!engine || !tabId) return;
     // Moving any other way ends a run of Tabs (typing does not).
     if (/^(Arrow|Page|Home|End)/.test(e.key)) tabRun.current = null;
+    // Alt+Down opens the active cell's list (data validation), as in Excel.
+    if (e.key === "ArrowDown" && e.altKey && rules.openList()) {
+      e.preventDefault();
+      return;
+    }
     const arrows: Record<string, [number, number]> = {
       ArrowUp: [-1, 0],
       ArrowDown: [1, 0],
@@ -1110,6 +1234,9 @@ export function WorkbookEditor({
       } else if (k === "s") {
         e.preventDefault();
         void wb.flush();
+      } else if (k === "l" && e.shiftKey) {
+        e.preventDefault();
+        rules.toggleFilter();
       }
       return;
     }
@@ -1299,6 +1426,7 @@ export function WorkbookEditor({
             painting={!!painter}
             zoom={zoom}
             gridlines={!grid?.hideGrid}
+            extra={rules.ribbon}
             actions={{
               undo: () => wb.undo(),
               redo: () => wb.redo(),
@@ -1473,7 +1601,8 @@ export function WorkbookEditor({
               rev={rev}
               rowCount={extent.rows}
               colCount={extent.cols}
-              grid={grid}
+              grid={gridView}
+              decorate={rules.decorate}
               zoom={zoom / 100}
               selection={selection}
               onSelect={(sel) => {
@@ -1489,62 +1618,12 @@ export function WorkbookEditor({
                 else next[String(r)] = h;
                 wb.setGridMeta(tabId, { rowHeights: next }, { gesture: `row-height:${r}` });
               }}
-              renderOverlay={(geo) => {
-                // The active cell's link, with what to do about it.
-                const url = !editing ? linkUrlAt(focus.row, focus.col) : null;
-                if (!url) return null;
-                const box = mergeAt(merges, focus.row, focus.col) ?? {
-                  r0: focus.row,
-                  c0: focus.col,
-                  r1: focus.row,
-                  c1: focus.col,
-                };
-                return (
-                  <div
-                    className="absolute z-30 flex max-w-sm items-center gap-1 rounded-md border border-border bg-popover px-2 py-1 text-xs shadow-md"
-                    style={{ left: geo.cols.start(box.c0), top: geo.rows.end(box.r1) + 4 }}
-                    data-testid="link-chip"
-                    onMouseDown={(e) => e.stopPropagation()}
-                  >
-                    <button
-                      type="button"
-                      className="flex min-w-0 items-center gap-1 truncate text-primary underline-offset-2 hover:underline"
-                      title={`Open ${url}`}
-                      onClick={() => followLink(focus.row, focus.col)}
-                    >
-                      <ExternalLink className="h-3 w-3 shrink-0" />
-                      <span className="truncate">{url}</span>
-                    </button>
-                    {engine.getInput(tabId, focus.row, focus.col)?.l && (
-                      <>
-                        <button
-                          type="button"
-                          className="rounded p-0.5 hover:bg-muted"
-                          aria-label="Edit link"
-                          title="Edit link"
-                          onClick={openLinkDialog}
-                        >
-                          <Pencil className="h-3 w-3" />
-                        </button>
-                        <button
-                          type="button"
-                          className="rounded p-0.5 hover:bg-muted"
-                          aria-label="Remove link"
-                          title="Remove link"
-                          onClick={() => {
-                            const cur = engine.getInput(tabId, focus.row, focus.col);
-                            wb.applyEdits(tabId, [
-                              { row: focus.row, col: focus.col, input: cur?.i ?? "", link: null },
-                            ]);
-                          }}
-                        >
-                          <X className="h-3 w-3" />
-                        </button>
-                      </>
-                    )}
-                  </div>
-                );
-              }}
+              renderOverlay={(geo) => (
+                <>
+                  {rules.overlay(geo)}
+                  {linkChip(geo)}
+                </>
+              )}
               editing={editing}
               onEditChange={setEditing}
               onCommit={commit}
@@ -1754,6 +1833,7 @@ export function WorkbookEditor({
           )}
         </div>
       </div>
+      {rules.dialogs}
       {linkEdit && engine && tabId && (
         <LinkDialog
           open

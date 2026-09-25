@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { parseA1 } from "@/lib/sheets/a1";
 import { impliedFormat } from "@/lib/sheets/cellView";
+import { parseNumberText } from "@/lib/sheets/formula/values";
 import { adjustFormula, fillEdits, moveCells, parseTsv, toTsv } from "@/lib/sheets/ops";
 
 describe("inserting and deleting rows and columns rewrites formulas", () => {
@@ -100,6 +101,12 @@ describe("typed text picks up a format", () => {
     expect(impliedFormat("12%")).toBe("0%");
     expect(impliedFormat("12.5%")).toBe("0.00%");
     expect(impliedFormat("$1,200")).toBe('"$"#,##0');
+    // A negative dollar amount, written any of the ways Excel reads it.
+    for (const t of ["-$350.00", "$-350.00", "($350.00)"])
+      expect(impliedFormat(t)).toBe('"$"#,##0.00');
+    for (const t of ["-$350.00", "$-350.00", "($350.00)", "-350"])
+      expect(parseNumberText(t)).toBe(-350);
+    expect(parseNumberText("$-")).toBeNull();
     expect(impliedFormat("2024-01-05")).toBe("yyyy-mm-dd");
     expect(impliedFormat("=A1")).toBeUndefined();
     expect(impliedFormat("hello")).toBeUndefined();

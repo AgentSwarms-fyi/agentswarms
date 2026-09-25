@@ -67,6 +67,8 @@ Open parentheses are closed for you on **Enter**.
 | Alt+Enter                | A line break inside the cell (Wrap text turns on)                                                                                                         |
 | Ctrl+mouse wheel         | Zoom                                                                                                                                                      |
 | Ctrl+S                   | Save now                                                                                                                                                  |
+| Ctrl+Shift+L             | Filter on or off                                                                                                                                          |
+| Alt+Down                 | Open the active cell's list (data validation)                                                                                                             |
 
 Drag the square at the corner of a selection to **fill**. Numbers and "Item 1, Item 2" continue as a
 series, formulas shift, and anything else repeats.
@@ -110,6 +112,53 @@ time, Time and Text, and the **$**, **%**, **,** and increase/decrease decimal b
 any Excel format code (`#,##0.0`, `0.0%`, `"Q"0`, `yyyy-mm`); a section color such as
 `#,##0;[Red]-#,##0` paints negatives red. Typing `12%`, `$1,200` or `2024-01-31` picks up the
 matching format, as Excel does.
+
+### Conditional formatting
+
+**Home → Conditional** colors cells by their values, as Excel's menu does:
+
+- **Highlight cells rules**: greater than, less than, between, equal to (a value, or a formula such
+  as `=$D$1`), text that contains, a date occurring (yesterday, today, the last 7 days, this week,
+  last month…), and duplicate or unique values.
+- **Top/bottom rules**: the top or bottom N items or N percent, and above or below average.
+- **Data bars**, **color scales** (two or three colors) and **icon sets** (arrows, traffic lights,
+  symbols, flags, stars), drawn from the range's own numbers. A data bar for a negative number grows
+  left from the zero line.
+- **New rule with a formula**: a formula written for the range's first cell, such as `=$C2<0`, that
+  moves with each cell as a copied formula would.
+- **Manage rules** lists the sheet's rules in priority order: move one up or down, change the range
+  it applies to, or delete it. Where two rules set the same thing, the higher one wins.
+- **Clear rules** from the selected cells (the rest of each rule's range keeps it) or the sheet.
+
+Rules move and grow with inserted and deleted rows and columns, and their formulas follow as cell
+formulas do.
+
+### Data validation
+
+**Data → Data validation…** sets what the selected cells accept: a **list** (typed choices, or a
+range such as `=$F$2:$F$9` or `=Lists!$A$2:$A$20`), a **whole number**, **decimal**, **date**,
+**time** or **text length** in limits (values, or formulas such as `=B1`), or a **custom** formula
+that must be TRUE (`=COUNTIF($A:$A,A2)=1`). **Ignore blank** lets a cell stay empty.
+
+- A list shows a dropdown button beside the active cell; **Alt+Down** opens it.
+- An **input message** shows under the cell while it is selected.
+- A value that fails is met by the rule's **error alert**: **Stop** refuses it (Retry or Cancel),
+  **Warning** asks (Yes keeps it, No returns to the edit), **Information** says so and keeps it. The
+  alert shows the rule's own message, or a sentence naming the rule ("Enter a whole number between
+  1 and 100").
+
+### Filter and sort
+
+**Data → Filter** (Ctrl+Shift+L) puts filter buttons on the header row of the data around the active
+cell (or of the selection). A column's button sorts the range A to Z or Z to A, keeps the values you
+tick (with a search box and counts), or keeps rows meeting a condition: equals, greater than,
+between, top N, above average, contains, begins with, is blank and more. Rows that fail are hidden,
+not deleted; the buttons of filtered columns change to a funnel. **Clear** shows every row,
+**Reapply** runs the filters again after the data changed, and **Filter** again removes them.
+
+**Data → Sort A to Z / Z to A** sorts the data around the active cell by its column, keeping a text
+header row on top. Formulas move with their rows and are rewritten for the new row, as in Excel;
+blanks sort last either way.
 
 ### Saving
 
@@ -264,9 +313,17 @@ through the lakehouse, so your grants and row and column policies apply, up to
 is shown, UTF-8 with a byte-order mark so Excel reads accents correctly, and prefixes any text
 that starts with `= + - @` with `'` so opening the file cannot run it.
 
-Not yet carried by files: conditional formatting, data validation and charts (they arrive with
-those features), and the external-link part behind a formula such as `[1]Budget!B2` (its value
-comes in; Excel may show `#REF!` for it when it recalculates the downloaded copy).
+Conditional formatting and data validation go both ways: every rule above is written as Excel's
+own (a "does not contain", "begins with", blank or duplicate rule as the formula Excel's rule
+means), and a file's rules come in as editable rules. A rule of a kind Sheets does not have yet is
+left out and the import says how many. A date limit that is a formula (`=TODAY()`) is written as
+the same test on a number, because the file library cannot write a formula into a date rule. The
+AutoFilter's range goes both ways and its hidden rows stay hidden; the criteria of each column are
+kept in Sheets only.
+
+Not yet carried by files: charts (they arrive with charts), and the external-link part behind a
+formula such as `[1]Budget!B2` (its value comes in; Excel may show `#REF!` for it when it
+recalculates the downloaded copy).
 
 ## Saving to the lakehouse and the catalog
 

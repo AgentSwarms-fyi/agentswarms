@@ -221,6 +221,26 @@ download fail). Open from Excel files:
   label that fits in Excel can clip here.
 - **Defined names** are kept at Excel's value, not computed (no name manager yet).
 
+Closed with rules (conditional formatting, validation, filter): R119 (`-$350.00`
+typed stayed text), R120 (a session refresh reloaded the workbook and threw
+away the edit not yet saved), R121 (keys typed in a popover over the grid went
+to the active cell). Open from that round:
+
+- **The same token-as-dependency reload elsewhere:** 19 files list `token`
+  among the dependencies of a load (BI dashboard and report editors, ETL,
+  semantic layer, ML). Whichever of them hold unsaved edits lose them the
+  same way; each needs checking (spun off as its own task).
+- **A filter's criteria stay in Sheets:** the file gets the AutoFilter range
+  and the rows it hides, not each column's criteria (ExcelJS writes no
+  `filterColumn`), so Excel shows the buttons without the funnels.
+- **Rules count hidden rows:** a top-10 or average rule ranks over the whole
+  range, filtered rows included, as Excel's does; worth a note in the docs
+  if people expect otherwise.
+- **Enter in a filter's search or condition box does not apply it** (Apply
+  has to be clicked); Excel's filter takes Enter.
+- **No "Circle invalid data"**, and a pasted value is not checked (Excel does
+  not check one either).
+
 ## Rules that came out of doing this
 
 - A test that asserts source text is pinning a USE, not a definition; bound it

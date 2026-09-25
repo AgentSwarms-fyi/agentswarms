@@ -18,7 +18,10 @@ import {
 } from "./formula/evaluate";
 import { FUNCTIONS } from "./formula/functions";
 import { FormulaSyntaxError, isFormula, parseFormula, type Node } from "./formula/parser";
+import type { CondFormat } from "./condFormat";
+import type { AutoFilter } from "./filter";
 import type { Borders } from "./style";
+import type { Validation } from "./validation";
 import {
   err,
   isError,
@@ -75,6 +78,12 @@ export type GridData = {
   hiddenCols?: number[];
   /** Gridlines off (View > Gridlines). */
   hideGrid?: boolean;
+  /** Conditional formatting rules, highest priority first. */
+  cond?: CondFormat[];
+  /** Data validation rules. */
+  validations?: Validation[];
+  /** The AutoFilter (Data > Filter). */
+  filter?: AutoFilter;
 };
 
 export type SheetDef = { id: string; name: string; kind: "grid" | "table"; grid?: GridData };
@@ -572,6 +581,69 @@ export class WorkbookEngine {
       return err(c as "#N/A", "Excel's saved value");
     }
     return c;
+  }
+
+  /**
+   * The answer of a formula as if it sat at (row, col) of a sheet, without
+   * putting it there: a conditional format's or a validation's rule. Its
+   * reads are not recorded as dependencies (the grid asks again after every
+   * recalculation), and a range comes back whole when `array` is set.
+   */
+  evaluateAt(
+    sheetId: string,
+    row: number,
+    col: number,
+    formula: string,
+    opts: { array?: boolean; self?: Scalar } = {},
+  ): Value {
+    const stand = "self" in opts;
+    const isSelf = (sid: string, r: number, cc: number) =>
+      stand && sid === sheetId && r === row && cc === col;
+    const sheetName = this.sheets.get(sheetId)?.name ?? "";
+    let ast: Node;
+    try {
+      ast = parseFormula(formula.startsWith("=") ? formula.slice(1) : formula);
+    } catch (e) {
+      return err("#NAME?", e instanceof FormulaSyntaxError ? e.message : "Invalid formula");
+    }
+    const env: EvalEnv = {
+      sheet: sheetName,
+      row,
+      col,
+      now: this.now,
+      hasSheet: (name) => this.byName.has(name.toLowerCase()),
+      used: (name) => this.used(this.byName.get(name.toLowerCase()) ?? ""),
+      cell: (sheet, r, cc) => {
+        const sid = this.byName.get(sheet.toLowerCase());
+        if (!sid) return err("#REF!", `No sheet "${sheet}"`);
+        if (this.sheets.get(sid)?.kind === "table")
+          return err("#REF!", "Refer to a table sheet by its columns, e.g. Orders[amount]");
+        return isSelf(sid, r, cc) ? (opts.self ?? null) : this.valueOf(cid(sid, r, cc));
+      },
+      range: (ref) => {
+        const sid = this.byName.get(ref.sheet.toLowerCase());
+        if (!sid) return [[err("#REF!", `No sheet "${ref.sheet}"`)]];
+        const out: Matrix = [];
+        for (let r = ref.r0; r <= ref.r1; r++) {
+          const line: Scalar[] = [];
+          for (let cc = ref.c0; cc <= ref.c1; cc++)
+            line.push(isSelf(sid, r, cc) ? (opts.self ?? null) : this.valueOf(cid(sid, r, cc)));
+          out.push(line);
+        }
+        return out;
+      },
+      table: this.resolver ? (node) => this.resolver!.resolve(node, sheetName) : undefined,
+      isTable: this.resolver?.isTable ? (name) => this.resolver!.isTable!(name) : undefined,
+      tableCall: this.resolver?.call ? (req) => this.resolver!.call!(req) : undefined,
+    };
+    try {
+      const v = evaluate(ast, env);
+      if (isMatrix(v) && !opts.array) return v[0]?.[0] ?? null;
+      return v;
+    } catch (e) {
+      if (e instanceof PendingValue) return err("#BUSY!", "Waiting for the table's answer");
+      return err("#VALUE!", e instanceof Error ? e.message : "Could not compute");
+    }
   }
 
   /** Whether a cell shows the value Excel saved rather than one computed here. */

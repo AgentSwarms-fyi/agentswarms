@@ -15,6 +15,58 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-25 — Sheets rules: conditional formatting, data validation, filter and sort, ADVERSARIAL_LOG R119–R121
+
+**Why this round exists.** A spreadsheet people run a business on colors its exceptions, refuses
+bad input, and filters down to what matters. Each of those had to work from the ribbon, survive a
+reload, follow inserted rows, and go to Excel and back.
+
+Fixture (kept): workbook "Sheets E2E Rules (Phase D)", imported through the Sheets page from
+`orders_d.csv` (20 orders: region, rep, product, qty, price, date, status), with an Amount column
+`=E2*F2` filled down. Every step below was a click or a keystroke in the browser; downloads were
+captured in the page and read with openpyxl.
+
+| Step | Result |
+|---|---|
+| I2:I21 → Home → Conditional → Data bars → Blue | bars drawn in proportion; "Rule added to I2:I21" |
+| E2:E21 → Highlight cells rules → Greater than… → 100 | 120 and 150 light red with dark red text; 60 and 8 plain |
+| H2:H21 → Text that contains… → `void` | "Void" highlighted (case ignored, as in Excel) |
+| F2:F21 → Color scales → Green – Yellow – Red | 9.5 green, 12 yellow (the median), 18.75 orange, 30 red |
+| A2:D21 → New rule with a formula… → `=$H2="Paid"`, green | every Paid row green across A:D, other rows plain |
+| I2:I21 → Top/bottom rules → Top 10 items… → 3, yellow | 4500, 2812.5, 1800 yellow; the data bars stay under them |
+| Manage rules… | six rules, newest first, each with its range; deleted "void", narrowed greater-than to E2:E10, Save → H6 plain, E16 plain, E5 still red |
+| Ctrl+Z | the deleted rule and the full range back |
+| H2:H21 → Data → Data validation… → List "Open, Shipped, Paid, Void", input message "Status / Pick where the order stands.", Stop titled "Unknown status" | "Validation set on H2:H21"; the message shows beside the active cell; a dropdown button beside it |
+| H3 → type `Lost` | Stop alert "Unknown status — Choose one of: Open, Shipped, Paid, Void", Retry focused; Retry → back in the edit with "Lost"; `paid` → kept (the list ignores case), and row 3 turned green through the formula rule |
+| H4 → the dropdown → Void | H4 = Void, red through the text rule; the keyboard back in the grid |
+| E2:E21 → Whole number between 1 and 100, Warning; E3 → 150 | Warning "Enter a whole number between 1 and 100 — Keep this value?"; Yes → 150 kept, Amount 1425 |
+| A2:A21 → Custom `=COUNTIF($A$2:$A$21,A2)=1`, message "That order number is already used."; A3 → A-1001 | refused with that message (the formula sees the typed value); Cancel → A3 unchanged |
+| B5 → Ctrl+Shift+L | "Filter on A1:I21", a button on each of the nine headers |
+| Region → untick all, tick North → Apply | only the five North rows; a funnel on Region |
+| Amount → By condition → Greater than 1000 | four rows (North and over 1000) |
+| Amount → Sort Z to A | 4500, 1800, 1200, 1140; the filter reapplied; I2 `=E2*F2` = 4500 (formulas moved with their rows) |
+| Data → Clear | all 20 rows back, no funnels |
+| B3 → Data → Sort A to Z | East…West, the header row kept on top, amounts with their rows |
+| File → Download as Excel | openpyxl: autoFilter A1:I21; top10 rank 3, dataBar, expression `$H2="Paid"`, colorScale, containsText with `NOT(ISERROR(SEARCH("void",H2)))`, cellIs greaterThan 100; validations: custom COUNTIF (stop, its message), whole 1–100 (warning), list `"Open,Shipped,Paid,Void"` with its prompt and title |
+| Reload the page | every rule, validation, the filter buttons and the sorted order still there |
+| After the fixes: Conditional → Less than… → type `10`, Enter (no click) | the value box had the keyboard; both 4s highlighted; the keyboard back in the grid |
+| H5 → Alt+Down | the list opens on its first choice; Escape closes it, H5 unchanged |
+| H6 → `Lost` → Cancel | H6 still Paid; ArrowDown moves on from the grid |
+| Row 2 header → Insert 1 row above | every rule and validation one row down: A3 green, E3 red, bars from I3; `Lost` in the new row 2 accepted, in H4 refused; Ctrl+Z ×2 back |
+| File → Download as Excel, then File → Import sheets… that file | "Orders Q3 (2)" arrives with the same colors, bars, filter buttons, the Status list with its message and Stop alert, and the Qty Warning |
+| R121, before: Region's filter → click Search → press N, o (real key presses) | the menu closed and cell H8 opened for editing holding "No"; Alt+Down on H5 → Down, Down → Enter left the list open and H5 unchanged |
+| R121, after (rebuilt image): the same | the search box reads "No" and the list shows only "North 5"; no cell edit. Alt+Down on H5 → Down focuses Shipped (the selection stays on H5) → Enter → H5 = Shipped, the list closed, the keyboard back in the grid. Amount → By condition → press 4, 0, 0, 0 → the value box reads 4000 |
+| On the rebuilt image | Manage rules names "Color scale: Green – Yellow – Red" and "Data bar: Blue"; its first box has the keyboard |
+| R120 and R119 | see ADVERSARIAL_LOG (session refresh; `-$350.00`) |
+
+Found while building it (new code, fixed before commit): a dialog opened from a menu item did not
+have the keyboard (the menu's focus trap took it back as the menu closed), and after Apply the
+keyboard fell to the page; Alt+Down moved the selection instead of opening the list; a custom
+validation formula read the cell's old value, so a duplicate passed; ExcelJS crashed writing an
+icon set without thresholds, turned a limit such as `TODAY()` into NaN on reading (the file's own
+text is now read), and wrote text rules without the text Excel shows (added to the file after
+ExcelJS writes it); a "begins with" rule came back as a plain formula rule.
+
 ## 2026-09-25 — Sheets and Excel files: import .xlsx and CSV, download .xlsx and CSV
 
 **Why this round exists.** People arrive with Excel files and leave with them. A workbook that

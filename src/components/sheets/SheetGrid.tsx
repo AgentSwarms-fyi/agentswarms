@@ -662,7 +662,14 @@ export function SheetGrid(props: Props) {
       data-testid="sheet-grid"
       data-zoom={Math.round(z * 100)}
       className="relative h-full w-full select-none overflow-auto bg-background text-[13px] outline-none"
-      onKeyDown={onKey}
+      // Only keys pressed in the grid itself. A popover drawn over the grid
+      // (a filter's search box, a list of choices, a link's buttons) lives in
+      // a portal elsewhere in the page, but React still bubbles its keys up
+      // here: typing in it started a cell edit and swallowed Enter (R121).
+      onKeyDown={(e) => {
+        if (!e.currentTarget.contains(e.target as Node)) return;
+        onKey(e);
+      }}
       onScroll={onScroll}
     >
       <div

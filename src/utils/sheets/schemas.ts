@@ -127,6 +127,201 @@ export const styleSchema = z
   })
   .strict();
 
+// Conditional formatting, data validation and the filter: colors are drawn
+// into CSS, so they are #RRGGBB only; icons come from a fixed set; formulas
+// and operands are text the engine parses (never run as script).
+const ranges = z.array(z.string().regex(A1_RANGE)).min(1).max(100);
+const operand = z.string().max(8192);
+const cfStyle = z
+  .object({
+    color: color.optional(),
+    bg: color.optional(),
+    b: z.boolean().optional(),
+    i: z.boolean().optional(),
+    u: z.boolean().optional(),
+    st: z.boolean().optional(),
+  })
+  .strict();
+const scaleStop = z
+  .object({
+    type: z.enum(["min", "max", "num", "percent", "percentile"]),
+    value: z.number().finite().optional(),
+    color,
+  })
+  .strict();
+const cmpOp = z.enum(["gt", "ge", "lt", "le", "eq", "ne", "between", "notBetween"]);
+const cfRule = z.discriminatedUnion("kind", [
+  z
+    .object({
+      kind: z.literal("cell"),
+      op: cmpOp,
+      a: operand,
+      b: operand.optional(),
+      style: cfStyle,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("text"),
+      op: z.enum(["contains", "notContains", "begins", "ends"]),
+      text: z.string().max(255),
+      style: cfStyle,
+    })
+    .strict(),
+  z.object({ kind: z.literal("blank"), style: cfStyle }).strict(),
+  z.object({ kind: z.literal("notBlank"), style: cfStyle }).strict(),
+  z.object({ kind: z.literal("errors"), style: cfStyle }).strict(),
+  z.object({ kind: z.literal("noErrors"), style: cfStyle }).strict(),
+  z
+    .object({
+      kind: z.literal("date"),
+      period: z.enum([
+        "yesterday",
+        "today",
+        "tomorrow",
+        "last7",
+        "lastWeek",
+        "thisWeek",
+        "nextWeek",
+        "lastMonth",
+        "thisMonth",
+        "nextMonth",
+      ]),
+      style: cfStyle,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("top"),
+      n: z.number().int().min(1).max(1000),
+      percent: z.boolean().optional(),
+      bottom: z.boolean().optional(),
+      style: cfStyle,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("average"),
+      below: z.boolean().optional(),
+      equal: z.boolean().optional(),
+      style: cfStyle,
+    })
+    .strict(),
+  z.object({ kind: z.literal("duplicate"), style: cfStyle }).strict(),
+  z.object({ kind: z.literal("unique"), style: cfStyle }).strict(),
+  z.object({ kind: z.literal("formula"), formula: operand, style: cfStyle }).strict(),
+  z
+    .object({
+      kind: z.literal("scale"),
+      min: scaleStop,
+      mid: scaleStop.optional(),
+      max: scaleStop,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("bar"),
+      color,
+      min: scaleStop.optional(),
+      max: scaleStop.optional(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("icons"),
+      set: z.enum(["3arrows", "3traffic", "3symbols", "3flags", "4arrows", "5arrows", "3stars"]),
+      reverse: z.boolean().optional(),
+    })
+    .strict(),
+]);
+const condSchema = z
+  .object({
+    id: z.string().min(1).max(64),
+    ranges,
+    rule: cfRule,
+    stop: z.boolean().optional(),
+  })
+  .strict();
+const dvRule = z.union([
+  z
+    .object({
+      kind: z.literal("list"),
+      items: z.array(z.string().max(255)).max(1000).optional(),
+      source: operand.optional(),
+      dropdown: z.boolean().optional(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.enum(["whole", "decimal", "date", "time", "length"]),
+      op: cmpOp,
+      a: operand,
+      b: operand.optional(),
+    })
+    .strict(),
+  z.object({ kind: z.literal("custom"), formula: operand }).strict(),
+]);
+const validationSchema = z
+  .object({
+    id: z.string().min(1).max(64),
+    ranges,
+    rule: dvRule,
+    allowBlank: z.boolean().optional(),
+    prompt: z
+      .object({ title: z.string().max(255).optional(), message: z.string().max(1024) })
+      .strict()
+      .optional(),
+    error: z
+      .object({
+        style: z.enum(["stop", "warning", "info"]),
+        title: z.string().max(255).optional(),
+        message: z.string().max(1024).optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+const filterSchemaGrid = z
+  .object({
+    range: z.string().regex(A1_RANGE),
+    cols: z.record(
+      z.string().regex(/^\d{1,5}$/),
+      z
+        .object({
+          values: z.array(z.string().max(32767)).max(100_000).optional(),
+          cond: z
+            .object({
+              op: z.enum([
+                "eq",
+                "ne",
+                "gt",
+                "ge",
+                "lt",
+                "le",
+                "between",
+                "contains",
+                "notContains",
+                "begins",
+                "ends",
+                "blank",
+                "notBlank",
+                "top",
+                "bottom",
+                "aboveAverage",
+                "belowAverage",
+              ]),
+              a: z.string().max(255).optional(),
+              b: z.string().max(255).optional(),
+            })
+            .strict()
+            .optional(),
+        })
+        .strict(),
+    ),
+    hidden: z.array(z.number().int().min(0).max(1_048_575)).max(1_048_576).optional(),
+  })
+  .strict();
+
 export const gridSchema = z
   .object({
     // Excel's own ceiling on what one cell holds: 32,767 characters.
@@ -156,5 +351,8 @@ export const gridSchema = z
     hiddenRows: z.array(z.number().int().min(0).max(1_048_575)).max(1_048_576).optional(),
     hiddenCols: z.array(z.number().int().min(0).max(16_383)).max(16_384).optional(),
     hideGrid: z.boolean().optional(),
+    cond: z.array(condSchema).max(1000).optional(),
+    validations: z.array(validationSchema).max(1000).optional(),
+    filter: filterSchemaGrid.optional(),
   })
   .strict();

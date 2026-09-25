@@ -20,6 +20,21 @@ import { renameSheetInFormula } from "./formula/shift";
 import { normalizeLink } from "./style";
 import type { BorderSide, BorderStyle, Borders } from "./style";
 import { resolveColor, themeColors, toArgb, type FileColor } from "./xlsxColors";
+import {
+  condFormatsIn,
+  condFormatsOut,
+  dvAddress,
+  validationOut,
+  validationsIn,
+} from "./xlsxRules";
+import { strFromU8 } from "fflate";
+import {
+  addTextRuleAttributes,
+  patchParts,
+  sheetParts,
+  unzipSheetParts,
+  validationFormulas,
+} from "./xlsxParts";
 
 // The ExcelJS types, only as far as this module uses them.
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -366,10 +381,33 @@ export type ReadOptions = {
  * formula come in as the formula; Excel's saved result is kept beside it
  * (`c`) for the editor to fall back on when it cannot compute the formula.
  */
+/** ExcelJS keeps a sheet's AutoFilter as "A1:C10" or as { from, to }. */
+function autoFilterRange(af: unknown): string | null {
+  if (!af) return null;
+  if (typeof af === "string") {
+    const r = parseRangeA1(af.replace(/\$/g, ""));
+    return r ? rangeA1(r) : null;
+  }
+  const o = af as { from?: unknown; to?: unknown };
+  const end = (x: unknown) =>
+    typeof x === "string"
+      ? x
+      : x && typeof x === "object" && "row" in x && "column" in x
+        ? a1(Number((x as { row: number }).row) - 1, Number((x as { column: number }).column) - 1)
+        : null;
+  const from = end(o.from);
+  const to = end(o.to);
+  const r = from && to ? parseRangeA1(`${from}:${to}`.replace(/\$/g, "")) : null;
+  return r ? rangeA1(r) : null;
+}
+
 export async function readXlsx(data: ArrayBuffer, opts: ReadOptions): Promise<ImportResult> {
   const ExcelJS = await excel();
   const wb: XBook = new ExcelJS.Workbook();
   await wb.xlsx.load(data);
+  // The package's sheet parts, for what ExcelJS reads wrongly (validation limits).
+  const files = unzipSheetParts(data);
+  const parts = files ? sheetParts(files) : [];
   const theme = themeColors(wb._themes?.theme1);
   const warnings: string[] = [];
   const sheets: ImportedSheet[] = [];
@@ -489,6 +527,26 @@ export async function readXlsx(data: ArrayBuffer, opts: ReadOptions): Promise<Im
       if (view.ySplit) grid.frozenRows = Math.min(100, view.ySplit);
       if (view.xSplit) grid.frozenCols = Math.min(50, view.xSplit);
     }
+    // Conditional formats, data validation, and the AutoFilter's range (the
+    // rows it hides come in as hidden rows, as the file stores them).
+    const cf = condFormatsIn(ws.conditionalFormattings, theme, fromFileFormula);
+    if (cf.rules.length) grid.cond = cf.rules;
+    const part = parts.find((p) => p.name === ws.name)?.part;
+    const sheetXml = part && files?.[part] ? strFromU8(files[part]) : "";
+    const dv = validationsIn(
+      ws.dataValidations?.model,
+      fromFileFormula,
+      validationFormulas(sheetXml),
+    );
+    if (dv.validations.length) grid.validations = dv.validations;
+    const left = cf.skipped + dv.skipped;
+    if (left) {
+      warnings.push(
+        `${ws.name}: ${left} conditional formatting or validation rule${left === 1 ? "" : "s"} of a kind Sheets does not have yet ${left === 1 ? "was" : "were"} left out.`,
+      );
+    }
+    const af = autoFilterRange(ws.autoFilter);
+    if (af) grid.filter = { range: af, cols: {} };
     sheets.push({
       name: ws.name,
       grid,
@@ -615,7 +673,8 @@ export async function writeXlsx(
     for (const c of s.grid.hiddenCols ?? []) ws.getColumn(c + 1).hidden = true;
     for (const [k, h] of Object.entries(s.grid.rowHeights ?? {}))
       ws.getRow(Number(k) + 1).height = pxToPt(h);
-    for (const r of s.grid.hiddenRows ?? []) {
+    const hiddenRows = new Set([...(s.grid.hiddenRows ?? []), ...(s.grid.filter?.hidden ?? [])]);
+    for (const r of hiddenRows) {
       const row = ws.getRow(r + 1);
       row.hidden = true;
       // ExcelJS writes no row that has neither cells nor a height, and a
@@ -655,7 +714,23 @@ export async function writeXlsx(
       Object.assign(cell, st);
     }
     for (const m of s.grid.merges ?? []) ws.mergeCells(m);
+    const ruleFormula = (f: string) => toFileFormula(inFile(`=${f}`));
+    for (const x of condFormatsOut(s.grid.cond, ruleFormula)) ws.addConditionalFormatting(x);
+    for (const v of s.grid.validations ?? [])
+      for (const r of v.ranges) ws.dataValidations.add(dvAddress(r), validationOut(v, ruleFormula));
+    if (s.grid.filter) ws.autoFilter = s.grid.filter.range;
   }
   if (!sheets.length) wb.addWorksheet("Sheet1");
-  return (await wb.xlsx.writeBuffer()) as ArrayBuffer;
+  const written = (await wb.xlsx.writeBuffer()) as ArrayBuffer;
+  // Text rules: the attributes Excel shows them by, which ExcelJS leaves out.
+  const textRules = sheets.some(
+    (s) => s.kind === "grid" && s.grid.cond?.some((c) => c.rule.kind === "text"),
+  );
+  return textRules
+    ? patchParts(
+        written,
+        (name) => /^xl\/worksheets\/sheet\d+\.xml$/.test(name),
+        (_name, xml) => addTextRuleAttributes(xml),
+      )
+    : written;
 }

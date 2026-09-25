@@ -65,7 +65,8 @@ export function parseNumberText(text: string): number | null {
     pct = true;
     t = t.slice(0, -1);
   }
-  t = t.replace(/^[$€£¥]/, "").replace(/,(?=\d{3}(\D|$))/g, "");
+  // A currency sign after the minus (-$350) or before it ($-350), as Excel reads both.
+  t = t.replace(/^([+-]?)[$€£¥]/, "$1").replace(/,(?=\d{3}(\D|$))/g, "");
   if (!/^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/.test(t)) return null;
   let n = Number(t);
   if (!Number.isFinite(n)) return null;
