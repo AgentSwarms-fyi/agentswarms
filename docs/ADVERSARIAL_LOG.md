@@ -109,6 +109,40 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-25 — Found building Excel downloads: sheet names Excel cannot hold
+
+#### R118 · S2 · A sheet name over 31 characters broke the downloaded workbook
+
+Sheets allows a sheet name of up to 100 characters; Excel allows 31. ExcelJS
+cut a longer name when writing the file without telling anyone, so every
+formula on another sheet that named it still used the full name, which the
+file does not have: in Excel those formulas point at a sheet that is not
+there. Two long names that start with the same 31 characters were worse:
+the second collided with the first once cut, and the download failed.
+
+**Driven, before** (workbook "Long sheet names (R118)"): Sheet1 renamed to
+"Quarterly revenue by region and product line" (44 characters), A1 = 5;
+Sheet2!A1 = `='Quarterly revenue by region and product line'!A1*2` (shows 10).
+File → Download as Excel → the file's sheets were
+`Quarterly revenue by region and` and `Sheet2`, and Sheet2's formula was
+still `'Quarterly revenue by region and product line'!A1*2`. A third sheet
+named "Quarterly revenue by region and product line, prior year" →
+Download → toast "Could not download: Worksheet name already exists:
+Quarterly revenue by region and"; no file.
+
+**After:** the same workbook on the rebuilt image → File → Download as Excel →
+"Downloaded the workbook"; openpyxl reads the sheets `Quarterly revenue by region and`,
+`Sheet2` and `Quarterly revenue by region (2)` (31, 6 and 31 characters), and Sheet2!A1 is
+`='Quarterly revenue by region and'!A1*2`, whose saved value is 10.
+
+The writer now names each sheet for the file (`excelSheetNames`: the
+characters Excel refuses become spaces, the name is cut to 31, and a
+collision gets " (2)" within the 31), and rewrites every formula that names
+a shortened sheet (`renameSheetInFormula`) before writing it. Tests:
+`tests/unit/sheetsXlsx.test.ts` ("cuts a sheet name to Excel's 31
+characters, and the formulas that use it"); two mutants in the Excel/CSV
+mutation run.
+
 ### 2026-09-25 — Found building Sheets formatting: where the keyboard goes after a menu or a dialog
 
 #### R117 · S2 · Every text prompt in the app opened on its Cancel button

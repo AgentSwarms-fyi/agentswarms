@@ -499,6 +499,17 @@ export function SheetGrid(props: Props) {
       text = "#".repeat(Math.max(1, Math.floor(inner / Math.max(1, measureText("#", font)))));
     }
     const isLink = !!input?.l || /^=\s*HYPERLINK\s*\(/i.test(input?.i ?? "");
+    // A formula from an Excel file that this engine cannot compute shows the
+    // value Excel saved; a corner mark and the tooltip say so.
+    const cached = engine.isCached(tabId, r, c);
+    const cachedNote = cached
+      ? (() => {
+          const fns = engine.unknownFunctions(tabId, r, c);
+          return fns.length
+            ? `The value Excel last saved. ${fns.join(", ")} ${fns.length > 1 ? "are" : "is"} not computed in Sheets yet, so this cell does not recalculate.`
+            : "The value Excel last saved. This formula refers to something outside this workbook, so it does not recalculate.";
+        })()
+      : undefined;
     const color = deco?.color ?? view.color ?? st?.color ?? (isLink ? LINK_COLOR : undefined);
     const bg = deco?.bg ?? st?.bg;
     const underline = (deco?.u ?? st?.u) || (isLink && !st?.color);
@@ -533,7 +544,10 @@ export function SheetGrid(props: Props) {
         key={`${r}:${c}`}
         role="gridcell"
         data-cell={a1(r, c)}
-        title={view.title ?? (input?.l ? `${input.l} (Ctrl+click to open)` : undefined)}
+        title={
+          cachedNote ?? view.title ?? (input?.l ? `${input.l} (Ctrl+click to open)` : undefined)
+        }
+        data-cached={cached || undefined}
         className={cn(
           "absolute flex overflow-hidden",
           view.kind === "error" && !color && "text-destructive",
@@ -562,6 +576,12 @@ export function SheetGrid(props: Props) {
           lineHeight: 1.25,
         }}
       >
+        {cached && (
+          <span
+            aria-hidden
+            className="pointer-events-none absolute left-0 top-0 h-0 w-0 border-r-[6px] border-t-[6px] border-r-transparent border-t-amber-500"
+          />
+        )}
         {deco?.bar && (
           <span
             aria-hidden

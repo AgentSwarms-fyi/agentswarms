@@ -4064,6 +4064,9 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "#SPILL!",
       "#Summary!B6",
       "-2^2",
+      "Orders[amount]",
+      "SHEETS_EXPORT_MAX_ROWS",
+      "SHEETS_IMPORT_MAX_SHEETS",
       "SHEETS_MAX_CELLS",
       "SHEETS_PAGE_ROWS",
       "SHEETS_UPLOAD_MAX_MB",
@@ -4095,6 +4098,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       {
         "id": "formulas-over-tables",
         "text": "Formulas over tables in grid sheets",
+        "level": 2
+      },
+      {
+        "id": "files",
+        "text": "Excel and CSV files",
         "level": 2
       },
       {

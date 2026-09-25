@@ -143,6 +143,8 @@ export const gridSchema = z
             .max(2048)
             .refine((u) => normalizeLink(u) === u, "Only web, email and in-workbook links")
             .optional(),
+          // Excel's saved value for a formula this engine cannot compute.
+          c: z.union([z.string().max(32767), z.number(), z.boolean()]).optional(),
         })
         .strict(),
     ),

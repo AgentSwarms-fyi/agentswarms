@@ -749,6 +749,18 @@ export function RuntimeTab({
                 onChange={(n) => set("sheets_upload_max_mb", n)}
                 hint="Largest CSV a person can upload into the lakehouse from Sheets. Bigger files go through object storage and an ETL pipeline."
               />
+              <NumberField
+                label="Sheets per file import"
+                value={form.sheets_import_max_sheets}
+                onChange={(n) => set("sheets_import_max_sheets", n)}
+                hint="Most sheets one Excel or CSV import may bring into a workbook."
+              />
+              <NumberField
+                label="Rows per table in a download"
+                value={form.sheets_export_max_rows}
+                onChange={(n) => set("sheets_export_max_rows", n)}
+                hint="Most rows of a table sheet written into a downloaded .xlsx or .csv. Save larger tables to the lakehouse instead."
+              />
             </div>
           </div>
           {/* The Spark engine: where a run's cluster comes from, and how big it is. */}

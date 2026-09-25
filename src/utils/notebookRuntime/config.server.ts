@@ -108,6 +108,10 @@ export type PlatformResourceSettings = {
   sheetsPageRows: number;
   /** Largest file (MB) a Sheets upload may bring into the lakehouse. */
   sheetsUploadMaxMb: number;
+  /** Most sheets one Sheets file import brings in. */
+  sheetsImportMaxSheets: number;
+  /** Most rows of a table sheet written into a downloaded workbook. */
+  sheetsExportMaxRows: number;
   /** Standard deviations from the learned baseline beyond which a volume check alerts. */
   dataMonitorAnomalySigma: number;
   /** Model calls one SQL statement may make through ai_* functions. */
@@ -167,7 +171,7 @@ export async function getPlatformResources(): Promise<PlatformResourceSettings> 
   const { data } = await supabaseAdmin
     .from("notebook_runtime_settings")
     .select(
-      "lakehouse_memory_limit, lakehouse_threads, etl_max_concurrent_runs_per_user, etl_pipelines_per_sweep, ml_train_max_rows, ml_train_time_budget_minutes, ml_train_mem_limit_mb, ml_serve_mem_limit_mb, ml_max_concurrent_trainings_per_user, ml_predict_max_rows, ml_train_gpus, ml_train_workers, ml_drift_alert_psi, ml_decay_alert_ratio, ml_fairness_min_ratio, ml_cv_min_holdout_rows, ml_parallel_min_rows, ml_artifact_max_mb, ml_max_deployments_per_user, ml_max_deployments_total, gateway_rate_limit_per_min, gateway_fallback_models, gateway_metrics_max_rows, gateway_cache_similarity, gateway_cache_ttl_hours, gateway_cache_max_temperature, data_monitors_per_sweep, data_monitor_anomaly_sigma, sheets_max_cells, sheets_page_rows, sheets_upload_max_mb, ai_sql_max_calls_per_statement, ai_sql_default_model, ai_sql_cache_ttl_days, document_vision_model, document_vision_max_pages",
+      "lakehouse_memory_limit, lakehouse_threads, etl_max_concurrent_runs_per_user, etl_pipelines_per_sweep, ml_train_max_rows, ml_train_time_budget_minutes, ml_train_mem_limit_mb, ml_serve_mem_limit_mb, ml_max_concurrent_trainings_per_user, ml_predict_max_rows, ml_train_gpus, ml_train_workers, ml_drift_alert_psi, ml_decay_alert_ratio, ml_fairness_min_ratio, ml_cv_min_holdout_rows, ml_parallel_min_rows, ml_artifact_max_mb, ml_max_deployments_per_user, ml_max_deployments_total, gateway_rate_limit_per_min, gateway_fallback_models, gateway_metrics_max_rows, gateway_cache_similarity, gateway_cache_ttl_hours, gateway_cache_max_temperature, data_monitors_per_sweep, data_monitor_anomaly_sigma, sheets_max_cells, sheets_page_rows, sheets_upload_max_mb, sheets_import_max_sheets, sheets_export_max_rows, ai_sql_max_calls_per_statement, ai_sql_default_model, ai_sql_cache_ttl_days, document_vision_model, document_vision_max_pages",
     )
     .eq("id", true)
     .maybeSingle();
@@ -259,6 +263,10 @@ export async function getPlatformResources(): Promise<PlatformResourceSettings> 
     sheetsMaxCells: positive(data?.sheets_max_cells) ?? envInt("SHEETS_MAX_CELLS") ?? 200_000,
     sheetsPageRows: positive(data?.sheets_page_rows) ?? envInt("SHEETS_PAGE_ROWS") ?? 500,
     sheetsUploadMaxMb: positive(data?.sheets_upload_max_mb) ?? envInt("SHEETS_UPLOAD_MAX_MB") ?? 50,
+    sheetsImportMaxSheets:
+      positive(data?.sheets_import_max_sheets) ?? envInt("SHEETS_IMPORT_MAX_SHEETS") ?? 100,
+    sheetsExportMaxRows:
+      positive(data?.sheets_export_max_rows) ?? envInt("SHEETS_EXPORT_MAX_ROWS") ?? 100_000,
     aiSqlMaxCallsPerStatement:
       positive(data?.ai_sql_max_calls_per_statement) ??
       envInt("AI_SQL_MAX_CALLS_PER_STATEMENT") ??

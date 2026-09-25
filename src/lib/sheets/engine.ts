@@ -16,6 +16,7 @@ import {
   type RangeRef,
   type TableCallRequest,
 } from "./formula/evaluate";
+import { FUNCTIONS } from "./formula/functions";
 import { FormulaSyntaxError, isFormula, parseFormula, type Node } from "./formula/parser";
 import type { Borders } from "./style";
 import {
@@ -48,8 +49,19 @@ export type CellStyle = {
   bd?: Borders;
 };
 
-/** What is stored for a cell: the text typed, a number format, a style, a link. */
-export type CellInput = { i: string; f?: string; s?: CellStyle; l?: string };
+/**
+ * What is stored for a cell: the text typed, a number format, a style, a
+ * link, and for a formula brought in from an Excel file that this engine
+ * cannot compute (a function it lacks, a link to another file), the value
+ * Excel last saved for it.
+ */
+export type CellInput = {
+  i: string;
+  f?: string;
+  s?: CellStyle;
+  l?: string;
+  c?: string | number | boolean;
+};
 
 export type GridData = {
   cells: Record<string, CellInput>;
@@ -83,7 +95,36 @@ const splitId = (id: CellId) => {
   return { sheetId: id.slice(0, bar), ...parseKey(id.slice(bar + 1)) };
 };
 
-type Compiled = { ast?: Node; syntax?: string; volatile: boolean; tables: string[] };
+type Compiled = {
+  ast?: Node;
+  syntax?: string;
+  volatile: boolean;
+  tables: string[];
+  /** Functions it calls that this engine does not have (from an Excel file). */
+  unknown?: string[];
+};
+
+function unknownFunctions(node: Node, out: Set<string>): void {
+  switch (node.k) {
+    case "call":
+      if (!FUNCTIONS[node.name]) out.add(node.name);
+      node.args.forEach((a) => unknownFunctions(a, out));
+      break;
+    case "unary":
+    case "percent":
+      unknownFunctions(node.arg, out);
+      break;
+    case "bin":
+      unknownFunctions(node.left, out);
+      unknownFunctions(node.right, out);
+      break;
+    case "array":
+      node.rows.forEach((r) => r.forEach((n) => unknownFunctions(n, out)));
+      break;
+    default:
+      break;
+  }
+}
 
 const VOLATILE = /\b(NOW|TODAY|RAND|RANDBETWEEN)\s*\(/i;
 
@@ -217,7 +258,14 @@ export class WorkbookEngine {
       const ast = parseFormula(input.slice(1));
       const t = new Set<string>();
       tablesIn(ast, t);
-      this.compiled.set(id, { ast, volatile: VOLATILE.test(input), tables: [...t] });
+      const u = new Set<string>();
+      unknownFunctions(ast, u);
+      this.compiled.set(id, {
+        ast,
+        volatile: VOLATILE.test(input),
+        tables: [...t],
+        ...(u.size ? { unknown: [...u] } : {}),
+      });
     } catch (e) {
       const msg = e instanceof FormulaSyntaxError ? e.message : "Invalid formula";
       this.compiled.set(id, { syntax: msg, volatile: false, tables: [] });
@@ -254,6 +302,8 @@ export class WorkbookEngine {
       const key = cellKey(e.row, e.col);
       const prev = s.grid.cells[key];
       const next: CellInput = { ...(prev ?? { i: "" }), i: e.input };
+      // Excel's saved value belonged to the formula that was there.
+      if (prev && prev.i !== e.input) delete next.c;
       if (e.format !== undefined) {
         if (e.format === null) delete next.f;
         else next.f = e.format;
@@ -320,7 +370,7 @@ export class WorkbookEngine {
   /** Why a cell is an error, when the engine knows more than the code. */
   getErrorDetail(sheetId: string, row: number, col: number): string | undefined {
     const c = this.compiled.get(cid(sheetId, row, col));
-    if (c?.syntax) return c.syntax;
+    if (c?.syntax && !this.cachedIds.has(cid(sheetId, row, col))) return c.syntax;
     const v = this.getValue(sheetId, row, col);
     return isError(v) ? v.detail : undefined;
   }
@@ -404,8 +454,26 @@ export class WorkbookEngine {
     const c = this.compiled.get(id)!;
     if (c.syntax) {
       const v = err("#NAME?", c.syntax);
+      const at = splitId(id);
+      const cached = this.cachedFallback(at.sheetId, at.row, at.col, v);
+      if (cached !== undefined) {
+        this.cachedIds.add(id);
+        this.memo.set(id, cached);
+        return cached;
+      }
       this.memo.set(id, v);
       return v;
+    }
+    // A formula calling a function this engine lacks shows Excel's saved value
+    // without being evaluated: an IFERROR around it would otherwise hide the gap.
+    if (c.unknown) {
+      const at = splitId(id);
+      const cached = this.cachedFallback(at.sheetId, at.row, at.col, err("#NAME?", ""));
+      if (cached !== undefined) {
+        this.cachedIds.add(id);
+        this.memo.set(id, cached);
+        return cached;
+      }
     }
     if (this.computing.has(id)) return err("#CYCLE!", "This formula refers to itself");
     this.computing.add(id);
@@ -472,9 +540,55 @@ export class WorkbookEngine {
       else result = err("#VALUE!", e instanceof Error ? e.message : "Could not compute");
     }
     this.computing.delete(id);
+    // A formula from a file this engine cannot compute shows what Excel saved.
+    const cached = this.cachedFallback(sheetId, row, col, result);
+    if (cached !== undefined) {
+      this.clearSpill(id);
+      this.cachedIds.add(id);
+      this.memo.set(id, cached);
+      return cached;
+    }
+    this.cachedIds.delete(id);
     const scalar = this.place(id, result);
     this.memo.set(id, scalar);
     return scalar;
+  }
+
+  private cachedIds = new Set<CellId>();
+
+  private cachedFallback(
+    sheetId: string,
+    row: number,
+    col: number,
+    result: Value,
+  ): Scalar | undefined {
+    if (isMatrix(result) || !isError(result) || result.err !== "#NAME?") return undefined;
+    const c = this.sheets.get(sheetId)?.grid?.cells[cellKey(row, col)]?.c;
+    if (c === undefined) return undefined;
+    if (
+      typeof c === "string" &&
+      /^#(N\/A|VALUE!|REF!|DIV\/0!|NUM!|NAME\?|NULL!|SPILL!|CALC!)$/.test(c)
+    ) {
+      return err(c as "#N/A", "Excel's saved value");
+    }
+    return c;
+  }
+
+  /** Whether a cell shows the value Excel saved rather than one computed here. */
+  isCached(sheetId: string, row: number, col: number): boolean {
+    return this.cachedIds.has(cid(sheetId, row, col));
+  }
+
+  /** The functions a formula uses that this engine does not have. */
+  unknownFunctions(sheetId: string, row: number, col: number): string[] {
+    return this.compiled.get(cid(sheetId, row, col))?.unknown ?? [];
+  }
+
+  /** How far a formula's array spills, when it does. */
+  spillSize(sheetId: string, row: number, col: number): { rows: number; cols: number } | undefined {
+    const a = this.arrays.get(cid(sheetId, row, col));
+    if (!a) return undefined;
+    return { rows: a.length, cols: a[0]?.length ?? 0 };
   }
 
   /** Store a result: a scalar stays; an array spills into empty neighbours or is #SPILL!. */

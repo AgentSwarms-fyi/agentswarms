@@ -15,6 +15,43 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-25 — Sheets and Excel files: import .xlsx and CSV, download .xlsx and CSV
+
+**Why this round exists.** People arrive with Excel files and leave with them. A workbook that
+cannot take a colleague's .xlsx, or hand one back that opens right in Excel, is a dead end.
+
+Fixtures (kept, in `tests/fixtures/sheets/`): `openpyxl-sales.xlsx`, written by openpyxl (not the
+library this code uses), with theme and indexed colors, borders, a merge, wrap, a link, hidden
+row and column, frozen panes, `[Red]` formats, dates, and a sheet named `Bob's notes`; and
+`excel-features.xlsx`, carrying what Excel itself saves: formula results, `_xlfn.` names, an array
+formula, CUBEVALUE, a link to another workbook, and CUBEMEMBER inside IFERROR. The browser read
+each through the dialog's file input (a `File` set on it, as choosing one does); downloads were
+captured in the page and checked with openpyxl.
+
+| Step | Result |
+|---|---|
+| Sheets → Import Excel or CSV → `openpyxl-sales.xlsx` | preview: Sales 30 cells, Bobs notes "(was Bob's notes)", Lists 1 cell; name "Q1 sales (openpyxl)" |
+| Create workbook | Arial 12 bold white on `#376092` header (openpyxl's Office 2007 theme, tint −25%), `#,##0` with −350 red, totals computed (7820), the struck bold italic red total with its thick red top and double bottom, `2024-03-02` dates, the A8:D8 merge centered, row 10 wrapped at 60 px, the link, column A 159 px, column F and row 14 hidden |
+| Lists!A1 | `='Bobs notes'!B1*2` → 15640 (the renamed sheet followed into the formula) |
+| Bobs notes!B2 `=CUBEVALUE("x","y")` | `#NAME?`, "Unknown function CUBEVALUE" (openpyxl saved no value to show) |
+| File → Import sheets from Excel or CSV… → `excel-features.xlsx` | "Summary 16 cells · 3 kept at Excel's value", with the explanation; Add sheets → Orders and Summary tabs |
+| Summary | UNIQUE spills Acme/Globex/Initech, SUMIFS 2180/−150/2200, XLOOKUP −150, 51.5%; CUBEVALUE 98765, the other-file link 5500 and IFERROR(CUBEMEMBER) "Q1 2024" at Excel's value, each with an amber corner and a note saying why it does not recalculate |
+| Orders!C2 → 2000, back to Summary | B2 2980, share 59.2%; the saved values unchanged |
+| File → Download as Excel (.xlsx) | "Q1 sales (openpyxl).xlsx", 11,429 bytes; openpyxl: every style above, the merge, wrap, height, link, width, hidden F and 14, frozen B2; `=_xlfn.UNIQUE(...)` an array formula over A2:A4; `=_xlfn.XLOOKUP(...)`; saved values including 98765; Orders C2 = 2000 |
+| File → Download this sheet as CSV (Summary) | BOM, CRLF, values as shown (the spill, 59.2%) |
+| Sheets → Import → `club members.csv` (`;`, a blank row, `=HYPERLINK(...)`, `+44 …`, `"plain, with comma"`) | `;` detected; dates formatted; 12% and 7.50%; the HYPERLINK and the phone number kept as text; the blank row kept |
+| Sheets E2E M1 → Download as Excel | its five sheets; the four table sheets as Excel tables named BiDemoSales, BiDemoSalesPivot…, so Sheet2's `=SUMIFS(BiDemoSales[revenue], …)` resolves in Excel; `order_date` as real dates |
+| Import `budget.xlsx` that is not a workbook; `legacy.xls` | "budget.xlsx is not an Excel workbook…"; "legacy.xls is an Excel 97–2003 workbook (.xls)… save it as .xlsx"; Add sheets stays disabled |
+| R118, before (the image before the fix): "Long sheet names (R118)", Sheet1 renamed to a 44-character name, Sheet2!A1 `='Quarterly revenue by region and product line'!A1*2` → Download as Excel | the file's sheet is cut to `Quarterly revenue by region and`, Sheet2's formula still names the 44-character sheet (a sheet the file does not have); with a third sheet whose name starts with the same 31 characters, "Could not download: Worksheet name already exists" |
+| R118, after (rebuilt image): the same workbook → Download as Excel | sheets `Quarterly revenue by region and`, `Sheet2`, `Quarterly revenue by region (2)`; Sheet2!A1 `='Quarterly revenue by region and'!A1*2`, value 10 |
+
+Found while building it (new code, fixed before commit): a spilled formula was written as a
+*shared* formula group (each cell would compute the whole array) instead of an array formula;
+the reader took an array's other cells as typed values, blocking the spill; ExcelJS silently
+drops a hidden row that has no cells; `;` lost to `,` in CSV detection when the file had a blank
+line; a file that was not a zip reported "Can't find end of central directory"; "1,200" lost its
+thousands separator (Excel keeps `#,##0`).
+
 ## 2026-09-25 — Sheets formatting: fonts, colors, borders, merges, links, zoom, row heights, ADVERSARIAL_LOG R115–R117
 
 **Why this round exists.** Excel users format as they go, and a sheet that

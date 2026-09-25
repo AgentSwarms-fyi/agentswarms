@@ -6154,6 +6154,8 @@ export type Database = {
           sheets_max_cells: number | null;
           sheets_page_rows: number | null;
           sheets_upload_max_mb: number | null;
+          sheets_import_max_sheets: number | null;
+          sheets_export_max_rows: number | null;
           default_image: string;
           document_vision_max_pages: number | null;
           document_vision_model: string | null;
@@ -6218,6 +6220,8 @@ export type Database = {
           sheets_max_cells?: number | null;
           sheets_page_rows?: number | null;
           sheets_upload_max_mb?: number | null;
+          sheets_import_max_sheets?: number | null;
+          sheets_export_max_rows?: number | null;
           default_image?: string;
           document_vision_max_pages?: number | null;
           document_vision_model?: string | null;
@@ -6282,6 +6286,8 @@ export type Database = {
           sheets_max_cells?: number | null;
           sheets_page_rows?: number | null;
           sheets_upload_max_mb?: number | null;
+          sheets_import_max_sheets?: number | null;
+          sheets_export_max_rows?: number | null;
           default_image?: string;
           document_vision_max_pages?: number | null;
           document_vision_model?: string | null;

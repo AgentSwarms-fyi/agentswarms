@@ -42,7 +42,14 @@ export type SheetTabRow = {
   updated_at: string;
 };
 
-export type SheetsLimits = { maxCells: number; pageRows: number };
+export type SheetsLimits = {
+  maxCells: number;
+  pageRows: number;
+  /** Most sheets one file import brings in (SHEETS_IMPORT_MAX_SHEETS). */
+  maxImportSheets: number;
+  /** Most rows of a table sheet in a download (SHEETS_EXPORT_MAX_ROWS). */
+  exportMaxRows: number;
+};
 
 const NAME_RE = /^[^\\/?*[\]:']{1,100}$/;
 // Excel's own rules for a sheet name: no \ / ? * [ ] : or leading/trailing ',
@@ -61,7 +68,12 @@ const tokenOnly = z.object({ access_token: z.string().min(1) });
 
 async function limits(): Promise<SheetsLimits> {
   const r = await getPlatformResources();
-  return { maxCells: r.sheetsMaxCells, pageRows: r.sheetsPageRows };
+  return {
+    maxCells: r.sheetsMaxCells,
+    pageRows: r.sheetsPageRows,
+    maxImportSheets: r.sheetsImportMaxSheets,
+    exportMaxRows: r.sheetsExportMaxRows,
+  };
 }
 
 async function ownWorkbook(userId: string, id: string) {
@@ -89,30 +101,35 @@ async function ownTab(userId: string, id: string) {
 /** The caller's workbooks, newest first, with how many sheets each has. */
 export const sheetsList = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => tokenOnly.parse(input))
-  .handler(async ({ data }): Promise<{ ok: true; workbooks: WorkbookSummary[] } | Fail> => {
-    const caller = await resolveCaller(data.access_token);
-    if (!caller.ok) return caller;
-    const { data: rows, error } = await supabaseAdmin
-      .from("sheet_workbooks")
-      .select("id, name, description, created_at, updated_at, sheet_tabs(count)")
-      .eq("user_id", caller.userId)
-      .order("updated_at", { ascending: false })
-      .limit(500);
-    if (error) return { ok: false, error: `Could not list your workbooks: ${error.message}` };
-    return {
-      ok: true,
-      workbooks: (rows ?? []).map((r) => ({
-        id: r.id,
-        name: r.name,
-        description: r.description,
-        created_at: r.created_at,
-        updated_at: r.updated_at,
-        sheet_count:
-          ((r as unknown as { sheet_tabs?: { count: number }[] }).sheet_tabs?.[0]
-            ?.count as number) ?? 0,
-      })),
-    };
-  });
+  .handler(
+    async ({
+      data,
+    }): Promise<{ ok: true; workbooks: WorkbookSummary[]; limits: SheetsLimits } | Fail> => {
+      const caller = await resolveCaller(data.access_token);
+      if (!caller.ok) return caller;
+      const { data: rows, error } = await supabaseAdmin
+        .from("sheet_workbooks")
+        .select("id, name, description, created_at, updated_at, sheet_tabs(count)")
+        .eq("user_id", caller.userId)
+        .order("updated_at", { ascending: false })
+        .limit(500);
+      if (error) return { ok: false, error: `Could not list your workbooks: ${error.message}` };
+      return {
+        ok: true,
+        limits: await limits(),
+        workbooks: (rows ?? []).map((r) => ({
+          id: r.id,
+          name: r.name,
+          description: r.description,
+          created_at: r.created_at,
+          updated_at: r.updated_at,
+          sheet_count:
+            ((r as unknown as { sheet_tabs?: { count: number }[] }).sheet_tabs?.[0]
+              ?.count as number) ?? 0,
+        })),
+      };
+    },
+  );
 
 /** A new workbook with one empty grid sheet. */
 export const sheetsCreate = createServerFn({ method: "POST" })
@@ -424,6 +441,127 @@ export const sheetsSaveGrid = createServerFn({ method: "POST" })
         conflict: true,
         version: tab.version,
         error: `This sheet was saved elsewhere (version ${tab.version}) after you opened it (version ${data.base_version}). Reload it to see those changes; yours are not saved.`,
+      };
+    },
+  );
+
+/**
+ * Sheets read from a file (an .xlsx or a CSV, parsed in the browser) saved as
+ * grid sheets: into a new workbook, or appended to one the caller owns. All or
+ * nothing: a sheet that fails takes the ones already written with it, and a
+ * new workbook with it.
+ */
+export const sheetsImportGrids = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    tokenOnly
+      .extend({
+        /** Append to this workbook; without it, a new workbook named `name`. */
+        workbook_id: z.string().uuid().optional(),
+        name: z.string().trim().min(1).max(200).optional(),
+        description: z.string().max(4000).optional(),
+        sheets: z
+          .array(z.object({ name: z.string().trim().min(1).max(100), grid: gridSchema }).strict())
+          .min(1),
+      })
+      .refine((d) => d.workbook_id || d.name, "A new workbook needs a name")
+      .parse(input),
+  )
+  .handler(
+    async ({ data }): Promise<{ ok: true; workbook_id: string; tabs: SheetTabRow[] } | Fail> => {
+      const caller = await resolveCaller(data.access_token);
+      if (!caller.ok) return caller;
+      const { maxCells, maxImportSheets } = await limits();
+      if (data.sheets.length > maxImportSheets) {
+        return {
+          ok: false,
+          error: `The file has ${data.sheets.length} sheets; an import brings at most ${maxImportSheets} here (SHEETS_IMPORT_MAX_SHEETS).`,
+        };
+      }
+      const seen = new Set<string>();
+      for (const s of data.sheets) {
+        const problem = sheetNameProblem(s.name);
+        if (problem) return { ok: false, error: `Sheet "${s.name}": ${problem}` };
+        if (seen.has(s.name.toLowerCase()))
+          return { ok: false, error: `Two sheets are named "${s.name}"` };
+        seen.add(s.name.toLowerCase());
+        const count = Object.keys(s.grid.cells).length;
+        if (count > maxCells) {
+          return {
+            ok: false,
+            error: `Sheet "${s.name}" has ${count.toLocaleString()} cells and a grid sheet holds at most ${maxCells.toLocaleString()} (SHEETS_MAX_CELLS). Bring it in as a table sheet instead.`,
+          };
+        }
+      }
+
+      let workbookId = data.workbook_id;
+      let created = false;
+      let start = 0;
+      if (workbookId) {
+        let wb;
+        try {
+          wb = await ownWorkbook(caller.userId, workbookId);
+        } catch (e) {
+          return { ok: false, error: (e as Error).message };
+        }
+        if (!wb) return { ok: false, error: "This workbook does not exist, or is not yours" };
+        const { data: existing, error } = await supabaseAdmin
+          .from("sheet_tabs")
+          .select("name, position")
+          .eq("workbook_id", workbookId);
+        if (error) return { ok: false, error: `Could not read the sheets: ${error.message}` };
+        for (const t of existing ?? []) {
+          if (seen.has(t.name.toLowerCase()))
+            return { ok: false, error: `This workbook already has a sheet named "${t.name}"` };
+          start = Math.max(start, t.position + 1);
+        }
+      } else {
+        const { data: wb, error } = await supabaseAdmin
+          .from("sheet_workbooks")
+          .insert({
+            user_id: caller.userId,
+            name: data.name!,
+            description: data.description ?? null,
+          })
+          .select("id")
+          .single();
+        if (error || !wb)
+          return {
+            ok: false,
+            error: `Could not create the workbook: ${error?.message ?? "no row"}`,
+          };
+        workbookId = wb.id;
+        created = true;
+      }
+
+      const { data: tabs, error } = await supabaseAdmin
+        .from("sheet_tabs")
+        .insert(
+          data.sheets.map((s, i) => ({
+            workbook_id: workbookId!,
+            user_id: caller.userId,
+            name: s.name.trim(),
+            kind: "grid",
+            position: start + i,
+            grid: s.grid as unknown as Json,
+          })),
+        )
+        .select("id, workbook_id, name, kind, position, grid, table_config, version, updated_at");
+      if (error || !tabs?.length) {
+        // One insert of every sheet is all or nothing already; a workbook made
+        // for this import goes with it.
+        if (created) await supabaseAdmin.from("sheet_workbooks").delete().eq("id", workbookId!);
+        return {
+          ok: false,
+          error:
+            error?.code === "23505"
+              ? "Two sheets would have the same name"
+              : `Could not save the sheets: ${error?.message ?? "no rows"}`,
+        };
+      }
+      return {
+        ok: true,
+        workbook_id: workbookId!,
+        tabs: (tabs as SheetTabRow[]).sort((a, b) => a.position - b.position),
       };
     },
   );

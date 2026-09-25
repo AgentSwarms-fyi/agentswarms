@@ -8,7 +8,17 @@ import { useCallback, useEffect, useState } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
-import { FileSpreadsheet, Loader2, Pencil, Plus, RefreshCw, Table2, Trash2 } from "lucide-react";
+import {
+  FileSpreadsheet,
+  FileUp,
+  Loader2,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Table2,
+  Trash2,
+} from "lucide-react";
+import { ImportFileDialog } from "@/components/sheets/ImportFileDialog";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -65,6 +75,8 @@ function SheetsPage() {
   const [newName, setNewName] = useState("");
   const [newDesc, setNewDesc] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
+  const [maxCells, setMaxCells] = useState(200_000);
 
   const reload = useCallback(async () => {
     if (!token) return;
@@ -74,6 +86,7 @@ function SheetsPage() {
         setLoadError(r.error);
       } else {
         setWorkbooks(r.workbooks);
+        setMaxCells(r.limits.maxCells);
         setLoadError(null);
       }
     } catch (e) {
@@ -172,11 +185,25 @@ function SheetsPage() {
           <Button variant="outline" size="sm" onClick={() => void reload()}>
             <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Refresh
           </Button>
+          <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>
+            <FileUp className="mr-1.5 h-4 w-4" /> Import Excel or CSV
+          </Button>
           <Button size="sm" onClick={() => setNewOpen(true)}>
             <Plus className="mr-1.5 h-4 w-4" /> New workbook
           </Button>
         </div>
       </div>
+      {importOpen && token && (
+        <ImportFileDialog
+          open
+          onOpenChange={setImportOpen}
+          token={token}
+          maxCells={maxCells}
+          onImported={(r) =>
+            void navigate({ to: "/sheets/$workbookId", params: { workbookId: r.workbookId } })
+          }
+        />
+      )}
 
       {!loaded ? (
         <div className="flex items-center gap-2 py-10 text-sm text-muted-foreground">
@@ -201,8 +228,8 @@ function SheetsPage() {
             <div>
               <p className="font-medium">No workbooks yet</p>
               <p className="mt-1 max-w-md text-sm text-muted-foreground">
-                Start with an empty grid, then bring in a lakehouse table, a catalog asset or a
-                connected source as a table sheet.
+                Start with an empty grid or an Excel or CSV file, then bring in a lakehouse table, a
+                catalog asset or a connected source as a table sheet.
               </p>
             </div>
             <Button size="sm" onClick={() => setNewOpen(true)}>

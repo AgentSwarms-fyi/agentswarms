@@ -104,6 +104,8 @@
     "date-fns": "^4.1.0",
     "docx": "^9.7.1",
     "embla-carousel-react": "^8.6.0",
+    "exceljs": "^4.4.0",
+    "fflate": "^0.8.3",
     "framer-motion": "^12.38.0",
     "html2canvas-pro": "^2.2.4",
     "input-otp": "^1.4.2",
@@ -170,6 +172,9 @@
     "vitest": "^3.2.7"
   },
   "overrides": {
-    "entities": "4.5.0"
+    "entities": "4.5.0",
+    "exceljs": {
+      "uuid": "^11.1.1"
+    }
   }
 }

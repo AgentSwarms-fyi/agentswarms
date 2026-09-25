@@ -18,6 +18,7 @@ import {
   buildTableRelation,
   isVolatile,
   pageSql,
+  selectAllSql,
   sourceLabel,
   TableQueryError,
   valuesSql,
@@ -976,3 +977,74 @@ export const sheetsSavePivot = createServerFn({ method: "POST" })
       return { ok: false, error: engineMessage(e) };
     }
   });
+
+// ── Downloading ────────────────────────────────────────────────────────────
+
+/**
+ * A table sheet's rows for a download (.xlsx or .csv): the view the sheet
+ * shows (its filters, sort and hidden columns), up to SHEETS_EXPORT_MAX_ROWS.
+ * Read through the lakehouse like every other read, so grants, row and
+ * column policies and audit apply to a download as they do to the screen.
+ */
+export const sheetsTableExport = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    tokenOnly.extend({ tab_id: z.string().uuid(), config: tableConfigSchema }).parse(input),
+  )
+  .handler(
+    async ({
+      data,
+    }): Promise<
+      | {
+          ok: true;
+          columns: { name: string; kind: string }[];
+          rows: (string | number | boolean | null)[][];
+          truncated: boolean;
+          maxRows: number;
+        }
+      | Fail
+    > => {
+      const caller = await resolveCaller(data.access_token);
+      if (!caller.ok) return caller;
+      const { sheetsExportMaxRows } = await getPlatformResources();
+      let tab;
+      try {
+        tab = await ownTableTab(caller.userId, data.tab_id);
+      } catch (e) {
+        return { ok: false, error: (e as Error).message };
+      }
+      if (!tab) return { ok: false, error: "This sheet does not exist, or is not yours" };
+      const cfg = data.config as TableConfig;
+      try {
+        const others = await otherTables(tab.workbook_id, tab.id);
+        const rel = buildTableRelation(cfg, {
+          name: tab.name,
+          others: (n) => others.get(n.toLowerCase()),
+        });
+        const hidden = new Set(cfg.hidden.map((h) => h.toLowerCase()));
+        const columns = rel.columns
+          .filter((c) => !hidden.has(c.name.toLowerCase()))
+          .map((c) => ({ name: c.name, kind: c.kind }));
+        const { runLakehouseStatement } = await import("@/utils/lakehouse/core.server");
+        const res = await runLakehouseStatement(
+          caller.userId,
+          `${selectAllSql(rel, cfg)} LIMIT ${sheetsExportMaxRows + 1}`,
+          { rowCap: sheetsExportMaxRows + 1, auditVia: "sheets", useCache: !isVolatile(cfg) },
+        );
+        const truncated = res.rows.length > sheetsExportMaxRows;
+        return {
+          ok: true,
+          columns,
+          rows: (truncated ? res.rows.slice(0, sheetsExportMaxRows) : res.rows) as (
+            | string
+            | number
+            | boolean
+            | null
+          )[][],
+          truncated,
+          maxRows: sheetsExportMaxRows,
+        };
+      } catch (e) {
+        return { ok: false, error: engineMessage(e) };
+      }
+    },
+  );

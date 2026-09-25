@@ -209,6 +209,18 @@ prompt in the app opened on Cancel). Open from that round:
 - **Text that runs on crosses a right border**: the border is drawn under the
   overflowing text rather than over it.
 
+Closed with Excel files: R118 (a sheet name over Excel's 31 characters left
+formulas naming a sheet the file does not have, and two such names made the
+download fail). Open from Excel files:
+
+- **A link to another workbook** (`[1]Budget!B2`) keeps its value, but the
+  file written back carries no external-link part, so Excel may show `#REF!`
+  when it recalculates the download.
+- **Default font metrics**: an imported sheet's widths were set for Calibri
+  11; the grid draws unstyled cells in the app font, a little wider, so a
+  label that fits in Excel can clip here.
+- **Defined names** are kept at Excel's value, not computed (no name manager yet).
+
 ## Rules that came out of doing this
 
 - A test that asserts source text is pinning a USE, not a definition; bound it

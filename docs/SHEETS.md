@@ -5,10 +5,10 @@ could hold. Find them under **Data & BI → Sheets**.
 
 A workbook holds two kinds of sheet:
 
-| Sheet          | Where the data lives                              | How big                                          | What computes it |
-| -------------- | ------------------------------------------------- | ------------------------------------------------ | ---------------- |
-| **Grid sheet** | The workbook itself (cells, formats, styles)      | Up to `SHEETS_MAX_CELLS` non-empty cells (200,000) | The browser      |
-| **Table sheet** | A lakehouse table; the sheet keeps only its view | As large as the lakehouse holds                  | The lakehouse    |
+| Sheet           | Where the data lives                             | How big                                            | What computes it |
+| --------------- | ------------------------------------------------ | -------------------------------------------------- | ---------------- |
+| **Grid sheet**  | The workbook itself (cells, formats, styles)     | Up to `SHEETS_MAX_CELLS` non-empty cells (200,000) | The browser      |
+| **Table sheet** | A lakehouse table; the sheet keeps only its view | As large as the lakehouse holds                    | The lakehouse    |
 
 Grid sheets are for models, assumptions and summaries. Table sheets are for data: millions of rows
 scroll, sort, filter and total as quickly as a small table, because the engine does the work and
@@ -49,24 +49,24 @@ Open parentheses are closed for you on **Enter**.
 
 ### Editing
 
-| Keys                        | Does                                                                           |
-| --------------------------- | ------------------------------------------------------------------------------ |
-| Typing                      | Replaces the active cell; **Enter**/**Tab** commit and move                     |
-| Tab … Tab, Enter            | Enter returns to the column the row was started in, ready for the next row     |
-| F2, double-click            | Edits the cell in place                                                        |
-| Arrows, Ctrl+arrows         | Move; Ctrl jumps to the edge of the data                                       |
-| Shift + arrows or click     | Extends the selection; the active cell stays where it started                  |
-| Ctrl+A                      | Selects the sheet without moving the view                                      |
-| Delete                      | Clears contents (formats stay)                                                 |
-| Ctrl+C / Ctrl+X / Ctrl+V    | Copy, cut, paste. Formulas pasted inside the workbook shift; text from Excel or Google Sheets pastes as values, with `12%`, `$1,200` and dates recognised |
-| Ctrl+D / Ctrl+R             | Fill down / right                                                              |
-| Ctrl+Z / Ctrl+Y             | Undo / redo, including row and column inserts                                  |
-| Ctrl+B / Ctrl+I / Ctrl+U    | Bold, italic, underline                                                        |
-| Ctrl+5                      | Strikethrough                                                                  |
-| Ctrl+K                      | Insert or edit a link                                                          |
-| Alt+Enter                   | A line break inside the cell (Wrap text turns on)                              |
-| Ctrl+mouse wheel            | Zoom                                                                           |
-| Ctrl+S                      | Save now                                                                       |
+| Keys                     | Does                                                                                                                                                      |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Typing                   | Replaces the active cell; **Enter**/**Tab** commit and move                                                                                               |
+| Tab … Tab, Enter         | Enter returns to the column the row was started in, ready for the next row                                                                                |
+| F2, double-click         | Edits the cell in place                                                                                                                                   |
+| Arrows, Ctrl+arrows      | Move; Ctrl jumps to the edge of the data                                                                                                                  |
+| Shift + arrows or click  | Extends the selection; the active cell stays where it started                                                                                             |
+| Ctrl+A                   | Selects the sheet without moving the view                                                                                                                 |
+| Delete                   | Clears contents (formats stay)                                                                                                                            |
+| Ctrl+C / Ctrl+X / Ctrl+V | Copy, cut, paste. Formulas pasted inside the workbook shift; text from Excel or Google Sheets pastes as values, with `12%`, `$1,200` and dates recognised |
+| Ctrl+D / Ctrl+R          | Fill down / right                                                                                                                                         |
+| Ctrl+Z / Ctrl+Y          | Undo / redo, including row and column inserts                                                                                                             |
+| Ctrl+B / Ctrl+I / Ctrl+U | Bold, italic, underline                                                                                                                                   |
+| Ctrl+5                   | Strikethrough                                                                                                                                             |
+| Ctrl+K                   | Insert or edit a link                                                                                                                                     |
+| Alt+Enter                | A line break inside the cell (Wrap text turns on)                                                                                                         |
+| Ctrl+mouse wheel         | Zoom                                                                                                                                                      |
+| Ctrl+S                   | Save now                                                                                                                                                  |
 
 Drag the square at the corner of a selection to **fill**. Numbers and "Item 1, Item 2" continue as a
 series, formulas shift, and anything else repeats.
@@ -232,6 +232,42 @@ refreshed, or the workbook is reopened.
 A whole table column read directly (`=Orders[amount]`) would bring every row to the browser. It shows
 `#VALUE!` and names the functions to use instead.
 
+## Excel and CSV files
+
+**Import Excel or CSV** on the Sheets page starts a workbook from a file; **File → Import sheets
+from Excel or CSV…** in a workbook adds a file's sheets to it. The file is read in the browser and
+shown before anything is saved: each sheet, its size, and any name that has to change.
+
+An `.xlsx` (or `.xlsm`; its macros are not kept) comes in with its formulas (shared and array
+formulas, and Excel's `_xlfn.` names such as XLOOKUP and UNIQUE), number formats, fonts, fills,
+borders, alignment and wrapping, merged cells, links, column widths, row heights, hidden rows and
+columns, and gridlines. A sheet name with a character a formula cannot carry (`'`, `[`, `]`…) is
+renamed, and every formula that named it follows.
+
+A formula that uses a function Sheets does not compute yet (CUBEVALUE, a defined name, a link to
+another workbook) shows **the value Excel last saved**, with a small amber mark and a note on hover
+saying why it does not recalculate. It is kept exactly as written, so it goes back to Excel intact.
+Editing it drops the saved value.
+
+A CSV comes in as one sheet. The delimiter (`,` `;` tab or `|`) is detected; numbers, dates,
+percentages and `1,200` are recognised as Excel does; text that would read as a formula (`=…`,
+`@…`) stays text, so a CSV from elsewhere cannot run anything.
+
+**File → Download as Excel (.xlsx)** writes the whole workbook: grid sheets as the editor holds
+them (unsaved edits included), each formula with its current value and Excel told to recalculate on
+open; table sheets as Excel tables named like the sheet, so `Orders[amount]` still works in Excel.
+Excel refuses a sheet name longer than 31 characters, so a longer one is cut to fit in the file
+(kept unique with ` (2)`), and every formula that names that sheet is rewritten to match.
+A table sheet contributes the rows its view shows (its filters, sort and hidden columns), read
+through the lakehouse, so your grants and row and column policies apply, up to
+`SHEETS_EXPORT_MAX_ROWS` (100,000). **Download this sheet as CSV** writes the active sheet as it
+is shown, UTF-8 with a byte-order mark so Excel reads accents correctly, and prefixes any text
+that starts with `= + - @` with `'` so opening the file cannot run it.
+
+Not yet carried by files: conditional formatting, data validation and charts (they arrive with
+those features), and the external-link part behind a formula such as `[1]Budget!B2` (its value
+comes in; Excel may show `#REF!` for it when it recalculates the downloaded copy).
+
 ## Saving to the lakehouse and the catalog
 
 **Save to lakehouse** writes a new table in a schema you own:
@@ -279,13 +315,15 @@ Workbooks are private to their owner.
 
 ## Limits
 
-| Setting                | Default | What it bounds                                              |
-| ---------------------- | ------- | ----------------------------------------------------------- |
-| `SHEETS_MAX_CELLS`     | 200,000 | Non-empty cells one grid sheet may hold                     |
-| `SHEETS_PAGE_ROWS`     | 500     | Rows a table sheet fetches per page while scrolling         |
-| `SHEETS_UPLOAD_MAX_MB` | 50      | The largest CSV an upload brings into the lakehouse         |
+| Setting                    | Default | What it bounds                                                |
+| -------------------------- | ------- | ------------------------------------------------------------- |
+| `SHEETS_MAX_CELLS`         | 200,000 | Non-empty cells one grid sheet may hold                       |
+| `SHEETS_PAGE_ROWS`         | 500     | Rows a table sheet fetches per page while scrolling           |
+| `SHEETS_UPLOAD_MAX_MB`     | 50      | The largest CSV an upload brings into the lakehouse           |
+| `SHEETS_IMPORT_MAX_SHEETS` | 100     | Sheets one Excel or CSV import may bring into a workbook      |
+| `SHEETS_EXPORT_MAX_ROWS`   | 100,000 | Rows of a table sheet written into a downloaded .xlsx or .csv |
 
-All three are editable under **Admin → Developer runtime**. A direct import from a connection is
+All five are editable under **Admin → Developer runtime**. A direct import from a connection is
 also bounded by `WAREHOUSE_ABS_MAX_ROWS`. A larger result is refused, never truncated; land it with
 an ETL pipeline and open that table instead.
 

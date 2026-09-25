@@ -173,6 +173,24 @@ function SheetsDocsPage() {
         these formulas see every row of the table, not the sheet&apos;s filtered view.
       </P>
 
+      <H2 id="files">Excel and CSV files</H2>
+      <P>
+        <strong>Import Excel or CSV</strong> on the Sheets page starts a workbook from a file, and{" "}
+        <strong>File → Import sheets</strong> adds a file&apos;s sheets to an open one. An .xlsx
+        brings its formulas (array formulas and newer functions such as XLOOKUP included), number
+        formats, fonts, fills, borders, alignment, merged cells, links, widths, heights and hidden
+        rows and columns. A formula using a function Sheets does not compute yet shows the value
+        Excel last saved, marked, and goes back to Excel as written. A CSV&apos;s delimiter is
+        detected, and text that looks like a formula stays text.
+      </P>
+      <P>
+        <strong>File → Download as Excel</strong> writes every sheet: grid sheets with their
+        formulas and current values, table sheets as Excel tables named like the sheet (so{" "}
+        <C>Orders[amount]</C> keeps working), up to <C>SHEETS_EXPORT_MAX_ROWS</C> rows each and read
+        with your own grants. <strong>Download this sheet as CSV</strong> writes what the sheet
+        shows.
+      </P>
+
       <H2 id="save">Saving to the lakehouse and the catalog</H2>
       <P>
         <strong>Save to lakehouse</strong> writes a new table: what a table sheet shows, or a grid
@@ -195,8 +213,9 @@ function SheetsDocsPage() {
           workbooks and sheets as row changes.
         </li>
         <li>
-          <strong>Limits.</strong> <C>SHEETS_MAX_CELLS</C> (200,000), <C>SHEETS_PAGE_ROWS</C> (500)
-          and <C>SHEETS_UPLOAD_MAX_MB</C> (50) are editable under Admin → Developer runtime. A
+          <strong>Limits.</strong> <C>SHEETS_MAX_CELLS</C> (200,000), <C>SHEETS_PAGE_ROWS</C> (500),{" "}
+          <C>SHEETS_UPLOAD_MAX_MB</C> (50), <C>SHEETS_IMPORT_MAX_SHEETS</C> (100) and{" "}
+          <C>SHEETS_EXPORT_MAX_ROWS</C> (100,000) are editable under Admin → Developer runtime. A
           direct import from a connection is also bounded by <C>WAREHOUSE_ABS_MAX_ROWS</C>; a larger
           result is refused, never truncated.
         </li>
