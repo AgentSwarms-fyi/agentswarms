@@ -173,6 +173,12 @@ function IntroductionPage() {
             "Dashboards, paginated reports, filters, drill-through, alerts, sharing and embedding.",
           ],
           [
+            <DocLink key="e2" to="/docs/sheets">
+              Sheets
+            </DocLink>,
+            "Spreadsheets with Excel formulas, over lakehouse tables of any size.",
+          ],
+          [
             <DocLink key="f" to="/docs/etl">
               ETL Pipelines
             </DocLink>,

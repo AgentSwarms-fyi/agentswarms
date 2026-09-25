@@ -6151,6 +6151,9 @@ export type Database = {
           cpu_limit: string;
           data_monitor_anomaly_sigma: number | null;
           data_monitors_per_sweep: number | null;
+          sheets_max_cells: number | null;
+          sheets_page_rows: number | null;
+          sheets_upload_max_mb: number | null;
           default_image: string;
           document_vision_max_pages: number | null;
           document_vision_model: string | null;
@@ -6212,6 +6215,9 @@ export type Database = {
           cpu_limit?: string;
           data_monitor_anomaly_sigma?: number | null;
           data_monitors_per_sweep?: number | null;
+          sheets_max_cells?: number | null;
+          sheets_page_rows?: number | null;
+          sheets_upload_max_mb?: number | null;
           default_image?: string;
           document_vision_max_pages?: number | null;
           document_vision_model?: string | null;
@@ -6273,6 +6279,9 @@ export type Database = {
           cpu_limit?: string;
           data_monitor_anomaly_sigma?: number | null;
           data_monitors_per_sweep?: number | null;
+          sheets_max_cells?: number | null;
+          sheets_page_rows?: number | null;
+          sheets_upload_max_mb?: number | null;
           default_image?: string;
           document_vision_max_pages?: number | null;
           document_vision_model?: string | null;
@@ -6712,6 +6721,83 @@ export type Database = {
             referencedColumns: ["id"];
           },
         ];
+      };
+      sheet_tabs: {
+        Row: {
+          created_at: string;
+          grid: Json;
+          id: string;
+          kind: string;
+          name: string;
+          position: number;
+          table_config: Json | null;
+          updated_at: string;
+          user_id: string;
+          version: number;
+          workbook_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          grid?: Json;
+          id?: string;
+          kind: string;
+          name: string;
+          position?: number;
+          table_config?: Json | null;
+          updated_at?: string;
+          user_id: string;
+          version?: number;
+          workbook_id: string;
+        };
+        Update: {
+          created_at?: string;
+          grid?: Json;
+          id?: string;
+          kind?: string;
+          name?: string;
+          position?: number;
+          table_config?: Json | null;
+          updated_at?: string;
+          user_id?: string;
+          version?: number;
+          workbook_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "sheet_tabs_workbook_id_fkey";
+            columns: ["workbook_id"];
+            isOneToOne: false;
+            referencedRelation: "sheet_workbooks";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      sheet_workbooks: {
+        Row: {
+          created_at: string;
+          description: string | null;
+          id: string;
+          name: string;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          description?: string | null;
+          id?: string;
+          name: string;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          description?: string | null;
+          id?: string;
+          name?: string;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [];
       };
       slack_command_routes: {
         Row: {

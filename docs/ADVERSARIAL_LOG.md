@@ -109,6 +109,58 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-25 — Found building Sheets: a semicolon in a string, a cached clock, and escapes shown as text
+
+#### R112 · S2 · A ";" inside a string literal was refused as a second statement
+
+`classifyStatement` refused any statement whose text contained ";", after
+stripping comments but not string literals. `SELECT 'north; south' AS
+regions` was refused in the Query editor with "One statement per request —
+split multi-statement SQL", and so was every other place a user's text
+reaches a lakehouse statement as a literal: a Sheets calculated column
+`TEXTJOIN("; ", …)`, a filter on a value with a semicolon in it.
+
+**Driven, before:** Query editor, `SELECT 'north; south' AS regions` → the
+refusal above. **After** (host build on the running app, then the image):
+`SELECT 'north; south' AS regions, concat_ws('; ', 'a', 'b') AS joined` →
+`1 row(s)`: `north; south · a; b`.
+
+The check now reads `blankLiterals(sql)` (new in `sqlRefs.ts`): comments
+blanked by the existing literal-aware scanner, then the insides of single-
+and double-quoted literals and `$$…$$` blanked, indices kept. A real second
+statement (`SELECT 'x'; DROP TABLE a.t`, `SELECT 'a'''; DROP …`) is still
+refused. Tests: `tests/unit/lakehouseSqlShape.test.ts`.
+
+#### R113 · S2 · `SELECT now()` answered with the first run's time for ten minutes
+
+The lakehouse result cache keys on the user, the statement and the current
+snapshot. None of those changes when the clock does, so a statement calling
+`now()`, `current_date`, `random()` or `gen_random_uuid()` was served its
+first answer until the entry expired (ten minutes) or a write moved the
+snapshot. Nothing on the page said the answer was cached.
+
+**Driven, before:** Query editor, `SELECT strftime(now(), '%H:%M:%S.%f') AS t`
+run six times over fifteen seconds → `08:01:18.491288` all six times.
+**After:** six runs → `08:28:01.29`, `08:28:03.80`, `08:28:06.80`,
+`08:28:09.73`, `08:28:12.71`, `08:28:15.74`.
+
+`callsVolatileFunction(sql)` (the same literal-blanked text, so
+`SELECT 'now()'` still caches) now keeps such a statement out of the cache
+lookup, which is also the only place a result is stored. Sheets pass
+`useCache: false` for a table whose calculated columns call TODAY() or
+NOW(). Tests: `tests/unit/lakehouseSqlShape.test.ts`, including a pin that
+the guard sits in the block that sets the cache slot.
+
+#### R114 · S3 · The catalog showed `\u2014` where it meant a dash
+
+Three places in `CatalogView.tsx` wrote the escape in JSX text, where it is
+not an escape: the asset panel's status select read "Certified \u2014
+trusted for analysis" and "Deprecated \u2014 avoid using", the empty column
+panel "No column metadata \u2014", and the profile's range "min\u2013max".
+Seen on the asset `analytics.sheets_revenue_by_region_v2` registered from
+Sheets. A scan of every `.tsx` for a `\u` escape outside a string found
+these four and no others.
+
 ### 2026-09-25 — Read-only, until it was written to, and gone when the catalog was
 
 #### R111 · S1 · An Iceberg mount took writes the dialog calls impossible, and removing its catalog dropped them unannounced

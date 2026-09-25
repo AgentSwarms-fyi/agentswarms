@@ -30,7 +30,14 @@ import path from "node:path";
 import { auditEvent } from "@/utils/audit.server";
 import { applyTablePolicies, loadPolicies } from "@/utils/lakehouse/policies.server";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import { qualifiedRefs, stripComments, tableRefs, writeSubSelect } from "@/utils/lakehouse/sqlRefs";
+import {
+  blankLiterals,
+  callsVolatileFunction,
+  qualifiedRefs,
+  stripComments,
+  tableRefs,
+  writeSubSelect,
+} from "@/utils/lakehouse/sqlRefs";
 
 import type { DuckDBConnection, DuckDBInstance } from "@duckdb/node-api";
 import { usesAiSqlFunctions } from "@/utils/aiSql/core";
@@ -535,7 +542,11 @@ function unquote(ident: string): string {
 export function classifyStatement(rawSql: string): Classified {
   const sql = stripSqlComments(rawSql).replace(/;\s*$/, "");
   if (!sql) throw new Error("Empty statement");
-  if (sql.includes(";")) {
+  // FOUND BUILDING SHEETS. This read the raw text, so a ";" inside a string
+  // was a second statement: SELECT 'north; south' was refused, and so was a
+  // sheet's TEXTJOIN("; ", …) column. Only a ";" outside literals and quoted
+  // names separates statements.
+  if (blankLiterals(sql).includes(";")) {
     throw new Error("One statement per request — split multi-statement SQL");
   }
   const head = sql.slice(0, 40).toUpperCase();
@@ -1215,7 +1226,16 @@ export async function runLakehouseStatement(
         // The result cache is keyed by the CURRENT snapshot, so a historical
         // read must not consult it: the same SQL as of snapshot 100 and as of
         // now are different questions with the same key.
-        if (opts?.useCache !== false && !opts?.asOfSnapshot) {
+        // FOUND BUILDING SHEETS. The key is the statement and the snapshot,
+        // and neither changes when the clock does: SELECT now() answered with
+        // the first run's time for ten minutes, and a TODAY() column would
+        // have said yesterday. A statement that reads the clock or a random
+        // source is run every time.
+        if (
+          opts?.useCache !== false &&
+          !opts?.asOfSnapshot &&
+          !callsVolatileFunction(effectiveSql)
+        ) {
           const snapshot = await currentSnapshotId(c);
           // The key is per user already, so a policy rewrite cannot leak
           // across readers; including it keeps a policy edit from being

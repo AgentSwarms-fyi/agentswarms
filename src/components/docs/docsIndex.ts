@@ -4055,6 +4055,58 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     ]
   },
   {
+    "route": "/docs/sheets",
+    "title": "Sheets",
+    "description": "Spreadsheets with the Excel formulas people already know, over data far larger than a browser could hold: the lakehouse computes the big tables, the browser only shows the rows on screen.",
+    "terms": [
+      "#BUSY!",
+      "#SPILL!",
+      "-2^2",
+      "SHEETS_MAX_CELLS",
+      "SHEETS_PAGE_ROWS",
+      "SHEETS_UPLOAD_MAX_MB",
+      "WAREHOUSE_ABS_MAX_ROWS",
+      "lakehouse.import"
+    ],
+    "headings": [
+      {
+        "id": "what",
+        "text": "Two kinds of sheet",
+        "level": 2
+      },
+      {
+        "id": "grid",
+        "text": "Grid sheets",
+        "level": 2
+      },
+      {
+        "id": "tables",
+        "text": "Table sheets",
+        "level": 2
+      },
+      {
+        "id": "calculated-columns",
+        "text": "Calculated columns",
+        "level": 3
+      },
+      {
+        "id": "formulas-over-tables",
+        "text": "Formulas over tables in grid sheets",
+        "level": 2
+      },
+      {
+        "id": "save",
+        "text": "Saving to the lakehouse and the catalog",
+        "level": 2
+      },
+      {
+        "id": "governance",
+        "text": "Governance",
+        "level": 2
+      }
+    ]
+  },
+  {
     "route": "/docs/skills",
     "title": "Skills & Prompt Library",
     "description": "Two small libraries of reusable text: skills are focused playbooks composed into an agent's system prompt at run time; prompts are complete starter system prompts. Both exist so good instructions get written once and reused everywhere.",

@@ -182,6 +182,20 @@ least twice, not a hypothetical.
    code — the browser engine and the server refresh disagreeing on a row cap is
    the recorded instance.
 
+### Sheets (new, 2026-09-25)
+
+Closed while building it: R112 (a `;` inside a string refused as a second
+statement), R113 (`now()` served from the result cache), R114 (JSX text
+showing `\u2014` as text). Open, from the first rounds:
+
+- **Excel parity, small:** a dynamic array over an empty cell spills a blank
+  where Excel spills 0; `=A9+30` over a date cell shows the serial number
+  where Excel carries the date format forward.
+- **Deleting the last two sheets at once:** `sheetsDeleteTab` counts, then
+  deletes, so two concurrent deletes can leave a workbook with none.
+- **A connection import was not driven:** the account has no database
+  connection, and creating one needs a credential typed into the page.
+
 ## Rules that came out of doing this
 
 - A test that asserts source text is pinning a USE, not a definition; bound it

@@ -15,6 +15,125 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-25 — Sheets: grid and table sheets, imports, pivots, formulas over tables, saving to the lakehouse and the catalog, ADVERSARIAL_LOG R112–R114
+
+**Why this round exists.** Sheets is new (Data & BI → Sheets): grid sheets
+computed in the browser, table sheets computed by the lakehouse. Every
+feature below was pressed in the browser on the running app, and the result
+was read from the DOM, the formula bar, the save state and, for the
+lakehouse side, from the Data Catalog page. The dev loop built on the host
+and swapped the container's `dist`; the committed state was then verified
+again on a real image build.
+
+Workbook: **Sheets E2E M1** (`13cb50a0-51e1-4aa7-a354-1c96d058ada7`), kept.
+
+### Grid sheet
+
+| Driven | Read back |
+| ------ | --------- |
+| New workbook "Sheets E2E M1" | opens on `Sheet1`, "Saved" |
+| Typing `Region` Tab `Amount` Tab `Qty` Tab `Total` Enter, then four rows | cells as typed; `=B2*C2` → `21`; numbers right-aligned |
+| Tab, Tab, Enter from A6 | the active cell is `A7` (Enter returns to the row's first column) |
+| Fill handle from D2 to D5 | `21, 60, 5, 30`; status bar `Average: 29 Count: 4 Sum: 116` |
+| `=SUMI` Tab, then `A:A,"West",D:D` Enter | editor `=SUMIF(A:A,"West",D:D` (no suggestions after `D:D`), hint `SUMIF(range, criteria, [sum_range])`; cell `26` |
+| `=SUM(` then drag B2 → B5, Enter | editor `=SUM(B2:B5`; bar `=SUM(B2:B5)`; cell `43` |
+| `=1/0` | `#DIV/0!` in red |
+| `=UNIQUE(A2:A6)` in H1 | `West, East, North, South` spilled to H1:H4 |
+| `x` in H2 | H1 `#SPILL!`, title "The result needs 4×1 cells and a typed cell is in the way"; Delete restores the spill; Ctrl+Z back to `#SPILL!`; Ctrl+Y back to the spill |
+| B2:B6 → Number format → Currency | `$10.50`, `$20.00`, `$3.00`; D and F unchanged |
+| + → Grid sheet; `=Sheet1!D2*2`, `=SUM(Sheet1!D:D)` | `42`, `116` |
+| Sheet1 menu → Rename → "Sales Data" | tabs `Sales Data · Sheet2`; Sheet2 bars `='Sales Data'!D2*2`, `=SUM('Sales Data'!D:D)` |
+| Right-click A3 → Insert 1 row above | old row 3 on row 4 with `=B4*C4`; `=SUM(B2:B5)` → `=SUM(B2:B6)`; `=UNIQUE(A2:A6)` → `=UNIQUE(A2:A7)`; Ctrl+Z restores all three |
+| A1:D6 copied, pasted at A10 (the app's own copy/paste handlers) | A10:D15 filled, formats kept, D11 `=B11*C11`; the whole-column `SUMIF` in F2 → `52` |
+| Paste of text from outside: a quoted "Widget, large", `12.5%`, `2024-01-31`, `=1+1`, `$1,200` | `Widget, large`, `12.50%`, `2024-01-31`, `2`, `$1,200` |
+| Reload of the page | every value, format and formula as left |
+| Same workbook in a second tab: B17 "from tab two" (saved); first tab: C17 "from tab one" | first tab: "Saved elsewhere since you opened it · Reload theirs · Keep mine" |
+| Reload theirs | B17 `from tab two`, C17 empty, "All changes saved", toast `Showing the saved "Sales Data"`, no page reload |
+| Second tab D17 "theirs" (saved); first tab E17 "mine" → Keep mine; reload the second tab | E17 `mine`, D17 empty |
+
+### Table sheets, pivots, formulas over tables
+
+| Driven | Read back |
+| ------ | --------- |
+| + → Table sheet → Lakehouse → `analytics.bi_demo_sales` | tab `BiDemoSales`, `108 rows`, 7 columns with type icons, 816 ms |
+| revenue menu → Sort largest to smallest | `941.3, 939.92, 917.17, …`; "All changes saved" |
+| region funnel → Values | `AMER 36 · APAC 36 · EMEA 36`; untick AMER and APAC → `36 rows (filtered)`, chip "region in EMEA" |
+| + Column, name `rev_per_unit`, `=[@re` | suggestions `[@region] text`, `[@revenue] number`; ArrowDown, Tab, `/[@units]` → `=[@revenue]/[@units]`, "Gives a number for each row." |
+| Add column | `rev_per_unit` (Σ) `10.65622642` for 564.78 / 53 |
+| Pivot → group by region, Sum of revenue | tab `BiDemoSalesPivot`: `AMER 25874.92 · APAC 10349.98 · EMEA 15524.94`, 529 ms |
+| Sheet2: `=SUMIFS(BiDemoSales[revenue], BiDemoSales[region], "EMEA")` | `15524.94` (the pivot's EMEA) |
+| `=XLOOKUP("APAC", BiDemoSalesPivot[region], BiDemoSalesPivot[sum_revenue])` | `10349.98` |
+| `=BiDemoSales[revenue]` | `#VALUE!`, title naming SUM, SUMIFS, COUNTIFS, AVERAGEIFS, XLOOKUP, VLOOKUP, INDEX |
+| `=COUNTIFS(BiDemoSales[plan],"pro",BiDemoSales[revenue],">500")` | `14` |
+
+### Imports
+
+| Driven | Read back |
+| ------ | --------- |
+| Upload CSV "Orders Jan-Feb 2024.csv" (quoted comma, escaped quotes, a blank, dates) | `analytics.orders_jan_feb_2024`, 4 rows; `Acme, Inc.`, `Initech "West"`, order_date typed as a date, the blank note blank |
+| The same file again | `analytics.orders_jan_feb_2024 already exists. Pick a new name; importing never replaces a table.` |
+| Data catalog tab, search `sheets_revenue` | `analytics.sheets_revenue_by_region`, `analytics.sheets_revenue_by_region_v2`, both "lakehouse"; Open → a table sheet with the three rows |
+| Connection tab | "No database connections yet. Add one under Integrations → Data Sources." (none in this account; not created, to keep credentials out of the round) |
+
+### Saving to the lakehouse and the catalog
+
+| Driven | Read back |
+| ------ | --------- |
+| Pivot → Save to lakehouse → `sheets_revenue_by_region`, description, tags `finance, sheets-e2e` | before the fix: "Saved analytics.sheets_revenue_by_region — 3 rows", then "The table is saved, but it was not added to the catalog: … violates check constraint "catalog_assets_status_check"" |
+| After the fix, `sheets_revenue_by_region_v2`, certified | "Saved … — 3 rows. In the data catalog with its columns, owner, tags, description and lineage." |
+| Data Catalog, search `sheets_revenue` | `sheets_revenue_by_region_v2 · Certified · Lakehouse catalog · table · 2 · 3`, tags `sheets · finance · sheets-e2e` |
+| Open the asset | lineage upstream `analytics.bi_demo_sales`; columns `region VARCHAR AMER`, `sum_revenue DOUBLE`; status Certified; owner the account's email; the description and tags as typed |
+
+### Found while building, fixed before the commit
+
+- Typing into the grid was lost when text arrived without a keydown (IME
+  composition, dictation, the automation's insertText). The grid now keeps
+  a textarea focused on the active cell that turns input into an edit.
+- After Enter or Tab the grid took focus back one frame late; a key pressed
+  in between went to the page (Tab walked to "Add sheet", Enter opened it).
+  Focus now returns synchronously.
+- Scrolled right past the first screen of columns, the row numbers scrolled
+  away: the sticky header's container was only as wide as the viewport.
+- Ctrl+A, the corner and a row header put the active cell at the far end and
+  scrolled the view there. The active cell is now the anchor, as in Excel.
+- Accepting a suggestion turned `=SUMI` into `=SUMISUMIF(`: the caret was
+  read back from whatever input `editorRef` pointed at. It is now kept in
+  the edit's state.
+- The function hint was a bar that pushed the grid down one row mid-formula,
+  so a click meant for B2 picked B1. It floats now.
+- A tab menu's item also "clicked" the tab (portal events bubble through
+  React).
+- Catalog search dropped `_` from the term; LIKE's characters are escaped now.
+- The catalog status was written as `active`, which the catalog's constraint
+  refuses; it is `certified` or `draft`, and a failed catalog step can be
+  retried from the dialog.
+- The import dialog said "You own no lakehouse schema" while the schemas
+  were still loading, kept the file's extension in the sheet name, and
+  sent people to a Data Sources page under Data & BI, where there is none
+  (it lives under Integrations).
+
+Fixtures kept: the workbook above; `analytics.orders_jan_feb_2024`,
+`analytics.sheets_revenue_by_region`, `analytics.sheets_revenue_by_region_v2`
+(certified in the catalog).
+
+Findings from this round: R112–R114 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
+**On the committed image** (a real `docker compose up -d --build`, not the dev
+copy of `dist`), the same workbook:
+
+| Step | Result |
+|---|---|
+| Open "Sheets E2E M1" | grid renders, "Saved" |
+| Click the "Sales Data" tab, press Tab twice, Enter | focus reached the "Sheet2" tab (`role=tab`, tabindex 0) and Enter switched to it |
+| Right-click B3, then press on an empty part of the grid | the menu closed (it no longer relies on a click handler on a plain div) |
+| Right-click B3 → "Insert 1 row above" | row 3 empty, "East" moved to A4 |
+| Toolbar Undo | A3 "East", A4 "West", B3 "$20.00" again |
+| Documentation → Work with data → "Sheets" | `/docs/sheets`, heading "Sheets" |
+
+Found on the way: after choosing a context-menu item, keyboard focus fell to
+the page body, so Ctrl+Z did nothing until the grid was clicked. It predates
+this change; recorded as R115 and fixed with the formatting milestone.
+
 ## 2026-09-25 — Writing into a read-only Iceberg mount, and removing its catalog, before and after, ADVERSARIAL_LOG R111
 
 **Why this round exists.** The mount dialog calls an Iceberg mount

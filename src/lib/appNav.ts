@@ -26,6 +26,7 @@ import {
   Columns,
   Database,
   FileClock,
+  FileSpreadsheet,
   FlaskConical,
   HeartPulse,
   Image as ImageIcon,
@@ -100,7 +101,9 @@ export const NAV_GROUPS: NavGroup[] = [
       // 6. Browse those definitions: authors go to Semantic Layer, everyone
       // else comes here to find a metric to use.
       { title: "Metrics", url: "/metrics", icon: Sigma },
-      // 7-9. Consume it.
+      // 7-10. Consume it. Sheets first: the spreadsheet is where most
+      // people already do analysis, now over the lakehouse's tables.
+      { title: "Sheets", url: "/sheets", icon: FileSpreadsheet },
       { title: "AI Analyst", url: "/ai-analyst", icon: BrainCircuit },
       { title: "BI Workspace", url: "/bi", icon: PieChart },
       { title: "ML Models", url: "/ml", icon: Brain },

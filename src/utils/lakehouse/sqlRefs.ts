@@ -100,6 +100,63 @@ export function stripComments(sql: string): string {
 }
 
 /**
+ * The statement with comments blanked AND the insides of string literals and
+ * quoted identifiers blanked, for questions about its shape: is there a
+ * second statement, does it call now(). In `SELECT 'north; south'` the ";" is
+ * data, and a check that reads it as a separator refuses a valid query.
+ */
+export function blankLiterals(sql: string): string {
+  const s = stripComments(sql);
+  let out = "";
+  let i = 0;
+  while (i < s.length) {
+    const ch = s[i]!;
+    if (ch === "'" || ch === '"') {
+      out += ch;
+      i++;
+      while (i < s.length) {
+        if (s[i] === ch && s[i + 1] === ch) {
+          out += "  ";
+          i += 2;
+          continue;
+        }
+        if (s[i] === ch) {
+          out += ch;
+          i++;
+          break;
+        }
+        out += " ";
+        i++;
+      }
+      continue;
+    }
+    if (ch === "$" && s[i + 1] === "$") {
+      const end = s.indexOf("$$", i + 2);
+      const stop = end === -1 ? s.length : end + 2;
+      out += " ".repeat(stop - i);
+      i = stop;
+      continue;
+    }
+    out += ch;
+    i++;
+  }
+  return out;
+}
+
+// Functions whose answer changes between two runs of the same statement.
+const VOLATILE_SQL =
+  /\b(now|current_date|current_time|current_timestamp|localtime|localtimestamp|today|get_current_time|get_current_timestamp|transaction_timestamp|random|setseed|uuid|uuidv4|uuidv7|gen_random_uuid)\b/i;
+
+/**
+ * Does the statement call a function whose answer changes from run to run?
+ * Such a result must not be served from a cache: `SELECT now()` answered with
+ * the time of the first run for ten minutes is a wrong answer, not a fast one.
+ */
+export function callsVolatileFunction(sql: string): boolean {
+  return VOLATILE_SQL.test(blankLiterals(sql));
+}
+
+/**
  * Every `schema.table` in the statement, outside literals and comments.
  *
  * Deliberately blunt. It does not know which side of a join a name is on, or

@@ -53,6 +53,9 @@ export type NbRuntimeSettings = {
   gateway_cache_max_temperature: number;
   data_monitors_per_sweep: number;
   data_monitor_anomaly_sigma: number;
+  sheets_max_cells: number;
+  sheets_page_rows: number;
+  sheets_upload_max_mb: number;
   ai_sql_max_calls_per_statement: number;
   ai_sql_default_model: string;
   ai_sql_cache_ttl_days: number;
@@ -158,6 +161,9 @@ const DEFAULTS: NbRuntimeSettings = {
   gateway_cache_max_temperature: 0.3,
   data_monitors_per_sweep: 20,
   data_monitor_anomaly_sigma: 3,
+  sheets_max_cells: 200_000,
+  sheets_page_rows: 500,
+  sheets_upload_max_mb: 50,
   ai_sql_max_calls_per_statement: 200,
   ai_sql_default_model: "openrouter/google/gemini-3-flash-preview",
   ai_sql_cache_ttl_days: 30,
@@ -235,6 +241,9 @@ export const nbRuntimeGetState = createServerFn({ method: "POST" })
           gateway_cache_max_temperature: row.gateway_cache_max_temperature ?? 0.3,
           data_monitors_per_sweep: row.data_monitors_per_sweep ?? 20,
           data_monitor_anomaly_sigma: row.data_monitor_anomaly_sigma ?? 3,
+          sheets_max_cells: row.sheets_max_cells ?? 200_000,
+          sheets_page_rows: row.sheets_page_rows ?? 500,
+          sheets_upload_max_mb: row.sheets_upload_max_mb ?? 50,
           ai_sql_max_calls_per_statement: row.ai_sql_max_calls_per_statement ?? 200,
           ai_sql_default_model:
             row.ai_sql_default_model ?? "openrouter/google/gemini-3-flash-preview",
@@ -343,6 +352,9 @@ export const nbRuntimeUpdateSettings = createServerFn({ method: "POST" })
         gateway_cache_max_temperature: z.number().min(0).max(2).optional(),
         data_monitors_per_sweep: z.number().int().min(1).max(10000).optional(),
         data_monitor_anomaly_sigma: z.number().min(0.5).max(20).optional(),
+        sheets_max_cells: z.number().int().min(1000).max(100_000_000).optional(),
+        sheets_page_rows: z.number().int().min(50).max(100_000).optional(),
+        sheets_upload_max_mb: z.number().int().min(1).max(10_000).optional(),
         ai_sql_max_calls_per_statement: z.number().int().min(1).max(1000000).optional(),
         ai_sql_default_model: z.string().trim().min(3).max(160).optional(),
         ai_sql_cache_ttl_days: z.number().int().min(1).max(3650).optional(),

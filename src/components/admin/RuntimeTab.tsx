@@ -729,6 +729,27 @@ export function RuntimeTab({
                 hint="Standard deviations from the learned baseline beyond which a volume check alerts. 3 is the usual choice."
               />
             </div>
+            <p className="text-xs font-medium text-muted-foreground">Sheets</p>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <NumberField
+                label="Cells per grid sheet"
+                value={form.sheets_max_cells}
+                onChange={(n) => set("sheets_max_cells", n)}
+                hint="Most non-empty cells one grid sheet may hold. Large data belongs in a table sheet, which lives in the lakehouse."
+              />
+              <NumberField
+                label="Table sheet page (rows)"
+                value={form.sheets_page_rows}
+                onChange={(n) => set("sheets_page_rows", n)}
+                hint="Rows a table sheet fetches from the lakehouse at a time while you scroll."
+              />
+              <NumberField
+                label="Upload size (MB)"
+                value={form.sheets_upload_max_mb}
+                onChange={(n) => set("sheets_upload_max_mb", n)}
+                hint="Largest CSV a person can upload into the lakehouse from Sheets. Bigger files go through object storage and an ETL pipeline."
+              />
+            </div>
           </div>
           {/* The Spark engine: where a run's cluster comes from, and how big it is. */}
           <div className="space-y-3 rounded-lg border border-border/60 p-3">

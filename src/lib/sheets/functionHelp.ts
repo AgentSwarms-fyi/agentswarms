@@ -1,0 +1,282 @@
+// What each common function takes and does: for formula autocomplete, the
+// hint under the formula bar, and the AI assistant's context. Functions not
+// listed here still work; they autocomplete by name alone.
+
+export type FunctionHelp = { sig: string; desc: string; cat: string };
+
+export const FUNCTION_HELP: Record<string, FunctionHelp> = {
+  SUM: {
+    sig: "SUM(number1, [number2], …)",
+    desc: "Adds numbers; text and blanks in ranges are skipped.",
+    cat: "Math",
+  },
+  SUMIF: {
+    sig: "SUMIF(range, criteria, [sum_range])",
+    desc: 'Sums where range meets criteria, e.g. ">10" or "ap*".',
+    cat: "Math",
+  },
+  SUMIFS: {
+    sig: "SUMIFS(sum_range, criteria_range1, criteria1, …)",
+    desc: "Sums where every criteria pair is met.",
+    cat: "Math",
+  },
+  SUMPRODUCT: {
+    sig: "SUMPRODUCT(array1, [array2], …)",
+    desc: "Multiplies arrays element by element and sums.",
+    cat: "Math",
+  },
+  AVERAGE: {
+    sig: "AVERAGE(number1, [number2], …)",
+    desc: "The mean of the numbers.",
+    cat: "Statistical",
+  },
+  AVERAGEIF: {
+    sig: "AVERAGEIF(range, criteria, [average_range])",
+    desc: "Mean where range meets criteria.",
+    cat: "Statistical",
+  },
+  AVERAGEIFS: {
+    sig: "AVERAGEIFS(average_range, criteria_range1, criteria1, …)",
+    desc: "Mean where every criteria pair is met.",
+    cat: "Statistical",
+  },
+  COUNT: {
+    sig: "COUNT(value1, [value2], …)",
+    desc: "Counts cells holding numbers.",
+    cat: "Statistical",
+  },
+  COUNTA: {
+    sig: "COUNTA(value1, [value2], …)",
+    desc: "Counts non-empty cells.",
+    cat: "Statistical",
+  },
+  COUNTBLANK: { sig: "COUNTBLANK(range)", desc: "Counts empty cells.", cat: "Statistical" },
+  COUNTIF: {
+    sig: "COUNTIF(range, criteria)",
+    desc: "Counts cells meeting criteria.",
+    cat: "Statistical",
+  },
+  COUNTIFS: {
+    sig: "COUNTIFS(criteria_range1, criteria1, …)",
+    desc: "Counts rows meeting every criteria pair.",
+    cat: "Statistical",
+  },
+  MIN: { sig: "MIN(number1, [number2], …)", desc: "The smallest number.", cat: "Statistical" },
+  MAX: { sig: "MAX(number1, [number2], …)", desc: "The largest number.", cat: "Statistical" },
+  MINIFS: {
+    sig: "MINIFS(min_range, criteria_range1, criteria1, …)",
+    desc: "Smallest where criteria are met.",
+    cat: "Statistical",
+  },
+  MAXIFS: {
+    sig: "MAXIFS(max_range, criteria_range1, criteria1, …)",
+    desc: "Largest where criteria are met.",
+    cat: "Statistical",
+  },
+  MEDIAN: { sig: "MEDIAN(number1, [number2], …)", desc: "The middle value.", cat: "Statistical" },
+  STDEV: {
+    sig: "STDEV(number1, [number2], …)",
+    desc: "Sample standard deviation.",
+    cat: "Statistical",
+  },
+  PERCENTILE: {
+    sig: "PERCENTILE(array, k)",
+    desc: "The k-th percentile (k between 0 and 1).",
+    cat: "Statistical",
+  },
+  RANK: {
+    sig: "RANK(number, ref, [order])",
+    desc: "The rank of a number in a list.",
+    cat: "Statistical",
+  },
+  LARGE: { sig: "LARGE(array, k)", desc: "The k-th largest value.", cat: "Statistical" },
+  SMALL: { sig: "SMALL(array, k)", desc: "The k-th smallest value.", cat: "Statistical" },
+  ROUND: { sig: "ROUND(number, num_digits)", desc: "Rounds half away from zero.", cat: "Math" },
+  ROUNDUP: { sig: "ROUNDUP(number, num_digits)", desc: "Rounds away from zero.", cat: "Math" },
+  ROUNDDOWN: { sig: "ROUNDDOWN(number, num_digits)", desc: "Rounds toward zero.", cat: "Math" },
+  INT: { sig: "INT(number)", desc: "Rounds down to an integer.", cat: "Math" },
+  MOD: {
+    sig: "MOD(number, divisor)",
+    desc: "The remainder, with the divisor's sign.",
+    cat: "Math",
+  },
+  ABS: { sig: "ABS(number)", desc: "Absolute value.", cat: "Math" },
+  POWER: { sig: "POWER(number, power)", desc: "number ^ power.", cat: "Math" },
+  SQRT: { sig: "SQRT(number)", desc: "Square root.", cat: "Math" },
+  IF: {
+    sig: "IF(logical_test, [value_if_true], [value_if_false])",
+    desc: "One of two values, by a condition.",
+    cat: "Logical",
+  },
+  IFS: {
+    sig: "IFS(test1, value1, [test2, value2], …)",
+    desc: "The value of the first TRUE test.",
+    cat: "Logical",
+  },
+  IFERROR: {
+    sig: "IFERROR(value, value_if_error)",
+    desc: "value, or the fallback when it is an error.",
+    cat: "Logical",
+  },
+  IFNA: {
+    sig: "IFNA(value, value_if_na)",
+    desc: "value, or the fallback when it is #N/A.",
+    cat: "Logical",
+  },
+  AND: {
+    sig: "AND(logical1, [logical2], …)",
+    desc: "TRUE when every argument is TRUE.",
+    cat: "Logical",
+  },
+  OR: {
+    sig: "OR(logical1, [logical2], …)",
+    desc: "TRUE when any argument is TRUE.",
+    cat: "Logical",
+  },
+  NOT: { sig: "NOT(logical)", desc: "Reverses TRUE and FALSE.", cat: "Logical" },
+  SWITCH: {
+    sig: "SWITCH(expression, value1, result1, …, [default])",
+    desc: "The result for the first matching value.",
+    cat: "Logical",
+  },
+  VLOOKUP: {
+    sig: "VLOOKUP(lookup_value, table_array, col_index, [range_lookup])",
+    desc: "Finds a row by its first column; FALSE for an exact match.",
+    cat: "Lookup",
+  },
+  HLOOKUP: {
+    sig: "HLOOKUP(lookup_value, table_array, row_index, [range_lookup])",
+    desc: "Finds a column by its first row.",
+    cat: "Lookup",
+  },
+  XLOOKUP: {
+    sig: "XLOOKUP(lookup_value, lookup_array, return_array, [if_not_found], [match_mode], [search_mode])",
+    desc: "Finds a value and returns the matching item; exact by default.",
+    cat: "Lookup",
+  },
+  INDEX: {
+    sig: "INDEX(array, row_num, [column_num])",
+    desc: "The value at a row and column of a range.",
+    cat: "Lookup",
+  },
+  MATCH: {
+    sig: "MATCH(lookup_value, lookup_array, [match_type])",
+    desc: "The position of a value; 0 for exact.",
+    cat: "Lookup",
+  },
+  XMATCH: {
+    sig: "XMATCH(lookup_value, lookup_array, [match_mode], [search_mode])",
+    desc: "The position of a value; exact by default.",
+    cat: "Lookup",
+  },
+  CHOOSE: { sig: "CHOOSE(index, value1, [value2], …)", desc: "The index-th value.", cat: "Lookup" },
+  UNIQUE: {
+    sig: "UNIQUE(array, [by_col], [exactly_once])",
+    desc: "The distinct rows; spills.",
+    cat: "Dynamic array",
+  },
+  SORT: {
+    sig: "SORT(array, [sort_index], [sort_order])",
+    desc: "The rows sorted by a column; spills.",
+    cat: "Dynamic array",
+  },
+  SORTBY: {
+    sig: "SORTBY(array, by_array1, [order1], …)",
+    desc: "The rows sorted by other arrays; spills.",
+    cat: "Dynamic array",
+  },
+  FILTER: {
+    sig: "FILTER(array, include, [if_empty])",
+    desc: "The rows where include is TRUE; spills.",
+    cat: "Dynamic array",
+  },
+  SEQUENCE: {
+    sig: "SEQUENCE(rows, [columns], [start], [step])",
+    desc: "A grid of numbers; spills.",
+    cat: "Dynamic array",
+  },
+  TRANSPOSE: {
+    sig: "TRANSPOSE(array)",
+    desc: "Swaps rows and columns; spills.",
+    cat: "Dynamic array",
+  },
+  CONCAT: { sig: "CONCAT(text1, [text2], …)", desc: "Joins text.", cat: "Text" },
+  TEXTJOIN: {
+    sig: "TEXTJOIN(delimiter, ignore_empty, text1, …)",
+    desc: "Joins text with a delimiter.",
+    cat: "Text",
+  },
+  LEFT: { sig: "LEFT(text, [num_chars])", desc: "Characters from the start.", cat: "Text" },
+  RIGHT: { sig: "RIGHT(text, [num_chars])", desc: "Characters from the end.", cat: "Text" },
+  MID: { sig: "MID(text, start_num, num_chars)", desc: "Characters from the middle.", cat: "Text" },
+  LEN: { sig: "LEN(text)", desc: "The number of characters.", cat: "Text" },
+  TRIM: { sig: "TRIM(text)", desc: "Removes extra spaces.", cat: "Text" },
+  UPPER: { sig: "UPPER(text)", desc: "Upper case.", cat: "Text" },
+  LOWER: { sig: "LOWER(text)", desc: "Lower case.", cat: "Text" },
+  PROPER: { sig: "PROPER(text)", desc: "Capitalises each word.", cat: "Text" },
+  SUBSTITUTE: {
+    sig: "SUBSTITUTE(text, old_text, new_text, [instance_num])",
+    desc: "Replaces text by content.",
+    cat: "Text",
+  },
+  REPLACE: {
+    sig: "REPLACE(old_text, start_num, num_chars, new_text)",
+    desc: "Replaces text by position.",
+    cat: "Text",
+  },
+  FIND: {
+    sig: "FIND(find_text, within_text, [start_num])",
+    desc: "Position of text, case-sensitive.",
+    cat: "Text",
+  },
+  SEARCH: {
+    sig: "SEARCH(find_text, within_text, [start_num])",
+    desc: "Position of text, with wildcards.",
+    cat: "Text",
+  },
+  TEXT: {
+    sig: "TEXT(value, format_text)",
+    desc: 'A number as text in a format, e.g. "yyyy-mm-dd" or "0.0%".',
+    cat: "Text",
+  },
+  VALUE: { sig: "VALUE(text)", desc: "Text to a number.", cat: "Text" },
+  EXACT: { sig: "EXACT(text1, text2)", desc: "TRUE if identical, case-sensitive.", cat: "Text" },
+  DATE: { sig: "DATE(year, month, day)", desc: "A date from its parts.", cat: "Date" },
+  TODAY: { sig: "TODAY()", desc: "Today's date.", cat: "Date" },
+  NOW: { sig: "NOW()", desc: "The current date and time.", cat: "Date" },
+  YEAR: { sig: "YEAR(serial_number)", desc: "The year of a date.", cat: "Date" },
+  MONTH: { sig: "MONTH(serial_number)", desc: "The month of a date (1–12).", cat: "Date" },
+  DAY: { sig: "DAY(serial_number)", desc: "The day of the month.", cat: "Date" },
+  WEEKDAY: {
+    sig: "WEEKDAY(serial_number, [return_type])",
+    desc: "Day of the week (1 = Sunday by default).",
+    cat: "Date",
+  },
+  EDATE: {
+    sig: "EDATE(start_date, months)",
+    desc: "The date months before or after.",
+    cat: "Date",
+  },
+  EOMONTH: { sig: "EOMONTH(start_date, months)", desc: "The last day of a month.", cat: "Date" },
+  DATEDIF: {
+    sig: "DATEDIF(start_date, end_date, unit)",
+    desc: 'Whole "Y", "M" or "D" between two dates.',
+    cat: "Date",
+  },
+  NETWORKDAYS: {
+    sig: "NETWORKDAYS(start_date, end_date, [holidays])",
+    desc: "Working days between two dates.",
+    cat: "Date",
+  },
+  ISBLANK: { sig: "ISBLANK(value)", desc: "TRUE if empty.", cat: "Information" },
+  ISNUMBER: { sig: "ISNUMBER(value)", desc: "TRUE if a number.", cat: "Information" },
+  ISTEXT: { sig: "ISTEXT(value)", desc: "TRUE if text.", cat: "Information" },
+  ISERROR: { sig: "ISERROR(value)", desc: "TRUE if any error.", cat: "Information" },
+  PMT: {
+    sig: "PMT(rate, nper, pv, [fv], [type])",
+    desc: "The payment for a loan.",
+    cat: "Financial",
+  },
+  NPV: { sig: "NPV(rate, value1, [value2], …)", desc: "Net present value.", cat: "Financial" },
+  IRR: { sig: "IRR(values, [guess])", desc: "Internal rate of return.", cat: "Financial" },
+};

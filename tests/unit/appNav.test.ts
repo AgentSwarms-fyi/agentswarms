@@ -127,6 +127,8 @@ describe("the rail the docs checker reads", () => {
       "SQL Models",
       "Semantic Layer",
       "Metrics",
+      // Working a table by hand (Sheets) comes before asking a model about it.
+      "Sheets",
       "AI Analyst",
       "BI Workspace",
       "ML Models",

@@ -1647,7 +1647,7 @@ function AssetSheet({
               </p>
               {asset.columns.length === 0 ? (
                 <p className="text-xs text-muted-foreground">
-                  No column metadata \u2014{" "}
+                  No column metadata —{" "}
                   {asset.format === "parquet" || asset.format === "compressed"
                     ? "binary formats aren't sampled."
                     : "this asset wasn't sampled during the crawl."}
@@ -1713,7 +1713,7 @@ function AssetSheet({
                               {c.type}
                               {c.min !== undefined && c.max !== undefined && (
                                 <p className="text-[9px] text-muted-foreground/70">
-                                  {fmtCount(c.min)}\u2013{fmtCount(c.max)}
+                                  {fmtCount(c.min)}–{fmtCount(c.max)}
                                 </p>
                               )}
                             </td>
@@ -1791,10 +1791,10 @@ function AssetSheet({
                           Draft
                         </SelectItem>
                         <SelectItem value="certified" className="text-xs">
-                          Certified \u2014 trusted for analysis
+                          Certified — trusted for analysis
                         </SelectItem>
                         <SelectItem value="deprecated" className="text-xs">
-                          Deprecated \u2014 avoid using
+                          Deprecated — avoid using
                         </SelectItem>
                       </SelectContent>
                     </Select>
