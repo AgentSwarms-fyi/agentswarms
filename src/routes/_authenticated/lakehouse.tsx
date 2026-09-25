@@ -1256,9 +1256,12 @@ function SaveMatviewDialog({ sql, onSaved }: { sql: string; onSaved: () => void 
     void (async () => {
       try {
         const data = await overviewFn({ data: { access_token: token } });
-        // Only schemas you own — a view writes a table, and a mount or a
-        // shared schema is not yours to write into.
-        const own = data.schemas.filter((sch) => sch.owned && !sch.lake_source_id);
+        // Only schemas you own — a view writes a table, and a mount (of a lake
+        // source or, since R111, an Iceberg namespace) or a shared schema is
+        // not yours to write into.
+        const own = data.schemas.filter(
+          (sch) => sch.owned && !sch.lake_source_id && !sch.iceberg_catalog_id,
+        );
         setSchemas(own.map((sch) => sch.name));
         setSchema((cur) => cur || own[0]?.name || "");
       } catch {

@@ -1088,6 +1088,17 @@ export async function runLakehouseStatement(
             `Schema "${schema}" is a read-only data-lake mount — query it, or write to a regular schema`,
           );
         }
+        // FOUND IN R111. An Iceberg mount is read-only by the same rule, and
+        // this guard only knew the data-lake kind. Driven: CREATE TABLE
+        // ice_r111.r111_written from the Query editor succeeded in a schema
+        // the mount dialog calls read-only, and removing the catalog then
+        // dropped the table with the mount's views. The catalog's own tables
+        // are written with Publish to Iceberg, never through a mount.
+        if (row?.iceberg_catalog_id) {
+          throw new Error(
+            `Schema "${schema}" is a read-only Iceberg mount — query it, or write to a regular schema. Publish to Iceberg puts a table into the catalog.`,
+          );
+        }
         // A reader who only sees part of a table must not be able to write to
         // it: they could overwrite or delete rows the policy hides from them,
         // with no way to notice.

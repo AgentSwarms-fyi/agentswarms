@@ -312,6 +312,27 @@ export async function refreshIcebergMount(args: {
   );
 }
 
+/**
+ * Real tables in a mount's schema: things the mount did not make, since a
+ * mount holds only views. FOUND IN R111: the statement guard let writes into
+ * an Iceberg mount through, and removing the catalog drops each mount with
+ * CASCADE, which took such a table with it. The guard now refuses those
+ * writes; this is how a removal finds any that got in before.
+ */
+export async function mountForeignTables(schemaName: string): Promise<string[]> {
+  const { lakehouseConnection } = await import("@/utils/lakehouse/core.server");
+  const c = await lakehouseConnection();
+  try {
+    return await firstColumn(
+      c,
+      `SELECT table_name FROM duckdb_tables() WHERE database_name = 'lake' ` +
+        `AND schema_name = '${schemaName.replace(/'/g, "''")}' ORDER BY 1`,
+    );
+  } finally {
+    c.closeSync();
+  }
+}
+
 /** Drop a mount's schema from the engine; the row goes with the caller's delete. */
 export async function dropIcebergMountSchema(schemaName: string): Promise<void> {
   const { lakehouseConnection } = await import("@/utils/lakehouse/core.server");

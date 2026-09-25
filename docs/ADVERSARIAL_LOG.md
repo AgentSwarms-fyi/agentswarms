@@ -109,6 +109,125 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-25 — Read-only, until it was written to, and gone when the catalog was
+
+#### R111 · S1 · An Iceberg mount took writes the dialog calls impossible, and removing its catalog dropped them unannounced
+
+Queued in R104, where ML batch scoring's output check was found to refuse a
+data-lake mount but not an Iceberg one. The question behind it was wider:
+which writers know that an Iceberg mount is read-only? The mount dialog
+promises "mount one of its namespaces as a read-only schema", and most of
+the lakehouse's writers check `lake_source_id || iceberg_catalog_id`. The
+one that matters most did not. The statement guard in
+`runLakehouseStatement` is what every SQL write goes through: the Query
+editor, feature training sets, agents' SQL, notebooks. It refused writes
+through a data-lake mount only. So a "read-only" Iceberg mount took
+`CREATE TABLE`.
+
+That table then sat in a schema the product treats as disposable.
+Removing an Iceberg catalog drops each of its mounts with `DROP SCHEMA …
+CASCADE`, under a confirm that says only "Its N mounted schema(s) go with
+it. Tables in the catalog itself are untouched." A lakehouse table
+written into a mount went with the views, and nothing said it would.
+
+ML batch scoring had its own copy of the rule, with the same gap. Its
+"Output schema (yours)" picker listed every schema that had a table, so
+it offered all eight `ice_*` mounts on this account. "Save as view" had
+a picker that filtered only data-lake mounts. The server refused there,
+but only after the owner picked the schema.
+
+**Driven, before the fix** (image `abd4e27a1a31`). To keep `local_rest`
+and its mounts out of it, a second catalog was registered for the round
+on the same endpoint:
+
+- Iceberg → Add catalog `r111_rest` (`http://192.168.1.85:8181`, `s3://iceberg/`,
+  no authentication) → "Registered r111_rest: 2 namespaces". Mount `r107`
+  as `ice_r111` → "Mounted 2 tables".
+- Query: `CREATE TABLE ice_r111.r111_written AS SELECT 1 AS id, 'written
+  into a read-only mount' AS note` succeeded. `SELECT id, note FROM
+  ice_r111.r111_written` read back `1 · written into a read-only mount`.
+- Remove `r111_rest` → the confirm "Remove "r111_rest"? Its 1 mounted
+  schema(s) go with it. Tables in the catalog itself are untouched." →
+  Remove. The same SELECT then answered "No access to schema "ice_r111"".
+  The DuckLake catalog shows `r111_written` created at snapshot 559
+  (04:50:21 UTC) and ended at snapshot 560 (04:51:07 UTC), the snapshot
+  that also ended the schema `ice_r111`.
+- ML Models → "revenue_facts plan classifier" → Predictions → Batch
+  prediction. "Output schema (yours)" offered `analytics`,
+  `ice_r107_after`, `ice_r107_final`, `ice_r107_fixed`, `ice_r107_four`,
+  `ice_r107_regress`, `ice_r107_three`, `ice_r107_two` and `ice_sales`.
+
+**Staged for the after-drive, on the old image.** Once fixed, the guard
+would refuse to put a table into a mount, but a table written before the
+fix still has to be protected. So a second throwaway catalog was set up
+first: `r111b_rest`, mounting `r107` as `ice_r111b`, into which
+`r111b_kept` was written (`1 · kept in a mount before the fix`).
+
+**Driven, after the fix.** The guard and the pickers were driven on image
+`5c76a79c3e5c`; the removal was driven on `321d1a9f4ad9`, which rewords its
+refusal:
+
+- Query: `CREATE TABLE ice_r111b.r111_after …` and `INSERT INTO
+  ice_r111b.r111b_kept …` each answered "Schema "ice_r111b" is a
+  read-only Iceberg mount — query it, or write to a regular schema.
+  Publish to Iceberg puts a table into the catalog." Reading the mount
+  still worked.
+- Batch prediction on "revenue_facts plan classifier": "Output schema
+  (yours)" offered `analytics` alone. The input picker still lists the
+  mounts' tables, which are fine to read. "Save as view" offered
+  `analytics` alone.
+- Remove `r111b_rest` → the same confirm → Remove → "Not removed:
+  ice_r111b.r111b_kept is a table of your own inside a mounted schema,
+  and would be dropped with it. Copy it to a regular schema first (CREATE
+  TABLE analytics.… AS SELECT * FROM ice_r111b.r111b_kept), then drop the
+  mounted schema in the explorer, which says every table in it goes." The
+  catalog stayed, and the table still read its row.
+- That way out was followed. `CREATE TABLE analytics.r111b_kept_copy AS
+  SELECT * FROM ice_r111b.r111b_kept` read back the row. The explorer
+  listed `ice_r111b (3)` with `r111b_kept · 817 B` beside the two views.
+  "Drop schema "ice_r111b"? Every table in it is dropped too." → "Dropped
+  ice_r111b".
+- A mount of views only does not block a removal. `r107` was mounted
+  again as `ice_r111c`, then Remove `r111b_rest` → "Removed r111b_rest".
+
+The changes:
+
+- **The statement guard.** It refuses a write through an Iceberg mount as
+  it does through a data-lake mount: "Schema "…" is a read-only Iceberg
+  mount — query it, or write to a regular schema. Publish to Iceberg puts
+  a table into the catalog."
+- **ML batch scoring.** Its output check refuses Iceberg mounts too.
+- **The pickers.** The ML sources call returns the schemas that can take a
+  table (owned, and not a mount of either kind). The batch and schedule
+  dialogs offer only those. "Save as view" drops Iceberg mounts from its
+  picker.
+- **Removing a catalog.** It now looks for real tables inside each mount
+  first, since a mount holds only views. It refuses while there is one,
+  naming it: "Not removed: … is a table of your own inside a mounted
+  schema, and would be dropped with it." It also refuses when it cannot
+  check, or cannot list the mounts. That protects tables written before
+  this fix.
+
+**Tests:** 10.
+
+Behavioural, against the real guard with a mocked schema list:
+
+- `CREATE TABLE`, `INSERT` and `DROP VIEW` in an Iceberg mount are
+  refused.
+- The refusal names Publish to Iceberg.
+- A data-lake mount is still refused as before.
+
+Anchored in the source:
+
+- ML scoring refuses an Iceberg mount as output.
+- The ML pickers take the writable list.
+- "Save as view" filters Iceberg mounts.
+- A catalog removal checks for tables before it drops anything, and
+  refuses when it cannot check.
+
+10 behaviour-changing mutants each killed, control missed, baseline green
+first.
+
 ### 2026-09-25 — My First Swarm, again
 
 #### R110 · S2 · A failed read of the swarm list made a new swarm and opened it in place of the one asked for

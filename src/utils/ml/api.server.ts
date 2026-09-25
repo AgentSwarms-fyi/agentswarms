@@ -353,9 +353,11 @@ export async function startBatchPrediction(args: {
     return { ok: false, error: `No access to lakehouse schema "${args.input.schema}"` };
   }
   // The output must be a schema the caller OWNS: a shared schema is
-  // read-only for them, and a mounted lake source is read-only for everyone.
+  // read-only for them, and a mount, of a lake source or of an Iceberg
+  // namespace, is read-only for everyone. FOUND IN R111: only the lake kind
+  // was refused, and the picker offered every ice_* mount as "yours".
   const out = schemas.find((s) => s.name === args.output.schema);
-  if (!out || out.user_id !== userId || out.lake_source_id) {
+  if (!out || out.user_id !== userId || out.lake_source_id || out.iceberg_catalog_id) {
     return {
       ok: false,
       error: `Predictions can only be written to a lakehouse schema you own (not "${args.output.schema}")`,

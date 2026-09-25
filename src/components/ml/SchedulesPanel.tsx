@@ -270,6 +270,8 @@ function NewScheduleDialog({
   const [budget, setBudget] = useState<number | "">("");
   const [tuning, setTuning] = useState<MlTuning>("none");
   const [tables, setTables] = useState<MlSourceTable[]>([]);
+  // Where predictions may go: owned schemas that are not mounts (R111).
+  const [outSchemas, setOutSchemas] = useState<string[]>([]);
   const [input, setInput] = useState("");
   const [where, setWhere] = useState("");
   const [outSchema, setOutSchema] = useState("");
@@ -281,10 +283,13 @@ function NewScheduleDialog({
     sourcesFn({ data: { access_token: token } })
       .then((r) => {
         setTables(r.tables);
+        setOutSchemas(r.writableSchemas);
         const first = r.tables[0];
         if (first && !input) {
           setInput(`${first.schema}.${first.table}`);
-          setOutSchema(first.schema);
+          setOutSchema(
+            r.writableSchemas.includes(first.schema) ? first.schema : (r.writableSchemas[0] ?? ""),
+          );
         }
       })
       .catch(() => {});
@@ -332,7 +337,6 @@ function NewScheduleDialog({
     }
   }
 
-  const schemas = Array.from(new Set(tables.map((t) => t.schema)));
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg">
@@ -486,7 +490,7 @@ function NewScheduleDialog({
                   value={outSchema}
                   onChange={(e) => setOutSchema(e.target.value)}
                 >
-                  {schemas.map((s) => (
+                  {outSchemas.map((s) => (
                     <option key={s} value={s}>
                       {s}
                     </option>

@@ -564,6 +564,8 @@ function BatchDialog({
   const batchFn = useServerFn(mlPredictBatch);
   const src = model.source as { schema: string; table: string };
   const [tables, setTables] = useState<MlSourceTable[] | null>(null);
+  // Where predictions may go: owned schemas that are not mounts (R111).
+  const [outSchemas, setOutSchemas] = useState<string[] | null>(null);
   const [input, setInput] = useState(`${src.schema}.${src.table}`);
   const [where, setWhere] = useState("");
   const [outSchema, setOutSchema] = useState(src.schema);
@@ -586,10 +588,15 @@ function BatchDialog({
   useEffect(() => {
     if (!open || tables !== null) return;
     void sourcesFn({ data: { access_token: token } })
-      .then((r) => setTables(r.tables))
+      .then((r) => {
+        setTables(r.tables);
+        setOutSchemas(r.writableSchemas);
+        setOutSchema((cur) =>
+          r.writableSchemas.includes(cur) ? cur : (r.writableSchemas[0] ?? ""),
+        );
+      })
       .catch((e) => setErr((e as Error).message));
   }, [open, tables, sourcesFn, token]);
-  const schemas = useMemo(() => [...new Set((tables ?? []).map((t) => t.schema))], [tables]);
 
   const submit = async () => {
     const [schema, table] = input.split(".");
@@ -662,7 +669,10 @@ function BatchDialog({
               value={outSchema}
               onChange={(e) => setOutSchema(e.target.value)}
             >
-              {(schemas.length ? schemas : [src.schema]).map((s) => (
+              {outSchemas && outSchemas.length === 0 && (
+                <option value="">No schema of yours can take a new table</option>
+              )}
+              {(outSchemas ?? [outSchema]).map((s) => (
                 <option key={s} value={s}>
                   {s}
                 </option>

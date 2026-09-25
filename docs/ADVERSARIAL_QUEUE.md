@@ -412,9 +412,8 @@ least twice, not a hypothetical.
     mark and that the model did not build before.
   - **ML batch scoring, R104, DONE**: an existing output is allowed only if
     a succeeded prediction of the same user wrote it, and the input is
-    never the output. Still open there: the output-schema check refuses
-    a lake mount but not an Iceberg catalog schema, and the picker offers
-    `ice_sales`.
+    never the output. The output-schema gap for Iceberg mounts is DONE in
+    R111, which found the same gap in the statement guard itself.
   - **The feature training set, R105, DONE**: an existing output is allowed
     only if an earlier training set of the same user wrote it, and the
     only record of that is the audit trail's `feature_view.training_set`
@@ -538,6 +537,17 @@ least twice, not a hypothetical.
   — start with the ones next to a `<Switch>`, and with any text that
   survives from before a behaviour change (the shipped templates' notes
   name several such changes explicitly).
+- A rule kept in N places is right in N-1 of them (R111): "a mount is
+  read-only" was written out as `lake_source_id || iceberg_catalog_id` in
+  eleven writers, and as `lake_source_id` alone in two: the statement
+  guard and ML batch scoring. The Iceberg column (migration 20260867)
+  came after the lake-mount one (20260842), and the change that added it
+  to the other checks missed these two. When a column widens a rule, grep
+  for the OLD column alone.
+  Behind it, a CASCADE drop of a schema the product calls disposable took
+  a table nobody listed. Any `DROP … CASCADE` of something described as
+  "only views" or "only a mount" should look for the things it would take
+  that are not that.
 - A failed read that becomes an empty ACCOUNT becomes a write (R110): the
   swarm canvas read `rows = []` and created "My First Swarm" in place of
   the swarm asked for. Any "first run" branch (`if (rows.length === 0)

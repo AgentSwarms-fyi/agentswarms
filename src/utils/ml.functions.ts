@@ -172,14 +172,26 @@ export type MlSourceTable = {
   columns: { name: string; type: string }[];
 };
 
-/** Lakehouse tables the caller may train on, with their columns. */
+/**
+ * Lakehouse tables the caller may train on, with their columns, and the
+ * schemas an output may be written to: owned, and not a mount of either
+ * kind (R111: the output pickers offered every schema that had a table).
+ */
 export const mlListSources = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
-  .handler(async ({ data }): Promise<{ enabled: boolean; tables: MlSourceTable[] }> => {
-    const userId = await resolveCaller(data.access_token);
-    const r = await listLakehouseTablesForUser(userId);
-    return { enabled: r.enabled, tables: r.tables };
-  });
+  .handler(
+    async ({
+      data,
+    }): Promise<{ enabled: boolean; tables: MlSourceTable[]; writableSchemas: string[] }> => {
+      const userId = await resolveCaller(data.access_token);
+      const r = await listLakehouseTablesForUser(userId);
+      return {
+        enabled: r.enabled,
+        tables: r.tables,
+        writableSchemas: r.schemas.filter((s) => s.writable).map((s) => s.name),
+      };
+    },
+  );
 
 export type MlColumnProfile = {
   name: string;

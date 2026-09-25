@@ -15,6 +15,44 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-25 — Writing into a read-only Iceberg mount, and removing its catalog, before and after, ADVERSARIAL_LOG R111
+
+**Why this round exists.** The mount dialog calls an Iceberg mount
+read-only, but the statement guard refused writes only through a
+data-lake mount, and removing a catalog drops its mounts with CASCADE.
+Driven on catalogs registered for the round, on the development
+catalog's endpoint, so that `local_rest` and its mounts stayed untouched.
+
+### Before the fix
+
+| Time | Driven | Read back |
+| ---- | ------ | --------- |
+| 08:49:45 | on image `abd4e27a1a31`, Iceberg → Add catalog `r111_rest`, `http://192.168.1.85:8181`, `s3://iceberg/`, no authentication | `Registered r111_rest: 2 namespaces` |
+| 08:50:04 | Mount `r107` as `ice_r111` | `Mounted 2 tables` |
+| 08:50:21 | Query: `CREATE TABLE ice_r111.r111_written AS SELECT 1 AS id, 'written into a read-only mount' AS note` | succeeded (`Count 1`) |
+| 08:50:35 | `SELECT id, note FROM ice_r111.r111_written` | `1 row(s)`: `1 · written into a read-only mount` |
+| 08:51 | Remove `r111_rest` | confirm `Remove "r111_rest"? Its 1 mounted schema(s) go with it. Tables in the catalog itself are untouched.` → Remove |
+| 08:51:34 | the same SELECT | `No access to schema "ice_r111"`; the DuckLake catalog: `r111_written` begin snapshot 559 (04:50:21 UTC), end snapshot 560 (04:51:07 UTC), the snapshot that ended `ice_r111` |
+| 08:5x | ML Models → revenue_facts plan classifier → Predictions → Batch prediction | "Output schema (yours)": `analytics`, `ice_r107_after`, `ice_r107_final`, `ice_r107_fixed`, `ice_r107_four`, `ice_r107_regress`, `ice_r107_three`, `ice_r107_two`, `ice_sales` |
+| 08:57:52 | staged for the after-drive, still on the old image: Add catalog `r111b_rest`; mount `r107` as `ice_r111b`; `CREATE TABLE ice_r111b.r111b_kept AS SELECT 1 AS id, 'kept in a mount before the fix' AS note` | registered; `Mounted 2 tables`; the row reads back |
+
+### After the rebuild
+
+| Time | Driven | Read back |
+| ---- | ------ | --------- |
+| 09:10:50 | on image `5c76a79c3e5c`, Query: `CREATE TABLE ice_r111b.r111_after AS SELECT 1 AS id`, then `INSERT INTO ice_r111b.r111b_kept VALUES (2, 'appended through the mount')` | each: `Schema "ice_r111b" is a read-only Iceberg mount — query it, or write to a regular schema. Publish to Iceberg puts a table into the catalog.`; `SELECT … FROM ice_r111b.r111b_kept` still reads its one row |
+| 09:11:23 | Batch prediction dialog | "Output schema (yours)": `analytics` alone |
+| 09:21:26 | on image `321d1a9f4ad9`, Remove `r111b_rest` → Remove | toast `Not removed: ice_r111b.r111b_kept is a table of your own inside a mounted schema, and would be dropped with it. Copy it to a regular schema first (CREATE TABLE analytics.… AS SELECT * FROM ice_r111b.r111b_kept), then drop the mounted schema in the explorer, which says every table in it goes.`; the catalog is still listed |
+| 09:21:52 | `SELECT` the table, then `CREATE TABLE analytics.r111b_kept_copy AS SELECT * FROM ice_r111b.r111b_kept`, then read the copy | the row intact, `Count 1`, the copy reads `1 · kept in a mount before the fix` |
+| 09:22:22 | explorer `ice_r111b (3)`: `r107_pub`, `r107_pub__publishing`, `r111b_kept · 817 B` → Drop schema | confirm `Drop schema "ice_r111b"? Every table in it is dropped too. This cannot be undone.` → `Dropped ice_r111b` |
+| 09:23:04 | mount `r107` as `ice_r111c` (`Mounted 2 tables`), then Remove `r111b_rest` | `Removed r111b_rest`: a mount of views only does not block a removal |
+| 09:23:57 | Query → Save as view → Schema | `analytics` alone |
+
+Fixtures kept: `analytics.r111b_kept_copy`. The catalogs `r111_rest` and
+`r111b_rest`, and their mounts, were removed as part of the round.
+
+Findings from this round: R111 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-25 — Opening a swarm when its list cannot be read, before and after, ADVERSARIAL_LOG R110
 
 **Why this round exists.** The swarm canvas took a failed read of the

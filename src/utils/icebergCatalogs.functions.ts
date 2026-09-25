@@ -139,12 +139,39 @@ export const icebergCatalogDelete = createServerFn({ method: "POST" })
     if (!caller.ok) return caller;
     const row = await ownCatalog(caller.userId, data.id);
     if (!row) return { ok: false, error: "Catalog not found" };
-    const { dropIcebergMountSchema, detachIcebergCatalog } =
+    const { dropIcebergMountSchema, detachIcebergCatalog, mountForeignTables } =
       await import("@/utils/lakehouse/iceberg.server");
-    const { data: mounts } = await supabaseAdmin
+    const { data: mounts, error: mountsErr } = await supabaseAdmin
       .from("lakehouse_schemas")
       .select("id, name")
       .eq("iceberg_catalog_id", row.id);
+    // Unread mounts would leave their schemas behind in the engine.
+    if (mountsErr) return { ok: false, error: `Could not list its mounts: ${mountsErr.message}` };
+    // FOUND IN R111. Each mount is dropped with CASCADE, and the dialog says
+    // only that the mounted schemas go. A real table in one (written before
+    // the guard refused such writes) would go too, unannounced. Refuse, and
+    // name it, rather than drop what the owner never saw listed.
+    const held: string[] = [];
+    try {
+      for (const m of mounts ?? []) {
+        for (const t of await mountForeignTables(m.name)) held.push(`${m.name}.${t}`);
+      }
+    } catch (e) {
+      return {
+        ok: false,
+        error: `Not removed: could not check its mounted schemas for tables of your own (${(e as Error).message}).`,
+      };
+    }
+    if (held.length) {
+      return {
+        ok: false,
+        // The way out is spelled out because writes into a mount are now
+        // refused: copy the table (a read of the mount, a write elsewhere),
+        // then drop the mounted schema in the explorer, whose confirm says
+        // every table in it goes.
+        error: `Not removed: ${held.join(", ")} ${held.length === 1 ? "is a table" : "are tables"} of your own inside a mounted schema, and would be dropped with it. Copy ${held.length === 1 ? "it" : "them"} to a regular schema first (CREATE TABLE analytics.… AS SELECT * FROM ${held[0]}), then drop the mounted schema in the explorer, which says every table in it goes.`,
+      };
+    }
     for (const m of mounts ?? []) {
       await dropIcebergMountSchema(m.name).catch(() => undefined);
       await supabaseAdmin.from("lakehouse_schemas").delete().eq("id", m.id);
