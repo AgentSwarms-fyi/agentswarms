@@ -25,3 +25,13 @@ export function acceptsReference(text: string, caret: number): boolean {
   if (before === "=") return true;
   return /[=(,+\-*/^&<>:;%]$/.test(before);
 }
+
+/**
+ * Whether text that reached the grid's keyboard input starts typing into the
+ * cell. A bare line break does not: an Enter whose key press lands after
+ * focus came back to the grid (a dialog's button closed it on keydown) put
+ * "\n" here, and committing that edit blanked the cell (R116).
+ */
+export function startsEdit(text: string): boolean {
+  return text !== "" && !/^[\r\n]+$/.test(text);
+}

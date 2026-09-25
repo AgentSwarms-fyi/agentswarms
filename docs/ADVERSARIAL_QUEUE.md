@@ -196,6 +196,19 @@ showing `\u2014` as text). Open, from the first rounds:
 - **A connection import was not driven:** the account has no database
   connection, and creating one needs a credential typed into the page.
 
+Closed with formatting: R115 (the keyboard fell to the page after a
+context-menu action), R116 (a stray Enter blanked a cell), R117 (every
+prompt in the app opened on Cancel). Open from that round:
+
+- **Inserted rows and columns take no formats:** Excel formats an inserted
+  row like the one above it; here it arrives plain.
+- **An in-workbook link does not follow a sheet rename** (`#Sheet1!B6` after
+  Sheet1 became Summary). Excel does not either, but a formula does; worth a
+  look once links are common.
+- **Frozen panes** are stored (`frozenRows`/`frozenCols`) but not drawn yet.
+- **Text that runs on crosses a right border**: the border is drawn under the
+  overflowing text rather than over it.
+
 ## Rules that came out of doing this
 
 - A test that asserts source text is pinning a USE, not a definition; bound it

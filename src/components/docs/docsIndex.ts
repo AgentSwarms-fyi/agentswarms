@@ -4059,13 +4059,16 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     "title": "Sheets",
     "description": "Spreadsheets with the Excel formulas people already know, over data far larger than a browser could hold: the lakehouse computes the big tables, the browser only shows the rows on screen.",
     "terms": [
+      "#,##0;[Red]-#,##0",
       "#BUSY!",
       "#SPILL!",
+      "#Summary!B6",
       "-2^2",
       "SHEETS_MAX_CELLS",
       "SHEETS_PAGE_ROWS",
       "SHEETS_UPLOAD_MAX_MB",
       "WAREHOUSE_ABS_MAX_ROWS",
+      "javascript:",
       "lakehouse.import"
     ],
     "headings": [

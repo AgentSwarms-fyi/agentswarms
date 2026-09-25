@@ -265,3 +265,168 @@ export const PRESET_FORMATS: { label: string; code: string }[] = [
   { label: "Time", code: "hh:mm:ss" },
   { label: "Text", code: "@" },
 ];
+
+/** Where the characters of a code are literal (inside "…", after \, inside […]). */
+function literalMask(code: string): boolean[] {
+  const mask = new Array<boolean>(code.length).fill(false);
+  let q = false;
+  let br = false;
+  for (let i = 0; i < code.length; i++) {
+    const ch = code[i];
+    if (q) {
+      mask[i] = true;
+      if (ch === '"') q = false;
+      continue;
+    }
+    if (br) {
+      mask[i] = true;
+      if (ch === "]") br = false;
+      continue;
+    }
+    if (ch === '"') {
+      q = true;
+      mask[i] = true;
+    } else if (ch === "[") {
+      br = true;
+      mask[i] = true;
+    } else if (ch === "\\" || ch === "_" || ch === "*") {
+      mask[i] = true;
+      if (i + 1 < code.length) mask[++i] = true;
+    }
+  }
+  return mask;
+}
+
+function adjustSection(sec: string, dir: 1 | -1): string {
+  if (isDateFormat(sec) || sec.includes("@")) return sec;
+  const mask = literalMask(sec);
+  let last = -1;
+  let dot = -1;
+  for (let i = 0; i < sec.length; i++) {
+    if (mask[i]) continue;
+    // The exponent's digits are not decimal places.
+    if (/[eE]/.test(sec[i]) && /[+-]/.test(sec[i + 1] ?? "")) break;
+    if (/[0#?]/.test(sec[i])) last = i;
+    else if (sec[i] === "." && dot < 0) dot = i;
+  }
+  if (last < 0) return sec;
+  const decimalsEnd = last + 1;
+  if (dir > 0) {
+    return dot >= 0 && dot < decimalsEnd
+      ? sec.slice(0, decimalsEnd) + "0" + sec.slice(decimalsEnd)
+      : sec.slice(0, decimalsEnd) + ".0" + sec.slice(decimalsEnd);
+  }
+  if (dot < 0 || dot > last) return sec; // no decimals to remove
+  // Drop the last decimal place; the point goes with the last one.
+  const removeFrom = last - 1 === dot ? dot : last;
+  return sec.slice(0, removeFrom) + sec.slice(last + 1);
+}
+
+/**
+ * The format with one decimal place more or fewer, as Excel's Increase and
+ * Decrease Decimal buttons change it. A cell in General starts from the
+ * places it currently shows.
+ */
+export function adjustDecimals(
+  code: string | undefined | null,
+  dir: 1 | -1,
+  sample?: Scalar,
+): string {
+  const fmt = (code ?? "").trim();
+  if (!fmt || fmt.toLowerCase() === "general") {
+    const shown = typeof sample === "number" ? formatGeneral(sample) : "0";
+    const places = /\.(\d+)/.exec(shown)?.[1].length ?? 0;
+    const next = Math.max(0, places + dir);
+    return next ? `0.${"0".repeat(next)}` : "0";
+  }
+  return sections(fmt)
+    .map((s) => adjustSection(s, dir))
+    .join(";");
+}
+
+const NAMED_COLORS: Record<string, string> = {
+  black: "#000000",
+  blue: "#0000FF",
+  cyan: "#00FFFF",
+  green: "#00FF00",
+  magenta: "#FF00FF",
+  red: "#FF0000",
+  white: "#FFFFFF",
+  yellow: "#FFFF00",
+};
+// Excel's legacy 56-color palette, for [Color1]…[Color56].
+const INDEXED = [
+  "#000000",
+  "#FFFFFF",
+  "#FF0000",
+  "#00FF00",
+  "#0000FF",
+  "#FFFF00",
+  "#FF00FF",
+  "#00FFFF",
+  "#800000",
+  "#008000",
+  "#000080",
+  "#808000",
+  "#800080",
+  "#008080",
+  "#C0C0C0",
+  "#808080",
+  "#9999FF",
+  "#993366",
+  "#FFFFCC",
+  "#CCFFFF",
+  "#660066",
+  "#FF8080",
+  "#0066CC",
+  "#CCCCFF",
+  "#000080",
+  "#FF00FF",
+  "#FFFF00",
+  "#00FFFF",
+  "#800080",
+  "#800000",
+  "#008080",
+  "#0000FF",
+  "#00CCFF",
+  "#CCFFFF",
+  "#CCFFCC",
+  "#FFFF99",
+  "#99CCFF",
+  "#FF99CC",
+  "#CC99FF",
+  "#FFCC99",
+  "#3366FF",
+  "#33CCCC",
+  "#99CC00",
+  "#FFCC00",
+  "#FF9900",
+  "#FF6600",
+  "#666699",
+  "#969696",
+  "#003366",
+  "#339966",
+  "#003300",
+  "#333300",
+  "#993300",
+  "#993366",
+  "#333399",
+  "#333333",
+];
+
+/**
+ * The color a format paints a number in: [Red] in a negative section is how
+ * an Excel sheet shows losses. Undefined when the section names none.
+ */
+export function formatColor(v: Scalar, code: string | undefined | null): string | undefined {
+  if (typeof v !== "number" || !code) return undefined;
+  const secs = sections(code);
+  const sec = v < 0 && secs.length >= 2 ? secs[1] : v === 0 && secs.length >= 3 ? secs[2] : secs[0];
+  for (const m of sec.matchAll(/\[([^\]]+)\]/g)) {
+    const name = m[1].trim().toLowerCase();
+    if (NAMED_COLORS[name]) return NAMED_COLORS[name];
+    const idx = /^color\s*(\d{1,2})$/.exec(name);
+    if (idx) return INDEXED[Number(idx[1]) - 1];
+  }
+  return undefined;
+}

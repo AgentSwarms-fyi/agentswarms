@@ -6,7 +6,7 @@
 // format only decides what is shown.
 
 import type { CellInput } from "./engine";
-import { formatValue } from "./format";
+import { formatColor, formatValue } from "./format";
 import { isError, type Scalar } from "./formula/values";
 
 export type CellView = {
@@ -15,6 +15,8 @@ export type CellView = {
   align: "left" | "right" | "center";
   /** The reason behind an error, for a tooltip. */
   title?: string;
+  /** A color the number format paints the value in ([Red] for negatives). */
+  color?: string;
 };
 
 const DATE_FUNCS = /^=\s*(DATE|TODAY|EDATE|EOMONTH|DATEVALUE|WORKDAY|WORKDAY\.INTL)\s*\(/i;
@@ -47,7 +49,12 @@ export function cellView(value: Scalar, input: CellInput | undefined, detail?: s
     return { text: value ? "TRUE" : "FALSE", kind: "bool", align: explicitAlign ?? "center" };
   }
   if (typeof value === "number") {
-    return { text: formatValue(value, fmt), kind: "number", align: explicitAlign ?? "right" };
+    return {
+      text: formatValue(value, fmt),
+      kind: "number",
+      align: explicitAlign ?? "right",
+      color: formatColor(value, fmt),
+    };
   }
   return { text: formatValue(value, fmt), kind: "text", align: explicitAlign ?? "left" };
 }

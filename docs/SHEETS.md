@@ -62,6 +62,10 @@ Open parentheses are closed for you on **Enter**.
 | Ctrl+D / Ctrl+R             | Fill down / right                                                              |
 | Ctrl+Z / Ctrl+Y             | Undo / redo, including row and column inserts                                  |
 | Ctrl+B / Ctrl+I / Ctrl+U    | Bold, italic, underline                                                        |
+| Ctrl+5                      | Strikethrough                                                                  |
+| Ctrl+K                      | Insert or edit a link                                                          |
+| Alt+Enter                   | A line break inside the cell (Wrap text turns on)                              |
+| Ctrl+mouse wheel            | Zoom                                                                           |
 | Ctrl+S                      | Save now                                                                       |
 
 Drag the square at the corner of a selection to **fill**. Numbers and "Item 1, Item 2" continue as a
@@ -69,15 +73,43 @@ series, formulas shift, and anything else repeats.
 
 The right-click menu inserts and deletes rows and columns. Every formula in the workbook that
 pointed at the moved cells follows them, and one that pointed into deleted cells shows `#REF!`.
-Renaming a sheet rewrites the formulas that name it.
+Merged cells, row heights and hidden rows and columns move with them. Renaming a sheet rewrites
+the formulas that name it. Right-click a row or column header for its own menu: hide and unhide,
+**Row height…** (in points, as Excel measures it) and **Column width…** (in characters).
+**Paste values only** and **Paste formatting only** work on cells copied in the workbook.
 
-The status bar shows the Average, Count and Sum of the selection.
+The status bar shows the Average, Count and Sum of the selection, and the zoom (**−**, the level,
+**+**). The zoom is remembered per sheet in your browser.
 
-### Formats
+### Formatting
+
+The ribbon's **Home** tab formats the selection, as Excel's does:
+
+- **Font** and **size** (in points), bold, italic, underline, strikethrough, and **A+ / A−** to step
+  the size through Excel's list.
+- **Font color** and **Fill color**: theme colors in tints, the standard row, or any hex value. The
+  half of the button with the color bar applies the last color chosen.
+- **Borders**: bottom, top, left, right, all, outside, inside, thick outside, bottom double, or none,
+  in thin, medium, thick, dashed, dotted or double lines of a chosen color.
+- Horizontal and vertical alignment, indent, and **Wrap text**. A row grows to fit wrapped text or a
+  larger font until you set its height yourself; double-click a row's lower edge to return it to fitting.
+- **Merge & Center**, **Merge Across**, **Merge Cells** and **Unmerge**. Merging asks before it throws
+  away any value but the upper-left one. A merged cell selects, moves and edits as one cell.
+- The **format painter** copies the formats of the selection to the next cells you select.
+- **Clear**: all, formats, contents or hyperlinks.
+
+**View** turns gridlines off and on. **Insert → Link** (or Ctrl+K) links a cell to a web address, an
+email, or a place in the workbook such as `#Summary!B6`. The link shows under the active cell;
+Ctrl+click follows it. Only web (`http`, `https`), `mailto:` and in-workbook links are stored:
+`javascript:` and other schemes are refused.
+
+### Number formats
 
 The **Number format** menu has General, Number, Integer, Percent, Currency, Scientific, Date, Date and
-time, Time and Text. It also accepts any Excel format code (`#,##0.0`, `0.0%`, `"Q"0`, `yyyy-mm`).
-Typing `12%`, `$1,200` or `2024-01-31` picks up the matching format, as Excel does.
+time, Time and Text, and the **$**, **%**, **,** and increase/decrease decimal buttons. It also accepts
+any Excel format code (`#,##0.0`, `0.0%`, `"Q"0`, `yyyy-mm`); a section color such as
+`#,##0;[Red]-#,##0` paints negatives red. Typing `12%`, `$1,200` or `2024-01-31` picks up the
+matching format, as Excel does.
 
 ### Saving
 

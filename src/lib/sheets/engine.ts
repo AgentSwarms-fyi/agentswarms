@@ -17,6 +17,7 @@ import {
   type TableCallRequest,
 } from "./formula/evaluate";
 import { FormulaSyntaxError, isFormula, parseFormula, type Node } from "./formula/parser";
+import type { Borders } from "./style";
 import {
   err,
   isError,
@@ -31,13 +32,24 @@ export type CellStyle = {
   b?: boolean;
   i?: boolean;
   u?: boolean;
+  /** Strikethrough. */
+  st?: boolean;
   align?: "left" | "center" | "right";
+  /** Vertical alignment; Excel's default is the bottom. */
+  va?: "top" | "middle" | "bottom";
+  wrap?: boolean;
+  /** Indent level (about three characters each). */
+  ind?: number;
+  font?: string;
+  /** Font size in points. */
+  sz?: number;
   color?: string;
   bg?: string;
+  bd?: Borders;
 };
 
-/** What is stored for a cell: the text typed, a number format, a style. */
-export type CellInput = { i: string; f?: string; s?: CellStyle };
+/** What is stored for a cell: the text typed, a number format, a style, a link. */
+export type CellInput = { i: string; f?: string; s?: CellStyle; l?: string };
 
 export type GridData = {
   cells: Record<string, CellInput>;
@@ -45,6 +57,12 @@ export type GridData = {
   rowHeights?: Record<string, number>;
   frozenRows?: number;
   frozenCols?: number;
+  /** Merged ranges, "B2:D3". */
+  merges?: string[];
+  hiddenRows?: number[];
+  hiddenCols?: number[];
+  /** Gridlines off (View > Gridlines). */
+  hideGrid?: boolean;
 };
 
 export type SheetDef = { id: string; name: string; kind: "grid" | "table"; grid?: GridData };
@@ -226,6 +244,7 @@ export class WorkbookEngine {
       input: string;
       format?: string | null;
       style?: CellStyle | null;
+      link?: string | null;
     }[],
   ): void {
     const s = this.sheets.get(sheetId);
@@ -243,7 +262,11 @@ export class WorkbookEngine {
         if (e.style === null) delete next.s;
         else next.s = e.style;
       }
-      if (next.i === "" && !next.f && !next.s) delete s.grid.cells[key];
+      if (e.link !== undefined) {
+        if (e.link === null) delete next.l;
+        else next.l = e.link;
+      }
+      if (next.i === "" && !next.f && !next.s && !next.l) delete s.grid.cells[key];
       else s.grid.cells[key] = next;
       const id = cid(sheetId, e.row, e.col);
       if (!prev || prev.i !== e.input) {
@@ -264,7 +287,7 @@ export class WorkbookEngine {
       const next = { ...cur };
       if (format === null) delete next.f;
       else next.f = format;
-      if (next.i === "" && !next.f && !next.s) delete s.grid.cells[key];
+      if (next.i === "" && !next.f && !next.s && !next.l) delete s.grid.cells[key];
       else s.grid.cells[key] = next;
     }
   }
@@ -281,7 +304,7 @@ export class WorkbookEngine {
       }
       const next: CellInput = { ...cur, s: Object.keys(style).length ? style : undefined };
       if (!next.s) delete next.s;
-      if (next.i === "" && !next.f && !next.s) delete s.grid.cells[key];
+      if (next.i === "" && !next.f && !next.s && !next.l) delete s.grid.cells[key];
       else s.grid.cells[key] = next;
     }
   }
@@ -599,6 +622,14 @@ export class WorkbookEngine {
     let n = 0;
     for (const v of this.memo.values()) if (isError(v) && v.err === "#BUSY!") n++;
     return n;
+  }
+
+  /**
+   * The sheet's grid as the engine holds it, without a copy: for reading on
+   * every render. Changes go through the engine's setters, never through this.
+   */
+  gridOf(sheetId: string): Readonly<GridData> | undefined {
+    return this.sheets.get(sheetId)?.grid;
   }
 
   /** The grid data to persist for a sheet. */

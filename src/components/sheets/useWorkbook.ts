@@ -33,7 +33,10 @@ export type CellEdit = {
   input: string;
   format?: string | null;
   style?: CellStyle | null;
+  link?: string | null;
 };
+
+type GridMeta = Partial<Omit<GridData, "cells">>;
 
 type UndoEntry =
   | {
@@ -49,6 +52,16 @@ type UndoEntry =
       tabId: string;
       before: Record<string, GridData>;
       after: Record<string, GridData>;
+    }
+  | {
+      // A sheet setting (widths, heights, merges, hidden rows): the keys changed.
+      kind: "meta";
+      tabId: string;
+      before: GridMeta;
+      after: GridMeta;
+      /** Steps of one gesture (a column dragged wider) undo as one. */
+      gesture?: string;
+      at: number;
     };
 
 export type SaveState =
@@ -388,6 +401,13 @@ export function useWorkbook(args: {
       bump();
       return;
     }
+    if (entry.kind === "meta") {
+      engine.setGridMeta(entry.tabId, entry[which]);
+      setActiveTabId(entry.tabId);
+      markDirty(entry.tabId);
+      bump();
+      return;
+    }
     const cells = entry[which];
     engine.setInputs(
       entry.tabId,
@@ -397,6 +417,7 @@ export function useWorkbook(args: {
         input: c.cell?.i ?? "",
         format: c.cell?.f ?? null,
         style: c.cell?.s ?? null,
+        link: c.cell?.l ?? null,
       })),
     );
     setActiveTabId(entry.tabId);
@@ -450,9 +471,71 @@ export function useWorkbook(args: {
     [bump, markDirty],
   );
 
+  /**
+   * Change sheet settings (widths, heights, merges, hidden rows, gridlines),
+   * undoably. Steps sharing a `gesture` within a second (a drag) undo as one.
+   */
   const setGridMeta = useCallback(
-    (tabId: string, patch: Partial<Omit<GridData, "cells">>) => {
-      engineRef.current?.setGridMeta(tabId, patch);
+    (tabId: string, patch: GridMeta, opts: { gesture?: string } = {}) => {
+      const engine = engineRef.current;
+      if (!engine) return;
+      const grid = engine.gridOf(tabId);
+      if (!grid) return;
+      const before: GridMeta = {};
+      for (const k of Object.keys(patch) as (keyof GridMeta)[]) {
+        (before as Record<string, unknown>)[k] = structuredClone(grid[k]);
+      }
+      engine.setGridMeta(tabId, patch);
+      const top = undoStack.current[undoStack.current.length - 1];
+      const now = Date.now();
+      if (
+        opts.gesture &&
+        top?.kind === "meta" &&
+        top.tabId === tabId &&
+        top.gesture === opts.gesture &&
+        now - top.at < 1000
+      ) {
+        top.after = { ...top.after, ...patch };
+        top.at = now;
+      } else {
+        undoStack.current.push({
+          kind: "meta",
+          tabId,
+          before,
+          after: structuredClone(patch),
+          gesture: opts.gesture,
+          at: now,
+        });
+        if (undoStack.current.length > 500) undoStack.current.shift();
+      }
+      redoStack.current = [];
+      markDirty(tabId);
+      bump();
+    },
+    [bump, markDirty],
+  );
+
+  /**
+   * A change to one sheet's cells and settings together (merging clears the
+   * cells it covers), undone as one step.
+   */
+  const changeGrid = useCallback(
+    (tabId: string, mutate: (grid: GridData) => GridData) => {
+      const engine = engineRef.current;
+      const cur = engine?.snapshot(tabId);
+      if (!engine || !cur) return;
+      const before = structuredClone(cur);
+      const after = mutate(structuredClone(cur));
+      engine.replaceGrid(tabId, after);
+      engine.recalcAll();
+      undoStack.current.push({
+        kind: "snapshot",
+        tabId,
+        before: { [tabId]: before },
+        after: { [tabId]: structuredClone(after) },
+      });
+      if (undoStack.current.length > 500) undoStack.current.shift();
+      redoStack.current = [];
       markDirty(tabId);
       bump();
     },
@@ -642,6 +725,7 @@ export function useWorkbook(args: {
     canUndo: undoStack.current.length > 0,
     canRedo: redoStack.current.length > 0,
     setGridMeta,
+    changeGrid,
     flush,
     saveTab,
     reloadTab,

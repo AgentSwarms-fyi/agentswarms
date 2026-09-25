@@ -11,6 +11,8 @@ import type { CellInput, GridData } from "./engine";
 import { lex, type RefPart, type Token } from "./formula/lexer";
 import { shiftFormula } from "./formula/shift";
 import { colLetters } from "./a1";
+import { shiftIndexList, shiftIndexRecord } from "./layout";
+import { shiftMerges } from "./merge";
 
 export type Axis = "rows" | "cols";
 
@@ -98,7 +100,10 @@ export function adjustFormula(
   return `=${out}${body.slice(last)}`;
 }
 
-/** Move a sheet's cells (and column widths) for an insertion or deletion. */
+/**
+ * Move a sheet's cells for an insertion or deletion, and everything kept per
+ * row or column with them: widths, heights, hidden rows and columns, merges.
+ */
 export function moveCells(grid: GridData, axis: Axis, at: number, count: number): GridData {
   const cells: Record<string, CellInput> = {};
   for (const [k, v] of Object.entries(grid.cells)) {
@@ -117,19 +122,14 @@ export function moveCells(grid: GridData, axis: Axis, at: number, count: number)
     cells[cellKey(nr, nc)] = v;
   }
   const next: GridData = { ...grid, cells };
-  if (axis === "cols" && grid.colWidths) {
-    const w: Record<string, number> = {};
-    for (const [k, v] of Object.entries(grid.colWidths)) {
-      const i = Number(k);
-      if (count > 0) w[String(i >= at ? i + count : i)] = v;
-      else {
-        const n = -count;
-        if (i >= at && i < at + n) continue;
-        w[String(i >= at + n ? i - n : i)] = v;
-      }
-    }
-    next.colWidths = w;
+  if (axis === "cols") {
+    if (grid.colWidths) next.colWidths = shiftIndexRecord(grid.colWidths, at, count);
+    if (grid.hiddenCols) next.hiddenCols = shiftIndexList(grid.hiddenCols, at, count);
+  } else {
+    if (grid.rowHeights) next.rowHeights = shiftIndexRecord(grid.rowHeights, at, count);
+    if (grid.hiddenRows) next.hiddenRows = shiftIndexList(grid.hiddenRows, at, count);
   }
+  if (grid.merges) next.merges = shiftMerges(grid.merges, axis, at, count);
   return next;
 }
 
@@ -154,11 +154,23 @@ export function fillEdits(
   source: RangeAddr,
   target: RangeAddr,
   get: (row: number, col: number) => CellInput | undefined,
-): { row: number; col: number; input: string; format?: string | null }[] {
+): {
+  row: number;
+  col: number;
+  input: string;
+  format?: string | null;
+  style?: CellInput["s"] | null;
+}[] {
   const down = target.r1 > source.r1;
   const h = source.r1 - source.r0 + 1;
   const w = source.c1 - source.c0 + 1;
-  const edits: { row: number; col: number; input: string; format?: string | null }[] = [];
+  const edits: {
+    row: number;
+    col: number;
+    input: string;
+    format?: string | null;
+    style?: CellInput["s"] | null;
+  }[] = [];
 
   // Per line (column when filling down, row when filling right), the series if any.
   const lines = down ? w : h;
@@ -200,7 +212,7 @@ export function fillEdits(
         const width = textNums[len - 1]![2].length;
         input = textNums[0]![1] + String(lastNum + textStep * k).padStart(width, "0");
       }
-      edits.push({ row, col, input, format: cell?.f ?? null });
+      edits.push({ row, col, input, format: cell?.f ?? null, style: cell?.s ?? null });
     }
   }
   return edits;

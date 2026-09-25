@@ -1,5 +1,6 @@
 // The shapes the Sheets server functions accept, shared with the editor.
 import { z } from "zod";
+import { normalizeLink } from "@/lib/sheets/style";
 
 export const tokenOnly = z.object({ access_token: z.string().min(1) });
 
@@ -81,5 +82,77 @@ export const tableConfigSchema = z
     hidden: z.array(nameStr).max(2000),
     widths: z.record(z.string().max(255), z.number().min(16).max(2000)),
     origin: originSchema.optional(),
+  })
+  .strict();
+
+// ── Grid sheets ────────────────────────────────────────────────────────────
+
+const color = z.string().regex(/^#[0-9A-Fa-f]{6}$/, "A color is #RRGGBB");
+const borderSide = z
+  .object({
+    s: z.enum(["thin", "medium", "thick", "dashed", "dotted", "double"]),
+    c: color.optional(),
+  })
+  .strict();
+const A1_RANGE = /^\$?[A-Z]{1,3}\$?\d{1,7}(:\$?[A-Z]{1,3}\$?\d{1,7})?$/;
+
+export const styleSchema = z
+  .object({
+    b: z.boolean().optional(),
+    i: z.boolean().optional(),
+    u: z.boolean().optional(),
+    st: z.boolean().optional(),
+    align: z.enum(["left", "center", "right"]).optional(),
+    va: z.enum(["top", "middle", "bottom"]).optional(),
+    wrap: z.boolean().optional(),
+    ind: z.number().int().min(0).max(15).optional(),
+    // A font name is drawn into CSS: no quotes, backslashes or angle brackets.
+    font: z
+      .string()
+      .max(64)
+      .regex(/^[^"'\\<>;{}]+$/)
+      .optional(),
+    sz: z.number().min(1).max(409).optional(),
+    color: color.optional(),
+    bg: color.optional(),
+    bd: z
+      .object({
+        t: borderSide.optional(),
+        r: borderSide.optional(),
+        b: borderSide.optional(),
+        l: borderSide.optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+
+export const gridSchema = z
+  .object({
+    // Excel's own ceiling on what one cell holds: 32,767 characters.
+    cells: z.record(
+      z.string().regex(/^\d{1,7},\d{1,5}$/),
+      z
+        .object({
+          i: z.string().max(32767),
+          f: z.string().max(255).optional(),
+          s: styleSchema.optional(),
+          // Stored only when it is a link the editor would open (the same check).
+          l: z
+            .string()
+            .max(2048)
+            .refine((u) => normalizeLink(u) === u, "Only web, email and in-workbook links")
+            .optional(),
+        })
+        .strict(),
+    ),
+    colWidths: z.record(z.string().regex(/^\d{1,5}$/), z.number().min(0).max(2000)).optional(),
+    rowHeights: z.record(z.string().regex(/^\d{1,7}$/), z.number().min(0).max(800)).optional(),
+    frozenRows: z.number().int().min(0).max(100).optional(),
+    frozenCols: z.number().int().min(0).max(50).optional(),
+    merges: z.array(z.string().regex(A1_RANGE)).max(20_000).optional(),
+    hiddenRows: z.array(z.number().int().min(0).max(1_048_575)).max(1_048_576).optional(),
+    hiddenCols: z.array(z.number().int().min(0).max(16_383)).max(16_384).optional(),
+    hideGrid: z.boolean().optional(),
   })
   .strict();

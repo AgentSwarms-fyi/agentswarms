@@ -90,6 +90,7 @@ export function ConfirmHost() {
   const [shown, setShown] = useState<ConfirmRequest | null>(null);
   const [text, setText] = useState("");
   const resolver = useRef<Pending["resolve"] | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     deliver = (p) => {
@@ -138,14 +139,25 @@ export function ConfirmHost() {
       open={pending !== null}
       onOpenChange={(open) => !open && settle(wantsText ? null : false)}
     >
-      <AlertDialogContent>
+      <AlertDialogContent
+        // An alert dialog focuses Cancel when it opens, which is the safe
+        // default for a yes/no question. For a question that asks for text it
+        // meant typing went nowhere and Enter cancelled (Rename, Row height,
+        // Custom format…): the text box takes the keyboard, its text selected.
+        onOpenAutoFocus={(e) => {
+          if (!wantsText) return;
+          e.preventDefault();
+          inputRef.current?.focus();
+          inputRef.current?.select();
+        }}
+      >
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>
           <AlertDialogDescription>{body}</AlertDialogDescription>
         </AlertDialogHeader>
         {wantsText && (
           <Input
-            autoFocus
+            ref={inputRef}
             value={text}
             placeholder={req?.input?.placeholder}
             onChange={(e) => setText(e.target.value)}

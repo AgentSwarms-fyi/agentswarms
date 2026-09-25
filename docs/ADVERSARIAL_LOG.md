@@ -109,6 +109,58 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-25 — Found building Sheets formatting: where the keyboard goes after a menu or a dialog
+
+#### R117 · S2 · Every text prompt in the app opened on its Cancel button
+
+`promptAsk` (the shared replacement for `window.prompt`) renders a Radix
+AlertDialog with an `autoFocus` text box. An AlertDialog focuses its Cancel
+button when it opens, after React has run `autoFocus`, so the box never had
+the keyboard: typing went nowhere and Enter pressed Cancel. Every prompt was
+affected: Rename sheet, Row height, Custom number format, and the other
+callers across the app. A mouse user who clicked into the box never noticed.
+
+**Driven, before:** Sheets, ribbon → Number format → Custom… →
+`document.activeElement` was the Cancel button; typing a format code then
+Enter closed the dialog with nothing applied. **After:** the same path → the
+text box has focus with its text selected; typing
+`"$"#,##0.00;[Red]-"$"#,##0.00` and Enter applied it (B3 red). Rename sheet
+from the tab menu → the box focused with "Sheet1" selected; typing "Summary",
+Enter → the tab reads Summary.
+
+The dialog's `onOpenAutoFocus` now puts focus in the text box when it asks
+for text; a yes/no confirmation keeps Radix's Cancel default. Test:
+`tests/unit/confirmDialogFocus.test.ts`.
+
+#### R116 · S2 · A stray Enter blanked a cell
+
+The grid keeps a hidden textarea on the active cell so that text arriving
+without a keydown (an IME, dictation) starts an edit. When a dialog's button
+was pressed with Enter, the button closed the dialog on keydown and focus
+came back to the grid before the key's input landed, so the textarea
+received a line break, an edit started holding only a line break, and the
+next click committed it: B2's 1200 became an empty cell with Wrap on and the
+total dropped to $2,130.00.
+
+**Driven, before:** the Custom format prompt (on its Cancel button, R117),
+Enter → the cell editor was open on B2 with value `"\n"`; clicking another
+cell committed it. **After:** a bare line break reaching the textarea no
+longer starts an edit (`startsEdit` in `src/lib/sheets/selection.ts`); the
+same sequence leaves B2 as it was. Test: `tests/unit/sheetsFormatting.test.ts`.
+
+#### R115 · S3 · After a context-menu action the keyboard fell to the page
+
+Choosing any item in the grid's right-click menu unmounted the button that
+held focus, so focus went to `<body>`: Ctrl+Z, arrows and typing did nothing
+until the grid was clicked again.
+
+**Driven, before** (the committed image): right-click B3 → Insert 1 row
+above → Ctrl+Z → nothing; `document.activeElement` was BODY. **After:** the
+menu hands the keyboard back to the grid before running the action (a
+dialog the action opens takes it and returns it). The same steps → Ctrl+Z
+restored the row. Ribbon menus and the color palettes do the same through
+`onCloseAutoFocus`, unless the item opened a dialog.
+
 ### 2026-09-25 — Found building Sheets: a semicolon in a string, a cached clock, and escapes shown as text
 
 #### R112 · S2 · A ";" inside a string literal was refused as a second statement

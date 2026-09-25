@@ -4,25 +4,24 @@
 // jumps to the edge of the data), typing replaces, F2 edits, Enter/Tab commit
 // and move, Delete clears, Ctrl+Z/Y undo/redo, Ctrl+C/X/V copy/cut/paste
 // (formulas shift when pasted inside the workbook; text from Excel or Google
-// Sheets pastes as values), Ctrl+D/R fill down/right, Ctrl+B/I/U style.
+// Sheets pastes as values), Ctrl+D/R fill down/right, Ctrl+B/I/U/5 style,
+// Ctrl+K a link, Alt+Enter a line break in the cell, Ctrl+wheel zooms.
+// The ribbon formats the selection: fonts, colors, borders, alignment,
+// wrapping, merging and number formats; merged cells move and select as
+// one, and hidden rows and columns are skipped.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import {
-  AlignCenter,
-  AlignLeft,
-  AlignRight,
-  Bold,
   ChevronDown,
   Database,
+  ExternalLink,
   Grid3x3,
-  Italic,
   Loader2,
+  Pencil,
   Plus,
-  Redo2,
-  Underline,
-  Undo2,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -34,10 +33,30 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { confirmAsk, promptAsk } from "@/components/ui/confirm-dialog";
 import { cn } from "@/lib/utils";
-import { a1, colLetters, parseRangeA1, type RangeAddr } from "@/lib/sheets/a1";
+import { a1, cellKey, colLetters, parseRangeA1, type RangeAddr } from "@/lib/sheets/a1";
 import { cellView, editText, impliedFormat } from "@/lib/sheets/cellView";
 import type { CellStyle } from "@/lib/sheets/engine";
-import { PRESET_FORMATS } from "@/lib/sheets/format";
+import { isError, type Scalar } from "@/lib/sheets/formula/values";
+import { adjustDecimals } from "@/lib/sheets/format";
+import { clampZoom, stepZoom } from "@/lib/sheets/geometry";
+import {
+  addMerge,
+  cellsLostByMerge,
+  expandToMerges,
+  mergeAt,
+  parseMerges,
+  removeMerges,
+  type MergeMode,
+} from "@/lib/sheets/merge";
+import {
+  bordersFor,
+  DEFAULT_SIZE,
+  normalizeLink,
+  parseInternalLink,
+  SIZES,
+  type BorderPreset,
+  type BorderStyle,
+} from "@/lib/sheets/style";
 import { FUNCTION_NAMES } from "@/lib/sheets/formula/functions";
 import { shiftFormula } from "@/lib/sheets/formula/shift";
 import { FUNCTION_HELP } from "@/lib/sheets/functionHelp";
@@ -57,8 +76,10 @@ import {
   sheetsReorderTabs,
 } from "@/utils/sheets.functions";
 import { selRange, type Selection } from "@/lib/sheets/selection";
+import { LinkDialog } from "./LinkDialog";
 import { OpenTableDialog } from "./OpenTableDialog";
-import { SheetGrid, type Editing } from "./SheetGrid";
+import { DEFAULT_COL_W, ROW_H, SheetGrid, type Editing } from "./SheetGrid";
+import { SheetToolbar, ZoomControl, type ClearKind } from "./SheetToolbar";
 import { SaveToLakehouseDialog } from "./SaveToLakehouseDialog";
 import { TableSheet } from "./TableSheet";
 import type { CellEdit, SaveState, TabMeta, useWorkbook } from "./useWorkbook";
@@ -67,14 +88,47 @@ type Workbook = ReturnType<typeof useWorkbook>;
 
 const MIN_ROWS = 1000;
 const MIN_COLS = 52;
+const NEWLINE = String.fromCharCode(10);
 
 type Clip = {
   tabId: string;
   range: RangeAddr;
-  inputs: ({ i: string; f?: string } | undefined)[][];
+  inputs: ({ i: string; f?: string; s?: CellStyle; l?: string } | undefined)[][];
+  /** What the cells showed when copied, for Paste Values. */
+  values: Scalar[][];
   tsv: string;
   cut: boolean;
 };
+
+/** A value as typed input that reads back as the same value. */
+function literalText(v: Scalar): string {
+  if (v === null) return "";
+  if (typeof v === "number") return String(v);
+  if (typeof v === "boolean") return v ? "TRUE" : "FALSE";
+  if (isError(v) || v === "") return "";
+  // Text that would read as a number, a formula or a boolean stays text.
+  return /^[=+\-@]|^(true|false)$/i.test(v) || Number.isFinite(Number(v.replace(/[,$%]/g, "")))
+    ? `'${v}`
+    : v;
+}
+
+/** The zoom each sheet was left at, per workbook, in this browser. */
+function readZoom(workbookId: string): Record<string, number> {
+  try {
+    const raw = localStorage.getItem(`sheets.zoom.${workbookId}`);
+    const v = raw ? (JSON.parse(raw) as Record<string, number>) : {};
+    return v && typeof v === "object" ? v : {};
+  } catch {
+    return {};
+  }
+}
+function writeZoom(workbookId: string, v: Record<string, number>) {
+  try {
+    localStorage.setItem(`sheets.zoom.${workbookId}`, JSON.stringify(v));
+  } catch {
+    // Private windows and blocked storage: the zoom just is not remembered.
+  }
+}
 
 export function WorkbookEditor({
   wb,
@@ -95,7 +149,11 @@ export function WorkbookEditor({
   const [extent, setExtent] = useState({ rows: MIN_ROWS, cols: MIN_COLS });
   const [nameBox, setNameBox] = useState<string | null>(null);
   const [acIndex, setAcIndex] = useState(0);
-  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const [menu, setMenu] = useState<{
+    x: number;
+    y: number;
+    kind: "cell" | "row" | "col";
+  } | null>(null);
   const [openTable, setOpenTable] = useState(false);
   const [saveRange, setSaveRange] = useState<RangeAddr | null>(null);
   const editorRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
@@ -109,8 +167,43 @@ export function WorkbookEditor({
   const reorderFn = useServerFn(sheetsReorderTabs);
 
   const activeTab = tabs.find((t) => t.id === tabId) ?? null;
-  const grid = tabId && engine ? engine.snapshot(tabId) : undefined;
+  // The live grid, read each render (a copy of every cell per render was the
+  // old cost of moving the selection on a large sheet).
+  const grid = tabId && engine ? engine.gridOf(tabId) : undefined;
   const colWidths = grid?.colWidths ?? {};
+  const merges = useMemo(
+    () => parseMerges(grid?.merges),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [grid?.merges, rev],
+  );
+  const hiddenRows = useMemo(
+    () => new Set(grid?.hiddenRows ?? []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [grid?.hiddenRows, rev],
+  );
+  const hiddenCols = useMemo(
+    () => new Set(grid?.hiddenCols ?? []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [grid?.hiddenCols, rev],
+  );
+
+  // ── Zoom, per sheet, remembered in this browser ─────────────────────────
+  const [zooms, setZooms] = useState<Record<string, number>>(() => readZoom(workbookId));
+  const zoom = (tabId && zooms[tabId]) || 100;
+  /**
+   * Set the zoom, or step it from whatever it is by then: several wheel
+   * notches in one frame each take a step (computing each from the value
+   * this render saw moved one step for the lot).
+   */
+  const setZoom = (z: number | ((cur: number) => number)) => {
+    if (!tabId) return;
+    setZooms((prev) => {
+      const cur = prev[tabId] || 100;
+      const next = { ...prev, [tabId]: clampZoom(typeof z === "function" ? z(cur) : z) };
+      writeZoom(workbookId, next);
+      return next;
+    });
+  };
 
   // Grow the scrollable area to cover the data, plus room to type.
   useEffect(() => {
@@ -124,11 +217,15 @@ export function WorkbookEditor({
     setEditing(null);
   }, [tabId, engine]);
 
-  const range = selRange(selection);
+  // A selection never cuts a merged cell in two.
+  const range = expandToMerges(selRange(selection), merges);
   // The active cell: the selection's anchor, as in Excel (Shift+click extends
   // the selection but typing still goes where it started).
   const focus = selection.anchor;
   const focusInput = engine && tabId ? engine.getInput(tabId, focus.row, focus.col) : undefined;
+  const selectionMerged = merges.some(
+    (m) => m.r0 >= range.r0 && m.r1 <= range.r1 && m.c0 >= range.c0 && m.c1 <= range.c1,
+  );
 
   // ── Editing ──────────────────────────────────────────────────────────────
 
@@ -137,19 +234,45 @@ export function WorkbookEditor({
     setAcIndex(0);
   };
 
+  /**
+   * The cell a move of (dr, dc) lands on: out of a merged cell from its far
+   * edge, over hidden rows and columns, and into a merged cell at its
+   * top-left, as Excel moves.
+   */
+  const nextCell = useCallback(
+    (from: { row: number; col: number }, dr: number, dc: number, extend = false) => {
+      const m = mergeAt(merges, from.row, from.col);
+      let row = from.row;
+      let col = from.col;
+      if (m && !extend) {
+        if (dr > 0) row = m.r1;
+        if (dc > 0) col = m.c1;
+        if (dr < 0) row = m.r0;
+        if (dc < 0) col = m.c0;
+      }
+      const step = (v: number, d: number, max: number, hidden: Set<number>) => {
+        if (!d) return v;
+        let n = Math.max(0, Math.min(max - 1, v + d));
+        while (hidden.has(n) && n + Math.sign(d) >= 0 && n + Math.sign(d) < max) n += Math.sign(d);
+        return hidden.has(n) ? v : n;
+      };
+      row = step(row, dr, extent.rows, hiddenRows);
+      col = step(col, dc, extent.cols, hiddenCols);
+      const into = extend ? undefined : mergeAt(merges, row, col);
+      return into ? { row: into.r0, col: into.c0 } : { row, col };
+    },
+    [extent, merges, hiddenRows, hiddenCols],
+  );
+
   const move = useCallback(
     (dr: number, dc: number, extend = false) => {
       setSelection((s) => {
         // Extending moves the far end; a plain move starts from the active cell.
-        const from = extend ? s.focus : s.anchor;
-        const f = {
-          row: Math.max(0, Math.min(extent.rows - 1, from.row + dr)),
-          col: Math.max(0, Math.min(extent.cols - 1, from.col + dc)),
-        };
+        const f = nextCell(extend ? s.focus : s.anchor, dr, dc, extend);
         return extend ? { anchor: s.anchor, focus: f } : { anchor: f, focus: f };
       });
     },
-    [extent],
+    [nextCell],
   );
 
   // Where a run of Tabs across a row began: Enter then returns to that column
@@ -168,23 +291,57 @@ export function WorkbookEditor({
       }
       if ((prev?.i ?? "") !== text) {
         const fmt = prev?.f ? undefined : impliedFormat(text);
+        // Text with a line break wraps, as Excel turns Wrap Text on for it.
+        const wrap = text.includes(NEWLINE) && !prev?.s?.wrap && !text.startsWith("=");
         wb.applyEdits(tabId, [
-          { row: editing.row, col: editing.col, input: text, ...(fmt ? { format: fmt } : {}) },
+          {
+            row: editing.row,
+            col: editing.col,
+            input: text,
+            ...(fmt ? { format: fmt } : {}),
+            ...(wrap ? { style: { ...(prev?.s ?? {}), wrap: true } } : {}),
+          },
         ]);
       }
       setEditing(null);
-      const to = {
-        row: Math.max(0, Math.min(extent.rows - 1, editing.row + dr)),
-        col: Math.max(0, Math.min(extent.cols - 1, toCol ?? editing.col + dc)),
-      };
+      const next = nextCell(editing, dr, dc);
+      const to = toCol === undefined ? next : { row: next.row, col: toCol };
       setSelection({ anchor: to, focus: to });
       // Now, not on the next frame: the editor is about to unmount, and a key
       // pressed in between would land on the page (Tab walking to the toolbar,
       // the next letters lost) instead of the grid.
       gridRef.current?.focus({ preventScroll: true });
     },
-    [editing, engine, tabId, wb, extent],
+    [editing, engine, tabId, wb, nextCell],
   );
+
+  /**
+   * Give the keyboard back to the grid after a menu or dialog: unless a
+   * dialog has just opened (Custom format…, Row height…), which keeps it.
+   */
+  const backToGrid = () => {
+    if (document.querySelector('[role="dialog"], [role="alertdialog"]')) return;
+    gridRef.current?.focus({ preventScroll: true });
+  };
+
+  /**
+   * After a question (a prompt or a confirmation) closes: the keyboard goes
+   * back to the grid once the dialog has gone, unless the person has since
+   * put it somewhere else. Without this it fell to the page, because the menu
+   * item that asked no longer exists.
+   */
+  const afterDialog = () => {
+    let frames = 0;
+    const tick = () => {
+      if (document.querySelector('[role="dialog"], [role="alertdialog"]') && frames++ < 60) {
+        requestAnimationFrame(tick);
+        return;
+      }
+      const a = document.activeElement;
+      if (!a || a === document.body) gridRef.current?.focus({ preventScroll: true });
+    };
+    requestAnimationFrame(tick);
+  };
 
   const cancel = () => {
     setEditing(null);
@@ -262,43 +419,313 @@ export function WorkbookEditor({
     });
   };
 
-  const style = (patch: Partial<CellStyle>) => {
+  // ── Formatting ───────────────────────────────────────────────────────────
+
+  /** Every cell of the selection, capped so a whole-sheet selection stays quick. */
+  const eachCell = (fn: (r: number, c: number) => void, bound = range) => {
     if (!engine || !tabId) return;
-    // Toggling applies the opposite of the active cell's state to the whole selection.
+    const used = engine.used(tabId);
+    // A whole column or row formats the cells in use (and a little room),
+    // not a million rows.
+    const r1 = bound.r1 - bound.r0 > 5000 ? Math.max(bound.r0, used.rows + 100) : bound.r1;
+    const c1 = bound.c1 - bound.c0 > 500 ? Math.max(bound.c0, used.cols + 20) : bound.c1;
+    for (let r = bound.r0; r <= Math.min(r1, bound.r1); r++)
+      for (let c = bound.c0; c <= Math.min(c1, bound.c1); c++) fn(r, c);
+  };
+
+  const restyle = (next: (cur: CellStyle, r: number, c: number) => CellStyle | undefined) => {
+    if (!engine || !tabId) return;
     const edits: CellEdit[] = [];
-    for (let r = range.r0; r <= range.r1; r++) {
-      for (let c = range.c0; c <= range.c1; c++) {
-        const cur = engine.getInput(tabId, r, c);
-        const s = { ...(cur?.s ?? {}), ...patch };
-        for (const k of Object.keys(s) as (keyof CellStyle)[]) if (!s[k]) delete s[k];
-        edits.push({
-          row: r,
-          col: c,
-          input: cur?.i ?? "",
-          style: Object.keys(s).length ? s : null,
-        });
+    eachCell((r, c) => {
+      const cur = engine.getInput(tabId, r, c);
+      const s = { ...(next({ ...(cur?.s ?? {}) }, r, c) ?? {}) };
+      for (const k of Object.keys(s) as (keyof CellStyle)[]) {
+        if (s[k] === undefined || s[k] === false || s[k] === "") delete s[k];
       }
-    }
+      const had = JSON.stringify(cur?.s ?? {});
+      if (had === JSON.stringify(s)) return;
+      edits.push({ row: r, col: c, input: cur?.i ?? "", style: Object.keys(s).length ? s : null });
+    });
     wb.applyEdits(tabId, edits);
   };
 
-  const toggle = (k: "b" | "i" | "u") => style({ [k]: !focusInput?.s?.[k] });
+  const style = (patch: Partial<CellStyle>) => restyle((cur) => ({ ...cur, ...patch }));
+
+  // Toggling applies the opposite of the active cell's state to the whole selection.
+  const toggle = (k: "b" | "i" | "u" | "st" | "wrap") => style({ [k]: !focusInput?.s?.[k] });
+
+  const growFont = (dir: 1 | -1) => {
+    const cur = focusInput?.s?.sz ?? DEFAULT_SIZE;
+    const next =
+      dir > 0
+        ? (SIZES.find((n) => n > cur) ?? Math.min(409, cur + 10))
+        : ([...SIZES].reverse().find((n) => n < cur) ?? Math.max(1, cur - 1));
+    style({ sz: next === DEFAULT_SIZE ? undefined : next });
+  };
+
+  const indent = (dir: 1 | -1) =>
+    restyle((cur) => {
+      const n = Math.max(0, Math.min(15, (cur.ind ?? 0) + dir));
+      return { ...cur, ind: n || undefined, align: n && !cur.align ? "left" : cur.align };
+    });
+
+  const borders = (preset: BorderPreset, lineStyle: BorderStyle, color: string) =>
+    restyle((cur, r, c) => ({
+      ...cur,
+      bd: bordersFor(preset, range, r, c, cur.bd, {
+        s: lineStyle,
+        ...(color !== "#000000" ? { c: color } : {}),
+      }),
+    }));
 
   const setFormat = (code: string) => {
     if (!engine || !tabId) return;
     const edits: CellEdit[] = [];
-    for (let r = range.r0; r <= range.r1; r++) {
-      for (let c = range.c0; c <= range.c1; c++) {
-        const cur = engine.getInput(tabId, r, c);
-        edits.push({
-          row: r,
-          col: c,
-          input: cur?.i ?? "",
-          format: code === "General" ? null : code,
-        });
-      }
-    }
+    eachCell((r, c) => {
+      const cur = engine.getInput(tabId, r, c);
+      edits.push({ row: r, col: c, input: cur?.i ?? "", format: code === "General" ? null : code });
+    });
     wb.applyEdits(tabId, edits);
+  };
+
+  const decimals = (dir: 1 | -1) => {
+    if (!engine || !tabId) return;
+    const sample = engine.getValue(tabId, focus.row, focus.col);
+    const code = adjustDecimals(focusInput?.f, dir, sample);
+    setFormat(code);
+  };
+
+  const clear = (kind: ClearKind) => {
+    if (!engine || !tabId) return;
+    const edits: CellEdit[] = [];
+    eachCell((r, c) => {
+      const cur = engine.getInput(tabId, r, c);
+      if (!cur) return;
+      if (kind === "all")
+        edits.push({ row: r, col: c, input: "", format: null, style: null, link: null });
+      else if (kind === "formats")
+        edits.push({ row: r, col: c, input: cur.i, format: null, style: null });
+      else if (kind === "contents") {
+        if (cur.i) edits.push({ row: r, col: c, input: "" });
+      } else if (kind === "links" && cur.l)
+        edits.push({ row: r, col: c, input: cur.i, link: null });
+    });
+    wb.applyEdits(tabId, edits);
+    if (kind === "all" || kind === "formats") {
+      // Clearing formats also unmerges, as Excel's Clear All does.
+      const left = removeMerges(grid?.merges, range);
+      if (kind === "all" && left.length !== (grid?.merges?.length ?? 0))
+        wb.setGridMeta(tabId, { merges: left });
+    }
+  };
+
+  const merge = async (mode: MergeMode | "unmerge") => {
+    if (!engine || !tabId) return;
+    if (mode === "unmerge") {
+      wb.setGridMeta(tabId, { merges: removeMerges(grid?.merges, range) });
+      return;
+    }
+    if (range.r0 === range.r1 && range.c0 === range.c1) {
+      toast.error("Select two or more cells to merge");
+      return;
+    }
+    if (mode === "across" && range.c0 === range.c1) {
+      toast.error("Merge Across joins cells in a row; select more than one column");
+      return;
+    }
+    const cellCount = (range.r1 - range.r0 + 1) * (range.c1 - range.c0 + 1);
+    if (cellCount > 100_000) {
+      toast.error("That selection is too large to merge");
+      return;
+    }
+    const lost = cellsLostByMerge(range, mode, (r, c) => !!engine.getInput(tabId, r, c)?.i);
+    if (lost.length) {
+      const ok = await confirmAsk({
+        title: "Merge cells?",
+        body:
+          mode === "across"
+            ? "Merging keeps only the first value in each row and discards the others."
+            : "Merging keeps only the upper-left value and discards the others.",
+        actionLabel: "Merge",
+      });
+      afterDialog();
+      if (!ok) return;
+    }
+    const r = range;
+    wb.changeGrid(tabId, (g) => {
+      const cells = { ...g.cells };
+      for (const { row, col } of lost) {
+        const cur = cells[cellKey(row, col)];
+        if (!cur) continue;
+        const next = { ...cur, i: "" };
+        delete next.l;
+        if (!next.f && !next.s) delete cells[cellKey(row, col)];
+        else cells[cellKey(row, col)] = next;
+      }
+      if (mode === "center") {
+        const rows = mode === "center" ? [r.r0] : [];
+        for (const row of rows) {
+          const key = cellKey(row, r.c0);
+          const cur = cells[key] ?? { i: "" };
+          cells[key] = { ...cur, s: { ...(cur.s ?? {}), align: "center" } };
+        }
+      }
+      return { ...g, cells, merges: addMerge(g.merges, r, mode) };
+    });
+    setSelection({ anchor: { row: r.r0, col: r.c0 }, focus: { row: r.r0, col: r.c0 } });
+  };
+
+  // ── Format painter ───────────────────────────────────────────────────────
+  // Picks up the selection's formats; the next selection made takes them,
+  // tiled as Excel tiles a painted pattern.
+  const [painter, setPainter] = useState<{
+    h: number;
+    w: number;
+    cells: ({ s?: CellStyle; f?: string } | undefined)[][];
+  } | null>(null);
+  const startPainter = () => {
+    if (!engine || !tabId) return;
+    if (painter) return setPainter(null);
+    const h = Math.min(range.r1 - range.r0 + 1, 500);
+    const w = Math.min(range.c1 - range.c0 + 1, 100);
+    const cells = Array.from({ length: h }, (_, dr) =>
+      Array.from({ length: w }, (_, dc) => {
+        const cur = engine.getInput(tabId, range.r0 + dr, range.c0 + dc);
+        return cur ? { s: cur.s, f: cur.f } : undefined;
+      }),
+    );
+    setPainter({ h, w, cells });
+  };
+  const applyPainter = () => {
+    if (!painter || !engine || !tabId) return;
+    const edits: CellEdit[] = [];
+    eachCell((r, c) => {
+      const src = painter.cells[(r - range.r0) % painter.h][(c - range.c0) % painter.w];
+      const cur = engine.getInput(tabId, r, c);
+      edits.push({
+        row: r,
+        col: c,
+        input: cur?.i ?? "",
+        style: src?.s ?? null,
+        format: src?.f ?? null,
+      });
+    });
+    wb.applyEdits(tabId, edits);
+    setPainter(null);
+  };
+
+  // ── Links ────────────────────────────────────────────────────────────────
+  const [linkEdit, setLinkEdit] = useState<{ row: number; col: number } | null>(null);
+  const openLinkDialog = () => {
+    if (editing) commit(0, 0);
+    setLinkEdit({ row: focus.row, col: focus.col });
+  };
+  const linkUrlAt = (row: number, col: number): string | null => {
+    if (!engine || !tabId) return null;
+    const input = engine.getInput(tabId, row, col);
+    if (input?.l) return input.l;
+    // =HYPERLINK("https://…", "name"): the address is the first argument.
+    const m = /^=\s*HYPERLINK\s*\(\s*"((?:[^"]|"")*)"/i.exec(input?.i ?? "");
+    return m ? normalizeLink(m[1].replace(/""/g, '"')) : null;
+  };
+  const followLink = (row: number, col: number) => {
+    const url = linkUrlAt(row, col);
+    if (!url) return;
+    const internal = parseInternalLink(url);
+    if (internal) {
+      const target = internal.sheet
+        ? tabs.find((t) => t.name.toLowerCase() === internal.sheet!.toLowerCase())
+        : activeTab;
+      const r = parseRangeA1(internal.ref);
+      if (!target || !r)
+        return void toast.error(`The link points at ${url}, which is not in this workbook`);
+      if (target.id !== tabId) wb.setActiveTabId(target.id);
+      // After the sheet switches, select the target.
+      requestAnimationFrame(() =>
+        setSelection({ anchor: { row: r.r0, col: r.c0 }, focus: { row: r.r1, col: r.c1 } }),
+      );
+      return;
+    }
+    const safe = normalizeLink(url);
+    if (!safe) return void toast.error("That link is not a web or email address");
+    window.open(safe, "_blank", "noopener,noreferrer");
+  };
+
+  // ── Hiding, heights and widths ───────────────────────────────────────────
+  const hide = (axis: Axis, on: boolean) => {
+    if (!tabId) return;
+    const lo = axis === "rows" ? range.r0 : range.c0;
+    const hi = axis === "rows" ? range.r1 : range.c1;
+    const cur = new Set((axis === "rows" ? grid?.hiddenRows : grid?.hiddenCols) ?? []);
+    if (on) {
+      if (hi - lo + 1 >= (axis === "rows" ? extent.rows : extent.cols)) {
+        return void toast.error(
+          `A sheet keeps at least one ${axis === "rows" ? "row" : "column"} showing`,
+        );
+      }
+      for (let i = lo; i <= hi; i++) cur.add(i);
+    } else for (let i = lo; i <= hi; i++) cur.delete(i);
+    const list = [...cur].sort((x, y) => x - y);
+    wb.setGridMeta(
+      tabId,
+      axis === "rows"
+        ? { hiddenRows: list.length ? list : undefined }
+        : { hiddenCols: list.length ? list : undefined },
+    );
+    if (on) {
+      // The active cell moves off what was just hidden.
+      const to = nextCell(
+        { row: range.r0, col: range.c0 },
+        axis === "rows" ? 1 : 0,
+        axis === "cols" ? 1 : 0,
+      );
+      setSelection({ anchor: to, focus: to });
+    }
+  };
+
+  const askRowHeight = async () => {
+    if (!tabId) return;
+    const px = grid?.rowHeights?.[String(range.r0)] ?? ROW_H;
+    const v = await promptAsk({
+      title: "Row height",
+      body: "In points, as Excel measures it (the default is 18). Leave it empty to fit the content.",
+      input: { defaultValue: String(Math.round(px * 0.75 * 4) / 4) },
+      actionLabel: "Set height",
+    });
+    afterDialog();
+    if (v === null) return;
+    const next = { ...(grid?.rowHeights ?? {}) };
+    const pt = Number(v);
+    if (v.trim() !== "" && (!Number.isFinite(pt) || pt < 0 || pt > 409)) {
+      return void toast.error("A row height is between 0 and 409 points");
+    }
+    for (let r = range.r0; r <= Math.min(range.r1, range.r0 + 100_000); r++) {
+      if (v.trim() === "") delete next[String(r)];
+      else next[String(r)] = Math.max(12, Math.round((pt * 4) / 3));
+    }
+    wb.setGridMeta(tabId, { rowHeights: next });
+  };
+
+  const askColWidth = async () => {
+    if (!tabId) return;
+    const px = colWidths[String(range.c0)] ?? DEFAULT_COL_W;
+    const v = await promptAsk({
+      title: "Column width",
+      body: "In characters of the default font, as Excel measures it.",
+      input: { defaultValue: String(Math.round(((px - 5) / 7) * 100) / 100), required: true },
+      actionLabel: "Set width",
+    });
+    afterDialog();
+    if (v === null) return;
+    const ch = Number(v);
+    if (!Number.isFinite(ch) || ch < 0 || ch > 255) {
+      return void toast.error("A column width is between 0 and 255 characters");
+    }
+    const next = { ...colWidths };
+    for (let c = range.c0; c <= Math.min(range.c1, range.c0 + 16_384); c++) {
+      next[String(c)] = Math.max(16, Math.round(ch * 7 + 5));
+    }
+    wb.setGridMeta(tabId, { colWidths: next });
   };
 
   const structural = (axis: Axis, at: number, count: number) => {
@@ -330,6 +757,7 @@ export function WorkbookEditor({
     if (!engine || !tabId) return null;
     const rows: string[][] = [];
     const inputs: Clip["inputs"] = [];
+    const values: Clip["values"] = [];
     const cellCount = (range.r1 - range.r0 + 1) * (range.c1 - range.c0 + 1);
     if (cellCount > 500_000) {
       toast.error("That selection is too large to copy (over 500,000 cells).");
@@ -338,20 +766,28 @@ export function WorkbookEditor({
     for (let r = range.r0; r <= range.r1; r++) {
       const line: string[] = [];
       const ins: Clip["inputs"][number] = [];
+      const vals: Scalar[] = [];
       for (let c = range.c0; c <= range.c1; c++) {
         const input = engine.getInput(tabId, r, c);
-        line.push(cellView(engine.getValue(tabId, r, c), input).text);
-        ins.push(input ? { i: input.i, f: input.f } : undefined);
+        const v = engine.getValue(tabId, r, c);
+        vals.push(v);
+        line.push(cellView(v, input).text);
+        ins.push(input ? { i: input.i, f: input.f, s: input.s, l: input.l } : undefined);
       }
       rows.push(line);
       inputs.push(ins);
+      values.push(vals);
     }
     const tsv = toTsv(rows);
-    clip.current = { tabId, range, inputs, tsv, cut };
+    clip.current = { tabId, range, inputs, values, tsv, cut };
     return tsv;
   };
 
-  const paste = (text: string) => {
+  /**
+   * Paste: everything (values or formulas, formats, links), or, from a copy
+   * made here, only the values (with their number formats) or only the formats.
+   */
+  const paste = (text: string, mode: "all" | "values" | "formats" = "all") => {
     if (!engine || !tabId) return;
     const at = { row: range.r0, col: range.c0 };
     const internal =
@@ -369,6 +805,24 @@ export function WorkbookEditor({
           const src = { row: internal.range.r0 + dr, col: internal.range.c0 + dc };
           const dst = { row: at.row + dr, col: at.col + dc };
           const input = cell?.i ?? "";
+          if (mode === "formats") {
+            const cur = engine.getInput(tabId, dst.row, dst.col);
+            edits.push({
+              ...dst,
+              input: cur?.i ?? "",
+              format: cell?.f ?? null,
+              style: cell?.s ?? null,
+            });
+            return;
+          }
+          if (mode === "values") {
+            edits.push({
+              ...dst,
+              input: literalText(internal.values[dr]?.[dc] ?? null),
+              format: cell?.f ?? null,
+            });
+            return;
+          }
           edits.push({
             ...dst,
             input: internal.cut
@@ -377,28 +831,34 @@ export function WorkbookEditor({
                 ? shiftFormula(input, dst.row - src.row, dst.col - src.col)
                 : input,
             format: cell?.f ?? null,
+            // Excel's paste brings the formats and links along with the values.
+            style: cell?.s ?? null,
+            link: cell?.l ?? null,
           });
         }),
       );
-      if (internal.cut) {
+      if (internal.cut && mode === "all") {
         // A cut moves: the source empties once the paste lands (where not overwritten).
         const dests = new Set(edits.map((e) => `${e.row},${e.col}`));
         for (let r = internal.range.r0; r <= internal.range.r1; r++) {
           for (let c = internal.range.c0; c <= internal.range.c1; c++) {
             if (!dests.has(`${r},${c}`) && internal.tabId === tabId)
-              edits.push({ row: r, col: c, input: "", format: null });
+              edits.push({ row: r, col: c, input: "", format: null, style: null, link: null });
           }
         }
         if (internal.tabId !== tabId) {
           const srcEdits: CellEdit[] = [];
           for (let r = internal.range.r0; r <= internal.range.r1; r++) {
             for (let c = internal.range.c0; c <= internal.range.c1; c++)
-              srcEdits.push({ row: r, col: c, input: "", format: null });
+              srcEdits.push({ row: r, col: c, input: "", format: null, style: null, link: null });
           }
           wb.applyEdits(internal.tabId, srcEdits);
         }
         clip.current = null;
       }
+    } else if (mode === "formats") {
+      toast.error("Paste Formatting needs cells copied from this workbook");
+      return;
     } else {
       const rows = parseTsv(text);
       height = rows.length;
@@ -504,6 +964,18 @@ export function WorkbookEditor({
       if (suggestions.length && e.key === "Tab") {
         e.preventDefault();
         acceptSuggestion(suggestions[Math.min(acIndex, suggestions.length - 1)]);
+        return;
+      }
+      if (e.key === "Enter" && e.altKey && editing.source !== "bar") {
+        // A line break inside the cell, as Alt+Enter is in Excel.
+        e.preventDefault();
+        const caret = editing.caret ?? editing.text.length;
+        setEditing({
+          ...editing,
+          text: editing.text.slice(0, caret) + NEWLINE + editing.text.slice(caret),
+          caret: caret + 1,
+          mode: "edit",
+        });
         return;
       }
       if (e.key === "Enter") {
@@ -613,6 +1085,14 @@ export function WorkbookEditor({
       } else if (k === "b" || k === "i" || k === "u") {
         e.preventDefault();
         toggle(k);
+      } else if (k === "5") {
+        e.preventDefault();
+        toggle("st");
+      } else if (k === "k") {
+        // The grid's Ctrl+K (a link, as in Excel), not the app's search.
+        e.preventDefault();
+        e.stopPropagation();
+        openLinkDialog();
       } else if (k === "a") {
         e.preventDefault();
         // Everything, the active cell where it is and the view unmoved.
@@ -716,6 +1196,7 @@ export function WorkbookEditor({
       input: { defaultValue: t.name, required: true },
       actionLabel: "Rename",
     });
+    afterDialog();
     if (name === null || !name.trim() || name.trim() === t.name) return;
     try {
       const r = await renameTabFn({
@@ -735,6 +1216,7 @@ export function WorkbookEditor({
       body: "Its cells go with it. Formulas elsewhere that refer to it will show #REF!.",
       actionLabel: "Delete sheet",
     });
+    afterDialog();
     if (!ok) return;
     try {
       const r = await deleteTabFn({ data: { access_token: token, tab_id: t.id } });
@@ -809,117 +1291,44 @@ export function WorkbookEditor({
         </div>
       ) : (
         <>
-          {/* Toolbar */}
-          <div className="flex flex-wrap items-center gap-1 border-b border-border bg-muted/30 px-2 py-1">
-            <Button
-              size="icon"
-              variant="ghost"
-              className="h-7 w-7"
-              title="Undo (Ctrl+Z)"
-              onClick={() => wb.undo()}
-            >
-              <Undo2 className="h-4 w-4" />
-            </Button>
-            <Button
-              size="icon"
-              variant="ghost"
-              className="h-7 w-7"
-              title="Redo (Ctrl+Y)"
-              onClick={() => wb.redo()}
-            >
-              <Redo2 className="h-4 w-4" />
-            </Button>
-            <div className="mx-1 h-5 w-px bg-border" />
-            <Button
-              size="icon"
-              variant={focusInput?.s?.b ? "secondary" : "ghost"}
-              className="h-7 w-7"
-              title="Bold (Ctrl+B)"
-              onClick={() => toggle("b")}
-            >
-              <Bold className="h-4 w-4" />
-            </Button>
-            <Button
-              size="icon"
-              variant={focusInput?.s?.i ? "secondary" : "ghost"}
-              className="h-7 w-7"
-              title="Italic (Ctrl+I)"
-              onClick={() => toggle("i")}
-            >
-              <Italic className="h-4 w-4" />
-            </Button>
-            <Button
-              size="icon"
-              variant={focusInput?.s?.u ? "secondary" : "ghost"}
-              className="h-7 w-7"
-              title="Underline (Ctrl+U)"
-              onClick={() => toggle("u")}
-            >
-              <Underline className="h-4 w-4" />
-            </Button>
-            <div className="mx-1 h-5 w-px bg-border" />
-            {(["left", "center", "right"] as const).map((al) => {
-              const Icon = al === "left" ? AlignLeft : al === "center" ? AlignCenter : AlignRight;
-              return (
-                <Button
-                  key={al}
-                  size="icon"
-                  variant={focusInput?.s?.align === al ? "secondary" : "ghost"}
-                  className="h-7 w-7"
-                  title={`Align ${al}`}
-                  onClick={() => style({ align: focusInput?.s?.align === al ? undefined : al })}
-                >
-                  <Icon className="h-4 w-4" />
-                </Button>
-              );
-            })}
-            <div className="mx-1 h-5 w-px bg-border" />
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-7 gap-1 px-2 text-xs"
-                  title="Number format"
-                >
-                  {PRESET_FORMATS.find((p) => p.code === focusInput?.f)?.label ??
-                    (focusInput?.f ? "Custom" : "General")}
-                  <ChevronDown className="h-3 w-3" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start">
-                {PRESET_FORMATS.map((p) => (
-                  <DropdownMenuItem key={p.code} onSelect={() => setFormat(p.code)}>
-                    <span className="w-28">{p.label}</span>
-                    <span className="font-mono text-[11px] text-muted-foreground">{p.code}</span>
-                  </DropdownMenuItem>
-                ))}
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onSelect={async () => {
-                    const code = await promptAsk({
-                      title: "Custom number format",
-                      body: 'An Excel format code, e.g. #,##0.0 or 0.0% or "Q"0 or yyyy-mm.',
-                      input: { defaultValue: focusInput?.f ?? "", required: true },
-                      actionLabel: "Apply",
-                    });
-                    if (code) setFormat(code);
-                  }}
-                >
-                  Custom…
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-7 gap-1 px-2 text-xs"
-              title="Save the selection (or the whole sheet) as a lakehouse table"
-              onClick={openSave}
-            >
-              <Database className="h-3.5 w-3.5" /> Save to lakehouse
-            </Button>
-            <div className="ml-auto flex items-center gap-2 pr-1 text-xs" data-testid="save-state">
+          <SheetToolbar
+            onDone={backToGrid}
+            style={focusInput?.s}
+            format={focusInput?.f}
+            merged={selectionMerged}
+            painting={!!painter}
+            zoom={zoom}
+            gridlines={!grid?.hideGrid}
+            actions={{
+              undo: () => wb.undo(),
+              redo: () => wb.redo(),
+              style,
+              toggle,
+              growFont,
+              indent,
+              borders,
+              merge: (m) => void merge(m),
+              format: setFormat,
+              customFormat: async () => {
+                const code = await promptAsk({
+                  title: "Custom number format",
+                  body: 'An Excel format code, e.g. #,##0.0 or 0.0% or "Q"0 or yyyy-mm, or #,##0;[Red]-#,##0 for red negatives.',
+                  input: { defaultValue: focusInput?.f ?? "", required: true },
+                  actionLabel: "Apply",
+                });
+                afterDialog();
+                if (code) setFormat(code);
+              },
+              decimals,
+              clear,
+              painter: startPainter,
+              link: openLinkDialog,
+              saveToLakehouse: openSave,
+              zoom: setZoom,
+              toggleGridlines: () =>
+                wb.setGridMeta(tabId, { hideGrid: grid?.hideGrid ? undefined : true }),
+            }}
+            status={
               <SaveBadge
                 state={saving}
                 onRetry={() => void wb.saveTab(tabId)}
@@ -930,8 +1339,8 @@ export function WorkbookEditor({
                   else toast.success(`Showing the saved "${activeTab.name}"`);
                 }}
               />
-            </div>
-          </div>
+            }
+          />
 
           {/* Formula bar */}
           <div className="relative flex items-center gap-2 border-b border-border px-2 py-1">
@@ -1064,18 +1473,88 @@ export function WorkbookEditor({
               rev={rev}
               rowCount={extent.rows}
               colCount={extent.cols}
-              colWidths={colWidths}
+              grid={grid}
+              zoom={zoom / 100}
               selection={selection}
               onSelect={(sel) => {
                 tabRun.current = null;
                 setSelection(sel);
+              }}
+              onSelectEnd={() => painter && applyPainter()}
+              onZoom={(dir) => setZoom((cur) => stepZoom(cur, dir))}
+              onOpenLink={followLink}
+              onRowHeight={(r, h) => {
+                const next = { ...(grid?.rowHeights ?? {}) };
+                if (h === null) delete next[String(r)];
+                else next[String(r)] = h;
+                wb.setGridMeta(tabId, { rowHeights: next }, { gesture: `row-height:${r}` });
+              }}
+              renderOverlay={(geo) => {
+                // The active cell's link, with what to do about it.
+                const url = !editing ? linkUrlAt(focus.row, focus.col) : null;
+                if (!url) return null;
+                const box = mergeAt(merges, focus.row, focus.col) ?? {
+                  r0: focus.row,
+                  c0: focus.col,
+                  r1: focus.row,
+                  c1: focus.col,
+                };
+                return (
+                  <div
+                    className="absolute z-30 flex max-w-sm items-center gap-1 rounded-md border border-border bg-popover px-2 py-1 text-xs shadow-md"
+                    style={{ left: geo.cols.start(box.c0), top: geo.rows.end(box.r1) + 4 }}
+                    data-testid="link-chip"
+                    onMouseDown={(e) => e.stopPropagation()}
+                  >
+                    <button
+                      type="button"
+                      className="flex min-w-0 items-center gap-1 truncate text-primary underline-offset-2 hover:underline"
+                      title={`Open ${url}`}
+                      onClick={() => followLink(focus.row, focus.col)}
+                    >
+                      <ExternalLink className="h-3 w-3 shrink-0" />
+                      <span className="truncate">{url}</span>
+                    </button>
+                    {engine.getInput(tabId, focus.row, focus.col)?.l && (
+                      <>
+                        <button
+                          type="button"
+                          className="rounded p-0.5 hover:bg-muted"
+                          aria-label="Edit link"
+                          title="Edit link"
+                          onClick={openLinkDialog}
+                        >
+                          <Pencil className="h-3 w-3" />
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded p-0.5 hover:bg-muted"
+                          aria-label="Remove link"
+                          title="Remove link"
+                          onClick={() => {
+                            const cur = engine.getInput(tabId, focus.row, focus.col);
+                            wb.applyEdits(tabId, [
+                              { row: focus.row, col: focus.col, input: cur?.i ?? "", link: null },
+                            ]);
+                          }}
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </>
+                    )}
+                  </div>
+                );
               }}
               editing={editing}
               onEditChange={setEditing}
               onCommit={commit}
               onKey={onKey}
               onColWidth={(c, w) =>
-                wb.setGridMeta(tabId, { colWidths: { ...colWidths, [String(c)]: Math.round(w) } })
+                wb.setGridMeta(
+                  tabId,
+                  { colWidths: { ...colWidths, [String(c)]: Math.round(w) } },
+                  { gesture: `col-width:${c}` },
+                )
               }
               onFill={fill}
               onNearEnd={(axis) =>
@@ -1085,9 +1564,9 @@ export function WorkbookEditor({
                     : { ...x, cols: Math.min(16_384, x.cols + 26) },
                 )
               }
-              onContextMenu={(e) => {
+              onContextMenu={(e, kind) => {
                 e.preventDefault();
-                setMenu({ x: e.clientX, y: e.clientY });
+                setMenu({ x: e.clientX, y: e.clientY, kind });
               }}
               editorRef={editorRef}
               gridRef={gridRef}
@@ -1111,8 +1590,17 @@ export function WorkbookEditor({
               <ContextMenu
                 x={menu.x}
                 y={menu.y}
+                kind={menu.kind}
                 range={range}
-                onClose={() => setMenu(null)}
+                hiddenRowsIn={[...hiddenRows].some((r) => r >= range.r0 && r <= range.r1)}
+                hiddenColsIn={[...hiddenCols].some((c) => c >= range.c0 && c <= range.c1)}
+                onClose={() => {
+                  setMenu(null);
+                  // Back to the grid before the action runs (a dialog it opens
+                  // takes the keyboard and returns it here): without this the
+                  // keyboard fell to the page and Ctrl+Z did nothing (R115).
+                  gridRef.current?.focus({ preventScroll: true });
+                }}
                 actions={{
                   copy: () => {
                     const t = copy(false);
@@ -1139,13 +1627,29 @@ export function WorkbookEditor({
                       toast.error("The browser refused clipboard access; use Ctrl+V.");
                     }
                   },
+                  pasteValues: () => {
+                    if (!clip.current) return void toast.error("Copy cells in this workbook first");
+                    paste(clip.current.tsv, "values");
+                  },
+                  pasteFormats: () => {
+                    if (!clip.current) return void toast.error("Copy cells in this workbook first");
+                    paste(clip.current.tsv, "formats");
+                  },
                   clear: clearSelection,
+                  clearFormats: () => clear("formats"),
+                  link: openLinkDialog,
                   insertRowsAbove: () => structural("rows", range.r0, range.r1 - range.r0 + 1),
                   insertRowsBelow: () => structural("rows", range.r1 + 1, range.r1 - range.r0 + 1),
                   deleteRows: () => structural("rows", range.r0, -(range.r1 - range.r0 + 1)),
                   insertColsLeft: () => structural("cols", range.c0, range.c1 - range.c0 + 1),
                   insertColsRight: () => structural("cols", range.c1 + 1, range.c1 - range.c0 + 1),
                   deleteCols: () => structural("cols", range.c0, -(range.c1 - range.c0 + 1)),
+                  hideRows: () => hide("rows", true),
+                  unhideRows: () => hide("rows", false),
+                  hideCols: () => hide("cols", true),
+                  unhideCols: () => hide("cols", false),
+                  rowHeight: () => void askRowHeight(),
+                  colWidth: () => void askColWidth(),
                   saveToLakehouse: () => openSave(),
                 }}
               />
@@ -1245,8 +1749,54 @@ export function WorkbookEditor({
               {stats.nums > 0 && <span>Sum: {fmtStat(stats.sum)}</span>}
             </>
           )}
+          {activeTab.kind === "grid" && (
+            <ZoomControl zoom={zoom} onZoom={setZoom} onDone={backToGrid} />
+          )}
         </div>
       </div>
+      {linkEdit && engine && tabId && (
+        <LinkDialog
+          open
+          onClosed={() => gridRef.current?.focus({ preventScroll: true })}
+          onOpenChange={(o) => {
+            if (!o) {
+              setLinkEdit(null);
+              gridRef.current?.focus({ preventScroll: true });
+            }
+          }}
+          initialText={
+            cellView(
+              engine.getValue(tabId, linkEdit.row, linkEdit.col),
+              engine.getInput(tabId, linkEdit.row, linkEdit.col),
+            ).text
+          }
+          initialUrl={engine.getInput(tabId, linkEdit.row, linkEdit.col)?.l ?? ""}
+          textLocked={(engine.getInput(tabId, linkEdit.row, linkEdit.col)?.i ?? "").startsWith("=")}
+          onApply={(text, url) => {
+            const cur = engine.getInput(tabId, linkEdit.row, linkEdit.col);
+            const formula = (cur?.i ?? "").startsWith("=");
+            wb.applyEdits(tabId, [
+              {
+                row: linkEdit.row,
+                col: linkEdit.col,
+                // A formula keeps computing; typed text becomes the link's text.
+                input: formula ? cur!.i : text,
+                link: url,
+              },
+            ]);
+            setLinkEdit(null);
+            gridRef.current?.focus({ preventScroll: true });
+          }}
+          onRemove={() => {
+            const cur = engine.getInput(tabId, linkEdit.row, linkEdit.col);
+            wb.applyEdits(tabId, [
+              { row: linkEdit.row, col: linkEdit.col, input: cur?.i ?? "", link: null },
+            ]);
+            setLinkEdit(null);
+            gridRef.current?.focus({ preventScroll: true });
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -1380,40 +1930,59 @@ function SheetTab({
   );
 }
 
+type MenuAction =
+  | "copy"
+  | "cut"
+  | "paste"
+  | "pasteValues"
+  | "pasteFormats"
+  | "clear"
+  | "clearFormats"
+  | "link"
+  | "insertRowsAbove"
+  | "insertRowsBelow"
+  | "deleteRows"
+  | "insertColsLeft"
+  | "insertColsRight"
+  | "deleteCols"
+  | "hideRows"
+  | "unhideRows"
+  | "hideCols"
+  | "unhideCols"
+  | "rowHeight"
+  | "colWidth"
+  | "saveToLakehouse";
+
 function ContextMenu({
   x,
   y,
+  kind,
   range,
+  hiddenRowsIn,
+  hiddenColsIn,
   onClose,
   actions,
 }: {
   x: number;
   y: number;
+  /** Right-clicked on cells, or on row or column headers. */
+  kind: "cell" | "row" | "col";
   range: RangeAddr;
+  hiddenRowsIn: boolean;
+  hiddenColsIn: boolean;
   onClose: () => void;
-  actions: Record<
-    | "copy"
-    | "cut"
-    | "paste"
-    | "clear"
-    | "insertRowsAbove"
-    | "insertRowsBelow"
-    | "deleteRows"
-    | "insertColsLeft"
-    | "insertColsRight"
-    | "deleteCols"
-    | "saveToLakehouse",
-    () => void
-  >;
+  actions: Record<MenuAction, () => void>;
 }) {
   const rows = range.r1 - range.r0 + 1;
   const cols = range.c1 - range.c0 + 1;
   const item = (label: string, fn: () => void, danger = false) => (
     <button
+      key={label}
       className={cn(
         "block w-full rounded px-3 py-1.5 text-left text-xs hover:bg-muted",
         danger && "text-destructive",
       )}
+      role="menuitem"
       onClick={(e) => {
         e.stopPropagation();
         onClose();
@@ -1437,31 +2006,62 @@ function ContextMenu({
       window.removeEventListener("mousedown", outside);
     };
   }, [onClose]);
+  // Kept on screen: a menu opened near the bottom or right edge opens up or left.
+  const [pos, setPos] = useState({ left: x, top: y });
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    setPos({
+      left: Math.max(4, Math.min(x, window.innerWidth - r.width - 4)),
+      top: Math.max(4, Math.min(y, window.innerHeight - r.height - 4)),
+    });
+  }, [x, y]);
+  const sep = (k: string) => <div key={k} className="my-1 h-px bg-border" />;
+  const colName = `${colLetters(range.c0)}${cols > 1 ? `:${colLetters(range.c1)}` : ""}`;
+  const rowItems = [
+    item(`Insert ${rows} row${rows > 1 ? "s" : ""} above`, actions.insertRowsAbove),
+    item(`Insert ${rows} row${rows > 1 ? "s" : ""} below`, actions.insertRowsBelow),
+    item(`Delete ${rows > 1 ? `${rows} rows` : "row"}`, actions.deleteRows, true),
+  ];
+  const colItems = [
+    item(`Insert ${cols} column${cols > 1 ? "s" : ""} left`, actions.insertColsLeft),
+    item(`Insert ${cols} column${cols > 1 ? "s" : ""} right`, actions.insertColsRight),
+    item(`Delete ${cols > 1 ? `${cols} columns` : "column"} ${colName}`, actions.deleteCols, true),
+  ];
   return (
     <div
-      className="fixed z-50 w-56 rounded-md border border-border bg-popover p-1 shadow-lg"
-      style={{ left: x, top: y }}
+      className="fixed z-50 max-h-[80vh] w-60 overflow-y-auto rounded-md border border-border bg-popover p-1 shadow-lg"
+      style={pos}
       role="menu"
       data-testid="grid-context-menu"
+      data-kind={kind}
       ref={ref}
     >
       {item("Cut", actions.cut)}
       {item("Copy", actions.copy)}
       {item("Paste", actions.paste)}
+      {item("Paste values only", actions.pasteValues)}
+      {item("Paste formatting only", actions.pasteFormats)}
+      {sep("s1")}
+      {kind === "row" && [
+        ...rowItems,
+        item(`Hide ${rows > 1 ? `${rows} rows` : "row"}`, actions.hideRows),
+        ...(hiddenRowsIn ? [item("Unhide rows", actions.unhideRows)] : []),
+        item("Row height…", actions.rowHeight),
+      ]}
+      {kind === "col" && [
+        ...colItems,
+        item(`Hide ${cols > 1 ? `${cols} columns` : "column"} ${colName}`, actions.hideCols),
+        ...(hiddenColsIn ? [item("Unhide columns", actions.unhideCols)] : []),
+        item("Column width…", actions.colWidth),
+      ]}
+      {kind === "cell" && [...rowItems, sep("s2"), ...colItems]}
+      {sep("s3")}
       {item("Clear contents", actions.clear)}
-      <div className="my-1 h-px bg-border" />
-      {item(`Insert ${rows} row${rows > 1 ? "s" : ""} above`, actions.insertRowsAbove)}
-      {item(`Insert ${rows} row${rows > 1 ? "s" : ""} below`, actions.insertRowsBelow)}
-      {item(`Delete ${rows > 1 ? `${rows} rows` : "row"}`, actions.deleteRows, true)}
-      <div className="my-1 h-px bg-border" />
-      {item(`Insert ${cols} column${cols > 1 ? "s" : ""} left`, actions.insertColsLeft)}
-      {item(`Insert ${cols} column${cols > 1 ? "s" : ""} right`, actions.insertColsRight)}
-      {item(
-        `Delete ${cols > 1 ? `${cols} columns` : "column"} ${colLetters(range.c0)}${cols > 1 ? `:${colLetters(range.c1)}` : ""}`,
-        actions.deleteCols,
-        true,
-      )}
-      <div className="my-1 h-px bg-border" />
+      {item("Clear formats", actions.clearFormats)}
+      {kind === "cell" && item("Insert link…", actions.link)}
+      {sep("s4")}
       {item("Save range to the lakehouse…", actions.saveToLakehouse)}
     </div>
   );

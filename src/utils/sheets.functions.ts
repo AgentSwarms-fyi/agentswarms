@@ -11,6 +11,7 @@ import { z } from "zod";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { Json } from "@/integrations/supabase/types";
 import { getPlatformResources } from "@/utils/notebookRuntime/config.server";
+import { gridSchema } from "@/utils/sheets/schemas";
 
 type Fail = { ok: false; error: string };
 
@@ -368,35 +369,6 @@ export const sheetsReorderTabs = createServerFn({ method: "POST" })
     }
     return { ok: true };
   });
-
-const styleSchema = z
-  .object({
-    b: z.boolean().optional(),
-    i: z.boolean().optional(),
-    u: z.boolean().optional(),
-    align: z.enum(["left", "center", "right"]).optional(),
-    color: z.string().max(32).optional(),
-    bg: z.string().max(32).optional(),
-  })
-  .strict();
-
-const gridSchema = z.object({
-  // Excel's own ceiling on what one cell holds: 32,767 characters.
-  cells: z.record(
-    z.string().regex(/^\d{1,7},\d{1,5}$/),
-    z
-      .object({
-        i: z.string().max(32767),
-        f: z.string().max(255).optional(),
-        s: styleSchema.optional(),
-      })
-      .strict(),
-  ),
-  colWidths: z.record(z.string().regex(/^\d{1,5}$/), z.number().min(16).max(2000)).optional(),
-  rowHeights: z.record(z.string().regex(/^\d{1,7}$/), z.number().min(12).max(800)).optional(),
-  frozenRows: z.number().int().min(0).max(100).optional(),
-  frozenCols: z.number().int().min(0).max(50).optional(),
-});
 
 /**
  * Save a grid sheet's cells. `base_version` is the version the editor read;

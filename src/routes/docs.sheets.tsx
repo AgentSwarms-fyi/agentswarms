@@ -95,7 +95,21 @@ function SheetsDocsPage() {
         </li>
         <li>
           <strong>Rows and columns.</strong> Inserting or deleting them moves every formula that
-          pointed at them, workbook-wide; renaming a sheet rewrites the formulas that name it.
+          pointed at them, workbook-wide, and merged cells and row heights with them; renaming a
+          sheet rewrites the formulas that name it. A header&apos;s right-click menu hides and
+          unhides, and sets a row height in points or a column width in characters.
+        </li>
+        <li>
+          <strong>Formatting.</strong> The ribbon&apos;s Home tab sets fonts and sizes, bold,
+          italic, underline and strikethrough, font and fill colors, borders, alignment, indent,
+          wrapping, merged cells (Merge &amp; Center, Merge Across) and number formats, with a
+          format painter and Clear. Rows grow for wrapped text and larger fonts. A format code such
+          as <C>#,##0;[Red]-#,##0</C> paints negatives red.
+        </li>
+        <li>
+          <strong>Links and zoom.</strong> Ctrl+K links a cell to a web address, an email or a place
+          in the workbook (<C>#Summary!B6</C>); Ctrl+click follows it. <C>javascript:</C> and other
+          schemes are refused. The zoom (Ctrl+wheel, or the status bar) is kept per sheet.
         </li>
         <li>
           <strong>Saving.</strong> Automatic, per sheet and versioned. A save from an older copy is

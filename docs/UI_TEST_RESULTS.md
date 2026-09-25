@@ -15,6 +15,66 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-25 — Sheets formatting: fonts, colors, borders, merges, links, zoom, row heights, ADVERSARIAL_LOG R115–R117
+
+**Why this round exists.** Excel users format as they go, and a sheet that
+cannot hold a font, a fill, a border or a merged title is not one they can
+hand to anyone. This round drives the new ribbon (Home, Insert, Data, View),
+the context menus for cells, rows and columns, and the grid's new geometry
+(rows and columns of their own size, hidden ones, zoom).
+
+Workbook: **Sheets E2E Formatting** (`382872da-dc98-4280-8d2b-06c4c5e10c81`), kept.
+Host build on the running app (`dist` swapped in), then the image before commit.
+
+| Step | Result |
+|---|---|
+| Type a small table: Region / Sales / Notes, four regions, `=SUM(B2:B5)` | 3330; a long note runs on over D–F as in Excel |
+| A1:C1 → Font Georgia (menu shows each font in its face), size 14, Bold | computed `font-family: Georgia`, 16.5 px, weight 600; row 1 grew 24 → 28 px; keyboard back in the grid |
+| Fill palette → theme blue; Font color palette → white | B1 `rgb(68,114,196)` on `rgb(255,255,255)` |
+| A1:C6 → Borders → All borders, then Thick outside borders | 18 border overlays; the thick frame drawn on the range's edge |
+| C2 → Wrap text | row 2 grew to 91 px, text in four lines, A2/B2 at the bottom (Excel's default) |
+| A2:B2 → Middle align, Center | `align-items: center`, `justify-content: center` |
+| A9 "Quarterly sales by region", C9 "x", A9:C9 → Merge & Center | Excel's warning "keeps only the upper-left value"; Merge → one cell 311 px wide (A+B+C = 312), centered, C9 cleared, name box A9:C9 |
+| From A10, ↑ then → | ↑ selects the merge as one (A9:C9); → leaves it to D9 |
+| Ctrl+Z, Ctrl+Y | C9 "x" back and unmerged; merged again |
+| E3 "Docs", Ctrl+K, `javascript:alert(document.cookie)` | refused: "Only web (http, https), email (mailto:) and in-workbook (#Sheet1!A1) links are allowed" |
+| Same dialog, `example.com/docs` | stored `https://example.com/docs`; cell blue `rgb(5,99,193)`, underlined; a chip under the cell with the address |
+| Chip → open; Ctrl+click the cell (window.open recorded, not followed) | both `["https://example.com/docs","_blank","noopener,noreferrer"]` |
+| E5 "Jump to total", Insert → Link, `#Sheet1!B6` → chip | selection moved to B6; nothing opened |
+| B2:B6 → Currency; Decrease decimal; Increase decimal | `$1,200.00`, `-$350.00`, `$3,330.00` → `$1,200.0` … → back to two places |
+| Number format → Custom… `"$"#,##0.00;[Red]-"$"#,##0.00` | B3 red `-$350.00`, the format button reads "Custom" (after R117) |
+| Reload the page | every format, the merge, the wrap, the links and the widths came back from the server |
+| Ctrl+K in the grid | only the link dialog (address focused); the app's search palette stayed shut. On the Sheets list Ctrl+K still opens the palette |
+| Right-click A3 → Insert 1 row above → Ctrl+Z (keyboard) | row inserted, the merge moved down with it; Ctrl+Z restored both (after R115) |
+| Status bar +, level menu 150%, Ctrl+wheel ×3 in, ×3 out | 110% (col A 104 → 114 px, font 16.5 → 18.2 px); 150% (156 px); 100 → 130 → 100 |
+| Column D header → Hide column D; ←/→ from E1 | headers A B C E, a marker on E; ← goes to C1, → back to E1 |
+| Select C:E → Unhide columns | A B C D E again |
+| Row 10 header → Row height… | the box focused with `18` selected; `40` → 53 px; double-click the row's edge → back to 24 px |
+| A1:C1 → Format painter → drag A12:C12 | A12:C12 blue, Georgia, 16.5 px; the painter switched itself off |
+| C3: Ctrl+5, Ctrl+I, Ctrl+U | `underline line-through`, italic; the three buttons pressed |
+| A4 → Increase indent ×2; A5 → Increase font size ×2 | 24 px left padding; 11 → 12 → 14, row 5 → 28 px |
+| A12:C12 → Clear formats; E3 → Clear hyperlinks → Ctrl+Z | styles gone, row back to 24 px; link gone, then back |
+| View → Gridlines off / on | the lines go and return; borders stay |
+| Copy B5:B6, G5 → Paste values only | G6 = 3330 as a number (not `=SUM`), currency kept |
+| H5 → Paste formatting only, type -42 | red `-$42.00` inside the copied borders |
+| E7: "Line one", Alt+Enter, "Line two", Enter | the cell holds `Line one\nLine two`, wraps, row 7 → 40 px |
+| Drag column E's edge wider, one Ctrl+Z | 104 → 204 px; one undo → 104 (the drag is one step) |
+| B20 → Insert 1 column left (column B crosses the merge A9:C9) | the merge grew to A9:D9 (415 px); `=SUM(B2:B5)` became `=SUM(C2:C5)`; undo restored both |
+| Sheet tab menu → Rename → type, Enter | the box focused with "Sheet1" selected; tab reads "Summary" (after R117) |
+
+Found on the way and fixed before commit (new code, not shipped):
+- Ctrl+K opened the link dialog and the app's search palette together, and
+  the typing went into the palette. The grid now stops the key, and the
+  palette ignores a Ctrl+K another control has claimed.
+- The link dialog closed with focus on the page; it hands it to the grid.
+- A ribbon item that opens a dialog (Custom…) had its dialog's focus pulled
+  back to the grid; the grid only takes the keyboard when no dialog is open,
+  and after a question closes.
+- Several Ctrl+wheel notches in one frame moved the zoom one step; each
+  notch now steps from the latest zoom.
+
+Findings from this round: R115–R117 in the [Adversarial log](./ADVERSARIAL_LOG.md).
+
 ## 2026-09-25 — Sheets: grid and table sheets, imports, pivots, formulas over tables, saving to the lakehouse and the catalog, ADVERSARIAL_LOG R112–R114
 
 **Why this round exists.** Sheets is new (Data & BI → Sheets): grid sheets
