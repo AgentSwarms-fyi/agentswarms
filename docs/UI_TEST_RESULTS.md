@@ -15,6 +15,40 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-26 — The Sheets page: search, sort, thumbnails, ADVERSARIAL_LOG R122–R124
+
+**Why this round exists.** The Sheets page was a plain list of names and "No description". Asked
+for a searchable, more polished gallery, this round rebuilt it. It also read where the page's
+"edited" time came from, which turned out to be wrong (R122). Using the editor to make a card
+turned up two more defects, R123 and R124.
+
+Fixtures: the nine workbooks already kept from earlier rounds; one workbook made, renamed and
+deleted from its card here ("Gallery check (temporary)"). Thumbnails were read from the DOM and
+from `sheet_workbook_previews`, times from `sheet_workbooks` and `sheet_tabs`.
+
+| Step | Result |
+|---|---|
+| Open Sheets (after clearing the thumbnail cache) | nine cards, each with the corner of its first grid sheet as it reads: values not formulas, the blue header fill with white text and the red -350 of "Q1 sales (openpyxl)", Phase D's green paid rows and red quantities from its rules; "9 charts" on Phase E's card (first shown as "3 charts", the thumbnail's list of types, fixed) |
+| Press `/` | the search box takes the keyboard; the `/` is not typed into it |
+| Type `quarterly` | "3 of 9 workbooks": the two Phase F workbooks and "Long sheet names (R118)", found by a sheet named Quarterly…; the word marked in their sheet chips |
+| Escape; type `rules orders` | "1 of 9": Phase D (one word in its name, one in a sheet's) |
+| Type `budget 2031` | "No workbooks match “budget 2031”" with Clear search, which brings all nine back |
+| Sort → Name | club members, Long sheet names, Q1 sales, …, Sheets E2E Rules (Phase D): case ignored |
+| Layout → List; reload | the list (name with a small sheet-shaped thumbnail, sheets, edited, created) and the Name order, both kept |
+| Start → Blank workbook → "Gallery check (temporary)" → type a small table, bold the header | the workbook opens; back on the page its card shows region / sales in bold, 1200 and the rest: the editor kept the thumbnail a second after the edit, and the workbook's time stayed on the edit |
+| Sort → Last edited; open Phase D by clicking its thumbnail; K6 → Delete; ← Sheets | Phase D first, "2s ago" (R122: before the fix it stayed fourth, "edited 4h ago", with the sheet saved at 19:12:13 and the workbook at 15:36:59) |
+| The card's ⋯ → Rename… → "Gallery check renamed (temporary)" | "Renamed to …", first in the list |
+| ⋯ → Delete… → Delete workbook | "Deleted …", nine workbooks; its thumbnail row went with it (no thumbnail without a workbook) |
+| Ctrl+B on A1:B1 of the new workbook, before the fix | bold, and the app's sidebar opened; again: bold off, sidebar closed (R123) |
+| After | Ctrl+B three times: bold on, off, on, the sidebar still; F2 then Ctrl+B: the sidebar still; with the page focused, Ctrl+B still opens and closes the sidebar |
+| Dark theme, before | the pink rule cells of Phase F (20, 30) showed near-white text, unreadable, in the grid and on the card (R124) |
+| After | C2: `rgb(31, 31, 31)` on `rgb(255, 199, 206)`; the thumbnails likewise |
+
+Found while building it (new code, fixed before commit): a merge's fill showed only in its first
+cell of a thumbnail, and two tests could not fail (the merge case drew nothing under the merge
+anyway; "cafe" is found in "café" even without folding accents). Both were caught by the
+mutation run and given tests that can fail.
+
 ## 2026-09-25 — Sheets: Insert cells and Delete cells, and version history
 
 **Why this round exists.** Excel's Insert and Delete cells move only part of a row or column, and a

@@ -6784,6 +6784,35 @@ export type Database = {
           },
         ];
       };
+      sheet_workbook_previews: {
+        Row: {
+          preview: Json;
+          updated_at: string;
+          user_id: string;
+          workbook_id: string;
+        };
+        Insert: {
+          preview: Json;
+          updated_at?: string;
+          user_id: string;
+          workbook_id: string;
+        };
+        Update: {
+          preview?: Json;
+          updated_at?: string;
+          user_id?: string;
+          workbook_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "sheet_workbook_previews_workbook_id_fkey";
+            columns: ["workbook_id"];
+            isOneToOne: true;
+            referencedRelation: "sheet_workbooks";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       sheet_workbook_versions: {
         Row: {
           created_at: string;

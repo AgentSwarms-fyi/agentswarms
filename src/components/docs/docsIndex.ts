@@ -4084,6 +4084,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "level": 2
       },
       {
+        "id": "page",
+        "text": "The Sheets page",
+        "level": 2
+      },
+      {
         "id": "grid",
         "text": "Grid sheets",
         "level": 2

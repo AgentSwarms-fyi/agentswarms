@@ -13,6 +13,8 @@ import type { Json } from "@/integrations/supabase/types";
 import { getPlatformResources } from "@/utils/notebookRuntime/config.server";
 import { gridSchema } from "@/utils/sheets/schemas";
 import { takeVersion } from "@/utils/sheets/versions.server";
+import { previewOfTabs } from "@/utils/sheets/preview.server";
+import { previewSchema, type WorkbookPreview } from "@/lib/sheets/preview";
 
 type Fail = { ok: false; error: string };
 
@@ -29,7 +31,19 @@ export type WorkbookSummary = {
   updated_at: string;
   created_at: string;
   sheet_count: number;
+  /** Its sheets in order, for the gallery's chips and search. */
+  sheets: { name: string; kind: "grid" | "table" }[];
+  /** The thumbnail kept for it, or null (none yet). */
+  preview: WorkbookPreview | null;
 };
+
+/** A kept thumbnail as read back: anything that is not one reads as none. */
+function keptPreview(json: unknown): WorkbookPreview | null {
+  const one = Array.isArray(json) ? json[0] : json;
+  const raw = one && typeof one === "object" && "preview" in one ? one.preview : null;
+  const r = previewSchema.safeParse(raw);
+  return r.success ? r.data : null;
+}
 
 export type SheetTabRow = {
   id: string;
@@ -110,7 +124,9 @@ export const sheetsList = createServerFn({ method: "POST" })
       if (!caller.ok) return caller;
       const { data: rows, error } = await supabaseAdmin
         .from("sheet_workbooks")
-        .select("id, name, description, created_at, updated_at, sheet_tabs(count)")
+        .select(
+          "id, name, description, created_at, updated_at, sheet_tabs(name, kind, position), sheet_workbook_previews(preview)",
+        )
         .eq("user_id", caller.userId)
         .order("updated_at", { ascending: false })
         .limit(500);
@@ -124,9 +140,23 @@ export const sheetsList = createServerFn({ method: "POST" })
           description: r.description,
           created_at: r.created_at,
           updated_at: r.updated_at,
-          sheet_count:
-            ((r as unknown as { sheet_tabs?: { count: number }[] }).sheet_tabs?.[0]
-              ?.count as number) ?? 0,
+          ...(() => {
+            const tabs = [
+              ...((
+                r as unknown as { sheet_tabs?: { name: string; kind: string; position: number }[] }
+              ).sheet_tabs ?? []),
+            ].sort((a, b) => a.position - b.position);
+            return {
+              sheet_count: tabs.length,
+              sheets: tabs.map((t) => ({
+                name: t.name,
+                kind: (t.kind === "table" ? "table" : "grid") as "grid" | "table",
+              })),
+            };
+          })(),
+          preview: keptPreview(
+            (r as unknown as { sheet_workbook_previews?: unknown }).sheet_workbook_previews,
+          ),
         })),
       };
     },
@@ -177,7 +207,7 @@ export const sheetsGet = createServerFn({ method: "POST" })
     }): Promise<
       | {
           ok: true;
-          workbook: Omit<WorkbookSummary, "sheet_count">;
+          workbook: Omit<WorkbookSummary, "sheet_count" | "sheets">;
           tabs: SheetTabRow[];
           limits: SheetsLimits;
         }
@@ -200,6 +230,11 @@ export const sheetsGet = createServerFn({ method: "POST" })
         .order("position", { ascending: true })
         .order("created_at", { ascending: true });
       if (error) return { ok: false, error: `Could not read the sheets: ${error.message}` };
+      const { data: kept } = await supabaseAdmin
+        .from("sheet_workbook_previews")
+        .select("preview")
+        .eq("workbook_id", data.id)
+        .maybeSingle();
       return {
         ok: true,
         workbook: {
@@ -208,6 +243,7 @@ export const sheetsGet = createServerFn({ method: "POST" })
           description: wb.description,
           created_at: wb.created_at,
           updated_at: wb.updated_at,
+          preview: keptPreview(kept),
         },
         tabs: (tabs ?? []) as SheetTabRow[],
         limits: await limits(),
@@ -387,6 +423,85 @@ export const sheetsReorderTabs = createServerFn({ method: "POST" })
     }
     return { ok: true };
   });
+
+/**
+ * Keep a workbook's thumbnail, as the editor drew it. Writing it is not an
+ * edit: it lives in its own table, so the workbook's "edited" time stays.
+ */
+export const sheetsSetPreview = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    tokenOnly.extend({ workbook_id: z.string().uuid(), preview: previewSchema }).parse(input),
+  )
+  .handler(async ({ data }): Promise<{ ok: true } | Fail> => {
+    const caller = await resolveCaller(data.access_token);
+    if (!caller.ok) return caller;
+    try {
+      if (!(await ownWorkbook(caller.userId, data.workbook_id)))
+        return { ok: false, error: "This workbook does not exist, or is not yours" };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+    const { error } = await supabaseAdmin.from("sheet_workbook_previews").upsert({
+      workbook_id: data.workbook_id,
+      user_id: caller.userId,
+      preview: data.preview as unknown as Json,
+      updated_at: new Date().toISOString(),
+    });
+    if (error) return { ok: false, error: `Could not keep the thumbnail: ${error.message}` };
+    return { ok: true };
+  });
+
+/**
+ * Thumbnails for a few of the caller's workbooks that have none, computed
+ * here from their saved sheets. The gallery asks for the ones it is showing,
+ * a few at a time; each is built once and kept.
+ */
+export const sheetsBackfillPreviews = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    tokenOnly.extend({ ids: z.array(z.string().uuid()).min(1).max(4) }).parse(input),
+  )
+  .handler(
+    async ({ data }): Promise<{ ok: true; previews: Record<string, WorkbookPreview> } | Fail> => {
+      const caller = await resolveCaller(data.access_token);
+      if (!caller.ok) return caller;
+      const { data: have, error: e1 } = await supabaseAdmin
+        .from("sheet_workbook_previews")
+        .select("workbook_id")
+        .in("workbook_id", data.ids);
+      if (e1) return { ok: false, error: `Could not read the thumbnails: ${e1.message}` };
+      const done = new Set((have ?? []).map((h) => h.workbook_id));
+      const ids = data.ids.filter((id) => !done.has(id));
+      if (!ids.length) return { ok: true, previews: {} };
+      // The caller's own sheets only: user_id is the owner's on every tab.
+      const { data: tabs, error } = await supabaseAdmin
+        .from("sheet_tabs")
+        .select("id, workbook_id, name, kind, position, grid")
+        .in("workbook_id", ids)
+        .eq("user_id", caller.userId);
+      if (error) return { ok: false, error: `Could not read the sheets: ${error.message}` };
+      const previews: Record<string, WorkbookPreview> = {};
+      for (const id of ids) {
+        const mine = (tabs ?? []).filter((t) => t.workbook_id === id);
+        if (!mine.length) continue;
+        let preview: WorkbookPreview | null = null;
+        try {
+          preview = previewOfTabs(
+            mine.map((t) => ({ ...t, kind: t.kind === "table" ? "table" : "grid" })),
+          );
+        } catch (e) {
+          console.warn(`[sheets] no thumbnail for ${id}: ${(e as Error).message}`);
+        }
+        if (!preview || !previewSchema.safeParse(preview).success) continue;
+        const { error: e2 } = await supabaseAdmin.from("sheet_workbook_previews").upsert({
+          workbook_id: id,
+          user_id: caller.userId,
+          preview: preview as unknown as Json,
+        });
+        if (!e2) previews[id] = preview;
+      }
+      return { ok: true, previews };
+    },
+  );
 
 /**
  * Save a grid sheet's cells. `base_version` is the version the editor read;

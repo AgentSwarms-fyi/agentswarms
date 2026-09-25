@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { isSidebarShortcut } from "@/lib/sidebarShortcut";
 
 const SIDEBAR_STATE_STORAGE_KEY = "sidebar:state";
 const SIDEBAR_WIDTH_STORAGE_KEY = "sidebar:width";
@@ -33,7 +34,6 @@ const SIDEBAR_WIDTH_MAX = 400;
 const SIDEBAR_AUTO_HIDE_THRESHOLD = 100;
 // Cmd/Ctrl+B matches most editors' sidebar toggle; Cmd/Ctrl+\ is the one
 // callers specifically asked for. Both do the same thing.
-const SIDEBAR_KEYBOARD_SHORTCUTS = ["b", "\\"];
 
 function clampSidebarWidth(width: number) {
   return Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, width));
@@ -143,7 +143,7 @@ const SidebarProvider = React.forwardRef<
     // Adds a keyboard shortcut to toggle the sidebar.
     React.useEffect(() => {
       const handleKeyDown = (event: KeyboardEvent) => {
-        if (SIDEBAR_KEYBOARD_SHORTCUTS.includes(event.key) && (event.metaKey || event.ctrlKey)) {
+        if (isSidebarShortcut(event)) {
           event.preventDefault();
           toggleSidebar();
         }

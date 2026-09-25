@@ -14,6 +14,20 @@ Grid sheets are for models, assumptions and summaries. Table sheets are for data
 scroll, sort, filter and total as quickly as a small table, because the engine does the work and
 the browser only ever holds the rows on screen.
 
+## The Sheets page
+
+The page opens on your workbooks, most recently edited first. Each one shows the corner of its first
+grid sheet as it reads (values, bold, fills, the charts on it), its sheets, and when it was last
+edited: any change to a sheet counts, not only a rename. The thumbnail is drawn by the editor
+whenever the cells settle; a workbook not opened since thumbnails began gets one computed on the
+server the first time the page shows it.
+
+- **Search** (press `/`) finds a workbook by its name, its description or the name of any of its
+  sheets; every word typed has to appear, and accents and case are ignored.
+- **Sort** by last edited, name (Q2 before Q10) or date created, and switch between the grid of
+  cards and a list. Both choices are remembered in this browser.
+- **Start** makes a blank workbook or imports an Excel or CSV file.
+
 ## Grid sheets
 
 ### Formulas

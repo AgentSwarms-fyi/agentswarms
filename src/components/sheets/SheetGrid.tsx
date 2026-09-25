@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { a1, colLetters, normRange, rangeA1, type RangeAddr } from "@/lib/sheets/a1";
 import { cellView, editText } from "@/lib/sheets/cellView";
+import { inkOn } from "@/lib/sheets/ink";
 import type { CellInput, GridData, WorkbookEngine } from "@/lib/sheets/engine";
 import { AxisGeometry } from "@/lib/sheets/geometry";
 import { autoRowHeights, CELL_PAD_X } from "@/lib/sheets/layout";
@@ -510,8 +511,9 @@ export function SheetGrid(props: Props) {
             : "The value Excel last saved. This formula refers to something outside this workbook, so it does not recalculate.";
         })()
       : undefined;
-    const color = deco?.color ?? view.color ?? st?.color ?? (isLink ? LINK_COLOR : undefined);
     const bg = deco?.bg ?? st?.bg;
+    const color =
+      deco?.color ?? view.color ?? st?.color ?? (isLink ? LINK_COLOR : undefined) ?? inkOn(bg);
     const underline = (deco?.u ?? st?.u) || (isLink && !st?.color);
     const strike = deco?.st ?? st?.st;
 

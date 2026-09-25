@@ -28,6 +28,8 @@ import { VersionHistoryDialog } from "@/components/sheets/VersionHistoryDialog";
 import { promptAsk } from "@/components/ui/confirm-dialog";
 import { WorkbookEditor } from "@/components/sheets/WorkbookEditor";
 import { useWorkbook } from "@/components/sheets/useWorkbook";
+import { useWorkbookPreview } from "@/components/sheets/useWorkbookPreview";
+import type { WorkbookPreview } from "@/lib/sheets/preview";
 import {
   sheetsGet,
   sheetsUpdateWorkbook,
@@ -56,6 +58,8 @@ function WorkbookPage() {
   const [name, setName] = useState<string | null>(null);
   const [tabs, setTabs] = useState<SheetTabRow[] | null>(null);
   const [limits, setLimits] = useState<SheetsLimits | null>(null);
+  // The gallery thumbnail kept now; undefined until the workbook has loaded.
+  const [storedPreview, setStoredPreview] = useState<WorkbookPreview | null | undefined>();
   const [error, setError] = useState<{ message: string; missing?: boolean } | null>(null);
 
   // The session's token is read when it is needed, not watched: it changes
@@ -76,6 +80,7 @@ function WorkbookPage() {
         return;
       }
       setName(r.workbook.name);
+      setStoredPreview(r.workbook.preview);
       setLimits(r.limits);
       setTabs(r.tabs);
     } catch (e) {
@@ -90,6 +95,7 @@ function WorkbookPage() {
   }, [load]);
 
   const wb = useWorkbook({ token, workbookId, tabs, limits });
+  useWorkbookPreview({ wb, token, workbookId, stored: storedPreview });
 
   useEffect(() => {
     if (name) document.title = `${name} — Sheets — AgentSwarms`;

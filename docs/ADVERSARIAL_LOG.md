@@ -111,6 +111,70 @@ Never infer it from what rendered.
 
 ### 2026-09-25 — Found testing Sheets rules: an hourly reload that ate edits, keys that went to the wrong place, and a dollar amount that stayed text
 
+#### R124 · S2 · In the dark theme, a filled cell's text could not be read
+
+A cell with a fill and no text color of its own took the theme's text
+color. In the dark theme that is near white, on fills that are almost always
+light: the pink of a "greater than" rule, a pale header from an Excel file.
+The values were there and could not be read. Excel's automatic text color
+is black, which is why these fills are chosen light.
+
+**Driven, before**: "Sheets E2E Cells & Versions (Phase F)" in the dark
+theme → C2 and D2 (20, 30, pink from a rule) showed near-white text on pink;
+the gallery's thumbnails did the same. **After** (hot-deployed): C2 reads
+`rgb(31, 31, 31)` on `rgb(255, 199, 206)`. A cell filled with no text color
+of its own now takes dark text on a light fill and white on a dark one
+(where black and white contrast equally, by WCAG luminance), in the grid and
+in the thumbnails. Tests: `tests/unit/sheetsInk.test.ts`.
+
+#### R123 · S3 · Ctrl+B in Sheets made the cells bold and opened the app's sidebar too
+
+The app's sidebar toggles on Ctrl+B (and `Ctrl+\`) through a listener on the
+window. The grid handles Ctrl+B as bold, as Excel does, and marks the key as
+handled, but the sidebar's listener ignored that and toggled anyway. Every
+Ctrl+B in a workbook opened or closed the sidebar, and the grid reflowed
+under the pointer. Anyone formatting a sheet presses it constantly.
+
+**Driven, before** (hot-deployed gallery build): a new workbook → A1:B1 →
+Ctrl+B → the headers bold and the sidebar expanded; Ctrl+B again → bold off,
+the sidebar collapsed. **After**: A1:B1 → Ctrl+B three times → bold on, off,
+on, the sidebar collapsed throughout; in a cell being edited (F2), Ctrl+B
+leaves the sidebar alone; with the page focused rather than the grid,
+Ctrl+B still opens and closes the sidebar. The sidebar now leaves alone a
+key that what has focus already handled. Tests:
+`tests/unit/sidebarShortcut.test.ts` (mutants removing the check, or
+restoring the old test in the listener, are caught).
+
+#### R122 · S1 · The Sheets page said "edited 4h ago" of a workbook edited a minute earlier
+
+A workbook's "edited" time on the Sheets page, and the order the page lists
+workbooks in (most recently edited first), came from the workbook row's
+`updated_at`. That moved only when the workbook row itself changed (a
+rename, a restore). Every cell edit, sheet added or rule changed writes the
+sheet row (`sheet_tabs`) and left the workbook row alone. So a workbook
+worked on all afternoon said "edited 4h ago" and stayed below ones nobody
+had touched. The claim was a true sentence about the wrong row. It was in
+the page since Sheets first shipped; asking for a better gallery is what
+led to reading where "edited" came from.
+
+**Driven, before** (the image built for Phase E, with Phase F hot-deployed):
+"Sheets E2E Rules (Phase D)" → K6 → 7, 7, Enter → "All changes saved" → ←
+Sheets. The card still read "edited 4h ago", fourth in the list. The rows:
+the sheet "Orders Q3" updated at 19:12:13, the workbook at 15:36:59.
+**After** (rebuilt image, migration applied): Phase D → K6 → Delete → ← Sheets: the card read
+"2s ago" and led the list; a thumbnail written a second after an edit left
+the workbook's time on the edit (20:18:11.2 edited, 20:18:12.0 thumbnail),
+and deleting a workbook through its card menu ran the new trigger under a
+cascade without error. The migration's own clock was held off: Phase D read
+19:12:13 (its last sheet change) after it ran, not the migration's time.
+
+A change to a sheet (its cells, table definition, name, kind or place, a
+sheet added or deleted) now touches its workbook through a trigger on
+`sheet_tabs`. A migration moved every existing workbook's time forward to
+its last sheet change, holding off the workbook's own `now()` trigger for
+that one statement. The gallery's thumbnails are kept in a table of their
+own, so drawing one is not counted as an edit.
+
 #### R121 · S2 · Typing in a filter's search box typed into the active cell instead
 
 A popover drawn over the grid (a filter column's menu, a validation list, a

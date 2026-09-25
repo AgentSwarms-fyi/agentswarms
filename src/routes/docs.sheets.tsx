@@ -70,6 +70,14 @@ function SheetsDocsPage() {
         ]}
       />
 
+      <H2 id="page">The Sheets page</H2>
+      <P>
+        Your workbooks, most recently edited first (any change to a sheet counts). Each shows the
+        corner of its first grid sheet as it reads, its sheets and the charts on it. Press <C>/</C>{" "}
+        to search names, descriptions and sheet names; sort by last edited, name or date created;
+        switch between cards and a list.
+      </P>
+
       <H2 id="grid">Grid sheets</H2>
       <P>
         Type <C>=</C> and a formula. About 200 functions follow Excel&apos;s rules: SUMIFS and
