@@ -272,10 +272,17 @@ export function tableRefs(sql: string): QualifiedRef[] {
   const seen = new Set<string>();
   // MERGE INTO / DELETE FROM / INSERT INTO are covered by INTO and FROM.
   const re =
-    /\b(FROM|JOIN|INTO|USING|UPDATE|TABLE|VIEW)\s+(?:IF\s+NOT\s+EXISTS\s+|IF\s+EXISTS\s+|ONLY\s+)?("[^"]+"|[A-Za-z_][A-Za-z0-9_$]*)\s*\.\s*("[^"]+"|[A-Za-z_][A-Za-z0-9_$]*)/gi;
+    /\b(FROM|JOIN|INTO|USING|UPDATE|TABLE|VIEW)\s+(?:IF\s+NOT\s+EXISTS\s+|IF\s+EXISTS\s+|ONLY\s+)?("[^"]+"|[A-Za-z_][A-Za-z0-9_$]*)\s*\.\s*("[^"]+"|[A-Za-z_][A-Za-z0-9_$]*)(?:\s*\.\s*("[^"]+"|[A-Za-z_][A-Za-z0-9_$]*))?/gi;
   for (const m of s.matchAll(re)) {
-    const schema = m[2]!.replace(/^"|"$/g, "");
-    const table = m[3]!.replace(/^"|"$/g, "");
+    const unq = (x: string) => x.replace(/^"|"$/g, "");
+    // R126: `catalog.schema.table`. In the lakehouse's own catalog the
+    // schema is the second part; any other catalog becomes a name no schema
+    // can have (it holds a dot), so the access check refuses it.
+    const [schema, table] = m[4]
+      ? unq(m[2]!).toLowerCase() === "lake"
+        ? [unq(m[3]!), unq(m[4])]
+        : [`${unq(m[2]!)}.${unq(m[3]!)}`, unq(m[4])]
+      : [unq(m[2]!), unq(m[3]!)];
     const key = `${schema.toLowerCase()}|${table.toLowerCase()}`;
     if (seen.has(key)) continue;
     seen.add(key);

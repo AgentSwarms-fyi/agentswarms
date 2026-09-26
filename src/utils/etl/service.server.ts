@@ -462,6 +462,18 @@ export async function resolveRunEnv(
       );
     }
     const allowed = new Set((await accessibleSchemas(pipeline.user_id)).map((sch) => sch.name));
+    const sheetTargets = lakehouseNodes
+      .filter((n) => n.kind === "target")
+      .map((n) => {
+        const c = effective(n) as { schema?: string; table?: string };
+        return { schema: c.schema ?? "", table: c.table ?? "" };
+      })
+      .filter((t) => t.schema && t.table);
+    if (sheetTargets.length) {
+      const { sheetOwnedRefusal } = await import("@/utils/sheets/owned.server");
+      const why = await sheetOwnedRefusal(sheetTargets);
+      if (why) throw new Error(why);
+    }
     for (const node of lakehouseNodes) {
       const schema = effective(node).schema ?? "";
       if (!allowed.has(schema)) {

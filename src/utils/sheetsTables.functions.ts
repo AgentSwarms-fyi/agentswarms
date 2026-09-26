@@ -534,9 +534,28 @@ export const sheetsSaveTableConfig = createServerFn({ method: "POST" })
         }
         names.add(key);
       }
+      // FOUND IN R127. The settings came back whole from the browser and were
+      // stored as sent, source and origin included: a sheet could be pointed
+      // at any table and say it had uploaded it, and the lakehouse then
+      // refused that table's owner (sheets/owned.server). Where the rows come
+      // from is set only where the sheet is made; a save keeps what is stored.
+      let stored;
+      try {
+        stored = await ownTableTab(caller.userId, data.tab_id);
+      } catch (e) {
+        return { ok: false, error: (e as Error).message };
+      }
+      if (!stored) return { ok: false, error: "This sheet no longer exists" };
+      const kept = tableConfigSchema.safeParse(stored.table_config);
+      if (!kept.success) return { ok: false, error: "This sheet's settings could not be read" };
+      const config: TableConfig = {
+        ...data.config,
+        source: kept.data.source,
+        origin: kept.data.origin,
+      };
       const { data: rows, error } = await supabaseAdmin
         .from("sheet_tabs")
-        .update({ table_config: data.config as unknown as Json, version: data.base_version + 1 })
+        .update({ table_config: config as unknown as Json, version: data.base_version + 1 })
         .eq("id", data.tab_id)
         .eq("user_id", caller.userId)
         .eq("kind", "table")

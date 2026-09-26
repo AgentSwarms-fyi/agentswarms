@@ -109,6 +109,140 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-26 — Found making Sheets' tables read-only outside Sheets: a catalog name past every schema check, a sheet that could claim anyone's table, and three builders that wrote whatever held their name
+
+Tables that Sheets makes show up in the Lakehouse, and the user asked that
+they be changed only from Sheets. What was built: a table that a Sheets
+table sheet holds its rows in is read-only everywhere else. That covers a
+file uploaded into a table sheet, and rows imported from a connection.
+Ownership is read live from the sheets (`sheet_tabs.table_config.origin` of
+`upload` or `warehouse`). Deleting the sheet frees the table; restoring a
+version holds it again. Every writer asks `sheetOwnedRefusal`
+(`src/utils/sheets/owned.server.ts`) first:
+- statements through `runLakehouseStatement` (the SQL editor, Insert row,
+  Drop, workflow SQL steps, feature-view training sets);
+- dropping a schema;
+- an ETL pipeline's lakehouse target, before the run starts;
+- an Iceberg import;
+- a materialized view's refresh;
+- a SQL model's build;
+- a batch prediction.
+
+The table's page says **Held by Sheets · workbook › sheet**, links to it,
+and offers no Insert row or Drop. A failed read of the sheets refuses the
+write rather than let it through. A table a sheet only opened stays
+ordinary, and so does one made with Save to lakehouse. Three findings came
+out of building it. Tests for all three: `tests/unit/lakehouseSheetGuard.test.ts`
+(18), plus one in `tests/unit/mlBatchOutputTaken.test.ts`, which checks that a held output is
+refused before anything else is asked. The mutation run caught 21 of 21, and the control survived.
+
+#### R128 · S1 · A view's refresh, a SQL model's build and a batch prediction replaced a table Sheets held
+
+All three write `CREATE OR REPLACE TABLE <their name>` on their own engine
+connection (a prediction from its sandbox), past the statement path the
+guard sits on. R101, R103 and R104 check the name when the view, model or
+prediction is set up. Nothing checked it again when it wrote, and a free
+name can be taken in between: a model saved and not yet built, or a view's
+or an earlier prediction's table dropped, and a file then uploaded under
+the name. R104 lets a prediction write over a table an earlier prediction
+wrote (a daily schedule), whatever is at the name now. A model stored as a
+view runs `DROP TABLE IF EXISTS` on the name first.
+
+**Driven, before** (builds without the fix):
+- **Model.** `later_rows` (`SELECT 1 AS model_col`, schema `r126_held`) was
+  saved while the name was free. `later_rows.csv` (3 rows, `id, label`) was
+  then uploaded to `r126_held.later_rows` as the sheet LaterRows. **Build this
+  and what it reads** said "Built 1 model"; the table held one row,
+  `model_col = 1`, and the sheet said "r126_held.later_rows has different
+  columns now". The SQL editor refused every write to that table the whole
+  time.
+- **Prediction.** "revenue_facts model" scored `analytics.revenue_facts` into
+  `r126_held.pred_probe` (836 rows). That table was dropped, and
+  `pred_probe.csv` (4 rows) uploaded under the name as PredProbe. The same
+  batch prediction then started and succeeded (836 rows), and the table lost
+  its `label` column.
+
+**After** (hot-deployed):
+- **Model.** The build fails "1 failed, 0 skipped, 0 built" with the Sheets
+  message, and the Builds tab records it. With the model changed to
+  `SELECT 2`, a second build is refused too, and the table still reads 1.
+- **View.** `r126_held.later_view` was saved and built, its table dropped,
+  and `later_view.csv` uploaded under the name. The table page's **Rebuild**
+  says "Rebuild failed: r126_held.later_view holds the rows of the sheet
+  "LaterView"…", and the two uploaded rows stay. The BI prep refresh calls
+  the same function.
+- **Prediction.** The batch prediction into `r126_held.pred_probe` is refused
+  in its dialog with the Sheets message, and no job starts.
+- The view's before case was not driven: the shape and the one line are the
+  model's.
+
+#### R127 · S1 · A table sheet's saved settings could claim anyone's table, and the guard then locked its owner out
+
+`sheetsSaveTableConfig` stored a table sheet's settings exactly as the
+browser sent them, `source` and `origin` included. The `sheet_tabs` RLS
+policy also lets a signed-in user update their own rows directly. So a
+sheet could point at any table and say it had uploaded it. Before this round
+that only put a false "from forged.csv" under the sheet's name. With the
+guard, the named table refused every write from its own owner, their
+pipelines and their schema drop. One user could freeze another's table
+without being able to read it. Found while building the guard, before any of
+it was committed.
+
+**Driven, before** (the guard deployed, this fix not): in "R126 held table",
+a table sheet was opened over `analytics.bi_demo_sales`, a table it only
+reads. The app's own settings save (a sort) was sent with its origin changed
+to an upload of `forged.csv` by a fetch wrapper in the page. The save was
+accepted, the sheet read "from forged.csv", and the Lakehouse refused
+`UPDATE analytics.bi_demo_sales …` as held by that sheet.
+**After** (hot-deployed): deleting that sheet released the table. The same
+forged save on a new sheet was accepted with the sort kept and the origin
+not: after a reload the sheet reads plain `analytics.bi_demo_sales`, and the
+UPDATE runs. Real uploads (`analytics.orders_jan_feb_2024`,
+`r126_held.held_rows`) are still held.
+
+**The fix**, two layers:
+- **The save.** It keeps the stored `source` and `origin`. Only the server
+  paths that make a sheet set them.
+- **The claim.** It counts only when the sheet's owner owns the table's
+  schema, which every import requires. This is the layer that matters,
+  because the RLS policy lets a user write their own rows without the
+  server. A claim on someone else's table holds nothing, and a failed read
+  of the schemas refuses the write.
+
+**Not driven:** locking out another account needs a second account. The tests
+hold it.
+
+#### R126 · S1 · `lake.schema.table` walked past every check keyed on the schema
+
+The lakehouse catalog is attached as `lake`, so the engine takes three-part
+names. The statement classifier and the reference parser read the first two
+parts as schema and table. `CREATE TABLE lake.ice_sales.t` was authorized as
+schema "lake", table "ice_sales", and written into `ice_sales`. Anyone who
+owned a schema named `lake` could get past every check keyed on the schema:
+read-only mounts, other people's schemas, row and column policies, and the
+Sheets guard.
+
+**Driven, before:** with a schema `lake` made from New schema,
+`CREATE TABLE ice_sales.r126_probe` was refused (a read-only Iceberg mount).
+`CREATE TABLE lake.ice_sales.r126_probe AS SELECT 1 AS x` ran and made the
+table; it was dropped again, then the schema.
+**After** (hot-deployed, `lake` made again):
+- `CREATE TABLE lake.ice_sales.r126_probe AS SELECT 1 AS x` is refused as a
+  read-only Iceberg mount.
+- `UPDATE lake.analytics.orders_jan_feb_2024 …` gets the Sheets refusal.
+- `DROP TABLE memory.main.r126_other` is refused ("not the lakehouse").
+- `SELECT count(*) FROM lake.analytics.orders_jan_feb_2024` still reads.
+- `CREATE TABLE lake.lake.r126_ok AS SELECT 1 AS x` runs into the caller's
+  own schema, and drops.
+
+`lake` was dropped afterwards. While a schema named `lake` exists, DuckDB
+itself calls `lake.r126_ok` ambiguous.
+
+**The fix.** A third part names the table, and the first must be `lake`; any
+other catalog is refused. For what a write reads, `lake.s.t` is schema `s`.
+A name in any other catalog becomes a schema name no schema can have, so the
+access check refuses it.
+
 ### 2026-09-25 — Found testing Sheets rules: an hourly reload that ate edits, keys that went to the wrong place, and a dollar amount that stayed text
 
 #### R125 · S1 · Every session refresh put the saved copy back over what people were editing, in 21 places

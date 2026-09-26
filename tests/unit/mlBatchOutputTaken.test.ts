@@ -24,6 +24,16 @@ const state = {
   started: 0,
 };
 
+// Which tables Sheets holds has its own suite (lakehouseSheetGuard.test.ts);
+// here none is, unless a test says so.
+const held = { why: null as string | null, asked: [] as unknown[] };
+vi.mock("@/utils/sheets/owned.server", () => ({
+  sheetOwnedRefusal: async (tables: unknown[]) => {
+    held.asked.push(...tables);
+    return held.why;
+  },
+}));
+
 vi.mock("@/utils/audit.server", () => ({ auditEvent: () => {} }));
 vi.mock("@/utils/rateLimit.server", () => ({
   envInt: () => 0,
@@ -90,6 +100,23 @@ beforeEach(() => {
   state.priorErr = null;
   state.filters = [];
   state.started = 0;
+  held.why = null;
+  held.asked = [];
+});
+
+describe("a table a Sheets table sheet holds (R128)", () => {
+  it("is refused before anything else, even where an earlier prediction wrote it", async () => {
+    // What a daily schedule allows (R104), after the table was dropped and
+    // the name taken by an upload.
+    state.tableExists = true;
+    state.prior = [{ id: "p-0" }];
+    held.why = 'analytics.r104_keep holds the rows of the sheet "Orders"';
+    const res = await run();
+    expect(res).toEqual({ ok: false, error: held.why });
+    expect(held.asked).toEqual([{ schema: "analytics", table: "r104_keep" }]);
+    expect(state.filters).not.toContainEqual(["status", "succeeded"]);
+    expect(state.started).toBe(0);
+  });
 });
 
 describe("a table no prediction wrote is not replaced", () => {

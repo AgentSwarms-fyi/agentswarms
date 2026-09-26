@@ -155,6 +155,8 @@ export type LakehouseTableDetail = {
   partitioned_by: string[];
   /** Cluster key columns from the table's layout row. Empty = never clustered. */
   clustered_by: string[];
+  /** The Sheets table sheet that holds its rows, when one does: read-only here. */
+  sheet_owner: { workbook_id: string; workbook: string; sheet: string } | null;
 };
 
 /**
@@ -256,6 +258,12 @@ export const getLakehouseTable = createServerFn({ method: "POST" })
         clustered_by: await import("@/utils/lakehouse/layout.server").then((m) =>
           m.clusteredBy(data.schema, data.table),
         ),
+        sheet_owner: await import("@/utils/sheets/owned.server").then(async (m) => {
+          const o = (await m.sheetOwners([{ schema: data.schema, table: data.table }])).get(
+            `${data.schema.toLowerCase()}.${data.table.toLowerCase()}`,
+          );
+          return o ? { workbook_id: o.workbookId, workbook: o.workbook, sheet: o.sheet } : null;
+        }),
       };
     } finally {
       c.closeSync();
@@ -429,6 +437,19 @@ export const dropLakehouseSchema = createServerFn({ method: "POST" })
       .maybeSingle();
     if (!row || row.user_id !== userId) {
       throw new Error("Only the schema's owner can drop it");
+    }
+    // Dropping the schema drops every table in it, the ones Sheets holds a
+    // table sheet's rows in too (see sheets/owned.server).
+    const { sheetOwnedInSchema } = await import("@/utils/sheets/owned.server");
+    const held = await sheetOwnedInSchema(data.name);
+    if (held.length) {
+      const named = held
+        .slice(0, 3)
+        .map((h) => `${h.table} (sheet "${h.owner.sheet}" in "${h.owner.workbook}")`)
+        .join(", ");
+      throw new Error(
+        `"${data.name}" holds the rows of ${held.length} Sheets table sheet${held.length === 1 ? "" : "s"}: ${named}${held.length > 3 ? ", …" : ""}. Delete those sheets in Sheets first, or they would lose their rows.`,
+      );
     }
     const c = await lakehouseConnection();
     try {

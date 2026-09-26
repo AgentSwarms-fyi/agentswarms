@@ -82,6 +82,13 @@ export async function refreshMaterializedView(
     if (target.user_id !== view.user_id) {
       throw new Error("A materialized view can only be written into a schema you own");
     }
+    // FOUND IN R128. The name was free when the view was saved (R101), but a
+    // Sheets import can have taken it since: the view's table dropped, a file
+    // uploaded under the same name. A table a sheet holds is changed only by
+    // Sheets (sheets/owned.server), and the refresh below would replace it.
+    const { sheetOwnedRefusal } = await import("@/utils/sheets/owned.server");
+    const held = await sheetOwnedRefusal([{ schema: view.schema_name, table: view.table_name }]);
+    if (held) throw new Error(held);
 
     c = await lakehouseConnection();
     assertSchemasAllowed(await selectReferencedSchemas(c, view.sql), allowed);

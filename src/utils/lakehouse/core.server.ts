@@ -516,6 +516,10 @@ export type Classified = {
 
 const IDENT = String.raw`(?:"[^"]+"|[A-Za-z_][A-Za-z0-9_$]*)`;
 const QUALIFIED = new RegExp(`^(${IDENT})\\.(${IDENT})`);
+/** A third part after a qualified name: `lake.schema.table`. */
+const THIRD_PART = new RegExp(`^\\s*\\.\\s*(${IDENT})`);
+/** The catalog the lakehouse is attached as (see ATTACH above). */
+export const LAKE_CATALOG = "lake";
 
 export function stripSqlComments(sql: string): string {
   // Delegates to the literal-aware scanner. The two regexes this replaced did
@@ -580,6 +584,27 @@ export function classifyStatement(rawSql: string): Classified {
       throw new Error(
         `${shape.verb} must target a schema-qualified table (schema.table) in the lakehouse`,
       );
+    }
+    // FOUND IN R126. A three-part name was read as its first two parts:
+    // `lake.ice_sales.t` authorized schema "lake" and table "ice_sales",
+    // while the engine wrote catalog lake, schema ice_sales. Anyone who
+    // owned a schema named "lake" could write anywhere a check keyed on the
+    // schema should have stopped them: read-only mounts, other people's
+    // schemas, policies, tables Sheets holds. A third part now names the
+    // table, and the first must be the lakehouse's own catalog.
+    const third = THIRD_PART.exec(rest.slice(qm[0].length));
+    if (third) {
+      if (unquote(qm[1]) !== LAKE_CATALOG) {
+        throw new Error(
+          `${shape.verb} names a table in "${unquote(qm[1])}", which is not the lakehouse — write schema.table`,
+        );
+      }
+      return {
+        kind: shape.kind,
+        writeSchemas: [unquote(qm[2])],
+        writeTables: [unquote(third[1])],
+        verb: shape.verb,
+      };
     }
     return {
       kind: shape.kind,
@@ -1137,6 +1162,20 @@ export async function runLakehouseStatement(
             }
           }
         }
+      }
+      // A table a Sheets workbook holds its rows in (a file uploaded into a
+      // table sheet, rows imported from a connection) is changed only by
+      // Sheets: it replaces the table when the import is refreshed, and the
+      // sheet's calculated columns, pivots and formulas stand on its columns.
+      // Read it here like any table; a change made here would break the
+      // sheet or be overwritten by it.
+      const targets = classified.writeSchemas
+        .map((schema, i) => ({ schema, table: classified.writeTables?.[i] ?? "" }))
+        .filter((t) => t.table);
+      if (targets.length) {
+        const { sheetOwnedRefusal } = await import("@/utils/sheets/owned.server");
+        const why = await sheetOwnedRefusal(targets);
+        if (why) throw new Error(why);
       }
       // WHAT THE STATEMENT READS, not only what it writes.
       //

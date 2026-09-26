@@ -15,6 +15,55 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-26 — Sheets' tables read-only outside Sheets, ADVERSARIAL_LOG R126–R128
+
+**Why this round exists.** The user saw the tables Sheets makes in the Lakehouse and asked that
+they be changed only from Sheets. This round drove the guard, and the three findings made while
+building it, before and after.
+
+**How a forged save was sent (R127).** A `fetch` wrapper in the page changed one field, the origin,
+in the app's own settings-save request for a sort. The session token was never printed.
+
+Fixtures kept for review:
+- **Workbook "R126 held table".** Its sheets:
+  - HeldRows: an upload, `r126_held.held_rows` (3 rows).
+  - BiDemoSales: opens `analytics.bi_demo_sales`, sorted by month descending.
+  - LaterRows: an upload, `r126_held.later_rows`, now the model's before-case row `model_col = 1`.
+  - LaterView: an upload, `r126_held.later_view` (2 rows).
+  - PredProbe: an upload, `r126_held.pred_probe`, now the before-case's 836 predictions.
+- **Schema `r126_held`.**
+- **SQL model `later_rows`.** Paused, because each build is refused.
+- **Materialized view `r126_held.later_view`.** Manual; each rebuild is refused.
+
+Not kept:
+- the schema `lake` (made and dropped twice);
+- `r126_held.held_rows_copy` and `lake.r126_ok`;
+- the first BiDemoSales, the forged one, which was deleted as part of the after-check.
+
+| Place | What was done | Before | After |
+|---|---|---|---|
+| Lakehouse SQL | `UPDATE analytics.orders_jan_feb_2024 SET note = note WHERE 1 = 0` (uploaded by "Sheets E2E M1") | ran, 0 rows | refused, naming the sheet and workbook |
+| Lakehouse SQL | `SELECT count(*)` from it | read | read |
+| Lakehouse SQL | `UPDATE analytics.bi_demo_sales …` (only opened by sheets) | ran | ran |
+| Lakehouse → analytics.orders_jan_feb_2024 | the table's page | Insert row and Drop, no owner shown | "Held by Sheets · Sheets E2E M1 › OrdersJanFeb2024Csv", linking to the workbook; no Insert row, no Drop |
+| Lakehouse SQL on `r126_held.held_rows` | INSERT, DROP TABLE, ALTER TABLE ADD COLUMN | (uploaded this round) | each refused; SELECT reads; the suggested `CREATE TABLE r126_held.held_rows_copy AS SELECT *` runs and the copy takes an INSERT |
+| Lakehouse → Drop schema r126_held | confirmed in the dialog | (after only) | "r126_held holds the rows of 1 Sheets table sheet: held_rows (sheet "HeldRows" in "R126 held table")…"; the schema stays |
+| R126, SQL, schema `lake` present | `CREATE TABLE lake.ice_sales.r126_probe AS SELECT 1 AS x` | ran; the table was made | refused: a read-only Iceberg mount |
+| R126, SQL | `UPDATE lake.analytics.orders_jan_feb_2024 …` | refused only because no `lake` schema existed then | the Sheets refusal |
+| R126, SQL | `DROP TABLE memory.main.r126_other` | — | refused: not the lakehouse |
+| R126, SQL | `CREATE TABLE lake.lake.r126_ok AS SELECT 1 AS x`, then DROP | — | both run (the caller's own schema) |
+| R127, BiDemoSales | a sort saved with its origin changed to an upload | accepted; "from forged.csv"; `UPDATE analytics.bi_demo_sales` refused as held | the sort saved, the origin not; no "from forged.csv" after a reload; the UPDATE runs |
+| R127 | the forged sheet deleted | — | `bi_demo_sales` writable again |
+| R128, SQL Models → later_rows | saved while the name was free; `later_rows.csv` uploaded to the name; Build this and what it reads | "Built 1 model"; the table became `model_col = 1`; the sheet said "has different columns now" | "1 failed, 0 skipped, 0 built" with the Sheets message, in the Builds tab too; changed to `SELECT 2` and built again, the table still reads 1 |
+| R128, Lakehouse → later_view → Rebuild | view saved; its table dropped; `later_view.csv` uploaded to the name | not driven | "Rebuild failed: r126_held.later_view holds the rows of the sheet "LaterView"…"; the 2 uploaded rows stay |
+| R128, ML → revenue_facts model → Batch prediction | scored into `r126_held.pred_probe`; that table dropped; `pred_probe.csv` uploaded to the name; scored again | started and succeeded, 836 rows; the `label` column gone | refused in the dialog with the Sheets message; no job |
+
+Not driven, and why:
+- **Another account locked out (R127).** It needs a second account.
+- **An ETL pipeline or an Iceberg import into a held table.** Both run the same check before
+  they start, and the tests pin where.
+- **The view's before case (R128).** The shape is the model's.
+
 ## 2026-09-26 — A session refresh across the app: 14 editors and dialogs, before and after, ADVERSARIAL_LOG R125
 
 **Why this round exists.** R120 found a Sheets load keyed on the session's access token, which

@@ -286,6 +286,13 @@ async function buildOne(
     if (schema.lake_source_id || schema.iceberg_catalog_id) {
       return fail("Data-lake mounts are read-only");
     }
+    // FOUND IN R128. The name was free when the model was saved (R103), but
+    // a Sheets import can have taken it before the first build, or after its
+    // table was dropped. A table a sheet holds is changed only by Sheets
+    // (sheets/owned.server); the DROP and CREATE OR REPLACE below would not ask.
+    const { sheetOwnedRefusal } = await import("@/utils/sheets/owned.server");
+    const held = await sheetOwnedRefusal([{ schema: model.schema_name, table: model.name }]);
+    if (held) return fail(held);
     assertSchemasAllowed(await selectReferencedSchemas(c, rendered), allowed);
 
     const body = stripSqlComments(rendered).replace(/;\s*$/, "");

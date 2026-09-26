@@ -23,6 +23,10 @@ const state = {
   upserts: 0,
 };
 
+// Which tables Sheets holds has its own suite (lakehouseSheetGuard.test.ts);
+// here none is.
+vi.mock("@/utils/sheets/owned.server", () => ({ sheetOwnedRefusal: async () => null }));
+
 vi.mock("@/utils/audit.server", () => ({ auditEvent: () => {} }));
 
 vi.mock("@/integrations/supabase/client.server", () => {

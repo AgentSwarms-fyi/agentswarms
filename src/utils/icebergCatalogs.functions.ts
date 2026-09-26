@@ -367,6 +367,13 @@ export const icebergImport = createServerFn({ method: "POST" })
     if (target.lake_source_id || target.iceberg_catalog_id) {
       return { ok: false, error: "A mount is read-only; import into a schema you created." };
     }
+    {
+      const { sheetOwnedRefusal } = await import("@/utils/sheets/owned.server");
+      const why = await sheetOwnedRefusal([
+        { schema: data.target_schema, table: data.target_table },
+      ]);
+      if (why) return { ok: false, error: why };
+    }
     try {
       const { importFromIceberg } = await import("@/utils/lakehouse/iceberg.server");
       const res = await importFromIceberg({

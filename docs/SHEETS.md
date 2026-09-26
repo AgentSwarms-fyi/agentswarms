@@ -248,6 +248,30 @@ that table's rows. It asks first, because anything else reading the table sees t
 The sheet's name is how formulas refer to it (`Orders[amount]`): letters, digits, `_` and `.`,
 starting with a letter.
 
+### Tables a sheet holds
+
+A table that Sheets made for a table sheet, from an uploaded file or rows imported from a
+connection, belongs to that sheet. Sheets replaces it when the import is refreshed, and the
+sheet's calculated columns, pivots and formulas stand on its columns. So it is changed only from
+Sheets:
+
+- In the Lakehouse it reads like any table. Its page says **Held by Sheets · workbook › sheet**,
+  links to the sheet, and offers no **Insert row** or **Drop**.
+- Anything that would change it is refused, naming the sheet:
+  - a statement in the SQL editor or a workflow SQL step;
+  - an ETL pipeline writing it;
+  - an Iceberg import into it;
+  - a materialized view, SQL model or batch prediction whose name it has taken;
+  - dropping the schema that holds it.
+- To change the data somewhere else, copy it: `CREATE TABLE schema.table_copy AS SELECT * FROM
+  schema.table`. Or delete the sheet in Sheets; the table stays, and is an ordinary lakehouse
+  table again.
+
+A table opened from the Lakehouse or the catalog is not held: it was there before the sheet and
+stays editable. Nor is a table made with **Save to lakehouse**, a copy the sheet no longer reads.
+A sheet holds a table only in a schema its owner owns, as an import requires; a sheet that names
+a table in someone else's schema holds nothing.
+
 ### Working with a table
 
 - **Sort** from a column's menu, up to three columns deep. Text sorts without case, as in Excel.

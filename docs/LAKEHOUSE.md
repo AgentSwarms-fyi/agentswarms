@@ -414,6 +414,13 @@ reaches the engine, at one chokepoint (`runLakehouseStatement`):
    user read any path the deployment can (pure generators like `range` pass).
 3. **Writes must be schema-qualified** and target an accessible schema.
 4. Row caps (10k default) and an interrupt-based timeout bound every query.
+5. **Tables a Sheets table sheet holds** (an uploaded file, rows imported
+   from a connection) are read, never changed, here: every write path asks
+   first, and dropping the schema that holds one is refused. See
+   [Sheets → Tables a sheet holds](./SHEETS.md#tables-a-sheet-holds).
+
+A three-part name (`lake.schema.table`, the catalog the lakehouse is
+attached as) is checked as `schema.table`; any other catalog is refused.
 
 Every statement — refusals included — lands in the user's **query history**
 and in the platform **audit trail** (`lakehouse.select|dml|ddl`,

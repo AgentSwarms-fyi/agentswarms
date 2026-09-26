@@ -274,6 +274,25 @@ Open from insert/delete cells and version history:
   sheet by id (a link from outside, a pinned view) would lose it; nothing in
   the app does today.
 
+Closed with the lakehouse guard (tables Sheets holds are changed only from Sheets): R126 (a
+`lake.` catalog prefix walked past every schema check), R127 (a sheet's saved settings could
+claim anyone's table), R128 (a view refresh, a model build and a batch prediction wrote whatever
+held their name). Open from that round:
+
+- **Tables made with Save to lakehouse stay editable.** Such a table is a copy the sheet does not
+  read, so the Lakehouse may change it. Whether to lock those too is the user's call.
+- **A table sheet's delete dialog says "Its cells go with it".** Only the sheet goes: the table
+  stays and, if the sheet held it, becomes editable in the Lakehouse. The dialog should say so.
+- **A held table that is also a materialized view still shows Rebuild**, which is now always
+  refused. The button could say why before it is pressed.
+- **Editing a sheet as a pivot releases what it held.** `sheetsPivot` with a `tab_id` replaces
+  that sheet's source and drops its origin, whatever kind the sheet is. The pivot dialog offers
+  only pivot sheets, but the server does not check.
+- **Layout and partitioning still apply to a held table.** They rewrite its files with the same
+  rows. Harmless to the data, but they are changes made outside Sheets.
+- **A notebook kernel attached to the catalog is not asked**: the guard is on the server's write
+  paths, and a kernel writes to the engine directly.
+
 ## Rules that came out of doing this
 
 - A test that asserts source text is pinning a USE, not a definition; bound it

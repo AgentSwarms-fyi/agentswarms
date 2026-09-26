@@ -30,6 +30,7 @@ import {
   Rows3,
   ShieldCheck,
   Upload,
+  FileSpreadsheet,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -1084,33 +1085,48 @@ function TableTab({
           >
             <Play className="mr-1 h-3.5 w-3.5" /> Query
           </Button>
-          <InsertRowDialog schema={schema} table={table} columns={detail.columns} />
-          <Button
-            size="sm"
-            variant="ghost"
-            className="text-red-500"
-            onClick={async () => {
-              if (
-                !(await confirmAsk({
-                  title: `Drop table ${schema}.${table}?`,
-                  body: "The table's rows and its Parquet files go, along with the lakehouse's own record of them. Its entry in the Data Catalog stays until the next crawl. This cannot be undone.",
-                  actionLabel: "Drop table",
-                }))
-              )
-                return;
-              try {
-                await runFn({
-                  data: { access_token: token, sql: `DROP TABLE "${schema}"."${table}"` },
-                });
-                toast.success("Table dropped");
-                onDropped();
-              } catch (e) {
-                toast.error((e as Error).message);
-              }
-            }}
-          >
-            <Trash2 className="mr-1 h-3.5 w-3.5" /> Drop
-          </Button>
+          {detail.sheet_owner ? (
+            <Link
+              to="/sheets/$workbookId"
+              params={{ workbookId: detail.sheet_owner.workbook_id }}
+              className="inline-flex items-center gap-1.5 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-xs text-emerald-700 hover:bg-emerald-500/15 dark:text-emerald-300"
+              title="Sheets replaces this table when the sheet refreshes its import, and the sheet's formulas stand on its columns, so it is changed only from Sheets. Query it here like any table."
+              data-testid="sheet-owner"
+            >
+              <FileSpreadsheet className="h-3.5 w-3.5" />
+              Held by Sheets · {detail.sheet_owner.workbook} › {detail.sheet_owner.sheet}
+            </Link>
+          ) : (
+            <InsertRowDialog schema={schema} table={table} columns={detail.columns} />
+          )}
+          {!detail.sheet_owner && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="text-red-500"
+              onClick={async () => {
+                if (
+                  !(await confirmAsk({
+                    title: `Drop table ${schema}.${table}?`,
+                    body: "The table's rows and its Parquet files go, along with the lakehouse's own record of them. Its entry in the Data Catalog stays until the next crawl. This cannot be undone.",
+                    actionLabel: "Drop table",
+                  }))
+                )
+                  return;
+                try {
+                  await runFn({
+                    data: { access_token: token, sql: `DROP TABLE "${schema}"."${table}"` },
+                  });
+                  toast.success("Table dropped");
+                  onDropped();
+                } catch (e) {
+                  toast.error((e as Error).message);
+                }
+              }}
+            >
+              <Trash2 className="mr-1 h-3.5 w-3.5" /> Drop
+            </Button>
+          )}
         </div>
       </div>
 

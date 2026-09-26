@@ -382,6 +382,17 @@ export async function startBatchPrediction(args: {
       error: `${outName} is the table being scored. Writing the predictions there would replace it${args.input.where?.trim() ? " with only the rows the filter keeps" : ""}. Pick another output table.`,
     };
   }
+  // FOUND IN R128. A table a Sheets table sheet holds is changed only by
+  // Sheets (sheets/owned.server). An earlier prediction into this name does
+  // not make the table the prediction's now: it can have been dropped since
+  // and the name taken by an upload.
+  try {
+    const { sheetOwnedRefusal } = await import("@/utils/sheets/owned.server");
+    const held = await sheetOwnedRefusal([args.output]);
+    if (held) return { ok: false, error: held };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
   let taken: boolean;
   try {
     taken = await lakehouseTableExists(args.output.schema, args.output.table);
