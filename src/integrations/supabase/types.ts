@@ -6813,6 +6813,53 @@ export type Database = {
           },
         ];
       };
+      sheet_workbook_shares: {
+        Row: {
+          created_at: string;
+          created_by: string | null;
+          hidden_sheets: string[] | null;
+          id: string;
+          principal_id: string;
+          principal_type: string;
+          role: string;
+          row_filters: Json | null;
+          updated_at: string;
+          workbook_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          created_by?: string | null;
+          hidden_sheets?: string[] | null;
+          id?: string;
+          principal_id: string;
+          principal_type: string;
+          role: string;
+          row_filters?: Json | null;
+          updated_at?: string;
+          workbook_id: string;
+        };
+        Update: {
+          created_at?: string;
+          created_by?: string | null;
+          hidden_sheets?: string[] | null;
+          id?: string;
+          principal_id?: string;
+          principal_type?: string;
+          role?: string;
+          row_filters?: Json | null;
+          updated_at?: string;
+          workbook_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "sheet_workbook_shares_workbook_id_fkey";
+            columns: ["workbook_id"];
+            isOneToOne: false;
+            referencedRelation: "sheet_workbooks";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       sheet_workbook_versions: {
         Row: {
           created_at: string;

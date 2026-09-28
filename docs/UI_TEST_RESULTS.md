@@ -15,6 +15,55 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-28 — Sheets sharing (Phase G), ADVERSARIAL_LOG R129–R130
+
+**Why this round exists.** The Excel-parity list asked for sharing with users and groups, including
+filtered sharing. This round drove it from the owner's side. The recipient's side needs a second
+account, which this session cannot make or sign into. **View as** runs the same server filtering
+the recipient gets, and is what was driven here.
+
+**A share target that gives nobody access.** This install had no IAM groups, so an empty group
+**sheets-share-test** was made (Admin → IAM → Groups, 0 members). It is kept.
+
+Fixtures kept:
+- **Workbook "Phase G sharing"** (`9fb2aa01…`), with these sheets:
+  - Sheet1: `=COUNTA(BiDemoSales[region])` in A1, `=SUM(BiDemoSales[revenue])` in A2.
+  - Summary: a grid imported from a CSV of regions, amounts and reps.
+  - Costs: a grid.
+  - BiDemoSales: a table sheet over `analytics.bi_demo_sales`, 108 rows.
+- **Its share to sheets-share-test:** can view, Summary West only, BiDemoSales EMEA only, Costs
+  left out.
+- **The group sheets-share-test.**
+
+| Place | What was done | Result |
+|---|---|---|
+| Share → A person | `nobody@example.invalid` | "No one here signs in as nobody@example.invalid" |
+| Share → A group → sheets-share-test, View | Summary: column A is West (1 header row); Costs off; BiDemoSales: region is EMEA | "Shared"; the list reads "Can view · Summary: only rows where column A is West · BiDemoSales: only rows where region is EMEA · Leaves out Costs", with the table-access warning |
+| View as | the share | banner "as the group sheets-share-test sees it: only some rows of Summary, BiDemoSales; 1 sheet left out"; sheets Sheet1, Summary, BiDemoSales; no ribbon, Add sheet, tab menus, Share or Rename; formula bar read-only |
+| View as → Summary | read the cells | Region/Amount/Rep, West 10 Ana, West 30 Cho; rows 3, 5, 6 hidden |
+| View as → Summary | typed 999, Enter, Delete | nothing changed; nothing pending |
+| View as → BiDemoSales | the page | "36 rows", only EMEA; only Refresh offered |
+| View as → BiDemoSales → Filter region | the value list | "EMEA 36" only |
+| View as → Sheet1 | A1, A2 | 36 and 15,524.94; the Lakehouse gives 36 EMEA rows, 15,524.94 |
+| Share → change to Edit → View as | the share | all four sheets, 108 and 51,749.84; still read-only |
+| Share → back to View with the same filters | saved | as before |
+| Share → Stop sharing | confirmed | "No longer shared with sheets-share-test"; "Only you can open this workbook" |
+| The old View as link | opened | "That share no longer exists" |
+| Shared again, same filters | saved | as before (kept) |
+| Audit log | read | `sheet.share` ×4 and `sheet.unshare` ×1 on "Phase G sharing", by this account |
+| Sheets page | the owner's | 11 workbooks, card menus Open / Rename / Delete, no "Shared with me" (nothing is shared with this account) |
+| R130, as the owner | Sheet1 typed, then reloaded | before: 108 and 51,749.84 typed, 1 and #VALUE! after a reload; after: 108 and 51,749.84 after a reload |
+| R129 | a table opened with a forged "upload" origin | before: accepted, "from forged.csv", the table refused writes; after: "Opening a table can't say it was imported" |
+
+Not driven, and why:
+- **Anything as the recipient.** Their Sheets page and its "Shared with me", an editor's real
+  edits and a viewer's real session all need a second account. Please check them with one: share a
+  workbook with its email and sign in as it.
+- **A person share's warning** about table sheets they cannot read. The only person share tried was
+  to an account that doesn't exist.
+- **Downloads in View as.** Downloading writes a file; the export function carries the
+  restriction, and the tests pin it.
+
 ## 2026-09-26 — Sheets' tables read-only outside Sheets, ADVERSARIAL_LOG R126–R128
 
 **Why this round exists.** The user saw the tables Sheets makes in the Lakehouse and asked that

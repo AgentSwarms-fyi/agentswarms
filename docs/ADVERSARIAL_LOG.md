@@ -109,6 +109,89 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-28 — Sheets sharing (Phase G), and two found building it: a table opened as an "upload", and grid formulas over tables wrong on every opening
+
+Sheets now shares a workbook with people or IAM groups, to view or to edit. A viewer's share can
+leave sheets out and keep only some rows of a sheet (see [Sheets → Sharing](./SHEETS.md#sharing)).
+
+The rules are in one place, `src/utils/sheets/access.server.ts`, and every Sheets server function
+asks it. `tests/unit/sheetsSharing.test.ts` keeps that true: a new function that neither asks nor is
+listed with a reason fails it.
+
+The decisions:
+- **Table sheets read the lakehouse as the reader.** The AI Analyst already works this way. Reading
+  as the owner would have let a share skip the lakehouse's own row filters and column masks.
+- **Where a viewer's rows are cut.**
+  - A grid sheet's rows are cut before the sheet is sent.
+  - A table sheet's rows are cut where its query starts (`restrict` in `buildTableRelation`), so
+    pages, value lists, downloads, lookups, pivots and grid formulas all inherit the cut.
+  - A table sheet's restriction can't come from a browser: the config schema refuses the field.
+- **Several shares combine exactly.** A row is kept if any share keeps it. The earlier draft
+  instead showed every row when two filters named different columns.
+- **Imports into the lakehouse are the owner's.** Every sheet keeps the owner's `user_id`, so the
+  Sheets-held-table guard and the row-level security on `sheet_tabs` stay right.
+- **Sharing is audited by the server,** as `sheet.share` and `sheet.unshare`. A trigger could not
+  do it: a service-role write has no actor, and a share row has no owner column.
+
+Tests:
+- `tests/unit/sheetsSharing.test.ts` (39): how shares combine; grid rows; the restriction run on
+  DuckDB through pages, value lists, grid formulas, pivots and lookups; the share checks; who may
+  do what, on a fake database; and the sweep of every function.
+- The mutation run caught 24 of 24, with R129 and R130 included; the control survived.
+
+#### R130 · S1 · Opening a workbook computed every grid formula over a table sheet as if there were no tables
+
+The engine computes every formula as it is built. It asks the page's resolver whether a name is a
+table sheet, and the resolver answered from the page's list of sheets, which was filled only after
+the engine was built. So on every opening:
+- `=COUNTA(Orders[region])` read **1** (the one error the unresolved name made, counted);
+- `=SUM(Orders[revenue])` read **#VALUE!**;
+- both stayed that way until the cell was typed again.
+
+Adding a table sheet and renaming one had the same order, so formulas naming the new or renamed
+table stayed wrong as well.
+
+**How it was found.** In the sharing round, a direct load of a "View as" link read 1 where 36 was
+right. Reaching the same view through the Share dialog read 36, because the page still held the
+previous load's list of sheets.
+
+**Driven, before.** In "Phase G sharing", Sheet1 had `=COUNTA(BiDemoSales[region])` in A1 and
+`=SUM(BiDemoSales[revenue])` in A2. As typed they read 108 and 51,749.84; after a reload, 1 and
+#VALUE!.
+
+**After** (hot-deployed):
+- A fresh load reads 108 and 51,749.84.
+- Viewed as the share (EMEA only) it reads 36 and 15,524.94. The Lakehouse gives the same for
+  `region = 'EMEA'`.
+
+**The fix.** The page's list of sheets is set before the engine is built, before a sheet is added
+to it, and before a renamed table's formulas are recomputed.
+
+**Tests.** `tests/unit/sheetsTablesOnOpen.test.ts` covers the engine's side (a resolver that does
+not yet know the tables gives 1) and pins the four orders.
+
+#### R129 · S2 · Opening a table as a sheet could say it was an upload, and hold it
+
+`sheetsAddTableTab` took the sheet's `origin` from the browser and stored it as sent: R127's shape,
+on another path. A sheet opened over any table could therefore say it had uploaded it, and the
+Lakehouse then refused writes to that table.
+
+R127's rule that the sheet's owner must own the schema limited this to a person's own tables. With
+sharing it would not have held. A sheet an editor adds belongs to the workbook's owner, so an
+editor could have claimed a table in the owner's schema and locked the owner out of it. Found in
+the sharing review, before sharing was committed.
+
+**Driven, before** (the R128 build). In "R126 held table", `analytics.r104_keep2` was opened with a
+fetch wrapper adding `origin: upload` to the app's own request. It was accepted, the sheet read
+"from forged.csv", and `UPDATE analytics.r104_keep2 …` was refused as held by that sheet.
+
+**After** (hot-deployed). The same request for `analytics.r104_keep` is refused: "Opening a table
+can't say it was imported". No sheet is added. The forged sheet from the before-drive was deleted,
+which released `r104_keep2`.
+
+**The fix.** Opening a table accepts only an origin that makes no claim: a lakehouse table, or a
+catalog entry.
+
 ### 2026-09-26 — Found making Sheets' tables read-only outside Sheets: a catalog name past every schema check, a sheet that could claim anyone's table, and three builders that wrote whatever held their name
 
 Tables that Sheets makes show up in the Lakehouse, and the user asked that

@@ -49,7 +49,9 @@ It manages:
   semantic model, catalog source, integration, LLM key/credential,
   **database & warehouse connection**, **app source**, **AI analyst**,
   **lakehouse schema** or **ML model**;
-  recipients' agents can search/query them but never modify them. A shared
+  recipients' agents can search/query them but never modify them. (A Sheets
+  workbook is shared from the workbook itself, to view or to edit: see
+  [Sheets → Sharing](./SHEETS.md#sharing).) A shared
   **connection** runs as its OWNER: the owner's credential is decrypted
   server-side and the grantee's queries run against the owner's warehouse, so
   a grantee gains the use of a connection without ever receiving its

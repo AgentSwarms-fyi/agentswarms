@@ -19,6 +19,7 @@ import { toast } from "sonner";
 import { renameSheetInFormula, renameTableInFormula } from "@/lib/sheets/formula/shift";
 import { GridTableResolver } from "@/lib/sheets/gridTableResolver";
 import type { TableConfig } from "@/lib/sheets/sql/tableQuery";
+import type { Role } from "@/lib/sheets/share";
 import {
   sheetsGet,
   sheetsSaveGrid,
@@ -91,6 +92,16 @@ export function useWorkbook(args: {
   workbookId: string;
   tabs: SheetTabRow[] | null;
   limits: SheetsLimits | null;
+  /**
+   * Shared with the caller to view, or the owner looking at it as a share
+   * does: nothing changes and nothing is saved. A table sheet's own sort and
+   * filters still change the view, and are not kept.
+   */
+  readOnly?: boolean;
+  /** The caller's part in the workbook, for the controls that are the owner's. */
+  role?: Role;
+  /** The owner looking at the workbook as this share sees it. */
+  asShare?: string | null;
 }) {
   const saveFn = useServerFn(sheetsSaveGrid);
   const saveTableFn = useServerFn(sheetsSaveTableConfig);
@@ -118,6 +129,9 @@ export function useWorkbook(args: {
   const hydrated = useRef(false);
   const tokenRef = useRef(args.token);
   tokenRef.current = args.token;
+  const readOnlyRef = useRef(!!args.readOnly);
+  readOnlyRef.current = !!args.readOnly;
+  const asShare = args.asShare ?? null;
 
   // Build the engine once per load of the workbook's tabs.
   useEffect(() => {
@@ -128,6 +142,20 @@ export function useWorkbook(args: {
       kind: t.kind,
       grid: t.kind === "grid" ? toGridData(t.grid) : undefined,
     }));
+    // FOUND IN R130. The engine computes every formula as it is built, and
+    // asks the resolver whether a name is a table sheet from tabsRef. That
+    // was filled only after the engine was built, so on opening a workbook
+    // every grid formula over a table sheet was computed with no tables:
+    // =COUNTA(Orders[id]) read 1 (one error, counted), =SUM(...) #VALUE!,
+    // until the cell was typed again. The sheets are known first now.
+    const meta = args.tabs.map((t) => ({
+      id: t.id,
+      name: t.name,
+      kind: t.kind,
+      position: t.position,
+      version: t.version,
+    }));
+    tabsRef.current = meta;
     // Grid formulas over table sheets are answered by the lakehouse.
     const resolver = new GridTableResolver({
       isTable: (name) =>
@@ -138,7 +166,7 @@ export function useWorkbook(args: {
         const token = tokenRef.current;
         if (!token) throw new Error("Not signed in");
         const r = await callsFnRef.current({
-          data: { access_token: token, workbook_id: args.workbookId, calls },
+          data: { access_token: token, workbook_id: args.workbookId, calls, as_share: asShare },
         });
         if (!r.ok) throw new Error(r.error);
         return r.answers;
@@ -151,14 +179,6 @@ export function useWorkbook(args: {
     });
     resolverRef.current = resolver;
     engineRef.current = new WorkbookEngine(defs, resolver);
-    const meta = args.tabs.map((t) => ({
-      id: t.id,
-      name: t.name,
-      kind: t.kind,
-      position: t.position,
-      version: t.version,
-    }));
-    tabsRef.current = meta;
     setTabs(meta);
     const configs: Record<string, TableConfig> = {};
     for (const t of args.tabs) {
@@ -174,7 +194,7 @@ export function useWorkbook(args: {
     setSaveState({});
     hydrated.current = true;
     bump();
-  }, [args.tabs, args.workbookId, bump]);
+  }, [args.tabs, args.workbookId, asShare, bump]);
 
   const setTabsBoth = useCallback((next: TabMeta[]) => {
     tabsRef.current = next;
@@ -280,7 +300,9 @@ export function useWorkbook(args: {
   }
 
   const markDirty = useCallback((tabId: string) => {
-    if (!hydrated.current) return;
+    // Read-only: a change of view (a table sheet's sort) stays on screen and
+    // is never sent; the server would refuse it anyway.
+    if (!hydrated.current || readOnlyRef.current) return;
     dirty.current.add(tabId);
     setSaveState((s) => {
       // A conflict is not cleared by more typing; the person must choose.
@@ -318,7 +340,7 @@ export function useWorkbook(args: {
       if (!engine || !token) return "The workbook is not open";
       let r;
       try {
-        r = await getFn({ data: { access_token: token, id: args.workbookId } });
+        r = await getFn({ data: { access_token: token, id: args.workbookId, as_share: asShare } });
       } catch (e) {
         return `Could not read the saved sheet: ${(e as Error).message}`;
       }
@@ -349,7 +371,7 @@ export function useWorkbook(args: {
       bump();
       return null;
     },
-    [getFn, args.workbookId, setTabsBoth, bump],
+    [getFn, args.workbookId, asShare, setTabsBoth, bump],
   );
 
   /** Save everything pending now (leaving the page, Ctrl+S). */
@@ -366,7 +388,7 @@ export function useWorkbook(args: {
   const applyEdits = useCallback(
     (tabId: string, edits: CellEdit[], opts: { record?: boolean } = {}) => {
       const engine = engineRef.current;
-      if (!engine || !edits.length) return;
+      if (!engine || !edits.length || readOnlyRef.current) return;
       const before = edits.map((e) => ({
         row: e.row,
         col: e.col,
@@ -447,7 +469,7 @@ export function useWorkbook(args: {
   const structural = useCallback(
     (tabId: string, mutate: (engine: WorkbookEngine) => void) => {
       const engine = engineRef.current;
-      if (!engine) return;
+      if (!engine || readOnlyRef.current) return;
       const snap = () => {
         const out: Record<string, GridData> = {};
         for (const s of engine.listSheets()) {
@@ -478,7 +500,7 @@ export function useWorkbook(args: {
   const setGridMeta = useCallback(
     (tabId: string, patch: GridMeta, opts: { gesture?: string } = {}) => {
       const engine = engineRef.current;
-      if (!engine) return;
+      if (!engine || readOnlyRef.current) return;
       const grid = engine.gridOf(tabId);
       if (!grid) return;
       const before: GridMeta = {};
@@ -523,7 +545,7 @@ export function useWorkbook(args: {
     (tabId: string, mutate: (grid: GridData) => GridData) => {
       const engine = engineRef.current;
       const cur = engine?.snapshot(tabId);
-      if (!engine || !cur) return;
+      if (!engine || !cur || readOnlyRef.current) return;
       const before = structuredClone(cur);
       const after = mutate(structuredClone(cur));
       engine.replaceGrid(tabId, after);
@@ -599,19 +621,8 @@ export function useWorkbook(args: {
 
   const addTabLocal = useCallback(
     (row: SheetTabRow) => {
-      engineRef.current?.addSheet({
-        id: row.id,
-        name: row.name,
-        kind: row.kind,
-        grid: row.kind === "grid" ? toGridData(row.grid) : undefined,
-      });
-      if (row.kind === "table" && row.table_config) {
-        tableConfigsRef.current = {
-          ...tableConfigsRef.current,
-          [row.id]: row.table_config as unknown as TableConfig,
-        };
-        setTableConfigs(tableConfigsRef.current);
-      }
+      // R130: known as a sheet (and a table) before the engine recomputes,
+      // so formulas that were waiting for it resolve now.
       setTabsBoth([
         ...tabsRef.current,
         {
@@ -622,6 +633,19 @@ export function useWorkbook(args: {
           version: row.version,
         },
       ]);
+      if (row.kind === "table" && row.table_config) {
+        tableConfigsRef.current = {
+          ...tableConfigsRef.current,
+          [row.id]: row.table_config as unknown as TableConfig,
+        };
+        setTableConfigs(tableConfigsRef.current);
+      }
+      engineRef.current?.addSheet({
+        id: row.id,
+        name: row.name,
+        kind: row.kind,
+        grid: row.kind === "grid" ? toGridData(row.grid) : undefined,
+      });
       setActiveTabId(row.id);
       bump();
     },
@@ -655,6 +679,8 @@ export function useWorkbook(args: {
         setTableConfigs(tableConfigsRef.current);
         resolverRef.current?.invalidate();
       }
+      // R130: the new name is a table before the rewritten formulas compute.
+      setTabsBoth(tabsRef.current.map((t) => (t.id === tabId ? { ...t, name: newName } : t)));
       for (const s of engine.listSheets()) {
         if (!s.grid) continue;
         const edits: CellEdit[] = [];
@@ -672,7 +698,6 @@ export function useWorkbook(args: {
         }
       }
       engine.renameSheet(tabId, newName);
-      setTabsBoth(tabsRef.current.map((t) => (t.id === tabId ? { ...t, name: newName } : t)));
       bump();
     },
     [bump, markDirty, setTabsBoth],
@@ -681,13 +706,14 @@ export function useWorkbook(args: {
   const removeTabLocal = useCallback(
     (tabId: string) => {
       const removed = tabsRef.current.find((x) => x.id === tabId);
+      // R130: no longer a table before the engine recomputes without it.
+      setTabsBoth(tabsRef.current.filter((x) => x.id !== tabId));
       if (removed?.kind === "table") resolverRef.current?.invalidate(removed.name);
       engineRef.current?.removeSheet(tabId);
       dirty.current.delete(tabId);
       const t = timers.current.get(tabId);
       if (t) clearTimeout(t);
-      const next = tabsRef.current.filter((x) => x.id !== tabId);
-      setTabsBoth(next);
+      const next = tabsRef.current;
       setActiveTabId((cur) => (cur === tabId ? (next[0]?.id ?? null) : cur));
       undoStack.current = undoStack.current.filter((e) => e.tabId !== tabId);
       redoStack.current = redoStack.current.filter((e) => e.tabId !== tabId);
@@ -733,6 +759,9 @@ export function useWorkbook(args: {
     setTableConfig,
     limits: args.limits,
     workbookId: args.workbookId,
+    readOnly: !!args.readOnly,
+    role: args.role ?? "owner",
+    asShare,
     recalculate,
     tableDataChanged,
     applyServerTab,

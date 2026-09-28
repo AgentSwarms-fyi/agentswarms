@@ -94,6 +94,13 @@ export type TableConfig = {
   hidden: string[];
   widths: Record<string, number>;
   origin?: TableOrigin;
+  /**
+   * The rows a viewer's share keeps (a row is kept if ANY of these keeps
+   * it), applied where the rows are read so everything built on the
+   * relation sees only them. Set on the server for the read, never stored:
+   * the schema that parses a browser's config refuses it.
+   */
+  restrict?: TableFilter[];
 };
 
 export type TableColumn = SheetColumn & {
@@ -223,14 +230,29 @@ export function buildTableRelation(
     const order = keySql.length
       ? `ORDER BY ${keySql.map((k) => `${k} NULLS LAST`).join(", ")}`
       : "";
-    ctes.push(`${base} AS (SELECT *, row_number() OVER (${order}) AS ${ROW_ID} FROM (${inner}))`);
     columns = [
       ...keys.map((k) => ({ name: k.name, kind: k.kind, type: SQL_TYPE[k.kind] })),
       ...aggs.map((a) => ({ name: a.name, kind: a.kind, type: SQL_TYPE[a.kind] })),
     ];
+    // A share's filter on the pivot itself keeps only those groups (the
+    // table it totals carries its own filter, if it has one).
+    const keep = cfg.restrict?.length
+      ? ` WHERE (${cfg.restrict.map((f) => filterSql(f, columns)).join(" OR ")})`
+      : "";
+    ctes.push(
+      `${base} AS (SELECT *, row_number() OVER (${order}) AS ${ROW_ID} FROM (${inner})${keep})`,
+    );
   } else {
     const src = `${qid(cfg.source.schema)}.${qid(cfg.source.table)}`;
-    ctes.push(`${base} AS (SELECT *, row_number() OVER () AS ${ROW_ID} FROM ${src})`);
+    // A shared viewer's rows (sheets/access.server), kept at the source. A
+    // pivot or lookup reads this sheet through `others`, which carries the
+    // same restriction, so no read built on it can reach the other rows.
+    // A filter naming a column the table no longer has throws: refused, not
+    // widened.
+    const keep = cfg.restrict?.length
+      ? ` WHERE (${cfg.restrict.map((f) => filterSql(f, columns)).join(" OR ")})`
+      : "";
+    ctes.push(`${base} AS (SELECT *, row_number() OVER () AS ${ROW_ID} FROM ${src}${keep})`);
   }
 
   let prev = base;

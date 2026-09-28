@@ -20,38 +20,9 @@ export async function resolveCaller(
   return { ok: true, userId: data.user.id };
 }
 
-export async function ownTableTab(userId: string, id: string) {
-  const { data, error } = await supabaseAdmin
-    .from("sheet_tabs")
-    .select("id, workbook_id, user_id, name, kind, table_config, version")
-    .eq("id", id)
-    .eq("user_id", userId)
-    .maybeSingle();
-  if (error) throw new Error(`Could not read the sheet: ${error.message}`);
-  if (!data) return null;
-  if (data.kind !== "table") throw new Error("This sheet is a grid, not a table");
-  return data;
-}
-
-/** The workbook's other table sheets, for lookups (Customers[name]). */
-export async function otherTables(
-  workbookId: string,
-  exceptId: string,
-): Promise<Map<string, OtherTable>> {
-  const { data, error } = await supabaseAdmin
-    .from("sheet_tabs")
-    .select("id, name, table_config")
-    .eq("workbook_id", workbookId)
-    .eq("kind", "table");
-  if (error) throw new Error(`Could not read the workbook's tables: ${error.message}`);
-  const out = new Map<string, OtherTable>();
-  for (const row of data ?? []) {
-    if (row.id === exceptId) continue;
-    const parsed = tableConfigSchema.safeParse(row.table_config);
-    if (parsed.success) out.set(row.name.toLowerCase(), { name: row.name, config: parsed.data });
-  }
-  return out;
-}
+// Which sheets and rows a caller may read, and the other table sheets a
+// lookup may use, come from sheets/access.server (requireTab, othersFor):
+// there is no owner-only shortcut here, so none can skip a share.
 
 /** The first line of an engine error, without DuckDB's LINE/caret decoration. */
 export function engineMessage(e: unknown): string {
@@ -90,14 +61,10 @@ export async function addTableTab(
 ): Promise<{ ok: true; tab: SheetTabRow } | Fail> {
   const problem = tableNameProblem(args.name);
   if (problem) return { ok: false, error: problem };
-  const { data: wb, error: wbErr } = await supabaseAdmin
-    .from("sheet_workbooks")
-    .select("id")
-    .eq("id", args.workbook_id)
-    .eq("user_id", userId)
-    .maybeSingle();
-  if (wbErr) return { ok: false, error: `Could not read the workbook: ${wbErr.message}` };
-  if (!wb) return { ok: false, error: "This workbook does not exist, or is not yours" };
+  // The owner or an editor; the sheet is the owner's either way.
+  const { requireAccess } = await import("@/utils/sheets/access.server");
+  const got = await requireAccess(userId, args.workbook_id, "edit");
+  if (!got.ok) return got;
   let columns: { name: string; type: string }[];
   try {
     // No access means a refusal here, before a sheet that could never show a
@@ -109,7 +76,7 @@ export async function addTableTab(
       error: `${args.schema}.${args.table} can't be opened: ${engineMessage(e)}`,
     };
   }
-  return insertTableTab(userId, args.workbook_id, args.name, {
+  return insertTableTab(got.access.ownerId, args.workbook_id, args.name, {
     source: { kind: "lakehouse", schema: args.schema, table: args.table },
     columns,
     calculated: [],

@@ -73,6 +73,7 @@ export function OpenTableDialog({
   workbookId,
   takenNames,
   onOpened,
+  canImport = true,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -80,6 +81,12 @@ export function OpenTableDialog({
   workbookId: string;
   takenNames: string[];
   onOpened: (tab: SheetTabRow) => void;
+  /**
+   * May copy data into the lakehouse (a connection, a file, a database
+   * table from the catalog): the workbook's owner. An editor opens tables
+   * that are already there.
+   */
+  canImport?: boolean;
 }) {
   const sourcesFn = useServerFn(sheetsTableSources);
   const addFn = useServerFn(sheetsAddTableTab);
@@ -223,15 +230,17 @@ export function OpenTableDialog({
     : "Name the sheet";
   const targetProblem = !importing
     ? null
-    : !targetSchema
-      ? tables === null && !loadError
-        ? "Reading your schemas…"
-        : writable.length
-          ? "Pick the schema it lands in"
-          : "You own no lakehouse schema to import into; create one on the Lakehouse page"
-      : !LAKE_NAME.test(targetTable)
-        ? "The lakehouse table name is lowercase letters, digits and _, starting with a letter"
-        : null;
+    : !canImport
+      ? "Only the workbook's owner can import data into it; open a lakehouse table instead"
+      : !targetSchema
+        ? tables === null && !loadError
+          ? "Reading your schemas…"
+          : writable.length
+            ? "Pick the schema it lands in"
+            : "You own no lakehouse schema to import into; create one on the Lakehouse page"
+        : !LAKE_NAME.test(targetTable)
+          ? "The lakehouse table name is lowercase letters, digits and _, starting with a letter"
+          : null;
   const chosen =
     mode === "lakehouse"
       ? Boolean(picked)
@@ -329,27 +338,29 @@ export function OpenTableDialog({
         </DialogHeader>
 
         <div className="flex gap-1 border-b border-border" role="tablist">
-          {MODES.map((m) => (
-            <button
-              key={m.id}
-              role="tab"
-              aria-selected={mode === m.id}
-              className={cn(
-                "-mb-px inline-flex items-center gap-1.5 border-b-2 px-3 py-1.5 text-sm",
-                mode === m.id
-                  ? "border-primary font-medium text-foreground"
-                  : "border-transparent text-muted-foreground hover:text-foreground",
-              )}
-              onClick={() => {
-                setMode(m.id);
-                setSearch("");
-                setError(null);
-                setLoadError(null);
-              }}
-            >
-              <m.icon className="h-3.5 w-3.5" /> {m.label}
-            </button>
-          ))}
+          {MODES.filter((m) => canImport || (m.id !== "connection" && m.id !== "upload")).map(
+            (m) => (
+              <button
+                key={m.id}
+                role="tab"
+                aria-selected={mode === m.id}
+                className={cn(
+                  "-mb-px inline-flex items-center gap-1.5 border-b-2 px-3 py-1.5 text-sm",
+                  mode === m.id
+                    ? "border-primary font-medium text-foreground"
+                    : "border-transparent text-muted-foreground hover:text-foreground",
+                )}
+                onClick={() => {
+                  setMode(m.id);
+                  setSearch("");
+                  setError(null);
+                  setLoadError(null);
+                }}
+              >
+                <m.icon className="h-3.5 w-3.5" /> {m.label}
+              </button>
+            ),
+          )}
         </div>
 
         <div className="grid gap-3">

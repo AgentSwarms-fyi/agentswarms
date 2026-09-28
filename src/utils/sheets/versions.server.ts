@@ -35,9 +35,12 @@ export async function snapshotOf(workbookId: string): Promise<SnapshotTab[]> {
  */
 export async function takeVersion(
   workbookId: string,
+  /** The workbook's owner: versions are theirs, whoever's edit made one. */
   userId: string,
   kind: VersionKind,
   label: string | null,
+  /** Who made it (an editor of a shared workbook), when not the owner. */
+  createdBy: string = userId,
 ): Promise<{ taken: boolean }> {
   const settings = await getPlatformResources();
   if (kind === "auto") {
@@ -57,7 +60,7 @@ export async function takeVersion(
   const { error } = await supabaseAdmin.from("sheet_workbook_versions").insert({
     workbook_id: workbookId,
     user_id: userId,
-    created_by: userId,
+    created_by: createdBy,
     kind,
     label,
     snapshot: tabs as unknown as Json,

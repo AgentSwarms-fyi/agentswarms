@@ -330,6 +330,9 @@ export function WorkbookEditor({
   // ── Editing ──────────────────────────────────────────────────────────────
 
   const startEdit = (text: string, mode: Editing["mode"], source: Editing["source"] = "cell") => {
+    // Shared to view (or seen as a share sees it): the cells can be read,
+    // selected and copied, not changed.
+    if (wb.readOnly) return;
     setEditing({ row: focus.row, col: focus.col, text, mode, source, caret: text.length });
     setAcIndex(0);
   };
@@ -1078,7 +1081,7 @@ export function WorkbookEditor({
       e.preventDefault();
     };
     const onPaste = (e: ClipboardEvent) => {
-      if (editing || document.activeElement !== gridRef.current) return;
+      if (wb.readOnly || editing || document.activeElement !== gridRef.current) return;
       const text = e.clipboardData?.getData("text/plain") ?? "";
       if (!text) return;
       e.preventDefault();
@@ -1473,57 +1476,59 @@ export function WorkbookEditor({
         </div>
       ) : (
         <>
-          <SheetToolbar
-            onDone={backToGrid}
-            style={focusInput?.s}
-            format={focusInput?.f}
-            merged={selectionMerged}
-            painting={!!painter}
-            zoom={zoom}
-            gridlines={!grid?.hideGrid}
-            extra={{ ...rules.ribbon, insert: charts.ribbon }}
-            actions={{
-              undo: () => wb.undo(),
-              redo: () => wb.redo(),
-              style,
-              toggle,
-              growFont,
-              indent,
-              borders,
-              merge: (m) => void merge(m),
-              format: setFormat,
-              customFormat: async () => {
-                const code = await promptAsk({
-                  title: "Custom number format",
-                  body: 'An Excel format code, e.g. #,##0.0 or 0.0% or "Q"0 or yyyy-mm, or #,##0;[Red]-#,##0 for red negatives.',
-                  input: { defaultValue: focusInput?.f ?? "", required: true },
-                  actionLabel: "Apply",
-                });
-                afterDialog();
-                if (code) setFormat(code);
-              },
-              decimals,
-              clear,
-              painter: startPainter,
-              link: openLinkDialog,
-              saveToLakehouse: openSave,
-              zoom: setZoom,
-              toggleGridlines: () =>
-                wb.setGridMeta(tabId, { hideGrid: grid?.hideGrid ? undefined : true }),
-            }}
-            status={
-              <SaveBadge
-                state={saving}
-                onRetry={() => void wb.saveTab(tabId)}
-                onOverwrite={() => void wb.saveTab(tabId, true)}
-                onReload={async () => {
-                  const problem = await wb.reloadTab(tabId);
-                  if (problem) toast.error(problem);
-                  else toast.success(`Showing the saved "${activeTab.name}"`);
-                }}
-              />
-            }
-          />
+          {!wb.readOnly && (
+            <SheetToolbar
+              onDone={backToGrid}
+              style={focusInput?.s}
+              format={focusInput?.f}
+              merged={selectionMerged}
+              painting={!!painter}
+              zoom={zoom}
+              gridlines={!grid?.hideGrid}
+              extra={{ ...rules.ribbon, insert: charts.ribbon }}
+              actions={{
+                undo: () => wb.undo(),
+                redo: () => wb.redo(),
+                style,
+                toggle,
+                growFont,
+                indent,
+                borders,
+                merge: (m) => void merge(m),
+                format: setFormat,
+                customFormat: async () => {
+                  const code = await promptAsk({
+                    title: "Custom number format",
+                    body: 'An Excel format code, e.g. #,##0.0 or 0.0% or "Q"0 or yyyy-mm, or #,##0;[Red]-#,##0 for red negatives.',
+                    input: { defaultValue: focusInput?.f ?? "", required: true },
+                    actionLabel: "Apply",
+                  });
+                  afterDialog();
+                  if (code) setFormat(code);
+                },
+                decimals,
+                clear,
+                painter: startPainter,
+                link: openLinkDialog,
+                saveToLakehouse: openSave,
+                zoom: setZoom,
+                toggleGridlines: () =>
+                  wb.setGridMeta(tabId, { hideGrid: grid?.hideGrid ? undefined : true }),
+              }}
+              status={
+                <SaveBadge
+                  state={saving}
+                  onRetry={() => void wb.saveTab(tabId)}
+                  onOverwrite={() => void wb.saveTab(tabId, true)}
+                  onReload={async () => {
+                    const problem = await wb.reloadTab(tabId);
+                    if (problem) toast.error(problem);
+                    else toast.success(`Showing the saved "${activeTab.name}"`);
+                  }}
+                />
+              }
+            />
+          )}
 
           {/* Formula bar */}
           <div className="relative flex items-center gap-2 border-b border-border px-2 py-1">
@@ -1566,10 +1571,12 @@ export function WorkbookEditor({
               ref={barRef}
               aria-label="Formula bar"
               data-testid="formula-bar"
+              readOnly={wb.readOnly}
               className="h-7 flex-1 rounded border border-input bg-background px-2 font-mono text-[13px]"
               value={editing ? editing.text : editText(focusInput)}
               spellCheck={false}
               onFocus={(e) => {
+                if (wb.readOnly) return;
                 editorRef.current = e.currentTarget;
                 if (!editing) {
                   setEditing({
@@ -1701,7 +1708,8 @@ export function WorkbookEditor({
               }
               onContextMenu={(e, kind) => {
                 e.preventDefault();
-                setMenu({ x: e.clientX, y: e.clientY, kind });
+                // Every item but Copy changes the sheet; Ctrl+C still copies.
+                if (!wb.readOnly) setMenu({ x: e.clientX, y: e.clientY, kind });
               }}
               editorRef={editorRef}
               gridRef={gridRef}
@@ -1797,27 +1805,29 @@ export function WorkbookEditor({
 
       {/* Sheet tabs + status */}
       <div className="flex items-center gap-2 border-t border-border bg-muted/30 px-2 py-1 text-xs">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              size="icon"
-              variant="ghost"
-              className="h-6 w-6"
-              title="Add sheet"
-              aria-label="Add sheet"
-            >
-              <Plus className="h-3.5 w-3.5" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" side="top">
-            <DropdownMenuItem onSelect={() => void addSheet()}>
-              <Grid3x3 className="mr-2 h-4 w-4" /> Grid sheet
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => setOpenTable(true)}>
-              <Database className="mr-2 h-4 w-4" /> Table sheet (lakehouse, catalog, import)…
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        {!wb.readOnly && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-6 w-6"
+                title="Add sheet"
+                aria-label="Add sheet"
+              >
+                <Plus className="h-3.5 w-3.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" side="top">
+              <DropdownMenuItem onSelect={() => void addSheet()}>
+                <Grid3x3 className="mr-2 h-4 w-4" /> Grid sheet
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setOpenTable(true)}>
+                <Database className="mr-2 h-4 w-4" /> Table sheet (lakehouse, catalog, import)…
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
         {saveRange && engine && tabId && activeTab && (
           <SaveToLakehouseDialog
             open
@@ -1848,6 +1858,7 @@ export function WorkbookEditor({
             token={token}
             workbookId={workbookId}
             takenNames={tabs.map((t) => t.name)}
+            canImport={wb.role === "owner"}
             onOpened={(row) => {
               wb.addTabLocal(row);
               toast.success(`Opened ${row.name}`);
@@ -1872,6 +1883,7 @@ export function WorkbookEditor({
               onRename={() => void renameSheet(t)}
               onDelete={() => void deleteSheet(t)}
               onMove={(d) => void moveSheet(t, d)}
+              readOnly={wb.readOnly}
             />
           ))}
         </div>
@@ -2018,6 +2030,7 @@ function SheetTab({
   onRename,
   onDelete,
   onMove,
+  readOnly,
 }: {
   tab: TabMeta;
   active: boolean;
@@ -2026,6 +2039,8 @@ function SheetTab({
   onRename: () => void;
   onDelete: () => void;
   onMove: (d: -1 | 1) => void;
+  /** No renaming, moving or deleting: shared to view. */
+  readOnly?: boolean;
 }) {
   const unsaved = state && state.kind !== "saved";
   return (
@@ -2050,7 +2065,7 @@ function SheetTab({
           onRename();
         }
       }}
-      onDoubleClick={onRename}
+      onDoubleClick={readOnly ? undefined : onRename}
     >
       {tab.kind === "table" && (
         <Database className="h-3 w-3 text-primary" aria-label="Table sheet" />
@@ -2059,28 +2074,30 @@ function SheetTab({
       {unsaved && (
         <span className="h-1.5 w-1.5 rounded-full bg-amber-500" title="Unsaved changes" />
       )}
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button
-            className="rounded p-0.5 opacity-60 hover:bg-muted hover:opacity-100"
-            aria-label={`Sheet ${tab.name} menu`}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <ChevronDown className="h-3 w-3" />
-          </button>
-        </DropdownMenuTrigger>
-        {/* A portal's events still bubble through React to the tab: without
+      {!readOnly && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              className="rounded p-0.5 opacity-60 hover:bg-muted hover:opacity-100"
+              aria-label={`Sheet ${tab.name} menu`}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <ChevronDown className="h-3 w-3" />
+            </button>
+          </DropdownMenuTrigger>
+          {/* A portal's events still bubble through React to the tab: without
             this, choosing an item also "clicked" the tab and switched to it. */}
-        <DropdownMenuContent onClick={(e) => e.stopPropagation()}>
-          <DropdownMenuItem onSelect={onRename}>Rename</DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => onMove(-1)}>Move left</DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => onMove(1)}>Move right</DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem className="text-destructive" onSelect={onDelete}>
-            Delete
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+          <DropdownMenuContent onClick={(e) => e.stopPropagation()}>
+            <DropdownMenuItem onSelect={onRename}>Rename</DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => onMove(-1)}>Move left</DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => onMove(1)}>Move right</DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem className="text-destructive" onSelect={onDelete}>
+              Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
     </div>
   );
 }

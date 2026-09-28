@@ -11,6 +11,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
+import { ROLE_LABEL } from "@/lib/sheets/share";
 import {
   ArrowUpRight,
   Database,
@@ -28,6 +29,7 @@ import {
   SearchX,
   Trash2,
   X,
+  Users,
 } from "lucide-react";
 import { ImportFileDialog } from "@/components/sheets/ImportFileDialog";
 import { WorkbookThumb } from "@/components/sheets/WorkbookThumb";
@@ -136,6 +138,8 @@ function SheetsPage() {
   const [maxCells, setMaxCells] = useState(200_000);
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<GallerySort>("edited");
+  // Whose workbooks: all, the caller's own, or the ones shared with them.
+  const [whose, setWhose] = useState<"all" | "mine" | "shared">("all");
   const [view, setView] = useState<View>("grid");
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -212,9 +216,17 @@ function SheetsPage() {
 
   const claim = listClaim({ loaded, error: loadError, count: workbooks?.length ?? 0 });
   const shown = useMemo(
-    () => searchWorkbooks(workbooks ?? [], query, sort),
-    [workbooks, query, sort],
+    () =>
+      searchWorkbooks(
+        (workbooks ?? []).filter((w) =>
+          whose === "all" ? true : whose === "mine" ? w.role === "owner" : w.role !== "owner",
+        ),
+        query,
+        sort,
+      ),
+    [workbooks, query, sort, whose],
   );
+  const sharedCount = (workbooks ?? []).filter((w) => w.role !== "owner").length;
   const total = workbooks?.length ?? 0;
 
   async function create() {
@@ -307,16 +319,23 @@ function SheetsPage() {
         >
           <ArrowUpRight className="mr-2 h-4 w-4" /> Open
         </DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => void rename(wb)}>
-          <Pencil className="mr-2 h-4 w-4" /> Rename…
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem
-          className="text-destructive focus:text-destructive"
-          onSelect={() => void remove(wb)}
-        >
-          <Trash2 className="mr-2 h-4 w-4" /> Delete…
-        </DropdownMenuItem>
+        {/* Renaming is the owner's and editors'; deleting, the owner's alone. */}
+        {wb.role !== "viewer" && (
+          <DropdownMenuItem onSelect={() => void rename(wb)}>
+            <Pencil className="mr-2 h-4 w-4" /> Rename…
+          </DropdownMenuItem>
+        )}
+        {wb.role === "owner" && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              className="text-destructive focus:text-destructive"
+              onSelect={() => void remove(wb)}
+            >
+              <Trash2 className="mr-2 h-4 w-4" /> Delete…
+            </DropdownMenuItem>
+          </>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -427,6 +446,25 @@ function SheetsPage() {
                 : `${total} workbook${total === 1 ? "" : "s"}`}
           </p>
           <div className="ml-auto flex items-center gap-2">
+            {sharedCount > 0 && (
+              <ToggleGroup
+                type="single"
+                value={whose}
+                onValueChange={(v) => v && setWhose(v as typeof whose)}
+                className="rounded-lg border border-border bg-card p-0.5"
+                aria-label="Whose workbooks"
+              >
+                <ToggleGroupItem value="all" className="h-8 px-2.5 text-xs">
+                  All
+                </ToggleGroupItem>
+                <ToggleGroupItem value="mine" className="h-8 px-2.5 text-xs">
+                  Mine
+                </ToggleGroupItem>
+                <ToggleGroupItem value="shared" className="h-8 px-2.5 text-xs">
+                  Shared with me ({sharedCount})
+                </ToggleGroupItem>
+              </ToggleGroup>
+            )}
             <Select
               value={sort}
               onValueChange={(v) => {
@@ -557,6 +595,15 @@ function SheetsPage() {
                       </h3>
                       {actions(wb)}
                     </div>
+                    {wb.role !== "owner" && (
+                      <p
+                        className="-mt-1 flex items-center gap-1 text-xs text-muted-foreground"
+                        data-testid="shared-by"
+                      >
+                        <Users className="h-3 w-3" />
+                        {ROLE_LABEL[wb.role]} · shared by {wb.owner}
+                      </p>
+                    )}
                     {wb.description && (
                       <p className="-mt-1 line-clamp-2 text-sm text-muted-foreground">
                         <Highlight text={wb.description} query={query} />
@@ -612,6 +659,11 @@ function SheetsPage() {
                           >
                             <Highlight text={wb.name} query={query} />
                           </Link>
+                          {wb.role !== "owner" && (
+                            <p className="text-xs text-muted-foreground" data-testid="shared-by">
+                              {ROLE_LABEL[wb.role]} · shared by {wb.owner}
+                            </p>
+                          )}
                           {wb.description && (
                             <p className="truncate text-xs text-muted-foreground">
                               <Highlight text={wb.description} query={query} />

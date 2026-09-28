@@ -46,6 +46,7 @@ function opsFor(kind: TableColumn["kind"]): FilterOp[] {
 
 export function TableFilterPopover({
   token,
+  asShare,
   tabId,
   config,
   column,
@@ -53,6 +54,8 @@ export function TableFilterPopover({
   onApply,
 }: {
   token: string;
+  /** The owner looking at the workbook as this share sees it. */
+  asShare?: string | null;
   tabId: string;
   config: TableConfig;
   column: TableColumn;
@@ -80,7 +83,9 @@ export function TableFilterPopover({
     let cancelled = false;
     setValues(null);
     setLoadError(null);
-    valuesFn({ data: { access_token: token, tab_id: tabId, config, column: column.name } })
+    valuesFn({
+      data: { access_token: token, tab_id: tabId, config, column: column.name, as_share: asShare },
+    })
       .then((r) => {
         if (cancelled) return;
         if (!r.ok) return setLoadError(r.error);

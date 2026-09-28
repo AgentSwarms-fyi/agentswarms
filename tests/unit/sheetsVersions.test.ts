@@ -48,6 +48,19 @@ function query(table: string) {
     select: () => b,
     eq: (col: string, v: unknown) => (filters.push((r) => r[col] === v), b),
     in: (col: string, vs: unknown[]) => (filters.push((r) => vs.includes(r[col])), b),
+    // PostgREST's or=(and(principal_type.eq.user,principal_id.eq.X),and(…principal_id.in.(a,b))):
+    // whose shares these are (sheets/access.server).
+    or: (expr: string) => {
+      const user = /principal_type\.eq\.user,principal_id\.eq\.([\w-]+)/.exec(expr)?.[1];
+      const groups = /principal_id\.in\.\(([^)]*)\)/.exec(expr)?.[1]?.split(",") ?? [];
+      filters.push(
+        (r) =>
+          (r.principal_type === "user" && r.principal_id === user) ||
+          (r.principal_type === "group" && groups.includes(r.principal_id as string)),
+      );
+      return b;
+    },
+    neq: (col: string, v: unknown) => (filters.push((r) => r[col] !== v), b),
     order: (col: string, o?: { ascending?: boolean }) => (
       orders.push([col, o?.ascending ?? true]),
       b
@@ -270,7 +283,10 @@ describe("restore", () => {
     const r = await fns.sheetsVersionRestore({
       data: { access_token: "user:someone-else", workbook_id: WB, version_id: versions()[0].id },
     });
-    expect(r).toEqual({ ok: false, error: "This workbook does not exist, or is not yours" });
+    expect(r).toMatchObject({
+      ok: false,
+      error: "This workbook does not exist, or is not shared with you",
+    });
     expect(versions()).toHaveLength(1);
     expect(db.sheet_tabs).toHaveLength(1);
   });

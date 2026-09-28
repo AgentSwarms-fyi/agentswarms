@@ -436,6 +436,58 @@ The lakehouse catalog source is then re-crawled in the background. The source is
 use if you have none. If the table saves but the catalog step fails, the dialog says so and offers
 to try the catalog step again on its own.
 
+## Sharing
+
+The workbook's owner shares it from **Share**, beside **File**. It can go to a person, by the email
+they sign in with, or to an IAM group. The share lets them view it or edit it. It then appears on
+their Sheets page with who shared it, and **Shared with me** lists only those.
+
+| What | Owner | Can edit | Can view |
+|---|---|---|---|
+| Open it, sort and filter a table sheet's view, download | ✓ | ✓ | ✓, what the share gives |
+| Change cells, sheets and table settings; pivots; version history; save to the lakehouse; rename | ✓ | ✓ | |
+| Add a table sheet over a lakehouse table | ✓ | ✓ | |
+| Upload a file, import from a connection, refresh an import | ✓ | | |
+| Share it, delete it | ✓ | | |
+
+An import makes a new table in its owner's schema, which the sheet then holds (see
+[Tables a sheet holds](#tables-a-sheet-holds)), so importing is the owner's alone.
+
+A share to view can keep things back:
+
+- **Sheets left out** are not sent at all, not even their names. A formula in a sheet the viewer
+  does see that reads one left out shows `#REF!`.
+- **Some rows of a sheet**:
+  - On a grid sheet, it keeps the rows whose value in a column (named by its letter) is one of those
+    picked, and the header rows at the top.
+  - On a table sheet, it keeps the rows whose column holds one of the values.
+  - The server sends only those rows, and everything built on them is computed from them: a total
+    in a grid sheet, a grid formula over the table (`=SUM(Orders[amount])`), a lookup into it, a
+    pivot of it, a filter's value list, a download.
+  - A cell's saved Excel value, for a formula this engine cannot compute, is not sent to a filtered
+    viewer: it can total the rows left out.
+
+**Several shares combine to the widest.** Someone can have shares to themselves and to groups they
+are in:
+- an editor share wins;
+- a sheet is left out only if every share leaves it out;
+- a row is kept if any share keeps it.
+
+**Table sheets read the lakehouse as whoever opens them.** Sharing a workbook shares the workbook,
+not your data access; the AI Analyst works the same way. A table sheet runs with the reader's own
+grants, row filters and column masks, and the share's row filter narrows further. Someone without
+access to a table sees an error on that sheet that names the table. When you share with a person,
+Share says which table sheets they cannot read.
+
+**View as**, in the share list, opens the workbook exactly as that share sees it: read-only, under a
+banner. Its table sheets then read as you, with the share's filters.
+
+Grid sheets are stored content, so a grid sheet's row filter is all that stands between a viewer and
+its other rows. Table sheets are governed by the lakehouse as well.
+
+Every share, change and removal is audited as `sheet.share` or `sheet.unshare`, naming who was
+given what.
+
 ## Governance
 
 A table sheet reads the lakehouse only through the same path as the Query editor:
@@ -453,7 +505,7 @@ policy is refused.
 Every import, save and catalog registration is audited as `lakehouse.import` with `via: sheets`.
 Workbooks and sheets are audited as `sheet_workbook` and `sheet_tab` row changes.
 
-Workbooks are private to their owner.
+Sharing is audited as `sheet.share` and `sheet.unshare` ([Sharing](#sharing)).
 
 ## Limits
 

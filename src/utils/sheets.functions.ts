@@ -1,11 +1,12 @@
 // Server functions behind Data & BI -> Sheets: workbooks, their sheets, and
 // saving a grid sheet's cells.
 //
-// Every write goes through the service role pinned to the caller's user id
-// (the idiom data monitors and ML schedules use). A grid save names the
-// version it was read at; a save against a newer version is refused as a
-// conflict rather than written over it, so two browser tabs cannot silently
-// undo each other.
+// Every write goes through the service role, after the caller's access to
+// the workbook is checked (sheets/access.server): the owner and editors may
+// change it, a viewer only reads, and some things are the owner's alone. A
+// grid save names the version it was read at; a save against a newer version
+// is refused as a conflict rather than written over it, so two people (or two
+// browser tabs) cannot silently undo each other.
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
@@ -14,6 +15,14 @@ import { getPlatformResources } from "@/utils/notebookRuntime/config.server";
 import { gridSchema } from "@/utils/sheets/schemas";
 import { takeVersion } from "@/utils/sheets/versions.server";
 import { previewOfTabs } from "@/utils/sheets/preview.server";
+import {
+  requireAccess,
+  requireTab,
+  sharedWithMe,
+  sheetShown,
+  tabFor,
+  type Role,
+} from "@/utils/sheets/access.server";
 import { previewSchema, type WorkbookPreview } from "@/lib/sheets/preview";
 
 type Fail = { ok: false; error: string };
@@ -33,8 +42,27 @@ export type WorkbookSummary = {
   sheet_count: number;
   /** Its sheets in order, for the gallery's chips and search. */
   sheets: { name: string; kind: "grid" | "table" }[];
-  /** The thumbnail kept for it, or null (none yet). */
+  /** The thumbnail kept for it, or null (none yet, or not for this viewer). */
   preview: WorkbookPreview | null;
+  /** The caller's part in it: their own, or shared with them to edit or view. */
+  role: Role;
+  /** Who shared it, for a workbook that is not the caller's own. */
+  owner: string | null;
+};
+
+/** How the caller sees an open workbook, for the editor's banner and controls. */
+export type WorkbookAccessInfo = {
+  role: Role;
+  /** Set when the owner is looking at the workbook as one of its shares sees it. */
+  viewing_as: string | null;
+  /** Whose share that is: an email, or a group's name. */
+  viewing_as_label: string | null;
+  /** Who shared it (not the caller's own). */
+  owner: string | null;
+  /** Sheets that arrive with only some of their rows. */
+  filtered: string[];
+  /** How many sheets were left out. */
+  hidden: number;
 };
 
 /** A kept thumbnail as read back: anything that is not one reads as none. */
@@ -91,29 +119,27 @@ async function limits(): Promise<SheetsLimits> {
   };
 }
 
-async function ownWorkbook(userId: string, id: string) {
-  const { data, error } = await supabaseAdmin
-    .from("sheet_workbooks")
-    .select("id, user_id, name, description, created_at, updated_at")
-    .eq("id", id)
-    .eq("user_id", userId)
-    .maybeSingle();
-  if (error) throw new Error(`Could not read the workbook: ${error.message}`);
-  return data;
+/** An email (or name) to show for each of these accounts. */
+async function ownerLabels(ids: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (!ids.length) return out;
+  const { userLabels } = await import("@/utils/sheets/people.server");
+  for (const [id, u] of await userLabels(ids)) out.set(id, u.email ?? u.name ?? "someone");
+  return out;
 }
 
-async function ownTab(userId: string, id: string) {
-  const { data, error } = await supabaseAdmin
-    .from("sheet_tabs")
-    .select("id, workbook_id, user_id, name, kind, position, version")
-    .eq("id", id)
-    .eq("user_id", userId)
-    .maybeSingle();
-  if (error) throw new Error(`Could not read the sheet: ${error.message}`);
-  return data;
-}
+type ListedRow = {
+  id: string;
+  name: string;
+  description: string | null;
+  created_at: string;
+  updated_at: string;
+  user_id: string;
+  sheet_tabs?: { name: string; kind: string; position: number }[];
+  sheet_workbook_previews?: unknown;
+};
 
-/** The caller's workbooks, newest first, with how many sheets each has. */
+/** The caller's workbooks and the ones shared with them, newest first. */
 export const sheetsList = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => tokenOnly.parse(input))
   .handler(
@@ -122,43 +148,67 @@ export const sheetsList = createServerFn({ method: "POST" })
     }): Promise<{ ok: true; workbooks: WorkbookSummary[]; limits: SheetsLimits } | Fail> => {
       const caller = await resolveCaller(data.access_token);
       if (!caller.ok) return caller;
+      const cols =
+        "id, name, description, created_at, updated_at, user_id, sheet_tabs(name, kind, position), sheet_workbook_previews(preview)";
       const { data: rows, error } = await supabaseAdmin
         .from("sheet_workbooks")
-        .select(
-          "id, name, description, created_at, updated_at, sheet_tabs(name, kind, position), sheet_workbook_previews(preview)",
-        )
+        .select(cols)
         .eq("user_id", caller.userId)
         .order("updated_at", { ascending: false })
         .limit(500);
       if (error) return { ok: false, error: `Could not list your workbooks: ${error.message}` };
-      return {
-        ok: true,
-        limits: await limits(),
-        workbooks: (rows ?? []).map((r) => ({
+      // Shared with the caller: listed with their part in it. A failed read of
+      // the shares fails the list; an empty "shared" would say none exist.
+      let shared: Awaited<ReturnType<typeof sharedWithMe>>;
+      try {
+        shared = await sharedWithMe(caller.userId);
+      } catch (e) {
+        return { ok: false, error: (e as Error).message };
+      }
+      let sharedRows: ListedRow[] = [];
+      if (shared.size) {
+        const { data: more, error: e2 } = await supabaseAdmin
+          .from("sheet_workbooks")
+          .select(cols)
+          .in("id", [...shared.keys()])
+          .neq("user_id", caller.userId)
+          .order("updated_at", { ascending: false })
+          .limit(500);
+        if (e2) return { ok: false, error: `Could not list the shared workbooks: ${e2.message}` };
+        sharedRows = (more ?? []) as unknown as ListedRow[];
+      }
+      const owners = await ownerLabels([...new Set(sharedRows.map((r) => r.user_id))]);
+      const summarize = (r: ListedRow): WorkbookSummary => {
+        const access = shared.get(r.id);
+        const role: Role = r.user_id === caller.userId ? "owner" : (access?.role ?? "viewer");
+        const tabs = [...(r.sheet_tabs ?? [])]
+          .sort((a, b) => a.position - b.position)
+          .filter((t) => !access || role !== "viewer" || !access.hidden.has(t.name.toLowerCase()));
+        // A thumbnail shows cells: not for a viewer whose share leaves
+        // anything out, since it was drawn from everything.
+        const restricted =
+          role === "viewer" && !!access && (access.hidden.size > 0 || access.filters.size > 0);
+        return {
           id: r.id,
           name: r.name,
           description: r.description,
           created_at: r.created_at,
           updated_at: r.updated_at,
-          ...(() => {
-            const tabs = [
-              ...((
-                r as unknown as { sheet_tabs?: { name: string; kind: string; position: number }[] }
-              ).sheet_tabs ?? []),
-            ].sort((a, b) => a.position - b.position);
-            return {
-              sheet_count: tabs.length,
-              sheets: tabs.map((t) => ({
-                name: t.name,
-                kind: (t.kind === "table" ? "table" : "grid") as "grid" | "table",
-              })),
-            };
-          })(),
-          preview: keptPreview(
-            (r as unknown as { sheet_workbook_previews?: unknown }).sheet_workbook_previews,
-          ),
-        })),
+          sheet_count: tabs.length,
+          sheets: tabs.map((t) => ({
+            name: t.name,
+            kind: (t.kind === "table" ? "table" : "grid") as "grid" | "table",
+          })),
+          preview: restricted ? null : keptPreview(r.sheet_workbook_previews),
+          role,
+          owner: role === "owner" ? null : (owners.get(r.user_id) ?? "someone"),
+        };
       };
+      const workbooks = [
+        ...((rows ?? []) as unknown as ListedRow[]).map(summarize),
+        ...sharedRows.map(summarize),
+      ].sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+      return { ok: true, limits: await limits(), workbooks };
     },
   );
 
@@ -198,31 +248,42 @@ export const sheetsCreate = createServerFn({ method: "POST" })
     return { ok: true, id: wb.id };
   });
 
-/** A workbook, its sheets in order, and the instance limits the editor enforces. */
+/**
+ * A workbook, its sheets in order, and the instance limits the editor
+ * enforces. A viewer gets the sheets their shares allow, with only the rows
+ * those keep; `as_share` lets the owner look at it as one of its shares does.
+ */
 export const sheetsGet = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => tokenOnly.extend({ id: z.string().uuid() }).parse(input))
+  .inputValidator((input: unknown) =>
+    tokenOnly
+      .extend({ id: z.string().uuid(), as_share: z.string().uuid().nullable().optional() })
+      .parse(input),
+  )
   .handler(
     async ({
       data,
     }): Promise<
       | {
           ok: true;
-          workbook: Omit<WorkbookSummary, "sheet_count" | "sheets">;
+          workbook: Omit<WorkbookSummary, "sheet_count" | "sheets" | "role" | "owner">;
           tabs: SheetTabRow[];
           limits: SheetsLimits;
+          access: WorkbookAccessInfo;
         }
       | (Fail & { missing?: boolean })
     > => {
       const caller = await resolveCaller(data.access_token);
       if (!caller.ok) return caller;
-      let wb;
-      try {
-        wb = await ownWorkbook(caller.userId, data.id);
-      } catch (e) {
-        return { ok: false, error: (e as Error).message };
-      }
-      if (!wb)
-        return { ok: false, error: "This workbook does not exist, or is not yours", missing: true };
+      const got = await requireAccess(caller.userId, data.id, "view", { asShare: data.as_share });
+      if (!got.ok) return got;
+      const access = got.access;
+      const { data: wb, error: wbErr } = await supabaseAdmin
+        .from("sheet_workbooks")
+        .select("id, name, description, created_at, updated_at")
+        .eq("id", data.id)
+        .maybeSingle();
+      if (wbErr) return { ok: false, error: `Could not read the workbook: ${wbErr.message}` };
+      if (!wb) return { ok: false, error: "This workbook does not exist", missing: true };
       const { data: tabs, error } = await supabaseAdmin
         .from("sheet_tabs")
         .select("id, workbook_id, name, kind, position, grid, table_config, version, updated_at")
@@ -230,11 +291,40 @@ export const sheetsGet = createServerFn({ method: "POST" })
         .order("position", { ascending: true })
         .order("created_at", { ascending: true });
       if (error) return { ok: false, error: `Could not read the sheets: ${error.message}` };
-      const { data: kept } = await supabaseAdmin
-        .from("sheet_workbook_previews")
-        .select("preview")
-        .eq("workbook_id", data.id)
-        .maybeSingle();
+      const all = (tabs ?? []) as SheetTabRow[];
+      const shown = all.map((t) => tabFor(access, t)).filter((t): t is SheetTabRow => !!t);
+      const restricted =
+        access.role === "viewer" && (access.hidden.size > 0 || access.filters.size > 0);
+      const { data: kept } = restricted
+        ? { data: null }
+        : await supabaseAdmin
+            .from("sheet_workbook_previews")
+            .select("preview")
+            .eq("workbook_id", data.id)
+            .maybeSingle();
+      const owner =
+        access.role === "owner" || access.viewingAs
+          ? null
+          : ((await ownerLabels([access.ownerId])).get(access.ownerId) ?? "someone");
+      let viewingAsLabel: string | null = null;
+      if (access.viewingAs) {
+        const { data: share } = await supabaseAdmin
+          .from("sheet_workbook_shares")
+          .select("principal_type, principal_id")
+          .eq("id", access.viewingAs)
+          .maybeSingle();
+        if (share?.principal_type === "group") {
+          const { data: g } = await supabaseAdmin
+            .from("iam_groups")
+            .select("name")
+            .eq("id", share.principal_id)
+            .maybeSingle();
+          viewingAsLabel = g?.name ? `the group ${g.name}` : "a group";
+        } else if (share) {
+          viewingAsLabel =
+            (await ownerLabels([share.principal_id])).get(share.principal_id) ?? "someone";
+        }
+      }
       return {
         ok: true,
         workbook: {
@@ -245,12 +335,23 @@ export const sheetsGet = createServerFn({ method: "POST" })
           updated_at: wb.updated_at,
           preview: keptPreview(kept),
         },
-        tabs: (tabs ?? []) as SheetTabRow[],
+        tabs: shown,
         limits: await limits(),
+        access: {
+          role: access.role,
+          viewing_as: access.viewingAs,
+          viewing_as_label: viewingAsLabel,
+          owner,
+          filtered: shown
+            .filter((t) => access.filters.has(t.name.toLowerCase()))
+            .map((t) => t.name),
+          hidden: all.filter((t) => !sheetShown(access, t.name)).length,
+        },
       };
     },
   );
 
+/** Rename a workbook or change its description: its owner or an editor. */
 export const sheetsUpdateWorkbook = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) =>
     tokenOnly
@@ -264,6 +365,8 @@ export const sheetsUpdateWorkbook = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<{ ok: true } | Fail> => {
     const caller = await resolveCaller(data.access_token);
     if (!caller.ok) return caller;
+    const got = await requireAccess(caller.userId, data.id, "edit");
+    if (!got.ok) return got;
     const patch: { name?: string; description?: string | null } = {};
     if (data.name !== undefined) patch.name = data.name;
     if (data.description !== undefined) patch.description = data.description;
@@ -271,18 +374,20 @@ export const sheetsUpdateWorkbook = createServerFn({ method: "POST" })
       .from("sheet_workbooks")
       .update(patch)
       .eq("id", data.id)
-      .eq("user_id", caller.userId)
       .select("id");
     if (error) return { ok: false, error: `Could not save the workbook: ${error.message}` };
-    if (!rows?.length) return { ok: false, error: "This workbook does not exist, or is not yours" };
+    if (!rows?.length) return { ok: false, error: "This workbook no longer exists" };
     return { ok: true };
   });
 
+/** Delete a workbook: its owner only. */
 export const sheetsDelete = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => tokenOnly.extend({ id: z.string().uuid() }).parse(input))
   .handler(async ({ data }): Promise<{ ok: true } | Fail> => {
     const caller = await resolveCaller(data.access_token);
     if (!caller.ok) return caller;
+    const got = await requireAccess(caller.userId, data.id, "own", { doing: "delete it" });
+    if (!got.ok) return got;
     const { data: rows, error } = await supabaseAdmin
       .from("sheet_workbooks")
       .delete()
@@ -306,13 +411,8 @@ export const sheetsAddTab = createServerFn({ method: "POST" })
     if (!caller.ok) return caller;
     const problem = sheetNameProblem(data.name);
     if (problem) return { ok: false, error: problem };
-    let wb;
-    try {
-      wb = await ownWorkbook(caller.userId, data.workbook_id);
-    } catch (e) {
-      return { ok: false, error: (e as Error).message };
-    }
-    if (!wb) return { ok: false, error: "This workbook does not exist, or is not yours" };
+    const got = await requireAccess(caller.userId, data.workbook_id, "edit");
+    if (!got.ok) return got;
     const { data: last, error: posErr } = await supabaseAdmin
       .from("sheet_tabs")
       .select("position")
@@ -324,7 +424,9 @@ export const sheetsAddTab = createServerFn({ method: "POST" })
       .from("sheet_tabs")
       .insert({
         workbook_id: data.workbook_id,
-        user_id: caller.userId,
+        // Every sheet is the owner's, whoever added it: sharing lends the
+        // workbook, and a sheet an editor made stays when the share goes.
+        user_id: got.access.ownerId,
         name: data.name.trim(),
         kind: "grid",
         position: (last?.[0]?.position ?? -1) + 1,
@@ -355,11 +457,12 @@ export const sheetsRenameTab = createServerFn({ method: "POST" })
     if (!caller.ok) return caller;
     const problem = sheetNameProblem(data.name);
     if (problem) return { ok: false, error: problem };
+    const got = await requireTab(caller.userId, data.tab_id, "edit");
+    if (!got.ok) return got;
     const { data: rows, error } = await supabaseAdmin
       .from("sheet_tabs")
       .update({ name: data.name.trim() })
       .eq("id", data.tab_id)
-      .eq("user_id", caller.userId)
       .select("id");
     if (error) {
       return {
@@ -370,7 +473,7 @@ export const sheetsRenameTab = createServerFn({ method: "POST" })
             : `Could not rename the sheet: ${error.message}`,
       };
     }
-    if (!rows?.length) return { ok: false, error: "This sheet does not exist, or is not yours" };
+    if (!rows?.length) return { ok: false, error: "This sheet no longer exists" };
     return { ok: true };
   });
 
@@ -379,27 +482,21 @@ export const sheetsDeleteTab = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<{ ok: true } | Fail> => {
     const caller = await resolveCaller(data.access_token);
     if (!caller.ok) return caller;
-    let tab;
-    try {
-      tab = await ownTab(caller.userId, data.tab_id);
-    } catch (e) {
-      return { ok: false, error: (e as Error).message };
-    }
-    if (!tab) return { ok: false, error: "This sheet does not exist, or is not yours" };
+    const got = await requireTab(caller.userId, data.tab_id, "edit");
+    if (!got.ok) return got;
     const { count, error: cErr } = await supabaseAdmin
       .from("sheet_tabs")
       .select("id", { count: "exact", head: true })
-      .eq("workbook_id", tab.workbook_id);
+      .eq("workbook_id", got.tab.workbook_id);
     if (cErr) return { ok: false, error: `Could not read the sheets: ${cErr.message}` };
     if ((count ?? 0) <= 1) return { ok: false, error: "A workbook keeps at least one sheet" };
     const { data: rows, error } = await supabaseAdmin
       .from("sheet_tabs")
       .delete()
       .eq("id", data.tab_id)
-      .eq("user_id", caller.userId)
       .select("id");
     if (error) return { ok: false, error: `Could not delete the sheet: ${error.message}` };
-    if (!rows?.length) return { ok: false, error: "This sheet does not exist, or is not yours" };
+    if (!rows?.length) return { ok: false, error: "This sheet no longer exists" };
     return { ok: true };
   });
 
@@ -412,21 +509,23 @@ export const sheetsReorderTabs = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<{ ok: true } | Fail> => {
     const caller = await resolveCaller(data.access_token);
     if (!caller.ok) return caller;
+    const got = await requireAccess(caller.userId, data.workbook_id, "edit");
+    if (!got.ok) return got;
     for (const [i, id] of data.order.entries()) {
       const { error } = await supabaseAdmin
         .from("sheet_tabs")
         .update({ position: i })
         .eq("id", id)
-        .eq("workbook_id", data.workbook_id)
-        .eq("user_id", caller.userId);
+        .eq("workbook_id", data.workbook_id);
       if (error) return { ok: false, error: `Could not reorder the sheets: ${error.message}` };
     }
     return { ok: true };
   });
 
 /**
- * Keep a workbook's thumbnail, as the editor drew it. Writing it is not an
- * edit: it lives in its own table, so the workbook's "edited" time stays.
+ * Keep a workbook's thumbnail, as the editor drew it: its owner or an editor
+ * (both see every cell). Writing it is not an edit: it lives in its own
+ * table, so the workbook's "edited" time stays.
  */
 export const sheetsSetPreview = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) =>
@@ -435,15 +534,11 @@ export const sheetsSetPreview = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<{ ok: true } | Fail> => {
     const caller = await resolveCaller(data.access_token);
     if (!caller.ok) return caller;
-    try {
-      if (!(await ownWorkbook(caller.userId, data.workbook_id)))
-        return { ok: false, error: "This workbook does not exist, or is not yours" };
-    } catch (e) {
-      return { ok: false, error: (e as Error).message };
-    }
+    const got = await requireAccess(caller.userId, data.workbook_id, "edit");
+    if (!got.ok) return got;
     const { error } = await supabaseAdmin.from("sheet_workbook_previews").upsert({
       workbook_id: data.workbook_id,
-      user_id: caller.userId,
+      user_id: got.access.ownerId,
       preview: data.preview as unknown as Json,
       updated_at: new Date().toISOString(),
     });
@@ -452,7 +547,7 @@ export const sheetsSetPreview = createServerFn({ method: "POST" })
   });
 
 /**
- * Thumbnails for a few of the caller's workbooks that have none, computed
+ * Thumbnails for a few of the caller's own workbooks that have none, computed
  * here from their saved sheets. The gallery asks for the ones it is showing,
  * a few at a time; each is built once and kept.
  */
@@ -504,9 +599,10 @@ export const sheetsBackfillPreviews = createServerFn({ method: "POST" })
   );
 
 /**
- * Save a grid sheet's cells. `base_version` is the version the editor read;
- * the write only lands if the row is still at it, and the answer carries the
- * new version. A newer version wins, and the caller is told so.
+ * Save a grid sheet's cells: its owner or an editor. `base_version` is the
+ * version the editor read; the write only lands if the row is still at it,
+ * and the answer carries the new version. A newer version wins, and the
+ * caller is told so.
  */
 export const sheetsSaveGrid = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) =>
@@ -526,6 +622,8 @@ export const sheetsSaveGrid = createServerFn({ method: "POST" })
     > => {
       const caller = await resolveCaller(data.access_token);
       if (!caller.ok) return caller;
+      const got = await requireTab(caller.userId, data.tab_id, "edit", { kind: "grid" });
+      if (!got.ok) return got;
       const { maxCells } = await limits();
       const count = Object.keys(data.grid.cells).length;
       if (count > maxCells) {
@@ -538,7 +636,7 @@ export const sheetsSaveGrid = createServerFn({ method: "POST" })
         .from("sheet_tabs")
         .update({ grid: data.grid as unknown as Json, version: data.base_version + 1 })
         .eq("id", data.tab_id)
-        .eq("user_id", caller.userId)
+        .eq("workbook_id", got.tab.workbook_id)
         .eq("kind", "grid")
         .eq("version", data.base_version)
         .select("version, workbook_id");
@@ -547,34 +645,34 @@ export const sheetsSaveGrid = createServerFn({ method: "POST" })
         // A version of the workbook as people work, at most one per
         // SHEETS_VERSION_INTERVAL_MINUTES. A failure here never fails the save.
         try {
-          await takeVersion(rows[0].workbook_id, caller.userId, "auto", null);
+          await takeVersion(rows[0].workbook_id, got.access.ownerId, "auto", null, caller.userId);
         } catch (e) {
           console.warn(`[sheets] automatic version skipped: ${(e as Error).message}`);
         }
         return { ok: true, version: rows[0].version };
       }
       // Nothing matched: the sheet is gone, or someone saved a newer version.
-      let tab;
-      try {
-        tab = await ownTab(caller.userId, data.tab_id);
-      } catch (e) {
-        return { ok: false, error: (e as Error).message };
-      }
-      if (!tab) return { ok: false, error: "This sheet no longer exists" };
+      const { data: now, error: nowErr } = await supabaseAdmin
+        .from("sheet_tabs")
+        .select("version")
+        .eq("id", data.tab_id)
+        .maybeSingle();
+      if (nowErr) return { ok: false, error: `Could not read the sheet: ${nowErr.message}` };
+      if (!now) return { ok: false, error: "This sheet no longer exists" };
       return {
         ok: false,
         conflict: true,
-        version: tab.version,
-        error: `This sheet was saved elsewhere (version ${tab.version}) after you opened it (version ${data.base_version}). Reload it to see those changes; yours are not saved.`,
+        version: now.version,
+        error: `This sheet was saved elsewhere (version ${now.version}) after you opened it (version ${data.base_version}). Reload it to see those changes; yours are not saved.`,
       };
     },
   );
 
 /**
  * Sheets read from a file (an .xlsx or a CSV, parsed in the browser) saved as
- * grid sheets: into a new workbook, or appended to one the caller owns. All or
- * nothing: a sheet that fails takes the ones already written with it, and a
- * new workbook with it.
+ * grid sheets: into a new workbook, or appended to one the caller owns or
+ * edits. All or nothing: a sheet that fails takes the ones already written
+ * with it, and a new workbook with it.
  */
 export const sheetsImportGrids = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) =>
@@ -619,16 +717,13 @@ export const sheetsImportGrids = createServerFn({ method: "POST" })
       }
 
       let workbookId = data.workbook_id;
+      let ownerId = caller.userId;
       let created = false;
       let start = 0;
       if (workbookId) {
-        let wb;
-        try {
-          wb = await ownWorkbook(caller.userId, workbookId);
-        } catch (e) {
-          return { ok: false, error: (e as Error).message };
-        }
-        if (!wb) return { ok: false, error: "This workbook does not exist, or is not yours" };
+        const got = await requireAccess(caller.userId, workbookId, "edit");
+        if (!got.ok) return got;
+        ownerId = got.access.ownerId;
         const { data: existing, error } = await supabaseAdmin
           .from("sheet_tabs")
           .select("name, position")
@@ -663,7 +758,7 @@ export const sheetsImportGrids = createServerFn({ method: "POST" })
         .insert(
           data.sheets.map((s, i) => ({
             workbook_id: workbookId!,
-            user_id: caller.userId,
+            user_id: ownerId,
             name: s.name.trim(),
             kind: "grid",
             position: start + i,

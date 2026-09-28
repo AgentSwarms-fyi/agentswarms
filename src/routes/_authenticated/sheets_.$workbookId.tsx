@@ -9,9 +9,11 @@ import {
   FileDown,
   FileSpreadsheet,
   FileUp,
+  Eye,
   History,
   Loader2,
   Pencil,
+  Share2,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
@@ -24,6 +26,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { downloadCsv, downloadXlsx } from "@/components/sheets/download";
 import { ImportFileDialog } from "@/components/sheets/ImportFileDialog";
+import { ShareDialog } from "@/components/sheets/ShareDialog";
 import { VersionHistoryDialog } from "@/components/sheets/VersionHistoryDialog";
 import { promptAsk } from "@/components/ui/confirm-dialog";
 import { WorkbookEditor } from "@/components/sheets/WorkbookEditor";
@@ -35,17 +38,23 @@ import {
   sheetsUpdateWorkbook,
   type SheetTabRow,
   type SheetsLimits,
+  type WorkbookAccessInfo,
 } from "@/utils/sheets.functions";
+import { ROLE_LABEL } from "@/lib/sheets/share";
 import { sheetsTableExport } from "@/utils/sheetsTables.functions";
 import type { TableConfig } from "@/lib/sheets/sql/tableQuery";
 
 export const Route = createFileRoute("/_authenticated/sheets_/$workbookId")({
   head: () => ({ meta: [{ title: "Workbook — Sheets — AgentSwarms" }] }),
+  // ?as=<share>: the owner looking at the workbook as that share sees it.
+  validateSearch: (search: Record<string, unknown>): { as?: string } =>
+    typeof search.as === "string" && /^[0-9a-f-]{36}$/i.test(search.as) ? { as: search.as } : {},
   component: WorkbookPage,
 });
 
 function WorkbookPage() {
   const { workbookId } = Route.useParams();
+  const { as: asShare } = Route.useSearch();
   const { session } = useAuth();
   const token = session?.access_token;
   const getFn = useServerFn(sheetsGet);
@@ -53,6 +62,8 @@ function WorkbookPage() {
   const exportFn = useServerFn(sheetsTableExport);
   const [importOpen, setImportOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [access, setAccess] = useState<WorkbookAccessInfo | null>(null);
   const navigate = useNavigate();
   const [busy, setBusy] = useState<"xlsx" | "csv" | null>(null);
   const [name, setName] = useState<string | null>(null);
@@ -74,11 +85,14 @@ function WorkbookPage() {
     if (!token) return;
     setError(null);
     try {
-      const r = await getFn({ data: { access_token: token, id: workbookId } });
+      const r = await getFn({
+        data: { access_token: token, id: workbookId, as_share: asShare ?? null },
+      });
       if (!r.ok) {
         setError({ message: r.error, missing: "missing" in r ? r.missing : undefined });
         return;
       }
+      setAccess(r.access);
       setName(r.workbook.name);
       setStoredPreview(r.workbook.preview);
       setLimits(r.limits);
@@ -88,14 +102,25 @@ function WorkbookPage() {
     }
     // Once per workbook (and once signed in), not once per token.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [signedIn, workbookId, getFn]);
+  }, [signedIn, workbookId, asShare, getFn]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  const wb = useWorkbook({ token, workbookId, tabs, limits });
-  useWorkbookPreview({ wb, token, workbookId, stored: storedPreview });
+  // Shared to view, or seen as a share sees it: nothing changes or saves.
+  const readOnly = !access || access.role === "viewer" || !!access.viewing_as;
+  const wb = useWorkbook({
+    token,
+    workbookId,
+    tabs,
+    limits,
+    readOnly,
+    role: access?.role,
+    asShare: asShare ?? null,
+  });
+  // The thumbnail is drawn from what this page shows: only from everything.
+  useWorkbookPreview({ wb, token, workbookId, stored: readOnly ? undefined : storedPreview });
 
   useEffect(() => {
     if (name) document.title = `${name} — Sheets — AgentSwarms`;
@@ -121,7 +146,7 @@ function WorkbookPage() {
   };
 
   const tableRows = (args: { tab_id: string; config: TableConfig }) =>
-    exportFn({ data: { access_token: token!, ...args } });
+    exportFn({ data: { access_token: token!, ...args, as_share: asShare ?? null } });
 
   const download = async (kind: "xlsx" | "csv") => {
     if (!wb.engine || !token) return;
@@ -199,7 +224,7 @@ function WorkbookPage() {
         <h1 className="truncate font-display text-lg font-semibold" data-testid="workbook-name">
           {name ?? "…"}
         </h1>
-        {name !== null && (
+        {name !== null && !readOnly && (
           <Button
             size="icon"
             variant="ghost"
@@ -210,7 +235,26 @@ function WorkbookPage() {
             <Pencil className="h-3.5 w-3.5" />
           </Button>
         )}
+        {access && access.role !== "owner" && !access.viewing_as && (
+          <span
+            className="rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground"
+            data-testid="workbook-role"
+          >
+            {ROLE_LABEL[access.role]} · shared by {access.owner}
+          </span>
+        )}
         <div className="ml-auto flex items-center gap-2">
+          {access?.role === "owner" && !access.viewing_as && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 gap-1"
+              onClick={() => setShareOpen(true)}
+              data-testid="workbook-share"
+            >
+              <Share2 className="h-4 w-4" /> Share
+            </Button>
+          )}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
@@ -230,24 +274,96 @@ function WorkbookPage() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-64">
-              <DropdownMenuItem onSelect={() => setImportOpen(true)}>
-                <FileUp className="mr-2 h-4 w-4" /> Import sheets from Excel or CSV…
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
+              {!readOnly && (
+                <>
+                  <DropdownMenuItem onSelect={() => setImportOpen(true)}>
+                    <FileUp className="mr-2 h-4 w-4" /> Import sheets from Excel or CSV…
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                </>
+              )}
               <DropdownMenuItem onSelect={() => void download("xlsx")} disabled={!!busy}>
                 <FileDown className="mr-2 h-4 w-4" /> Download as Excel (.xlsx)
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => void download("csv")} disabled={!!busy}>
                 <FileDown className="mr-2 h-4 w-4" /> Download this sheet as CSV
               </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={() => setHistoryOpen(true)}>
-                <History className="mr-2 h-4 w-4" /> Version history…
-              </DropdownMenuItem>
+              {/* A version holds every sheet and row: not for a viewer. */}
+              {!readOnly && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={() => setHistoryOpen(true)}>
+                    <History className="mr-2 h-4 w-4" /> Version history…
+                  </DropdownMenuItem>
+                </>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
       </div>
+      {access?.role === "viewer" && !access.viewing_as && (
+        <div
+          className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border bg-muted/40 px-3 py-1.5 text-xs"
+          data-testid="share-banner"
+        >
+          <Eye className="h-3.5 w-3.5 text-muted-foreground" />
+          <span>Shared with you to view by {access.owner}. Nothing you do here changes it.</span>
+          {access.filtered.length > 0 && (
+            <span className="text-muted-foreground">
+              Some rows only: {access.filtered.join(", ")}.
+            </span>
+          )}
+          {access.hidden > 0 && (
+            <span className="text-muted-foreground">
+              {access.hidden} sheet{access.hidden === 1 ? " is" : "s are"} not shared with you.
+            </span>
+          )}
+        </div>
+      )}
+      {access?.viewing_as && (
+        <div
+          className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs text-amber-900 dark:text-amber-100"
+          data-testid="view-as-banner"
+        >
+          <Eye className="h-3.5 w-3.5" />
+          <span>
+            You are seeing this workbook as {access.viewing_as_label} sees it
+            {access.filtered.length ? `: only some rows of ${access.filtered.join(", ")}` : ""}
+            {access.hidden
+              ? `${access.filtered.length ? ";" : ":"} ${access.hidden} sheet${access.hidden === 1 ? "" : "s"} left out`
+              : ""}
+            . Table sheets read the lakehouse as you here; for them it is their own access.
+          </span>
+          <Button
+            size="sm"
+            variant="outline"
+            className="ml-auto h-6 px-2 text-xs"
+            onClick={() =>
+              void navigate({ to: "/sheets/$workbookId", params: { workbookId }, search: {} })
+            }
+          >
+            Back to editing
+          </Button>
+        </div>
+      )}
+      {shareOpen && token && (
+        <ShareDialog
+          open
+          onOpenChange={setShareOpen}
+          token={token}
+          workbookId={workbookId}
+          wb={wb}
+          onViewAs={(id) => {
+            setShareOpen(false);
+            void wb.flush();
+            void navigate({
+              to: "/sheets/$workbookId",
+              params: { workbookId },
+              search: { as: id },
+            });
+          }}
+        />
+      )}
       {historyOpen && (
         <VersionHistoryDialog
           token={token}

@@ -293,6 +293,19 @@ held their name). Open from that round:
 - **A notebook kernel attached to the catalog is not asked**: the guard is on the server's write
   paths, and a kernel writes to the engine directly.
 
+Closed with sharing (Phase G): R129 (opening a table could say it was an upload), R130 (grid
+formulas over tables were wrong on every opening). Open from that round:
+
+- **The recipient's side needs a real second account.** Their Sheets page, "Shared with me", an
+  editor's edits and a viewer's session were checked only through "View as" and the tests.
+- **A group share's warning is general.** It does not check each member's lakehouse access;
+  members without access find out on the sheet.
+- **Two people editing one grid sheet** get the existing version conflict ("saved elsewhere").
+  There is no live merge.
+- **A filtered viewer's grid row numbers show gaps** where rows were left out, as a filtered Excel
+  sheet does. They say how many rows are hidden, not what is in them.
+- **Downloads by a viewer** carry the restriction on the server but were not driven.
+
 ## Rules that came out of doing this
 
 - A test that asserts source text is pinning a USE, not a definition; bound it

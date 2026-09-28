@@ -271,6 +271,19 @@ function query(table: string) {
     select: () => b,
     eq: (col: string, v: unknown) => (filters.push((r) => r[col] === v), b),
     in: (col: string, vs: unknown[]) => (filters.push((r) => vs.includes(r[col])), b),
+    // PostgREST's or=(and(principal_type.eq.user,principal_id.eq.X),and(…principal_id.in.(a,b))):
+    // whose shares these are (sheets/access.server).
+    or: (expr: string) => {
+      const user = /principal_type\.eq\.user,principal_id\.eq\.([\w-]+)/.exec(expr)?.[1];
+      const groups = /principal_id\.in\.\(([^)]*)\)/.exec(expr)?.[1]?.split(",") ?? [];
+      filters.push(
+        (r) =>
+          (r.principal_type === "user" && r.principal_id === user) ||
+          (r.principal_type === "group" && groups.includes(r.principal_id as string)),
+      );
+      return b;
+    },
+    neq: (col: string, v: unknown) => (filters.push((r) => r[col] !== v), b),
     order: () => b,
     limit: () => b,
     maybeSingle: async () => ({
@@ -386,7 +399,10 @@ describe("keeping a thumbnail", () => {
     const r = await fns.sheetsSetPreview({
       data: { access_token: `user:${OWNER}`, workbook_id: OTHER, preview },
     });
-    expect(r).toEqual({ ok: false, error: "This workbook does not exist, or is not yours" });
+    expect(r).toMatchObject({
+      ok: false,
+      error: "This workbook does not exist, or is not shared with you",
+    });
     expect(() =>
       fns.sheetsSetPreview({
         data: {

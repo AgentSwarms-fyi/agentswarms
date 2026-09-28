@@ -163,6 +163,7 @@ export function TableSheet({
             config: configRef.current,
             offset: page * pageRows,
             limit: pageRows,
+            as_share: wbRef.current.asShare,
           },
         });
         if (g !== gen.current) return; // settings changed meanwhile
@@ -396,21 +397,24 @@ export function TableSheet({
         {origin && origin.kind === "warehouse" && (
           <>
             <span className="text-muted-foreground">from {origin.connection_name}</span>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-7 gap-1 px-2 text-xs"
-              disabled={reimporting}
-              onClick={() => void reimport()}
-              title="Run the import again and replace the imported table's rows"
-            >
-              {reimporting ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <RefreshCw className="h-3.5 w-3.5" />
-              )}{" "}
-              Refresh from source
-            </Button>
+            {/* Re-running an import is its owner's: it replaces their table. */}
+            {wb.role === "owner" && !wb.readOnly && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 gap-1 px-2 text-xs"
+                disabled={reimporting}
+                onClick={() => void reimport()}
+                title="Run the import again and replace the imported table's rows"
+              >
+                {reimporting ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-3.5 w-3.5" />
+                )}{" "}
+                Refresh from source
+              </Button>
+            )}
           </>
         )}
         {origin && origin.kind === "upload" && (
@@ -429,24 +433,28 @@ export function TableSheet({
         >
           <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} /> Refresh
         </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          className="h-7 gap-1 px-2 text-xs"
-          onClick={() => setCalcDialog({ index: null })}
-        >
-          <Plus className="h-3.5 w-3.5" /> Column
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          className="h-7 gap-1 px-2 text-xs"
-          onClick={() => setPivotOpen("new")}
-          title="Group this table's rows and total them, in a new table sheet"
-        >
-          <LayoutGrid className="h-3.5 w-3.5" /> Pivot
-        </Button>
-        {config.source.kind === "pivot" && (
+        {!wb.readOnly && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 gap-1 px-2 text-xs"
+            onClick={() => setCalcDialog({ index: null })}
+          >
+            <Plus className="h-3.5 w-3.5" /> Column
+          </Button>
+        )}
+        {!wb.readOnly && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 gap-1 px-2 text-xs"
+            onClick={() => setPivotOpen("new")}
+            title="Group this table's rows and total them, in a new table sheet"
+          >
+            <LayoutGrid className="h-3.5 w-3.5" /> Pivot
+          </Button>
+        )}
+        {config.source.kind === "pivot" && !wb.readOnly && (
           <Button
             size="sm"
             variant="ghost"
@@ -460,15 +468,17 @@ export function TableSheet({
             Change pivot
           </Button>
         )}
-        <Button
-          size="sm"
-          variant="outline"
-          className="h-7 gap-1 px-2 text-xs"
-          onClick={() => setSaveOpen(true)}
-          title="Save what this sheet shows as a new lakehouse table"
-        >
-          <Database className="h-3.5 w-3.5" /> Save to lakehouse
-        </Button>
+        {!wb.readOnly && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 gap-1 px-2 text-xs"
+            onClick={() => setSaveOpen(true)}
+            title="Save what this sheet shows as a new lakehouse table"
+          >
+            <Database className="h-3.5 w-3.5" /> Save to lakehouse
+          </Button>
+        )}
         {config.filters.map((f) => (
           <span
             key={f.column}
@@ -587,6 +597,7 @@ export function TableSheet({
                     (s.desc ? <ArrowDown className="h-3 w-3" /> : <ArrowUp className="h-3 w-3" />)}
                   <TableFilterPopover
                     token={token}
+                    asShare={wb.asShare}
                     tabId={tab.id}
                     config={config}
                     column={c}
@@ -616,7 +627,7 @@ export function TableSheet({
                       )}
                       <DropdownMenuSeparator />
                       <DropdownMenuItem onSelect={() => hide(c.name)}>Hide column</DropdownMenuItem>
-                      {c.calculated && (
+                      {c.calculated && !wb.readOnly && (
                         <>
                           <DropdownMenuItem
                             onSelect={() =>

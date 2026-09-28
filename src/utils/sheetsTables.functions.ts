@@ -36,8 +36,6 @@ import {
   importTarget,
   insertTableTab,
   landRows,
-  otherTables,
-  ownTableTab,
   readConnection,
   resolveCaller,
   selectAllFrom,
@@ -45,6 +43,27 @@ import {
   visibleCatalogSources,
   type Fail,
 } from "@/utils/sheets/shared.server";
+import {
+  othersFor,
+  requireAccess,
+  requireTab,
+  restrictedConfig,
+  type WorkbookAccess,
+} from "@/utils/sheets/access.server";
+
+/** as_share: the owner looking at the workbook as one of its shares does. */
+const asShare = z.string().uuid().nullable().optional();
+
+/**
+ * A table sheet's read failed. In a workbook shared with the caller, say
+ * whose access it read with: the caller's own, never the owner's.
+ */
+function readFailure(a: WorkbookAccess, what: string, e: unknown): string {
+  const why = engineMessage(e);
+  return a.role === "owner"
+    ? `${what} can't be read: ${why}`
+    : `${what} can't be read with your access: ${why}. A shared workbook's table sheets read the lakehouse as you, so ask its owner (or the table's) for a grant.`;
+}
 
 // ── What can be opened ─────────────────────────────────────────────────────
 
@@ -95,7 +114,15 @@ export const sheetsAddTableTab = createServerFn({ method: "POST" })
         name: z.string().trim().min(1).max(100),
         schema: nameStr,
         table: nameStr,
-        origin: originSchema.optional(),
+        // FOUND IN R129. The origin was taken from the browser and stored as
+        // sent, so a sheet opened over any table could say it was an upload
+        // and hold it (sheets/owned.server). Opening a table never imports
+        // one: only a label of where it was found may come from here.
+        origin: originSchema
+          .refine((o) => o.kind === "lakehouse" || o.kind === "catalog", {
+            message: "Opening a table can't say it was imported",
+          })
+          .optional(),
       })
       .parse(input),
   )
@@ -165,6 +192,13 @@ export const sheetsImportFromConnection = createServerFn({ method: "POST" })
     const nameProblem = tableNameProblem(data.sheet_name);
     if (nameProblem) return { ok: false, error: nameProblem };
     if (!data.query && !data.table) return { ok: false, error: "Pick a table or write a query" };
+    // An import lands a new table in the caller's schema, which the sheet then
+    // holds (sheets/owned.server) as its owner's: the workbook's owner only,
+    // asked before anything is imported.
+    const own = await requireAccess(caller.userId, data.workbook_id, "own", {
+      doing: "import data into it",
+    });
+    if (!own.ok) return own;
     try {
       const problem = await importTarget(caller.userId, data.target_schema, data.target_table);
       if (problem) return { ok: false, error: problem };
@@ -243,6 +277,10 @@ export const sheetsImportCsv = createServerFn({ method: "POST" })
     }
     const nameProblem = tableNameProblem(data.sheet_name);
     if (nameProblem) return { ok: false, error: nameProblem };
+    const own = await requireAccess(caller.userId, data.workbook_id, "own", {
+      doing: "upload files into it",
+    });
+    if (!own.ok) return own;
     try {
       const problem = await importTarget(caller.userId, data.target_schema, data.target_table);
       if (problem) return { ok: false, error: problem };
@@ -284,9 +322,13 @@ export const sheetsRefreshImport = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<{ ok: true; rows: number } | Fail> => {
     const caller = await resolveCaller(data.access_token);
     if (!caller.ok) return caller;
+    const got = await requireTab(caller.userId, data.tab_id, "own", {
+      doing: "refresh its imports",
+      kind: "table",
+    });
+    if (!got.ok) return got;
+    const tab = got.tab;
     try {
-      const tab = await ownTableTab(caller.userId, data.tab_id);
-      if (!tab) return { ok: false, error: "This sheet does not exist, or is not yours" };
       const parsed = tableConfigSchema.safeParse(tab.table_config);
       if (!parsed.success) return { ok: false, error: "This sheet's settings could not be read" };
       const cfg = parsed.data;
@@ -343,6 +385,7 @@ export const sheetsTablePage = createServerFn({ method: "POST" })
         config: tableConfigSchema,
         offset: z.number().int().min(0).max(1_000_000_000),
         limit: z.number().int().min(1).max(100_000),
+        as_share: asShare,
       })
       .parse(input),
   )
@@ -352,15 +395,16 @@ export const sheetsTablePage = createServerFn({ method: "POST" })
     const started = Date.now();
     const { sheetsPageRows } = await getPlatformResources();
     const limit = Math.min(data.limit, sheetsPageRows);
-    let tab;
-    try {
-      tab = await ownTableTab(caller.userId, data.tab_id);
-    } catch (e) {
-      return { ok: false, error: (e as Error).message };
-    }
-    if (!tab) return { ok: false, error: "This sheet does not exist, or is not yours" };
+    const got = await requireTab(caller.userId, data.tab_id, "view", {
+      asShare: data.as_share,
+      kind: "table",
+    });
+    if (!got.ok) return got;
+    const { tab, access } = got;
     const { runLakehouseStatement } = await import("@/utils/lakehouse/core.server");
-    let cfg = data.config as TableConfig;
+    // A viewer's share keeps only some rows: forced in here, whatever the
+    // browser's settings say (buildTableRelation applies it at the source).
+    let cfg = restrictedConfig(access, tab.name, data.config as TableConfig);
     let sourceColumns: { name: string; type: string }[] | undefined;
     try {
       // The source may have gained or lost columns since the sheet was made.
@@ -376,14 +420,11 @@ export const sheetsTablePage = createServerFn({ method: "POST" })
         }
       }
     } catch (e) {
-      return {
-        ok: false,
-        error: `${sourceLabel(cfg.source)} can't be read: ${engineMessage(e)}`,
-      };
+      return { ok: false, error: readFailure(access, sourceLabel(cfg.source), e) };
     }
     let others: Map<string, OtherTable>;
     try {
-      others = await otherTables(tab.workbook_id, tab.id);
+      others = await othersFor(access, tab.id);
     } catch (e) {
       return { ok: false, error: (e as Error).message };
     }
@@ -455,7 +496,12 @@ export const sheetsTablePage = createServerFn({ method: "POST" })
 export const sheetsTableValues = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) =>
     tokenOnly
-      .extend({ tab_id: z.string().uuid(), config: tableConfigSchema, column: nameStr })
+      .extend({
+        tab_id: z.string().uuid(),
+        config: tableConfigSchema,
+        column: nameStr,
+        as_share: asShare,
+      })
       .parse(input),
   )
   .handler(
@@ -464,16 +510,15 @@ export const sheetsTableValues = createServerFn({ method: "POST" })
     }): Promise<{ ok: true; values: { v: string | null; n: number }[]; more: boolean } | Fail> => {
       const caller = await resolveCaller(data.access_token);
       if (!caller.ok) return caller;
-      let tab;
+      const got = await requireTab(caller.userId, data.tab_id, "view", {
+        asShare: data.as_share,
+        kind: "table",
+      });
+      if (!got.ok) return got;
+      const { tab, access } = got;
       try {
-        tab = await ownTableTab(caller.userId, data.tab_id);
-      } catch (e) {
-        return { ok: false, error: (e as Error).message };
-      }
-      if (!tab) return { ok: false, error: "This sheet does not exist, or is not yours" };
-      try {
-        const others = await otherTables(tab.workbook_id, tab.id);
-        const cfg = data.config as TableConfig;
+        const others = await othersFor(access, tab.id);
+        const cfg = restrictedConfig(access, tab.name, data.config as TableConfig);
         const rel = buildTableRelation(cfg, {
           name: tab.name,
           others: (n) => others.get(n.toLowerCase()),
@@ -539,13 +584,9 @@ export const sheetsSaveTableConfig = createServerFn({ method: "POST" })
       // at any table and say it had uploaded it, and the lakehouse then
       // refused that table's owner (sheets/owned.server). Where the rows come
       // from is set only where the sheet is made; a save keeps what is stored.
-      let stored;
-      try {
-        stored = await ownTableTab(caller.userId, data.tab_id);
-      } catch (e) {
-        return { ok: false, error: (e as Error).message };
-      }
-      if (!stored) return { ok: false, error: "This sheet no longer exists" };
+      const got = await requireTab(caller.userId, data.tab_id, "edit", { kind: "table" });
+      if (!got.ok) return got;
+      const stored = got.tab;
       const kept = tableConfigSchema.safeParse(stored.table_config);
       if (!kept.success) return { ok: false, error: "This sheet's settings could not be read" };
       const config: TableConfig = {
@@ -557,18 +598,18 @@ export const sheetsSaveTableConfig = createServerFn({ method: "POST" })
         .from("sheet_tabs")
         .update({ table_config: config as unknown as Json, version: data.base_version + 1 })
         .eq("id", data.tab_id)
-        .eq("user_id", caller.userId)
+        .eq("workbook_id", stored.workbook_id)
         .eq("kind", "table")
         .eq("version", data.base_version)
         .select("version");
       if (error) return { ok: false, error: `Could not save the sheet: ${error.message}` };
       if (rows?.length) return { ok: true, version: rows[0].version };
-      let tab;
-      try {
-        tab = await ownTableTab(caller.userId, data.tab_id);
-      } catch (e) {
-        return { ok: false, error: (e as Error).message };
-      }
+      const { data: tab, error: tabErr } = await supabaseAdmin
+        .from("sheet_tabs")
+        .select("version")
+        .eq("id", data.tab_id)
+        .maybeSingle();
+      if (tabErr) return { ok: false, error: `Could not read the sheet: ${tabErr.message}` };
       if (!tab) return { ok: false, error: "This sheet no longer exists" };
       return {
         ok: false,
@@ -700,6 +741,10 @@ export const sheetsOpenCatalogAsset = createServerFn({ method: "POST" })
       if (!data.target_schema || !data.target_table) {
         return { ok: false, error: "Name the lakehouse table the import lands in" };
       }
+      const own = await requireAccess(caller.userId, data.workbook_id, "own", {
+        doing: "import data into it",
+      });
+      if (!own.ok) return own;
       const problem = await importTarget(caller.userId, data.target_schema, data.target_table);
       if (problem) return { ok: false, error: problem };
       const query = selectAllFrom(src.provider ?? "postgres", asset.schema_name, asset.name);
@@ -780,6 +825,7 @@ export const sheetsTableCalls = createServerFn({ method: "POST" })
           .array(z.object({ key: z.string().max(20_000), req: callRequest }).strict())
           .min(1)
           .max(200),
+        as_share: asShare,
       })
       .parse(input),
   )
@@ -787,14 +833,10 @@ export const sheetsTableCalls = createServerFn({ method: "POST" })
     async ({ data }): Promise<{ ok: true; answers: Record<string, TableCallAnswer> } | Fail> => {
       const caller = await resolveCaller(data.access_token);
       if (!caller.ok) return caller;
-      const { data: wb, error: wbErr } = await supabaseAdmin
-        .from("sheet_workbooks")
-        .select("id")
-        .eq("id", data.workbook_id)
-        .eq("user_id", caller.userId)
-        .maybeSingle();
-      if (wbErr) return { ok: false, error: `Could not read the workbook: ${wbErr.message}` };
-      if (!wb) return { ok: false, error: "This workbook does not exist, or is not yours" };
+      const got = await requireAccess(caller.userId, data.workbook_id, "view", {
+        asShare: data.as_share,
+      });
+      if (!got.ok) return got;
       const { compileColumnFormula } = await import("@/lib/sheets/sql/compile");
       const { callText, EMPTY_IS } = await import("@/lib/sheets/sql/tableCalls");
       const { workbookTables } = await import("@/lib/sheets/sql/tableQuery");
@@ -802,7 +844,9 @@ export const sheetsTableCalls = createServerFn({ method: "POST" })
       const { runLakehouseStatement } = await import("@/utils/lakehouse/core.server");
       let others: Map<string, OtherTable>;
       try {
-        others = await otherTables(data.workbook_id, "");
+        // A formula in a grid sheet reads the table sheets as the caller may:
+        // left-out sheets are not there, filtered ones carry their filter.
+        others = await othersFor(got.access, "");
       } catch (e) {
         return { ok: false, error: (e as Error).message };
       }
@@ -920,16 +964,10 @@ export const sheetsSavePivot = createServerFn({ method: "POST" })
     if (new Set(names).size !== names.length) {
       return { ok: false, error: "The same total is listed twice" };
     }
+    const got = await requireAccess(caller.userId, data.workbook_id, "edit");
+    if (!got.ok) return got;
     try {
-      const { data: wb, error: wbErr } = await supabaseAdmin
-        .from("sheet_workbooks")
-        .select("id")
-        .eq("id", data.workbook_id)
-        .eq("user_id", caller.userId)
-        .maybeSingle();
-      if (wbErr) return { ok: false, error: `Could not read the workbook: ${wbErr.message}` };
-      if (!wb) return { ok: false, error: "This workbook does not exist, or is not yours" };
-      const others = await otherTables(data.workbook_id, data.tab_id ?? "");
+      const others = await othersFor(got.access, data.tab_id ?? "");
       if (!others.has(data.source.from.toLowerCase())) {
         return { ok: false, error: `There is no table sheet named "${data.source.from}"` };
       }
@@ -959,12 +997,23 @@ export const sheetsSavePivot = createServerFn({ method: "POST" })
         ...draft,
         columns: rel.columns.map((c) => ({ name: c.name, type: c.type })),
       };
-      if (!data.tab_id) return insertTableTab(caller.userId, data.workbook_id, data.name, config);
+      if (!data.tab_id) {
+        return insertTableTab(got.access.ownerId, data.workbook_id, data.name, config);
+      }
       // Editing: keep the pivot's own sort, filters, calculated columns and
       // widths where their columns still exist.
-      const tab = await ownTableTab(caller.userId, data.tab_id);
-      if (!tab) return { ok: false, error: "This sheet does not exist, or is not yours" };
+      const t = await requireTab(caller.userId, data.tab_id, "edit", { kind: "table" });
+      if (!t.ok) return t;
+      if (t.tab.workbook_id !== data.workbook_id) {
+        return { ok: false, error: "That sheet is in another workbook" };
+      }
+      const tab = t.tab;
       const prev = tableConfigSchema.safeParse(tab.table_config);
+      // Only a pivot is edited as one: this would replace any other sheet's
+      // source, and release a table it holds (R128's queue).
+      if (prev.success && prev.data.source.kind !== "pivot") {
+        return { ok: false, error: `"${tab.name}" is not a pivot` };
+      }
       const has = (n: string) =>
         config.columns.some((c) => c.name.toLowerCase() === n.toLowerCase());
       const merged: TableConfig = prev.success
@@ -981,7 +1030,7 @@ export const sheetsSavePivot = createServerFn({ method: "POST" })
         .from("sheet_tabs")
         .update({ table_config: merged as unknown as Json, version: tab.version + 1 })
         .eq("id", data.tab_id)
-        .eq("user_id", caller.userId)
+        .eq("workbook_id", data.workbook_id)
         .eq("version", data.base_version ?? tab.version)
         .select("id, workbook_id, name, kind, position, grid, table_config, version, updated_at");
       if (error) return { ok: false, error: `Could not save the pivot: ${error.message}` };
@@ -1007,7 +1056,9 @@ export const sheetsSavePivot = createServerFn({ method: "POST" })
  */
 export const sheetsTableExport = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) =>
-    tokenOnly.extend({ tab_id: z.string().uuid(), config: tableConfigSchema }).parse(input),
+    tokenOnly
+      .extend({ tab_id: z.string().uuid(), config: tableConfigSchema, as_share: asShare })
+      .parse(input),
   )
   .handler(
     async ({
@@ -1025,16 +1076,16 @@ export const sheetsTableExport = createServerFn({ method: "POST" })
       const caller = await resolveCaller(data.access_token);
       if (!caller.ok) return caller;
       const { sheetsExportMaxRows } = await getPlatformResources();
-      let tab;
+      const got = await requireTab(caller.userId, data.tab_id, "view", {
+        asShare: data.as_share,
+        kind: "table",
+      });
+      if (!got.ok) return got;
+      const { tab, access } = got;
+      // A download is the rows the screen shows: the share's filter too.
+      const cfg = restrictedConfig(access, tab.name, data.config as TableConfig);
       try {
-        tab = await ownTableTab(caller.userId, data.tab_id);
-      } catch (e) {
-        return { ok: false, error: (e as Error).message };
-      }
-      if (!tab) return { ok: false, error: "This sheet does not exist, or is not yours" };
-      const cfg = data.config as TableConfig;
-      try {
-        const others = await otherTables(tab.workbook_id, tab.id);
+        const others = await othersFor(access, tab.id);
         const rel = buildTableRelation(cfg, {
           name: tab.name,
           others: (n) => others.get(n.toLowerCase()),

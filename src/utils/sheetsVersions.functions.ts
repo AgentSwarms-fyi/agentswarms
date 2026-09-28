@@ -11,6 +11,7 @@ import {
   type SnapshotTab,
   type VersionKind,
 } from "@/utils/sheets/versions.server";
+import { requireAccess } from "@/utils/sheets/access.server";
 import { beforeRestoreLabel, copyName, utcShown, type VersionRef } from "@/lib/sheets/versionNames";
 
 type Fail = { ok: false; error: string };
@@ -30,15 +31,16 @@ async function caller(token: string): Promise<{ ok: true; userId: string } | Fai
   return { ok: true, userId: data.user.id };
 }
 
-async function ownWorkbook(userId: string, id: string) {
+// Versions are the owner's and their editors': a version holds every sheet
+// and every row, so a viewer (who may be shown less) gets none of them.
+async function workbookName(id: string): Promise<string> {
   const { data, error } = await supabaseAdmin
     .from("sheet_workbooks")
-    .select("id, name")
+    .select("name")
     .eq("id", id)
-    .eq("user_id", userId)
     .maybeSingle();
   if (error) throw new Error(`Could not read the workbook: ${error.message}`);
-  return data;
+  return data?.name ?? "Workbook";
 }
 
 const base = z.object({ access_token: z.string().min(1), workbook_id: z.string().uuid() });
@@ -53,12 +55,8 @@ export const sheetsVersionsList = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<{ ok: true; versions: VersionSummary[] } | Fail> => {
     const who = await caller(data.access_token);
     if (!who.ok) return who;
-    try {
-      if (!(await ownWorkbook(who.userId, data.workbook_id)))
-        return { ok: false, error: "This workbook does not exist, or is not yours" };
-    } catch (e) {
-      return { ok: false, error: (e as Error).message };
-    }
+    const got = await requireAccess(who.userId, data.workbook_id, "edit");
+    if (!got.ok) return got;
     const { data: rows, error } = await supabaseAdmin
       .from("sheet_workbook_versions")
       .select("id, label, kind, created_at, sheet_count, size_bytes")
@@ -76,10 +74,10 @@ export const sheetsVersionSave = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<{ ok: true } | Fail> => {
     const who = await caller(data.access_token);
     if (!who.ok) return who;
+    const got = await requireAccess(who.userId, data.workbook_id, "edit");
+    if (!got.ok) return got;
     try {
-      if (!(await ownWorkbook(who.userId, data.workbook_id)))
-        return { ok: false, error: "This workbook does not exist, or is not yours" };
-      await takeVersion(data.workbook_id, who.userId, "named", data.label);
+      await takeVersion(data.workbook_id, got.access.ownerId, "named", data.label, who.userId);
       return { ok: true };
     } catch (e) {
       return { ok: false, error: (e as Error).message };
@@ -106,17 +104,19 @@ export const sheetsVersionRestore = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<{ ok: true } | Fail> => {
     const who = await caller(data.access_token);
     if (!who.ok) return who;
+    const got = await requireAccess(who.userId, data.workbook_id, "edit");
+    if (!got.ok) return got;
+    const ownerId = got.access.ownerId;
     try {
-      if (!(await ownWorkbook(who.userId, data.workbook_id)))
-        return { ok: false, error: "This workbook does not exist, or is not yours" };
       const v = await versionOf(data.workbook_id, data.version_id);
       if (!v) return { ok: false, error: "That version no longer exists" };
       const shown = data.shown ?? utcShown(v.created_at);
       await takeVersion(
         data.workbook_id,
-        who.userId,
+        ownerId,
         "before_restore",
         beforeRestoreLabel(v as VersionRef, shown),
+        who.userId,
       );
       const tabs = v.snapshot as unknown as SnapshotTab[];
       if (!Array.isArray(tabs) || !tabs.length)
@@ -132,7 +132,7 @@ export const sheetsVersionRestore = createServerFn({ method: "POST" })
       const rows = (list: SnapshotTab[]) =>
         list.map((t, i) => ({
           workbook_id: data.workbook_id,
-          user_id: who.userId,
+          user_id: ownerId,
           name: t.name,
           kind: t.kind,
           position: i,
@@ -160,9 +160,10 @@ export const sheetsVersionOpenCopy = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<{ ok: true; workbook_id: string } | Fail> => {
     const who = await caller(data.access_token);
     if (!who.ok) return who;
+    const got = await requireAccess(who.userId, data.workbook_id, "edit");
+    if (!got.ok) return got;
     try {
-      const wb = await ownWorkbook(who.userId, data.workbook_id);
-      if (!wb) return { ok: false, error: "This workbook does not exist, or is not yours" };
+      const wb = { name: await workbookName(data.workbook_id) };
       const v = await versionOf(data.workbook_id, data.version_id);
       if (!v) return { ok: false, error: "That version no longer exists" };
       const tabs = v.snapshot as unknown as SnapshotTab[];

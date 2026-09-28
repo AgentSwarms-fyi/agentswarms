@@ -23,11 +23,10 @@ import { nameStr, tableConfigSchema, tokenOnly } from "@/utils/sheets/schemas";
 import {
   engineMessage,
   importTarget,
-  otherTables,
-  ownTableTab,
   resolveCaller,
   type Fail,
 } from "@/utils/sheets/shared.server";
+import { othersFor, requireTab } from "@/utils/sheets/access.server";
 
 const COLUMN_TYPES = ["DOUBLE", "BIGINT", "VARCHAR", "BOOLEAN", "DATE", "TIMESTAMP"] as const;
 
@@ -238,12 +237,15 @@ export const sheetsSaveTableAs = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<SaveResult | Fail> => {
     const caller = await resolveCaller(data.access_token);
     if (!caller.ok) return caller;
+    // Saving makes a new table in the caller's own schema (importTarget): the
+    // workbook's owner or an editor.
+    const got = await requireTab(caller.userId, data.tab_id, "edit", { kind: "table" });
+    if (!got.ok) return got;
+    const tab = got.tab;
     try {
-      const tab = await ownTableTab(caller.userId, data.tab_id);
-      if (!tab) return { ok: false, error: "This sheet does not exist, or is not yours" };
       const problem = await importTarget(caller.userId, data.target_schema, data.target_table);
       if (problem) return { ok: false, error: problem.replace("importing never", "saving never") };
-      const others = await otherTables(tab.workbook_id, tab.id);
+      const others = await othersFor(got.access, tab.id);
       const cfg = data.config as TableConfig;
       const rel = buildTableRelation(cfg, {
         name: tab.name,
@@ -342,12 +344,13 @@ export const sheetsSaveGridAs = createServerFn({ method: "POST" })
         error: `That is more than ${sheetsMaxCells.toLocaleString()} cells (SHEETS_MAX_CELLS)`,
       };
     }
+    const got = await requireTab(caller.userId, data.tab_id, "edit", { kind: "grid" });
+    if (!got.ok) return got;
     try {
       const { data: tab, error } = await supabaseAdmin
         .from("sheet_tabs")
         .select("id, workbook_id, name, kind, sheet_workbooks(name)")
         .eq("id", data.tab_id)
-        .eq("user_id", caller.userId)
         .maybeSingle();
       if (error) return { ok: false, error: `Could not read the sheet: ${error.message}` };
       if (!tab || tab.kind !== "grid") return { ok: false, error: "This grid sheet was not found" };
