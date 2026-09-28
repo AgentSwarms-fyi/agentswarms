@@ -2,7 +2,7 @@
 // sheets of the one that is open. The file is read in the browser; what the
 // server receives is the sheets, checked against the same rules as a save.
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { AlertTriangle, FileSpreadsheet, Loader2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -67,6 +67,8 @@ export function ImportFileDialog({
   maxCells,
   workbookId,
   takenNames,
+  initialFile,
+  initialName,
   onImported,
 }: {
   open: boolean;
@@ -76,6 +78,10 @@ export function ImportFileDialog({
   /** Add to this workbook; without it, the import makes a new one. */
   workbookId?: string;
   takenNames?: string[];
+  /** A file to start from, read as soon as the dialog opens (a sample workbook). */
+  initialFile?: File;
+  /** The new workbook's name for `initialFile`, in place of its file name. */
+  initialName?: string;
   onImported: (r: { workbookId: string; tabs: SheetTabRow[] }) => void;
 }) {
   const importFn = useServerFn(sheetsImportGrids);
@@ -87,11 +93,11 @@ export function ImportFileDialog({
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState("");
 
-  const read = async (f: File) => {
+  const read = async (f: File, as?: string) => {
     setFile(f);
     setParsed(null);
     setError(null);
-    setName(f.name.replace(/\.(xlsx|xlsm|csv|tsv|txt)$/i, ""));
+    setName(as ?? f.name.replace(/\.(xlsx|xlsm|csv|tsv|txt)$/i, ""));
     setReading(true);
     try {
       const lower = f.name.toLowerCase();
@@ -138,6 +144,12 @@ export function ImportFileDialog({
       setReading(false);
     }
   };
+
+  useEffect(() => {
+    if (initialFile) void read(initialFile, initialName);
+    // Once, for the file the dialog was opened with.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // The names the sheets will have here, shown before anything is saved.
   const previewNames = (() => {

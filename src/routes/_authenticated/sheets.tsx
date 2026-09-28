@@ -12,6 +12,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import { ROLE_LABEL } from "@/lib/sheets/share";
+import { SHEETS_SAMPLES, SHEETS_SAMPLES_PATH, type SheetsSample } from "@/lib/sheets/samples";
 import {
   ArrowUpRight,
   Database,
@@ -135,6 +136,23 @@ function SheetsPage() {
   const [newDesc, setNewDesc] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  // A sample workbook, fetched and handed to the import dialog.
+  const [sample, setSample] = useState<{ file: File; name: string } | null>(null);
+  const [loadingSample, setLoadingSample] = useState<string | null>(null);
+  const openSample = async (s: SheetsSample) => {
+    setLoadingSample(s.file);
+    try {
+      const res = await fetch(`${SHEETS_SAMPLES_PATH}/${s.file}`);
+      if (!res.ok) throw new Error(`the server answered ${res.status}`);
+      const blob = await res.blob();
+      setSample({ file: new File([blob], s.file, { type: blob.type }), name: s.title });
+      setImportOpen(true);
+    } catch (e) {
+      toast.error(`Could not open the sample ${s.title}: ${(e as Error).message}`);
+    } finally {
+      setLoadingSample(null);
+    }
+  };
   const [maxCells, setMaxCells] = useState(200_000);
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<GallerySort>("edited");
@@ -354,7 +372,13 @@ function SheetsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={() => setImportOpen(true)}>
+          <Button
+            variant="outline"
+            onClick={() => {
+              setSample(null);
+              setImportOpen(true);
+            }}
+          >
             <FileUp className="mr-1.5 h-4 w-4" /> Import
           </Button>
           <Button onClick={() => setNewOpen(true)}>
@@ -380,18 +404,41 @@ function SheetsPage() {
           <StartTile
             title="From an Excel or CSV file"
             detail="Formulas, formats, rules and charts come with it"
-            onClick={() => setImportOpen(true)}
+            onClick={() => {
+              setSample(null);
+              setImportOpen(true);
+            }}
             art={<FileArt />}
           />
+        </div>
+        <h3 className="pt-2 text-xs font-medium text-muted-foreground">
+          Samples to explore: real Excel files, with formulas, rules and charts
+        </h3>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3" data-testid="sheets-samples">
+          {SHEETS_SAMPLES.map((s) => (
+            <StartTile
+              key={s.file}
+              title={loadingSample === s.file ? `Opening ${s.title}…` : s.title}
+              detail={s.detail}
+              onClick={() => void openSample(s)}
+              art={<SampleArt kind={s.art} />}
+            />
+          ))}
         </div>
       </section>
 
       {importOpen && token && (
         <ImportFileDialog
+          key={sample?.file.name ?? "file"}
           open
-          onOpenChange={setImportOpen}
+          onOpenChange={(o) => {
+            setImportOpen(o);
+            if (!o) setSample(null);
+          }}
           token={token}
           maxCells={maxCells}
+          initialFile={sample?.file}
+          initialName={sample?.name}
           onImported={(r) =>
             void navigate({ to: "/sheets/$workbookId", params: { workbookId: r.workbookId } })
           }
@@ -845,6 +892,57 @@ function BlankArt() {
         </span>
       </span>
     </span>
+  );
+}
+
+/** A sample's tile: a small drawing of the chart it is known for. */
+function SampleArt({ kind }: { kind: SheetsSample["art"] }) {
+  return (
+    <svg viewBox="0 0 96 64" className="h-full w-full" aria-hidden>
+      {kind === "bars" &&
+        [18, 30, 24, 40, 34, 46].map((h, i) => (
+          <rect
+            key={i}
+            x={10 + i * 13}
+            y={56 - h}
+            width={8}
+            height={h}
+            rx={1.5}
+            className={i === 5 ? "fill-primary" : "fill-primary/40"}
+          />
+        ))}
+      {kind === "gantt" &&
+        [
+          [8, 30],
+          [22, 26],
+          [34, 34],
+          [46, 30],
+          [58, 26],
+        ].map(([x, w], i) => (
+          <rect
+            key={i}
+            x={x}
+            y={10 + i * 9}
+            width={w}
+            height={6}
+            rx={3}
+            className={i === 2 ? "fill-destructive/70" : "fill-primary/50"}
+          />
+        ))}
+      {kind === "area" && (
+        <>
+          <path
+            d="M8 50 L24 44 L40 46 L56 34 L72 28 L88 18 L88 56 L8 56 Z"
+            className="fill-primary/25"
+          />
+          <path
+            d="M8 50 L24 44 L40 46 L56 34 L72 28 L88 18"
+            className="fill-none stroke-primary"
+            strokeWidth={2}
+          />
+        </>
+      )}
+    </svg>
   );
 }
 

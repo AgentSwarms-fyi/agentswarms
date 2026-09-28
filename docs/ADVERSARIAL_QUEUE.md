@@ -329,6 +329,20 @@ its trial), R139 (View as carried the owner's conversation). Open from that roun
   the proxy, not from Sheets.
 - **The recipient's side of the assistant** was checked through View as, not a second account.
 
+Closed with the sample workbooks (Phase I): R140 (whole columns were only as long as the data),
+R141 (a chart's first column of dates drawn as a series), R142 (a formula whose answer was an empty
+cell showed nothing, where Excel shows 0), R143 (the samples hid their own figures under their
+charts). Open from that round:
+
+- **Arithmetic over a whole column works on the used rows.** Blank rows past the data do not take
+  part: `SUMPRODUCT(--(A:A<>"x"))` or `SUM(IF(A:A="",1))` count only the used part. Excel would
+  count them. COUNTIF, COUNTIFS and COUNTBLANK do count them (R140).
+- **Opening a sample twice makes two workbooks with the same name.** The tile could say that one is
+  already open.
+- **The Project tracker's "late" rows depend on today** (`TODAY()`), so its red rows and late count
+  change from day to day. That is intended for a tracker, but a screenshot from one day will not
+  match another.
+
 ## Rules that came out of doing this
 
 - A test that asserts source text is pinning a USE, not a definition; bound it

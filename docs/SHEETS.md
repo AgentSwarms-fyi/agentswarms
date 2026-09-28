@@ -27,6 +27,25 @@ server the first time the page shows it.
 - **Sort** by last edited, name (Q2 before Q10) or date created, and switch between the grid of
   cards and a list. Both choices are remembered in this browser.
 - **Start** makes a blank workbook or imports an Excel or CSV file.
+- **Samples to explore** opens one of the sample workbooks below. It goes through the same import
+  as any Excel file, so the preview shows its sheets first and it becomes your own workbook to
+  change.
+
+### Sample workbooks
+
+Three real .xlsx files ship in `public/samples/sheets/`. They open in Excel as well as here.
+`npm run sheets:samples` rebuilds them from `scripts/make-sheets-samples.ts`, with the same data
+every time. The script refuses to write a file in which any formula errs.
+
+| Sample | Sheets | What it shows |
+| --- | --- | --- |
+| **Sales performance 2026** | Dashboard, Orders (240), Products, Reps | Order lines filled with XLOOKUP from the product list; revenue by month and region with `SUMIFS` between dates (`EDATE`); a best-product lookup with INDEX/MATCH; a leaderboard that re-sorts itself (`SORTBY`); open orders over $3,000 (`FILTER`). Returned orders are struck through by a formula rule, with data bars and a color scale. Dropdowns cover regions, SKUs from the product list, and status. Charts: line, stacked column, doughnut, and a combo of sold against target. |
+| **Project tracker** | Summary, Tasks, Team | Tasks late against `TODAY()` in red; blocked and done by text rules; a dropdown of owners from the Team sheet; a due date that must follow the start; each person's load against their hours. Charts: pie of tasks by status, radar of remaining work, bar of open hours. |
+| **Budget and cash flow** | Assumptions, Model, Scenarios | A scenario picked in one cell (a dropdown) drives a 12-month model through INDEX/MATCH and XLOOKUP: customers, revenue, costs, net and cash, with negatives in red. Charts: combo of revenue, costs and net; area of cash; scatter of customers against revenue. |
+
+The figures in each were checked against a separate calculation in Python from the files' own rows.
+`tests/unit/sheetsSamples.test.ts` reads each file back and keeps those figures.
+
 
 ## Grid sheets
 
@@ -47,6 +66,13 @@ The same rules as Excel apply:
 - Precedence: `-2^2` is 4, `^` is left-associative, `&` joins text.
 - Criteria are strings such as `">100"`, `"<>West"` and `"ap*"`.
 - References can be relative or absolute (`$A$1`), whole columns (`A:A`), or cross-sheet (`'Sales Data'!D2`).
+  - A whole column is all 1,048,576 rows, as in Excel, and a whole row all 16,384 columns.
+    `ROWS(A:A)` is 1,048,576, and `COUNTBLANK(A:A)` and `COUNTIF(A:A,"<>x")` count the blank rows
+    below the data.
+  - `INDEX(A:A,500)` below the data is an empty cell, not `#REF!`.
+  - Arithmetic over a whole column, such as `SUMPRODUCT(--(A:A<>"x"))`, works on the rows the sheet
+    uses. To count blanks, use COUNTIF or COUNTBLANK.
+- A formula whose answer is an empty cell (`=A500`, a gap in a spilled range) shows 0, as in Excel.
 - Errors are `#DIV/0!`, `#N/A`, `#VALUE!`, `#REF!` and `#NAME?`. A cell with an error explains it when you hover over it.
 
 A formula that returns several values (UNIQUE, FILTER, SORT, SEQUENCE) **spills** into the cells below and to the

@@ -29,6 +29,7 @@ export function ChartDialog({
   editing,
   value,
   display,
+  formatOf,
   onCancel,
   onApply,
 }: {
@@ -37,6 +38,8 @@ export function ChartDialog({
   editing?: boolean;
   value: (row: number, col: number) => Scalar;
   display: (row: number, col: number) => string;
+  /** A cell's number format: a first column of dates is the categories. */
+  formatOf?: (row: number, col: number) => string | null | undefined;
   onCancel: () => void;
   onApply: (o: ChartOptions) => void;
 }) {
@@ -47,7 +50,7 @@ export function ChartDialog({
   const validRange = parseRangeA1(rangeText.trim().toUpperCase().replace(/\$/g, ""));
   const live = validRange ? { ...o, range: rangeText.trim().toUpperCase().replace(/\$/g, "") } : o;
   const data = useMemo(
-    () => chartData(live, value, display),
+    () => chartData(live, value, display, formatOf),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [live.range, live.type, live.seriesIn],
   );

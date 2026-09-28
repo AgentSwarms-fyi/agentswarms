@@ -4,6 +4,7 @@
 // wide (across the rows otherwise), unless the chart says which.
 
 import { parseRangeA1, type RangeAddr } from "./a1";
+import { isDateFormat } from "./format";
 import { isError, type Scalar } from "./formula/values";
 
 export type ChartType =
@@ -82,6 +83,9 @@ export type ChartData = {
 /** How a range splits into names, categories and values. */
 export type ChartLayout = { headerRow: boolean; labelCol: boolean; byCols: boolean };
 
+/** A cell's number format, where the caller knows it (to tell dates from numbers). */
+export type FormatOf = (row: number, col: number) => string | null | undefined;
+
 const isText = (v: Scalar) =>
   typeof v === "string" && v.trim() !== "" && !Number.isFinite(Number(v));
 const num = (v: Scalar): number | null => {
@@ -106,6 +110,7 @@ export function chartLayout(
   def: Pick<ChartDef, "seriesIn" | "type">,
   r: RangeAddr,
   value: (row: number, col: number) => Scalar,
+  formatOf?: FormatOf,
 ): ChartLayout {
   const rows = r.r1 - r.r0 + 1;
   const cols = r.c1 - r.c0 + 1;
@@ -113,10 +118,25 @@ export function chartLayout(
   // A header row: a first row whose cells over the data are text.
   let headerRow = false;
   if (rows > 1) for (let c = 0; c < cols; c++) if (isText(cell(0, c))) headerRow = true;
-  // A label column: a first column holding text (or dates shown as text) under the header.
+  // A label column: a first column holding text, or dates, under the header.
+  // FOUND IN R141: a first column of months (=DATE(2026,m,1), shown "Jan")
+  // was drawn as a series, a flat line at 46,000, over an axis numbered 1-12.
+  // Excel makes a column of dates the category axis.
   let labelCol = false;
-  if (cols > 1 && def.type !== "scatter")
-    for (let i = headerRow ? 1 : 0; i < rows; i++) if (isText(cell(i, 0))) labelCol = true;
+  if (cols > 1 && def.type !== "scatter") {
+    let dates = 0;
+    let others = 0;
+    for (let i = headerRow ? 1 : 0; i < rows; i++) {
+      const v = cell(i, 0);
+      if (isText(v)) labelCol = true;
+      else if (typeof v === "number") {
+        const f = formatOf?.(r.r0 + i, r.c0);
+        if (f && isDateFormat(f)) dates++;
+        else others++;
+      }
+    }
+    if (dates > 0 && others === 0) labelCol = true;
+  }
   const byCols =
     def.type === "scatter" || def.seriesIn === "cols"
       ? true
@@ -134,6 +154,7 @@ export function chartData(
   def: Pick<ChartDef, "range" | "seriesIn" | "type">,
   value: (row: number, col: number) => Scalar,
   display?: (row: number, col: number) => string,
+  formatOf?: FormatOf,
   maxPoints = 5000,
 ): ChartData {
   const r = parseRangeA1(def.range.replace(/\$/g, ""));
@@ -149,7 +170,7 @@ export function chartData(
   const cell = (dr: number, dc: number) => value(r.r0 + dr, r.c0 + dc);
   const shown = (dr: number, dc: number) =>
     display?.(r.r0 + dr, r.c0 + dc) ?? label(cell(dr, dc), "");
-  const { headerRow, labelCol, byCols } = chartLayout(def, r, value);
+  const { headerRow, labelCol, byCols } = chartLayout(def, r, value, formatOf);
   const d0 = headerRow ? 1 : 0; // first data row
   const c0 = labelCol ? 1 : 0; // first data column
 

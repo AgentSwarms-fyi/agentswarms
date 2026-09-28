@@ -669,11 +669,15 @@ export class WorkbookEngine {
   /** Store a result: a scalar stays; an array spills into empty neighbours or is #SPILL!. */
   private place(anchor: CellId, result: Value): Scalar {
     this.clearSpill(anchor);
-    if (!isMatrix(result)) return result;
+    // A formula whose answer is an empty cell shows 0, as in Excel (=A500,
+    // =INDEX(A:A,500), a spilled range with gaps). FOUND IN R142: it showed
+    // nothing, so ISNUMBER, COUNT and a chart read it as a blank Excel does not.
+    const zero = (v: Scalar): Scalar => (v === null ? 0 : v);
+    if (!isMatrix(result)) return zero(result);
     const rows = result.length;
     const cols = result[0]?.length ?? 0;
     if (rows === 0 || cols === 0) return err("#CALC!", "Empty array");
-    if (rows === 1 && cols === 1) return result[0][0];
+    if (rows === 1 && cols === 1) return zero(result[0][0]);
     const { sheetId, row, col } = splitId(anchor);
     const grid = this.sheets.get(sheetId)?.grid;
     const targets: CellId[] = [];
@@ -697,8 +701,11 @@ export class WorkbookEngine {
     }
     for (const t of targets) this.spillOwner.set(t, anchor);
     this.spillOf.set(anchor, targets);
-    this.arrays.set(anchor, result);
-    return result[0][0];
+    this.arrays.set(
+      anchor,
+      result.map((line) => line.map(zero)),
+    );
+    return zero(result[0][0]);
   }
 
   // ── Recalculation ────────────────────────────────────────────────────────

@@ -109,6 +109,106 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-28 — Sample workbooks (Phase I), and four found checking them against Python
+
+Three sample workbooks now ship in `public/samples/sheets/` and open from **Samples to explore** on
+the Sheets page (see [Sheets → Sample workbooks](./SHEETS.md#sample-workbooks)):
+- Sales performance 2026;
+- Project tracker;
+- Budget and cash flow.
+
+They are real .xlsx files. `scripts/make-sheets-samples.ts` writes them with the app's own engine
+and Excel writer (`npm run sheets:samples`), and refuses to write a file in which any formula errs.
+A sample opens through the same import as any Excel file, so it becomes the person's own workbook.
+
+**How they were checked.** Nothing about a sample was taken from the app itself:
+- openpyxl opened each file.
+- Python recomputed 41 figures from the files' own rows: revenue, margin and order counts; totals
+  by month, region, category and rep; task counts and hours; the budget model under every scenario.
+- The two sets of figures were compared.
+- Two figures disagreed at first. That led to R140 and to a fix in the sample.
+
+`tests/unit/sheetsSamples.test.ts` reads each committed file back with the app's reader and keeps
+those figures. It also fails if any chart covers a filled cell. `tests/unit/sheetsWholeRanges.test.ts`
+covers R140 and R142. The mutation run caught 13 of 13 for R140–R142 and the samples; the control
+survived. The layout check (R143) failed on the files as they were before the fix.
+
+#### R140 · S2 · Whole columns were only as long as the data: ROWS(A:A) was 3, COUNTBLANK(A:A) 0
+
+The engine reads a whole column (`A:A`) only as far as the sheet is used, which is right for
+SUM. But the functions that see the blank rest took the used part for the whole:
+
+| Formula | Excel | Before |
+| --- | --- | --- |
+| `ROWS(A:A)` | 1,048,576 | 3 |
+| `COLUMNS(1:1)` | 16,384 | 2 |
+| `COUNTBLANK(A:A)` | 1,048,573 | 0 |
+| `COUNTIF(A:A,"<>x")` | 1,048,575 | 2 |
+| `INDEX(A:A,100)` | an empty cell | #REF! |
+| `SUMIFS(T!B:B,A:A,"a")`, two sheets used to different depths | 5 | #VALUE! (ranges differ in size) |
+
+**How it was found.** The sample's order count, `=COUNTIFS(Orders!L:L,"<>Returned")`, gave 229
+where Python counted 228 orders. The formula was wrong too:
+- In the app, it counted the header.
+- In Excel, it would have counted every blank row as well, over a million.
+
+**The fix.**
+- `ROWS`, `COLUMNS`, `COUNTBLANK` and `COUNTIF(S)` add the blank tail of a whole range. COUNTIFS
+  adds it only when every criterion takes a blank.
+- `INDEX` past the used rows gives an empty cell.
+- Whole columns read together are padded with blanks to the longest.
+- The sample now counts `=COUNTIFS(Orders!A:A,"SO-*",Orders!L:L,"<>Returned")`.
+
+Arithmetic over a whole column (`SUMPRODUCT(--(A:A<>"x"))`) still works on the used rows; it is in
+the queue.
+
+**After**, typed into the Budget sample's Scenarios sheet: `=ROWS(A:A)` 1,048,576;
+`=COUNTBLANK(A:A)` 1,048,572; `=COUNTIF(A:A,"<>Base")` 1,048,575.
+
+#### R141 · S2 · A chart whose first column was dates drew the dates as a series
+
+The sample's "Revenue by month and region" chart has months in its first column, as
+`=DATE(2026,m,1)` formatted "mmm". The chart drew them as a fifth series, a flat line at about
+46,000 (the dates' serial numbers), over an axis numbered 1 to 12. The stacked columns carried a
+"Month" block on top. `chartLayout` took only a first column of text as the categories. Excel takes
+a first column of dates too. The .xlsx writer uses the same layout, so the file's chart was wrong in
+Excel as well.
+
+**The fix.** `chartLayout` is given each cell's number format. A first column whose numbers are all
+dates is the category axis, while plain numbers, or a mix, stay a series as in Excel. The grid's
+charts, the chart dialog and the .xlsx writer all pass the formats.
+
+**After:**
+- The workbook imported before the fix now draws four regions over Jan to Dec. The layout is
+  worked out as the chart is drawn, so no stored workbook needs changing.
+- In the regenerated file, the chart has four series over `Dashboard!$A$9:$A$20`.
+
+#### R142 · S2 · A formula whose answer was an empty cell showed nothing, where Excel shows 0
+
+`=A500`, and `=INDEX(A:A,500)` after R140, showed an empty cell. In Excel both show 0: the value is
+0, so ISNUMBER on it is TRUE, COUNT counts it, and a chart plots 0. The gaps of a spilled range
+(`=A1:A3` over a blank A2) are 0 in Excel too.
+
+**The fix.** The engine places an empty answer, or the empty cells of a spilled answer, as 0. Inside
+a formula a blank stays blank (`ISBLANK(A500)` is TRUE, `COUNTA` skips it), and text that is empty
+(`=IF(TRUE,"")`) stays text.
+
+**After:** in the Scenarios sheet, H4 `=INDEX(A:A,500)` and H5 `=A500` show 0.
+
+#### R143 · S3 · The sample dashboards hid their own figures under their charts
+
+- The Project tracker's pie and radar charts sat over the owners' "Remaining (h)" column.
+- The Sales dashboard's charts sat over the "Open orders over $3,000" list: 13 rows spilled from
+  J18, and the charts started at row 22.
+- The leaderboard's spilled figures showed as plain numbers under a first figure in dollars. Excel
+  does the same with a file like that; the cells needed the format.
+
+**The fix.**
+- The generator places the charts right of the data, and below the list by its computed length.
+- The spill cells carry the dollar format.
+- The samples test fails if any chart covers a filled or spilled cell. It failed on the old files
+  and passes on the new ones.
+
 ### 2026-09-28 — AI in Sheets (Phase H), and nine found driving it
 
 A workbook now has an assistant beside the grid and **Fill with AI** (see

@@ -34,6 +34,7 @@ import {
   type Value,
 } from "./values";
 import type { ErrorCode } from "./lexer";
+import { MAX_COLS, MAX_ROWS } from "../a1";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -162,20 +163,66 @@ export function makeCriterion(crit: Scalar): (v: Scalar) => boolean {
   };
 }
 
-/** Pairs of (range, criterion) → a mask over the first range's cells. */
-function criteriaMask(pairs: [Arg, Arg][]): boolean[] | SheetError {
-  let mask: boolean[] | null = null;
-  let size = -1;
-  for (const [rangeArg, critArg] of pairs) {
-    const cells = flat(rangeArg.value());
-    if (size >= 0 && cells.length !== size) return err("#VALUE!", "Criteria ranges differ in size");
-    size = cells.length;
-    const c = scalarOf(critArg.value());
-    const pred = makeCriterion(c);
-    const m = cells.map((v) => pred(v));
-    mask = mask ? mask.map((x, i) => x && m[i]) : m;
+/**
+ * Cells past the part of a whole column (A:A) or whole row (1:1) the sheet
+ * uses. The engine reads only the used part; in Excel A:A is all 1,048,576
+ * rows, and the ones past the data are blank. FOUND IN R140: ROWS(A:A) was the
+ * used rows, COUNTBLANK(A:A) 0, and COUNTIF(A:A,"<>x") counted no blanks.
+ */
+function blankTail(a: Arg): number {
+  const r = a.ref;
+  if (!r?.whole) return 0;
+  const rows = r.r1 - r.r0 + 1;
+  const cols = r.c1 - r.c0 + 1;
+  return r.whole === "cols" ? (MAX_ROWS - rows) * cols : (MAX_COLS - cols) * rows;
+}
+
+/**
+ * The cells of ranges read together (criteria ranges, and the values range),
+ * lined up, and the blank cells all of them have past what was read. Whole
+ * columns on sheets used to different depths are padded with blanks to the
+ * longest, as Excel's are all the same length (R140).
+ */
+function lined(args: Arg[]): { lists: Scalar[][]; tail: number } | SheetError {
+  let ms = args.map((a) => asMatrix(a.value()));
+  const kinds = args.map((a) => a.ref?.whole);
+  let tail = 0;
+  if (kinds.every((k) => k === "cols")) {
+    const rows = Math.max(...ms.map((m) => m.length));
+    ms = ms.map((m) =>
+      m.length < rows
+        ? [...m, ...Array.from({ length: rows - m.length }, () => m[0].map(() => null))]
+        : m,
+    );
+    tail = (MAX_ROWS - rows) * (ms[0][0]?.length ?? 1);
+  } else if (kinds.every((k) => k === "rows")) {
+    const cols = Math.max(...ms.map((m) => m[0]?.length ?? 0));
+    ms = ms.map((m) => m.map((line) => [...line, ...Array(cols - line.length).fill(null)]));
+    tail = (MAX_COLS - cols) * ms[0].length;
   }
-  return mask ?? [];
+  const lists = ms.map(flat);
+  if (lists.some((l) => l.length !== lists[0].length))
+    return err("#VALUE!", "Criteria ranges differ in size");
+  return { lists, tail };
+}
+
+/** Which cells meet every criterion, and whether the blank cells past them all do. */
+function criteriaMask(
+  pairs: [Arg, Arg][],
+  also: Arg[] = [],
+): { mask: boolean[]; lists: Scalar[][]; tailCounts: boolean; tail: number } | SheetError {
+  const got = lined([...also, ...pairs.map(([r]) => r)]);
+  if (isError(got)) return got;
+  const lists = got.lists.slice(also.length);
+  let mask: boolean[] | null = null;
+  let tailCounts = true;
+  pairs.forEach(([, critArg], k) => {
+    const pred = makeCriterion(scalarOf(critArg.value()));
+    const m = lists[k].map((v) => pred(v));
+    mask = mask ? mask.map((x, i) => x && m[i]) : m;
+    tailCounts = tailCounts && pred(null);
+  });
+  return { mask: mask ?? [], lists: got.lists, tailCounts, tail: got.tail };
 }
 
 function toFormulaJs(v: Value): unknown {
@@ -274,7 +321,7 @@ F.COUNTA = (args) => {
 F.COUNTBLANK = (args) => {
   const e = arity(args, 1, 1);
   if (e) return e;
-  return flat(args[0].value()).filter((x) => x === null || x === "").length;
+  return flat(args[0].value()).filter((x) => x === null || x === "").length + blankTail(args[0]);
 };
 F.SUMPRODUCT = (args) => {
   if (!args.length) return err("#VALUE!");
@@ -311,9 +358,11 @@ function ifsAggregate(args: Arg[], valueFirst: boolean, reduce: (xs: number[]) =
     pairs.push([args[0], args[1]]);
     valuesArg = args[2] && args[2].node.k !== "empty" ? args[2] : args[0];
   }
-  const mask = criteriaMask(pairs);
-  if (isError(mask)) return mask;
-  const vals = flat(valuesArg.value());
+  const got = criteriaMask(pairs, [valuesArg]);
+  if (isError(got)) return got;
+  const { mask } = got;
+  // Blank cells past a whole column add nothing to a sum, an average or a min/max.
+  const vals = got.lists[0];
   if (vals.length !== mask.length) return err("#VALUE!", "Ranges differ in size");
   const picked: number[] = [];
   for (let i = 0; i < vals.length; i++) {
@@ -333,18 +382,21 @@ F.AVERAGEIFS = (args) =>
   ifsAggregate(args, true, (xs) => (xs.length ? sum(xs) / xs.length : err("#DIV/0!")));
 F.MINIFS = (args) => ifsAggregate(args, true, (xs) => (xs.length ? Math.min(...xs) : 0));
 F.MAXIFS = (args) => ifsAggregate(args, true, (xs) => (xs.length ? Math.max(...xs) : 0));
+const countMet = (pairs: [Arg, Arg][]): Value => {
+  const got = criteriaMask(pairs);
+  if (isError(got)) return got;
+  return got.mask.filter(Boolean).length + (got.tailCounts ? got.tail : 0);
+};
 F.COUNTIF = (args) => {
   const e = arity(args, 2, 2);
   if (e) return e;
-  const mask = criteriaMask([[args[0], args[1]]]);
-  return isError(mask) ? mask : mask.filter(Boolean).length;
+  return countMet([[args[0], args[1]]]);
 };
 F.COUNTIFS = (args) => {
   if (args.length < 2 || args.length % 2) return err("#N/A", "Wrong number of arguments");
   const pairs: [Arg, Arg][] = [];
   for (let i = 0; i < args.length; i += 2) pairs.push([args[i], args[i + 1]]);
-  const mask = criteriaMask(pairs);
-  return isError(mask) ? mask : mask.filter(Boolean).length;
+  return countMet(pairs);
 };
 
 // Math
@@ -969,7 +1021,16 @@ F.INDEX = (args) => {
     r = 1;
   }
   if (args.length === 2 && (m[0]?.length ?? 0) === 1) c = 1;
-  if (r < 0 || c < 0 || r > m.length || c > (m[0]?.length ?? 0)) return err("#REF!");
+  // Past the used part of a whole column or row is a blank cell, not outside it (R140).
+  const whole = args[0].ref?.whole;
+  const rowsIn = whole === "cols" ? MAX_ROWS : m.length;
+  const colsIn = whole === "rows" ? MAX_COLS : (m[0]?.length ?? 0);
+  if (r < 0 || c < 0 || r > rowsIn || c > colsIn) return err("#REF!");
+  if (r > m.length || c > (m[0]?.length ?? 0)) {
+    if (c === 0) return [(m[0] ?? [null]).map(() => null)];
+    if (r === 0) return m.map(() => [null]);
+    return null;
+  }
   if (r === 0 && c === 0) return m;
   if (r === 0) return m.map((row) => [row[c - 1]]);
   if (c === 0) return [m[r - 1]];
@@ -985,8 +1046,9 @@ F.COLUMN = (args, ctx) => {
   const ref = args[0].ref;
   return ref ? ref.c0 + 1 : err("#VALUE!");
 };
-F.ROWS = (args) => asMatrix(args[0].value()).length;
-F.COLUMNS = (args) => asMatrix(args[0].value())[0]?.length ?? 0;
+F.ROWS = (args) => (args[0].ref?.whole === "cols" ? MAX_ROWS : asMatrix(args[0].value()).length);
+F.COLUMNS = (args) =>
+  args[0].ref?.whole === "rows" ? MAX_COLS : (asMatrix(args[0].value())[0]?.length ?? 0);
 F.TRANSPOSE = (args) => {
   const m = asMatrix(args[0].value());
   return (m[0] ?? []).map((_x, c) => m.map((row) => row[c]));

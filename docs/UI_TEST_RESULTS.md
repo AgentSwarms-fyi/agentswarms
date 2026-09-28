@@ -15,6 +15,39 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-28 — Sample workbooks (Phase I), ADVERSARIAL_LOG R140–R143
+
+**Why this round exists.** The user asked for sample workbooks with complex functionality, charts
+included, pushed in the repository as demos. Each sample was opened from the Sheets page's own
+tiles, imported through the dialog, and read on screen. Its figures were compared with a separate
+calculation in Python (openpyxl) from the files' own rows.
+
+Fixtures kept (samples imported during the round):
+- **"Sales performance 2026"** (`66818463…`), imported before R141 and R143's fixes;
+- **"Budget and cash flow"** (`a6eaa792…`). Its Scenarios sheet has the R140/R142 formulas in
+  H1:H5, and its scenario was left on Worst;
+- **"Project tracker"**, from the first round.
+
+A second Sales and a second Project tracker, imported after the fixes, show the new layout.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| The tiles | Sheets page | "Samples to explore" row with three tiles, each with its own drawing; the files serve at `/samples/sheets/*.xlsx` (41,219 / 17,175 / 15,311 bytes) |
+| Open a sample | Sales performance 2026 tile | Import dialog with the file already read: name "Sales performance 2026", Dashboard 93 cells, Orders 2,892, Products 56, Reps 63. Create workbook opened it |
+| Dashboard figures | Read on screen | Revenue $448,677, margin 57.7%, orders 228, average $1,968, returned 12, best product Gadget, leaderboard led by Asha Rao at $93,973. Python gives the same |
+| Doughnut | Scrolled to it | Hardware 52%, Software 22%, Services 26%; Python: 245,539 / 103,505 / 123,300 of 472,344 |
+| Orders | The sheet | Filter buttons on every header; the returned order struck through in red; data bars on Revenue |
+| Reps | The sheet | Traffic-light icons on Attainment (52.2% is 93,973 of 180,000); data bars; the combo of sold (columns from 0) against target (line) |
+| R141, before | The Dashboard's two month charts | A flat "Month" series at about 46,000 over an axis numbered 1–12; a "Month" block on top of each stacked column |
+| R141, after | The same workbook, reloaded | Four regions over Jan to Dec in both charts |
+| Budget scenario | Assumptions B4 dropdown (input message "Base, Best or Worst") → Worst | Model: December customers 909, net for the year −$111,228, cash at year end $38,772. Python with Excel's rounding: 909, −111,228, 38,772 |
+| R140, after | Scenarios H1:H3: `=ROWS(A:A)`, `=COUNTBLANK(A:A)`, `=COUNTIF(A:A,"<>Base")` | 1,048,576; 1,048,572; 1,048,575 |
+| R142, before | H4 `=INDEX(A:A,500)`, H5 `=A500` | Both empty |
+| R142, after | The same cells after the deploy | Both 0 |
+| Project tracker | Tile → Create workbook | Tasks by status 5 / 4 / 1 / 4; hours left 120 / 46.2 / 22.4 / 0 (188.6); complete 40%; late tasks 2 (Data model and Auth and roles, due before 28 September); next due Data model; pie 36% / 29% / 7% / 29% |
+| R143, before | Project tracker Summary; Sales Dashboard | The pie covered column F (the owners' remaining hours); the stacked chart covered the open-orders list from J22 |
+| R143, after | Fresh imports of both | The charts sit right of column F, and below the list's last row |
+
 ## 2026-09-28 — AI in Sheets (Phase H), ADVERSARIAL_LOG R131–R139
 
 **Why this round exists.** The Excel-parity list asked that "the AI assist features work properly

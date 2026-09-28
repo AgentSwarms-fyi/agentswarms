@@ -764,6 +764,7 @@ export async function writeXlsx(
               name: fileNames[i],
               charts: s.grid.charts,
               value: s.value,
+              formatOf: (r: number, c: number) => s.grid.cells[`${r},${c}`]?.f,
               colPx: (c: number) => s.grid.colWidths?.[String(c)] ?? pxDefaultCol,
               rowPx: (r: number) => s.grid.rowHeights?.[String(r)] ?? pxDefaultRow,
             },

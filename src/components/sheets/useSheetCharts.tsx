@@ -40,6 +40,8 @@ export function useSheetCharts({
   const charts = grid?.charts ?? [];
 
   const value = (r: number, c: number) => (engine && tabId ? engine.getValue(tabId, r, c) : null);
+  const formatOf = (r: number, c: number) =>
+    engine && tabId ? engine.getInput(tabId, r, c)?.f : undefined;
   const display = (r: number, c: number) =>
     engine && tabId
       ? cellView(engine.getValue(tabId, r, c), engine.getInput(tabId, r, c)).text
@@ -109,7 +111,7 @@ export function useSheetCharts({
           <ChartFrame
             key={def.id}
             def={def}
-            data={chartData(def, value, display)}
+            data={chartData(def, value, display, formatOf)}
             zoom={geo.zoom}
             onChange={(box) =>
               setCharts(charts.map((c) => (c.id === def.id ? { ...c, ...box } : c)))
@@ -140,6 +142,7 @@ export function useSheetCharts({
       editing={!!dialog.id}
       value={value}
       display={display}
+      formatOf={formatOf}
       onCancel={() => {
         setDialog(null);
         onDone();

@@ -77,6 +77,13 @@ function SheetsDocsPage() {
         to search names, descriptions and sheet names; sort by last edited, name or date created;
         switch between cards and a list.
       </P>
+      <P>
+        <strong>Samples to explore</strong> opens a sample workbook as your own: Sales performance
+        2026 (XLOOKUP, SUMIFS by month, a self-sorting leaderboard, four charts), a Project tracker
+        (late tasks in red, dropdowns, pie and radar charts) and Budget and cash flow (a scenario
+        that drives a 12-month model, with combo, area and scatter charts). They are real .xlsx
+        files, so they open in Excel too.
+      </P>
 
       <H2 id="grid">Grid sheets</H2>
       <P>

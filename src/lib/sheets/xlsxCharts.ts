@@ -238,6 +238,8 @@ export type ChartSheet = {
   name: string;
   charts: ChartDef[];
   value: (row: number, col: number) => Scalar;
+  /** A cell's number format, so a column of dates is read as the categories. */
+  formatOf?: (row: number, col: number) => string | null | undefined;
   colPx: (c: number) => number;
   rowPx: (r: number) => number;
 };
@@ -265,7 +267,7 @@ export function addChartsToXlsx(buf: ArrayBuffer, sheets: ChartSheet[]): ArrayBu
       if (!range) return;
       do chartNo++;
       while (taken(`xl/charts/chart${chartNo}.xml`));
-      const layout = chartLayout(def, range, s.value);
+      const layout = chartLayout(def, range, s.value, s.formatOf);
       const refs = seriesRefs(s.name, range, layout, def.type === "scatter");
       if (!refs.length) return;
       files[`xl/charts/chart${chartNo}.xml`] = strToU8(chartXml(def, refs));

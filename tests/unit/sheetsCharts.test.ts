@@ -89,6 +89,38 @@ describe("reading a range as Excel does", () => {
     expect(d.series).toEqual([{ name: "Sales", values: [10, 19, 31] }]);
   });
 
+  it("R141: a first column of dates is the categories, shown as the cells show them", () => {
+    // Months as =DATE(2026,m,1), formatted "mmm": serials 46023, 46054, 46082.
+    const dated = cells({
+      A1: "Month",
+      B1: "North",
+      C1: "South",
+      A2: 46023,
+      B2: 120,
+      C2: 80,
+      A3: 46054,
+      B3: 150,
+      C3: 95,
+      A4: 46082,
+      B4: 170,
+      C4: 60,
+    });
+    const shown = (r: number, c: number) =>
+      c === 0 ? (["Month", "Jan", "Feb", "Mar"][r] ?? "") : String(dated(r, c) ?? "");
+    const mmm = (_r: number, c: number) => (c === 0 ? "mmm" : undefined);
+    const d = chartData(def("line"), dated, shown, mmm);
+    expect(d.categories).toEqual(["Jan", "Feb", "Mar"]);
+    expect(d.series.map((s) => s.name)).toEqual(["North", "South"]);
+    // Plain numbers in the first column are still a series, as in Excel.
+    const plain = chartData(def("line"), dated, shown, () => "0");
+    expect(plain.series.map((s) => s.name)).toEqual(["Month", "North", "South"]);
+    // So is a column mixing dates and plain numbers.
+    const mixed = chartData(def("line"), dated, shown, (r, c) =>
+      c === 0 && r !== 3 ? "mmm" : undefined,
+    );
+    expect(mixed.series).toHaveLength(3);
+  });
+
   it("says why there is nothing to draw", () => {
     const text = cells({ A1: "a", A2: "b" });
     expect(chartData(def("column", "A1:A2"), text).problem).toMatch(/no numbers/);
@@ -293,5 +325,43 @@ describe("the chart component", () => {
     );
     // A fragment inside a chart hid the column and bar charts' axes.
     expect(src).not.toMatch(/<>|<\/>|<Fragment/);
+  });
+});
+
+describe("R141: a first column of dates, in the file and on screen", () => {
+  it("the .xlsx writer makes the dates the categories", async () => {
+    const { writeXlsx } = await import("@/lib/sheets/xlsx");
+    const cells: Record<string, { i: string; f?: string }> = {
+      "0,0": { i: "Month" },
+      "0,1": { i: "North" },
+      "0,2": { i: "South" },
+    };
+    [46023, 46054, 46082].forEach((d, k) => {
+      cells[`${k + 1},0`] = { i: String(d), f: "mmm" };
+      cells[`${k + 1},1`] = { i: String(100 + k) };
+      cells[`${k + 1},2`] = { i: String(50 + k) };
+    });
+    const grid = {
+      cells,
+      charts: [{ ...def("line", "A1:C4"), id: "m" }],
+    };
+    const num = (r: number, c: number) => {
+      const i = cells[`${r},${c}`]?.i;
+      return i === undefined ? null : Number.isFinite(Number(i)) ? Number(i) : i;
+    };
+    const buf = await writeXlsx([{ kind: "grid", name: "S", grid, value: num }]);
+    const files = unzipSync(new Uint8Array(buf));
+    const xml = strFromU8(files["xl/charts/chart1.xml"]);
+    expect(xml.match(/<c:ser>/g)).toHaveLength(2);
+    expect(xml).toContain("<c:f>S!$A$2:$A$4</c:f>");
+  });
+
+  it("the grid's charts and the chart dialog are given the cells' formats", async () => {
+    const { readFileSync } = await import("node:fs");
+    const hook = readFileSync("src/components/sheets/useSheetCharts.tsx", "utf8");
+    expect(hook).toContain("data={chartData(def, value, display, formatOf)}");
+    expect(hook).toMatch(/display=\{display\}\s*formatOf=\{formatOf\}/);
+    const dialog = readFileSync("src/components/sheets/ChartDialog.tsx", "utf8");
+    expect(dialog).toContain("chartData(live, value, display, formatOf)");
   });
 });
