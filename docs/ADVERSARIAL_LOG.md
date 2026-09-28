@@ -109,6 +109,79 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-29 — Array formulas, and the whole-column arithmetic gap
+
+The user asked for the gap R140 left open: arithmetic over a whole column worked only on the rows
+the sheet uses. Before fixing it, 24 array formulas people use every day were checked, each against
+the answer Excel gives. 15 were wrong, all silently. There were three causes.
+
+Tests: `tests/unit/sheetsArrays.test.ts` (13). The mutation run caught 16 of 16; the control
+survived. All 22 Sheets suites pass, and the sample workbooks' figures did not move.
+
+#### R144 · S1 · A function of one value, given a range, looked only at the range's first cell
+
+`ISBLANK`, `ISNUMBER`, `ISTEXT`, `ISERROR`, `NOT`, the rounding and text functions, and the date
+parts all took an array's first element. So a whole family of idioms gave a number with no error:
+- `SUMPRODUCT(--ISNUMBER(SEARCH("an",A1:A5)))` gave 0 where Excel gives 1.
+- `SUMPRODUCT(--ISBLANK(A1:A5))` gave 0 where Excel gives 2.
+
+The one-value argument of functions that take ranges had the same problem:
+- `MATCH`, `XMATCH`, `XLOOKUP`, `VLOOKUP` and `HLOOKUP`'s lookup value;
+- the criteria of `COUNTIF(S)`, `SUMIF(S)`, `AVERAGEIF(S)`, `MINIFS` and `MAXIFS`.
+
+So `SUM(COUNTIF(A:A,{"Best","Worst"}))` counted only "Best".
+
+**The fix.** The evaluator lifts those arguments, as Excel does. `LIFTS` in `functions.ts` says which
+argument of which function takes one value. Given an array there, the function answers for each
+element, with Excel's broadcasting. Arguments that take ranges on purpose never lift: SUM's,
+INDEX's first, TEXTJOIN's, N's.
+
+#### R145 · S1 · IF over a range took each branch's first value
+
+With a range for its condition, IF answered each element with the FIRST value of the branch it
+chose, not the value in the same place:
+- `MAX(IF(A1:A3<>"banana",B1:B3))` gave 10 where Excel gives 30.
+- `TEXTJOIN(",",TRUE,IF(B1:B3>15,A1:A3,""))` gave "apple,apple" where Excel gives "banana,cherry".
+
+`IFERROR` had the same flaw with an array fallback, and `IFNA` did not work over an array at all.
+
+**The fix.** IF, IFERROR and IFNA combine the condition and both branches element by element.
+
+#### R146 · S2 · Arithmetic over a whole column left out the blank rows past the data
+
+`SUMPRODUCT(--(A:A=""))` was 0 where Excel gives 1,048,573. `SUM(--(A:A=""))`, `COUNT(IF(A:A="",1))`
+and `SUMPRODUCT(ISBLANK(A:A)*1)` gave the same wrong answer. `MATCH(TRUE,INDEX(A:A="",0),0)`, the
+usual way to find the first empty row, said #N/A.
+
+The engine reads a whole column only as far as the sheet is used, which is right: a million cells
+per reference would make every recalculation slow. What was missing is that the rest is not
+nothing. Each of those blank rows goes through the same arithmetic.
+
+**The fix** (`src/lib/sheets/formula/arrays.ts`):
+- **The tail.** A whole column now carries its blank rest as a *tail*: how many rows, and one line
+  holding what each of them holds.
+- **Carrying it.** Operators, IF, the lifted functions and INDEX's whole-column slices carry the
+  tail along, updating that one line.
+- **Counting it.** SUMPRODUCT, SUM, PRODUCT, AVERAGE, MIN, MAX, MEDIAN, COUNT, COUNTA, AND, OR,
+  XOR, ROWS, COLUMNS, INDEX and MATCH count it without building it. The cost is one line per
+  array, whatever the column's length.
+- **Lining up.** Whole columns of sheets used to different depths are lined up first.
+  `(A:A="apple")*(T!B:B)` used to give #N/A in the rows one sheet did not reach.
+- **Spilling.** A whole column spilled into the grid still shows only the rows the sheet uses.
+
+**Driven.** Five formulas were typed in the Budget sample's Scenarios sheet (A2:A4 Base, Best,
+Worst; E2:E4 12,000, 15,000, 9,000):
+
+| Formula | Before | After (Excel) |
+| --- | --- | --- |
+| `=SUMPRODUCT(--ISNUMBER(SEARCH("st",A2:A4)))` (R144) | 0 | 2 |
+| `=MIN(IF(A2:A4<>"Base",E2:E4))` (R145) | 12,000 | 9,000 |
+| `=SUMPRODUCT(--(A:A=""))` (R146) | 1 | 1,048,572 |
+| `=MATCH(TRUE,INDEX(A:A="",0),0)` (R146) | 5 | 5 |
+| `=SUM(COUNTIF(A:A,{"Best","Worst"}))` (R144) | 1 | 2 |
+
+The Sales sample's Dashboard read the same figures before and after.
+
 ### 2026-09-28 — Sample workbooks (Phase I), and four found checking them against Python
 
 Three sample workbooks now ship in `public/samples/sheets/` and open from **Samples to explore** on

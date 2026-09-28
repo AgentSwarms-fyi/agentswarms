@@ -19,7 +19,8 @@ import {
   type Scalar,
   type Value,
 } from "./values";
-import { FUNCTIONS } from "./functions";
+import { FUNCTIONS, LIFTS } from "./functions";
+import { wholeRange, zipN } from "./arrays";
 
 export type RangeRef = {
   sheet: string;
@@ -172,31 +173,11 @@ function rangeOf(node: Node, env: EvalEnv): RangeRef | undefined {
 
 /** Apply fn to every element of one or two values, broadcasting scalars (dynamic arrays). */
 function broadcast(a: Value, b: Value, fn: (x: Scalar, y: Scalar) => Scalar): Value {
-  if (!isMatrix(a) && !isMatrix(b)) return fn(a, b);
-  const A = isMatrix(a) ? a : [[a]];
-  const B = isMatrix(b) ? b : [[b]];
-  const rows = Math.max(A.length, B.length);
-  const cols = Math.max(A[0]?.length ?? 0, B[0]?.length ?? 0);
-  const pick = (M: Matrix, r: number, c: number): Scalar | undefined => {
-    const rr = M.length === 1 ? 0 : r;
-    const cc = (M[0]?.length ?? 0) === 1 ? 0 : c;
-    return M[rr]?.[cc];
-  };
-  const out: Matrix = [];
-  for (let r = 0; r < rows; r++) {
-    const line: Scalar[] = [];
-    for (let c = 0; c < cols; c++) {
-      const x = pick(A, r, c);
-      const y = pick(B, r, c);
-      line.push(x === undefined || y === undefined ? err("#N/A") : fn(x, y));
-    }
-    out.push(line);
-  }
-  return out;
+  return zipN([a, b], ([x, y]) => fn(x, y));
 }
 
 function mapValue(v: Value, fn: (x: Scalar) => Scalar): Value {
-  return isMatrix(v) ? v.map((row) => row.map(fn)) : fn(v);
+  return zipN([v], ([x]) => fn(x));
 }
 
 function arith(op: string, x: Scalar, y: Scalar): Scalar {
@@ -269,7 +250,10 @@ export function evaluate(node: Node, env: EvalEnv): Value {
     }
     case "range": {
       if (node.sheet && !env.hasSheet(node.sheet)) return err("#REF!", `No sheet "${node.sheet}"`);
-      return env.range(rangeOf(node, env)!);
+      const ref = rangeOf(node, env)!;
+      const m = env.range(ref);
+      // A whole column keeps its blank rest as a tail (R146).
+      return ref.whole ? wholeRange(m, ref.whole) : m;
     }
     case "struct": {
       if (!env.table) return err("#REF!", "Table references need a table sheet");
@@ -341,6 +325,27 @@ export function evaluate(node: Node, env: EvalEnv): Value {
           },
         };
       });
+      // A function of single values given an array works on each element,
+      // as in Excel. FOUND IN R144: ISNUMBER(SEARCH("an",A1:A5)) looked at A1
+      // only, so SUMPRODUCT(--ISNUMBER(...)) counted 0 or 1.
+      const lift = LIFTS.get(node.name);
+      if (lift) {
+        const at = lift(args.length).filter((i) => i < args.length);
+        const vals = at.map((i) => (args[i].node.k === "empty" ? null : args[i].value()));
+        if (vals.some(isMatrix)) {
+          return zipN(vals, (xs) =>
+            scalarOf(
+              impl(
+                args.map((a, i) => {
+                  const j = at.indexOf(i);
+                  return j < 0 ? a : { node: a.node, isRef: false, value: () => xs[j] };
+                }),
+                { env, name: node.name },
+              ),
+            ),
+          );
+        }
+      }
       return impl(args, { env, name: node.name });
     }
   }

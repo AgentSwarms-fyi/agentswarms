@@ -35,6 +35,7 @@ import {
 } from "./values";
 import type { ErrorCode } from "./lexer";
 import { MAX_COLS, MAX_ROWS } from "../a1";
+import { lineUp, tailOf, withTail, zipN, type Tail } from "./arrays";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -266,39 +267,88 @@ function fromLibrary(name: string): FnImpl | undefined {
   };
 }
 
+/**
+ * The numbers the blank tail of an array holds once computed, each with how
+ * many rows (or columns) hold it: (A:A="")*1 is 1 in every blank row past the
+ * data. A range's own tail is blank and adds nothing (R146).
+ */
+function tailNumbers(args: Arg[]): { x: number; n: number }[] | SheetError {
+  const out: { x: number; n: number }[] = [];
+  for (const a of args) {
+    if (a.node.k === "empty") continue;
+    const t = tailOf(a.value());
+    if (!t) continue;
+    for (const x of t.line) {
+      if (isError(x)) return x;
+      if (typeof x === "number") out.push({ x, n: t.n });
+    }
+  }
+  return out;
+}
+
+/** Numbers and tails together, for the aggregates. */
+function numbersWithTails(
+  args: Arg[],
+): { xs: number[]; tails: { x: number; n: number }[] } | SheetError {
+  const xs = collectNumbers(args);
+  if (isError(xs)) return xs;
+  const tails = tailNumbers(args);
+  if (isError(tails)) return tails;
+  return { xs, tails };
+}
+
 // ── The library ────────────────────────────────────────────────────────────
 
 const F: Record<string, FnImpl> = {};
 
 // Aggregates
 F.SUM = (args) => {
-  const n = collectNumbers(args);
-  return isError(n) ? n : n.reduce((s, x) => s + x, 0);
+  const g = numbersWithTails(args);
+  if (isError(g)) return g;
+  return g.xs.reduce((s, x) => s + x, 0) + g.tails.reduce((s, t) => s + t.x * t.n, 0);
 };
 F.PRODUCT = (args) => {
-  const n = collectNumbers(args);
-  return isError(n) ? n : n.length ? n.reduce((s, x) => s * x, 1) : 0;
+  const g = numbersWithTails(args);
+  if (isError(g)) return g;
+  if (!g.xs.length && !g.tails.length) return 0;
+  const r = g.xs.reduce((s, x) => s * x, 1) * g.tails.reduce((s, t) => s * t.x ** t.n, 1);
+  return Number.isFinite(r) ? r : err("#NUM!");
 };
 F.AVERAGE = (args) => {
-  const n = collectNumbers(args);
-  if (isError(n)) return n;
-  return n.length ? n.reduce((s, x) => s + x, 0) / n.length : err("#DIV/0!");
+  const g = numbersWithTails(args);
+  if (isError(g)) return g;
+  const count = g.xs.length + g.tails.reduce((s, t) => s + t.n, 0);
+  if (!count) return err("#DIV/0!");
+  return (g.xs.reduce((s, x) => s + x, 0) + g.tails.reduce((s, t) => s + t.x * t.n, 0)) / count;
 };
 F.MIN = (args) => {
-  const n = collectNumbers(args);
-  return isError(n) ? n : n.length ? Math.min(...n) : 0;
+  const g = numbersWithTails(args);
+  if (isError(g)) return g;
+  const all = [...g.xs, ...g.tails.map((t) => t.x)];
+  return all.length ? Math.min(...all) : 0;
 };
 F.MAX = (args) => {
-  const n = collectNumbers(args);
-  return isError(n) ? n : n.length ? Math.max(...n) : 0;
+  const g = numbersWithTails(args);
+  if (isError(g)) return g;
+  const all = [...g.xs, ...g.tails.map((t) => t.x)];
+  return all.length ? Math.max(...all) : 0;
 };
 F.MEDIAN = (args) => {
-  const n = collectNumbers(args);
-  if (isError(n)) return n;
-  if (!n.length) return err("#NUM!");
-  const s = [...n].sort((a, b) => a - b);
-  const mid = Math.floor(s.length / 2);
-  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+  const g = numbersWithTails(args);
+  if (isError(g)) return g;
+  // Each value with how many times it occurs; the middle one (or two) by count.
+  const w = [...g.xs.map((x) => ({ x, n: 1 })), ...g.tails].sort((a, b) => a.x - b.x);
+  const total = w.reduce((s, t) => s + t.n, 0);
+  if (!total) return err("#NUM!");
+  const at = (k: number) => {
+    let seen = 0;
+    for (const t of w) {
+      seen += t.n;
+      if (k < seen) return t.x;
+    }
+    return w[w.length - 1].x;
+  };
+  return total % 2 ? at((total - 1) / 2) : (at(total / 2 - 1) + at(total / 2)) / 2;
 };
 F.COUNT = (args) => {
   let c = 0;
@@ -307,6 +357,8 @@ F.COUNT = (args) => {
     const v = a.value();
     if (a.isRef || isMatrix(v)) c += flat(v).filter((x) => typeof x === "number").length;
     else if (!isError(toNumber(scalarOf(v))) && scalarOf(v) !== null) c++;
+    const t = tailOf(v);
+    if (t) c += t.n * t.line.filter((x) => typeof x === "number").length;
   }
   return c;
 };
@@ -314,7 +366,10 @@ F.COUNTA = (args) => {
   let c = 0;
   for (const a of args) {
     if (a.node.k === "empty") continue;
-    c += flat(a.value()).filter((x) => x !== null).length;
+    const v = a.value();
+    c += flat(v).filter((x) => x !== null).length;
+    const t = tailOf(v);
+    if (t) c += t.n * t.line.filter((x) => x !== null).length;
   }
   return c;
 };
@@ -325,7 +380,11 @@ F.COUNTBLANK = (args) => {
 };
 F.SUMPRODUCT = (args) => {
   if (!args.length) return err("#VALUE!");
-  const ms = args.map((a) => asMatrix(a.value()));
+  // Whole columns line up (two sheets used to different depths), and their
+  // blank tails, computed, count too (R146).
+  const lined = lineUp(args.map((a) => a.value()));
+  const ms = lined.ms.map((m, i) => m ?? asMatrix(args[i].value()));
+  const tails = lined.tails;
   const rows = ms[0].length;
   const cols = ms[0][0]?.length ?? 0;
   if (ms.some((m) => m.length !== rows || (m[0]?.length ?? 0) !== cols)) return err("#VALUE!");
@@ -339,6 +398,18 @@ F.SUMPRODUCT = (args) => {
         p *= typeof x === "number" ? x : 0;
       }
       total += p;
+    }
+  }
+  const t0 = tails[0];
+  if (t0 && tails.every((t) => t && t.axis === t0.axis && t.n === t0.n)) {
+    for (let k = 0; k < t0.line.length; k++) {
+      let p = 1;
+      for (const t of tails as Tail[]) {
+        const x = t.line[t.line.length === 1 ? 0 : k];
+        if (isError(x)) return x;
+        p *= typeof x === "number" ? x : 0;
+      }
+      total += p * t0.n;
     }
   }
   return total;
@@ -515,15 +586,16 @@ F.IF = (args) => {
   if (e) return e;
   const c = args[0].value();
   if (isMatrix(c)) {
-    return c.map((row) =>
-      row.map((x) => {
-        const b = toBool(x);
-        if (isError(b)) return b;
-        const pick = b ? args[1] : args[2];
-        if (!pick) return b;
-        return pick.node.k === "empty" ? 0 : scalarOf(pick.value());
-      }),
-    );
+    // Each element takes the branch's element in the same place. FOUND IN
+    // R145: it took each branch's FIRST value, so MAX(IF(A1:A3<>"b",B1:B3))
+    // was B1 whatever the condition.
+    const branch = (a: Arg | undefined, absent: boolean): Value =>
+      !a ? absent : a.node.k === "empty" ? 0 : a.value();
+    return zipN([c, branch(args[1], true), branch(args[2], false)], ([x, yes, no]) => {
+      const b = toBool(x);
+      if (isError(b)) return b;
+      return b ? yes : no;
+    });
   }
   const b = toBool(c);
   if (isError(b)) return b;
@@ -544,16 +616,15 @@ F.IFERROR = (args) => {
   const e = arity(args, 2, 2);
   if (e) return e;
   const v = args[0].value();
-  if (isMatrix(v)) {
-    const fb = scalarOf(args[1].value());
-    return v.map((row) => row.map((x) => (isError(x) ? fb : x)));
-  }
+  if (isMatrix(v)) return zipN([v, args[1].value()], ([x, fb]) => (isError(x) ? fb : x));
   return isError(v) ? args[1].value() : v;
 };
 F.IFNA = (args) => {
   const e = arity(args, 2, 2);
   if (e) return e;
   const v = args[0].value();
+  if (isMatrix(v))
+    return zipN([v, args[1].value()], ([x, fb]) => (isError(x) && x.err === "#N/A" ? fb : x));
   return isError(v) && v.err === "#N/A" ? args[1].value() : v;
 };
 const logical =
@@ -562,7 +633,11 @@ const logical =
     const xs: boolean[] = [];
     for (const a of args) {
       const v = a.value();
-      for (const x of flat(v)) {
+      const t = tailOf(v);
+      // A tail's line stands for n rows: once is enough for AND and OR; XOR
+      // needs only whether n is odd.
+      const tailLine = t && t.n % 2 === 1 ? t.line : t ? [...t.line, ...t.line] : [];
+      for (const x of [...flat(v), ...tailLine]) {
         if (isError(x)) return x;
         if (x === null || (typeof x === "string" && (a.isRef || isMatrix(v)))) continue;
         const b = toBool(x);
@@ -964,6 +1039,11 @@ F.MATCH = (args) => {
   const type = num(args[2], 1);
   if (isError(type)) return type;
   const i = type === 0 ? matchIndex(needle, vec, 2) : approxIndex(needle, vec, type < 0);
+  if (i < 0 && type === 0) {
+    // MATCH(TRUE,INDEX(A:A="",0),0), the first empty row: the tail's first row.
+    const t = tailOf(args[1].value());
+    if (t && t.line.length === 1 && matchIndex(needle, t.line, 2) === 0) return vec.length + 1;
+  }
   return i < 0 ? err("#N/A", "No match") : i + 1;
 };
 F.XMATCH = (args) => {
@@ -1021,19 +1101,28 @@ F.INDEX = (args) => {
     r = 1;
   }
   if (args.length === 2 && (m[0]?.length ?? 0) === 1) c = 1;
-  // Past the used part of a whole column or row is a blank cell, not outside it (R140).
-  const whole = args[0].ref?.whole;
-  const rowsIn = whole === "cols" ? MAX_ROWS : m.length;
-  const colsIn = whole === "rows" ? MAX_COLS : (m[0]?.length ?? 0);
+  // Past the used part of a whole column or row is its tail: a blank cell for
+  // a range (R140), what the arithmetic made of it for an array (R146).
+  const t = tailOf(args[0].value());
+  const rowsIn = m.length + (t?.axis === "rows" ? t.n : 0);
+  const colsIn = (m[0]?.length ?? 0) + (t?.axis === "cols" ? t.n : 0);
   if (r < 0 || c < 0 || r > rowsIn || c > colsIn) return err("#REF!");
-  if (r > m.length || c > (m[0]?.length ?? 0)) {
-    if (c === 0) return [(m[0] ?? [null]).map(() => null)];
-    if (r === 0) return m.map(() => [null]);
-    return null;
+  if (t && (r > m.length || c > (m[0]?.length ?? 0))) {
+    if (t.axis === "rows") return c === 0 ? [t.line.slice()] : (t.line[c - 1] ?? null);
+    return r === 0 ? t.line.map((x) => [x]) : (t.line[r - 1] ?? null);
   }
   if (r === 0 && c === 0) return m;
-  if (r === 0) return m.map((row) => [row[c - 1]]);
-  if (c === 0) return [m[r - 1]];
+  // A whole column (or row) of a tailed array keeps its tail: INDEX(A:A="",0).
+  if (r === 0)
+    return withTail(
+      m.map((row) => [row[c - 1]]),
+      t?.axis === "rows" ? { ...t, line: [t.line[c - 1] ?? null] } : undefined,
+    );
+  if (c === 0)
+    return withTail(
+      [m[r - 1]],
+      t?.axis === "cols" ? { ...t, line: [t.line[r - 1] ?? null] } : undefined,
+    );
   return m[r - 1][c - 1];
 };
 F.ROW = (args, ctx) => {
@@ -1046,9 +1135,16 @@ F.COLUMN = (args, ctx) => {
   const ref = args[0].ref;
   return ref ? ref.c0 + 1 : err("#VALUE!");
 };
-F.ROWS = (args) => (args[0].ref?.whole === "cols" ? MAX_ROWS : asMatrix(args[0].value()).length);
-F.COLUMNS = (args) =>
-  args[0].ref?.whole === "rows" ? MAX_COLS : (asMatrix(args[0].value())[0]?.length ?? 0);
+F.ROWS = (args) => {
+  const v = args[0].value();
+  const t = tailOf(v);
+  return asMatrix(v).length + (t?.axis === "rows" ? t.n : 0);
+};
+F.COLUMNS = (args) => {
+  const v = args[0].value();
+  const t = tailOf(v);
+  return (asMatrix(v)[0]?.length ?? 0) + (t?.axis === "cols" ? t.n : 0);
+};
 F.TRANSPOSE = (args) => {
   const m = asMatrix(args[0].value());
   return (m[0] ?? []).map((_x, c) => m.map((row) => row[c]));
@@ -1260,6 +1356,86 @@ for (const name of LIBRARY_NAMES) {
 }
 
 export const FUNCTIONS: Readonly<Record<string, FnImpl>> = F;
+
+/**
+ * Which arguments of a function take one value, so that given an array the
+ * evaluator applies the function to each element (Excel's lifting):
+ * ISNUMBER(SEARCH("x",A1:A9)) is nine answers, and COUNTIF(A:A,{"a","b"})
+ * two. FOUND IN R144. Arguments that take ranges or arrays on purpose (SUM's,
+ * INDEX's first, TEXTJOIN's, N's, T's…) never lift.
+ */
+const all = (n: number) => Array.from({ length: n }, (_, i) => i);
+const first = () => [0];
+const second = () => [1];
+/** COUNTIFS(range1, crit1, range2, crit2…): the criteria. */
+const oddOnes = (n: number) => all(n).filter((i) => i % 2 === 1);
+/** SUMIFS(values, range1, crit1…): the criteria. */
+const evenFromTwo = (n: number) => all(n).filter((i) => i >= 2 && i % 2 === 0);
+const SCALAR_FUNCTIONS = [
+  "ABS",
+  "SQRT",
+  "INT",
+  "EXP",
+  "LN",
+  "LOG10",
+  "SIGN",
+  "POWER",
+  "MOD",
+  "ROUND",
+  "ROUNDUP",
+  "ROUNDDOWN",
+  "TRUNC",
+  "CEILING",
+  "FLOOR",
+  "NOT",
+  "ISBLANK",
+  "ISNUMBER",
+  "ISTEXT",
+  "ISNONTEXT",
+  "ISLOGICAL",
+  "ISERROR",
+  "ISERR",
+  "ISNA",
+  "ISEVEN",
+  "ISODD",
+  "LEN",
+  "UPPER",
+  "LOWER",
+  "PROPER",
+  "TRIM",
+  "LEFT",
+  "RIGHT",
+  "MID",
+  "REPT",
+  "SUBSTITUTE",
+  "REPLACE",
+  "FIND",
+  "SEARCH",
+  "EXACT",
+  "TEXT",
+  "VALUE",
+  "CHAR",
+  "CODE",
+  "DATE",
+  "YEAR",
+  "MONTH",
+  "DAY",
+  "HOUR",
+  "MINUTE",
+  "SECOND",
+  "WEEKDAY",
+  "DATEVALUE",
+  "EDATE",
+  "EOMONTH",
+  "DAYS",
+];
+export const LIFTS: ReadonlyMap<string, (argCount: number) => number[]> = new Map([
+  ...SCALAR_FUNCTIONS.map((name) => [name, all] as const),
+  ...["MATCH", "XMATCH", "XLOOKUP", "VLOOKUP", "HLOOKUP"].map((n) => [n, first] as const),
+  ...["COUNTIF", "SUMIF", "AVERAGEIF"].map((n) => [n, second] as const),
+  ["COUNTIFS", oddOnes] as const,
+  ...["SUMIFS", "AVERAGEIFS", "MINIFS", "MAXIFS"].map((n) => [n, evenFromTwo] as const),
+]);
 
 /** Every function name the engine knows, sorted (for autocomplete and the AI's context). */
 export const FUNCTION_NAMES: readonly string[] = Object.keys(F).sort();

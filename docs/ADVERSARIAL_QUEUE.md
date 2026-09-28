@@ -334,14 +334,34 @@ R141 (a chart's first column of dates drawn as a series), R142 (a formula whose 
 cell showed nothing, where Excel shows 0), R143 (the samples hid their own figures under their
 charts). Open from that round:
 
-- **Arithmetic over a whole column works on the used rows.** Blank rows past the data do not take
-  part: `SUMPRODUCT(--(A:A<>"x"))` or `SUM(IF(A:A="",1))` count only the used part. Excel would
-  count them. COUNTIF, COUNTIFS and COUNTBLANK do count them (R140).
+- ~~Arithmetic over a whole column works on the used rows.~~ Closed by R146.
 - **Opening a sample twice makes two workbooks with the same name.** The tile could say that one is
   already open.
 - **The Project tracker's "late" rows depend on today** (`TODAY()`), so its red rows and late count
   change from day to day. That is intended for a tracker, but a screenshot from one day will not
   match another.
+
+Closed with array formulas: R144 (a function of one value given a range looked at its first
+cell), R145 (IF over a range took each branch's first value), R146 (arithmetic over a whole column
+left out the blank rows). Open from that round:
+
+- **Functions Excel has and Sheets does not.** Of 187 everyday functions, 41 show `#NAME?` when
+  typed. From a file, they show Excel's saved value instead. They are:
+  - legacy names Excel still takes: STDEV, VAR, RANK, MODE, PERCENTILE, QUARTILE. The lakehouse
+    computes STDEV, VAR and RANK over a table sheet, but a grid does not;
+  - SUBTOTAL, AGGREGATE, LOOKUP, OFFSET, INDIRECT, ADDRESS, HYPERLINK, LET, LAMBDA;
+  - TIME, TIMEVALUE, NUMBERVALUE, SUMSQ;
+  - TAKE, DROP, CHOOSECOLS, CHOOSEROWS, VSTACK, HSTACK, TOCOL, TOROW;
+  - TEXTSPLIT, TEXTBEFORE, TEXTAFTER;
+  - CEILING.MATH, FLOOR.MATH, NETWORKDAYS.INTL, WORKDAY.INTL;
+  - FORECAST.LINEAR, TREND, GROWTH, FREQUENCY;
+  - ISFORMULA, ISREF, RANDARRAY.
+- **A whole column spilled into the grid shows only the used rows.** Excel spills all 1,048,576,
+  or `#SPILL!` below row 1. The part shown is the useful part; the difference is on purpose.
+- **Legacy files' implicit intersection.** A pre-dynamic-array file may use
+  `=SUMIF(A:A,D:D,B:B)` to mean the D value in the formula's own row. Sheets now lifts D:D the
+  way dynamic-array Excel does, so such a formula spills or shows `#SPILL!`. Excel marks these with
+  `@` when it opens the file; Sheets does not yet read `@`.
 
 ## Rules that came out of doing this
 

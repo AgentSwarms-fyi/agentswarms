@@ -15,6 +15,30 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-29 — Array formulas, ADVERSARIAL_LOG R144–R146
+
+**Why this round exists.** The user asked to fix the whole-column arithmetic gap and to keep
+hunting. Before the fix, 24 array formulas people use every day were checked against Excel's
+answers: 15 were wrong. The formulas below were typed into the grid before the deploy and read
+again after it.
+
+Fixture: the **"Budget and cash flow"** sample (`a6eaa792…`). Its Scenarios sheet holds the five
+formulas in J1:J5, next to R140/R142's formulas in H1:H5. They are kept.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| R144, before | J1 `=SUMPRODUCT(--ISNUMBER(SEARCH("st",A2:A4)))` | 0 |
+| R144, after | The same cell after the deploy | 2 ("Best" and "Worst") |
+| R145, before | J2 `=MIN(IF(A2:A4<>"Base",E2:E4))` | 12,000 (E2, whatever the condition) |
+| R145, after | The same | 9,000 |
+| R146, before | J3 `=SUMPRODUCT(--(A:A=""))` | 1 (only the blank row inside the used five) |
+| R146, after | The same | 1,048,572 |
+| R146 | J4 `=MATCH(TRUE,INDEX(A:A="",0),0)` | 5, before and after (this sheet is used five rows deep) |
+| R144, before | J5 `=SUM(COUNTIF(A:A,{"Best","Worst"}))` | 1 |
+| R144, after | The same | 2 |
+| No regression | H1:H5 (R140/R142) after the deploy | 1,048,576; 1,048,572; 1,048,575; 0; 0, as before |
+| No regression | Sales sample Dashboard after the deploy | $448,677, 57.7%, 228, $1,968, 12, Gadget, Asha Rao $93,973, as before |
+
 ## 2026-09-28 — Sample workbooks (Phase I), ADVERSARIAL_LOG R140–R143
 
 **Why this round exists.** The user asked for sample workbooks with complex functionality, charts

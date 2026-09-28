@@ -70,8 +70,18 @@ The same rules as Excel apply:
     `ROWS(A:A)` is 1,048,576, and `COUNTBLANK(A:A)` and `COUNTIF(A:A,"<>x")` count the blank rows
     below the data.
   - `INDEX(A:A,500)` below the data is an empty cell, not `#REF!`.
-  - Arithmetic over a whole column, such as `SUMPRODUCT(--(A:A<>"x"))`, works on the rows the sheet
-    uses. To count blanks, use COUNTIF or COUNTBLANK.
+  - Arithmetic over a whole column counts the blank rows too: `SUMPRODUCT(--(A:A=""))`,
+    `SUM(--(A:A=""))` and `COUNT(IF(A:A="",1))` all give the number of blank rows, and
+    `MATCH(TRUE,INDEX(A:A="",0),0)` the first empty one.
+  - A whole column spilled into the grid (`=A:A=""` in a cell) shows only the rows the sheet uses.
+- Array formulas work element by element, as in Excel's dynamic arrays:
+  - A function of one value given a range answers for each cell: `ISNUMBER(SEARCH("x",A2:A9))`,
+    `LEN(A2:A9)`, `ROUND(B2:B9,0)`.
+  - So does the one value of a lookup or a criterion: `MATCH(A2:A9,list,0)`,
+    `SUM(COUNTIF(A:A,{"apple","cherry"}))`.
+  - `IF` over a range takes each branch's cell in the same place, so `MAX(IF(A2:A9="West",C2:C9))`
+    and `TEXTJOIN(",",TRUE,IF(C2:C9>100,A2:A9,""))` work. `IFERROR` and `IFNA` replace each error
+    on its own.
 - A formula whose answer is an empty cell (`=A500`, a gap in a spilled range) shows 0, as in Excel.
 - Errors are `#DIV/0!`, `#N/A`, `#VALUE!`, `#REF!` and `#NAME?`. A cell with an error explains it when you hover over it.
 
