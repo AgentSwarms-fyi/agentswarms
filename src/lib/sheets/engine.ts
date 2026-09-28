@@ -111,6 +111,8 @@ type Compiled = {
   ast?: Node;
   syntax?: string;
   volatile: boolean;
+  /** Recomputed when rows are hidden or shown (a filter applied). */
+  visibility?: boolean;
   tables: string[];
   /** Functions it calls that this engine does not have (from an Excel file). */
   unknown?: string[];
@@ -138,7 +140,9 @@ function unknownFunctions(node: Node, out: Set<string>): void {
   }
 }
 
-const VOLATILE = /\b(NOW|TODAY|RAND|RANDBETWEEN)\s*\(/i;
+const VOLATILE = /\b(NOW|TODAY|RAND|RANDBETWEEN|RANDARRAY)\s*\(/i;
+/** Formulas whose answer depends on which rows are hidden (SUBTOTAL leaves filtered rows out). */
+const ROW_VISIBILITY = /\b(SUBTOTAL|AGGREGATE)\s*\(/i;
 
 function tablesIn(node: Node, out: Set<string>): void {
   switch (node.k) {
@@ -275,6 +279,7 @@ export class WorkbookEngine {
       this.compiled.set(id, {
         ast,
         volatile: VOLATILE.test(input),
+        ...(ROW_VISIBILITY.test(input) ? { visibility: true } : {}),
         tables: [...t],
         ...(u.size ? { unknown: [...u] } : {}),
       });
@@ -504,6 +509,7 @@ export class WorkbookEngine {
       now: this.now,
       hasSheet: (name) => this.byName.has(name.toLowerCase()),
       used: (name) => this.used(this.byName.get(name.toLowerCase()) ?? ""),
+      ...this.cellFacts(),
       cell: (sheet, r, cc) => {
         const sid = this.byName.get(sheet.toLowerCase());
         if (!sid) return err("#REF!", `No sheet "${sheet}"`);
@@ -616,6 +622,7 @@ export class WorkbookEngine {
       now: this.now,
       hasSheet: (name) => this.byName.has(name.toLowerCase()),
       used: (name) => this.used(this.byName.get(name.toLowerCase()) ?? ""),
+      ...this.cellFacts(),
       cell: (sheet, r, cc) => {
         const sid = this.byName.get(sheet.toLowerCase());
         if (!sid) return err("#REF!", `No sheet "${sheet}"`);
@@ -855,5 +862,36 @@ export class WorkbookEngine {
     const s = this.sheets.get(sheetId);
     if (!s?.grid) return;
     Object.assign(s.grid, patch);
+    // A filter applied or rows hidden: SUBTOTAL's answer changes (R147).
+    if ("filter" in patch || "hiddenRows" in patch) {
+      const ids = [...this.compiled].filter(([, c]) => c.visibility).map(([id]) => id);
+      if (ids.length) this.recalc(ids);
+    }
+  }
+
+  /**
+   * What a few functions ask about a cell beyond its value: whether its row
+   * is hidden, by a filter or by hand (SUBTOTAL), and its formula (SUBTOTAL
+   * leaves other subtotals out; ISFORMULA, FORMULATEXT).
+   */
+  private cellFacts(): Pick<EvalEnv, "rowHidden" | "formula"> {
+    const hidden = new Map<string, { filter: Set<number>; manual: Set<number> }>();
+    const gridOf = (sheet: string) =>
+      this.sheets.get(this.byName.get(sheet.toLowerCase()) ?? "")?.grid;
+    return {
+      rowHidden: (sheet, row) => {
+        let h = hidden.get(sheet);
+        if (!h) {
+          const g = gridOf(sheet);
+          h = { filter: new Set(g?.filter?.hidden ?? []), manual: new Set(g?.hiddenRows ?? []) };
+          hidden.set(sheet, h);
+        }
+        return h.filter.has(row) ? "filter" : h.manual.has(row) ? "manual" : null;
+      },
+      formula: (sheet, row, col) => {
+        const i = gridOf(sheet)?.cells[cellKey(row, col)]?.i;
+        return i && i.startsWith("=") ? i : undefined;
+      },
+    };
   }
 }

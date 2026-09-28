@@ -34,7 +34,8 @@ import {
   type Value,
 } from "./values";
 import type { ErrorCode } from "./lexer";
-import { MAX_COLS, MAX_ROWS } from "../a1";
+import { colLetters, MAX_COLS, MAX_ROWS } from "../a1";
+import { parseFormula } from "./parser";
 import { lineUp, tailOf, withTail, zipN, type Tail } from "./arrays";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -1250,9 +1251,435 @@ F.SEQUENCE = (args) => {
   return out;
 };
 
+// ── Functions Excel has that were missing (R147) ────────────────────────────
+
+const SUBTOTAL_OF: Record<number, string> = {
+  1: "AVERAGE",
+  2: "COUNT",
+  3: "COUNTA",
+  4: "MAX",
+  5: "MIN",
+  6: "PRODUCT",
+  7: "STDEV.S",
+  8: "STDEV.P",
+  9: "SUM",
+  10: "VAR.S",
+  11: "VAR.P",
+};
+/**
+ * SUBTOTAL(function_num, ref…): the function over the references, less what
+ * Excel leaves out: rows a filter hides; with 101–111, rows hidden by hand
+ * too; and cells that are themselves SUBTOTAL or AGGREGATE formulas, so a
+ * total of subtotals does not count them twice.
+ */
+F.SUBTOTAL = (args, ctx) => {
+  if (args.length < 2) return err("#N/A", "Wrong number of arguments");
+  const code = num(args[0]);
+  if (isError(code)) return code;
+  const k = Math.trunc(code);
+  const name = SUBTOTAL_OF[k > 100 ? k - 100 : k];
+  if (!name || !F[name]) return err("#VALUE!", "SUBTOTAL takes 1 to 11, or 101 to 111");
+  const handHidden = k > 100;
+  const env = ctx.env;
+  const kept: Arg[] = args.slice(1).map((a) => {
+    const ref = a.ref;
+    if (!ref) return a;
+    const out = asMatrix(a.value()).map((line, r) =>
+      line.map((x, c) => {
+        const row = ref.r0 + r;
+        const hidden = env.rowHidden?.(ref.sheet, row);
+        if (hidden === "filter" || (hidden === "manual" && handHidden)) return null;
+        const f = env.formula?.(ref.sheet, row, ref.c0 + c);
+        return f && /\b(SUBTOTAL|AGGREGATE)\s*\(/i.test(f) ? null : x;
+      }),
+    );
+    return { node: a.node, isRef: true, ref, value: () => out };
+  });
+  return F[name](kept, ctx);
+};
+
+/** OFFSET(reference, rows, cols, [height], [width]): the cells that far from a reference. */
+F.OFFSET = (args, ctx) => {
+  const e = arity(args, 3, 5);
+  if (e) return e;
+  const ref = args[0].ref;
+  if (!ref) return err("#VALUE!", "OFFSET starts from a reference, such as A1");
+  const dr = num(args[1]);
+  const dc = num(args[2]);
+  const h = num(args[3], ref.r1 - ref.r0 + 1);
+  const w = num(args[4], ref.c1 - ref.c0 + 1);
+  for (const x of [dr, dc, h, w]) if (isError(x)) return x;
+  const r0 = ref.r0 + Math.trunc(dr as number);
+  const c0 = ref.c0 + Math.trunc(dc as number);
+  const r1 = r0 + Math.trunc(h as number) - 1;
+  const c1 = c0 + Math.trunc(w as number) - 1;
+  if (r1 < r0 || c1 < c0 || r0 < 0 || c0 < 0 || r1 >= MAX_ROWS || c1 >= MAX_COLS)
+    return err("#REF!", "That is outside the sheet");
+  if (r0 === r1 && c0 === c1) return ctx.env.cell(ref.sheet, r0, c0);
+  return ctx.env.range({ sheet: ref.sheet, r0, c0, r1, c1 });
+};
+
+/** INDIRECT(text): the cell or range the text names, as "B2", "Sales!A1:C9" or "'Q3 data'!D4". */
+F.INDIRECT = (args, ctx) => {
+  const e = arity(args, 1, 2);
+  if (e) return e;
+  const t = text(args[0]);
+  if (isError(t)) return t;
+  const a1 = bool(args[1], true);
+  if (isError(a1)) return a1;
+  if (!a1) return err("#REF!", "Only A1-style references are read, such as B2 or Sales!A1:C9");
+  let node;
+  try {
+    node = parseFormula(t.trim());
+  } catch {
+    return err("#REF!", `"${t}" is not a reference`);
+  }
+  if (node.k !== "cell" && node.k !== "range") return err("#REF!", `"${t}" is not a reference`);
+  return ctx.evaluate ? ctx.evaluate(node) : err("#REF!");
+};
+
+/** ADDRESS(row, column, [abs_num], [a1], [sheet]): a reference as text. */
+F.ADDRESS = (args) => {
+  const e = arity(args, 2, 5);
+  if (e) return e;
+  const row = num(args[0]);
+  const col = num(args[1]);
+  const abs = num(args[2], 1);
+  const a1 = bool(args[3], true);
+  const sheet = text(args[4], "");
+  for (const x of [row, col, abs, a1, sheet]) if (isError(x)) return x;
+  const r = Math.trunc(row as number);
+  const c = Math.trunc(col as number);
+  const k = Math.trunc(abs as number);
+  if (r < 1 || c < 1 || r > MAX_ROWS || c > MAX_COLS || k < 1 || k > 4) return err("#VALUE!");
+  const absRow = k === 1 || k === 2;
+  const absCol = k === 1 || k === 3;
+  const ref = a1
+    ? `${absCol ? "$" : ""}${colLetters(c - 1)}${absRow ? "$" : ""}${r}`
+    : `R${absRow ? r : `[${r}]`}C${absCol ? c : `[${c}]`}`;
+  const s = sheet as string;
+  if (!s) return ref;
+  return `${/^[A-Za-z_][A-Za-z0-9_.]*$/.test(s) ? s : `'${s.replace(/'/g, "''")}'`}!${ref}`;
+};
+
+/** HYPERLINK(link, [friendly_name]): what the cell shows. */
+F.HYPERLINK = (args) => {
+  const e = arity(args, 1, 2);
+  if (e) return e;
+  const shown = args[1] && args[1].node.k !== "empty" ? args[1] : args[0];
+  return scalarOf(shown.value());
+};
+
+/** ISREF(value): TRUE for a reference, cell or range. */
+F.ISREF = (args) => {
+  const e = arity(args, 1, 1);
+  if (e) return e;
+  const a = args[0];
+  if (a.isRef) return true;
+  return (
+    a.node.k === "call" &&
+    ["OFFSET", "INDIRECT", "INDEX"].includes(a.node.name) &&
+    !isError(scalarOf(a.value()))
+  );
+};
+
+/** ISFORMULA(reference): whether the cell holds a formula. */
+F.ISFORMULA = (args, ctx) => {
+  const e = arity(args, 1, 1);
+  if (e) return e;
+  const ref = args[0].ref;
+  if (!ref) return err("#VALUE!", "ISFORMULA takes a reference, such as A1");
+  return ctx.env.formula?.(ref.sheet, ref.r0, ref.c0) !== undefined;
+};
+
+/** FORMULATEXT(reference): the cell's formula as text. */
+F.FORMULATEXT = (args, ctx) => {
+  const e = arity(args, 1, 1);
+  if (e) return e;
+  const ref = args[0].ref;
+  if (!ref) return err("#VALUE!", "FORMULATEXT takes a reference, such as A1");
+  return ctx.env.formula?.(ref.sheet, ref.r0, ref.c0) ?? err("#N/A", "That cell holds no formula");
+};
+
+/** TOCOL / TOROW(array, [ignore], [scan_by_column]): an array as one column or row. */
+const toLine =
+  (asColumn: boolean): FnImpl =>
+  (args) => {
+    const e = arity(args, 1, 3);
+    if (e) return e;
+    const m = asMatrix(args[0].value());
+    const ignore = num(args[1], 0);
+    const byCol = bool(args[2], false);
+    if (isError(ignore)) return ignore;
+    if (isError(byCol)) return byCol;
+    const k = Math.trunc(ignore);
+    if (k < 0 || k > 3) return err("#VALUE!");
+    const cells: Scalar[] = [];
+    const rows = m.length;
+    const cols = m[0]?.length ?? 0;
+    if (byCol) {
+      for (let c = 0; c < cols; c++) for (let r = 0; r < rows; r++) cells.push(m[r][c]);
+    } else {
+      for (const line of m) cells.push(...line);
+    }
+    const kept = cells.filter(
+      (x) => !((k === 1 || k === 3) && x === null) && !((k === 2 || k === 3) && isError(x)),
+    );
+    if (!kept.length) return err("#CALC!", "Nothing is left");
+    return asColumn ? kept.map((x) => [x]) : [kept];
+  };
+F.TOCOL = toLine(true);
+F.TOROW = toLine(false);
+
+/** The delimiters a text function was given: one text, or an array of them. */
+function delimiters(a: Arg | undefined): string[] | SheetError {
+  if (!a || a.node.k === "empty") return [];
+  const out: string[] = [];
+  for (const x of flat(a.value())) {
+    if (isError(x)) return x;
+    const t = toText(x);
+    if (isError(t)) return t;
+    out.push(t);
+  }
+  return out;
+}
+const escapeRe = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** TEXTSPLIT(text, col_delimiter, [row_delimiter], [ignore_empty], [match_mode], [pad_with]). */
+F.TEXTSPLIT = (args) => {
+  const e = arity(args, 2, 6);
+  if (e) return e;
+  const t = text(args[0]);
+  if (isError(t)) return t;
+  const colD = delimiters(args[1]);
+  const rowD = delimiters(args[2]);
+  if (isError(colD)) return colD;
+  if (isError(rowD)) return rowD;
+  if (!colD.length && !rowD.length) return err("#VALUE!", "Give a delimiter");
+  if ([...colD, ...rowD].some((d) => d === ""))
+    return err("#VALUE!", "A delimiter cannot be empty");
+  const ignore = bool(args[3], false);
+  const mode = num(args[4], 0);
+  if (isError(ignore)) return ignore;
+  if (isError(mode)) return mode;
+  const pad = args[5] && args[5].node.k !== "empty" ? scalarOf(args[5].value()) : err("#N/A");
+  const flags = mode === 1 ? "i" : "";
+  const split = (s: string, ds: string[]) => {
+    if (!ds.length) return [s];
+    const parts = s.split(new RegExp(ds.map(escapeRe).join("|"), flags));
+    return ignore ? parts.filter((p) => p !== "") : parts;
+  };
+  const rows = split(t, rowD).map((line) => split(line, colD));
+  const width = Math.max(1, ...rows.map((r) => r.length));
+  return rows.map((r) => [...r, ...Array<Scalar>(width - r.length).fill(pad)]);
+};
+
+/** TEXTBEFORE / TEXTAFTER(text, delimiter, [instance_num], [match_mode], [match_end], [if_not_found]). */
+const textAround =
+  (after: boolean): FnImpl =>
+  (args) => {
+    const e = arity(args, 2, 6);
+    if (e) return e;
+    const t = text(args[0]);
+    if (isError(t)) return t;
+    const ds = delimiters(args[1]);
+    if (isError(ds)) return ds;
+    const n = num(args[2], 1);
+    const mode = num(args[3], 0);
+    const end = num(args[4], 0);
+    for (const x of [n, mode, end]) if (isError(x)) return x;
+    const k = Math.trunc(n as number);
+    if (k === 0 || Math.abs(k) > t.length + 1) return err("#VALUE!");
+    const notFound =
+      args[5] && args[5].node.k !== "empty" ? scalarOf(args[5].value()) : err("#N/A");
+    // Every place a delimiter starts, left to right.
+    const hay = mode === 1 ? t.toLowerCase() : t;
+    const found: { at: number; len: number }[] = [];
+    if (ds.some((d) => d === "")) {
+      found.push({ at: 0, len: 0 });
+    } else {
+      let i = 0;
+      while (i <= hay.length) {
+        let hit: { at: number; len: number } | null = null;
+        for (const d of ds) {
+          const j = hay.indexOf(mode === 1 ? d.toLowerCase() : d, i);
+          if (j >= 0 && (!hit || j < hit.at)) hit = { at: j, len: d.length };
+        }
+        if (!hit) break;
+        found.push(hit);
+        i = hit.at + Math.max(1, hit.len);
+      }
+    }
+    // With match_end, the end of the text counts as a delimiter (the start, counting back).
+    if (end === 1) {
+      if (k > 0) found.push({ at: t.length, len: 0 });
+      else found.unshift({ at: 0, len: 0 });
+    }
+    const pick = k > 0 ? found[k - 1] : found[found.length + k];
+    if (!pick) return notFound;
+    return after ? t.slice(pick.at + pick.len) : t.slice(0, pick.at);
+  };
+F.TEXTBEFORE = textAround(false);
+F.TEXTAFTER = textAround(true);
+
+/** RANDARRAY([rows], [columns], [min], [max], [whole_number]). */
+F.RANDARRAY = (args) => {
+  const e = arity(args, 0, 5);
+  if (e) return e;
+  const rows = num(args[0], 1);
+  const cols = num(args[1], 1);
+  const lo = num(args[2], 0);
+  const hi = num(args[3], 1);
+  const whole = bool(args[4], false);
+  for (const x of [rows, cols, lo, hi, whole]) if (isError(x)) return x;
+  const R = Math.trunc(rows as number);
+  const C = Math.trunc(cols as number);
+  if (R < 1 || C < 1 || (hi as number) < (lo as number)) return err("#VALUE!");
+  if (R * C > 1_000_000) return err("#NUM!", "Too large");
+  const a = lo as number;
+  const b = hi as number;
+  return Array.from({ length: R }, () =>
+    Array.from({ length: C }, () =>
+      whole
+        ? Math.ceil(a) + Math.floor(Math.random() * (Math.floor(b) - Math.ceil(a) + 1))
+        : a + Math.random() * (b - a),
+    ),
+  );
+};
+
+/**
+ * LOOKUP(value, lookup_vector, [result_vector]), or LOOKUP(value, array):
+ * the largest value not above the one looked for, in sorted data. The array
+ * form searches the first row of a wide array or the first column of a tall
+ * one, and answers from the last. (formula.js answered the array form with
+ * the value found, not the one beside it.)
+ */
+F.LOOKUP = (args) => {
+  const e = arity(args, 2, 3);
+  if (e) return e;
+  const needle = scalarOf(args[0].value());
+  if (isError(needle)) return needle;
+  const m = asMatrix(args[1].value());
+  const rows = m.length;
+  const cols = m[0]?.length ?? 0;
+  let look: Scalar[];
+  let answer: Scalar[];
+  if (args.length === 3) {
+    look = flat(m);
+    answer = flat(args[2].value());
+  } else if (cols > rows) {
+    look = m[0];
+    answer = m[rows - 1];
+  } else {
+    look = m.map((r) => r[0]);
+    answer = m.map((r) => r[cols - 1]);
+  }
+  const i = approxIndex(needle, look);
+  if (i < 0) return err("#N/A", "No value that low");
+  return answer[i] ?? err("#N/A");
+};
+
+/** TIME(hour, minute, second): a time of day, past 24 hours wrapping round as in Excel. */
+F.TIME = (args) => {
+  const e = arity(args, 3, 3);
+  if (e) return e;
+  const [h, m, sec] = [num(args[0]), num(args[1]), num(args[2])];
+  for (const x of [h, m, sec]) if (isError(x)) return x;
+  const total =
+    Math.trunc(h as number) * 3600 + Math.trunc(m as number) * 60 + Math.trunc(sec as number);
+  if (total < 0) return err("#NUM!");
+  return (total % 86400) / 86400;
+};
+
+/** TIMEVALUE(text): the time of day a text names ("6:30 PM", "18:30:05", "2026-09-28 18:30"). */
+F.TIMEVALUE = (args) => {
+  const e = arity(args, 1, 1);
+  if (e) return e;
+  const t = text(args[0]);
+  if (isError(t)) return t;
+  const m = /(\d{1,2}):(\d{2})(?::(\d{2}(?:\.\d+)?))?\s*(AM|PM)?\s*$/i.exec(t.trim());
+  if (!m) return err("#VALUE!", `"${t}" is not a time`);
+  let h = Number(m[1]);
+  const mi = Number(m[2]);
+  const sec = Number(m[3] ?? 0);
+  if (m[4]) {
+    if (h < 1 || h > 12) return err("#VALUE!");
+    h = (h % 12) + (m[4].toUpperCase() === "PM" ? 12 : 0);
+  }
+  if (h > 23 || mi > 59 || sec >= 60) return err("#VALUE!");
+  return (h * 3600 + mi * 60 + sec) / 86400;
+};
+
+/** NUMBERVALUE(text, [decimal_separator], [group_separator]): a number written any locale's way. */
+F.NUMBERVALUE = (args) => {
+  const e = arity(args, 1, 3);
+  if (e) return e;
+  const t = text(args[0]);
+  const dec = text(args[1], ".");
+  const grp = text(args[2], ",");
+  for (const x of [t, dec, grp]) if (isError(x)) return x;
+  let body = (t as string).replace(/\s/g, "");
+  if (!body) return 0;
+  let percents = 0;
+  while (body.endsWith("%")) {
+    percents++;
+    body = body.slice(0, -1);
+  }
+  const d = (dec as string).charAt(0) || ".";
+  const g = (grp as string).charAt(0);
+  const at = body.indexOf(d);
+  const whole = at < 0 ? body : body.slice(0, at);
+  const frac = at < 0 ? "" : body.slice(at + 1);
+  // A group separator after the decimal one, or a second decimal separator, is not a number.
+  if ((g && frac.includes(g)) || frac.includes(d)) return err("#VALUE!");
+  const n = Number(`${g ? whole.split(g).join("") : whole}${at < 0 ? "" : `.${frac}`}`);
+  if (!Number.isFinite(n)) return err("#VALUE!", `"${t}" is not a number`);
+  return n / 100 ** percents;
+};
+
+/** FREQUENCY(data, bins): how many values fall in each bin, and above the last, as a column. */
+F.FREQUENCY = (args) => {
+  const e = arity(args, 2, 2);
+  if (e) return e;
+  const data: number[] = [];
+  for (const x of flat(args[0].value())) {
+    if (isError(x)) return x;
+    if (typeof x === "number") data.push(x);
+  }
+  const bins: number[] = [];
+  for (const x of flat(args[1].value())) {
+    if (isError(x)) return x;
+    if (typeof x === "number") bins.push(x);
+  }
+  const counts = Array<number>(bins.length + 1).fill(0);
+  // Each value goes to the lowest bin at or above it; a bin repeated counts once.
+  const order = bins.map((b, i) => ({ b, i })).sort((x, y) => x.b - y.b || x.i - y.i);
+  for (const v of data) {
+    const hit = order.find((o) => v <= o.b);
+    counts[hit ? hit.i : bins.length]++;
+  }
+  return counts.map((c) => [c]);
+};
+
+/** LET is evaluated by the evaluator (its names need a scope); this entry only makes it known. */
+F.LET = () => err("#VALUE!", "LET is evaluated where it stands");
+
 // ── Long tail from formula.js ──────────────────────────────────────────────
 
-const LIBRARY_NAMES = [
+export const LIBRARY_NAMES = [
+  "SUMSQ",
+  "TAKE",
+  "DROP",
+  "CHOOSECOLS",
+  "CHOOSEROWS",
+  "VSTACK",
+  "HSTACK",
+  "CEILING.MATH",
+  "FLOOR.MATH",
+  "NETWORKDAYS.INTL",
+  "WORKDAY.INTL",
+  "TREND",
+  "GROWTH",
   "STDEV",
   "STDEV.S",
   "STDEV.P",
@@ -1355,6 +1782,24 @@ for (const name of LIBRARY_NAMES) {
   if (impl) F[name] = impl;
 }
 
+/**
+ * Names Excel still takes, as the functions they became. FOUND IN R147:
+ * formula.js exports these as groups (STDEV.S and STDEV.P under STDEV), so
+ * the loop above found no function and passed over them without a word:
+ * =STDEV(A1:A9) was #NAME? on a grid while the lakehouse computed it over a
+ * table sheet. A listed name that does not register now fails a test.
+ */
+const SAME_AS: Record<string, string> = {
+  STDEV: "STDEV.S",
+  VAR: "VAR.S",
+  PERCENTILE: "PERCENTILE.INC",
+  QUARTILE: "QUARTILE.INC",
+  RANK: "RANK.EQ",
+  MODE: "MODE.SNGL",
+  "FORECAST.LINEAR": "FORECAST",
+};
+for (const [name, now] of Object.entries(SAME_AS)) if (!F[name] && F[now]) F[name] = F[now];
+
 export const FUNCTIONS: Readonly<Record<string, FnImpl>> = F;
 
 /**
@@ -1425,6 +1870,10 @@ const SCALAR_FUNCTIONS = [
   "SECOND",
   "WEEKDAY",
   "DATEVALUE",
+  "HYPERLINK",
+  "TIME",
+  "TIMEVALUE",
+  "NUMBERVALUE",
   "EDATE",
   "EOMONTH",
   "DAYS",
@@ -1433,6 +1882,7 @@ export const LIFTS: ReadonlyMap<string, (argCount: number) => number[]> = new Ma
   ...SCALAR_FUNCTIONS.map((name) => [name, all] as const),
   ...["MATCH", "XMATCH", "XLOOKUP", "VLOOKUP", "HLOOKUP"].map((n) => [n, first] as const),
   ...["COUNTIF", "SUMIF", "AVERAGEIF"].map((n) => [n, second] as const),
+  ...["TEXTBEFORE", "TEXTAFTER"].map((n) => [n, first] as const),
   ["COUNTIFS", oddOnes] as const,
   ...["SUMIFS", "AVERAGEIFS", "MINIFS", "MAXIFS"].map((n) => [n, evenFromTwo] as const),
 ]);

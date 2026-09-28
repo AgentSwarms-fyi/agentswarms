@@ -51,15 +51,26 @@ The figures in each were checked against a separate calculation in Python from t
 
 ### Formulas
 
-Type `=` and a formula, as in Excel. About 200 functions are available:
+Type `=` and a formula, as in Excel. About 240 functions are available:
 
 - **Totals:** SUM, AVERAGE, COUNT, COUNTA, SUMIF(S), COUNTIF(S), AVERAGEIF(S), MINIFS, MAXIFS,
-  SUMPRODUCT.
-- **Logic:** IF, IFS, IFERROR, IFNA, SWITCH, CHOOSE, AND, OR, XOR, NOT.
-- **Lookups:** XLOOKUP, VLOOKUP, HLOOKUP, INDEX, MATCH, XMATCH.
-- **Dynamic arrays:** UNIQUE, SORT, SORTBY, FILTER, SEQUENCE, TRANSPOSE.
-- **Text and dates:** TEXT, VALUE, LEFT, MID, TEXTJOIN, DATE, EDATE, EOMONTH, DAYS.
+  SUMPRODUCT, SUMSQ, and SUBTOTAL.
+  - SUBTOTAL leaves out rows a filter hides, and with 101–111 rows hidden by hand too.
+  - It skips other SUBTOTAL cells, so a total of subtotals counts nothing twice.
+- **Logic and names:** IF, IFS, IFERROR, IFNA, SWITCH, CHOOSE, AND, OR, XOR, NOT, LET.
+- **Lookups and references:** XLOOKUP, VLOOKUP, HLOOKUP, LOOKUP, INDEX, MATCH, XMATCH, OFFSET,
+  INDIRECT (A1 style), ADDRESS, HYPERLINK, ISREF, ISFORMULA, FORMULATEXT.
+- **Dynamic arrays:**
+  - UNIQUE, SORT, SORTBY, FILTER, SEQUENCE, RANDARRAY, TRANSPOSE;
+  - TAKE, DROP, CHOOSECOLS, CHOOSEROWS, VSTACK, HSTACK, TOCOL, TOROW.
+- **Text:** TEXT, VALUE, NUMBERVALUE, LEFT, MID, TEXTJOIN, TEXTSPLIT, TEXTBEFORE, TEXTAFTER.
+- **Dates and times:** DATE, TIME, TIMEVALUE, EDATE, EOMONTH, DAYS, NETWORKDAYS(.INTL),
+  WORKDAY(.INTL).
+- **Statistics:** STDEV, VAR, RANK, MODE, PERCENTILE and QUARTILE, under their old names and new
+  ones; FORECAST(.LINEAR), TREND, GROWTH, FREQUENCY.
 - **The long tail** of statistical, financial and engineering functions.
+
+Not yet: LAMBDA and AGGREGATE. A file that uses them shows the value Excel last saved.
 
 The same rules as Excel apply:
 

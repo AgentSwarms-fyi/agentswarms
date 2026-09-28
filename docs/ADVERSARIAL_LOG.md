@@ -109,6 +109,74 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-29 — Functions Excel has, and seven the long tail lost without a word
+
+A list of 187 everyday Excel functions was typed into a grid, one at a time. 41 showed #NAME?. From
+an Excel file, the same formulas show the value Excel last saved; typed, they fail.
+
+Sheets now has 240 functions. `tests/unit/sheetsFunctions.test.ts` (14) checks each new one against
+the answer Excel's documentation gives. It also pins two invariants:
+- every name listed for formula.js registers;
+- every function the lakehouse computes over a table sheet also exists on a grid.
+
+The mutation run caught 16 of 16; the control survived.
+
+Two things are still missing: LAMBDA, and AGGREGATE with its 19 functions and options. A file that
+uses either shows the value Excel saved.
+
+#### R147 · S2 · Seven functions listed for the long tail never registered, and 34 more were missing
+
+**The seven.** `LIBRARY_NAMES` lists the functions formula.js computes, and a loop registers each. It
+skipped any name formula.js did not export as a function. formula.js exports the legacy statistics
+names as groups: STDEV holds STDEV.S and STDEV.P, and RANK holds RANK.EQ and RANK.AVG. So the
+following were quietly never there:
+- STDEV, VAR, PERCENTILE, QUARTILE, RANK, MODE;
+- FORECAST.LINEAR, which formula.js lacks altogether.
+
+The lakehouse does compute STDEV, VAR and RANK over a table sheet, so the same function worked on a
+table and showed #NAME? on a grid.
+
+**The rest, now there:**
+- SUBTOTAL, with Excel's rules:
+  - it leaves out rows a filter hides, and with codes 101–111 rows hidden by hand too;
+  - it skips cells that are themselves SUBTOTAL formulas;
+  - it recomputes when a filter is applied or cleared.
+- LOOKUP, OFFSET, INDIRECT (A1 style), ADDRESS, HYPERLINK, ISREF, ISFORMULA, FORMULATEXT, LET.
+- TIME, TIMEVALUE, NUMBERVALUE, SUMSQ, CEILING.MATH, FLOOR.MATH, NETWORKDAYS.INTL, WORKDAY.INTL.
+- TREND, GROWTH, FREQUENCY.
+- TAKE, DROP, CHOOSECOLS, CHOOSEROWS, VSTACK, HSTACK, TOCOL, TOROW, RANDARRAY.
+- TEXTSPLIT, TEXTBEFORE, TEXTAFTER.
+
+**Where formula.js was wrong, the function is written here.** formula.js was tried first for each.
+Five of its answers differed from Excel's, and those five are native:
+- LOOKUP's array form answered with the value found, not the one beside it.
+- TIME did not wrap past 24 hours.
+- TIMEVALUE could not read "6:30 PM".
+- NUMBERVALUE could not read "3.5%".
+- FREQUENCY answered in a row, where Excel answers in a column.
+
+**The fix.**
+- The legacy names are aliases of the functions they became (`SAME_AS`).
+- The engine tells formulas whether a row is hidden, and by what, and whether a cell holds a
+  formula.
+- LET gives values names in the evaluator's scope.
+- INDIRECT reads the reference its text names through the evaluator.
+
+**Driven.** Six formulas were typed into the Budget sample's Scenarios sheet before and after the
+deploy. E2:E4 hold 12,000, 15,000 and 9,000.
+
+| Cell | Formula | Before | After (Excel) |
+| --- | --- | --- | --- |
+| K1 | `=STDEV(E2:E4)` | #NAME? | 3,000 |
+| K2 | `=SUBTOTAL(9,E2:E4)` | #NAME? | 36,000 |
+| K3 | `=LET(x,E2,y,E3,x+y)` | #NAME? | 27,000 |
+| K4 | `=TEXTAFTER("a-b-c","-",-1)` | #NAME? | c |
+| K5 | `=INDIRECT("E"&3)` | #NAME? | 15,000 |
+| K6 | `=RANK(E4,E2:E4)` | #NAME? | 3 |
+
+The Scenarios filter was then turned on (Ctrl+Shift+L) and "Worst" unticked. K2 went to 27,000, and
+STDEV in K1 stayed 3,000, as Excel's does. Clearing the filter brought K2 back to 36,000.
+
 ### 2026-09-29 — Array formulas, and the whole-column arithmetic gap
 
 The user asked for the gap R140 left open: arithmetic over a whole column worked only on the rows

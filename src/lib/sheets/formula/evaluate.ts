@@ -99,6 +99,12 @@ export interface EvalEnv {
   /** A call over table-sheet columns, computed by the lakehouse. */
   tableCall?(req: TableCallRequest): Value | typeof PENDING;
   now?: Date;
+  /** Is a row hidden, and how (SUBTOTAL leaves filtered rows out; 101–111 hand-hidden ones too)? */
+  rowHidden?(sheet: string, row: number): "filter" | "manual" | null;
+  /** A cell's formula, when it holds one (ISFORMULA, FORMULATEXT, SUBTOTAL). */
+  formula?(sheet: string, row: number, col: number): string | undefined;
+  /** Names LET has given values to, lower-cased. */
+  names?: ReadonlyMap<string, Value>;
 }
 
 /** Thrown through the evaluator when a table answer is pending. */
@@ -119,7 +125,12 @@ export type Arg = {
   ref?: RangeRef;
 };
 
-export type FnCtx = { env: EvalEnv; name: string };
+export type FnCtx = {
+  env: EvalEnv;
+  name: string;
+  /** Evaluate a formula tree here (INDIRECT reads the reference its text names). */
+  evaluate?: (node: Node) => Value;
+};
 export type FnImpl = (args: Arg[], ctx: FnCtx) => Value;
 
 const MISSING = Symbol("missing");
@@ -261,8 +272,11 @@ export function evaluate(node: Node, env: EvalEnv): Value {
       if (v === PENDING) throw new PendingValue();
       return v;
     }
-    case "name":
+    case "name": {
+      const bound = env.names?.get(node.name.toLowerCase());
+      if (bound !== undefined) return bound;
       return err("#NAME?", `Unknown name "${node.name}"`);
+    }
     case "array":
       return node.rows.map((row) => row.map((n) => scalarOf(evaluate(n, env))));
     case "unary": {
@@ -298,6 +312,7 @@ export function evaluate(node: Node, env: EvalEnv): Value {
       return broadcast(a, b, (x, y) => arith(node.op, x, y));
     }
     case "call": {
+      if (node.name === "LET") return evaluateLet(node, env);
       const impl = FUNCTIONS[node.name];
       if (!impl) return err("#NAME?", `Unknown function ${node.name}`);
       if (env.tableCall && TABLE_PUSHDOWN.has(node.name)) {
@@ -346,9 +361,27 @@ export function evaluate(node: Node, env: EvalEnv): Value {
           );
         }
       }
-      return impl(args, { env, name: node.name });
+      return impl(args, { env, name: node.name, evaluate: (n) => evaluate(n, env) });
     }
   }
+}
+
+/**
+ * LET(name1, value1, …, calculation): each value computed once, in order, and
+ * known by its name to the values after it and to the calculation (R147).
+ */
+function evaluateLet(node: Extract<Node, { k: "call" }>, env: EvalEnv): Value {
+  const a = node.args;
+  if (a.length < 3 || a.length % 2 === 0)
+    return err("#VALUE!", "LET takes names and their values in pairs, then a calculation");
+  const names = new Map(env.names ?? []);
+  const scoped: EvalEnv = { ...env, names };
+  for (let i = 0; i + 1 < a.length; i += 2) {
+    const n = a[i];
+    if (n.k !== "name") return err("#NAME?", "LET needs a name, such as total, before each value");
+    names.set(n.name.toLowerCase(), evaluate(a[i + 1], scoped));
+  }
+  return evaluate(a[a.length - 1], scoped);
 }
 
 /**

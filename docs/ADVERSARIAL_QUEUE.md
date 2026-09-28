@@ -345,23 +345,26 @@ Closed with array formulas: R144 (a function of one value given a range looked a
 cell), R145 (IF over a range took each branch's first value), R146 (arithmetic over a whole column
 left out the blank rows). Open from that round:
 
-- **Functions Excel has and Sheets does not.** Of 187 everyday functions, 41 show `#NAME?` when
-  typed. From a file, they show Excel's saved value instead. They are:
-  - legacy names Excel still takes: STDEV, VAR, RANK, MODE, PERCENTILE, QUARTILE. The lakehouse
-    computes STDEV, VAR and RANK over a table sheet, but a grid does not;
-  - SUBTOTAL, AGGREGATE, LOOKUP, OFFSET, INDIRECT, ADDRESS, HYPERLINK, LET, LAMBDA;
-  - TIME, TIMEVALUE, NUMBERVALUE, SUMSQ;
-  - TAKE, DROP, CHOOSECOLS, CHOOSEROWS, VSTACK, HSTACK, TOCOL, TOROW;
-  - TEXTSPLIT, TEXTBEFORE, TEXTAFTER;
-  - CEILING.MATH, FLOOR.MATH, NETWORKDAYS.INTL, WORKDAY.INTL;
-  - FORECAST.LINEAR, TREND, GROWTH, FREQUENCY;
-  - ISFORMULA, ISREF, RANDARRAY.
+- ~~Functions Excel has and Sheets does not.~~ Closed by R147, except two:
+  - LAMBDA;
+  - AGGREGATE (19 functions, with options to skip errors and hidden rows).
+
+  A file that uses either shows Excel's saved value.
 - **A whole column spilled into the grid shows only the used rows.** Excel spills all 1,048,576,
   or `#SPILL!` below row 1. The part shown is the useful part; the difference is on purpose.
 - **Legacy files' implicit intersection.** A pre-dynamic-array file may use
   `=SUMIF(A:A,D:D,B:B)` to mean the D value in the formula's own row. Sheets now lifts D:D the
   way dynamic-array Excel does, so such a formula spills or shows `#SPILL!`. Excel marks these with
   `@` when it opens the file; Sheets does not yet read `@`.
+
+Closed with the missing functions: R147 (seven listed long-tail functions never registered; 34
+more missing). Open from that round:
+
+- **LAMBDA and AGGREGATE** are not computed. A file that uses them shows Excel's saved value.
+- **INDIRECT reads A1-style text only.** `INDIRECT("R2C3",FALSE)` says so, instead of reading it.
+- **OFFSET and INDIRECT are not volatile, as they are in Excel.** They recompute when a cell they
+  read changes, which covers ordinary use.
+- **HYPERLINK shows its text but is not a link to click.** A link set with Ctrl+K is.
 
 ## Rules that came out of doing this
 

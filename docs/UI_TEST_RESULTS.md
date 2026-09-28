@@ -15,6 +15,25 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-29 — Missing Excel functions, ADVERSARIAL_LOG R147
+
+**Why this round exists.** Keep hunting: 187 everyday Excel functions were checked, and 41 showed
+#NAME? when typed. Six of them were typed into the grid before and after the fix, and SUBTOTAL was
+driven through the filter menu.
+
+Fixture: the **"Budget and cash flow"** sample (`a6eaa792…`). Its Scenarios sheet holds the six in
+K1:K6, and they are kept. The filter was left cleared.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before | K1:K6: `=STDEV(E2:E4)`, `=SUBTOTAL(9,E2:E4)`, `=LET(x,E2,y,E3,x+y)`, `=TEXTAFTER("a-b-c","-",-1)`, `=INDIRECT("E"&3)`, `=RANK(E4,E2:E4)` | #NAME? in all six |
+| After | The same cells after the deploy | 3,000; 36,000; 27,000; c; 15,000; 3 (Excel's answers) |
+| SUBTOTAL and a filter | Ctrl+Shift+L on A1, column A's menu, untick Worst, Apply | Row 4 hidden; K2 27,000; K1 (STDEV) still 3,000 |
+| Filter cleared | The same menu → Clear filter | Worst back; K2 36,000 |
+
+Along the way, a click at the filter button's rough position missed its 16-pixel target. The menu
+opened reliably at the button's exact centre, so there is no defect there.
+
 ## 2026-09-29 — Array formulas, ADVERSARIAL_LOG R144–R146
 
 **Why this round exists.** The user asked to fix the whole-column arithmetic gap and to keep
