@@ -11,6 +11,9 @@ import { tablesOf } from "./sql/tableCalls";
 
 export type WireAnswer = { v: string | number | boolean | null } | { e: string; d?: string };
 
+/** In the error a table column read directly shows; the assistant's proposal check looks for it. */
+export const WHOLE_TABLE_COLUMN = "is a whole table column";
+
 const BATCH_MS = 40;
 const BATCH_MAX = 200;
 
@@ -43,7 +46,7 @@ export class GridTableResolver implements TableResolver {
     // would bring every row to the browser.
     return err(
       "#VALUE!",
-      `${node.table ?? ""}[${node.column}] is a whole table column. Use it inside SUM, SUMIFS, COUNTIFS, AVERAGEIFS, XLOOKUP, VLOOKUP or INDEX/MATCH, which the lakehouse computes; for a list of values, add a pivot or a filter on the table sheet.`,
+      `${node.table ?? ""}[${node.column}] ${WHOLE_TABLE_COLUMN}. Use it inside SUM, SUMIFS, COUNTIFS, AVERAGEIFS, XLOOKUP, VLOOKUP or INDEX/MATCH, which the lakehouse computes; for a list of values, add a pivot or a filter on the table sheet.`,
     );
   }
 

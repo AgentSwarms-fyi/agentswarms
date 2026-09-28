@@ -402,7 +402,12 @@ function WorkbookPage() {
             <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Opening workbook…
           </div>
         ) : (
-          <WorkbookEditor wb={wb} token={token} workbookId={workbookId} />
+          <WorkbookEditor
+            wb={wb}
+            token={token}
+            workbookId={workbookId}
+            workbookName={name ?? "Workbook"}
+          />
         )}
       </div>
     </div>

@@ -20,7 +20,7 @@ export const Route = createFileRoute("/docs/sheets")({
       {
         name: "description",
         content:
-          "Spreadsheets with Excel formulas over lakehouse-scale data: grid sheets computed in the browser, table sheets computed by the lakehouse, calculated columns, pivots, formulas over tables, and saving to the lakehouse and the data catalog.",
+          "Spreadsheets with Excel formulas over lakehouse-scale data: grid sheets computed in the browser, table sheets computed by the lakehouse, calculated columns, pivots, formulas over tables, saving to the lakehouse and the data catalog, sharing, and an AI assistant.",
       },
       { property: "og:title", content: "Sheets — AgentSwarms Documentation" },
       {
@@ -239,6 +239,48 @@ function SheetsDocsPage() {
         columns, owner, description, tags, certification if you ask for it, and lineage to the
         tables it came from. It is ready for others to find and query.
       </P>
+
+      <H2 id="sharing">Sharing</H2>
+      <P>
+        <strong>Share</strong>, beside File, gives a workbook to a person (by the email they sign in
+        with) or an IAM group, to view or to edit. Only the owner can import files, share or delete.
+        A share to view can leave sheets out and keep only some rows of a sheet: what is left out
+        never reaches the viewer&apos;s browser, and everything built on it (totals, lookups,
+        pivots, downloads) is computed without it. Table sheets read the lakehouse as whoever opens
+        them, with their own grants. <strong>View as</strong> shows the owner exactly what a share
+        sees. Shares are audited as <C>sheet.share</C> and <C>sheet.unshare</C>.
+      </P>
+
+      <H2 id="ai">AI in a workbook</H2>
+      <P>
+        <strong>Ask AI</strong> opens an assistant beside the grid. Ask in plain words (&quot;total
+        units for West&quot;, &quot;a summary sheet by region with a chart&quot;, &quot;why is H2
+        #N/A?&quot;). It reads the workbook as you see it, computes every number it states with a
+        formula (each step is listed under the answer), and proposes changes: a formula filled down,
+        values, a number format, a highlight, a chart or a new sheet.{" "}
+        <strong>Nothing changes until you apply a proposal</strong>, and each one undoes with
+        Ctrl+Z. Before they are shown, proposals are checked against the workbook; one that cannot
+        be carried out, changes nothing, or holds a formula that would show an error by itself goes
+        back to the model once with the reason.
+      </P>
+      <P>
+        <strong>Fill with AI</strong> applies an instruction to every value of a selected column
+        (classify, extract, clean up, translate) and writes the answers into another column. Answers
+        already typed there are used as examples; <strong>Try on 5 rows</strong> shows the first
+        five, and <strong>Fill</strong> writes them as shown and asks for the rest.
+      </P>
+      <UL>
+        <li>
+          Viewers can ask; applying and Fill with AI need edit. Sheets and rows a share leaves out
+          are not there for the assistant either.
+        </li>
+        <li>
+          The model is <C>SHEETS_ASSIST_MODEL</C>, set by an admin; calls go through the chat
+          channel, so IAM model rules, budgets, traces and cost apply.{" "}
+          <C>SHEETS_ASSIST_PER_MINUTE</C> (30) and <C>SHEETS_AI_FILL_MAX_ROWS</C> (2,000) bound
+          them.
+        </li>
+      </UL>
 
       <H2 id="governance">Governance</H2>
       <UL>

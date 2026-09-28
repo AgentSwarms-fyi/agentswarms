@@ -15,6 +15,56 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-28 — AI in Sheets (Phase H), ADVERSARIAL_LOG R131–R139
+
+**Why this round exists.** The Excel-parity list asked that "the AI assist features work properly
+in the workbook". Every question below was typed into the assistant and every proposal applied
+with its own button. Each answer was checked against the cells, and the table figures against
+the Lakehouse query editor. Model: `openrouter/google/gemini-3-flash-preview`, the default.
+
+Fixtures kept:
+- **Workbook "Phase H assistant"** (`28f07252…`), with these sheets:
+  - Sheet1;
+  - Sales: 8 rows; Revenue in F from the assistant; `=VLOOKUP("Dee",C2:F9,2,FALSE)` in H2;
+  - Feedback: 6 comments, with the Sentiment column filled by Fill with AI;
+  - BiDemoSales: a table sheet over `analytics.bi_demo_sales`;
+  - Summary: totals by region, with E1:F4 and a column chart from the assistant;
+  - High Revenue: R133's #VALUE!, kept as the before;
+  - Big Months.
+- **A view share of it** to the group **sheets-share-test**: Sales rows where B is West, Feedback
+  left out.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Q&A over a grid | "total units for West" | Step `Computed =SUMIFS(D:D,B:B,"West")`, answer 19. The cells give 10+6+3 = 19 |
+| Revenue column | Asked for revenue; applied three proposals | F1 header; `=D2*E2` filled to row 9; currency format. F2:F9 read $25.00 … $15.00. Ctrl+Z took the format off; Ctrl+Y put it back |
+| Summary sheet | Asked for a summary by region | New sheet Summary with `=SUMIFS(Sales!D:D,Sales!B:B,A2)` and the revenue twin. West 19 / $44.50, East 17 / $51.00, North 21 / $47.25 |
+| R131, before | Any answer with proposals | "I've added…" while nothing was applied |
+| R131, after | The same | "I will add…", and "Nothing has changed yet. Apply what you want (each one undoes with Ctrl+Z):" above the proposals |
+| R132, before | "Add a column chart of total revenue by region, without the units column" | A chart over `A1:A4,C1:C4`; Apply: "is not a range" |
+| R132, after | The same question | Columns side by side first (`=C2` …) and a chart of E1:F4: West 44.5, East 51, North 47.25 |
+| R132, after (the retry) | "On the BiDemoSales sheet, highlight in red every row whose revenue is over 600" | Step "Checked the proposals: 1 could not be done as given; asked again". The second answer said a table sheet can't be highlighted, and proposed nothing |
+| R133, before | Same, over 1000 | The retry offered a new sheet with `=FILTER(BiDemoSales, BiDemoSales[revenue]>1000)`. Applied, A2 showed #VALUE! |
+| R133, after | "Make a new sheet called Big Months that lists the BiDemoSales rows with revenue over 600, using FILTER" | The answer said FILTER over a table sheet shows #VALUE! and pointed to the table sheet's filter. It offered `=SUMIFS(BiDemoSales[revenue], BiDemoSales[revenue], ">600")`, which read 21,547.09. The Lakehouse gives 21,547.09 over 28 rows |
+| Table question | "What is the total revenue for EMEA in BiDemoSales?" | Step `Computed =SUMIFS(BiDemoSales[revenue], BiDemoSales[region], "EMEA")`, answer 15,524.94. The Lakehouse gives the same (Phase G) |
+| Fix this error | `=VLOOKUP("Dee",B2:F9,3,FALSE)` typed in H2 (#N/A), then the chip | "searching for Dee in the Region column (B) instead of the Rep column (C)". Proposal `=VLOOKUP("Dee",C2:F9,2,FALSE)`; applied, H2 = 12 |
+| R134, before | Explain this formula on H2 | A correct explanation, and a proposal of the formula H2 already held |
+| R134, after | The same | The explanation, and a proposal that changes something: `C:F` for a range that grows |
+| R135, before | Fill with AI, B2:B7 → C, "positive, negative or neutral", C2 typed "positive" | Five blanks. The trace showed five right answers, sent without `[ ]` |
+| R135/R137, after | The same | Column C by default, with "1 already answered (used as examples)". Trial: negative, neutral, positive, negative, neutral |
+| R137, before | The same dialog | The column defaulted to D, past the typed answer |
+| R137, after (C full) | The same dialog after the fill | The column defaulted to D, with 6 to fill |
+| R138, before | Fill 5 rows after a trial | C7 written as positive where the trial had shown neutral |
+| R138, after | Trial, then Fill 5 rows | Trial said positive for C7; the fill wrote exactly the trial. No fill request after the trial's |
+| Undo a fill | Ctrl+Z after Fill 5 rows | C3:C7 emptied in one step; the example in C2 stayed |
+| R136, before | The fill's response | `cost: null`, while the trace said $0.00028 |
+| R136, after | The same; an assistant answer; an AI SQL query | Fill `cost: 0.0002315`. The panel shows "Cost $0.0017". The Lakehouse `ai_sentiment` badge now has a cost ($0.0000 at four decimals, see the queue) |
+| View as | Share to view (West rows, Feedback out), then View as | Sales shows rows 2, 4, 7 only; H2 is #N/A because Dee's row is hidden; no Feedback tab. The only chip is Summarize; proposals read View only |
+| R139, before | View as after asking as the owner | The owner's conversation, with its reads of hidden rows, stayed in the panel and went to the model |
+| R139, after | The same | An empty panel. "total units on Sales, by region" answered West 19 only |
+| Admin settings | Admin → Developer runtime → Data platform | Assistant model `openrouter/google/gemini-3-flash-preview`, 30 a minute, 2,000 rows |
+| A setting reaching the page | Rows set to 3, saved; Fill on B2:B7 → D | "That is 6 rows; one fill does at most 3 (SHEETS_AI_FILL_MAX_ROWS). Select fewer rows." Set back to 2,000 and saved |
+
 ## 2026-09-28 — Sheets sharing (Phase G), ADVERSARIAL_LOG R129–R130
 
 **Why this round exists.** The Excel-parity list asked for sharing with users and groups, including

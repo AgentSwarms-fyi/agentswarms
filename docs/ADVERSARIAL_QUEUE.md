@@ -306,6 +306,29 @@ formulas over tables were wrong on every opening). Open from that round:
   sheet does. They say how many rows are hidden, not what is in them.
 - **Downloads by a viewer** carry the restriction on the server but were not driven.
 
+Closed with AI in Sheets (Phase H): R131 (it said it had changed what it had only proposed), R132
+(a chart over two blocks failed at Apply), R133 (formulas over a table that could only show
+#VALUE!), R134 (the cell's own formula offered as a change), R135 (Fill with AI wrote blanks when
+the model left off the brackets), R136 (every internal model call reported no cost), R137 (Fill
+with AI skipped the column where answers were started), R138 (the fill wrote something other than
+its trial), R139 (View as carried the owner's conversation). Open from that round:
+
+- **The model is not always right.** The model decides, and the page checks only what it can:
+  - "Works as expected" was positive on one trial and neutral on the next, at temperature 0.
+  - The check catches formulas that fail by themselves, not ones that compute the wrong thing.
+- **The proposal check runs a proposed total over a table** so it can see whether it errs. That
+  is one lakehouse query per such formula, before anything is applied. Its answer is kept for when
+  it is applied.
+- **`SHEETS_AI_FILL_MAX_ROWS` is checked by the page, per fill.** The server bounds each call (100
+  values) and each person's calls a minute, not a fill's total. A script calling the server
+  function directly is bounded only by the rate.
+- **A cost under $0.00005 shows as $0.0000.** About thirty places round costs to four decimals,
+  including the Lakehouse AI-functions badge and Traces. They could say "under $0.0001" instead.
+- **Saving the Developer runtime settings takes about 20 s** when the egress proxy cannot be
+  reloaded ("Restarting the proxy returned 500"). The save lands and says so. The wait comes from
+  the proxy, not from Sheets.
+- **The recipient's side of the assistant** was checked through View as, not a second account.
+
 ## Rules that came out of doing this
 
 - A test that asserts source text is pinning a USE, not a definition; bound it

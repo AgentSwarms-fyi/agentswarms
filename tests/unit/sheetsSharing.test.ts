@@ -623,6 +623,7 @@ describe("every Sheets server function asks the resolver", () => {
     "src/utils/sheetsPublish.functions.ts",
     "src/utils/sheetsVersions.functions.ts",
     "src/utils/sheetsShares.functions.ts",
+    "src/utils/sheetsAssist.functions.ts",
   ];
   const bodies = new Map<string, string>();
   for (const f of files) {

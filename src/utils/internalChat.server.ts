@@ -6,6 +6,7 @@
 // second implementation. This helper turns the channel's stream into the
 // text it carried, plus the cost it reported, and turns a refusal into the
 // sentence a user can act on.
+import { readChatStream as readSseStream } from "@/lib/chatStream";
 import { internalRunSecret, resolveInternalOrigin } from "@/utils/internalOrigin.server";
 
 export type InternalChatPart =
@@ -27,40 +28,22 @@ export type InternalChatArgs = {
   timeoutMs?: number;
 };
 
-/** The channel's stream, read to the end: the text and the cost event. */
+/**
+ * The channel's stream, read to the end: the text and the cost event.
+ * FOUND IN R136: this read `{"type":"cost","cost_usd":…}` data frames, which
+ * the channel never sends, and stopped at [DONE], before the channel's
+ * `event: cost` frame. Every caller (AI functions in SQL, document OCR,
+ * Sheets) got a null cost. It now reads the stream as the swarm executor does.
+ */
 export async function readChatStream(
   body: ReadableStream<Uint8Array>,
 ): Promise<{ text: string; cost: number | null }> {
-  const reader = body.getReader();
-  const decoder = new TextDecoder();
-  let buf = "";
-  let text = "";
   let cost: number | null = null;
-  for (;;) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, { stream: true });
-    let nl: number;
-    while ((nl = buf.indexOf("\n")) >= 0) {
-      const line = buf.slice(0, nl).trim();
-      buf = buf.slice(nl + 1);
-      if (!line.startsWith("data:")) continue;
-      const data = line.slice(5).trim();
-      if (data === "[DONE]") return { text, cost };
-      try {
-        const j = JSON.parse(data) as {
-          type?: string;
-          cost_usd?: number;
-          choices?: { delta?: { content?: string } }[];
-        };
-        if (j.type === "cost" && typeof j.cost_usd === "number") cost = j.cost_usd;
-        const delta = j.choices?.[0]?.delta?.content;
-        if (typeof delta === "string") text += delta;
-      } catch {
-        /* keep-alive or a frame we do not read */
-      }
-    }
-  }
+  const text = await readSseStream(body, {
+    usage: (u) => {
+      cost = (cost ?? 0) + u.costUsd;
+    },
+  });
   return { text, cost };
 }
 

@@ -147,3 +147,29 @@ describe("toolNodeEvents", () => {
     expect(ev[1]).toMatchObject({ ok: false, data: { kind: "error" } });
   });
 });
+
+describe("the internal channel's text and cost (R136)", () => {
+  it("reads the cost event the channel sends after [DONE], as AI SQL, OCR and Sheets report it", async () => {
+    const { readChatStream: readInternal } = await import("@/utils/internalChat.server");
+    const got = await readInternal(
+      stream([
+        sse(null, JSON.stringify({ choices: [{ delta: { content: '[{"i":0,' } }] })),
+        sse(null, JSON.stringify({ choices: [{ delta: { content: '"o":"negative"}]' } }] })),
+        "data: [DONE]\n\n",
+        sse("cost", JSON.stringify({ model: "google/gemini-3-flash-preview", costUsd: 0.0002835 })),
+      ]),
+    );
+    expect(got).toEqual({ text: '[{"i":0,"o":"negative"}]', cost: 0.0002835 });
+  });
+
+  it("no cost event is no cost, not zero", async () => {
+    const { readChatStream: readInternal } = await import("@/utils/internalChat.server");
+    const got = await readInternal(
+      stream([
+        sse(null, JSON.stringify({ choices: [{ delta: { content: "42" } }] })),
+        "data: [DONE]\n\n",
+      ]),
+    );
+    expect(got).toEqual({ text: "42", cost: null });
+  });
+});

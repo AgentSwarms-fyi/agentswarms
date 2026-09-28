@@ -779,6 +779,31 @@ export function RuntimeTab({
                 onChange={(n) => set("sheets_versions_max", n)}
                 hint="The oldest automatic versions beyond this are removed; named versions are kept."
               />
+              <div className="space-y-1">
+                <Label className="text-xs">Assistant model</Label>
+                <Input
+                  value={form.sheets_assist_model}
+                  onChange={(e) => set("sheets_assist_model", e.target.value)}
+                  placeholder="openrouter/google/gemini-3-flash-preview"
+                  className="h-8 font-mono text-xs"
+                />
+                <p className="text-[10px] text-muted-foreground">
+                  provider/model the Sheets assistant and Fill with AI call. It goes through the
+                  chat channel, so each person's IAM model rules and budget apply.
+                </p>
+              </div>
+              <NumberField
+                label="Assistant requests per person a minute"
+                value={form.sheets_assist_per_minute}
+                onChange={(n) => set("sheets_assist_per_minute", n)}
+                hint="Model calls one person's Sheets assistant and Fill with AI may make in a minute (each step of a question is one call)."
+              />
+              <NumberField
+                label="Rows one Fill with AI may write"
+                value={form.sheets_ai_fill_max_rows}
+                onChange={(n) => set("sheets_ai_fill_max_rows", n)}
+                hint="Most rows one Fill with AI works through, sent to the model 50 at a time."
+              />
             </div>
           </div>
           {/* The Spark engine: where a run's cluster comes from, and how big it is. */}

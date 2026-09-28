@@ -90,6 +90,7 @@ import {
   type ShiftDir,
 } from "@/lib/sheets/shiftCells";
 import { SheetToolbar, ZoomControl, type ClearKind } from "./SheetToolbar";
+import { useSheetAssist } from "./useSheetAssist";
 import { SaveToLakehouseDialog } from "./SaveToLakehouseDialog";
 import { TableSheet } from "./TableSheet";
 import type { CellEdit, SaveState, TabMeta, useWorkbook } from "./useWorkbook";
@@ -144,10 +145,13 @@ export function WorkbookEditor({
   wb,
   token,
   workbookId,
+  workbookName,
 }: {
   wb: Workbook;
   token: string;
   workbookId: string;
+  /** For the assistant's description of the workbook. */
+  workbookName: string;
 }) {
   const { engine, tabs, activeTabId, rev } = wb;
   const tabId = activeTabId;
@@ -324,6 +328,28 @@ export function WorkbookEditor({
     editing: !!editing,
     // Its menus open dialogs and popovers: the keyboard returns to the grid
     // once they have gone (backToGrid would skip while one is still closing).
+    onDone: () => afterDialog(),
+  });
+
+  // The assistant beside the grid (Ask AI), and Fill with AI. A table sheet's
+  // columns go into its description of the workbook.
+  const tableColumns = useMemo(() => {
+    const out: Record<string, { name: string; type: string }[]> = {};
+    for (const t of tabs)
+      if (t.kind === "table") out[t.name] = wb.tableConfigs[t.id]?.columns ?? [];
+    return out;
+  }, [tabs, wb.tableConfigs]);
+  const assist = useSheetAssist({
+    wb,
+    engine,
+    token,
+    workbookId,
+    workbookName,
+    tabId,
+    range,
+    focus,
+    tableColumns,
+    aiFillMaxRows: wb.limits?.aiFillMaxRows ?? 2000,
     onDone: () => afterDialog(),
   });
 
@@ -1445,363 +1471,375 @@ export function WorkbookEditor({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {activeTab.kind === "table" ? (
-        <div className="min-h-0 flex-1">
-          {wb.tableConfigs[activeTab.id] ? (
-            <TableSheet
-              key={activeTab.id}
-              wb={wb}
-              tab={activeTab}
-              token={token}
-              config={wb.tableConfigs[activeTab.id]}
-              pageRows={wb.limits?.pageRows ?? 500}
-              status={
-                <SaveBadge
-                  state={saving}
-                  onRetry={() => void wb.saveTab(tabId)}
-                  onOverwrite={() => void wb.saveTab(tabId, true)}
-                  onReload={async () => {
-                    const problem = await wb.reloadTab(tabId);
-                    if (problem) toast.error(problem);
-                    else toast.success(`Showing the saved "${activeTab.name}"`);
-                  }}
+      {/* The sheet, and the assistant's panel beside it when open. */}
+      <div className="flex min-h-0 flex-1">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          {activeTab.kind === "table" ? (
+            <div className="min-h-0 flex-1">
+              {wb.tableConfigs[activeTab.id] ? (
+                <TableSheet
+                  key={activeTab.id}
+                  wb={wb}
+                  tab={activeTab}
+                  token={token}
+                  config={wb.tableConfigs[activeTab.id]}
+                  pageRows={wb.limits?.pageRows ?? 500}
+                  status={
+                    <SaveBadge
+                      state={saving}
+                      onRetry={() => void wb.saveTab(tabId)}
+                      onOverwrite={() => void wb.saveTab(tabId, true)}
+                      onReload={async () => {
+                        const problem = await wb.reloadTab(tabId);
+                        if (problem) toast.error(problem);
+                        else toast.success(`Showing the saved "${activeTab.name}"`);
+                      }}
+                    />
+                  }
                 />
-              }
-            />
-          ) : (
-            <div className="p-6 text-sm text-destructive">
-              This table sheet has no settings; delete it and open the table again.
+              ) : (
+                <div className="p-6 text-sm text-destructive">
+                  This table sheet has no settings; delete it and open the table again.
+                </div>
+              )}
             </div>
-          )}
-        </div>
-      ) : (
-        <>
-          {!wb.readOnly && (
-            <SheetToolbar
-              onDone={backToGrid}
-              style={focusInput?.s}
-              format={focusInput?.f}
-              merged={selectionMerged}
-              painting={!!painter}
-              zoom={zoom}
-              gridlines={!grid?.hideGrid}
-              extra={{ ...rules.ribbon, insert: charts.ribbon }}
-              actions={{
-                undo: () => wb.undo(),
-                redo: () => wb.redo(),
-                style,
-                toggle,
-                growFont,
-                indent,
-                borders,
-                merge: (m) => void merge(m),
-                format: setFormat,
-                customFormat: async () => {
-                  const code = await promptAsk({
-                    title: "Custom number format",
-                    body: 'An Excel format code, e.g. #,##0.0 or 0.0% or "Q"0 or yyyy-mm, or #,##0;[Red]-#,##0 for red negatives.',
-                    input: { defaultValue: focusInput?.f ?? "", required: true },
-                    actionLabel: "Apply",
-                  });
-                  afterDialog();
-                  if (code) setFormat(code);
-                },
-                decimals,
-                clear,
-                painter: startPainter,
-                link: openLinkDialog,
-                saveToLakehouse: openSave,
-                zoom: setZoom,
-                toggleGridlines: () =>
-                  wb.setGridMeta(tabId, { hideGrid: grid?.hideGrid ? undefined : true }),
-              }}
-              status={
-                <SaveBadge
-                  state={saving}
-                  onRetry={() => void wb.saveTab(tabId)}
-                  onOverwrite={() => void wb.saveTab(tabId, true)}
-                  onReload={async () => {
-                    const problem = await wb.reloadTab(tabId);
-                    if (problem) toast.error(problem);
-                    else toast.success(`Showing the saved "${activeTab.name}"`);
+          ) : (
+            <>
+              {!wb.readOnly && (
+                <SheetToolbar
+                  onDone={backToGrid}
+                  style={focusInput?.s}
+                  format={focusInput?.f}
+                  merged={selectionMerged}
+                  painting={!!painter}
+                  zoom={zoom}
+                  gridlines={!grid?.hideGrid}
+                  extra={{ ...rules.ribbon, insert: charts.ribbon }}
+                  actions={{
+                    undo: () => wb.undo(),
+                    redo: () => wb.redo(),
+                    style,
+                    toggle,
+                    growFont,
+                    indent,
+                    borders,
+                    merge: (m) => void merge(m),
+                    format: setFormat,
+                    customFormat: async () => {
+                      const code = await promptAsk({
+                        title: "Custom number format",
+                        body: 'An Excel format code, e.g. #,##0.0 or 0.0% or "Q"0 or yyyy-mm, or #,##0;[Red]-#,##0 for red negatives.',
+                        input: { defaultValue: focusInput?.f ?? "", required: true },
+                        actionLabel: "Apply",
+                      });
+                      afterDialog();
+                      if (code) setFormat(code);
+                    },
+                    decimals,
+                    clear,
+                    painter: startPainter,
+                    link: openLinkDialog,
+                    saveToLakehouse: openSave,
+                    zoom: setZoom,
+                    toggleGridlines: () =>
+                      wb.setGridMeta(tabId, { hideGrid: grid?.hideGrid ? undefined : true }),
+                  }}
+                  status={
+                    <SaveBadge
+                      state={saving}
+                      onRetry={() => void wb.saveTab(tabId)}
+                      onOverwrite={() => void wb.saveTab(tabId, true)}
+                      onReload={async () => {
+                        const problem = await wb.reloadTab(tabId);
+                        if (problem) toast.error(problem);
+                        else toast.success(`Showing the saved "${activeTab.name}"`);
+                      }}
+                    />
+                  }
+                />
+              )}
+
+              {/* Formula bar */}
+              <div className="relative flex items-center gap-2 border-b border-border px-2 py-1">
+                <input
+                  aria-label="Name box"
+                  className="h-7 w-24 rounded border border-input bg-background px-2 font-mono text-xs"
+                  value={
+                    nameBox ??
+                    (range.r0 === range.r1 && range.c0 === range.c1
+                      ? a1(focus.row, focus.col)
+                      : describeRange(range))
+                  }
+                  onChange={(e) => setNameBox(e.target.value)}
+                  onFocus={(e) => e.currentTarget.select()}
+                  onBlur={() => setNameBox(null)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      const r = parseRangeA1(nameBox ?? "");
+                      if (r) {
+                        setSelection({
+                          anchor: { row: r.r0, col: r.c0 },
+                          focus: { row: r.r1, col: r.c1 },
+                        });
+                        setExtent((x) => ({
+                          rows: Math.max(x.rows, r.r1 + 200),
+                          cols: Math.max(x.cols, r.c1 + 10),
+                        }));
+                        setNameBox(null);
+                        gridRef.current?.focus({ preventScroll: true });
+                      } else toast.error(`"${nameBox}" is not a cell or range (e.g. B3 or A1:D20)`);
+                    }
+                    if (e.key === "Escape") {
+                      setNameBox(null);
+                      gridRef.current?.focus({ preventScroll: true });
+                    }
                   }}
                 />
-              }
-            />
-          )}
-
-          {/* Formula bar */}
-          <div className="relative flex items-center gap-2 border-b border-border px-2 py-1">
-            <input
-              aria-label="Name box"
-              className="h-7 w-24 rounded border border-input bg-background px-2 font-mono text-xs"
-              value={
-                nameBox ??
-                (range.r0 === range.r1 && range.c0 === range.c1
-                  ? a1(focus.row, focus.col)
-                  : describeRange(range))
-              }
-              onChange={(e) => setNameBox(e.target.value)}
-              onFocus={(e) => e.currentTarget.select()}
-              onBlur={() => setNameBox(null)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  const r = parseRangeA1(nameBox ?? "");
-                  if (r) {
-                    setSelection({
-                      anchor: { row: r.r0, col: r.c0 },
-                      focus: { row: r.r1, col: r.c1 },
-                    });
-                    setExtent((x) => ({
-                      rows: Math.max(x.rows, r.r1 + 200),
-                      cols: Math.max(x.cols, r.c1 + 10),
-                    }));
-                    setNameBox(null);
-                    gridRef.current?.focus({ preventScroll: true });
-                  } else toast.error(`"${nameBox}" is not a cell or range (e.g. B3 or A1:D20)`);
-                }
-                if (e.key === "Escape") {
-                  setNameBox(null);
-                  gridRef.current?.focus({ preventScroll: true });
-                }
-              }}
-            />
-            <span className="select-none font-serif text-sm italic text-muted-foreground">fx</span>
-            <input
-              ref={barRef}
-              aria-label="Formula bar"
-              data-testid="formula-bar"
-              readOnly={wb.readOnly}
-              className="h-7 flex-1 rounded border border-input bg-background px-2 font-mono text-[13px]"
-              value={editing ? editing.text : editText(focusInput)}
-              spellCheck={false}
-              onFocus={(e) => {
-                if (wb.readOnly) return;
-                editorRef.current = e.currentTarget;
-                if (!editing) {
-                  setEditing({
-                    row: focus.row,
-                    col: focus.col,
-                    text: editText(focusInput),
-                    mode: "edit",
-                    source: "bar",
-                  });
-                } else if (editing.source !== "bar") setEditing({ ...editing, source: "bar" });
-              }}
-              onChange={(e) =>
-                setEditing((cur) =>
-                  cur
-                    ? {
-                        ...cur,
-                        text: e.target.value,
-                        caret: e.target.selectionStart ?? undefined,
-                        source: "bar",
-                      }
-                    : {
+                <span className="select-none font-serif text-sm italic text-muted-foreground">
+                  fx
+                </span>
+                <input
+                  ref={barRef}
+                  aria-label="Formula bar"
+                  data-testid="formula-bar"
+                  readOnly={wb.readOnly}
+                  className="h-7 flex-1 rounded border border-input bg-background px-2 font-mono text-[13px]"
+                  value={editing ? editing.text : editText(focusInput)}
+                  spellCheck={false}
+                  onFocus={(e) => {
+                    if (wb.readOnly) return;
+                    editorRef.current = e.currentTarget;
+                    if (!editing) {
+                      setEditing({
                         row: focus.row,
                         col: focus.col,
-                        text: e.target.value,
+                        text: editText(focusInput),
                         mode: "edit",
                         source: "bar",
-                      },
-                )
-              }
-              onSelect={(e) => {
-                const c = e.currentTarget.selectionStart ?? 0;
-                if (editing && editing.source === "bar" && c !== editing.caret) {
-                  setEditing({ ...editing, caret: c });
-                }
-              }}
-              onKeyDown={onKey}
-            />
-            {editing && suggestions.length > 0 && (
-              <div
-                className="absolute left-36 top-9 z-40 w-80 rounded-md border border-border bg-popover p-1 shadow-md"
-                data-testid="formula-suggestions"
-              >
-                {suggestions.map((n, i) => (
-                  <button
-                    key={n}
-                    className={cn(
-                      "flex w-full items-baseline gap-2 rounded px-2 py-1 text-left text-xs",
-                      i === acIndex ? "bg-primary/15" : "hover:bg-muted",
-                    )}
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      acceptSuggestion(n);
-                    }}
+                      });
+                    } else if (editing.source !== "bar") setEditing({ ...editing, source: "bar" });
+                  }}
+                  onChange={(e) =>
+                    setEditing((cur) =>
+                      cur
+                        ? {
+                            ...cur,
+                            text: e.target.value,
+                            caret: e.target.selectionStart ?? undefined,
+                            source: "bar",
+                          }
+                        : {
+                            row: focus.row,
+                            col: focus.col,
+                            text: e.target.value,
+                            mode: "edit",
+                            source: "bar",
+                          },
+                    )
+                  }
+                  onSelect={(e) => {
+                    const c = e.currentTarget.selectionStart ?? 0;
+                    if (editing && editing.source === "bar" && c !== editing.caret) {
+                      setEditing({ ...editing, caret: c });
+                    }
+                  }}
+                  onKeyDown={onKey}
+                />
+                {editing && suggestions.length > 0 && (
+                  <div
+                    className="absolute left-36 top-9 z-40 w-80 rounded-md border border-border bg-popover p-1 shadow-md"
+                    data-testid="formula-suggestions"
                   >
-                    <span className="font-mono font-semibold">{n}</span>
-                    <span className="truncate text-muted-foreground">
-                      {FUNCTION_HELP[n]?.desc ?? ""}
-                    </span>
-                  </button>
-                ))}
-                <p className="px-2 pt-1 text-[10px] text-muted-foreground">
-                  Tab to insert · ↑↓ to choose
-                </p>
-              </div>
-            )}
-            {/* Floats over the grid rather than pushing it down: a bar that
+                    {suggestions.map((n, i) => (
+                      <button
+                        key={n}
+                        className={cn(
+                          "flex w-full items-baseline gap-2 rounded px-2 py-1 text-left text-xs",
+                          i === acIndex ? "bg-primary/15" : "hover:bg-muted",
+                        )}
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          acceptSuggestion(n);
+                        }}
+                      >
+                        <span className="font-mono font-semibold">{n}</span>
+                        <span className="truncate text-muted-foreground">
+                          {FUNCTION_HELP[n]?.desc ?? ""}
+                        </span>
+                      </button>
+                    ))}
+                    <p className="px-2 pt-1 text-[10px] text-muted-foreground">
+                      Tab to insert · ↑↓ to choose
+                    </p>
+                  </div>
+                )}
+                {/* Floats over the grid rather than pushing it down: a bar that
                 appeared mid-formula moved every cell under the pointer, and a
                 click meant for B2 picked B1. */}
-            {help && editing && suggestions.length === 0 && (
-              <div
-                className="pointer-events-none absolute left-36 top-full z-40 mt-0.5 max-w-xl rounded-md border border-border bg-popover px-2 py-1 text-[11px] text-muted-foreground shadow-md"
-                data-testid="function-hint"
-              >
-                <span className="font-mono text-foreground">{help.sig}</span> — {help.desc}
+                {help && editing && suggestions.length === 0 && (
+                  <div
+                    className="pointer-events-none absolute left-36 top-full z-40 mt-0.5 max-w-xl rounded-md border border-border bg-popover px-2 py-1 text-[11px] text-muted-foreground shadow-md"
+                    data-testid="function-hint"
+                  >
+                    <span className="font-mono text-foreground">{help.sig}</span> — {help.desc}
+                  </div>
+                )}
               </div>
-            )}
-          </div>
 
-          {/* Grid */}
-          <div className="relative min-h-0 flex-1">
-            <SheetGrid
-              engine={engine}
-              tabId={tabId}
-              rev={rev}
-              rowCount={extent.rows}
-              colCount={extent.cols}
-              grid={gridView}
-              decorate={rules.decorate}
-              zoom={zoom / 100}
-              selection={selection}
-              onSelect={(sel) => {
-                tabRun.current = null;
-                setSelection(sel);
-              }}
-              onSelectEnd={() => painter && applyPainter()}
-              onZoom={(dir) => setZoom((cur) => stepZoom(cur, dir))}
-              onOpenLink={followLink}
-              onRowHeight={(r, h) => {
-                const next = { ...(grid?.rowHeights ?? {}) };
-                if (h === null) delete next[String(r)];
-                else next[String(r)] = h;
-                wb.setGridMeta(tabId, { rowHeights: next }, { gesture: `row-height:${r}` });
-              }}
-              renderOverlay={(geo) => (
-                <>
-                  {rules.overlay(geo)}
-                  {charts.overlay(geo)}
-                  {linkChip(geo)}
-                </>
-              )}
-              editing={editing}
-              onEditChange={setEditing}
-              onCommit={commit}
-              onKey={onKey}
-              onColWidth={(c, w) =>
-                wb.setGridMeta(
-                  tabId,
-                  { colWidths: { ...colWidths, [String(c)]: Math.round(w) } },
-                  { gesture: `col-width:${c}` },
-                )
-              }
-              onFill={fill}
-              onNearEnd={(axis) =>
-                setExtent((x) =>
-                  axis === "rows"
-                    ? { ...x, rows: Math.min(1_048_576, x.rows + 1000) }
-                    : { ...x, cols: Math.min(16_384, x.cols + 26) },
-                )
-              }
-              onContextMenu={(e, kind) => {
-                e.preventDefault();
-                // Every item but Copy changes the sheet; Ctrl+C still copies.
-                if (!wb.readOnly) setMenu({ x: e.clientX, y: e.clientY, kind });
-              }}
-              editorRef={editorRef}
-              gridRef={gridRef}
-              onType={(text) =>
-                // Text that arrives while an edit is starting joins it.
-                setEditing((cur) =>
-                  cur
-                    ? { ...cur, text: cur.text + text, caret: undefined }
-                    : {
-                        row: focus.row,
-                        col: focus.col,
-                        text,
-                        mode: "enter",
-                        source: "cell",
-                        caret: text.length,
+              {/* Grid */}
+              <div className="relative min-h-0 flex-1">
+                <SheetGrid
+                  engine={engine}
+                  tabId={tabId}
+                  rev={rev}
+                  rowCount={extent.rows}
+                  colCount={extent.cols}
+                  grid={gridView}
+                  decorate={rules.decorate}
+                  zoom={zoom / 100}
+                  selection={selection}
+                  onSelect={(sel) => {
+                    tabRun.current = null;
+                    setSelection(sel);
+                  }}
+                  onSelectEnd={() => painter && applyPainter()}
+                  onZoom={(dir) => setZoom((cur) => stepZoom(cur, dir))}
+                  onOpenLink={followLink}
+                  onRowHeight={(r, h) => {
+                    const next = { ...(grid?.rowHeights ?? {}) };
+                    if (h === null) delete next[String(r)];
+                    else next[String(r)] = h;
+                    wb.setGridMeta(tabId, { rowHeights: next }, { gesture: `row-height:${r}` });
+                  }}
+                  renderOverlay={(geo) => (
+                    <>
+                      {rules.overlay(geo)}
+                      {charts.overlay(geo)}
+                      {linkChip(geo)}
+                    </>
+                  )}
+                  editing={editing}
+                  onEditChange={setEditing}
+                  onCommit={commit}
+                  onKey={onKey}
+                  onColWidth={(c, w) =>
+                    wb.setGridMeta(
+                      tabId,
+                      { colWidths: { ...colWidths, [String(c)]: Math.round(w) } },
+                      { gesture: `col-width:${c}` },
+                    )
+                  }
+                  onFill={fill}
+                  onNearEnd={(axis) =>
+                    setExtent((x) =>
+                      axis === "rows"
+                        ? { ...x, rows: Math.min(1_048_576, x.rows + 1000) }
+                        : { ...x, cols: Math.min(16_384, x.cols + 26) },
+                    )
+                  }
+                  onContextMenu={(e, kind) => {
+                    e.preventDefault();
+                    // Every item but Copy changes the sheet; Ctrl+C still copies.
+                    if (!wb.readOnly) setMenu({ x: e.clientX, y: e.clientY, kind });
+                  }}
+                  editorRef={editorRef}
+                  gridRef={gridRef}
+                  onType={(text) =>
+                    // Text that arrives while an edit is starting joins it.
+                    setEditing((cur) =>
+                      cur
+                        ? { ...cur, text: cur.text + text, caret: undefined }
+                        : {
+                            row: focus.row,
+                            col: focus.col,
+                            text,
+                            mode: "enter",
+                            source: "cell",
+                            caret: text.length,
+                          },
+                    )
+                  }
+                />
+                {menu && (
+                  <ContextMenu
+                    x={menu.x}
+                    y={menu.y}
+                    kind={menu.kind}
+                    range={range}
+                    hiddenRowsIn={[...hiddenRows].some((r) => r >= range.r0 && r <= range.r1)}
+                    hiddenColsIn={[...hiddenCols].some((c) => c >= range.c0 && c <= range.c1)}
+                    onClose={() => {
+                      setMenu(null);
+                      // Back to the grid before the action runs (a dialog it opens
+                      // takes the keyboard and returns it here): without this the
+                      // keyboard fell to the page and Ctrl+Z did nothing (R115).
+                      gridRef.current?.focus({ preventScroll: true });
+                    }}
+                    actions={{
+                      copy: () => {
+                        const t = copy(false);
+                        if (t !== null)
+                          void navigator.clipboard
+                            .writeText(t)
+                            .catch(() =>
+                              toast.error("The browser refused clipboard access; use Ctrl+C."),
+                            );
                       },
-                )
-              }
-            />
-            {menu && (
-              <ContextMenu
-                x={menu.x}
-                y={menu.y}
-                kind={menu.kind}
-                range={range}
-                hiddenRowsIn={[...hiddenRows].some((r) => r >= range.r0 && r <= range.r1)}
-                hiddenColsIn={[...hiddenCols].some((c) => c >= range.c0 && c <= range.c1)}
-                onClose={() => {
-                  setMenu(null);
-                  // Back to the grid before the action runs (a dialog it opens
-                  // takes the keyboard and returns it here): without this the
-                  // keyboard fell to the page and Ctrl+Z did nothing (R115).
-                  gridRef.current?.focus({ preventScroll: true });
-                }}
-                actions={{
-                  copy: () => {
-                    const t = copy(false);
-                    if (t !== null)
-                      void navigator.clipboard
-                        .writeText(t)
-                        .catch(() =>
-                          toast.error("The browser refused clipboard access; use Ctrl+C."),
-                        );
-                  },
-                  cut: () => {
-                    const t = copy(true);
-                    if (t !== null)
-                      void navigator.clipboard
-                        .writeText(t)
-                        .catch(() =>
-                          toast.error("The browser refused clipboard access; use Ctrl+X."),
-                        );
-                  },
-                  paste: async () => {
-                    try {
-                      paste(await navigator.clipboard.readText());
-                    } catch {
-                      toast.error("The browser refused clipboard access; use Ctrl+V.");
-                    }
-                  },
-                  pasteValues: () => {
-                    if (!clip.current) return void toast.error("Copy cells in this workbook first");
-                    paste(clip.current.tsv, "values");
-                  },
-                  pasteFormats: () => {
-                    if (!clip.current) return void toast.error("Copy cells in this workbook first");
-                    paste(clip.current.tsv, "formats");
-                  },
-                  clear: clearSelection,
-                  clearFormats: () => clear("formats"),
-                  link: openLinkDialog,
-                  insertRowsAbove: () => structural("rows", range.r0, range.r1 - range.r0 + 1),
-                  insertRowsBelow: () => structural("rows", range.r1 + 1, range.r1 - range.r0 + 1),
-                  deleteRows: () => structural("rows", range.r0, -(range.r1 - range.r0 + 1)),
-                  insertColsLeft: () => structural("cols", range.c0, range.c1 - range.c0 + 1),
-                  insertColsRight: () => structural("cols", range.c1 + 1, range.c1 - range.c0 + 1),
-                  deleteCols: () => structural("cols", range.c0, -(range.c1 - range.c0 + 1)),
-                  insertCells: () => setShiftAsk("insert"),
-                  deleteCells: () => setShiftAsk("delete"),
-                  hideRows: () => hide("rows", true),
-                  unhideRows: () => hide("rows", false),
-                  hideCols: () => hide("cols", true),
-                  unhideCols: () => hide("cols", false),
-                  rowHeight: () => void askRowHeight(),
-                  colWidth: () => void askColWidth(),
-                  saveToLakehouse: () => openSave(),
-                }}
-              />
-            )}
-          </div>
-        </>
-      )}
+                      cut: () => {
+                        const t = copy(true);
+                        if (t !== null)
+                          void navigator.clipboard
+                            .writeText(t)
+                            .catch(() =>
+                              toast.error("The browser refused clipboard access; use Ctrl+X."),
+                            );
+                      },
+                      paste: async () => {
+                        try {
+                          paste(await navigator.clipboard.readText());
+                        } catch {
+                          toast.error("The browser refused clipboard access; use Ctrl+V.");
+                        }
+                      },
+                      pasteValues: () => {
+                        if (!clip.current)
+                          return void toast.error("Copy cells in this workbook first");
+                        paste(clip.current.tsv, "values");
+                      },
+                      pasteFormats: () => {
+                        if (!clip.current)
+                          return void toast.error("Copy cells in this workbook first");
+                        paste(clip.current.tsv, "formats");
+                      },
+                      clear: clearSelection,
+                      clearFormats: () => clear("formats"),
+                      link: openLinkDialog,
+                      insertRowsAbove: () => structural("rows", range.r0, range.r1 - range.r0 + 1),
+                      insertRowsBelow: () =>
+                        structural("rows", range.r1 + 1, range.r1 - range.r0 + 1),
+                      deleteRows: () => structural("rows", range.r0, -(range.r1 - range.r0 + 1)),
+                      insertColsLeft: () => structural("cols", range.c0, range.c1 - range.c0 + 1),
+                      insertColsRight: () =>
+                        structural("cols", range.c1 + 1, range.c1 - range.c0 + 1),
+                      deleteCols: () => structural("cols", range.c0, -(range.c1 - range.c0 + 1)),
+                      insertCells: () => setShiftAsk("insert"),
+                      deleteCells: () => setShiftAsk("delete"),
+                      hideRows: () => hide("rows", true),
+                      unhideRows: () => hide("rows", false),
+                      hideCols: () => hide("cols", true),
+                      unhideCols: () => hide("cols", false),
+                      rowHeight: () => void askRowHeight(),
+                      colWidth: () => void askColWidth(),
+                      saveToLakehouse: () => openSave(),
+                    }}
+                  />
+                )}
+              </div>
+            </>
+          )}
+        </div>
+        {assist.panel}
+      </div>
 
       {/* Sheet tabs + status */}
       <div className="flex items-center gap-2 border-t border-border bg-muted/30 px-2 py-1 text-xs">
@@ -1898,12 +1936,14 @@ export function WorkbookEditor({
               {stats.nums > 0 && <span>Sum: {fmtStat(stats.sum)}</span>}
             </>
           )}
+          {assist.toggle}
           {activeTab.kind === "grid" && (
             <ZoomControl zoom={zoom} onZoom={setZoom} onDone={backToGrid} />
           )}
         </div>
       </div>
       {rules.dialogs}
+      {assist.dialogs}
       {shiftAsk && (
         <ShiftCellsDialog
           mode={shiftAsk}

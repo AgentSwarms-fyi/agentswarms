@@ -4066,6 +4066,9 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "-2^2",
       "=$C2&lt;0",
       "Orders[amount]",
+      "SHEETS_AI_FILL_MAX_ROWS",
+      "SHEETS_ASSIST_MODEL",
+      "SHEETS_ASSIST_PER_MINUTE",
       "SHEETS_EXPORT_MAX_ROWS",
       "SHEETS_IMPORT_MAX_SHEETS",
       "SHEETS_MAX_CELLS",
@@ -4075,7 +4078,9 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "SHEETS_VERSION_INTERVAL_MINUTES",
       "WAREHOUSE_ABS_MAX_ROWS",
       "javascript:",
-      "lakehouse.import"
+      "lakehouse.import",
+      "sheet.share",
+      "sheet.unshare"
     ],
     "headings": [
       {
@@ -4116,6 +4121,16 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       {
         "id": "save",
         "text": "Saving to the lakehouse and the catalog",
+        "level": 2
+      },
+      {
+        "id": "sharing",
+        "text": "Sharing",
+        "level": 2
+      },
+      {
+        "id": "ai",
+        "text": "AI in a workbook",
         "level": 2
       },
       {

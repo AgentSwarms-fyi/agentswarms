@@ -6158,6 +6158,9 @@ export type Database = {
           sheets_export_max_rows: number | null;
           sheets_version_interval_minutes: number | null;
           sheets_versions_max: number | null;
+          sheets_assist_model: string | null;
+          sheets_assist_per_minute: number | null;
+          sheets_ai_fill_max_rows: number | null;
           default_image: string;
           document_vision_max_pages: number | null;
           document_vision_model: string | null;
@@ -6226,6 +6229,9 @@ export type Database = {
           sheets_export_max_rows?: number | null;
           sheets_version_interval_minutes?: number | null;
           sheets_versions_max?: number | null;
+          sheets_assist_model?: string | null;
+          sheets_assist_per_minute?: number | null;
+          sheets_ai_fill_max_rows?: number | null;
           default_image?: string;
           document_vision_max_pages?: number | null;
           document_vision_model?: string | null;
@@ -6294,6 +6300,9 @@ export type Database = {
           sheets_export_max_rows?: number | null;
           sheets_version_interval_minutes?: number | null;
           sheets_versions_max?: number | null;
+          sheets_assist_model?: string | null;
+          sheets_assist_per_minute?: number | null;
+          sheets_ai_fill_max_rows?: number | null;
           default_image?: string;
           document_vision_max_pages?: number | null;
           document_vision_model?: string | null;

@@ -488,6 +488,92 @@ its other rows. Table sheets are governed by the lakehouse as well.
 Every share, change and removal is audited as `sheet.share` or `sheet.unshare`, naming who was
 given what.
 
+## AI in a workbook
+
+**Ask AI**, beside the zoom control, opens the assistant beside the grid. Ask in plain words, the way
+you would ask a colleague who knows Excel: "total units for West", "add a revenue column", "a
+summary sheet by region with a chart", "why is H2 #N/A?".
+
+The model starts from a short description of the workbook:
+- each sheet's name, header row, size and a few sample rows;
+- a table sheet's columns;
+- the active cell.
+
+It does not see the values. To answer, it asks the workbook for them, and the browser works out
+each request from the workbook as you see it:
+
+| It asks to         | What it gets back                                                          |
+| ------------------ | -------------------------------------------------------------------------- |
+| Read a range       | The values as shown (at most 2,000 cells at a time)                        |
+| Evaluate a formula | Any Excel formula, computed by the workbook, including totals over tables  |
+| Describe a sheet   | Its columns, their types, its size and a sample                            |
+| Find a text        | The cells whose shown text contains it                                     |
+
+Each request shows as a step under the answer, such as `Computed =SUMIFS(BiDemoSales[revenue],
+BiDemoSales[region], "EMEA")`, so you can see where a number came from. The model is told never to
+state a number it did not read or compute.
+
+**Nothing changes until you apply it.** An answer can come with proposals:
+
+- a formula in a cell, filled down to the last row of the data;
+- values or formulas in a range;
+- a number format;
+- a highlight (a conditional-format rule from a formula, red, yellow or green);
+- a chart beside its data;
+- a new sheet, such as a summary whose formulas point back at the data (`=SUMIFS(Sales!D:D,…)`).
+
+Each proposal says in plain words what it will do. **Apply** carries it out as one step that
+**Ctrl+Z** undoes. Proposals change grid sheets only.
+
+**Before the proposals are shown, the panel checks each one against the workbook, without changing
+anything.** A proposal is sent back when:
+- it can't be carried out (a sheet that isn't there, a table sheet, two blocks of cells where one is
+  needed);
+- it would leave every cell as it is;
+- a formula it writes would show an error by itself: an unknown function or name, or a table
+  sheet's rows brought into the grid (`=FILTER(Orders, …)`, which shows `#VALUE!`; see
+  [Formulas over table sheets](#formulas-over-table-sheets-in-grid-sheets)).
+
+What can't be done goes back to the model once, with the reason, and the model answers again. The
+steps say when that happened.
+
+On a cell, **Explain this formula** and **Fix this error** ask about the active cell.
+
+### Fill with AI
+
+Select the column to work from, then **Fill with AI…** in the assistant. Say what to do with each
+value, such as "positive, negative or neutral", "the company's country" or "the first name".
+
+- Answers go into the first column to the right that isn't full, or into a column you name.
+- Answers already typed in that column are used as examples, as Flash Fill learns from them.
+- **Try on 5 rows** shows the first five answers before anything is written.
+- **Fill N rows** writes those five as shown and asks for the rest, 50 rows per call.
+- Rows that already have an answer are left as they are.
+- It writes everything as one step that **Ctrl+Z** undoes.
+- An answer the model gives in a shape that can't be read is an error, and nothing is written.
+
+One fill works through at most `SHEETS_AI_FILL_MAX_ROWS` rows (2,000). The page checks that limit
+per fill; `SHEETS_ASSIST_PER_MINUTE` is what bounds each person's calls on the server.
+
+### Who may use it
+
+| What                  | Owner | Can edit | Can view |
+| --------------------- | ----- | -------- | -------- |
+| Ask AI, see its steps | ✓     | ✓        | ✓        |
+| Apply a proposal      | ✓     | ✓        |          |
+| Fill with AI          | ✓     | ✓        |          |
+
+**A viewer can ask, and the reads see only what their share gives.** Sheets left out are not in
+the workbook the browser holds, and neither are rows kept back. Proposals show as **View only**.
+**View as** starts its own conversation, so the owner's earlier questions and reads don't carry
+into it.
+
+**The model is an admin setting:** `SHEETS_ASSIST_MODEL` under **Admin → Developer runtime → Data
+platform**. The browser can't choose it. Calls go through the chat channel, so each person's IAM
+model rules, budget, traces and cost apply, and the cost of each answer shows under it.
+`SHEETS_ASSIST_PER_MINUTE` (30) bounds each person's calls a minute; each step of a question is one
+call.
+
 ## Governance
 
 A table sheet reads the lakehouse only through the same path as the Query editor:
@@ -518,8 +604,11 @@ Sharing is audited as `sheet.share` and `sheet.unshare` ([Sharing](#sharing)).
 | `SHEETS_EXPORT_MAX_ROWS`          | 100,000 | Rows of a table sheet written into a downloaded .xlsx or .csv |
 | `SHEETS_VERSION_INTERVAL_MINUTES` | 30      | The least time between two automatic versions of a workbook   |
 | `SHEETS_VERSIONS_MAX`             | 50      | Automatic versions kept per workbook (named ones are kept)    |
+| `SHEETS_ASSIST_MODEL`             | Gemini 3 Flash via OpenRouter | The model the assistant and Fill with AI call ([AI](#ai-in-a-workbook)) |
+| `SHEETS_ASSIST_PER_MINUTE`        | 30      | Model calls one person's assistant and Fill with AI may make a minute |
+| `SHEETS_AI_FILL_MAX_ROWS`         | 2,000   | Rows one Fill with AI works through                            |
 
-All seven are editable under **Admin → Developer runtime**. A direct import from a connection is
+All ten are editable under **Admin → Developer runtime**. A direct import from a connection is
 also bounded by `WAREHOUSE_ABS_MAX_ROWS`. A larger result is refused, never truncated; land it with
 an ETL pipeline and open that table instead.
 

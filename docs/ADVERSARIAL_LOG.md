@@ -109,6 +109,177 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-28 — AI in Sheets (Phase H), and nine found driving it
+
+A workbook now has an assistant beside the grid and **Fill with AI** (see
+[Sheets → AI in a workbook](./SHEETS.md#ai-in-a-workbook)). The model never writes a cell. It asks
+the workbook for reads, which the browser answers from the workbook as the person sees it, and it
+ends with an answer and proposals the person applies, each one undoable.
+
+The decisions:
+- **The browser holds the workbook, so the browser runs the reads.** A viewer's share has already
+  cut the sheets and rows the browser holds, so the model can read only what the person can.
+  Nothing on the server re-reads the workbook for the model.
+- **The server holds the model.** `SHEETS_ASSIST_MODEL` is an admin setting, and the input schema
+  has no model field. Every call goes through the chat channel as the person: IAM model rules,
+  budget, the trace and the cost apply. `SHEETS_ASSIST_PER_MINUTE` bounds each person's calls.
+- **Who may ask.** Asking needs view access, and Fill with AI needs edit. View as asks as the
+  share, and its proposals show as View only.
+- **Proposals are plans first.** `planAction` works out a proposal's cell edits, rule, chart or
+  sheet before anything changes, and the editor carries it out as one undo step. After R132–R134,
+  the answer's proposals are checked against the workbook before they are shown.
+
+Tests: `tests/unit/sheetsAssist.test.ts` (41):
+- the protocol;
+- the reads, against a real engine;
+- the description the model starts from;
+- every proposal kind;
+- the proposal check;
+- the server functions, on mocks.
+
+`tests/unit/chatStream.test.ts` gained R136's two.
+
+#### R131 · S2 · The assistant said it had changed the workbook when nothing had changed
+
+The model's answers read "I've added a Revenue column…" while the proposals sat unapplied beneath.
+Someone who took the answer at its word would close the panel with nothing done.
+
+**The fix, in two parts:**
+- The prompt says nothing changes until a proposal is applied, and tells the model never to say
+  it changed anything.
+- Whatever the model says, the panel now puts "Nothing has changed yet. Apply what you want (each
+  one undoes with Ctrl+Z):" above any proposal not yet applied. A viewer instead sees that the
+  proposals would change a workbook shared with them to view.
+
+**After:** the next answer read "I will add…", with the note above its proposals.
+
+#### R132 · S3 · A chart proposed over two blocks of cells failed at Apply with "not a range"
+
+Asked to chart revenue by region without the units column, the model proposed a chart over
+`A1:A4,C1:C4`. Apply said it was not a range, which told the person nothing and left no way on.
+A prompt rule alone did not stop it: the next answer proposed the same two blocks.
+
+**The fix:**
+- `oneRange` names two blocks as two ("is 2 separate blocks of cells; this takes one block, like
+  A1:C4").
+- `proposalProblems` checks every proposal of an answer against the workbook before it is
+  offered, with `planAction` and changing nothing.
+- When something cannot be done, the panel sends the reasons back to the model once and shows
+  its second answer. The steps say so: "Checked the proposals: 1 could not be done as given;
+  asked again".
+
+**After:**
+- The same question got the columns side by side first, as formulas (`=C2`), and a chart of
+  E1:F4: West 44.5, East 51, North 47.25.
+- A highlight asked for on a table sheet was sent back. The second answer said a table sheet
+  cannot be highlighted and offered nothing that would fail.
+
+#### R133 · S2 · The assistant offered formulas over a table sheet that could only show #VALUE!
+
+Asked to highlight a table's high-revenue rows, the model's second answer (after R132's check)
+offered a new sheet holding `=FILTER(BiDemoSales, BiDemoSales[revenue]>1000)`. It applied cleanly
+and showed #VALUE!. A table sheet's rows never come into a grid, by design (see
+[Formulas over table sheets](./SHEETS.md#formulas-over-table-sheets-in-grid-sheets)), and the model
+had never been told that.
+
+**The fix, in two parts:**
+- The prompt lists the functions the lakehouse computes over a table. The list is built from the
+  evaluator's own set (`TABLE_PUSHDOWN`), so the two cannot drift. It also says FILTER, SORT,
+  UNIQUE and a bare column show #VALUE!, and points to the table sheet's filter instead.
+- The proposal check computes each proposed formula where it would sit, up to
+  `MAX_CHECKED_FORMULAS` (50) per answer. An error that comes from the formula itself is sent back
+  with the engine's own explanation: #NAME?, or a table column read whole. Errors that depend on
+  the data, such as #DIV/0!, are left alone.
+
+**After:** "Make a new sheet … that lists the BiDemoSales rows with revenue over 600, using FILTER"
+got an answer that said FILTER over a table sheet would show #VALUE!. It offered
+`=SUMIFS(BiDemoSales[revenue], BiDemoSales[revenue], ">600")`, which read 21,547.09. The Lakehouse
+gave 21,547.09 over 28 rows for `revenue > 600`.
+
+#### R134 · S3 · "Explain this formula" offered the cell's own formula as a change
+
+After explaining `=VLOOKUP("Dee",C2:F9,2,FALSE)` in Sales!H2, the answer offered "Put
+=VLOOKUP("Dee",C2:F9,2,FALSE) in Sales!H2". That is exactly what H2 held, so applying it would have
+done nothing.
+
+**The fix:**
+- The proposal check sends back an edit that leaves every cell as it is.
+- The explain hint tells the model never to propose the formula the cell already holds.
+
+**After:** explaining H2 again gave the explanation and a proposal that changes something (`C:F`,
+for a range that grows).
+
+#### R135 · S2 · Fill with AI wrote blanks when the model left the brackets off its answer
+
+The trial on five feedback comments showed five blanks. The trace showed the model had answered
+all five correctly, as `{"i": 0, "o": "negative"}, {"i": 1, "o": "neutral"}, …`, without the `[ ]`
+around them. The parser needed an array, so every answer was lost. The server still said `ok`, so
+**Fill 5 rows** would have written the blanks and closed.
+
+**The fix:**
+- The answers are read wherever they stand: an array, or `{"i", "o"}` objects on their own.
+- An answer with nothing readable in it is an error that says nothing was written.
+
+**After:** the same trial read negative, neutral, positive, negative, neutral.
+
+#### R136 · S2 · Every internal model call reported no cost: AI functions in SQL, document OCR, Sheets
+
+Found reading R135's response: the call cost $0.00028 on the trace, but the server function
+returned no cost. `readChatStream` in `internalChat.server.ts` looked for `{"type":"cost"}` data
+frames, which the channel never sends. It also stopped at `[DONE]`, and the channel's `event: cost`
+frame comes after it. So every caller got a null cost:
+- AI functions in SQL (their stats `cost_usd`);
+- document OCR;
+- Sheets.
+
+The trace rows and the budget were right, because the channel records them itself. What was lost
+was the figure shown to the person.
+
+**The fix.** The helper reads the stream with the shared reader the swarm executor already used
+(`src/lib/chatStream.ts`).
+
+**After:**
+- The fill's response carries `cost: 0.0002315`.
+- The assistant shows "Cost $0.0017" under an answer.
+- The Lakehouse's AI-functions badge gives a cost for an `ai_sentiment` query.
+
+#### R137 · S3 · Fill with AI wrote past the column where the person had started answering
+
+With "Sentiment" in C1 and "positive" typed in C2, Fill with AI chose column D. It took the first
+empty column, and C was not empty. So the answer the person typed was not used as an example,
+unless they noticed and changed the column by hand.
+
+**The fix.** The default is now the first column right of the selection that is not already full.
+
+**After:** the dialog opened on C with "1 already answered (used as examples)". With C full, it
+opened on D.
+
+#### R138 · S3 · Fill with AI wrote something other than the trial it had shown
+
+The trial showed "neutral" for "Works as expected", under "The first 5, as they would be written".
+**Fill 5 rows** then asked the model again for all five and wrote "positive". What was written was
+not what had been shown and accepted, and those rows cost a second call.
+
+**The fix.** The trial's answers are written as shown, and only the rows the trial did not cover
+are asked (`afterTrial`). A change to the instruction or the column clears the trial, as before.
+
+**After:** the fill wrote exactly the trial, and the page sent no request after the trial's.
+
+#### R139 · S3 · View as carried the owner's conversation, reads of hidden rows included
+
+The assistant panel stayed mounted across the switch to **View as**. The owner's earlier turns went
+to the model with each View-as question, including its read of Sales!B2:F9 with the rows the share
+hides. The model happened to answer from the viewer's view ("I couldn't find Dee"). But what View as
+showed was no longer only what the share gives, and View as exists to check exactly that.
+
+**The fix.** The panel is keyed on the workbook and the share, so each way of seeing a workbook
+starts its own conversation.
+
+**After:** View as opened an empty panel. "total units on Sales, by region" answered West 19, the
+only region the share keeps.
+
+The mutation run caught 17 of 17 (R131–R139); the control survived.
+
 ### 2026-09-28 — Sheets sharing (Phase G), and two found building it: a table opened as an "upload", and grid formulas over tables wrong on every opening
 
 Sheets now shares a workbook with people or IAM groups, to view or to edit. A viewer's share can

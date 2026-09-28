@@ -60,6 +60,9 @@ export type NbRuntimeSettings = {
   sheets_export_max_rows: number;
   sheets_version_interval_minutes: number;
   sheets_versions_max: number;
+  sheets_assist_model: string;
+  sheets_assist_per_minute: number;
+  sheets_ai_fill_max_rows: number;
   ai_sql_max_calls_per_statement: number;
   ai_sql_default_model: string;
   ai_sql_cache_ttl_days: number;
@@ -172,6 +175,9 @@ const DEFAULTS: NbRuntimeSettings = {
   sheets_export_max_rows: 100_000,
   sheets_version_interval_minutes: 30,
   sheets_versions_max: 50,
+  sheets_assist_model: "openrouter/google/gemini-3-flash-preview",
+  sheets_assist_per_minute: 30,
+  sheets_ai_fill_max_rows: 2000,
   ai_sql_max_calls_per_statement: 200,
   ai_sql_default_model: "openrouter/google/gemini-3-flash-preview",
   ai_sql_cache_ttl_days: 30,
@@ -256,6 +262,10 @@ export const nbRuntimeGetState = createServerFn({ method: "POST" })
           sheets_export_max_rows: row.sheets_export_max_rows ?? 100_000,
           sheets_version_interval_minutes: row.sheets_version_interval_minutes ?? 30,
           sheets_versions_max: row.sheets_versions_max ?? 50,
+          sheets_assist_model:
+            row.sheets_assist_model ?? "openrouter/google/gemini-3-flash-preview",
+          sheets_assist_per_minute: row.sheets_assist_per_minute ?? 30,
+          sheets_ai_fill_max_rows: row.sheets_ai_fill_max_rows ?? 2000,
           ai_sql_max_calls_per_statement: row.ai_sql_max_calls_per_statement ?? 200,
           ai_sql_default_model:
             row.ai_sql_default_model ?? "openrouter/google/gemini-3-flash-preview",
@@ -371,6 +381,9 @@ export const nbRuntimeUpdateSettings = createServerFn({ method: "POST" })
         sheets_export_max_rows: z.number().int().min(100).max(100_000_000).optional(),
         sheets_version_interval_minutes: z.number().int().min(1).max(10_080).optional(),
         sheets_versions_max: z.number().int().min(1).max(100_000).optional(),
+        sheets_assist_model: z.string().trim().min(3).max(160).optional(),
+        sheets_assist_per_minute: z.number().int().min(1).max(100_000).optional(),
+        sheets_ai_fill_max_rows: z.number().int().min(1).max(10_000_000).optional(),
         ai_sql_max_calls_per_statement: z.number().int().min(1).max(1000000).optional(),
         ai_sql_default_model: z.string().trim().min(3).max(160).optional(),
         ai_sql_cache_ttl_days: z.number().int().min(1).max(3650).optional(),

@@ -92,6 +92,8 @@ export type SheetsLimits = {
   maxImportSheets: number;
   /** Most rows of a table sheet in a download (SHEETS_EXPORT_MAX_ROWS). */
   exportMaxRows: number;
+  /** Most rows one Fill with AI works through (SHEETS_AI_FILL_MAX_ROWS). */
+  aiFillMaxRows: number;
 };
 
 const NAME_RE = /^[^\\/?*[\]:']{1,100}$/;
@@ -116,6 +118,7 @@ async function limits(): Promise<SheetsLimits> {
     pageRows: r.sheetsPageRows,
     maxImportSheets: r.sheetsImportMaxSheets,
     exportMaxRows: r.sheetsExportMaxRows,
+    aiFillMaxRows: r.sheetsAiFillMaxRows,
   };
 }
 
