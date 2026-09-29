@@ -174,7 +174,9 @@ function SheetsDocsPage() {
           italic, underline and strikethrough, font and fill colors, borders, alignment, indent,
           wrapping, merged cells (Merge &amp; Center, Merge Across) and number formats, with a
           format painter and Clear. Rows grow for wrapped text and larger fonts. A format code such
-          as <C>#,##0;[Red]-#,##0</C> paints negatives red.
+          as <C>#,##0;[Red]-#,##0</C> paints negatives red. Excel&apos;s durations (<C>[h]:mm</C>),
+          currency tags (<C>[$€-2]</C>), fractions (<C># ?/?</C>), conditions (<C>[&lt;10]</C>),
+          spacing (<C>_)</C>) and date codes in capitals work as in Excel.
         </li>
         <li>
           <strong>Conditional formatting.</strong> Home → Conditional highlights by value, text,
@@ -286,8 +288,9 @@ function SheetsDocsPage() {
         formula using a function Sheets does not compute yet shows the value Excel last saved,
         marked, and goes back to Excel as written. A formula from older Excel is read as Excel 365
         reads it: where it expects one value and meets a range, it takes the one in its own row, and
-        shows the <C>@</C> Excel 365 shows. A CSV&apos;s delimiter is detected, and text that looks
-        like a formula stays text.
+        shows the <C>@</C> Excel 365 shows. A file&apos;s text stays text, even one that reads like
+        a number (<C>£1,234.50</C>, <C>1e5</C>). A CSV&apos;s delimiter is detected, and text that
+        looks like a formula stays text.
       </P>
       <P>
         <strong>File → Download as Excel</strong> writes every sheet: grid sheets with their

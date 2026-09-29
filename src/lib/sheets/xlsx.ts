@@ -12,7 +12,7 @@
 // ExcelJS is loaded only when a file is read or written.
 
 import { a1, cellKey, parseRangeA1, rangeA1, type RangeAddr } from "./a1";
-import type { CellInput, CellStyle, GridData } from "./engine";
+import { literalValue, type CellInput, type CellStyle, type GridData } from "./engine";
 import { FUNCTIONS } from "./formula/functions";
 import { parseFormula, type Node } from "./formula/parser";
 import {
@@ -339,9 +339,11 @@ function literalInput(v: unknown): { i: string; f?: string } | null {
   }
   const t = textOf(v);
   if (t === "") return null;
-  // Text that would read back as a number, a formula or TRUE stays text.
-  if (/^[=+\-@]/.test(t) || /^(true|false)$/i.test(t) || /^[\d.,%$ ()-]+$/.test(t))
-    return { i: `'${t}` };
+  // Text that would read back as a formula, or as anything but itself, stays
+  // text. FOUND IN R164: the check was a list of characters, so £1,234.50,
+  // €99 and a code like 1e5 came in as numbers (COUNT and SUM took them), and
+  // a text starting with ' lost it. It now asks the reading typed input gets.
+  if (/^[=+\-@]/.test(t) || literalValue(t) !== t) return { i: `'${t}` };
   return { i: t };
 }
 

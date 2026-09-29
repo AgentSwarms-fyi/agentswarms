@@ -15,6 +15,21 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-29 — A file's text stays text, ADVERSARIAL_LOG R164
+
+**Why this round exists.** Found in passing in R163: a text "£1,234.50" imported as a number.
+
+Fixtures, kept: **"R164 text before"** (`77392ee1…`, from the fixture's first version, without
+`=1+1`, E1 and F1) and **"R164 text after"** (`d4365bdd…`, from the final one). A2 was opened with
+F2 and committed unchanged.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before: import | Import the fixture | A1:A5 1234.5, 99, 500, 100000, 2000 (numbers); A6 "quoted"; B1:B5 FALSE; C1 COUNT 5, C2 COUNTA 8; D1 SUM `######` (over 100,000) |
+| After: import | The final fixture | A1:A9 £1,234.50, €99, ¥500, 1e5, 2E3, 'quoted, $1,200, 007, =1+1; B1:B9 TRUE; C1 0, C2 9, D1 0; E1 1234.5 and E2 TRUE; F1 Hello |
+| The formula bar | A1 | `'£1,234.50` |
+| Editing | A2, F2, Enter | The editor held `'€99`; A2 still €99 and text, COUNT still 0 |
+
 ## 2026-09-29 — Number formats, ADVERSARIAL_LOG R163
 
 **Why this round exists.** Keep hunting: a probe of 54 Excel formats against Excel's documented

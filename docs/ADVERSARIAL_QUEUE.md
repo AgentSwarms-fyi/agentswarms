@@ -423,6 +423,13 @@ Ctrl+Z after a ribbon tool went nowhere). Open from that round:
 - **Sorting by colour or a custom list** (Excel's other Sort options) is not there, nor sorting
   left to right.
 
+Closed with a file's text staying text: R164 (£1,234.50, €99, 1e5 came in as numbers; a
+leading `'` was lost). Open from that round:
+
+- **A CSV** is read the other way on purpose: its cells have no types, so numbers and dates in it
+  are recognised, as Excel does when it opens one.
+- **Excel's "number stored as text" warning** (the green corner) is not shown.
+
 Closed with number formats: R163 (durations, currency tags, fractions, conditions, and date codes
 in capitals). Open from that round:
 
@@ -431,8 +438,7 @@ in capitals). Open from that round:
 - **Excel's `*` fill** (`_("$"* #,##0.00_)` puts the $ at the cell's left edge) is left out: the
   $ sits next to the number. `_x` is one space, whatever x's width.
 - **Locale tags change nothing but the symbol.** `[$-407]` does not switch month names to German.
-- **Text of a file that reads as a number or date** came in as one ("£1,234.50" became 1234.5):
-  filed as R164.
+- ~~Text of a file that reads as a number or date~~ Closed by R164.
 
 Closed with formulas from older Excel: R162 (such a file's formulas spilled where Excel takes one
 value; no `@`). Open from that round:

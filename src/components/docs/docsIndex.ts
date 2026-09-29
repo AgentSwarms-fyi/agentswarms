@@ -4064,6 +4064,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "#SPILL!",
       "#Summary!B6",
       "-2^2",
+      "1e5",
       "=$C2&lt;0",
       "=SUM(Revenue)*TaxRate",
       "Orders[amount]",
@@ -4078,10 +4079,15 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "SHEETS_VERSIONS_MAX",
       "SHEETS_VERSION_INTERVAL_MINUTES",
       "WAREHOUSE_ABS_MAX_ROWS",
+      "[$€-2]",
+      "[&lt;10]",
+      "[h]:mm",
+      "_)",
       "javascript:",
       "lakehouse.import",
       "sheet.share",
-      "sheet.unshare"
+      "sheet.unshare",
+      "£1,234.50"
     ],
     "headings": [
       {

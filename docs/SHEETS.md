@@ -677,6 +677,11 @@ borders, alignment and wrapping, merged cells, links, notes, column widths, row 
 and columns, frozen panes and gridlines. A sheet name with a character a formula cannot carry (`'`, `[`, `]`…) is
 renamed, and every formula that named it follows.
 
+**Text stays text.** A cell the file holds as text comes in as text, even when it reads like a
+number or a date (`£1,234.50`, `€99`, a code like `1e5`, `2023-03-15`, `=1+1`), so COUNT and SUM
+leave it out as Excel does. It is marked as typed text with a leading `'`, which the formula bar
+shows; a text that starts with `'` in the file keeps it.
+
 **Formulas from older Excel.** A formula that a file holds as a plain formula (every formula of
 Excel 2019 and older, and every one a library such as openpyxl writes) is read as Excel 365 reads
 it: where it expects one value and meets a range, it takes the value in its own row, and shows an

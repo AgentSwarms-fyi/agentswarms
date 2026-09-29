@@ -109,6 +109,30 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-29 — A file's text stays text
+
+Tests: `tests/unit/sheetsImportText.test.ts` (5). The mutation run caught 3 of 3, and the control
+survived. Fixture: `tests/fixtures/sheets/openpyxl-text.xlsx`, from `make_openpyxl_text.py`: nine
+text cells that read like numbers, ISTEXT of each, COUNT, COUNTA and SUM over them, a number and a
+plain word as controls.
+
+#### R164 · S2 · Text in a file that read like a number came in as a number
+
+**Found** in passing in R163: the fixture's text "£1,234.50" came in as the number 1234.5. Import
+kept a file's text as text only when it was made of digits and `$.,%()-` alone, and let the rest
+through to be read as typed input. A probe of 22 texts, then the fixture ("R164 text before"):
+- **£1,234.50, €99 and ¥500 became numbers,** and so did codes such as **1e5 and 2E3** (100000,
+  2000). ISTEXT said FALSE for each; COUNT over nine text cells was 5 (Excel: 0), and their SUM
+  was over 100,000 (Excel: 0).
+- **A text that starts with `'` lost it:** "'quoted" came in as "quoted".
+- `$1,200`, `007` and ISO dates were already kept.
+
+**The fix.** A file's text is kept as text whenever the reading typed input gets (`literalValue`)
+would make it anything else, or it would read as a formula: it is marked with a leading `'`. A
+plain word is left unmarked, and a number cell in the file is still a number. The check is the
+same rule the grid uses, so it covers what the character list missed (other currencies, scientific
+notation, TRUE, a leading `'`) and anything the reading learns later.
+
 ### 2026-09-29 — Number formats: durations, currency tags, fractions, conditions, capitals
 
 Tests: `tests/unit/sheetsNumberFormats.test.ts` (14). The mutation run caught 21 of 21, and the
