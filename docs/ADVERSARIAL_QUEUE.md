@@ -423,6 +423,16 @@ Ctrl+Z after a ribbon tool went nowhere). Open from that round:
 - **Sorting by colour or a custom list** (Excel's other Sort options) is not there, nor sorting
   left to right.
 
+Closed with the fill handle's series: R165 (dates past a month's end written as text, months and
+weekdays repeated, quarters past Q4, dates a month apart repeated; a day past a month's end typed
+was read as a date). Open from that round:
+
+- **Filling up or left** is not there: the handle fills down or right.
+- **Excel's own lists** (File → Options → Custom Lists) are not there, and nor is Flash Fill.
+- **Ordinals** (1st, 2nd) repeat, and a trend over irregular numbers (Excel's Series dialog) is not
+  there.
+- **Dates typed in other forms** (3/15/2023, 15-Mar-2023) are text here, so they fill as text.
+
 Closed with a file's text staying text: R164 (£1,234.50, €99, 1e5 came in as numbers; a
 leading `'` was lost). Open from that round:
 

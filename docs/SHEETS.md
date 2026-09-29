@@ -166,8 +166,17 @@ out is not sent the names that refer to it.
 | Ctrl+Shift+L             | Filter on or off                                                                                                                                          |
 | Alt+Down                 | Open the active cell's list (data validation)                                                                                                             |
 
-Drag the square at the corner of a selection to **fill**. Numbers and "Item 1, Item 2" continue as a
-series, formulas shift, and anything else repeats.
+Drag the square at the corner of a selection to **fill**. Formulas shift, a series continues, and
+anything else repeats, as Excel's AutoFill does:
+
+- **Numbers** with a step (2, 4 → 6, 8); one number alone repeats.
+- **Dates:** one date goes on by the day, across month ends; dates on the same day of their months
+  go on by the month (15 Jan, 15 Feb → 15 Mar), ending short months on their last day, or by the
+  year; others by their step in days.
+- **Months and days of the week** by name (Jan → Feb, Monday → Tuesday, Mon, Wed → Fri), in the
+  same short or long form and case, round the year and the week.
+- **Quarters:** Q3 → Q4, Q1 (also `Qtr 1` and `Quarter 1`).
+- **Text ending in a number:** Item 9 → Item 10.
 
 The right-click menu inserts and deletes rows and columns. Every formula in the workbook that
 pointed at the moved cells follows them, and one that pointed into deleted cells shows `#REF!`.

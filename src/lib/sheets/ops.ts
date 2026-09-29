@@ -22,6 +22,7 @@ import { lex, type RefPart, type Token } from "./formula/lexer";
 import { renameSheetInFormula, shiftFormula } from "./formula/shift";
 import { shiftIndex, shiftIndexList, shiftIndexRecord } from "./layout";
 import { shiftMerges, shiftSpan } from "./merge";
+import { seriesOf } from "./series";
 
 export type Axis = "rows" | "cols";
 
@@ -314,22 +315,10 @@ export function shiftRangeA1(a1Text: string, axis: Axis, at: number, count: numb
   );
 }
 
-/** A number series, if the values are one: [2, 4, 6] → step 2. */
-function seriesStep(nums: number[]): number | null {
-  if (nums.length < 2) return null;
-  const step = nums[1] - nums[0];
-  for (let i = 2; i < nums.length; i++) {
-    if (Math.abs(nums[i] - nums[i - 1] - step) > 1e-9) return null;
-  }
-  return step;
-}
-
-const TEXT_NUM = /^(.*?)(\d+)$/;
-
 /**
  * Fill `target` from `source` (target contains source and extends it down or
- * right). Formulas shift; a run of numbers (or "Item 1, Item 2") continues
- * its series; anything else repeats.
+ * right). Formulas shift; a series continues (numbers, dates, months and
+ * days, quarters, "Item 1, Item 2": see series.ts); anything else repeats.
  */
 export function fillEdits(
   source: RangeAddr,
@@ -361,18 +350,7 @@ export function fillEdits(
     for (let k = 0; k < len; k++) {
       src.push(down ? get(source.r0 + k, source.c0 + li) : get(source.r0 + li, source.c0 + k));
     }
-    const literal = src.every((c) => c && c.i !== "" && !c.i.startsWith("="));
-    const nums = literal ? src.map((c) => Number(c!.i.replace(/,/g, ""))) : [];
-    const numeric = literal && nums.every((n) => Number.isFinite(n));
-    const step = numeric ? seriesStep(nums) : null;
-    const textNums = literal && !numeric ? src.map((c) => TEXT_NUM.exec(c!.i)) : [];
-    const sameStem = textNums.length > 0 && textNums.every((m) => m && m[1] === textNums[0]![1]);
-    const textStep =
-      sameStem && textNums.length >= 1
-        ? textNums.length === 1
-          ? 1
-          : seriesStep(textNums.map((m) => Number(m![2])))
-        : null;
+    const series = seriesOf(src);
 
     const extent = down ? target.r1 - source.r1 : target.c1 - source.c1;
     for (let k = 1; k <= extent; k++) {
@@ -386,12 +364,8 @@ export function fillEdits(
         const srcRow = down ? source.r0 + srcIdx : source.r0 + li;
         const srcCol = down ? source.c0 + li : source.c0 + srcIdx;
         input = shiftFormula(cell.i, row - srcRow, col - srcCol);
-      } else if (step !== null) {
-        input = String(+(nums[len - 1] + step * k).toFixed(10));
-      } else if (textStep !== null && sameStem) {
-        const lastNum = Number(textNums[len - 1]![2]);
-        const width = textNums[len - 1]![2].length;
-        input = textNums[0]![1] + String(lastNum + textStep * k).padStart(width, "0");
+      } else if (series) {
+        input = series(k);
       }
       edits.push({ row, col, input, format: cell?.f ?? null, style: cell?.s ?? null });
     }

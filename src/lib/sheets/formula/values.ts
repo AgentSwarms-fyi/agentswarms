@@ -169,7 +169,9 @@ export function parseDateText(text: string): number | null {
   );
   if (!m) return null;
   const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
-  if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+  // FOUND IN R165: a day past the month's end (2023-02-31) rolled into the
+  // next month; Excel keeps such text as text.
+  if (mo < 1 || mo > 12 || d < 1 || d > new Date(Date.UTC(y, mo, 0)).getUTCDate()) return null;
   return dateSerial(y, mo, d, Number(m[4] ?? 0), Number(m[5] ?? 0), Number(m[6] ?? 0));
 }
 

@@ -148,9 +148,11 @@ function SheetsDocsPage() {
           edits, Ctrl+D/R fill, and Ctrl+Z/Y undo and redo, including row and column inserts.
         </li>
         <li>
-          <strong>Fill and clipboard.</strong> The fill handle continues number series and shifts
-          formulas. Pasting inside the workbook shifts formulas; pasting from Excel or Google Sheets
-          brings values, recognising percentages, currency and dates.
+          <strong>Fill and clipboard.</strong> The fill handle continues number series, dates (by
+          the day, or by the month when they fall on the same day), months and days of the week,
+          quarters and &quot;Item 1&quot; runs, and shifts formulas. Pasting inside the workbook
+          shifts formulas; pasting from Excel or Google Sheets brings values, recognising
+          percentages, currency and dates.
         </li>
         <li>
           <strong>Insert and delete cells.</strong> A cell&apos;s menu shifts neighbouring cells

@@ -109,6 +109,33 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-29 — The fill handle's series
+
+Tests: `tests/unit/sheetsFillSeries.test.ts` (10). The mutation run caught 16 of 16, and the control
+survived.
+
+#### R165 · S2 · The fill handle wrote dates that do not exist, and repeated months and weekdays
+
+**Found.** A probe of the fill handle's series against Excel's AutoFill, then the handle dragged
+in the UI ("R165 fill before"):
+- **A date past a month's end was not a date.** Typed 2023-01-30 and filled down, it went on as
+  text ending in a number: 2023-01-31, then "2023-01-32", "2023-01-33", "2023-01-34", as text.
+  A date in the middle of a month happened to work the same way.
+- **Two dates a month apart** (15 January, 15 February) repeated as a pair; Excel goes on to 15
+  March. A date kept as a number with a date format repeated.
+- **Months and days of the week repeated:** Jan, Jan, Jan; Monday, Monday.
+- **Q3 ran on to Q4, Q5, Q6, Q7;** Excel goes back to Q1.
+
+**The fix** (`lib/sheets/series.ts`, used by the fill handle). What a line of typed cells continues,
+tried in order: dates (by the day for one; by the month or the year when they fall on the same day,
+a short month taking its last day; else by their step in days), written as they were typed (a date,
+or its number with its format); months and days of the week by name, in the same form and case and
+round the cycle, by their step; quarters round from Q4 to Q1; numbers by their step, one alone
+repeating; and text ending in a number.
+
+**Found while building it: a day past a month's end was read as a date.** Typing 2023-02-31 gave 3
+March: the day was checked against 31 for every month. It now stays text, as in Excel.
+
 ### 2026-09-29 — A file's text stays text
 
 Tests: `tests/unit/sheetsImportText.test.ts` (5). The mutation run caught 3 of 3, and the control

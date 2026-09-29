@@ -15,6 +15,22 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-29 — The fill handle's series, ADVERSARIAL_LOG R165
+
+**Why this round exists.** Keep hunting: a probe of the fill handle's series against Excel's
+AutoFill found five that differ.
+
+Fixtures, kept: **"R165 fill before"** (`1c043af2…`) and **"R165 fill after"** (`2d14bc2b…`), each
+typed the same way: A1 2023-03-15, B1 Jan, C1 Monday, D1 Q3, E1:E2 2023-01-15 and 2023-02-15, F1
+2023-01-30. Then A1:D1, E1:E2 and F1 each filled down to row 5 by dragging the fill handle.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before | The fills | A 2023-03-16 to 03-19; B Jan ×5; C Monday ×5; D Q3, Q4, Q5, Q6, Q7; E 01-15, 02-15, 01-15, 02-15, 01-15; F 2023-01-31, then "2023-01-32", "2023-01-33", "2023-01-34" as text |
+| After | The same | A 2023-03-16 to 03-19; B Jan, Feb, Mar, Apr, May; C Monday to Friday; D Q3, Q4, Q1, Q2, Q3; E 01-15, 02-15, 03-15, 04-15, 05-15; F 2023-01-31, 02-01, 02-02, 02-03, each a date |
+| Undo | Ctrl+Z, then Ctrl+Y, after F's fill | F2:F5 empty, then back; the focus on F1 |
+| A day past the month's end | G1 `2023-02-31`, G2 `=ISTEXT(G1)` | G1 stays 2023-02-31 as text; G2 TRUE |
+
 ## 2026-09-29 — A file's text stays text, ADVERSARIAL_LOG R164
 
 **Why this round exists.** Found in passing in R163: a text "£1,234.50" imported as a number.
