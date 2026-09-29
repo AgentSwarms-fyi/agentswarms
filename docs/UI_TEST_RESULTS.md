@@ -15,6 +15,28 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-29 — Remove duplicates, ADVERSARIAL_LOG R153
+
+**Why this round exists.** Keep hunting: the Data tab had no way to drop repeated rows.
+
+Fixtures: **"R153 contacts"** (`0ceb0280…`), from `openpyxl-dupes.xlsx`. Every change was undone.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before | The Data tab | Sort A to Z, Sort Z to A, Filter, Data validation…, Names, Save to lakehouse; no Remove duplicates |
+| After: import | `openpyxl-dupes.xlsx` | "Contacts 48 cells · 1 note"; A1:E8 a list, G a column outside it |
+| The dialog | B3, Data → Remove duplicates… | "In A1:E8…"; Name, Email, City, Signed up, Chars, all checked; headers ticked; the button focused |
+| Headers | Untick, tick | Column A…Column E, then the header names |
+| Nothing checked | Unselect all | Remove duplicates disabled; Select all enables it |
+| Every column | Remove duplicates | "Removed 2 rows repeating an earlier one; 5 rows remain in A1:E8." The capitals row and Ben's second row gone; Dev's second row (8 Mar 2026) kept |
+| What moved | After it | Cleo up to row 4, her note with her (C4); E4 `=LEN(B4)`; G2…G8 unmoved; rows 7 and 8 empty in A:E |
+| Undo | Ctrl+Z | All 7 rows back, in their order |
+| One column | Email only | "Removed 3 rows repeating an earlier one; 4 rows remain in A1:E8." |
+| Nothing to remove | The same again | "No duplicate rows in A1:E5."; undone |
+| Merged cells | F2:F3 merged; A1:F8, Remove duplicates… | "A1:F8 has merged cells. Unmerge them to remove duplicates." No dialog; the merge undone |
+| Found: the keyboard | K20, Data tab, Sort A to Z | The focus left on the Data tab (`BUTTON:tab`); R152's first Ctrl+Z after a sort did nothing |
+| After the fix | A3, Data tab, Sort Z to A, Ctrl+Z | The focus stays on A3; sorted Dev first; Ctrl+Z puts Asha back first |
+
 ## 2026-09-29 — Cell notes, ADVERSARIAL_LOG R152
 
 **Why this round exists.** Keep hunting: a report made in Python, with comments in it, would not

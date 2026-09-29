@@ -9,6 +9,7 @@ import {
   ArrowDownAZ,
   ArrowUpAZ,
   ChevronDown,
+  CopyMinus,
   Filter,
   FilterX,
   ListChecks,
@@ -17,9 +18,10 @@ import {
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { parseRangeA1, rangeA1, type RangeAddr } from "@/lib/sheets/a1";
+import { colLetters, parseRangeA1, rangeA1, type RangeAddr } from "@/lib/sheets/a1";
 import { cellView } from "@/lib/sheets/cellView";
 import { CondFormatter, type CfRule, type CondFormat } from "@/lib/sheets/condFormat";
+import { duplicateRows, removeRowsEdits } from "@/lib/sheets/dedupe";
 import type { GridData, WorkbookEngine } from "@/lib/sheets/engine";
 import {
   columnValues,
@@ -28,8 +30,10 @@ import {
   sortEdits,
   type AutoFilter,
   type ColumnFilter,
+  type RowEdit,
 } from "@/lib/sheets/filter";
 import { isMatrix, todaySerial, type Scalar } from "@/lib/sheets/formula/values";
+import { intersects, parseMerges } from "@/lib/sheets/merge";
 import {
   checkValidation,
   listItems,
@@ -43,6 +47,7 @@ import {
   ManageRulesDialog,
   type RuleDraft,
 } from "./CondFormatMenu";
+import { DedupeDialog } from "./DedupeDialog";
 import { GridFilterMenu } from "./GridFilterMenu";
 import type { GridGeometry } from "./SheetGrid";
 import type { useWorkbook } from "./useWorkbook";
@@ -116,6 +121,9 @@ export function useSheetRules({
   const [draft, setDraft] = useState<RuleDraft | null>(null);
   const [managing, setManaging] = useState(false);
   const [validating, setValidating] = useState(false);
+  // Data > Remove duplicates: the block it works on, and whether its first
+  // row looks like a header (R153).
+  const [deduping, setDeduping] = useState<{ block: RangeAddr; header: boolean } | null>(null);
   const [pending, setPending] = useState<Pending | null>(null);
   const [listOpen, setListOpen] = useState(false);
 
@@ -274,15 +282,21 @@ export function useSheetRules({
   /** Sort a block's rows by one column, header row kept; formulas move with their rows. */
   const sortBlock = (block: RangeAddr, col: number, desc: boolean, header: boolean) => {
     if (!engine || !tabId) return;
-    const edits = sortEdits(
-      block,
-      [{ col, desc }],
-      {
-        value: (r, c) => engine.getValue(tabId, r, c),
-        input: (r, c) => engine.getInput(tabId, r, c),
-      },
-      header,
+    writeRows(
+      sortEdits(
+        block,
+        [{ col, desc }],
+        {
+          value: (r, c) => engine.getValue(tabId, r, c),
+          input: (r, c) => engine.getInput(tabId, r, c),
+        },
+        header,
+      ),
     );
+  };
+  /** Rows' cells, as a sort or a removal of rows leaves them: one step to undo. */
+  const writeRows = (edits: RowEdit[]) => {
+    if (!tabId) return;
     wb.changeGrid(tabId, (g) => {
       for (const e of edits) {
         const key = `${e.row},${e.col}`;
@@ -303,13 +317,72 @@ export function useSheetRules({
   const sortFiltered = (offset: number, desc: boolean) => {
     if (!filterRange || !filter) return;
     sortBlock(filterRange, filterRange.c0 + offset, desc, true);
-    // The filter's criteria hold for the rows' new places.
+    refilter();
+  };
+  /** The filter's criteria, applied again to rows that moved. */
+  const refilter = () =>
     requestAnimationFrame(() => {
       const f = engine?.gridOf(tabId ?? "")?.filter;
       if (!f || !filterEnv) return;
       const hidden = filteredRows(f, filterEnv);
       wb.setGridMeta(tabId!, { filter: { ...f, hidden: hidden.length ? hidden : undefined } });
     });
+  /** A header row is one of text in every column. */
+  const looksLikeHeader = (block: RangeAddr) => {
+    if (!engine || !tabId) return false;
+    for (let c = block.c0; c <= block.c1; c++) {
+      const v = engine.getValue(tabId, block.r0, c);
+      if (typeof v !== "string" || !v.trim()) return false;
+    }
+    return true;
+  };
+  /** The selection, or the data around the active cell (Excel's current region). */
+  const dataBlock = () => {
+    if (!engine || !tabId) return range;
+    const single = range.r0 === range.r1 && range.c0 === range.c1;
+    return single
+      ? currentRegion(range.r0, range.c0, (r, c) => engine.getValue(tabId, r, c) !== null)
+      : range;
+  };
+
+  /** Data > Remove duplicates, as Excel's (R153). */
+  const openDedupe = () => {
+    if (!engine || !tabId) return;
+    const block = dataBlock();
+    if (block.r1 <= block.r0) {
+      toast.error("Select a cell in a table of data first.");
+      onDone();
+      return;
+    }
+    // Rows move up past the ones removed; a merged cell cannot move with them.
+    if (parseMerges(grid?.merges).some((m) => intersects(m, block))) {
+      toast.error(`${rangeA1(block)} has merged cells. Unmerge them to remove duplicates.`);
+      onDone();
+      return;
+    }
+    setDeduping({ block, header: looksLikeHeader(block) });
+  };
+  const removeDuplicates = (offsets: number[], hasHeader: boolean) => {
+    const d = deduping;
+    setDeduping(null);
+    if (!d || !engine || !tabId) return;
+    const { block } = d;
+    const remove = duplicateRows(
+      block,
+      offsets.map((o) => block.c0 + o),
+      hasHeader,
+      shownText,
+    );
+    const total = block.r1 - block.r0 + 1 - (hasHeader ? 1 : 0);
+    const rows = (n: number) => `${n.toLocaleString()} ${n === 1 ? "row" : "rows"}`;
+    if (remove.length) {
+      writeRows(removeRowsEdits(block, remove, hasHeader, (r, c) => engine.getInput(tabId, r, c)));
+      if (filter) refilter();
+      toast.success(
+        `Removed ${rows(remove.length)} repeating an earlier one; ${rows(total - remove.length)} remain in ${rangeA1(block)}.`,
+      );
+    } else toast.success(`No duplicate rows in ${rangeA1(block)}.`);
+    onDone();
   };
   /** Data > Sort: the data around the active cell by its column (a text header row stays on top). */
   const sortByActive = (desc: boolean) => {
@@ -325,22 +398,13 @@ export function useSheetRules({
       onDone();
       return;
     }
-    const single = range.r0 === range.r1 && range.c0 === range.c1;
-    const block = single
-      ? currentRegion(range.r0, range.c0, (r, c) => engine.getValue(tabId, r, c) !== null)
-      : range;
+    const block = dataBlock();
     if (block.r1 <= block.r0) {
       toast.error("Select a cell in a table of data first.");
       onDone();
       return;
     }
-    // A header row is one of text over a column that is not all text.
-    let header = true;
-    for (let c = block.c0; c <= block.c1; c++) {
-      const v = engine.getValue(tabId, block.r0, c);
-      if (typeof v !== "string" || !v.trim()) header = false;
-    }
-    sortBlock(block, focus.col, desc, header);
+    sortBlock(block, focus.col, desc, looksLikeHeader(block));
     toast.success(
       `Sorted ${rangeA1(block)} by column ${rangeA1({ r0: 0, r1: 0, c0: focus.col, c1: focus.col }).replace(/\d+/, "")}${desc ? ", largest first" : ""}`,
     );
@@ -406,6 +470,7 @@ export function useSheetRules({
           tool("Clear", <FilterX className="h-4 w-4" />, clearFilters, "tool-filter-clear")}
         {filter &&
           tool("Reapply", <RotateCw className="h-4 w-4" />, reapply, "tool-filter-reapply")}
+        {tool("Remove duplicates…", <CopyMinus className="h-4 w-4" />, openDedupe, "tool-dedupe")}
         {tool(
           "Data validation…",
           <ListChecks className="h-4 w-4" />,
@@ -577,6 +642,23 @@ export function useSheetRules({
             toast.success("Rules saved");
             onDone();
           }}
+        />
+      )}
+      {deduping && (
+        <DedupeDialog
+          range={rangeA1(deduping.block)}
+          columns={Array.from({ length: deduping.block.c1 - deduping.block.c0 + 1 }, (_, i) =>
+            colLetters(deduping.block.c0 + i),
+          )}
+          headers={Array.from({ length: deduping.block.c1 - deduping.block.c0 + 1 }, (_, i) =>
+            shownText(deduping.block.r0, deduping.block.c0 + i),
+          )}
+          guessHeader={deduping.header}
+          onCancel={() => {
+            setDeduping(null);
+            onDone();
+          }}
+          onRemove={removeDuplicates}
         />
       )}
       {validating && (

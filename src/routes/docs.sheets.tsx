@@ -113,6 +113,11 @@ function SheetsDocsPage() {
           alone a formula the change would break.
         </li>
         <li>
+          <strong>Remove duplicates.</strong> Data → Remove duplicates… takes out the rows of a list
+          that repeat an earlier one in the columns you check, comparing cells as they are shown and
+          ignoring case, as Excel does. The rows below move up; nothing outside the list moves.
+        </li>
+        <li>
           <strong>Notes.</strong> Shift+F2 (or New note… on a cell&apos;s menu) writes a note on the
           cell. A red corner marks it, and it shows on hover. Notes move with their rows in a sort,
           come with a paste, and can be searched with Find (Look in: Notes). An Excel file&apos;s

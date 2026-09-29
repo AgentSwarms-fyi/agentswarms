@@ -214,11 +214,59 @@ export function compareForSort(a: Scalar, b: Scalar): number {
   return 0;
 }
 
+/** A cell as a sort (or a removal of rows) leaves it. */
+export type RowEdit = {
+  row: number;
+  col: number;
+  input: string;
+  format: string | null;
+  style: CellInput["s"] | null;
+  link: string | null;
+  note: string | null;
+  cached: CellInput["c"] | null;
+};
+
 /**
- * The cell edits that sort a range's rows (the header row stays put). A
- * formula moving from row r to row r' has its relative references moved by
- * r' - r, as Excel's sort does; formats move with their rows. Blanks sort
- * last whichever way.
+ * The edits that put row order[i] in place of rows[i], across the range's
+ * columns. A formula moving from row r to row r' has its relative references
+ * moved by r' - r, as Excel's sort does; formats, links and notes move with
+ * their rows. A place left with no row (order is shorter) empties.
+ */
+export function moveRowsEdits(
+  range: RangeAddr,
+  rows: number[],
+  order: number[],
+  input: (row: number, col: number) => CellInput | undefined,
+): RowEdit[] {
+  const edits: RowEdit[] = [];
+  rows.forEach((dst, i) => {
+    const src = order[i];
+    for (let c = range.c0; c <= range.c1; c++) {
+      const cell = src === undefined ? undefined : input(src, c);
+      const text = cell?.i ?? "";
+      edits.push({
+        row: dst,
+        col: c,
+        input:
+          text.startsWith("=") && src !== undefined && dst !== src
+            ? shiftFormula(text, dst - src, 0)
+            : text,
+        format: cell?.f ?? null,
+        style: cell?.s ?? null,
+        link: cell?.l ?? null,
+        // A row's note and Excel's saved value go with it (R152): a sort
+        // dropped both, the latter turning Excel's value into #NAME?.
+        note: cell?.n ?? null,
+        cached: cell?.c ?? null,
+      });
+    }
+  });
+  return edits;
+}
+
+/**
+ * The cell edits that sort a range's rows (the header row stays put), each
+ * row moved as moveRowsEdits moves it. Blanks sort last whichever way.
  */
 export function sortEdits(
   range: RangeAddr,
@@ -228,16 +276,7 @@ export function sortEdits(
     input: (row: number, col: number) => CellInput | undefined;
   },
   hasHeader = true,
-): {
-  row: number;
-  col: number;
-  input: string;
-  format: string | null;
-  style: CellInput["s"] | null;
-  link: string | null;
-  note: string | null;
-  cached: CellInput["c"] | null;
-}[] {
+): RowEdit[] {
   const first = range.r0 + (hasHeader ? 1 : 0);
   const rows: number[] = [];
   for (let r = first; r <= range.r1; r++) rows.push(r);
@@ -253,36 +292,7 @@ export function sortEdits(
     }
     return x - y; // stable
   });
-  const edits: {
-    row: number;
-    col: number;
-    input: string;
-    format: string | null;
-    style: CellInput["s"] | null;
-    link: string | null;
-    note: string | null;
-    cached: CellInput["c"] | null;
-  }[] = [];
-  order.forEach((src, i) => {
-    const dst = rows[i];
-    for (let c = range.c0; c <= range.c1; c++) {
-      const cell = env.input(src, c);
-      const input = cell?.i ?? "";
-      edits.push({
-        row: dst,
-        col: c,
-        input: input.startsWith("=") && dst !== src ? shiftFormula(input, dst - src, 0) : input,
-        format: cell?.f ?? null,
-        style: cell?.s ?? null,
-        link: cell?.l ?? null,
-        // A row's note and Excel's saved value go with it (R152): a sort
-        // dropped both, the latter turning Excel's value into #NAME?.
-        note: cell?.n ?? null,
-        cached: cell?.c ?? null,
-      });
-    }
-  });
-  return edits;
+  return moveRowsEdits(range, rows, order, env.input);
 }
 
 /** The block of data around a cell, as Excel's "current region": bounded by empty rows and columns. */

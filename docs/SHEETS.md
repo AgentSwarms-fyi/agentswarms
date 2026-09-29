@@ -327,6 +327,26 @@ not deleted; the buttons of filtered columns change to a funnel. **Clear** shows
 header row on top. Formulas move with their rows and are rewritten for the new row, as in Excel;
 blanks sort last either way.
 
+### Remove duplicates
+
+**Data → Remove duplicates…** takes out the rows of a list that repeat an earlier row, as Excel's
+Remove Duplicates does. It works on the selection, or, with one cell selected, on the data around
+it (bounded by empty rows and columns).
+
+The dialog lists the columns, all checked. A row goes when every checked column repeats an earlier
+row, so checking only Email keeps one row per address. **My data has headers** keeps the first row
+out of it; it is ticked when the first row is all text.
+
+As in Excel, cells are compared as they are shown, ignoring case:
+- `ASHA@EXAMPLE.COM` repeats `asha@example.com`;
+- the number 1 repeats the text `1`;
+- one date shown as `2026-03-08` and as `8 Mar 2026` does not repeat.
+
+The rows below a removed one move up within the list, with their formats, links and notes, and a
+formula's references move with its row, as in a sort. Nothing outside the list moves. A list with
+merged cells is refused, since they cannot move up. The message says how many rows went and how
+many remain. One Ctrl+Z puts them back.
+
 ### Charts
 
 **Insert → Chart** charts the selection, or the block of data around the active cell. The range is

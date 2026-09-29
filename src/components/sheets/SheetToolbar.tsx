@@ -198,6 +198,9 @@ export function SheetToolbar({
                 ? "border-b-2 border-primary bg-background font-medium text-foreground"
                 : "border-b-2 border-transparent text-muted-foreground hover:text-foreground",
             )}
+            // A click on a tab leaves the keyboard in the grid, as the tools do
+            // (R153): it kept the focus, and Ctrl+Z after Data → Sort went nowhere.
+            onMouseDown={(e) => e.preventDefault()}
             onClick={() => setTab(t.id)}
           >
             {t.label}

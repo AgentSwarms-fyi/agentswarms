@@ -109,6 +109,38 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-29 — Remove duplicates, and the keyboard after a ribbon tool
+
+Tests: `tests/unit/sheetsDedupe.test.ts` (12), over `tests/fixtures/sheets/openpyxl-dupes.xlsx` (made
+by `make_openpyxl_dupes.py`). The mutation run caught 13 of 13, and the control survived.
+
+#### R153 · S3 · No Remove Duplicates
+
+**Found.** The Data tab had Sort A to Z, Sort Z to A, Filter, Data validation…, Names and Save to
+lakehouse. A list exported twice, or a sign-up sheet filled in again, had to be cleaned row by row.
+UNIQUE shows the distinct rows somewhere else; it does not clean the list. Remove Duplicates is one
+of Excel's most used Data tools.
+
+**The fix.** **Data → Remove duplicates…**, over the selection or the data around the active cell.
+- **The dialog.** Every column is checked, with Select all and Unselect all. The header box is
+  ticked when the first row is all text, and a column is named by its header.
+- **What repeats.** A row repeats when every checked column shows what an earlier row's shows,
+  ignoring case, as in Excel: `ASHA@EXAMPLE.COM` repeats `asha@example.com`, and one date shown two
+  ways does not.
+- **Removing.** The rows below move up within the list, with their formats, links and notes, and a
+  formula's references move with its row, as in a sort. Nothing outside the list moves. One Ctrl+Z
+  puts it back.
+- **Refused.** A list with merged cells, since they cannot move up.
+- **The message.** How many rows went and how many remain, or that none repeat.
+
+The move a sort makes is now one function, used by both.
+
+**Found while driving it: after a ribbon tool, Ctrl+Z went nowhere.** A click on a ribbon tab kept
+the keyboard. The tools leave the focus where it is, so it stayed on the tab, and the grid, which
+takes Ctrl+Z, no longer had it. After Data → Sort A to Z, the first Ctrl+Z did nothing until the
+grid was clicked. This was seen in R152's round too. A click on a tab now leaves the keyboard in the
+grid, as in Excel.
+
 ### 2026-09-29 — Cell notes
 
 Tests: `tests/unit/sheetsNotes.test.ts` (14), over `tests/fixtures/sheets/openpyxl-notes.xlsx` (made

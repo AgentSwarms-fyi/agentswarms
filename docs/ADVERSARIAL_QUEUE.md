@@ -411,6 +411,16 @@ everywhere; a sort dropped Excel's saved values; Clear all left the note). Open 
 - **The fill handle copies values and formats, not notes or links.** Copy and Paste bring both.
   Whether a fill should carry notes, as Excel's may, is not settled.
 
+Closed with Remove duplicates: R153 (no Remove Duplicates; a ribbon tab kept the keyboard, so
+Ctrl+Z after a ribbon tool went nowhere). Open from that round:
+
+- **Excel asks to expand a selection** that stops short of the data beside it; here the selection
+  is used as it is.
+- **Table sheets have no Remove duplicates.** Their rows live in the lakehouse; a query or the
+  table's own filters are the way there.
+- **Text to Columns and Flash Fill,** Excel's other Data tools, are not there.
+- **Custom Sort** (several levels) is not there; Sort A to Z sorts by the active column only.
+
 ## Rules that came out of doing this
 
 - A test that asserts source text is pinning a USE, not a definition; bound it
