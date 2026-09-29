@@ -109,6 +109,30 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-29 — Sort by several columns, and no sort under a merged cell
+
+Tests: `tests/unit/sheetsCustomSort.test.ts` (9). The mutation run caught 10 of 10, and the control
+survived.
+
+#### R156 · S2 · A sort left a merged cell behind, joining two other records
+
+**Found, while proving the missing Custom Sort.**
+- **The gap.** The Data tab sorted by the active column only, so a list could not be ordered by city
+  and then by name. Excel's Data → Sort takes several levels.
+- **The bug.** In "R153 contacts", C2:C3 was merged, then Data → Sort Z to A was pressed on A2. The
+  rows moved and the merge stayed at C2:C3. It now joined the two Dev Iyer rows' cities, drawing
+  the first and hiding the second. So a merge made for one record's cells covered another's.
+- **Excel.** It refuses ("To do this, all the merged cells need to be the same size").
+
+**The fix.**
+- **Data → Sort…**, Excel's Custom Sort. Levels (up to 8), each on a column and A to Z or Z to A.
+  Add level takes the next unused column; levels move up and down and are deleted. A column in
+  two levels is refused. Headers are guessed, and taken for a filter's range; a filter's range
+  is filtered again after the sort. The message names the columns: "Sorted A1:E8 by City, then
+  Name (Z to A)".
+- **Every sort refuses merged cells:** Sort A to Z and Z to A, a filter button's sort, and Sort….
+  The message says to unmerge first. A refused sort no longer reports that it sorted.
+
 ### 2026-09-29 — Query variables: a cell steers a query sheet
 
 Tests: `tests/unit/sheetsQueryVariables.test.ts` (17), 5 of them on DuckDB. The mutation run caught

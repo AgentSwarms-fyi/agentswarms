@@ -15,6 +15,24 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-29 — Sort by several columns, ADVERSARIAL_LOG R156
+
+**Why this round exists.** The queue's Custom Sort, and what a sort does to a merged cell.
+
+Fixtures: **"R153 contacts"** (`0ceb0280…`). Every change was undone.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before: the tab | The Data tab | Sort A to Z, Sort Z to A, Filter, Remove duplicates…, …; no Sort… |
+| Before: a merge | C2:C3 merged (Merge Cells, Merge), A2, Data → Sort Z to A | "Sorted A1:E8 by column A, largest first"; the merge stayed at C2:C3 over the two Dev Iyer rows, the second's Braga hidden; undone twice |
+| After: the tab | The Data tab | …, Sort Z to A, **Sort…**, Filter, … |
+| The dialog | A2, Sort… | "Sort A1:E8 by the first column, then…"; headers ticked; one level, Name A to Z (the active column); the Sort button focused |
+| Levels | Level 1 City; Add level | "City / A to Z", "Name / A to Z" (the next unused column) |
+| A column twice | Level 2 City | "City is sorted by more than once…"; Sort disabled |
+| Sorted | Level 2 Name, Z to A; Sort | "Sorted A1:E8 by City, then Name (Z to A)": Braga/Dev ×2, Faro/Cleo (her note on C4), Lisbon/Asha ×2, Porto/Ben ×2; G2…G8 unmoved; the focus back on A2 |
+| Undo | Ctrl+Z | The rows in their first order |
+| A merge again | C2:C3 merged; A2, Sort Z to A; then Sort… | "A1:E8 has merged cells. Unmerge them to sort it." both times; nothing moved, no dialog; the merge undone |
+
 ## 2026-09-29 — Query variables, ADVERSARIAL_LOG R155
 
 **Why this round exists.** Row Zero's connected tables take variables; a query sheet could not.

@@ -419,7 +419,10 @@ Ctrl+Z after a ribbon tool went nowhere). Open from that round:
 - **Table sheets have no Remove duplicates.** Their rows live in the lakehouse; a query or the
   table's own filters are the way there.
 - **Text to Columns and Flash Fill,** Excel's other Data tools, are not there.
-- **Custom Sort** (several levels) is not there; Sort A to Z sorts by the active column only.
+- ~~Custom Sort~~ Closed by R156 (Data → Sort…), which also found and closed a sort leaving a
+  merged cell behind.
+- **Sorting by colour or a custom list** (Excel's other Sort options) is not there, nor sorting
+  left to right.
 
 Closed with Query sheets: R154 (a sheet could only open a table that already existed; no query
 over the lakehouse). Open from that round, the rest of Row Zero's connected tables:

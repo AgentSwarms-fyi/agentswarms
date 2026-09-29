@@ -8,6 +8,7 @@ import { useMemo, useState } from "react";
 import {
   ArrowDownAZ,
   ArrowUpAZ,
+  ArrowUpDown,
   ChevronDown,
   CopyMinus,
   Filter,
@@ -48,6 +49,7 @@ import {
   type RuleDraft,
 } from "./CondFormatMenu";
 import { DedupeDialog } from "./DedupeDialog";
+import { SortDialog, type SortLevel } from "./SortDialog";
 import { GridFilterMenu } from "./GridFilterMenu";
 import type { GridGeometry } from "./SheetGrid";
 import type { useWorkbook } from "./useWorkbook";
@@ -124,6 +126,13 @@ export function useSheetRules({
   // Data > Remove duplicates: the block it works on, and whether its first
   // row looks like a header (R153).
   const [deduping, setDeduping] = useState<{ block: RangeAddr; header: boolean } | null>(null);
+  // Data > Sort…: the block, its header, the column the first level starts on (R156).
+  const [sorting, setSorting] = useState<{
+    block: RangeAddr;
+    header: boolean;
+    first: number;
+    filtered: boolean;
+  } | null>(null);
   const [pending, setPending] = useState<Pending | null>(null);
   const [listOpen, setListOpen] = useState(false);
 
@@ -279,13 +288,33 @@ export function useSheetRules({
     onDone();
   };
 
+  /**
+   * FOUND IN R156: a sort moved the rows under a merged cell and left the
+   * merge where it was, so it then joined two other records' cells and hid
+   * the second one's value. Excel refuses; so does every sort here.
+   */
+  const mergedIn = (block: RangeAddr) => {
+    if (!parseMerges(grid?.merges).some((m) => intersects(m, block))) return false;
+    toast.error(`${rangeA1(block)} has merged cells. Unmerge them to sort it.`);
+    onDone();
+    return true;
+  };
+
   /** Sort a block's rows by one column, header row kept; formulas move with their rows. */
-  const sortBlock = (block: RangeAddr, col: number, desc: boolean, header: boolean) => {
-    if (!engine || !tabId) return;
+  const sortBlock = (block: RangeAddr, col: number, desc: boolean, header: boolean) =>
+    sortByKeys(block, [{ col, desc }], header);
+  /** Sort a block's rows by several columns in turn (Data > Sort…). */
+  const sortByKeys = (
+    block: RangeAddr,
+    keys: { col: number; desc: boolean }[],
+    header: boolean,
+  ) => {
+    if (!engine || !tabId) return false;
+    if (mergedIn(block)) return false;
     writeRows(
       sortEdits(
         block,
-        [{ col, desc }],
+        keys,
         {
           value: (r, c) => engine.getValue(tabId, r, c),
           input: (r, c) => engine.getInput(tabId, r, c),
@@ -293,6 +322,7 @@ export function useSheetRules({
         header,
       ),
     );
+    return true;
   };
   /** Rows' cells, as a sort or a removal of rows leaves them: one step to undo. */
   const writeRows = (edits: RowEdit[]) => {
@@ -316,8 +346,7 @@ export function useSheetRules({
   };
   const sortFiltered = (offset: number, desc: boolean) => {
     if (!filterRange || !filter) return;
-    sortBlock(filterRange, filterRange.c0 + offset, desc, true);
-    refilter();
+    if (sortBlock(filterRange, filterRange.c0 + offset, desc, true)) refilter();
   };
   /** The filter's criteria, applied again to rows that moved. */
   const refilter = () =>
@@ -343,6 +372,47 @@ export function useSheetRules({
     return single
       ? currentRegion(range.r0, range.c0, (r, c) => engine.getValue(tabId, r, c) !== null)
       : range;
+  };
+
+  /** Data > Sort…, as Excel's Custom Sort (R156): the filter's range, or the data block. */
+  const openSort = () => {
+    if (!engine || !tabId) return;
+    const inFilter =
+      !!filterRange &&
+      focus.row >= filterRange.r0 &&
+      focus.row <= filterRange.r1 &&
+      focus.col >= filterRange.c0 &&
+      focus.col <= filterRange.c1;
+    const block = inFilter ? filterRange! : dataBlock();
+    if (block.r1 <= block.r0) {
+      toast.error("Select a cell in a table of data first.");
+      onDone();
+      return;
+    }
+    if (mergedIn(block)) return;
+    setSorting({
+      block,
+      // A filter's range has its header row; otherwise guess, as Excel does.
+      header: inFilter || looksLikeHeader(block),
+      first: Math.min(Math.max(focus.col - block.c0, 0), block.c1 - block.c0),
+      filtered: inFilter,
+    });
+  };
+  const customSort = (levels: SortLevel[], hasHeader: boolean) => {
+    const s = sorting;
+    setSorting(null);
+    if (!s) return;
+    const keys = levels.map((l) => ({ col: s.block.c0 + l.offset, desc: l.desc }));
+    if (!sortByKeys(s.block, keys, hasHeader)) return;
+    if (s.filtered) refilter();
+    const name = (c: number) =>
+      (hasHeader ? shownText(s.block.r0, c) : "") || `column ${colLetters(c)}`;
+    toast.success(
+      `Sorted ${rangeA1(s.block)} by ${keys
+        .map((k) => `${name(k.col)}${k.desc ? " (Z to A)" : ""}`)
+        .join(", then ")}`,
+    );
+    onDone();
   };
 
   /** Data > Remove duplicates, as Excel's (R153). */
@@ -404,7 +474,7 @@ export function useSheetRules({
       onDone();
       return;
     }
-    sortBlock(block, focus.col, desc, looksLikeHeader(block));
+    if (!sortBlock(block, focus.col, desc, looksLikeHeader(block))) return;
     toast.success(
       `Sorted ${rangeA1(block)} by column ${rangeA1({ r0: 0, r1: 0, c0: focus.col, c1: focus.col }).replace(/\d+/, "")}${desc ? ", largest first" : ""}`,
     );
@@ -465,6 +535,7 @@ export function useSheetRules({
           () => sortByActive(true),
           "tool-sort-desc",
         )}
+        {tool("Sort…", <ArrowUpDown className="h-4 w-4" />, openSort, "tool-sort-custom")}
         {tool("Filter", <Filter className="h-4 w-4" />, toggleFilter, "tool-filter", !!filter)}
         {filter &&
           tool("Clear", <FilterX className="h-4 w-4" />, clearFilters, "tool-filter-clear")}
@@ -642,6 +713,24 @@ export function useSheetRules({
             toast.success("Rules saved");
             onDone();
           }}
+        />
+      )}
+      {sorting && (
+        <SortDialog
+          range={rangeA1(sorting.block)}
+          columns={Array.from({ length: sorting.block.c1 - sorting.block.c0 + 1 }, (_, i) =>
+            colLetters(sorting.block.c0 + i),
+          )}
+          headers={Array.from({ length: sorting.block.c1 - sorting.block.c0 + 1 }, (_, i) =>
+            shownText(sorting.block.r0, sorting.block.c0 + i),
+          )}
+          guessHeader={sorting.header}
+          first={sorting.first}
+          onCancel={() => {
+            setSorting(null);
+            onDone();
+          }}
+          onSort={customSort}
         />
       )}
       {deduping && (

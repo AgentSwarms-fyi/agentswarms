@@ -327,6 +327,19 @@ not deleted; the buttons of filtered columns change to a funnel. **Clear** shows
 header row on top. Formulas move with their rows and are rewritten for the new row, as in Excel;
 blanks sort last either way.
 
+**Data → Sort…** is Excel's Custom Sort. It sorts the selection, the data around the active cell,
+or the filter's range when the active cell is in it.
+- **Levels.** Sort by one column, then by another for rows that tie, and so on (up to 8 levels),
+  each A to Z or Z to A. **Add level** takes the next column not used yet. Levels move up and down
+  and are deleted with the buttons beside them.
+- **Headers.** **My data has headers** keeps the first row on top and names the columns by it. It
+  is ticked when the first row is all text, and always for a filter's range.
+- **Once only.** A column in two levels is refused, as in Excel.
+- **Stable.** Rows that tie on every level keep their order.
+
+No sort moves rows under a merged cell: a range with merged cells is refused, and the message says
+to unmerge them first, as Excel does.
+
 ### Remove duplicates
 
 **Data → Remove duplicates…** takes out the rows of a list that repeat an earlier row, as Excel's
