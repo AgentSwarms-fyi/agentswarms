@@ -15,6 +15,37 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-29 — Freeze panes, ADVERSARIAL_LOG R151
+
+**Why this round exists.** Keep hunting: `frozenRows` was read from and written to files, and
+nothing in the grid used it.
+
+Fixtures: **"Q1 sales (openpyxl)"** (`3c565601…`, frozen at B2 by its file), and the **"Sales
+performance 2026"** sample (`66818463…`). Every change was undone or unfrozen.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before | Q1 sales, wheel 300 px down and right | Row 1's headers and column A scrolled away |
+| Before: the file | File → Download as Excel; openpyxl | `Sales freeze_panes = B2`: kept, and not drawn |
+| Before: the menu | View tab | 100% and Gridlines only; no Freeze |
+| Before: charts | Sales dashboard, wheel 600 px | At the column-header band, the element on top was the chart |
+| After: opening | Q1 sales | `data-frozen="1,1"`; the rows, columns and corner panes drawn |
+| After: scrolled | Wheel 300 px down and right | A1 "Region" pinned in the corner and on top; B1 slid under it (x −89); row 1 and column A's headers stay |
+| Seen, then fixed | The same, on the first build | The corner showed D1 and E1 ("Total", "Updated") where A1 belonged; after the fix, A1 |
+| Clicks | Scrolled; corner, frozen row over H, body, frozen column | A1, H1, H17, A17 |
+| Keyboard | Up ×15 from A17 | A1; the frozen column's A2…A5 drawn as the view came back up |
+| Editing a frozen cell | Scrolled 300/300; H1, F2, `Q3`, Enter | The editor in the frozen-rows pane, visible and focused; H1 Q3; H2 selected; undone |
+| Freeze panes | C3, View → Freeze → Freeze panes | "Rows above and columns left of C3"; `2,2`; the corner A1, B1, A2, B2 |
+| Undo | Ctrl+Z | `1,1` |
+| Insert above the line | Row 1's header → Insert 1 row above | Region in A2; `2,1`; undone |
+| Charts | Sales dashboard, wheel 600 px | At the header band, the column header on top; the letters over the charts |
+| A frozen filter row | Orders, Freeze top row, scrolled 1,500 px | `1,0`; the Region filter button in the frozen row, on top, one copy; clicked: its menu (East 34, North 91, South 40, West 75) |
+| Reload | The page again | Orders still `1,0` |
+| Unfreeze | View → Freeze → Unfreeze panes | No panes; "All changes saved" |
+
+Along the way, a missed click on the Name box let Ctrl+A and typed text land in Q1 sales' A1
+("C3"). It was undone, and A1 reads Region again.
+
 ## 2026-09-29 — Find and Replace, ADVERSARIAL_LOG R150
 
 **Why this round exists.** Keep hunting: a sheet of 240 rows had no way to find a value.

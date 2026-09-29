@@ -212,6 +212,24 @@ grid stays usable while it is open, and **Esc** closes it.
 The panel opens with the last search. Someone who can only view a workbook finds, and has no
 Replace. Sheets their share leaves out are never sent to them, so Find cannot show them.
 
+### Freeze panes
+
+**View → Freeze** keeps rows and columns in view while the rest of the sheet scrolls, as Excel's
+Freeze Panes does:
+
+- **Freeze panes**: the rows above and the columns left of the active cell. Select C3 to keep rows
+  1–2 and columns A–B.
+- **Freeze top row** and **Freeze first column**.
+- **Unfreeze panes**.
+
+A line marks where the frozen part ends. Frozen cells are edited, selected and filtered like any
+other; a filter's buttons in a frozen header row stay in reach however far down the sheet is.
+Charts scroll under the frozen part. Inserting rows above the line moves it down with them.
+Deleting frozen rows moves it up. Undo takes a freeze back.
+
+A sheet keeps at most 100 rows and 50 columns frozen. An Excel file's frozen panes come in with it
+and go back out in a download.
+
 ### Formatting
 
 The ribbon's **Home** tab formats the selection, as Excel's does:
@@ -477,7 +495,7 @@ shown before anything is saved: each sheet, its size, and any name that has to c
 An `.xlsx` (or `.xlsm`; its macros are not kept) comes in with its formulas (shared and array
 formulas, and Excel's `_xlfn.` names such as XLOOKUP and UNIQUE), number formats, fonts, fills,
 borders, alignment and wrapping, merged cells, links, column widths, row heights, hidden rows and
-columns, and gridlines. A sheet name with a character a formula cannot carry (`'`, `[`, `]`…) is
+columns, frozen panes and gridlines. A sheet name with a character a formula cannot carry (`'`, `[`, `]`…) is
 renamed, and every formula that named it follows.
 
 The file's **named ranges** come with it, with their comments, and the formulas that use them

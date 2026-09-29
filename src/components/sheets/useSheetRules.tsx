@@ -417,13 +417,16 @@ export function useSheetRules({
   // ── Drawn over the grid ──────────────────────────────────────────────────
   const overlay = (geo: GridGeometry) => {
     const nodes: React.ReactNode[] = [];
+    // Drawn in the pane that holds its cell: a frozen header row keeps its
+    // filter buttons (R151), and nothing is drawn twice.
+    const here = (r: number, c: number) => geo.has?.(r, c) ?? true;
     if (filterRange && filterEnv) {
       const r0 = filterRange.r0;
       const h = geo.rows.size(r0);
       if (h > 0) {
         for (let c = filterRange.c0; c <= Math.min(filterRange.c1, filterRange.c0 + 200); c++) {
           const w = geo.cols.size(c);
-          if (!w) continue;
+          if (!w || !here(r0, c)) continue;
           const offset = c - filterRange.c0;
           const size = Math.min(16, h - 4);
           nodes.push(
@@ -447,7 +450,7 @@ export function useSheetRules({
       }
     }
     // The active cell's list, and its input message.
-    if (!editing && activeRule && dvEnv && tabId) {
+    if (!editing && activeRule && dvEnv && tabId && here(focus.row, focus.col)) {
       const left = geo.cols.start(focus.col);
       const right = geo.cols.end(focus.col);
       const top = geo.rows.start(focus.row);

@@ -5,6 +5,9 @@
 // sizes (set by hand, grown for wrapped text, hidden) and everything scales
 // with the zoom; positions come from prefix sums, so a pixel maps to a cell
 // in O(log n). Headers stay pinned with CSS sticky tracks around the body.
+// Frozen rows and columns (Excel's Freeze Panes) are sticky panes over the
+// body: each cell is drawn once, in the pane that holds it, and a pane
+// draws its own part of the selection, the editor and the overlays.
 // While a formula is being typed, clicking (or dragging across) cells
 // inserts their reference at the caret, as Excel's point mode does;
 // otherwise a click selects.
@@ -16,7 +19,7 @@ import { inkOn } from "@/lib/sheets/ink";
 import type { CellInput, GridData, WorkbookEngine } from "@/lib/sheets/engine";
 import { AxisGeometry } from "@/lib/sheets/geometry";
 import { autoRowHeights, CELL_PAD_X } from "@/lib/sheets/layout";
-import { expandToMerges, mergeAt, parseMerges, intersects } from "@/lib/sheets/merge";
+import { expandToMerges, mergeAt, parseMerges } from "@/lib/sheets/merge";
 import { acceptsReference, selRange, startsEdit, type Selection } from "@/lib/sheets/selection";
 import { cssBorder, fontPx, fontStack, INDENT_PX, type Borders } from "@/lib/sheets/style";
 import { cn } from "@/lib/utils";
@@ -54,10 +57,16 @@ export type CellDecoration = {
   icon?: string;
 };
 
+/** Where a cell is drawn: the scrolling body, or a frozen pane (R151). */
+export type PaneName = "body" | "rows" | "cols" | "corner";
+
 export type GridGeometry = {
   rows: AxisGeometry;
   cols: AxisGeometry;
   zoom: number;
+  /** The pane an overlay is drawn in, and whether a cell is in it (frozen panes, R151). */
+  pane?: PaneName;
+  has?: (row: number, col: number) => boolean;
 };
 
 type Props = {
@@ -198,6 +207,17 @@ export function SheetGrid(props: Props) {
   const totalW = cols.total;
   const totalH = rows.total;
 
+  // ── Frozen panes (R151) ──────────────────────────────────────────────────
+  // FOUND IN R151: an Excel file's frozen rows came in and went out again in
+  // the file, but the grid never drew them: the header row of a long sheet
+  // scrolled away, and there was no Freeze Panes to put it back.
+  const fr = Math.max(0, Math.min(grid?.frozenRows ?? 0, rowCount - 1));
+  const fc = Math.max(0, Math.min(grid?.frozenCols ?? 0, colCount - 1));
+  const frozenH = fr ? rows.start(fr) : 0;
+  const frozenW = fc ? cols.start(fc) : 0;
+  const paneOf = (r: number, c: number): PaneName =>
+    r < fr ? (c < fc ? "corner" : "rows") : c < fc ? "cols" : "body";
+
   // ── The window in view ───────────────────────────────────────────────────
   const [view, setView] = useState({ top: 0, left: 0, w: 1200, h: 800 });
   const readView = useCallback(() => {
@@ -232,6 +252,13 @@ export function SheetGrid(props: Props) {
   for (let r = firstRow; r <= lastRow; r++) if (rows.size(r) > 0) visRows.push(r);
   const visCols: number[] = [];
   for (let c = firstCol; c <= lastCol; c++) if (cols.size(c) > 0) visCols.push(c);
+  // The frozen rows and columns are always drawn; the body draws the rest.
+  const frozenRowList: number[] = [];
+  for (let r = 0; r < fr; r++) if (rows.size(r) > 0) frozenRowList.push(r);
+  const frozenColList: number[] = [];
+  for (let c = 0; c < fc; c++) if (cols.size(c) > 0) frozenColList.push(c);
+  const bodyRows = visRows.filter((r) => r >= fr);
+  const bodyCols = visCols.filter((c) => c >= fc);
 
   // ── Selection, merged-aware ──────────────────────────────────────────────
   const range = expandToMerges(selRange(selection), merges);
@@ -263,12 +290,17 @@ export function SheetGrid(props: Props) {
     const w = cols.size(target.col);
     const viewW = el.clientWidth - headerW;
     const viewH = el.clientHeight - headerH;
-    if (top < el.scrollTop) el.scrollTop = top;
-    else if (top + h > el.scrollTop + viewH) el.scrollTop = top + h - viewH;
-    if (left < el.scrollLeft) el.scrollLeft = left;
-    else if (left + w > el.scrollLeft + viewW) el.scrollLeft = left + w - viewW;
+    // A frozen cell is always in view; any other must clear the frozen panes.
+    if (target.row >= fr) {
+      if (top < el.scrollTop + frozenH) el.scrollTop = top - frozenH;
+      else if (top + h > el.scrollTop + viewH) el.scrollTop = top + h - viewH;
+    }
+    if (target.col >= fc) {
+      if (left < el.scrollLeft + frozenW) el.scrollLeft = left - frozenW;
+      else if (left + w > el.scrollLeft + viewW) el.scrollLeft = left + w - viewW;
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [target.row, target.col, noScroll, rows, cols]);
+  }, [target.row, target.col, noScroll, rows, cols, fr, fc]);
 
   const onScroll = () => {
     const el = scrollRef.current;
@@ -308,8 +340,10 @@ export function SheetGrid(props: Props) {
     const el = scrollRef.current;
     if (!el) return null;
     const box = el.getBoundingClientRect();
-    const x = clientX - box.left - headerW + el.scrollLeft;
-    const y = clientY - box.top - headerH + el.scrollTop;
+    const sx = clientX - box.left - headerW;
+    const sy = clientY - box.top - headerH;
+    const x = sx < frozenW ? sx : sx + el.scrollLeft;
+    const y = sy < frozenH ? sy : sy + el.scrollTop;
     return {
       row: Math.max(0, Math.min(rowCount - 1, rows.indexAt(Math.max(0, y)))),
       col: Math.max(0, Math.min(colCount - 1, cols.indexAt(Math.max(0, x)))),
@@ -476,8 +510,12 @@ export function SheetGrid(props: Props) {
   const isEmpty = (r: number, c: number) =>
     engine.getValue(tabId, r, c) === null && !engine.getInput(tabId, r, c)?.s?.bg;
 
-  const cellNodes: React.ReactNode[] = [];
-  const overlayNodes: React.ReactNode[] = [];
+  const buckets: Record<PaneName, { cells: React.ReactNode[]; overlay: React.ReactNode[] }> = {
+    body: { cells: [], overlay: [] },
+    rows: { cells: [], overlay: [] },
+    cols: { cells: [], overlay: [] },
+    corner: { cells: [], overlay: [] },
+  };
 
   const drawCell = (r: number, c: number, box: RangeAddr, merged: boolean) => {
     const input = engine.getInput(tabId, r, c);
@@ -612,21 +650,31 @@ export function SheetGrid(props: Props) {
         </span>
       </div>
     );
-    (spill || merged ? overlayNodes : cellNodes).push(node);
+    const bucket = buckets[paneOf(box.r0, box.c0)];
+    (spill || merged ? bucket.overlay : bucket.cells).push(node);
     const bd = st?.bd;
-    if (bd) overlayNodes.push(borderNode(`b${r}:${c}`, pos, bd));
+    if (bd) bucket.overlay.push(borderNode(`b${r}:${c}`, pos, bd));
   };
 
-  for (const r of visRows) {
-    for (const c of visCols) {
-      if (mergeAt(merges, r, c)) continue;
-      drawCell(r, c, { r0: r, c0: c, r1: r, c1: c }, false);
+  const drawBlock = (rs: number[], cs: number[]) => {
+    for (const r of rs) {
+      for (const c of cs) {
+        if (mergeAt(merges, r, c)) continue;
+        drawCell(r, c, { r0: r, c0: c, r1: r, c1: c }, false);
+      }
     }
-  }
-  // Merged cells, drawn whole even when their top-left is scrolled away.
+  };
+  drawBlock(bodyRows, bodyCols);
+  if (fr) drawBlock(frozenRowList, bodyCols);
+  if (fc) drawBlock(bodyRows, frozenColList);
+  if (fr && fc) drawBlock(frozenRowList, frozenColList);
+  // Merged cells, drawn whole even when their top-left is scrolled away; a
+  // merge in a frozen pane is always in view.
   const viewBox = { r0: firstRow, c0: firstCol, r1: lastRow, c1: lastCol };
   for (const m of merges) {
-    if (!intersects(m, viewBox)) continue;
+    const rowsIn = m.r0 < fr || (m.r1 >= viewBox.r0 && m.r0 <= viewBox.r1);
+    const colsIn = m.c0 < fc || (m.c1 >= viewBox.c0 && m.c0 <= viewBox.c1);
+    if (!rowsIn || !colsIn) continue;
     drawCell(m.r0, m.c0, m, true);
   }
 
@@ -653,6 +701,257 @@ export function SheetGrid(props: Props) {
 
   const headerFont = Math.max(9, Math.round(12 * Math.min(1.4, z)));
 
+  const colHeader = (c: number) => {
+    const selected = c >= range.c0 && c <= range.c1;
+    const hiddenBefore = c > 0 && cols.size(c - 1) === 0;
+    return (
+      <div
+        key={c}
+        className={cn(
+          "absolute top-0 flex h-full items-center justify-center border-b border-r border-border text-muted-foreground",
+          selected && "bg-primary/15 font-semibold text-foreground",
+          hiddenBefore && "border-l-2 border-l-primary/60",
+          c === fc - 1 && "border-r-2 border-r-muted-foreground/50",
+        )}
+        style={{ left: cols.start(c), width: cols.size(c), fontSize: headerFont }}
+        onMouseDown={(e) => {
+          if (e.button !== 0) return;
+          e.preventDefault();
+          gridRef.current?.focus({ preventScroll: true });
+          const from = e.shiftKey ? selection.anchor.col : c;
+          // The active cell is the column's top, as Excel's; no scroll.
+          onSelect({
+            anchor: { row: 0, col: from },
+            focus: { row: rowCount - 1, col: c },
+            scroll: "none",
+          });
+          drag.current = { kind: "cols", from };
+        }}
+        onContextMenu={(e) => {
+          if (!(c >= range.c0 && c <= range.c1 && range.r0 === 0 && range.r1 >= rowCount - 1)) {
+            onSelect({
+              anchor: { row: 0, col: c },
+              focus: { row: rowCount - 1, col: c },
+              scroll: "none",
+            });
+          }
+          props.onContextMenu?.(e, "col");
+        }}
+        role="columnheader"
+        data-col={colLetters(c)}
+      >
+        {colLetters(c)}
+        <div
+          className="absolute right-0 top-0 h-full w-1.5 cursor-col-resize hover:bg-primary/40"
+          onMouseDown={(e) => startColResize(e, c)}
+          onDoubleClick={() => autoFit(c)}
+          title="Drag to resize; double-click to fit"
+          data-testid={`col-resize-${colLetters(c)}`}
+        />
+      </div>
+    );
+  };
+
+  const rowHeader = (r: number) => {
+    const selected = r >= range.r0 && r <= range.r1;
+    const hiddenBefore = r > 0 && rows.size(r - 1) === 0;
+    return (
+      <div
+        key={r}
+        className={cn(
+          "absolute left-0 flex w-full items-center justify-center border-b border-r border-border text-muted-foreground",
+          selected && "bg-primary/15 font-semibold text-foreground",
+          hiddenBefore && "border-t-2 border-t-primary/60",
+          r === fr - 1 && "border-b-2 border-b-muted-foreground/50",
+        )}
+        style={{ top: rows.start(r), height: rows.size(r), fontSize: headerFont }}
+        onMouseDown={(e) => {
+          if (e.button !== 0) return;
+          e.preventDefault();
+          gridRef.current?.focus({ preventScroll: true });
+          const from = e.shiftKey ? selection.anchor.row : r;
+          // The active cell is the row's first; the view stays (scrolling
+          // to the selection's far end would jump to the last column).
+          onSelect({
+            anchor: { row: from, col: 0 },
+            focus: { row: r, col: colCount - 1 },
+            scroll: "none",
+          });
+          drag.current = { kind: "rows", from };
+        }}
+        onContextMenu={(e) => {
+          if (!(r >= range.r0 && r <= range.r1 && range.c0 === 0 && range.c1 >= colCount - 1)) {
+            onSelect({
+              anchor: { row: r, col: 0 },
+              focus: { row: r, col: colCount - 1 },
+              scroll: "none",
+            });
+          }
+          props.onContextMenu?.(e, "row");
+        }}
+        role="rowheader"
+        data-row={r + 1}
+      >
+        {r + 1}
+        <div
+          className="absolute bottom-0 left-0 h-1.5 w-full cursor-row-resize hover:bg-primary/40"
+          onMouseDown={(e) => startRowResize(e, r)}
+          onDoubleClick={(e) => {
+            e.stopPropagation();
+            onRowHeight(r, null);
+          }}
+          title="Drag to resize; double-click to fit"
+          data-testid={`row-resize-${r + 1}`}
+        />
+      </div>
+    );
+  };
+
+  // The mouse on the body and on a frozen pane: cellAt knows which it is.
+  const cellMouse = {
+    onMouseDown,
+    onDoubleClick: (e: React.MouseEvent) => {
+      const raw = cellAt(e.clientX, e.clientY);
+      if (!raw) return;
+      const hit = topLeft(raw);
+      const text = editText(engine.getInput(tabId, hit.row, hit.col));
+      onEditChange({ row: hit.row, col: hit.col, text, mode: "edit", caret: text.length });
+    },
+    onContextMenu: (e: React.MouseEvent) => {
+      const raw = cellAt(e.clientX, e.clientY);
+      if (raw && props.onContextMenu) {
+        if (
+          !(
+            raw.row >= range.r0 &&
+            raw.row <= range.r1 &&
+            raw.col >= range.c0 &&
+            raw.col <= range.c1
+          )
+        ) {
+          const hit = topLeft(raw);
+          onSelect({ anchor: hit, focus: hit });
+        }
+        props.onContextMenu(e, "cell");
+      }
+    },
+  };
+
+  /** What a pane draws: its cells, its part of the selection, its overlays, the editor when it is there. */
+  const layer = (pane: PaneName, rs: number[], cs: number[]) => (
+    <>
+      {buckets[pane].cells}
+      {/* Grid lines, drawn once as a background instead of per cell */}
+      {!grid?.hideGrid && <GridLines rows={rs} cols={cs} geo={{ rows, cols }} />}
+      {/* Text that runs on, merged cells and borders cover the grid lines, as in Excel */}
+      {buckets[pane].overlay}
+      {props.renderOverlay?.({
+        rows,
+        cols,
+        zoom: z,
+        pane,
+        has: (r, c) => paneOf(r, c) === pane,
+      })}
+      {/* Selection */}
+      <div
+        className="pointer-events-none absolute border-2 border-primary bg-primary/5"
+        style={rect(range)}
+        data-testid={pane === "body" ? "selection-box" : undefined}
+      />
+      {/* Active cell */}
+      <div
+        className="pointer-events-none absolute border-2 border-primary"
+        style={rect(activeBox)}
+      />
+      {/* Fill handle */}
+      {!editing && paneOf(range.r1, range.c1) === pane && (
+        <div
+          className="absolute z-10 h-2 w-2 cursor-crosshair border border-background bg-primary"
+          style={{ left: cols.end(range.c1) - 4, top: rows.end(range.r1) - 4 }}
+          title="Drag to fill"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            drag.current = { kind: "fill", source: range };
+          }}
+          data-testid="fill-handle"
+        />
+      )}
+      {fillPreview && (
+        <div
+          className="pointer-events-none absolute border-2 border-dashed border-primary/70"
+          style={rect(fillPreview)}
+        />
+      )}
+      {/* In-cell editor: a textarea, so Alt+Enter can break a line as in Excel */}
+      {editing && editBox && paneOf(editBox.r0, editBox.c0) === pane && (
+        <textarea
+          ref={(el) => {
+            cellEditorRef.current = el;
+            if (el && editing.source !== "bar") editorRef.current = el;
+          }}
+          aria-label={`Editing ${a1(editing.row, editing.col)}`}
+          data-testid="cell-editor"
+          className="absolute z-20 resize-none overflow-hidden border-2 border-primary bg-background outline-none"
+          style={{
+            left: cols.start(editBox.c0),
+            top: rows.start(editBox.r0),
+            minWidth: rect(editBox).width,
+            width: Math.max(
+              rect(editBox).width,
+              Math.min(
+                900,
+                Math.max(
+                  ...editing.text
+                    .split("\n")
+                    .map((l) => measureText(l, cellFont(editInput?.s, z, baseFont))),
+                ) +
+                  pad * 2 +
+                  12,
+              ),
+            ),
+            height: Math.max(
+              rect(editBox).height,
+              editing.text.split("\n").length * fontPx(editInput?.s?.sz, z) * 1.3 + 6,
+            ),
+            padding: `${2 * z}px ${pad - 2}px`,
+            font: cellFont(editInput?.s, z, baseFont),
+            lineHeight: 1.25,
+            whiteSpace: "pre",
+          }}
+          value={editing.text}
+          spellCheck={false}
+          autoFocus={editing.source !== "bar"}
+          onFocus={(e) => {
+            editorRef.current = e.currentTarget;
+            if (editing.source === "bar") onEditChange({ ...editing, source: "cell" });
+          }}
+          onChange={(e) =>
+            onEditChange({
+              ...editing,
+              text: e.target.value,
+              caret: e.target.selectionStart ?? e.target.value.length,
+              source: "cell",
+            })
+          }
+          // The caret lives in the edit's state, not read back from some
+          // input later: autocomplete and point mode insert at it.
+          onSelect={(e) => {
+            const c = e.currentTarget.selectionStart ?? editing.text.length;
+            if (c !== editing.caret) onEditChange({ ...editing, caret: c });
+          }}
+          onKeyDown={(e) => {
+            onKey(e);
+            // Handled here; the grid around must not handle it a second time.
+            e.stopPropagation();
+          }}
+        />
+      )}
+    </>
+  );
+
+  // The line a frozen pane ends at, as Excel draws it.
+  const splitLine = "border-muted-foreground/50";
+
   return (
     <div
       ref={scrollRef}
@@ -663,7 +962,10 @@ export function SheetGrid(props: Props) {
       aria-colcount={colCount}
       data-testid="sheet-grid"
       data-zoom={Math.round(z * 100)}
-      className="relative h-full w-full select-none overflow-auto bg-background text-[13px] outline-none"
+      data-frozen={fr || fc ? `${fr},${fc}` : undefined}
+      // `isolate`: the grid's own layers (cells, overlays, frozen panes,
+      // headers) stack among themselves, not with the page around it.
+      className="relative isolate h-full w-full select-none overflow-auto bg-background text-[13px] outline-none"
       // Only keys pressed in the grid itself. A popover drawn over the grid
       // (a filter's search box, a list of choices, a link's buttons) lives in
       // a portal elsewhere in the page, but React still bubbles its keys up
@@ -687,7 +989,7 @@ export function SheetGrid(props: Props) {
       >
         {/* Corner: selects the whole sheet */}
         <div
-          className="sticky left-0 top-0 z-30 border-b border-r border-border bg-muted"
+          className="sticky left-0 top-0 z-[42] border-b border-r border-border bg-muted"
           onMouseDown={(e) => {
             e.preventDefault();
             onSelect({
@@ -701,184 +1003,30 @@ export function SheetGrid(props: Props) {
           }}
           title="Select all"
         />
-        {/* Column headers */}
-        <div className="sticky top-0 z-20 bg-muted" style={{ height: headerH }}>
-          {visCols.map((c) => {
-            const selected = c >= range.c0 && c <= range.c1;
-            const hiddenBefore = c > 0 && cols.size(c - 1) === 0;
-            return (
-              <div
-                key={c}
-                className={cn(
-                  "absolute top-0 flex h-full items-center justify-center border-b border-r border-border text-muted-foreground",
-                  selected && "bg-primary/15 font-semibold text-foreground",
-                  hiddenBefore && "border-l-2 border-l-primary/60",
-                )}
-                style={{ left: cols.start(c), width: cols.size(c), fontSize: headerFont }}
-                onMouseDown={(e) => {
-                  if (e.button !== 0) return;
-                  e.preventDefault();
-                  gridRef.current?.focus({ preventScroll: true });
-                  const from = e.shiftKey ? selection.anchor.col : c;
-                  // The active cell is the column's top, as Excel's; no scroll.
-                  onSelect({
-                    anchor: { row: 0, col: from },
-                    focus: { row: rowCount - 1, col: c },
-                    scroll: "none",
-                  });
-                  drag.current = { kind: "cols", from };
-                }}
-                onContextMenu={(e) => {
-                  if (
-                    !(c >= range.c0 && c <= range.c1 && range.r0 === 0 && range.r1 >= rowCount - 1)
-                  ) {
-                    onSelect({
-                      anchor: { row: 0, col: c },
-                      focus: { row: rowCount - 1, col: c },
-                      scroll: "none",
-                    });
-                  }
-                  props.onContextMenu?.(e, "col");
-                }}
-                role="columnheader"
-                data-col={colLetters(c)}
-              >
-                {colLetters(c)}
-                <div
-                  className="absolute right-0 top-0 h-full w-1.5 cursor-col-resize hover:bg-primary/40"
-                  onMouseDown={(e) => startColResize(e, c)}
-                  onDoubleClick={() => autoFit(c)}
-                  title="Drag to resize; double-click to fit"
-                  data-testid={`col-resize-${colLetters(c)}`}
-                />
-              </div>
-            );
-          })}
+        {/* Column headers; the frozen columns' stay put */}
+        <div className="sticky top-0 z-[41] bg-muted" style={{ height: headerH }}>
+          {fc > 0 && (
+            <div
+              className="sticky z-[1] bg-muted"
+              style={{ left: headerW, width: frozenW, height: headerH }}
+            >
+              {frozenColList.map(colHeader)}
+            </div>
+          )}
+          {visCols.filter((c) => c >= fc).map(colHeader)}
         </div>
-        {/* Row headers */}
-        <div className="sticky left-0 z-10 bg-muted" style={{ width: headerW }}>
-          {visRows.map((r) => {
-            const selected = r >= range.r0 && r <= range.r1;
-            const hiddenBefore = r > 0 && rows.size(r - 1) === 0;
-            return (
-              <div
-                key={r}
-                className={cn(
-                  "absolute left-0 flex w-full items-center justify-center border-b border-r border-border text-muted-foreground",
-                  selected && "bg-primary/15 font-semibold text-foreground",
-                  hiddenBefore && "border-t-2 border-t-primary/60",
-                )}
-                style={{ top: rows.start(r), height: rows.size(r), fontSize: headerFont }}
-                onMouseDown={(e) => {
-                  if (e.button !== 0) return;
-                  e.preventDefault();
-                  gridRef.current?.focus({ preventScroll: true });
-                  const from = e.shiftKey ? selection.anchor.row : r;
-                  // The active cell is the row's first; the view stays (scrolling
-                  // to the selection's far end would jump to the last column).
-                  onSelect({
-                    anchor: { row: from, col: 0 },
-                    focus: { row: r, col: colCount - 1 },
-                    scroll: "none",
-                  });
-                  drag.current = { kind: "rows", from };
-                }}
-                onContextMenu={(e) => {
-                  if (
-                    !(r >= range.r0 && r <= range.r1 && range.c0 === 0 && range.c1 >= colCount - 1)
-                  ) {
-                    onSelect({
-                      anchor: { row: r, col: 0 },
-                      focus: { row: r, col: colCount - 1 },
-                      scroll: "none",
-                    });
-                  }
-                  props.onContextMenu?.(e, "row");
-                }}
-                role="rowheader"
-                data-row={r + 1}
-              >
-                {r + 1}
-                <div
-                  className="absolute bottom-0 left-0 h-1.5 w-full cursor-row-resize hover:bg-primary/40"
-                  onMouseDown={(e) => startRowResize(e, r)}
-                  onDoubleClick={(e) => {
-                    e.stopPropagation();
-                    onRowHeight(r, null);
-                  }}
-                  title="Drag to resize; double-click to fit"
-                  data-testid={`row-resize-${r + 1}`}
-                />
-              </div>
-            );
-          })}
+        {/* Row headers; the frozen rows' stay put */}
+        <div className="sticky left-0 z-[40] bg-muted" style={{ width: headerW }}>
+          {fr > 0 && (
+            <div className="sticky z-[1] bg-muted" style={{ top: headerH, height: frozenH }}>
+              {frozenRowList.map(rowHeader)}
+            </div>
+          )}
+          {visRows.filter((r) => r >= fr).map(rowHeader)}
         </div>
         {/* Cells */}
-        <div
-          className="relative"
-          onMouseDown={onMouseDown}
-          onDoubleClick={(e) => {
-            const raw = cellAt(e.clientX, e.clientY);
-            if (!raw) return;
-            const hit = topLeft(raw);
-            const text = editText(engine.getInput(tabId, hit.row, hit.col));
-            onEditChange({ row: hit.row, col: hit.col, text, mode: "edit", caret: text.length });
-          }}
-          onContextMenu={(e) => {
-            const raw = cellAt(e.clientX, e.clientY);
-            if (raw && props.onContextMenu) {
-              if (
-                !(
-                  raw.row >= range.r0 &&
-                  raw.row <= range.r1 &&
-                  raw.col >= range.c0 &&
-                  raw.col <= range.c1
-                )
-              ) {
-                const hit = topLeft(raw);
-                onSelect({ anchor: hit, focus: hit });
-              }
-              props.onContextMenu(e, "cell");
-            }
-          }}
-        >
-          {cellNodes}
-          {/* Grid lines, drawn once as a background instead of per cell */}
-          {!grid?.hideGrid && <GridLines rows={visRows} cols={visCols} geo={{ rows, cols }} />}
-          {/* Text that runs on, merged cells and borders cover the grid lines, as in Excel */}
-          {overlayNodes}
-          {props.renderOverlay?.({ rows, cols, zoom: z })}
-          {/* Selection */}
-          <div
-            className="pointer-events-none absolute border-2 border-primary bg-primary/5"
-            style={rect(range)}
-            data-testid="selection-box"
-          />
-          {/* Active cell */}
-          <div
-            className="pointer-events-none absolute border-2 border-primary"
-            style={rect(activeBox)}
-          />
-          {/* Fill handle */}
-          {!editing && (
-            <div
-              className="absolute z-10 h-2 w-2 cursor-crosshair border border-background bg-primary"
-              style={{ left: cols.end(range.c1) - 4, top: rows.end(range.r1) - 4 }}
-              title="Drag to fill"
-              onMouseDown={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                drag.current = { kind: "fill", source: range };
-              }}
-              data-testid="fill-handle"
-            />
-          )}
-          {fillPreview && (
-            <div
-              className="pointer-events-none absolute border-2 border-dashed border-primary/70"
-              style={rect(fillPreview)}
-            />
-          )}
+        <div className="relative" {...cellMouse}>
+          {layer("body", bodyRows, bodyCols)}
           {/* The keyboard's home while nothing is being edited. A focused div only
               sees keydown, and text that arrives without one (an IME composing
               Japanese, dictation, a virtual keyboard) would be lost; a textarea
@@ -914,69 +1062,64 @@ export function SheetGrid(props: Props) {
               if (startsEdit(text)) onType(text);
             }}
           />
-          {/* In-cell editor: a textarea, so Alt+Enter can break a line as in Excel */}
-          {editing && editBox && (
-            <textarea
-              ref={(el) => {
-                cellEditorRef.current = el;
-                if (el && editing.source !== "bar") editorRef.current = el;
-              }}
-              aria-label={`Editing ${a1(editing.row, editing.col)}`}
-              data-testid="cell-editor"
-              className="absolute z-20 resize-none overflow-hidden border-2 border-primary bg-background outline-none"
-              style={{
-                left: cols.start(editBox.c0),
-                top: rows.start(editBox.r0),
-                minWidth: rect(editBox).width,
-                width: Math.max(
-                  rect(editBox).width,
-                  Math.min(
-                    900,
-                    Math.max(
-                      ...editing.text
-                        .split("\n")
-                        .map((l) => measureText(l, cellFont(editInput?.s, z, baseFont))),
-                    ) +
-                      pad * 2 +
-                      12,
-                  ),
-                ),
-                height: Math.max(
-                  rect(editBox).height,
-                  editing.text.split("\n").length * fontPx(editInput?.s?.sz, z) * 1.3 + 6,
-                ),
-                padding: `${2 * z}px ${pad - 2}px`,
-                font: cellFont(editInput?.s, z, baseFont),
-                lineHeight: 1.25,
-                whiteSpace: "pre",
-              }}
-              value={editing.text}
-              spellCheck={false}
-              autoFocus={editing.source !== "bar"}
-              onFocus={(e) => {
-                editorRef.current = e.currentTarget;
-                if (editing.source === "bar") onEditChange({ ...editing, source: "cell" });
-              }}
-              onChange={(e) =>
-                onEditChange({
-                  ...editing,
-                  text: e.target.value,
-                  caret: e.target.selectionStart ?? e.target.value.length,
-                  source: "cell",
-                })
-              }
-              // The caret lives in the edit's state, not read back from some
-              // input later: autocomplete and point mode insert at it.
-              onSelect={(e) => {
-                const c = e.currentTarget.selectionStart ?? editing.text.length;
-                if (c !== editing.caret) onEditChange({ ...editing, caret: c });
-              }}
-              onKeyDown={(e) => {
-                onKey(e);
-                // Handled here; the grid around must not handle it a second time.
-                e.stopPropagation();
-              }}
-            />
+          {/* Frozen panes (R151): sticky over the body, above what the body
+              draws (charts included) and below the headers. */}
+          {fc > 0 && (
+            <div
+              className="pointer-events-none absolute left-0 top-0 z-[35]"
+              style={{ width: totalW, height: totalH }}
+            >
+              <div
+                className={cn(
+                  "pointer-events-auto sticky overflow-hidden border-r-2 bg-background",
+                  splitLine,
+                )}
+                style={{ left: headerW, width: frozenW, height: totalH }}
+                data-testid="frozen-cols"
+                {...cellMouse}
+              >
+                {layer("cols", bodyRows, frozenColList)}
+              </div>
+            </div>
+          )}
+          {fr > 0 && (
+            <div
+              className="pointer-events-none absolute left-0 top-0 z-[36]"
+              style={{ width: totalW, height: totalH }}
+            >
+              <div
+                className={cn(
+                  "pointer-events-auto sticky overflow-hidden border-b-2 bg-background",
+                  splitLine,
+                )}
+                style={{ top: headerH, width: totalW, height: frozenH }}
+                data-testid="frozen-rows"
+                {...cellMouse}
+              >
+                {layer("rows", frozenRowList, bodyCols)}
+              </div>
+            </div>
+          )}
+          {/* The corner, sticky both ways. Not inside the rows pane: a sticky
+              element inside an overflow-hidden one sticks to that box, not to
+              the grid, and the corner slid away with the frozen row. */}
+          {fr > 0 && fc > 0 && (
+            <div
+              className="pointer-events-none absolute left-0 top-0 z-[37]"
+              style={{ width: totalW, height: totalH }}
+            >
+              <div
+                className={cn(
+                  "pointer-events-auto sticky overflow-hidden border-b-2 border-r-2 bg-background",
+                  splitLine,
+                )}
+                style={{ top: headerH, left: headerW, width: frozenW, height: frozenH }}
+                data-testid="frozen-corner"
+                {...cellMouse}
+              >
+                {layer("corner", frozenRowList, frozenColList)}
+              </div>
+            </div>
           )}
         </div>
       </div>

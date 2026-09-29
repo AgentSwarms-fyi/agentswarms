@@ -109,6 +109,43 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-29 — Freeze panes, and charts over the headers
+
+Tests: `tests/unit/sheetsFreeze.test.ts` (11). The grid is drawn to HTML with `renderToStaticMarkup`
+and read for where each cell lands. The mutation run caught 15 of 15, and the control survived.
+
+#### R151 · S2 · Frozen panes were kept in the file and never drawn; no Freeze Panes
+
+**Found.** The "Q1 sales (openpyxl)" workbook came from a file frozen at B2. Scrolled 300 px down
+and right, its header row and column A were gone. Downloaded again, the file still said
+`freeze_panes = B2` (read by openpyxl): `frozenRows` and `frozenCols` went in and out with the
+file, and the grid never read them. The View tab had zoom and gridlines, and no Freeze. A frozen
+header row is how most Excel lists are kept readable; here a filter's buttons scrolled away with
+their headers.
+
+**Also found: charts drew over the column headers.** On the Sales dashboard scrolled 600 px, the
+element on top at the column-header band was a chart, not the header. Charts are z-20 in the
+body, and so were the column headers; the later one in the page won.
+
+**The fix.**
+- **The panes.** The grid draws frozen rows, frozen columns and their corner as sticky panes over
+  the body. Each cell is drawn once, in the pane that holds it, and each pane draws its own part of
+  the selection, the fill handle, the editor and the overlays: filter buttons, the list button,
+  the link chip.
+- **Clicks and scrolling.** A click in a frozen pane is not moved by the scroll. A cell brought
+  into view clears the frozen part.
+- **Headers.** The frozen rows' numbers and columns' letters stay put too.
+- **Stacking.** The grid is its own stacking context: body, charts, panes, then headers.
+- **The menu.** View → Freeze has Freeze panes (at the active cell), top row, first column and
+  Unfreeze, undoable like any sheet setting.
+- **Inserts and deletes.** Inserting rows above the line moves it down, within what a save
+  keeps; deleting frozen rows moves it up.
+
+**Found while driving it.** The corner was first nested in the frozen-rows pane. That pane hides
+its overflow, so the corner stuck to the pane instead of the grid, and slid away with the frozen
+row: "Total" and "Updated" showed where "Region" belonged. The corner now sticks both ways on its
+own.
+
 ### 2026-09-29 — Find and Replace
 
 Tests: `tests/unit/sheetsFind.test.ts` (19). The mutation run caught 18 of 18, and the control

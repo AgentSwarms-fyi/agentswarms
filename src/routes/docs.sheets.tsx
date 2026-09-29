@@ -102,6 +102,11 @@ function SheetsDocsPage() {
           inserts their reference.
         </li>
         <li>
+          <strong>Freeze panes.</strong> View → Freeze keeps the rows above and the columns left of
+          the active cell in view (or just the top row or first column) while the rest scrolls; an
+          Excel file&apos;s frozen panes come in with it.
+        </li>
+        <li>
           <strong>Find and replace.</strong> Ctrl+F finds and Ctrl+H replaces, in the sheet or the
           whole workbook, in what cells show or what was typed, with Excel&apos;s <C>*</C> and{" "}
           <C>?</C>. Find All lists every match; Replace All is one Ctrl+Z to take back, and leaves

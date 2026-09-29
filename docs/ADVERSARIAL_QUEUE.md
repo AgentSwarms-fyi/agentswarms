@@ -390,6 +390,15 @@ grid does not draw). Open from that round:
   limit (200,000 cells). A far larger sheet would want an index.
 - **Excel's Format search** (find cells by their format) and "Search: By Columns" are not there.
 
+Closed with Freeze panes: R151 (frozen panes kept in files and never drawn; no Freeze Panes;
+charts over the column headers). Open from that round:
+
+- **Excel's Split** (a scrolling split without freezing) is not there.
+- **A frozen part taller than the window** leaves little or nothing to scroll; Excel allows it too,
+  and Unfreeze puts it right.
+- **The keyboard's hidden text box stays in the body.** An input method's candidate window
+  opened on a frozen cell, while scrolled, appears where the cell would be unfrozen.
+
 ## Rules that came out of doing this
 
 - A test that asserts source text is pinning a USE, not a definition; bound it

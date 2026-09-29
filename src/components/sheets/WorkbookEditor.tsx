@@ -66,7 +66,10 @@ import {
   adjustFormula,
   describeRange,
   fillEdits,
+  freezePatch,
   mapGridFormulas,
+  MAX_FROZEN_COLS,
+  MAX_FROZEN_ROWS,
   moveCells,
   parseTsv,
   toTsv,
@@ -94,6 +97,7 @@ import {
 import { SheetToolbar, ZoomControl, type ClearKind } from "./SheetToolbar";
 import { NameManagerDialog } from "./NameManagerDialog";
 import { FindPanel } from "./FindPanel";
+import { FreezeMenu } from "./FreezeMenu";
 import {
   EMPTY_FIND,
   findAll,
@@ -300,7 +304,7 @@ export function WorkbookEditor({
     if (!engine || !tabId) return null;
     // The active cell's link, with what to do about it.
     const url = !editing ? linkUrlAt(focus.row, focus.col) : null;
-    if (!url) return null;
+    if (!url || (geo.has && !geo.has(focus.row, focus.col))) return null;
     const box = mergeAt(merges, focus.row, focus.col) ?? {
       r0: focus.row,
       c0: focus.col,
@@ -1044,6 +1048,17 @@ export function WorkbookEditor({
     }));
   };
 
+  /** View → Freeze (R151): a sheet setting, undone like the others. */
+  const freeze = (rows: number, cols: number) => {
+    if (!tabId) return;
+    const { patch, clamped } = freezePatch(rows, cols);
+    wb.setGridMeta(tabId, patch);
+    if (clamped)
+      toast.info(
+        `A sheet keeps at most ${MAX_FROZEN_ROWS} rows and ${MAX_FROZEN_COLS} columns frozen`,
+      );
+  };
+
   // ── Find and Replace (R150) ──────────────────────────────────────────────
 
   /** The grid sheets Find reads, in the workbook's order: each cell's typed or shown text. */
@@ -1749,6 +1764,15 @@ export function WorkbookEditor({
                       </>
                     ),
                     insert: charts.ribbon,
+                    view: (
+                      <FreezeMenu
+                        frozenRows={grid?.frozenRows ?? 0}
+                        frozenCols={grid?.frozenCols ?? 0}
+                        active={focus}
+                        onFreeze={freeze}
+                        onDone={backToGrid}
+                      />
+                    ),
                     data: (
                       <>
                         {rules.ribbon.data}

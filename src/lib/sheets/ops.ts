@@ -109,6 +109,43 @@ export function adjustFormula(
   return `=${out}${body.slice(last)}`;
 }
 
+/** The most rows and columns a sheet keeps frozen, as its save allows (R151). */
+export const MAX_FROZEN_ROWS = 100;
+export const MAX_FROZEN_COLS = 50;
+
+/**
+ * What Freeze Panes writes: the rows and columns kept in view, within what a
+ * sheet keeps. 0 leaves the setting out; `clamped` says it asked for more.
+ */
+export function freezePatch(
+  rows: number,
+  cols: number,
+): { patch: Pick<GridData, "frozenRows" | "frozenCols">; clamped: boolean } {
+  const r = Math.max(0, Math.min(MAX_FROZEN_ROWS, Math.trunc(rows)));
+  const c = Math.max(0, Math.min(MAX_FROZEN_COLS, Math.trunc(cols)));
+  return {
+    patch: { frozenRows: r || undefined, frozenCols: c || undefined },
+    clamped: r !== rows || c !== cols,
+  };
+}
+
+/**
+ * How many rows (or columns) stay frozen after `count` are inserted (or,
+ * negative, deleted) at `at`: the ones above the line that are left, and the
+ * line moves down past rows inserted above it.
+ */
+export function shiftFrozen(
+  frozen: number | undefined,
+  at: number,
+  count: number,
+  max: number,
+): number | undefined {
+  if (!frozen || at >= frozen) return frozen;
+  if (count > 0) return Math.min(max, frozen + count);
+  const gone = Math.min(frozen, at - count) - at;
+  return frozen - gone || undefined;
+}
+
 /**
  * Move a sheet's cells for an insertion or deletion, and everything kept per
  * row or column with them: widths, heights, hidden rows and columns, merges.
@@ -139,6 +176,11 @@ export function moveCells(grid: GridData, axis: Axis, at: number, count: number)
     if (grid.hiddenRows) next.hiddenRows = shiftIndexList(grid.hiddenRows, at, count);
   }
   if (grid.merges) next.merges = shiftMerges(grid.merges, axis, at, count);
+  // The freeze line moves with the rows (or columns) above it, as Excel's (R151).
+  if (axis === "rows" && grid.frozenRows)
+    next.frozenRows = shiftFrozen(grid.frozenRows, at, count, MAX_FROZEN_ROWS);
+  if (axis === "cols" && grid.frozenCols)
+    next.frozenCols = shiftFrozen(grid.frozenCols, at, count, MAX_FROZEN_COLS);
   // Rules and the filter cover ranges; they move, grow and shrink as merges do.
   const moveRanges = (list: string[]) =>
     list.map((a1) => shiftRangeA1(a1, axis, at, count)).filter((x): x is string => x !== null);

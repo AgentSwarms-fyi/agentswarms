@@ -104,8 +104,9 @@ export function useSheetCharts({
     </Button>
   );
 
+  // Charts float over the scrolling body; a frozen pane covers them, as Excel's does.
   const overlay = (geo: GridGeometry) =>
-    charts.length ? (
+    charts.length && (geo.pane ?? "body") === "body" ? (
       <>
         {charts.map((def) => (
           <ChartFrame
