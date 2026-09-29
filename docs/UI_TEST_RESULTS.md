@@ -15,6 +15,22 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-29 — One order for text, ADVERSARIAL_LOG R167
+
+**Why this round exists.** Keep hunting: the ribbon's sort and the engine's lookups compared text
+differently.
+
+Fixtures, kept: **"R167 sort before"** (`0ad9fb8d…`) and **"R167 sort after"** (`3b5a0248…`), typed
+the same way: A1:B6 A10 10, A2 2, A1 1, B1 100, A20 20, A3 3; D1 `=VLOOKUP("A10",A1:B6,2,TRUE)`, D2
+`=VLOOKUP("A3",A1:B6,2,TRUE)`, D3 `=MATCH("A20",A1:A6,1)`; F1 `=SORT(A1:A6)`. Then A1:B6 selected
+and Data → Sort A to Z. The R166 image's smoke test also left E1:E2 (4:45 PM, 16.75) in "R166 typed
+after".
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before | Sort A to Z | "Sorted A1:B6 by column A"; A1, A2, A3, A10, A20, B1; F: A1, A10, A2, A20, A3, B1; D1 1, D2 20, D3 2 |
+| After | The same | A1, A10, A2, A20, A3, B1, the same as F; D1 10, D2 3, D3 4 |
+
 ## 2026-09-29 — Typed times and month-name dates, ADVERSARIAL_LOG R166
 
 **Why this round exists.** R165's queue: dates typed in other forms stay text. A probe of 17 typed

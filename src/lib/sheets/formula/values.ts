@@ -262,6 +262,19 @@ export function nowSerial(now = new Date()): number {
 // ── Comparison (for =, <, sorting, MATCH) ──────────────────────────────────
 
 /** Excel's ordering: numbers < text < booleans; text compares case-insensitively. */
+/**
+ * Excel's order for text, the same in a sort, a lookup and a comparison:
+ * character by character, case aside, so A10 comes before A2. FOUND IN
+ * R167: the ribbon's sort put numbers inside text in order of their value
+ * (A2 before A10), so an approximate VLOOKUP or MATCH over data it had
+ * sorted took the wrong row, and =SORT() and the ribbon disagreed.
+ */
+export function compareText(a: string, b: string): number {
+  const x = a.toLowerCase();
+  const y = b.toLowerCase();
+  return x < y ? -1 : x > y ? 1 : 0;
+}
+
 export function compareScalars(a: Scalar, b: Scalar): number {
   const rank = (v: Scalar) =>
     v === null ? 0 : typeof v === "number" ? 1 : typeof v === "string" ? 2 : 3;
@@ -271,11 +284,7 @@ export function compareScalars(a: Scalar, b: Scalar): number {
   const rb = rank(bn);
   if (ra !== rb) return ra - rb;
   if (typeof an === "number" && typeof bn === "number") return an - bn;
-  if (typeof an === "string" && typeof bn === "string") {
-    const x = an.toLowerCase();
-    const y = bn.toLowerCase();
-    return x < y ? -1 : x > y ? 1 : 0;
-  }
+  if (typeof an === "string" && typeof bn === "string") return compareText(an, bn);
   if (typeof an === "boolean" && typeof bn === "boolean") return Number(an) - Number(bn);
   return 0;
 }

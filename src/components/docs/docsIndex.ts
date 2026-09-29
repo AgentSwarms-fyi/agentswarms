@@ -4067,6 +4067,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "15-Mar-2023",
       "1e5",
       "=$C2&lt;0",
+      "=SORT()",
       "=SUM(Revenue)*TaxRate",
       "Orders[amount]",
       "SHEETS_AI_FILL_MAX_ROWS",

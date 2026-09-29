@@ -423,6 +423,13 @@ Ctrl+Z after a ribbon tool went nowhere). Open from that round:
 - **Sorting by colour or a custom list** (Excel's other Sort options) is not there, nor sorting
   left to right.
 
+Closed with one order for text: R167 (the ribbon's sort ordered numbers in text by value, so
+approximate lookups over data it sorted took the wrong rows). Open from that round:
+
+- **Accents and punctuation** sort by character code (É after Z), where Excel's collation puts
+  them beside their plain letters.
+- **The filter's list of values** still orders numbers in text by value.
+
 Closed with typed times and month-name dates: R166 (they stayed text; a column of times summed to
 0). Open from that round:
 

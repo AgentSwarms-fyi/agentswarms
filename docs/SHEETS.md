@@ -387,7 +387,10 @@ not deleted; the buttons of filtered columns change to a funnel. **Clear** shows
 
 **Data → Sort A to Z / Z to A** sorts the data around the active cell by its column, keeping a text
 header row on top. Formulas move with their rows and are rewritten for the new row, as in Excel;
-blanks sort last either way.
+blanks sort last either way. Numbers come before text, text before TRUE and FALSE, and those before
+errors. Text sorts as Excel sorts it, character by character with case aside, so A10 comes before
+A2: the same order `=SORT()` gives and an approximate MATCH or VLOOKUP expects, so a lookup over
+data sorted here finds its rows.
 
 **Data → Sort…** is Excel's Custom Sort. It sorts the selection, the data around the active cell,
 or the filter's range when the active cell is in it.

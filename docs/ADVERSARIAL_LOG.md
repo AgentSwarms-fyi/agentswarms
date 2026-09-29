@@ -109,6 +109,33 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-29 — One order for text: the sort, =SORT() and the lookups
+
+Tests: `tests/unit/sheetsSortOrder.test.ts` (4). The mutation run caught 3 of 3, and the control
+survived.
+
+#### R167 · S2 · After the ribbon's sort, approximate lookups took the wrong rows
+
+**Found.** The ribbon's Sort compared text with numbers inside it in order of their value
+(`localeCompare` with `numeric: true`): A1, A2, A3, A10, A20. Everything else in the engine
+(`=SORT()`, MATCH, XLOOKUP, VLOOKUP, the `<` operator) goes character by character, as Excel does:
+A1, A10, A2, A20, A3. In "R167 sort before", keys A10, A2, A1, B1, A20, A3 with their numbers,
+sorted A to Z:
+- The ribbon gave A1, A2, A3, A10, A20, B1, and `=SORT(A1:A6)` beside it A1, A10, A2, A20, A3, B1.
+- `=VLOOKUP("A10",A1:B6,2,TRUE)` gave 1, A1's number (should be 10); `VLOOKUP("A3",…)` gave 20
+  (should be 3); `=MATCH("A20",A1:A6,1)` gave 2 (A20 was row 5).
+
+Sorting before an approximate lookup is how Excel users make one work, so a workbook sorted here
+gave wrong numbers from then on, silently.
+
+**The fix.** One text order, `compareText` in `lib/sheets/formula/values.ts`, used by the sort and
+by every comparison in the engine: character by character, case aside, as Excel sorts. The ribbon's
+sort, Custom Sort, `=SORT()` and the lookups now agree.
+
+**Not changed.** Excel's own collation also places accented letters beside their plain ones and
+some punctuation apart; here they sort by character code, after z. The filter's list of values
+still lists numbers in text by value, which only changes what the list looks like.
+
 ### 2026-09-29 — Typed times, and dates with a month's name
 
 Tests: `tests/unit/sheetsTypedDates.test.ts` (9). The mutation run caught 15 of 15, and the control

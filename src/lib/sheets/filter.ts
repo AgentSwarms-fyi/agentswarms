@@ -6,7 +6,7 @@
 import { parseRangeA1, type RangeAddr } from "./a1";
 import type { CellInput } from "./engine";
 import { shiftFormula } from "./formula/shift";
-import { isError, type Scalar } from "./formula/values";
+import { compareText, isError, type Scalar } from "./formula/values";
 
 export type FilterCond = {
   op:
@@ -208,8 +208,7 @@ export function compareForSort(a: Scalar, b: Scalar): number {
   const rb = rank(b);
   if (ra !== rb) return ra - rb;
   if (typeof a === "number" && typeof b === "number") return a - b;
-  if (typeof a === "string" && typeof b === "string")
-    return a.localeCompare(b, undefined, { sensitivity: "base", numeric: true });
+  if (typeof a === "string" && typeof b === "string") return compareText(a, b);
   if (typeof a === "boolean" && typeof b === "boolean") return Number(a) - Number(b);
   return 0;
 }
