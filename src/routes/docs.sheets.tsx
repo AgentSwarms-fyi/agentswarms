@@ -113,6 +113,12 @@ function SheetsDocsPage() {
           alone a formula the change would break.
         </li>
         <li>
+          <strong>Notes.</strong> Shift+F2 (or New note… on a cell&apos;s menu) writes a note on the
+          cell. A red corner marks it, and it shows on hover. Notes move with their rows in a sort,
+          come with a paste, and can be searched with Find (Look in: Notes). An Excel file&apos;s
+          notes come in, and go back out in a download.
+        </li>
+        <li>
           <strong>Named ranges.</strong> Select cells and type a new name in the Name box to name
           them; type a name there to go to its cells. Data → Names lists, adds, edits, renames and
           deletes names, each with what it comes to now. Formulas use them as in Excel (
@@ -246,11 +252,11 @@ function SheetsDocsPage() {
         <strong>Import Excel or CSV</strong> on the Sheets page starts a workbook from a file, and{" "}
         <strong>File → Import sheets</strong> adds a file&apos;s sheets to an open one. An .xlsx
         brings its formulas (array formulas and newer functions such as XLOOKUP included), number
-        formats, fonts, fills, borders, alignment, merged cells, links, widths, heights and hidden
-        rows and columns, and its named ranges (the import names any it leaves out). A formula using
-        a function Sheets does not compute yet shows the value Excel last saved, marked, and goes
-        back to Excel as written. A CSV&apos;s delimiter is detected, and text that looks like a
-        formula stays text.
+        formats, fonts, fills, borders, alignment, merged cells, links, notes, widths, heights and
+        hidden rows and columns, and its named ranges (the import names any it leaves out). A
+        formula using a function Sheets does not compute yet shows the value Excel last saved,
+        marked, and goes back to Excel as written. A CSV&apos;s delimiter is detected, and text that
+        looks like a formula stays text.
       </P>
       <P>
         <strong>File → Download as Excel</strong> writes every sheet: grid sheets with their

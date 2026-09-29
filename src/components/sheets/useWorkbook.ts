@@ -38,6 +38,8 @@ export type CellEdit = {
   format?: string | null;
   style?: CellStyle | null;
   link?: string | null;
+  /** The cell's note: undefined keeps it, null removes it (R152). */
+  note?: string | null;
 };
 
 type GridMeta = Partial<Omit<GridData, "cells">>;
@@ -520,6 +522,7 @@ export function useWorkbook(args: {
         format: c.cell?.f ?? null,
         style: c.cell?.s ?? null,
         link: c.cell?.l ?? null,
+        note: c.cell?.n ?? null,
       })),
     );
     setActiveTabId(entry.tabId);

@@ -235,6 +235,8 @@ export function sortEdits(
   format: string | null;
   style: CellInput["s"] | null;
   link: string | null;
+  note: string | null;
+  cached: CellInput["c"] | null;
 }[] {
   const first = range.r0 + (hasHeader ? 1 : 0);
   const rows: number[] = [];
@@ -258,6 +260,8 @@ export function sortEdits(
     format: string | null;
     style: CellInput["s"] | null;
     link: string | null;
+    note: string | null;
+    cached: CellInput["c"] | null;
   }[] = [];
   order.forEach((src, i) => {
     const dst = rows[i];
@@ -271,6 +275,10 @@ export function sortEdits(
         format: cell?.f ?? null,
         style: cell?.s ?? null,
         link: cell?.l ?? null,
+        // A row's note and Excel's saved value go with it (R152): a sort
+        // dropped both, the latter turning Excel's value into #NAME?.
+        note: cell?.n ?? null,
+        cached: cell?.c ?? null,
       });
     }
   });

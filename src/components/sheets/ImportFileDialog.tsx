@@ -37,6 +37,9 @@ type Parsed = {
   kind: "xlsx" | "csv";
 };
 
+/** How many of a sheet's cells carry a note (Excel's comments), R152. */
+const noteCount = (grid: GridData) => Object.values(grid.cells).filter((c) => c.n).length;
+
 const ACCEPT =
   ".xlsx,.xlsm,.csv,.tsv,.txt,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv";
 
@@ -214,8 +217,9 @@ export function ImportFileDialog({
             {workbookId ? "Import sheets from a file" : "Import an Excel or CSV file"}
           </DialogTitle>
           <DialogDescription>
-            An .xlsx workbook comes in with its formulas, formats, merged cells, links, column
-            widths and row heights. A CSV comes in as one sheet, its numbers and dates recognised.
+            An .xlsx workbook comes in with its formulas, formats, merged cells, links, notes,
+            column widths and row heights. A CSV comes in as one sheet, its numbers and dates
+            recognised.
           </DialogDescription>
         </DialogHeader>
         <div
@@ -280,6 +284,8 @@ export function ImportFileDialog({
                   )}
                   <span className="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground">
                     {s.cells.toLocaleString()} {s.cells === 1 ? "cell" : "cells"}
+                    {noteCount(s.grid) > 0 &&
+                      ` · ${noteCount(s.grid)} ${noteCount(s.grid) === 1 ? "note" : "notes"}`}
                     {s.cachedFormulas > 0 && ` · ${s.cachedFormulas} kept at Excel's value`}
                   </span>
                 </li>

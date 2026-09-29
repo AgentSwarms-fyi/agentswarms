@@ -109,6 +109,47 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-29 — Cell notes
+
+Tests: `tests/unit/sheetsNotes.test.ts` (14), over `tests/fixtures/sheets/openpyxl-notes.xlsx` (made
+by `make_openpyxl_notes.py`). The mutation run caught 20 of 20, and the control survived.
+
+#### R152 · S2 · A file with notes could not be imported, and notes were dropped everywhere
+
+**Found.** openpyxl writes a cell's comment (Excel's note) to `xl/comments/comment1.xml`, linked
+by an absolute path. The file library only knows Excel's own `xl/comments1.xml`, and threw while
+loading. The Import dialog said "Could not read Budget with notes.xlsx: Cannot read properties of
+undefined (reading 'comments')". Not the notes alone: the whole workbook could not come in. A
+file saved by Excel came in, and its notes were dropped. A cell had nowhere to keep one, a
+download wrote none, and there was no way to write one. A shared budget or report explains its
+figures in notes.
+
+**The fix.**
+- **Reading.** Notes are read from the package directly, whatever its layout: Excel's notes, and
+  Excel 365's threaded comments (the replies after the first). The author leads the text, as Excel
+  shows it ("Asha:" on its own line). The file library no longer sees the comment parts, so a
+  layout it does not expect cannot stop an import. The dialog counts each sheet's notes.
+- **Keeping.** A cell keeps its note, up to Excel's 32,767 characters, and the server's schema
+  takes it. A note on an empty cell is kept, as Excel keeps it.
+- **Writing.** Shift+F2, or New note… on the cell's menu; Edit note… and Delete note once there
+  is one. Ctrl+Enter saves.
+- **Showing.** A red corner at the cell's top right; the note on hover, and beside the active
+  cell.
+- **Following the cell.** A sort moves notes with their rows; paste and cut bring them; inserted
+  and deleted rows move them. Undo takes any of it back.
+- **Find.** Look in: Notes.
+- **Download.** Each note goes out as Excel's note. The file library names every note's author
+  "Author"; that placeholder is ignored on the way back in, so a round trip adds no "Author:".
+
+**Also found: a sort dropped Excel's saved values.** A formula Sheets does not compute shows the
+value Excel last saved. A sort rewrote the formula without it, and the cell showed `#NAME?` in
+place of its figure. The saved value now moves with its formula.
+
+**Found while driving it: Clear all left the note.** On B4, Home → Clear → Clear all emptied the
+cell, and its red corner, hover text and note card stayed. Excel's Clear All takes notes too.
+Clear all now does. Clear contents still leaves the note, as Excel's does, and a new **Clear
+notes** takes only the notes.
+
 ### 2026-09-29 — Freeze panes, and charts over the headers
 
 Tests: `tests/unit/sheetsFreeze.test.ts` (11). The grid is drawn to HTML with `renderToStaticMarkup`

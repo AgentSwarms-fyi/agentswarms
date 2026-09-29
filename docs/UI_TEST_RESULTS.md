@@ -15,6 +15,46 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-29 — Cell notes, ADVERSARIAL_LOG R152
+
+**Why this round exists.** Keep hunting: a report made in Python, with comments in it, would not
+import.
+
+Fixtures:
+- **"R152 notes"** (`ad80b9cb…`), from `openpyxl-notes.xlsx`. Every change was undone, except
+  the Budget rows: they are left sorted A to Z (Rent, Software, Travel).
+- **"R152 roundtrip"** (`606b6ada…`), from that workbook's own download.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before | Sheets → Import, `Budget with notes.xlsx` (openpyxl) | "Could not read Budget with notes.xlsx: Cannot read properties of undefined (reading 'comments')"; no workbook |
+| After: import | The same file | Budget 9 cells, Notes 2 1 cell; created |
+| The notes | Budget | Red corners on D2 (an empty cell), B3, A4 and B5; B3 on hover: "Asha:", then "Two trips to the Lisbon office." |
+| The active cell | B3 | The note card beside it |
+| Shift+F2 | C2; typed; Ctrl+Enter | "New note on C2"; saved, the corner on C2; undone |
+| The cell's menu | B3 | "Edit note…" and "Delete note" |
+| Sort | A2:B4, A to Z | Software and its note to A3; 450 and its note to B4 |
+| Copy and paste | B4 → Copy on its menu; F4, then a paste event carrying the copied text | F4 450 with B4's note; undone |
+| Find, Values | `Lisbon` | "Nothing matches "Lisbon" in this sheet" |
+| Find, Notes | `Lisbon` | "1 cell found": B4, and the note under a Note column |
+| Find in the workbook | `Asha`, Notes | "3 cells found": Budget B4 and B5, Notes 2 A1 |
+| Replace | The Replace tab | Look in fixed to Formulas, as Excel's |
+| Reload | The page again | Every note still there; D2 on hover: "Ben:", then "Ask finance about Q4." |
+| Download | File → Download as Excel; openpyxl | Comments on D2, A3, B4, B5 and Notes 2 A1, each opening with its author ("Asha:", "Ben:"); `xl/comments1.xml`, `xl/comments2.xml` and their VML drawings |
+| Round trip | That download imported as "R152 roundtrip" | The four Budget notes as they were; no "Author:" added, no author twice |
+| Import count | That file in the Import dialog again, cancelled | "Budget 9 cells · 4 notes", "Notes 2 1 cell · 1 note" |
+| Found: Clear all | B4, Home → Clear → Clear all (first build) | B4 emptied; the note, its corner and its card stayed |
+| Clear contents | B4 | 450 gone; the note kept, as Excel's; undone |
+| Clear all | B4 | The cell gone, with its note and card; B5 1500; undone |
+| Clear notes | A3 | Software kept, the note gone; undone |
+| Delete note | D2 (only a note), its menu | The cell gone; undone |
+
+Paste on the cell's menu reads the clipboard, which the test browser refuses, so the paste went in
+as the event Ctrl+V sends. The pane's window was covered for part of the round; its menus' closing
+animations waited, and were finished from the page before the next click. Its viewport also went
+briefly phone-sized, and the "Best on a larger screen" notice opened; it was closed. A viewer was
+not driven: a read-only workbook opens no cell menu, and Shift+F2 checks it (source).
+
 ## 2026-09-29 — Freeze panes, ADVERSARIAL_LOG R151
 
 **Why this round exists.** Keep hunting: `frozenRows` was read from and written to files, and

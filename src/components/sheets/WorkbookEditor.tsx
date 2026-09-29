@@ -83,6 +83,7 @@ import {
 } from "@/utils/sheets.functions";
 import { selRange, type Selection } from "@/lib/sheets/selection";
 import { LinkDialog } from "./LinkDialog";
+import { NoteDialog } from "./NoteDialog";
 import { OpenTableDialog } from "./OpenTableDialog";
 import { DEFAULT_COL_W, ROW_H, SheetGrid, type Editing, type GridGeometry } from "./SheetGrid";
 import { useSheetCharts } from "./useSheetCharts";
@@ -130,7 +131,7 @@ const NEWLINE = String.fromCharCode(10);
 type Clip = {
   tabId: string;
   range: RangeAddr;
-  inputs: ({ i: string; f?: string; s?: CellStyle; l?: string } | undefined)[][];
+  inputs: ({ i: string; f?: string; s?: CellStyle; l?: string; n?: string } | undefined)[][];
   /** What the cells showed when copied, for Paste Values. */
   values: Scalar[][];
   tsv: string;
@@ -300,6 +301,30 @@ export function WorkbookEditor({
   );
 
   /** The active cell's link, with what to do about it. */
+  /** The active cell's note, beside it, as Excel shows a note on hover (R152). */
+  const noteCard = (geo: GridGeometry) => {
+    if (!engine || !tabId || editing) return null;
+    const note = engine.getInput(tabId, focus.row, focus.col)?.n;
+    if (!note || (geo.has && !geo.has(focus.row, focus.col))) return null;
+    const box = mergeAt(merges, focus.row, focus.col) ?? {
+      r0: focus.row,
+      c0: focus.col,
+      r1: focus.row,
+      c1: focus.col,
+    };
+    return (
+      <div
+        role="note"
+        aria-label={`Note on ${a1(focus.row, focus.col)}`}
+        className="pointer-events-none absolute z-30 max-h-48 w-56 overflow-hidden whitespace-pre-wrap break-words rounded-sm border border-amber-400/70 bg-amber-50 px-2 py-1 text-xs text-amber-950 shadow-md dark:bg-amber-950 dark:text-amber-50"
+        style={{ left: geo.cols.end(box.c1) + 6, top: geo.rows.start(box.r0) }}
+        data-testid="note-card"
+      >
+        {note}
+      </div>
+    );
+  };
+
   const linkChip = (geo: GridGeometry) => {
     if (!engine || !tabId) return null;
     // The active cell's link, with what to do about it.
@@ -723,14 +748,24 @@ export function WorkbookEditor({
     eachCell((r, c) => {
       const cur = engine.getInput(tabId, r, c);
       if (!cur) return;
+      // Clear All takes the notes too, as Excel's; Clear Contents leaves them (R152).
       if (kind === "all")
-        edits.push({ row: r, col: c, input: "", format: null, style: null, link: null });
+        edits.push({
+          row: r,
+          col: c,
+          input: "",
+          format: null,
+          style: null,
+          link: null,
+          note: null,
+        });
       else if (kind === "formats")
         edits.push({ row: r, col: c, input: cur.i, format: null, style: null });
       else if (kind === "contents") {
         if (cur.i) edits.push({ row: r, col: c, input: "" });
       } else if (kind === "links" && cur.l)
         edits.push({ row: r, col: c, input: cur.i, link: null });
+      else if (kind === "notes" && cur.n) edits.push({ row: r, col: c, input: cur.i, note: null });
     });
     wb.applyEdits(tabId, edits);
     if (kind === "all" || kind === "formats") {
@@ -838,6 +873,12 @@ export function WorkbookEditor({
 
   // ── Links ────────────────────────────────────────────────────────────────
   const [linkEdit, setLinkEdit] = useState<{ row: number; col: number } | null>(null);
+  // A cell's note being written (Shift+F2, the cell's menu), R152.
+  const [noteEdit, setNoteEdit] = useState<{ row: number; col: number } | null>(null);
+  const openNoteDialog = () => {
+    if (wb.readOnly) return;
+    setNoteEdit({ row: focus.row, col: focus.col });
+  };
   const openLinkDialog = () => {
     if (editing) commit(0, 0);
     setLinkEdit({ row: focus.row, col: focus.col });
@@ -1075,11 +1116,13 @@ export function WorkbookEditor({
           rows: used.rows,
           cols: used.cols,
           text:
-            lookIn === "formulas"
-              ? (r: number, c: number) => engine.getInput(t.id, r, c)?.i || undefined
-              : (r: number, c: number) =>
-                  cellView(engine.getValue(t.id, r, c), engine.getInput(t.id, r, c)).text ||
-                  undefined,
+            lookIn === "notes"
+              ? (r: number, c: number) => engine.getInput(t.id, r, c)?.n || undefined
+              : lookIn === "formulas"
+                ? (r: number, c: number) => engine.getInput(t.id, r, c)?.i || undefined
+                : (r: number, c: number) =>
+                    cellView(engine.getValue(t.id, r, c), engine.getInput(t.id, r, c)).text ||
+                    undefined,
         };
       });
   };
@@ -1192,7 +1235,9 @@ export function WorkbookEditor({
         const v = engine.getValue(tabId, r, c);
         vals.push(v);
         line.push(cellView(v, input).text);
-        ins.push(input ? { i: input.i, f: input.f, s: input.s, l: input.l } : undefined);
+        ins.push(
+          input ? { i: input.i, f: input.f, s: input.s, l: input.l, n: input.n } : undefined,
+        );
       }
       rows.push(line);
       inputs.push(ins);
@@ -1251,9 +1296,10 @@ export function WorkbookEditor({
                 ? shiftFormula(input, dst.row - src.row, dst.col - src.col)
                 : input,
             format: cell?.f ?? null,
-            // Excel's paste brings the formats and links along with the values.
+            // Excel's paste brings the formats, links and notes along with the values.
             style: cell?.s ?? null,
             link: cell?.l ?? null,
+            note: cell?.n ?? null,
           });
         }),
       );
@@ -1263,14 +1309,30 @@ export function WorkbookEditor({
         for (let r = internal.range.r0; r <= internal.range.r1; r++) {
           for (let c = internal.range.c0; c <= internal.range.c1; c++) {
             if (!dests.has(`${r},${c}`) && internal.tabId === tabId)
-              edits.push({ row: r, col: c, input: "", format: null, style: null, link: null });
+              edits.push({
+                row: r,
+                col: c,
+                input: "",
+                format: null,
+                style: null,
+                link: null,
+                note: null,
+              });
           }
         }
         if (internal.tabId !== tabId) {
           const srcEdits: CellEdit[] = [];
           for (let r = internal.range.r0; r <= internal.range.r1; r++) {
             for (let c = internal.range.c0; c <= internal.range.c1; c++)
-              srcEdits.push({ row: r, col: c, input: "", format: null, style: null, link: null });
+              srcEdits.push({
+                row: r,
+                col: c,
+                input: "",
+                format: null,
+                style: null,
+                link: null,
+                note: null,
+              });
           }
           wb.applyEdits(internal.tabId, srcEdits);
         }
@@ -1487,6 +1549,12 @@ export function WorkbookEditor({
       setSelection((s) =>
         e.shiftKey ? { anchor: s.anchor, focus: to } : { anchor: to, focus: to },
       );
+      return;
+    }
+    if (e.key === "F2" && e.shiftKey) {
+      // Excel's Shift+F2: the active cell's note (R152).
+      e.preventDefault();
+      openNoteDialog();
       return;
     }
     if (e.key === "F2") {
@@ -1989,6 +2057,7 @@ export function WorkbookEditor({
                       {rules.overlay(geo)}
                       {charts.overlay(geo)}
                       {linkChip(geo)}
+                      {noteCard(geo)}
                     </>
                   )}
                   editing={editing}
@@ -2072,6 +2141,7 @@ export function WorkbookEditor({
                     range={range}
                     hiddenRowsIn={[...hiddenRows].some((r) => r >= range.r0 && r <= range.r1)}
                     hiddenColsIn={[...hiddenCols].some((c) => c >= range.c0 && c <= range.c1)}
+                    hasNote={!!focusInput?.n}
                     onClose={() => {
                       setMenu(null);
                       // Back to the grid before the action runs (a dialog it opens
@@ -2118,6 +2188,16 @@ export function WorkbookEditor({
                       clear: clearSelection,
                       clearFormats: () => clear("formats"),
                       link: openLinkDialog,
+                      note: openNoteDialog,
+                      deleteNote: () =>
+                        wb.applyEdits(tabId, [
+                          {
+                            row: focus.row,
+                            col: focus.col,
+                            input: focusInput?.i ?? "",
+                            note: null,
+                          },
+                        ]),
                       insertRowsAbove: () => structural("rows", range.r0, range.r1 - range.r0 + 1),
                       insertRowsBelow: () =>
                         structural("rows", range.r1 + 1, range.r1 - range.r0 + 1),
@@ -2277,6 +2357,37 @@ export function WorkbookEditor({
         />
       )}
       {charts.dialogs}
+      {noteEdit && engine && tabId && (
+        <NoteDialog
+          open
+          cell={a1(noteEdit.row, noteEdit.col)}
+          initial={engine.getInput(tabId, noteEdit.row, noteEdit.col)?.n ?? ""}
+          onClose={() => {
+            setNoteEdit(null);
+            gridRef.current?.focus({ preventScroll: true });
+          }}
+          onSave={(text) => {
+            const cur = engine.getInput(tabId, noteEdit.row, noteEdit.col);
+            wb.applyEdits(tabId, [
+              { row: noteEdit.row, col: noteEdit.col, input: cur?.i ?? "", note: text || null },
+            ]);
+            setNoteEdit(null);
+            gridRef.current?.focus({ preventScroll: true });
+          }}
+          onDelete={
+            engine.getInput(tabId, noteEdit.row, noteEdit.col)?.n
+              ? () => {
+                  const cur = engine.getInput(tabId, noteEdit.row, noteEdit.col);
+                  wb.applyEdits(tabId, [
+                    { row: noteEdit.row, col: noteEdit.col, input: cur?.i ?? "", note: null },
+                  ]);
+                  setNoteEdit(null);
+                  gridRef.current?.focus({ preventScroll: true });
+                }
+              : undefined
+          }
+        />
+      )}
       {linkEdit && engine && tabId && (
         <LinkDialog
           open
@@ -2467,6 +2578,8 @@ type MenuAction =
   | "clear"
   | "clearFormats"
   | "link"
+  | "note"
+  | "deleteNote"
   | "insertRowsAbove"
   | "insertRowsBelow"
   | "deleteRows"
@@ -2490,6 +2603,7 @@ function ContextMenu({
   range,
   hiddenRowsIn,
   hiddenColsIn,
+  hasNote,
   onClose,
   actions,
 }: {
@@ -2500,6 +2614,8 @@ function ContextMenu({
   range: RangeAddr;
   hiddenRowsIn: boolean;
   hiddenColsIn: boolean;
+  /** The active cell has a note: Edit and Delete, not New. */
+  hasNote: boolean;
   onClose: () => void;
   actions: Record<MenuAction, () => void>;
 }) {
@@ -2598,6 +2714,8 @@ function ContextMenu({
       {item("Clear contents", actions.clear)}
       {item("Clear formats", actions.clearFormats)}
       {kind === "cell" && item("Insert link…", actions.link)}
+      {kind === "cell" && item(hasNote ? "Edit note…" : "New note…", actions.note)}
+      {kind === "cell" && hasNote && item("Delete note", actions.deleteNote, true)}
       {sep("s4")}
       {item("Save range to the lakehouse…", actions.saveToLakehouse)}
     </div>

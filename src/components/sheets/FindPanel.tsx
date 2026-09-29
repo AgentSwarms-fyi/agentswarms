@@ -64,7 +64,7 @@ export function FindPanel({
   const [replacement, setReplacement] = useState(initial.replacement);
   const [matchCase, setMatchCase] = useState(initial.matchCase);
   const [entireCell, setEntireCell] = useState(initial.entireCell);
-  const [lookIn, setLookIn] = useState<"values" | "formulas">(initial.lookIn);
+  const [lookIn, setLookIn] = useState<"values" | "formulas" | "notes">(initial.lookIn);
   const [within, setWithin] = useState<FindWithin>(initial.within);
   useEffect(() => {
     onRemember({ text, replacement, matchCase, entireCell, lookIn, within });
@@ -260,10 +260,11 @@ export function FindPanel({
               value={replacing ? "formulas" : lookIn}
               disabled={replacing}
               title={replacing ? "Replace changes what was typed, as Excel's does" : undefined}
-              onChange={(e) => setLookIn(e.target.value as "values" | "formulas")}
+              onChange={(e) => setLookIn(e.target.value as "values" | "formulas" | "notes")}
             >
               <option value="values">Values</option>
               <option value="formulas">Formulas</option>
+              <option value="notes">Notes</option>
             </select>
           </label>
           <label className="flex items-center gap-1">
@@ -334,7 +335,11 @@ export function FindPanel({
                   {within === "workbook" && <th className="px-2 py-1 font-medium">Sheet</th>}
                   <th className="px-2 py-1 font-medium">Cell</th>
                   <th className="px-2 py-1 font-medium">
-                    {replacing || lookIn === "formulas" ? "Contents" : "Value"}
+                    {replacing || lookIn === "formulas"
+                      ? "Contents"
+                      : lookIn === "notes"
+                        ? "Note"
+                        : "Value"}
                   </th>
                 </tr>
               </thead>

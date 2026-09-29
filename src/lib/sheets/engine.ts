@@ -66,6 +66,8 @@ export type CellInput = {
   s?: CellStyle;
   l?: string;
   c?: string | number | boolean;
+  /** The cell's note (Excel's comment), as Excel shows it: "Asha:\nText" (R152). */
+  n?: string;
 };
 
 export type GridData = {
@@ -317,6 +319,8 @@ export class WorkbookEngine {
       format?: string | null;
       style?: CellStyle | null;
       link?: string | null;
+      /** The note: undefined keeps it, null removes it (R152). */
+      note?: string | null;
     }[],
   ): void {
     const s = this.sheets.get(sheetId);
@@ -340,7 +344,12 @@ export class WorkbookEngine {
         if (e.link === null) delete next.l;
         else next.l = e.link;
       }
-      if (next.i === "" && !next.f && !next.s && !next.l) delete s.grid.cells[key];
+      if (e.note !== undefined) {
+        if (!e.note) delete next.n;
+        else next.n = e.note;
+      }
+      // A cell that holds only a note is kept, as Excel keeps it.
+      if (next.i === "" && !next.f && !next.s && !next.l && !next.n) delete s.grid.cells[key];
       else s.grid.cells[key] = next;
       const id = cid(sheetId, e.row, e.col);
       if (!prev || prev.i !== e.input) {

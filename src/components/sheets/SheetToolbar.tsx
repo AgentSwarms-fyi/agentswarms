@@ -61,7 +61,7 @@ import {
 import { cn } from "@/lib/utils";
 import { ColorPicker } from "./ColorPicker";
 
-export type ClearKind = "all" | "formats" | "contents" | "links";
+export type ClearKind = "all" | "formats" | "contents" | "notes" | "links";
 
 export type ToolbarActions = {
   undo: () => void;
@@ -566,6 +566,7 @@ export function SheetToolbar({
                 <DropdownMenuItem onSelect={() => a.clear("contents")}>
                   Clear contents
                 </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => a.clear("notes")}>Clear notes</DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => a.clear("links")}>
                   Clear hyperlinks
                 </DropdownMenuItem>

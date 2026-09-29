@@ -30,6 +30,7 @@ import {
 import { strFromU8 } from "fflate";
 import { addChartsToXlsx, readXlsxCharts } from "./xlsxCharts";
 import { namesFromWorkbookXml, namesToWorkbookXml, type DefinedName } from "./definedNames";
+import { sheetNotes, withoutCommentRels } from "./xlsxNotes";
 import {
   addTextRuleAttributes,
   patchParts,
@@ -440,7 +441,9 @@ function autoFilterRange(af: unknown): string | null {
 export async function readXlsx(data: ArrayBuffer, opts: ReadOptions): Promise<ImportResult> {
   const ExcelJS = await excel();
   const wb: XBook = new ExcelJS.Workbook();
-  await wb.xlsx.load(data);
+  // Without its notes: they are read below, from the package, whatever wrote
+  // it. openpyxl's layout made ExcelJS throw and the whole file fail (R152).
+  await wb.xlsx.load(withoutCommentRels(data));
   // The package's sheet parts, for what ExcelJS reads wrongly (validation limits).
   const files = unzipSheetParts(data);
   const parts = files ? sheetParts(files) : [];
@@ -591,6 +594,15 @@ export async function readXlsx(data: ArrayBuffer, opts: ReadOptions): Promise<Im
     }
     const af = autoFilterRange(ws.autoFilter);
     if (af) grid.filter = { range: af, cols: {} };
+    // The sheet's notes, a note on an empty cell kept as Excel keeps it (R152).
+    if (part && files) {
+      for (const [ref, text] of sheetNotes(files, part)) {
+        const at = parseRangeA1(ref);
+        if (!at || !text) continue;
+        const key = cellKey(at.r0, at.c0);
+        cells[key] = { ...(cells[key] ?? { i: "" }), n: text };
+      }
+    }
     sheets.push({
       name: ws.name,
       grid,
@@ -788,6 +800,8 @@ export async function writeXlsx(
       }
       const st = styleToFile(input.s, input.f);
       Object.assign(cell, st);
+      // The note goes out as Excel's own (R152).
+      if (input.n) cell.note = input.n;
     }
     for (const m of s.grid.merges ?? []) ws.mergeCells(m);
     const ruleFormula = (f: string) => toFileFormula(inFile(`=${f}`));

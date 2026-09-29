@@ -286,13 +286,15 @@ export function useSheetRules({
     wb.changeGrid(tabId, (g) => {
       for (const e of edits) {
         const key = `${e.row},${e.col}`;
-        if (!e.input && !e.format && !e.style && !e.link) delete g.cells[key];
+        if (!e.input && !e.format && !e.style && !e.link && !e.note) delete g.cells[key];
         else
           g.cells[key] = {
             i: e.input,
             ...(e.format ? { f: e.format } : {}),
             ...(e.style ? { s: e.style } : {}),
             ...(e.link ? { l: e.link } : {}),
+            ...(e.note ? { n: e.note } : {}),
+            ...(e.cached !== null && e.input.startsWith("=") ? { c: e.cached } : {}),
           };
       }
       return g;

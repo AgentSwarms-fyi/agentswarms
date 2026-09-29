@@ -230,6 +230,26 @@ Deleting frozen rows moves it up. Undo takes a freeze back.
 A sheet keeps at most 100 rows and 50 columns frozen. An Excel file's frozen panes come in with it
 and go back out in a download.
 
+### Notes
+
+A cell can carry a note, as a comment does in Excel. **Shift+F2**, or **New note…** on the cell's
+menu, opens it, and **Ctrl+Enter** saves. Once a cell has a note, its menu has **Edit note…** and
+**Delete note**.
+
+A cell with a note has a red corner at its top right. The note shows on hover, and beside the
+active cell. A note can sit on an empty cell, as in Excel.
+
+A note stays with its cell:
+- a sort moves it with its row;
+- Copy and Paste bring it, and Cut moves it;
+- inserted and deleted rows move it.
+
+Undo takes any of these back. **Home → Clear → Clear all** takes the note with everything else.
+**Clear contents** leaves it, as in Excel, and **Clear notes** takes only the notes.
+
+**Find → Look in: Notes** searches notes, in the sheet or the whole workbook. An Excel file's
+notes come in with it, and go back out in a download.
+
 ### Formatting
 
 The ribbon's **Home** tab formats the selection, as Excel's does:
@@ -494,8 +514,8 @@ shown before anything is saved: each sheet, its size, and any name that has to c
 
 An `.xlsx` (or `.xlsm`; its macros are not kept) comes in with its formulas (shared and array
 formulas, and Excel's `_xlfn.` names such as XLOOKUP and UNIQUE), number formats, fonts, fills,
-borders, alignment and wrapping, merged cells, links, column widths, row heights, hidden rows and
-columns, frozen panes and gridlines. A sheet name with a character a formula cannot carry (`'`, `[`, `]`…) is
+borders, alignment and wrapping, merged cells, links, notes, column widths, row heights, hidden rows
+and columns, frozen panes and gridlines. A sheet name with a character a formula cannot carry (`'`, `[`, `]`…) is
 renamed, and every formula that named it follows.
 
 The file's **named ranges** come with it, with their comments, and the formulas that use them
@@ -508,6 +528,11 @@ compute here. The dialog says how many there are. Some are left out, and the imp
 A name that one sheet of the file scopes to itself comes in for the whole workbook, if no other
 name has it. Importing into an open workbook keeps that workbook's own name when both have one of
 the same name, and says so. A download writes every name back, in the file's sheet names.
+
+**Notes** come in on their cells, the author first ("Asha:" on its own line), whether Excel or a
+library such as openpyxl wrote them. Excel 365's threaded comments come in as one note, the
+replies after the first. The dialog counts each sheet's notes. A download writes each as Excel's
+note.
 
 A formula that uses a function Sheets does not compute yet (CUBEVALUE, a link to another
 workbook, a name the import had to leave out) shows **the value Excel last saved**, with a small amber mark and a note on hover

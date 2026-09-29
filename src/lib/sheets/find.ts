@@ -16,7 +16,8 @@ export type FindOptions = {
   matchCase?: boolean;
   /** The whole of the cell's text, not a part of it. */
   entireCell?: boolean;
-  lookIn: "formulas" | "values";
+  /** "notes": the cells' notes, as Excel's Look in: Notes (R152). */
+  lookIn: "formulas" | "values" | "notes";
 };
 
 export type FindWithin = "sheet" | "workbook";
@@ -27,7 +28,7 @@ export type FindMemory = {
   replacement: string;
   matchCase: boolean;
   entireCell: boolean;
-  lookIn: "values" | "formulas";
+  lookIn: "values" | "formulas" | "notes";
   within: FindWithin;
 };
 

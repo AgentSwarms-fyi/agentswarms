@@ -67,7 +67,12 @@ export function unzipSheetParts(data: ArrayBuffer): Unzipped | null {
         f.name.endsWith(".rels") ||
         f.name.startsWith("xl/worksheets/") ||
         f.name.startsWith("xl/drawings/") ||
-        f.name.startsWith("xl/charts/"),
+        f.name.startsWith("xl/charts/") ||
+        // Notes (R152): Excel's xl/commentsN.xml, openpyxl's xl/comments/,
+        // Excel 365's threaded comments and the people who wrote them.
+        f.name.startsWith("xl/comments") ||
+        f.name.startsWith("xl/threadedComments/") ||
+        f.name.startsWith("xl/persons/"),
     });
   } catch {
     return null;

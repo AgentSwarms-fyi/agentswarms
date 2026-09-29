@@ -522,7 +522,7 @@ export function SheetGrid(props: Props) {
     const value = engine.getValue(tabId, r, c);
     const deco = decorate?.(r, c);
     const st = input?.s;
-    if (value === null && !st && !input?.l && !deco && !merged) return;
+    if (value === null && !st && !input?.l && !input?.n && !deco && !merged) return;
     const view = cellView(
       value,
       input,
@@ -585,8 +585,14 @@ export function SheetGrid(props: Props) {
         role="gridcell"
         data-cell={a1(r, c)}
         title={
-          cachedNote ?? view.title ?? (input?.l ? `${input.l} (Ctrl+click to open)` : undefined)
+          [
+            input?.n,
+            cachedNote ?? view.title ?? (input?.l ? `${input.l} (Ctrl+click to open)` : undefined),
+          ]
+            .filter(Boolean)
+            .join("\n\n") || undefined
         }
+        data-note={input?.n ? true : undefined}
         data-cached={cached || undefined}
         className={cn(
           "absolute flex overflow-hidden",
@@ -620,6 +626,13 @@ export function SheetGrid(props: Props) {
           <span
             aria-hidden
             className="pointer-events-none absolute left-0 top-0 h-0 w-0 border-r-[6px] border-t-[6px] border-r-transparent border-t-amber-500"
+          />
+        )}
+        {input?.n && (
+          // A note, as Excel marks one: a red corner, top right (R152).
+          <span
+            aria-hidden
+            className="pointer-events-none absolute right-0 top-0 h-0 w-0 border-l-[6px] border-t-[6px] border-l-transparent border-t-red-600"
           />
         )}
         {deco?.bar && (

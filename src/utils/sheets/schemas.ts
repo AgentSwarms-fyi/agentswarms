@@ -360,6 +360,8 @@ export const gridSchema = z
             .optional(),
           // Excel's saved value for a formula this engine cannot compute.
           c: z.union([z.string().max(32767), z.number(), z.boolean()]).optional(),
+          // The cell's note (Excel's comment), R152.
+          n: z.string().max(32767).optional(),
         })
         .strict(),
     ),

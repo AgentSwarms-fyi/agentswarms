@@ -399,6 +399,18 @@ charts over the column headers). Open from that round:
 - **The keyboard's hidden text box stays in the body.** An input method's candidate window
   opened on a frozen cell, while scrolled, appears where the cell would be unfrozen.
 
+Closed with Cell notes: R152 (a file with notes could not be imported; notes were dropped
+everywhere; a sort dropped Excel's saved values; Clear all left the note). Open from that round:
+
+- **Threaded comments go out as notes.** An Excel 365 conversation comes in as one note, its
+  replies after the first. It goes back out as one legacy note, not as a thread.
+- **A note has no size, position or formatting.** Excel keeps a note's box size and bold runs;
+  here a note is plain text, shown in a card of fixed width.
+- **Every downloaded note's author is "Author".** That is the file library's placeholder. The
+  real author leads the text instead, so Excel shows who wrote it.
+- **The fill handle copies values and formats, not notes or links.** Copy and Paste bring both.
+  Whether a fill should carry notes, as Excel's may, is not settled.
+
 ## Rules that came out of doing this
 
 - A test that asserts source text is pinning a USE, not a definition; bound it
