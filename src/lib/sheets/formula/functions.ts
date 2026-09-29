@@ -1887,6 +1887,18 @@ export const LIFTS: ReadonlyMap<string, (argCount: number) => number[]> = new Ma
   ...["SUMIFS", "AVERAGEIFS", "MINIFS", "MAXIFS"].map((n) => [n, evenFromTwo] as const),
 ]);
 
+/**
+ * Functions that work over arrays by themselves, not through LIFTS, and the
+ * argument Excel before dynamic arrays read as one value: IF's condition,
+ * IFERROR's value, CHOOSE's index (R162).
+ */
+export const OWN_LIFTS: ReadonlyMap<string, readonly number[]> = new Map([
+  ["IF", [0]],
+  ["IFERROR", [0]],
+  ["IFNA", [0]],
+  ["CHOOSE", [0]],
+]);
+
 /** Every function name the engine knows, sorted (for autocomplete and the AI's context). */
 export const FUNCTION_NAMES: readonly string[] = Object.keys(F).sort();
 

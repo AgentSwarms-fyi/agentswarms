@@ -15,6 +15,12 @@ import { a1, cellKey, parseRangeA1, rangeA1, type RangeAddr } from "./a1";
 import type { CellInput, CellStyle, GridData } from "./engine";
 import { FUNCTIONS } from "./formula/functions";
 import { parseFormula, type Node } from "./formula/parser";
+import {
+  intersectionsForFile,
+  refIsRange,
+  singleFromFile,
+  withIntersections,
+} from "./formula/implicit";
 import { isError, type Scalar } from "./formula/values";
 import { renameSheetInFormula } from "./formula/shift";
 import { normalizeLink } from "./style";
@@ -371,6 +377,7 @@ export function computable(formula: string, names: ReadonlySet<string> = new Set
         return scope.has(n.name.toLowerCase());
       case "unary":
       case "percent":
+      case "single":
         return ok(n.arg, scope);
       case "bin":
         return ok(n.left, scope) && ok(n.right, scope);
@@ -458,6 +465,11 @@ export async function readXlsx(data: ArrayBuffer, opts: ReadOptions): Promise<Im
   const names = namesRead.names.map((d) => ({ ...d, ref: fromFileFormula(d.ref) }));
   warnings.push(...namesRead.warnings);
   const knownNames = computableNames(names);
+  // Names over several cells, where an older formula takes one value (R162).
+  const rangeNames = new Set(
+    names.filter((d) => refIsRange(d.ref)).map((d) => d.name.toLowerCase()),
+  );
+  const isRangeName = (name: string) => rangeNames.has(name.toLowerCase());
   const sheets: ImportedSheet[] = [];
   for (const ws of wb.worksheets as XSheet[]) {
     // FOUND IN R160: a very hidden sheet (Excel's helper sheets, shown only by
@@ -491,7 +503,14 @@ export async function readXlsx(data: ArrayBuffer, opts: ReadOptions): Promise<Im
         } else if (isFormula) {
           const text: string | undefined = cell.formula ?? (v as { formula?: string }).formula;
           if (text) {
-            input.i = `=${fromFileFormula(text)}`;
+            input.i = singleFromFile(`=${fromFileFormula(text)}`);
+            // FOUND IN R162: a plain formula is one from Excel before dynamic
+            // arrays, which takes one value where it expects one: =Price*Qty
+            // over whole columns is the row's own product. Read as a dynamic
+            // one here, it spilled a whole column into #SPILL!. It takes the
+            // @ that Excel 365 shows it with. An array formula is left as it is.
+            if ((v as { shareType?: string }).shareType !== "array")
+              input.i = withIntersections(input.i, isRangeName);
             // Excel's saved value, kept only where it will be needed: a
             // formula this engine cannot compute shows it instead.
             const cv = cachedValue((v as { result?: unknown }).result);
@@ -802,10 +821,13 @@ export async function writeXlsx(
       const cell = ws.getCell(r + 1, c + 1);
       const v = s.value(r, c);
       if (input.i.startsWith("=")) {
-        const formula = toFileFormula(inFile(input.i));
         const size = s.spill?.(r, c);
         const spills = !!size && (size.rows > 1 || size.cols > 1);
-        if (spills || s.arrayFormula?.(r, c)) {
+        const isDynamic = spills || !!s.arrayFormula?.(r, c);
+        // An @ as the file holds it: gone where the older reading takes one
+        // value anyway, _xlfn.SINGLE(…) elsewhere (R162).
+        const formula = toFileFormula(inFile(intersectionsForFile(input.i, isDynamic)));
+        if (isDynamic) {
           // A spilling formula, or one that works over arrays, goes out as
           // Excel 365's dynamic array formula (R161): an array formula over
           // the cells it fills, marked dynamic below. FOUND IN R161: written

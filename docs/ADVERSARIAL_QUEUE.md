@@ -352,10 +352,8 @@ left out the blank rows). Open from that round:
   A file that uses either shows Excel's saved value.
 - **A whole column spilled into the grid shows only the used rows.** Excel spills all 1,048,576,
   or `#SPILL!` below row 1. The part shown is the useful part; the difference is on purpose.
-- **Legacy files' implicit intersection.** A pre-dynamic-array file may use
-  `=SUMIF(A:A,D:D,B:B)` to mean the D value in the formula's own row. Sheets now lifts D:D the
-  way dynamic-array Excel does, so such a formula spills or shows `#SPILL!`. Excel marks these with
-  `@` when it opens the file; Sheets does not yet read `@`.
+- ~~Legacy files' implicit intersection.~~ Closed by R162: a file's plain formula takes Excel
+  365's `@`.
 
 Closed with the missing functions: R147 (seven listed long-tail functions never registered; 34
 more missing). Open from that round:
@@ -425,15 +423,21 @@ Ctrl+Z after a ribbon tool went nowhere). Open from that round:
 - **Sorting by colour or a custom list** (Excel's other Sort options) is not there, nor sorting
   left to right.
 
+Closed with formulas from older Excel: R162 (such a file's formulas spilled where Excel takes one
+value; no `@`). Open from that round:
+
+- **A function that may return a range takes no `@`.** Excel 365 shows `=@INDEX(A:A,0)` or
+  `=@OFFSET(A1,0,0,3)` for these in an older file; here they spill.
+- **Rules from older files** (conditional formatting, validation) are read the dynamic way.
+- **The list of array arguments comes from Excel's documented behaviour,** not from Excel itself:
+  there is no Excel on this machine. A function missing from it is read as before R162.
+- **A table's `[@col]` inside a grid** is not the same `@`; it is only for table sheets.
+
 Closed with dynamic arrays in downloads: R161 (a formula working over a range went out plain,
 so Excel took one value from it; a spill went out as a fixed Ctrl+Shift+Enter block). Open from
 that round:
 
-- **Reading older files the older way.** A plain formula in a file from Excel 2019 or older, or
-  written by a library such as openpyxl, is computed here the dynamic way; Excel 365 shows `@` in it
-  and takes one value. See "Legacy files' implicit intersection" under array formulas below.
-- **`@` and `_xlfn.SINGLE`** (how a dynamic formula keeps an older one's single value) are neither
-  read nor written.
+- ~~Reading older files the older way~~ and ~~`@` and `_xlfn.SINGLE`~~: closed by R162.
 - **More is marked than Excel would mark.** `=SUMPRODUCT(A1:A3*B1:B3)` works over arrays in every
   Excel, and is marked dynamic here. Excel 365 computes it the same; Excel 2019 shows it in braces.
 - **Only a download writes the mark.** Save to lakehouse writes values, so it is not affected.

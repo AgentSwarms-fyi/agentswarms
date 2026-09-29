@@ -19,7 +19,7 @@ import {
   type Scalar,
   type Value,
 } from "./values";
-import { FUNCTIONS, LIFTS } from "./functions";
+import { FUNCTIONS, LIFTS, OWN_LIFTS } from "./functions";
 import { tailOf, wholeRange, zipN } from "./arrays";
 
 export type RangeRef = {
@@ -305,6 +305,8 @@ export function evaluate(node: Node, env: EvalEnv): Value {
     }
     case "array":
       return node.rows.map((row) => row.map((n) => scalarOf(evaluate(n, env))));
+    case "single":
+      return intersect(node.arg, env);
     case "unary": {
       const v = evaluate(node.arg, env);
       if (node.op === "+") return v;
@@ -370,6 +372,16 @@ export function evaluate(node: Node, env: EvalEnv): Value {
           },
         };
       });
+      // One that works over arrays by itself (IF's condition) tells too.
+      // FOUND IN R162: the check R161 added missed these, so
+      // =SUM(IF(C1:C3,1,0)) went out as a plain formula.
+      const own = env.onArray ? OWN_LIFTS.get(node.name) : undefined;
+      if (
+        own?.some(
+          (i) => i < args.length && args[i].node.k !== "empty" && manyValues(args[i].value()),
+        )
+      )
+        env.onArray?.();
       // A function of single values given an array works on each element,
       // as in Excel. FOUND IN R144: ISNUMBER(SEARCH("an",A1:A5)) looked at A1
       // only, so SUMPRODUCT(--ISNUMBER(...)) counted 0 or 1.
@@ -395,6 +407,29 @@ export function evaluate(node: Node, env: EvalEnv): Value {
       return impl(args, { env, name: node.name, evaluate: (n) => evaluate(n, env) });
     }
   }
+}
+
+/**
+ * Excel's implicit intersection, @ (R162). From a column of cells, the one
+ * in the formula's own row; from a row, the one in its own column; from a
+ * block, the cell in both. Outside it, #VALUE!. A whole column holds every
+ * row, used or not. From an array that is not a range, its first value.
+ */
+function intersect(arg: Node, env: EvalEnv): Value {
+  const ref = rangeOf(arg, env);
+  if (!ref) {
+    const v = evaluate(arg, env);
+    return isMatrix(v) ? (v[0]?.[0] ?? null) : v;
+  }
+  const oneRow = ref.whole !== "cols" && ref.r0 === ref.r1;
+  const oneCol = ref.whole !== "rows" && ref.c0 === ref.c1;
+  const inRows = ref.whole === "cols" || (env.row >= ref.r0 && env.row <= ref.r1);
+  const inCols = ref.whole === "rows" || (env.col >= ref.c0 && env.col <= ref.c1);
+  const outside = err("#VALUE!", "@ takes the value in the formula's own row or column");
+  if (oneRow && oneCol) return env.cell(ref.sheet, ref.r0, ref.c0);
+  if (oneCol) return inRows ? env.cell(ref.sheet, env.row, ref.c0) : outside;
+  if (oneRow) return inCols ? env.cell(ref.sheet, ref.r0, env.col) : outside;
+  return inRows && inCols ? env.cell(ref.sheet, env.row, env.col) : outside;
 }
 
 /**

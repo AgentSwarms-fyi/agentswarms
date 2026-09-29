@@ -284,8 +284,10 @@ function SheetsDocsPage() {
         formats, fonts, fills, borders, alignment, merged cells, links, notes, widths, heights and
         hidden rows and columns, and its named ranges (the import names any it leaves out). A
         formula using a function Sheets does not compute yet shows the value Excel last saved,
-        marked, and goes back to Excel as written. A CSV&apos;s delimiter is detected, and text that
-        looks like a formula stays text.
+        marked, and goes back to Excel as written. A formula from older Excel is read as Excel 365
+        reads it: where it expects one value and meets a range, it takes the one in its own row, and
+        shows the <C>@</C> Excel 365 shows. A CSV&apos;s delimiter is detected, and text that looks
+        like a formula stays text.
       </P>
       <P>
         <strong>File → Download as Excel</strong> writes every sheet: grid sheets with their

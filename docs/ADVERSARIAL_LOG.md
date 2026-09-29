@@ -109,6 +109,51 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-29 — Formulas from older Excel, and @
+
+Tests: `tests/unit/sheetsImplicitIntersection.test.ts` (18). The mutation run caught 21 of 21, and
+the control survived. Its first run missed four, and four tests were made sharper: a whole column
+read below its data, a function's array taken to one value, IF's own condition, and a file with
+Excel's SINGLE. Fixture: `tests/fixtures/sheets/openpyxl-legacy.xlsx`, from
+`make_openpyxl_legacy.py`, with older Excel's value for each formula worked out by hand.
+
+#### R162 · S2 · A formula from older Excel spilled where Excel takes one value
+
+**Found.** A plain formula in a file is one from Excel before dynamic arrays (R161). Where it
+expects one value and meets a range, Excel takes the value in the formula's own row, and Excel 365
+shows an `@` there. Sheets read every formula as a dynamic one. Importing the fixture ("R162 legacy
+before"), where Excel shows D2:D4 as 10, 10, 12:
+- **`=Price*Qty`, names over whole columns,** showed `#SPILL!` in D2 and D3 and `#VALUE!` in D4. D4
+  spilled the whole column's products down to row 8, below the data, where the file has nothing.
+  `=B:B*C:C` did the same.
+- **`=A2:A4` in F2** spilled Pen, Ink and Pad into F2:F4; Excel shows Pen, and F3 and F4 are
+  empty. In G5, below the range, it spilled three names where Excel shows `#VALUE!`.
+- **`=SUM(LEN(A2:A4))` in H2** was 9, where Excel takes LEN of the row's own item: 3.
+- **Sheets had no `@`.** Typing `=@A2:A4` was a syntax error, and Excel 365's `_xlfn.SINGLE`
+  was an unknown function.
+
+SUMPRODUCT, LOOKUP, `=SUM(B2:B4)` and an array formula were already right, and stay so.
+
+**The fix.**
+- **`@` in formulas.** The lexer and parser read it, and the evaluator takes one value: from a
+  column, the cell in the formula's row; from a row, the one in its column; from a block, the cell
+  in both; outside, `#VALUE!`; from an array, its first value. A whole column holds every row.
+- **Reading a file** (`lib/sheets/formula/implicit.ts`): a plain formula takes an `@` before each
+  range, or name of several cells, where older Excel expects one value. Those places are an
+  operator's operand, a function's single-value argument (the arguments the engine lifts, and IF's
+  condition, IFERROR's value, CHOOSE's index), and the formula itself. Arguments every Excel works
+  over as arrays take none: SUMPRODUCT, LOOKUP's vectors, INDEX's array, the statistics of two
+  arrays, and the dynamic-array functions. That list errs toward reading a formula as today. An
+  array formula is left as it is, and `_xlfn.SINGLE(x)` comes in as `@(x)`.
+- **Writing a file.** An `@` where older Excel takes one value anyway is dropped, so the formula
+  goes back as it came; anywhere else, or in a dynamic array formula, it is written
+  `_xlfn.SINGLE(…)`.
+
+**Found while building it: R161's check missed functions that work over arrays themselves.** IF,
+IFERROR, IFNA and CHOOSE lift inside their own code, not through the evaluator, so
+`=SUM(IF(C1:C3,1,0))` and `=SUM(IFERROR(A1:A3,0))` would still have gone out as plain formulas,
+which Excel reads the older way. Their argument is now checked too.
+
 ### 2026-09-29 — Dynamic array formulas in downloads
 
 Tests: `tests/unit/sheetsDynamicArrays.test.ts` (12). The mutation run caught 17 of 17, and the

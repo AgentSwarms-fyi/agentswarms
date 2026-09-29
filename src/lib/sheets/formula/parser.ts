@@ -26,6 +26,8 @@ export type Node =
   | { k: "array"; rows: Node[][] }
   | { k: "call"; name: string; args: Node[] }
   | { k: "unary"; op: "-" | "+"; arg: Node }
+  /** @x: Excel's implicit intersection, the one value in the formula's row or column (R162). */
+  | { k: "single"; arg: Node }
   | { k: "percent"; arg: Node }
   | { k: "bin"; op: BinOp; left: Node; right: Node };
 
@@ -46,6 +48,12 @@ const BINARY: Record<string, number> = {
   "^": 5,
 };
 const UNARY_BP = 6;
+/** @ binds to the reference, name or call right after it: @A2:A9*2 is (@A2:A9)*2. */
+const SINGLE_BP = 7;
+
+/** Where each primary node (a reference, a name, a call, an @…) sits in the text: [start, end). */
+const SPANS = new WeakMap<Node, [number, number]>();
+export const spanOf = (n: Node): [number, number] | undefined => SPANS.get(n);
 
 export { FormulaSyntaxError };
 
@@ -81,6 +89,13 @@ export function parseFormula(body: string): Node {
   };
 
   const primary = (): Node => {
+    const start = peek()?.s;
+    const node = primaryNode();
+    if (start !== undefined && !SPANS.has(node)) SPANS.set(node, [start, tokens[i - 1].e]);
+    return node;
+  };
+
+  const primaryNode = (): Node => {
     const t = next();
     switch (t.t) {
       case "num":
@@ -117,6 +132,7 @@ export function parseFormula(body: string): Node {
           const arg = expr(UNARY_BP);
           return { k: "unary", op: t.v === "u-" ? "-" : "+", arg };
         }
+        if (t.v === "@") return { k: "single", arg: expr(SINGLE_BP) };
         throw new FormulaSyntaxError(`Unexpected "${t.v}"`, t.s);
       }
       case "(": {

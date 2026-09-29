@@ -78,7 +78,7 @@ export function sheetsIn(ref: string): string[] {
       walk(n.left);
       walk(n.right);
     }
-    if (n.k === "unary" || n.k === "percent") walk(n.arg);
+    if (n.k === "unary" || n.k === "percent" || n.k === "single") walk(n.arg);
   };
   const r = parseRef(ref);
   if (r.ok) walk(r.node);

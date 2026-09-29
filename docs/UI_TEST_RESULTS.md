@@ -15,6 +15,24 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-29 — Formulas from older Excel, ADVERSARIAL_LOG R162
+
+**Why this round exists.** R161 left it open: a file of older formulas read the dynamic way.
+
+Fixtures, kept: **"R162 legacy before"** (`7c392823…`) and **"R162 legacy after"** (`832a51a4…`),
+both from `openpyxl-legacy.xlsx`: Orders A1:C4 (Pen 2 5, Ink 10 1, Pad 4 3), names Price and Qty
+over columns B and C. In the second, N3 `=@A2:A4` was typed and kept.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before: import | Import Excel or CSV, the fixture; Create workbook | "Orders 25 cells", "2 named ranges (Price, Qty)" |
+| Before: the grid | Read | D2 and D3 `#SPILL!`, D4 `#VALUE!` and 10, 10, 12, 0 spilled into D5:D8; E the same, down to E11; F2:F4 Pen, Ink, Pad; G5:G7 Pen, Ink, Pad; H2 9; I2 6, J2 4, K2 16, L2 9 |
+| After: import | The same file, with M2 `=_xlfn.SINGLE(A2:A4)&"!"` added | "Orders 26 cells" |
+| After: the grid | Read | D2:D4 10, 10, 12; E2:E4 10, 10, 12; F2 Pen, F3 and F4 empty; G5 `#VALUE!`; H2 3; I2 6, J2 4, K2 16, L2 9; M2 Pen!; nothing below row 5 but G5 |
+| The formulas | D2, E3, H2, I2, M2 in the formula bar | `=@Price*@Qty`, `=@B:B*@C:C`, `=SUM(LEN(@A2:A4))`, `=SUMPRODUCT((C2:C4>1)*B2:B4)`, `=@(A2:A4)&"!"` |
+| Typing @ | N3, `=@A2:A4` | Ink |
+| Download | Download as Excel (.xlsx), the file's XML read | D2 `Price*Qty`, E2 `B:B*C:C`, F2 and N3 `A2:A4`, H2 `SUM(LEN(A2:A4))`, M2 `(A2:A4)&"!"`, all plain; no `@` anywhere; I2, J2 and L2 dynamic array formulas; the names as they came |
+
 ## 2026-09-29 — Dynamic array formulas in downloads, ADVERSARIAL_LOG R161
 
 **Why this round exists.** Keep hunting: whether a download computes in Excel as it does in

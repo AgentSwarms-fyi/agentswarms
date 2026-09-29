@@ -421,6 +421,13 @@ export function lex(src: string): Token[] {
       i = j;
       continue;
     }
+    // Excel's implicit intersection, @A2:A9: the one value in the formula's
+    // own row (R162). It stands before a reference, a name or a function.
+    if (ch === "@" && !prevIsOperand()) {
+      out.push({ t: "op", v: "@", s: i, e: i + 1 });
+      i++;
+      continue;
+    }
     // Operators
     const two = src.slice(i, i + 2);
     if (two === "<=" || two === ">=" || two === "<>") {

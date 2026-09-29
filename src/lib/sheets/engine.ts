@@ -131,6 +131,7 @@ function unknownFunctions(node: Node, out: Set<string>): void {
       break;
     case "unary":
     case "percent":
+    case "single":
       unknownFunctions(node.arg, out);
       break;
     case "bin":
@@ -163,6 +164,7 @@ function tablesIn(node: Node, out: Set<string>): void {
       break;
     case "unary":
     case "percent":
+    case "single":
       tablesIn(node.arg, out);
       break;
     case "bin":

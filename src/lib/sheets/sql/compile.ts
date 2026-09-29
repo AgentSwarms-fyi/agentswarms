@@ -408,6 +408,9 @@ class Compiler {
         const a = this.scalar(n.arg);
         return { sql: `(${toNum(a)} / 100.0)`, kind: "number", dbl: true, sub: a.sub };
       }
+      case "single":
+        // Each row's own value already: @ changes nothing in a column's SQL.
+        return this.scalar(n.arg);
       case "bin":
         return this.binary(n.op, this.scalar(n.left), this.scalar(n.right));
       case "call":

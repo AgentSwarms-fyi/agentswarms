@@ -100,6 +100,10 @@ A formula that returns several values (UNIQUE, FILTER, SORT, SEQUENCE) **spills*
 right. If a typed value is in the way, the formula shows `#SPILL!` and says which cells it needs;
 clear them and it spills again. A formula that reaches itself shows `#CYCLE!`.
 
+**`@`** takes one value where a range would spill, as in Excel 365: from a column, the cell in the
+formula's own row (`=@A2:A9` in row 5 is A5); from a row, the cell in its own column; from a block,
+the cell in both. Outside the range it is `#VALUE!`, and from an array it is the first value.
+
 While a formula is being typed:
 
 - The list under the formula bar suggests function names and the workbook's names. Press
@@ -660,6 +664,15 @@ formulas, and Excel's `_xlfn.` names such as XLOOKUP and UNIQUE), number formats
 borders, alignment and wrapping, merged cells, links, notes, column widths, row heights, hidden rows
 and columns, frozen panes and gridlines. A sheet name with a character a formula cannot carry (`'`, `[`, `]`…) is
 renamed, and every formula that named it follows.
+
+**Formulas from older Excel.** A formula that a file holds as a plain formula (every formula of
+Excel 2019 and older, and every one a library such as openpyxl writes) is read as Excel 365 reads
+it: where it expects one value and meets a range, it takes the value in its own row, and shows an
+`@` there. `=Price*Qty`, with names over whole columns, becomes `=@Price*@Qty` and gives each row's
+own product; `=SUM(LEN(A2:A4))` becomes `=SUM(LEN(@A2:A4))`. Where every Excel works over arrays
+(SUMPRODUCT, LOOKUP, INDEX, and the dynamic-array functions) and in an array formula, nothing
+changes. A download gives such a formula back as it came, and an `@` that older Excel would not read
+the same goes out as Excel 365's `_xlfn.SINGLE`.
 
 **Hidden sheets** come in hidden, and so do very hidden ones (helper sheets that only a macro can
 show), so the formulas that read them still compute. The dialog marks each one "(hidden, as in
