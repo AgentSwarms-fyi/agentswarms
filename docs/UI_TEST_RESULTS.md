@@ -15,6 +15,33 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-29 — A model picker in Ask AI, ADVERSARIAL_LOG R158
+
+**Why this round exists.** The user asked where Ask AI's model is set, then asked for a picker.
+
+Fixtures: **"R154 query sheets"** (`6b6a8810…`). Three questions and one Fill with AI trial, nothing
+written; the pick was left on the default.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before: the panel | Ask AI | "Assistant · reads this workbook as you see it"; no model control |
+| Before: an answer | "What is the value of D1 on Sheet1?" | "The value of D1 on Sheet1 is EMEA." and "Cost $0.0007", no model named; the Audit Log: `openrouter/google/gemini-3-flash-preview` |
+| After: the panel | Ask AI | A Model row: OpenRouter · "Default · openrouter/google/gemini-3-flash-preview" |
+| The list | Open it | OpenRouter's live catalogue (441 models), "Default · … the assistant's model, set by an admin" first |
+| A pick | Search `gemini-2.5-flash`, pick google/gemini-2.5-flash | "Google: Gemini 2.5 Flash"; kept in the browser as `openrouter::google/gemini-2.5-flash` |
+| Asked on it | "What is the value of E1 on Sheet1?" | "The value of E1 on Sheet1 is 15524.94." and "openrouter/google/gemini-2.5-flash · Cost $0.0010" |
+| Reload | The page again, Ask AI | Still "Google: Gemini 2.5 Flash" |
+| Fill with AI | A1:A2, Fill with AI…, "the first letter", Try on 2 rows | "Model: openrouter/google/gemini-2.5-flash — change it in Ask AI."; T, E; cancelled |
+| The Audit Log | After both | Model calls on `openrouter/google/gemini-2.5-flash`: "Sheets fill with AI" and "Sheets assistant" ×2 |
+| A pick that is no model | `nosuch::model-x` put in the browser's store, reload, a question (first build) | The server: ""nosuch/model-x" is not a model the assistant can use; pick another, or the default." |
+| Found, then fixed | The same on the first build | The picker showed "OpenRouter · model-x" for it. Now, on load: "The assistant's model you picked (nosuch/model-x) is not available to you now; it uses the default.", and the pick is cleared |
+| The default | "What is B1 on Sheet1?" | "…41,399.86." and "openrouter/google/gemini-3-flash-preview · Cost $0.0016" |
+
+My click on the question box once landed on the "Chart this" chip, which put "Chart" before the
+question; the answer was still right. A model refused by an IAM rule was not driven: making a rule
+changes the instance's access settings. The picker leaves such models out, and the channel refuses
+them (source and the channel's own tests).
+
 ## 2026-09-29 — Text to columns, ADVERSARIAL_LOG R157
 
 **Why this round exists.** The queue's Text to Columns, the last common Data tool missing.

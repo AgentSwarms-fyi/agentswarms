@@ -616,6 +616,7 @@ describe("every Sheets server function asks the resolver", () => {
     sheetsCatalogAssets: "reads the catalog as the caller",
     sheetsRegisterTable: "a schema the caller owns",
     sheetsShareGroups: "lists groups",
+    sheetsAssistDefaults: "names the admin's default assistant model; reads no workbook",
   };
   const files = [
     "src/utils/sheets.functions.ts",

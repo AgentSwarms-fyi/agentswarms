@@ -788,8 +788,9 @@ export function RuntimeTab({
                   className="h-8 font-mono text-xs"
                 />
                 <p className="text-[10px] text-muted-foreground">
-                  provider/model the Sheets assistant and Fill with AI call. It goes through the
-                  chat channel, so each person's IAM model rules and budget apply.
+                  The default provider/model for the Sheets assistant and Fill with AI; each person
+                  may pick another in the panel. It goes through the chat channel, so each person's
+                  IAM model rules and budget apply.
                 </p>
               </div>
               <NumberField

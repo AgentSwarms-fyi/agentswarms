@@ -254,6 +254,8 @@ const REVIEWED: Record<string, number> = {
   "src/components/observability/TeamSpend.tsx": 1,
   "src/components/sheets/OpenTableDialog.tsx": 3,
   "src/components/sheets/SaveToLakehouseDialog.tsx": 1,
+  // R158: reads the admin's model name once, for the picker's default; edits nothing.
+  "src/components/sheets/useAssistModel.ts": 1,
   "src/routes/_authenticated/admin.iam.tsx": 3,
   "src/routes/_authenticated/ai-analyst.tsx": 3,
   "src/routes/_authenticated/bi_.$dashboardId.tsx": 6,

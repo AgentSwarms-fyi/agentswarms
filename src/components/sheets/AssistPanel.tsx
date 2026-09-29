@@ -22,6 +22,7 @@ import { runTool, workbookContext, type TableColumns } from "@/lib/sheets/assist
 import type { WorkbookEngine } from "@/lib/sheets/engine";
 import { cn } from "@/lib/utils";
 import { sheetsAssist } from "@/utils/sheetsAssist.functions";
+import { BiModelSelect } from "@/components/bi/BiModelSelect";
 import { DEFAULT_COL_W, ROW_H } from "./SheetGrid";
 
 type Turn =
@@ -32,6 +33,8 @@ type Turn =
       steps: string[];
       actions: { action: AssistAction; state: "new" | "applied" | "failed"; note?: string }[];
       cost?: number | null;
+      /** The model that answered, as provider/model. */
+      model?: string;
     }
   | { role: "error"; text: string };
 
@@ -64,6 +67,9 @@ export function AssistPanel({
   apply,
   onFill,
   onClose,
+  model = null,
+  onModel,
+  defaultModel = null,
 }: {
   engine: WorkbookEngine;
   workbookId: string;
@@ -83,6 +89,11 @@ export function AssistPanel({
   /** Open Fill with AI on the selection. */
   onFill: () => void;
   onClose: () => void;
+  /** The model picked ("provider::model"), or null for the admin's (R158). */
+  model?: string | null;
+  onModel?: (m: string | null) => void;
+  /** The admin's model, to name the default. */
+  defaultModel?: string | null;
 }) {
   const assistFn = useServerFn(sheetsAssist);
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -115,6 +126,7 @@ export function AssistPanel({
     history.current.push({ role: "user", content: hint ? `${q}\n\n(${hint})` : q });
     const steps: string[] = [];
     let cost = 0;
+    let answeredBy: string | undefined;
     // Proposals that cannot be carried out go back to the model once (R132).
     let rechecked = false;
     try {
@@ -136,10 +148,12 @@ export function AssistPanel({
             as_share: asShare,
             context,
             messages: history.current,
+            ...(model ? { model } : {}),
           },
         });
         if (!r.ok) throw new Error(r.error);
         cost += r.cost ?? 0;
+        answeredBy = r.model;
         const reply = r.reply;
         if (reply.type === "tools" && round < MAX_TOOL_ROUNDS) {
           history.current.push({ role: "assistant", content: JSON.stringify(reply) });
@@ -191,6 +205,7 @@ export function AssistPanel({
             steps: [...steps],
             actions: actions.map((action) => ({ action, state: "new" as const })),
             cost,
+            model: answeredBy,
           },
         ]);
         return;
@@ -282,6 +297,23 @@ export function AssistPanel({
           <X className="h-4 w-4" />
         </Button>
       </div>
+      {onModel && (
+        <div
+          className="flex items-center gap-2 border-b border-border px-3 py-1.5"
+          data-testid="assist-model"
+        >
+          <span className="shrink-0 text-xs text-muted-foreground">Model</span>
+          <BiModelSelect
+            className="min-w-0 flex-1"
+            value={model}
+            onChange={onModel}
+            allowUnset
+            unsetLabel={defaultModel ? `Default · ${defaultModel}` : "Default"}
+            unsetSub="the assistant's model, set by an admin"
+            disabled={!!busy}
+          />
+        </div>
+      )}
       <div
         className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3"
         data-testid="assist-thread"
@@ -373,8 +405,12 @@ export function AssistPanel({
                   )}
                 </div>
               ))}
-              {typeof t.cost === "number" && t.cost > 0 && (
-                <p className="text-[10px] text-muted-foreground">Cost ${t.cost.toFixed(4)}</p>
+              {(t.model || (typeof t.cost === "number" && t.cost > 0)) && (
+                <p className="text-[10px] text-muted-foreground" data-testid="assist-meta">
+                  {t.model && <span className="font-mono">{t.model}</span>}
+                  {t.model && typeof t.cost === "number" && t.cost > 0 && " · "}
+                  {typeof t.cost === "number" && t.cost > 0 && `Cost $${t.cost.toFixed(4)}`}
+                </p>
               )}
             </div>
           ),

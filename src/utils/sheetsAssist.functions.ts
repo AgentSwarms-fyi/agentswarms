@@ -16,6 +16,7 @@ import {
   type AssistReply,
 } from "@/lib/sheets/assist";
 import { parseGatewayModel } from "@/utils/gateway/keys";
+import { parseModelChoice } from "@/utils/providers/modelChoice";
 import { GATEWAY_PROVIDERS } from "@/utils/gateway/providers";
 import { internalChatText } from "@/utils/internalChat.server";
 import { getPlatformResources } from "@/utils/notebookRuntime/config.server";
@@ -41,16 +42,25 @@ export function transcript(messages: AssistMessage[]): string {
   return `${messages.map((m) => `${label[m.role]}:\n${m.content}`).join("\n\n")}\n\nReply now with ONE JSON object, as the instructions say.`;
 }
 
-async function modelFor(): Promise<
-  { ok: true; spec: string; provider: string; model: string; perMinute: number } | Fail
-> {
+/**
+ * The model a step runs on: the one the person picked in the panel (R158),
+ * or the admin's (SHEETS_ASSIST_MODEL). A pick is only a name: the chat
+ * channel it goes through still applies the person's IAM model rules, budget
+ * and provider credentials, and refuses a model they may not use.
+ */
+async function modelFor(
+  choice?: string,
+): Promise<{ ok: true; spec: string; provider: string; model: string; perMinute: number } | Fail> {
   const settings = await getPlatformResources();
-  const spec = settings.sheetsAssistModel;
+  const picked = choice ? parseModelChoice(choice) : null;
+  const spec = picked ? `${picked.provider}/${picked.model}` : settings.sheetsAssistModel;
   const target = parseGatewayModel(spec, GATEWAY_PROVIDERS);
   if (!target || target.kind !== "model") {
     return {
       ok: false,
-      error: `The assistant's model "${spec}" is not provider/model (Admin → Developer runtime → Sheets → Assistant model).`,
+      error: picked
+        ? `"${spec}" is not a model the assistant can use; pick another, or the default.`
+        : `The assistant's model "${spec}" is not provider/model (Admin → Developer runtime → Sheets → Assistant model).`,
     };
   }
   return {
@@ -76,6 +86,8 @@ export const sheetsAssist = createServerFn({ method: "POST" })
         as_share: z.string().uuid().nullable().optional(),
         context: z.string().max(60_000),
         messages: z.array(assistMessageSchema).min(1).max(80),
+        /** The model picked in the panel ("provider::model"); the admin's when absent. */
+        model: z.string().trim().min(1).max(300).optional(),
       })
       .parse(input),
   )
@@ -89,7 +101,7 @@ export const sheetsAssist = createServerFn({ method: "POST" })
         asShare: data.as_share,
       });
       if (!got.ok) return got;
-      const m = await modelFor();
+      const m = await modelFor(data.model);
       if (!m.ok) return m;
       if (await rateLimitedGlobal(`sheets-assist:${who.userId}`, m.perMinute)) {
         return {
@@ -135,16 +147,20 @@ export const sheetsAiFill = createServerFn({ method: "POST" })
           .max(10)
           .optional(),
         inputs: z.array(z.string().max(4000)).min(1).max(100),
+        /** The model picked in the panel ("provider::model"); the admin's when absent. */
+        model: z.string().trim().min(1).max(300).optional(),
       })
       .parse(input),
   )
   .handler(
-    async ({ data }): Promise<{ ok: true; outputs: string[]; cost: number | null } | Fail> => {
+    async ({
+      data,
+    }): Promise<{ ok: true; outputs: string[]; cost: number | null; model: string } | Fail> => {
       const who = await caller(data.access_token);
       if (!who.ok) return who;
       const got = await requireAccess(who.userId, data.workbook_id, "edit");
       if (!got.ok) return got;
-      const m = await modelFor();
+      const m = await modelFor(data.model);
       if (!m.ok) return m;
       if (await rateLimitedGlobal(`sheets-assist:${who.userId}`, m.perMinute)) {
         return {
@@ -178,9 +194,22 @@ export const sheetsAiFill = createServerFn({ method: "POST" })
               "The model's answer could not be read as one answer per value, so nothing was written. Try again, or put the instruction more simply.",
           };
         }
-        return { ok: true, outputs, cost };
+        return { ok: true, outputs, cost, model: m.spec };
       } catch (e) {
         return { ok: false, error: (e as Error).message };
       }
     },
   );
+
+/**
+ * The admin's model, for the panel's picker to name as the default (R158).
+ * Its name only: which models a person may use is IAM's, and the channel's.
+ */
+export const sheetsAssistDefaults = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .handler(async ({ data }): Promise<{ ok: true; model: string } | Fail> => {
+    const who = await caller(data.access_token);
+    if (!who.ok) return who;
+    const settings = await getPlatformResources();
+    return { ok: true, model: settings.sheetsAssistModel };
+  });

@@ -840,9 +840,19 @@ the workbook the browser holds, and neither are rows kept back. Proposals show a
 **View as** starts its own conversation, so the owner's earlier questions and reads don't carry
 into it.
 
-**The model is an admin setting:** `SHEETS_ASSIST_MODEL` under **Admin → Developer runtime → Data
-platform**. The browser can't choose it. Calls go through the chat channel, so each person's IAM
-model rules, budget, traces and cost apply, and the cost of each answer shows under it.
+**The model.** The assistant's **Model** row picks it, as the platform's other AI tools do. It
+lists the model providers connected for you (Integrations, or the instance's OpenRouter key) and
+their models, leaving out any an IAM model rule refuses you.
+- **Default · …** is the admin's model: `SHEETS_ASSIST_MODEL` under **Admin → Developer runtime →
+  Data platform**.
+- **Remembered.** Your pick is remembered in this browser, and Fill with AI runs on it too; its
+  dialog names the model.
+- **Named.** Each answer says which model gave it, beside its cost.
+- **Dropped when it stops being yours.** A pick you can no longer use (its provider disconnected, or
+  a rule now refusing it) goes back to the default, and says so.
+
+Every call goes through the chat channel as you, so your IAM model rules, budget, traces and cost
+apply whichever model you pick. A model the channel refuses is refused with its reason.
 `SHEETS_ASSIST_PER_MINUTE` (30) bounds each person's calls a minute; each step of a question is one
 call.
 

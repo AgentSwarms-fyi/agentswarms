@@ -329,8 +329,10 @@ function SheetsDocsPage() {
           are not there for the assistant either.
         </li>
         <li>
-          The model is <C>SHEETS_ASSIST_MODEL</C>, set by an admin; calls go through the chat
-          channel, so IAM model rules, budgets, traces and cost apply.{" "}
+          The panel&apos;s Model row picks the model from your connected providers (IAM model rules
+          applied), with <C>SHEETS_ASSIST_MODEL</C>, set by an admin, as the default. The pick is
+          remembered in the browser and used by Fill with AI too, and each answer names its model.
+          Calls go through the chat channel, so IAM model rules, budgets, traces and cost apply.{" "}
           <C>SHEETS_ASSIST_PER_MINUTE</C> (30) and <C>SHEETS_AI_FILL_MAX_ROWS</C> (2,000) bound
           them.
         </li>

@@ -18,6 +18,7 @@ import type { WorkbookEngine } from "@/lib/sheets/engine";
 import { sheetsAddTab } from "@/utils/sheets.functions";
 import { AiFillDialog } from "./AiFillDialog";
 import { AssistPanel } from "./AssistPanel";
+import { useAssistDefault, useAssistModel } from "./useAssistModel";
 import { DEFAULT_COL_W, ROW_H } from "./SheetGrid";
 import type { useWorkbook } from "./useWorkbook";
 
@@ -54,6 +55,9 @@ export function useSheetAssist({
   const [open, setOpen] = useState(false);
   const [fill, setFill] = useState<RangeAddr | null>(null);
   const addTabFn = useServerFn(sheetsAddTab);
+  // The model picked in the panel, for the panel and Fill with AI (R158).
+  const [model, setModel] = useAssistModel();
+  const defaultModel = useAssistDefault(token);
 
   /** Carry out one proposal as one undoable step; a sentence when it cannot be done. */
   const apply = async (a: AssistAction): Promise<string | null> => {
@@ -155,6 +159,9 @@ export function useSheetAssist({
           setOpen(false);
           onDone();
         }}
+        model={model}
+        onModel={setModel}
+        defaultModel={defaultModel}
       />
     ) : null;
 
@@ -165,6 +172,8 @@ export function useSheetAssist({
         token={token}
         range={fill}
         maxRows={aiFillMaxRows}
+        model={model}
+        defaultModel={defaultModel}
         read={shownAt}
         onWrite={(col, values) => {
           wb.applyEdits(

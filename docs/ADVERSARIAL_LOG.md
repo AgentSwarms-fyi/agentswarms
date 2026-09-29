@@ -109,6 +109,37 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-29 — A model picker in Ask AI
+
+Tests: `tests/unit/sheetsAssistModel.test.ts` (10). The mutation run caught 10 of 10, and the
+control survived.
+
+#### R158 · S3 · Ask AI ran on one model, and an answer did not say which
+
+**Found.** The user asked where the assistant's model is configured: Ask AI had no picker. The
+panel's header was "Assistant · reads this workbook as you see it", and nothing else. The model was
+the admin's alone (`SHEETS_ASSIST_MODEL`). An answer said "Cost $0.0007" and not which model gave it;
+only the Audit Log did (a model call on `openrouter/google/gemini-3-flash-preview`). The platform's
+other AI tools (BI) let each person pick from their connected providers.
+
+**The fix.**
+- **The picker.** A **Model** row under the panel's title, with the platform's picker
+  (BiModelSelect): the person's connected providers and their models, IAM model rules applied.
+  **Default · openrouter/google/gemini-3-flash-preview** names the admin's model; it is read
+  through `sheetsAssistDefaults`.
+- **Remembered.** The pick is kept in the browser, and Fill with AI runs on it; its dialog names the
+  model.
+- **Named.** Each answer says which model gave it, beside its cost.
+- **The server.** It takes a pick as a name (`provider::model`) and checks that it is a gateway
+  provider/model ("… is not a model the assistant can use" otherwise).
+- **Dropped when it stops being yours.** A remembered pick the person can no longer use (a
+  provider disconnected, a rule now refusing it) goes back to the default, with a message.
+
+**Why the server now takes a model.** Phase H (AI in Sheets) decided "the input schema has no model
+field". A pick adds no new power: every call still goes through the chat channel as the person,
+which applies their IAM model rules, budget, trace and cost and refuses a model they may not use.
+What it adds is the choice the platform's other AI tools already give.
+
 ### 2026-09-29 — Text to columns
 
 Tests: `tests/unit/sheetsTextToColumns.test.ts` (10). The mutation run caught 11 of 11, and the

@@ -34,6 +34,8 @@ export function AiFillDialog({
   read,
   onWrite,
   onClose,
+  model = null,
+  defaultModel = null,
 }: {
   workbookId: string;
   token: string | undefined;
@@ -46,6 +48,9 @@ export function AiFillDialog({
   /** Write the answers into a column (one undo step). */
   onWrite: (col: number, values: { row: number; value: string }[]) => void;
   onClose: () => void;
+  /** The model picked in the assistant ("provider::model"), or null for the admin's (R158). */
+  model?: string | null;
+  defaultModel?: string | null;
 }) {
   const fillFn = useServerFn(sheetsAiFill);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -92,6 +97,7 @@ export function AiFillDialog({
         instruction: instruction.trim(),
         examples,
         inputs,
+        ...(model ? { model } : {}),
       },
     });
     if (!r.ok) throw new Error(r.error);
@@ -167,6 +173,13 @@ export function AiFillDialog({
             {range.c1 > range.c0 ? `–${colLetters(range.c1)}` : ""}, rows {range.r0 + 1}–
             {range.r1 + 1}: {plan.length} to fill
             {examples.length ? `, ${examples.length} already answered (used as examples)` : ""}.
+            <span className="mt-1 block text-xs" data-testid="ai-fill-model">
+              Model:{" "}
+              <span className="font-mono">
+                {model ? model.replace("::", "/") : `${defaultModel ?? "the default"} (default)`}
+              </span>{" "}
+              — change it in Ask AI.
+            </span>
           </DialogDescription>
         </DialogHeader>
         <form
