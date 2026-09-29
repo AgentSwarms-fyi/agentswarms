@@ -15,6 +15,24 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-29 — Paste special, ADVERSARIAL_LOG R159
+
+**Why this round exists.** Keep hunting: Excel's Paste Special was missing.
+
+Fixtures: **"R153 contacts"** (`0ceb0280…`). Every change was undone.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before | B2, Ctrl+Alt+V; then B2's menu | Nothing opened; the menu: Cut, Copy, Paste, Paste values only, Paste formatting only |
+| The dialog | A1:E1 copied (the menu's Copy); K1, Ctrl+Alt+V | "Paste part of A1:E1 at K1. One Ctrl+Z takes it back."; All and None chosen; the Paste button focused |
+| Transpose | Transpose, Paste | K1:K5 Name, Email, City, Signed up, Chars; K1:K5 selected |
+| Found: the keyboard | Ctrl+Z at once (first build) | Nothing: the focus was on the page, not the grid; K1:K5 cleared by hand |
+| After the fix | The same again | The focus back on K1; Ctrl+Z empties K1:K5 |
+| Operation | E2:E8 (=LEN) copied; E2, Values + Add | "Each copied number is combined…"; E2:E8 32, 30, 32, 32, 30, 30, 30; E2 `=(LEN(B2))+16`; Ctrl+Z: `=LEN(B2)`, 16 |
+| Skip blanks | F2:G3 copied (F empty); A2, Skip blanks | A2 and A3 kept Asha Rao and Ben Ode; B2 g2, B3 g3; undone |
+| After a cut | G2 cut; Ctrl+Alt+V | "Paste special works on copied cells; copy them instead of cutting"; no dialog; G2 still g2 (a copy then cleared the cut) |
+| Notes, for the same fault | K2, Shift+F2, "focus check", Ctrl+Enter | The focus back on K2 (the note dialog was not affected); undone |
+
 ## 2026-09-29 — A model picker in Ask AI, ADVERSARIAL_LOG R158
 
 **Why this round exists.** The user asked where Ask AI's model is set, then asked for a picker.

@@ -174,6 +174,19 @@ own menu: hide and unhide,
 **Row height…** (in points, as Excel measures it) and **Column width…** (in characters).
 **Paste values only** and **Paste formatting only** work on cells copied in the workbook.
 
+**Paste special…** (Ctrl+Alt+V, or the cell's menu) is Excel's Paste Special, for cells copied in
+the workbook.
+- **Paste.** All; Formulas (the target keeps its formats); Values (what the cells showed); Values and
+  number formats; Formats; or Notes.
+- **Operation.** Add, subtract, multiply or divide each copied number into the cell it lands on. A
+  formula there keeps its formula (`=(LEN(B2))+16`), a blank counts as 0, and text on either side
+  leaves the cell as it is. The cell keeps its formats, and dividing by zero shows `#DIV/0!`.
+- **Skip blanks.** A blank copied cell leaves its target alone.
+- **Transpose.** Rows become columns: A1:E1 pasted at K1 fills K1:K5. A formula's references move
+  to where it lands.
+
+It is one Ctrl+Z. After a cut it is refused, as in Excel: what was cut moves whole.
+
 A cell's menu also has **Insert cells…** and **Delete cells…**, as Excel's: shift the neighbouring
 cells right or down (insert) or left or up (delete), or take whole rows or columns. Only the cells
 in the block's rows (or columns) move. Formulas that pointed at a moved cell follow it, and one

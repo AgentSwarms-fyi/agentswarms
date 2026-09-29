@@ -109,6 +109,34 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-29 — Paste special
+
+Tests: `tests/unit/sheetsPasteSpecial.test.ts` (14). The mutation run caught 12 of 12, and the
+control survived.
+
+#### R159 · S3 · No Paste Special: no Transpose, no operations, no skipping blanks
+
+**Found.** The cell's menu had Cut, Copy, Paste, Paste values only and Paste formatting only.
+Ctrl+Alt+V did nothing. A row of headers could not be turned into a column, a copied column could
+not be added into another, blanks could not be pasted around, and formulas, notes or values with
+their number formats could not be pasted alone. Paste Special is one of Excel's most used commands.
+
+**The fix.** **Paste special…** (Ctrl+Alt+V, or the cell's menu), over cells copied in the workbook,
+worked out as cell edits in `lib/sheets/pasteSpecial.ts` and applied as one undo step.
+- **What to paste.** All, Formulas, Values, Values and number formats, Formats, or Notes.
+- **Operation.** Add, Subtract, Multiply or Divide a copied number into the target. A formula
+  target is wrapped (`=(LEN(B2))+16`) and a blank one counts as 0. Text on either side leaves the
+  cell alone, the target keeps its formats, and a division by zero shows `#DIV/0!`.
+- **Skip blanks, and Transpose.** A transposed formula's references move to where it lands.
+- **Refused after a cut,** as in Excel.
+- **Shared code.** Paste values' literal rule moved into the same module, so both pastes read a
+  value back the same way.
+
+**Found while driving it: after the dialog, Ctrl+Z went nowhere.** The dialog focused the grid while
+it was still open, and its focus trap took focus back. When it closed, the keyboard was on the page,
+and the paste could not be undone from the keyboard until the grid was clicked. It now returns the
+keyboard once the dialog has gone (afterDialog), as the editor's other questions do.
+
 ### 2026-09-29 — A model picker in Ask AI
 
 Tests: `tests/unit/sheetsAssistModel.test.ts` (10). The mutation run caught 10 of 10, and the

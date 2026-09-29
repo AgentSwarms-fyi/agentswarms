@@ -113,6 +113,11 @@ function SheetsDocsPage() {
           alone a formula the change would break.
         </li>
         <li>
+          <strong>Paste special.</strong> Ctrl+Alt+V pastes all, formulas, values, formats or notes
+          of cells copied in the workbook; adds, subtracts, multiplies or divides them into the
+          cells they land on; skips blanks; or transposes rows and columns.
+        </li>
+        <li>
           <strong>Remove duplicates.</strong> Data → Remove duplicates… takes out the rows of a list
           that repeat an earlier one in the columns you check, comparing cells as they are shown and
           ignoring case, as Excel does. The rows below move up; nothing outside the list moves.

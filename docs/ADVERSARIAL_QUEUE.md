@@ -425,6 +425,13 @@ Ctrl+Z after a ribbon tool went nowhere). Open from that round:
 - **Sorting by colour or a custom list** (Excel's other Sort options) is not there, nor sorting
   left to right.
 
+Closed with Paste special: R159 (no Paste Special; Ctrl+Z went nowhere after its dialog). Open from
+that round:
+
+- **Paste Special's other choices:** Validation, Column widths, All except borders, and Paste Link.
+- **Pasting text copied from another program** is Paste only; Paste Special needs cells copied in
+  the workbook.
+
 Closed with Query sheets: R154 (a sheet could only open a table that already existed; no query
 over the lakehouse). Open from that round, the rest of Row Zero's connected tables:
 

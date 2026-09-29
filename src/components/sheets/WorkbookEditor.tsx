@@ -35,10 +35,19 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { confirmAsk, promptAsk } from "@/components/ui/confirm-dialog";
 import { cn } from "@/lib/utils";
-import { a1, cellKey, colLetters, parseRangeA1, type RangeAddr } from "@/lib/sheets/a1";
+import {
+  a1,
+  cellKey,
+  colLetters,
+  MAX_COLS,
+  MAX_ROWS,
+  parseRangeA1,
+  rangeA1,
+  type RangeAddr,
+} from "@/lib/sheets/a1";
 import { cellView, editText, impliedFormat } from "@/lib/sheets/cellView";
 import type { CellStyle } from "@/lib/sheets/engine";
-import { isError, type Scalar } from "@/lib/sheets/formula/values";
+import type { Scalar } from "@/lib/sheets/formula/values";
 import { adjustDecimals } from "@/lib/sheets/format";
 import { clampZoom, stepZoom } from "@/lib/sheets/geometry";
 import {
@@ -84,6 +93,12 @@ import {
 import { selRange, type Selection } from "@/lib/sheets/selection";
 import { LinkDialog } from "./LinkDialog";
 import { NoteDialog } from "./NoteDialog";
+import { PasteSpecialDialog } from "./PasteSpecialDialog";
+import {
+  literalText,
+  pasteSpecialEdits,
+  type PasteSpecialOptions,
+} from "@/lib/sheets/pasteSpecial";
 import { OpenTableDialog } from "./OpenTableDialog";
 import { DEFAULT_COL_W, ROW_H, SheetGrid, type Editing, type GridGeometry } from "./SheetGrid";
 import { useSheetCharts } from "./useSheetCharts";
@@ -137,18 +152,6 @@ type Clip = {
   tsv: string;
   cut: boolean;
 };
-
-/** A value as typed input that reads back as the same value. */
-function literalText(v: Scalar): string {
-  if (v === null) return "";
-  if (typeof v === "number") return String(v);
-  if (typeof v === "boolean") return v ? "TRUE" : "FALSE";
-  if (isError(v) || v === "") return "";
-  // Text that would read as a number, a formula or a boolean stays text.
-  return /^[=+\-@]|^(true|false)$/i.test(v) || Number.isFinite(Number(v.replace(/[,$%]/g, "")))
-    ? `'${v}`
-    : v;
-}
 
 /** The zoom each sheet was left at, per workbook, in this browser. */
 function readZoom(workbookId: string): Record<string, number> {
@@ -875,6 +878,8 @@ export function WorkbookEditor({
   const [linkEdit, setLinkEdit] = useState<{ row: number; col: number } | null>(null);
   // A cell's note being written (Shift+F2, the cell's menu), R152.
   const [noteEdit, setNoteEdit] = useState<{ row: number; col: number } | null>(null);
+  // Paste Special: where it lands (R159).
+  const [pasteSpecialAt, setPasteSpecialAt] = useState<{ row: number; col: number } | null>(null);
   const openNoteDialog = () => {
     if (wb.readOnly) return;
     setNoteEdit({ row: focus.row, col: focus.col });
@@ -1370,6 +1375,35 @@ export function WorkbookEditor({
     setSelection({ anchor: at, focus: last, scroll: "anchor" });
   };
 
+  /** Paste Special (Ctrl+Alt+V, the cell's menu), from a copy made in this workbook (R159). */
+  const openPasteSpecial = () => {
+    if (wb.readOnly || !engine || !tabId) return;
+    if (!clip.current) return void toast.error("Copy cells in this workbook first");
+    // Excel's rule: what was cut moves whole, with nothing to choose from.
+    if (clip.current.cut)
+      return void toast.error("Paste special works on copied cells; copy them instead of cutting");
+    setPasteSpecialAt({ row: range.r0, col: range.c0 });
+  };
+  const doPasteSpecial = (at: { row: number; col: number }, opts: PasteSpecialOptions) => {
+    const c = clip.current;
+    if (!engine || !tabId || !c) return;
+    const edits = pasteSpecialEdits(c, at, opts, (r, col) => ({
+      input: engine.getInput(tabId, r, col)?.i ?? "",
+      value: engine.getValue(tabId, r, col),
+    })).filter((e) => e.row < MAX_ROWS && e.col < MAX_COLS);
+    if (!edits.length) {
+      toast.info("Nothing to paste: every copied cell was blank or not a number");
+      return;
+    }
+    wb.applyEdits(tabId, edits);
+    const h = c.inputs.length;
+    const w = c.inputs[0]?.length ?? 1;
+    const last = opts.transpose
+      ? { row: at.row + w - 1, col: at.col + h - 1 }
+      : { row: at.row + h - 1, col: at.col + w - 1 };
+    setSelection({ anchor: at, focus: last, scroll: "anchor" });
+  };
+
   useEffect(() => {
     const onCopy = (e: ClipboardEvent) => {
       if (editing || document.activeElement !== gridRef.current) return;
@@ -1549,6 +1583,12 @@ export function WorkbookEditor({
       setSelection((s) =>
         e.shiftKey ? { anchor: s.anchor, focus: to } : { anchor: to, focus: to },
       );
+      return;
+    }
+    if (mod && e.altKey && (e.key === "v" || e.key === "V")) {
+      // Excel's Ctrl+Alt+V: Paste Special (R159).
+      e.preventDefault();
+      openPasteSpecial();
       return;
     }
     if (e.key === "F2" && e.shiftKey) {
@@ -2185,6 +2225,7 @@ export function WorkbookEditor({
                           return void toast.error("Copy cells in this workbook first");
                         paste(clip.current.tsv, "formats");
                       },
+                      pasteSpecial: openPasteSpecial,
                       clear: clearSelection,
                       clearFormats: () => clear("formats"),
                       link: openLinkDialog,
@@ -2358,6 +2399,25 @@ export function WorkbookEditor({
         />
       )}
       {charts.dialogs}
+      {pasteSpecialAt && clip.current && (
+        <PasteSpecialDialog
+          copied={rangeA1(clip.current.range)}
+          at={a1(pasteSpecialAt.row, pasteSpecialAt.col)}
+          // The keyboard goes back to the grid once the dialog has gone: focused
+          // while it is still open, its focus trap took it back, and Ctrl+Z
+          // after the paste went nowhere.
+          onCancel={() => {
+            setPasteSpecialAt(null);
+            afterDialog();
+          }}
+          onPaste={(opts) => {
+            const at = pasteSpecialAt;
+            setPasteSpecialAt(null);
+            doPasteSpecial(at, opts);
+            afterDialog();
+          }}
+        />
+      )}
       {noteEdit && engine && tabId && (
         <NoteDialog
           open
@@ -2576,6 +2636,7 @@ type MenuAction =
   | "paste"
   | "pasteValues"
   | "pasteFormats"
+  | "pasteSpecial"
   | "clear"
   | "clearFormats"
   | "link"
@@ -2690,6 +2751,7 @@ function ContextMenu({
       {item("Paste", actions.paste)}
       {item("Paste values only", actions.pasteValues)}
       {item("Paste formatting only", actions.pasteFormats)}
+      {item("Paste special…", actions.pasteSpecial)}
       {sep("s1")}
       {kind === "row" && [
         ...rowItems,
