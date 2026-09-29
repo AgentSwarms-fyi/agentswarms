@@ -63,10 +63,9 @@ import { shiftFormula } from "@/lib/sheets/formula/shift";
 import { FUNCTION_HELP } from "@/lib/sheets/functionHelp";
 import {
   adjustFormula,
-  adjustRuleFormulas,
   describeRange,
   fillEdits,
-  mapRuleFormulas,
+  mapGridFormulas,
   moveCells,
   parseTsv,
   toTsv,
@@ -951,17 +950,11 @@ export function WorkbookEditor({
         const g = eng.snapshot(s.id);
         if (!g) continue;
         const shifted = s.id === tabId ? shiftCellsGrid(g, range, dir) : g;
-        const cells = { ...shifted.cells };
-        let changed = s.id === tabId;
-        for (const [k, cell] of Object.entries(cells)) {
-          if (!cell.i.startsWith("=")) continue;
-          const next = adjustFormulaForShift(cell.i, s.name, target, range, dir);
-          if (next !== cell.i) {
-            cells[k] = { ...cell, i: next };
-            changed = true;
-          }
-        }
-        if (changed) eng.replaceGrid(s.id, { ...shifted, cells });
+        // Cells and rules both (R149): a list whose cells moved still lists them.
+        const next = mapGridFormulas(shifted, (f) =>
+          adjustFormulaForShift(f, s.name, target, range, dir),
+        );
+        if (next !== g) eng.replaceGrid(s.id, next);
       }
       // A name's cells move as a formula's do; it lives on no sheet (R148).
       moveNames(eng, (f) => adjustFormulaForShift(f, "", target, range, dir));
@@ -977,18 +970,10 @@ export function WorkbookEditor({
         if (!g) continue;
         const shifted = s.id === tabId ? moveCells(g, axis, at, count) : g;
         // Rule formulas (a conditional format's, a validation's) follow as cell formulas do.
-        const moved = adjustRuleFormulas(shifted, s.name, target, axis, at, count);
-        const cells = { ...moved.cells };
-        let changed = s.id === tabId || moved !== shifted;
-        for (const [k, cell] of Object.entries(cells)) {
-          if (!cell.i.startsWith("=")) continue;
-          const next = adjustFormula(cell.i, s.name, target, axis, at, count);
-          if (next !== cell.i) {
-            cells[k] = { ...cell, i: next };
-            changed = true;
-          }
-        }
-        if (changed) eng.replaceGrid(s.id, { ...moved, cells });
+        const next = mapGridFormulas(shifted, (f) =>
+          adjustFormula(f, s.name, target, axis, at, count),
+        );
+        if (next !== g) eng.replaceGrid(s.id, next);
       }
       moveNames(eng, (f) => adjustFormula(f, "", target, axis, at, count));
     });
@@ -1020,18 +1005,8 @@ export function WorkbookEditor({
       for (const s of eng.listSheets()) {
         const g = eng.snapshot(s.id);
         if (!g) continue;
-        const ruled = mapRuleFormulas(g, fn);
-        const cells = { ...ruled.cells };
-        let changed = ruled !== g;
-        for (const [k, cell] of Object.entries(cells)) {
-          if (!cell.i.startsWith("=")) continue;
-          const f = fn(cell.i);
-          if (f !== cell.i) {
-            cells[k] = { ...cell, i: f };
-            changed = true;
-          }
-        }
-        if (changed) eng.replaceGrid(s.id, { ...ruled, cells });
+        const out = mapGridFormulas(g, fn);
+        if (out !== g) eng.replaceGrid(s.id, out);
       }
       eng.setDefinedNames(adjustNames(next, fn), { recalc: false });
     });
@@ -1758,7 +1733,7 @@ export function WorkbookEditor({
                   onFocus={(e) => e.currentTarget.select()}
                   onBlur={() => setNameBox(null)}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter") nameBoxEnter(nameBox ?? "");
+                    if (e.key === "Enter") nameBoxEnter(e.currentTarget.value);
                     if (e.key === "Escape") {
                       setNameBox(null);
                       gridRef.current?.focus({ preventScroll: true });

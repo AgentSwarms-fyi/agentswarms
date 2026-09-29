@@ -376,10 +376,10 @@ frozen at Excel's values). Open from that round:
 - **Names are absolute.** In Excel, a name defined without `$` moves with the cell that uses it.
   Here a name's reference is always where it says.
 - **Two editors changing names at once:** the last save wins, because the list is saved whole.
-- **Suspected, to prove next:** rule formulas (conditional formats, validation lists) are not
-  rewritten when a sheet is renamed, cells are shifted, or an import renames a sheet. Inserting
-  rows and columns does rewrite them. This was seen in the code while wiring names through the
-  same paths.
+- ~~Rule formulas not rewritten on a sheet rename, a cell shift or an import's rename.~~
+  Closed by R149.
+- **A rule saved before R149 keeps its stale source.** A list whose sheet was renamed before the
+  fix still names the old sheet. Setting the rule again repairs it.
 
 ## Rules that came out of doing this
 

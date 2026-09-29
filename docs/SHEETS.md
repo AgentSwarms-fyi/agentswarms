@@ -167,7 +167,8 @@ series, formulas shift, and anything else repeats.
 The right-click menu inserts and deletes rows and columns. Every formula in the workbook that
 pointed at the moved cells follows them, and one that pointed into deleted cells shows `#REF!`.
 Merged cells, row heights and hidden rows and columns move with them. Renaming a sheet rewrites
-the formulas that name it. Right-click a row or column header for its own menu: hide and unhide,
+the formulas that name it, in cells and in rules alike: a validation list over
+`=Lists!$A$2:$A$9`, or a conditional format's formula, follows the new name. Right-click a row or column header for its own menu: hide and unhide,
 **Row height…** (in points, as Excel measures it) and **Column width…** (in characters).
 **Paste values only** and **Paste formatting only** work on cells copied in the workbook.
 
@@ -176,7 +177,9 @@ cells right or down (insert) or left or up (delete), or take whole rows or colum
 in the block's rows (or columns) move. Formulas that pointed at a moved cell follow it, and one
 that pointed into deleted cells shows `#REF!`. A range follows when it lies wholly in the rows (or
 columns) that move, so `=SUM(A2:E2)` grows with a cell inserted into row 2, while `=SUM(C1:C9)`
-stays. Rules, validations and charts over such a range move the same way. A merged cell that the
+stays. Rules, validations and charts over such a range move the same way, and the formulas inside
+rules follow moved cells as cell formulas do: a list over `=$E$1:$E$3` still lists the same three
+cells after they shift down. A merged cell that the
 shift would cut in two is refused, with a note to unmerge it first.
 
 The status bar shows the Average, Count and Sum of the selection, and the zoom (**−**, the level,

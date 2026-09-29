@@ -15,6 +15,32 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-29 — Rules following renames and shifts, ADVERSARIAL_LOG R149
+
+**Why this round exists.** Keep hunting. R148's wiring showed that three paths rewrote only cells'
+formulas. The round drives two of those paths in a new workbook before and after the fix.
+
+Fixture kept: the workbook **"R149 rule formulas"** (`e706a7d1…`), with:
+- Sheet1: B2 a list over the other sheet; C2 `=COUNTA(…!A1:A3)`; x, y, z in column E; B5 a list
+  over them; D5 `=COUNTA(E…)&" "&E…`; G1 hello.
+- The other sheet, now named Areas: North, South, West.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Setup | Sheet2 A1:A3 North, South, West; Sheet1 B2 Data validation → list `=Sheet2!$A$1:$A$3` | B2's list: North, South, West |
+| Before: rename | Sheet2 → Rename → Regions (the dialog says formulas follow) | C2 still 3; B2's list "The list is empty." |
+| Before: a listed value | Type North in B2 | Refused: "Not allowed here — Choose one of:" |
+| Before: shift | E1:E3 x, y, z; B5 list `=$E$1:$E$3`; D5 `=COUNTA(E1:E3)&" "&E1`; E1 → Insert cells… → Shift cells down | D5 still "3 x"; B5's list offered x and y only |
+| Along the way | Name box `A1`, Enter, then `North` typed at once | "A1 is named A1North": the Enter read the old text. The name was deleted afterwards |
+| After: the Name box | Name box `G1`, Enter, `hello`, Enter, no pauses | G1 hello; no name made, no toast |
+| After: rename | B2's list reset to `=Regions!$A$1:$A$3`, then Regions → Rename → Areas | C2 3; B2's list North, South, West; North typed into B2 accepted; the list's source now `=Areas!$A$1:$A$3` |
+| After: shift | B5's list reset to `=$E$2:$E$4` (x, y, z), then E2 → Insert cells… → Shift cells down | x, y, z in E3:E5; D5 "3 x"; B5's list x, y, z; its source `=$E$3:$E$5` |
+| Undo | Ctrl+Z | x, y, z back in E2:E4; B5's source `=$E$2:$E$4` |
+
+Before the fix, the saved rules kept the stale sources (`=Sheet2!$A$1:$A$3`, `=$E$1:$E$3`).
+The fix does not repair a rule saved before it, which is why both lists were reset before the
+"after" steps.
+
 ## 2026-09-29 — Named ranges, ADVERSARIAL_LOG R148
 
 **Why this round exists.** Keep hunting: an Excel model's names. One file was imported through

@@ -20,6 +20,7 @@ import { clickable } from "@/lib/clickable";
 import type { GridData } from "@/lib/sheets/engine";
 import { renameSheetInFormula } from "@/lib/sheets/formula/shift";
 import { adjustNames, type DefinedName } from "@/lib/sheets/definedNames";
+import { renameSheetsInGrid } from "@/lib/sheets/ops";
 import { sheetsImportGrids, type SheetTabRow } from "@/utils/sheets.functions";
 
 type Parsed = {
@@ -38,16 +39,6 @@ type Parsed = {
 
 const ACCEPT =
   ".xlsx,.xlsm,.csv,.tsv,.txt,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv";
-
-function renameInGrid(grid: GridData, renamed: { from: string; to: string }[]): GridData {
-  const cells: GridData["cells"] = {};
-  for (const [k, cell] of Object.entries(grid.cells)) {
-    let i = cell.i;
-    if (i.startsWith("=")) for (const r of renamed) i = renameSheetInFormula(i, r.from, r.to);
-    cells[k] = i === cell.i ? cell : { ...cell, i };
-  }
-  return { ...grid, cells };
-}
 
 /** A sheet name this workbook accepts: Excel's apostrophes and brackets dropped, made unique. */
 export function importSheetName(raw: string, taken: Set<string>): string {
@@ -182,7 +173,8 @@ export function ImportFileDialog({
       const renamed = named.filter((n) => n.from !== n.to);
       const sheets = parsed.sheets.map((s, i) => ({
         name: named[i].to,
-        grid: renamed.length ? renameInGrid(s.grid, renamed) : s.grid,
+        // Cells and rules both (R149).
+        grid: renamed.length ? renameSheetsInGrid(s.grid, renamed) : s.grid,
       }));
       // The file's names say its sheets' names too (R148).
       const names = adjustNames(parsed.names ?? [], (f) =>

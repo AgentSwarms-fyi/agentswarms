@@ -4,7 +4,7 @@
 
 import ExcelJS from "exceljs";
 import { strFromU8, unzipSync } from "fflate";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
 import { CondFormatter, describeRule, inPeriod, type CondFormat } from "@/lib/sheets/condFormat";
 import { WorkbookEngine, type GridData } from "@/lib/sheets/engine";
@@ -417,6 +417,13 @@ describe("the save schema", () => {
 });
 
 describe("rules in and out of an .xlsx", () => {
+  // The first write and read in a worker load the file libraries, which
+  // took most of the 20 s a test gets under a full run (seen at 19.8 s).
+  // Paid once here, with room, so the tests measure only themselves.
+  beforeAll(async () => {
+    await readXlsx(await writeXlsx([]), { maxCells: 10 });
+  }, 120_000);
+
   it("round-trips every kind of rule, the validations and the filter", async () => {
     const cond: CondFormat[] = [
       {

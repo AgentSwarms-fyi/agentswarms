@@ -121,7 +121,7 @@ function SheetsDocsPage() {
         <li>
           <strong>Insert and delete cells.</strong> A cell&apos;s menu shifts neighbouring cells
           right or down (insert) or left or up (delete), as Excel does; formulas pointing at the
-          moved cells follow them.
+          moved cells follow them, validation lists and conditional formats included.
         </li>
         <li>
           <strong>Version history.</strong> File → Version history keeps the workbook as it stood
@@ -131,8 +131,9 @@ function SheetsDocsPage() {
         <li>
           <strong>Rows and columns.</strong> Inserting or deleting them moves every formula that
           pointed at them, workbook-wide, and merged cells and row heights with them; renaming a
-          sheet rewrites the formulas that name it. A header&apos;s right-click menu hides and
-          unhides, and sets a row height in points or a column width in characters.
+          sheet rewrites the formulas that name it, in cells and in rules. A header&apos;s
+          right-click menu hides and unhides, and sets a row height in points or a column width in
+          characters.
         </li>
         <li>
           <strong>Formatting.</strong> The ribbon&apos;s Home tab sets fonts and sizes, bold,

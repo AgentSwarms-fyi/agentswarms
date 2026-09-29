@@ -21,6 +21,7 @@ import { GridTableResolver } from "@/lib/sheets/gridTableResolver";
 import type { TableConfig } from "@/lib/sheets/sql/tableQuery";
 import type { Role } from "@/lib/sheets/share";
 import { adjustNames, type DefinedName } from "@/lib/sheets/definedNames";
+import { mapGridFormulas } from "@/lib/sheets/ops";
 import {
   sheetsGet,
   sheetsSaveGrid,
@@ -789,19 +790,14 @@ export function useWorkbook(args: {
       }
       // R130: the new name is a table before the rewritten formulas compute.
       setTabsBoth(tabsRef.current.map((t) => (t.id === tabId ? { ...t, name: newName } : t)));
+      // Cells and rules both (R149): a validation list or a conditional
+      // format over the renamed sheet follows it as a cell formula does.
       for (const s of engine.listSheets()) {
-        if (!s.grid) continue;
-        const edits: CellEdit[] = [];
-        for (const [key, cell] of Object.entries(s.grid.cells)) {
-          if (!cell.i.startsWith("=")) continue;
-          const next = rewrite(cell.i);
-          if (next !== cell.i) {
-            const [r, c] = key.split(",").map(Number);
-            edits.push({ row: r, col: c, input: next });
-          }
-        }
-        if (edits.length) {
-          engine.setInputs(s.id, edits);
+        const g = engine.snapshot(s.id);
+        if (!g) continue;
+        const next = mapGridFormulas(g, rewrite);
+        if (next !== g) {
+          engine.replaceGrid(s.id, next);
           markDirty(s.id);
         }
       }

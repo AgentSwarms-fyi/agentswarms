@@ -109,6 +109,39 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-29 — Rules left behind when their cells or sheet moved
+
+Seen in the code while wiring names through the same paths (R148), then proven in the UI.
+
+Tests: `tests/unit/sheetsRulesFollow.test.ts` (12). The first mutation run was void: its control
+failed. `sheetsRules.test.ts`'s xlsx round trip needed 19.8 s of its 20 on the first file-library
+load in a worker, and the run had other load. Its describe now pays that load in a `beforeAll`
+with room. On a quiet rerun the mutation run caught 9 of 9, and the control survived.
+
+#### R149 · S2 · A sheet rename and Insert/Delete cells rewrote the cells' formulas, not the rules'
+
+**Found.** A validation list and a conditional format hold formulas: a list's source
+(`=Sheet2!$A$1:$A$3`) and a rule's formula. Inserting and deleting rows and columns rewrote them.
+Three other changes rewrote only the cells' formulas.
+- **A sheet renamed.** B2's list over `Sheet2!$A$1:$A$3` was checked after renaming Sheet2 to
+  Regions. `=COUNTA(Sheet2!A1:A3)` beside it followed and kept showing 3. The list said "The list
+  is empty.", and typing North, a listed value, was refused: "Not allowed here — Choose one of:".
+  The rename dialog promised "Formulas that refer to this sheet follow the new name."
+- **Insert cells, shift down.** B5's list over `$E$1:$E$3` (x, y, z) was checked after inserting a
+  cell at E1. `=COUNTA(E1:E3)&" "&E1` followed and kept showing "3 x". The list kept pointing at
+  E1:E3, so it offered x and y: z was gone, and the empty E1 stood where x had been.
+- **An import that had to rename a sheet** (an apostrophe, a clash) left the rules on the old name.
+
+**The fix.** `mapGridFormulas` (ops.ts) passes every formula of a sheet, cells' and rules',
+through one rewrite. The sheet rename, Insert/Delete cells, row and column inserts, a name's
+rename and the import's rename (`renameSheetsInGrid`) all go through it. A path cannot now rewrite
+one kind of formula and forget the other.
+
+**Found on the way.** Driving the Name box fast, the Enter key read the Name box's text from the
+previous render. It found nothing, so the focus stayed in the box, and the next word typed was
+taken as a new name: the toast said "A1 is named A1North". The Name box now reads what the input
+holds when Enter is pressed. The same fast sequence, repeated after the deploy, went to the cell.
+
 ### 2026-09-29 — Named ranges: an Excel model's names came in as nothing
 
 An Excel model built on names (`=SUM(Revenue)*TaxRate`) imported looking right, and then never

@@ -335,7 +335,7 @@ describe("the page keeps names with the workbook", () => {
       ed.indexOf("const nameBoxEnter = "),
     );
     expect(rename).toMatch(/renameNameInFormula\(f, renamed\.from, renamed\.to\)/);
-    expect(rename).toMatch(/mapRuleFormulas\(g, fn\)/);
+    expect(rename).toMatch(/mapGridFormulas\(g, fn\)/);
     expect(rename).toMatch(/eng\.setDefinedNames\(adjustNames\(next, fn\), \{ recalc: false \}\)/);
   });
   it("an import sends the file's names, saying the sheets' names as they are here", () => {

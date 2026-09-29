@@ -19,7 +19,7 @@ import {
 } from "./a1";
 import type { CellInput, GridData } from "./engine";
 import { lex, type RefPart, type Token } from "./formula/lexer";
-import { shiftFormula } from "./formula/shift";
+import { renameSheetInFormula, shiftFormula } from "./formula/shift";
 import { shiftIndex, shiftIndexList, shiftIndexRecord } from "./layout";
 import { shiftMerges, shiftSpan } from "./merge";
 
@@ -228,6 +228,36 @@ export function mapRuleFormulas(grid: GridData, fn: (formula: string) => string)
     ...(cond ? { cond } : {}),
     ...(validations ? { validations } : {}),
   };
+}
+
+/**
+ * Every formula of a grid sheet passed through `fn`: its cells' and its
+ * rules'. Whatever rewrites formulas (a sheet or a name renamed, rows
+ * inserted, cells shifted) goes through here, so a validation list's source
+ * or a conditional format's formula is never left behind the cells.
+ * FOUND IN R149: a sheet rename and Insert/Delete cells rewrote the cells
+ * only; a list over the renamed sheet came up empty and refused its own
+ * values. Returns the same object when nothing changed.
+ */
+export function mapGridFormulas(grid: GridData, fn: (formula: string) => string): GridData {
+  const ruled = mapRuleFormulas(grid, fn);
+  let cells: GridData["cells"] | null = null;
+  for (const [k, cell] of Object.entries(grid.cells)) {
+    if (!cell.i.startsWith("=")) continue;
+    const next = fn(cell.i);
+    if (next !== cell.i) (cells ??= { ...grid.cells })[k] = { ...cell, i: next };
+  }
+  return cells ? { ...ruled, cells } : ruled;
+}
+
+/** A sheet's formulas, cells' and rules', saying renamed sheets' new names (an import that had to rename one). */
+export function renameSheetsInGrid(
+  grid: GridData,
+  renamed: { from: string; to: string }[],
+): GridData {
+  return mapGridFormulas(grid, (f) =>
+    renamed.reduce((out, r) => renameSheetInFormula(out, r.from, r.to), f),
+  );
 }
 
 /** A range after rows or columns are inserted or deleted, or null when it is gone. */

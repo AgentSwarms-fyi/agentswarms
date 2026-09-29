@@ -75,7 +75,7 @@ describe("the page knows the sheets before the engine computes", () => {
     before(
       between("const renameTabLocal", "const removeTabLocal"),
       "setTabsBoth(",
-      "engine.setInputs(",
+      "engine.replaceGrid(",
     );
   });
 
