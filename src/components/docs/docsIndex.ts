@@ -4064,6 +4064,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "#SPILL!",
       "#Summary!B6",
       "-2^2",
+      "15-Mar-2023",
       "1e5",
       "=$C2&lt;0",
       "=SUM(Revenue)*TaxRate",

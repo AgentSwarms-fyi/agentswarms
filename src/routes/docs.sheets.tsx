@@ -149,10 +149,11 @@ function SheetsDocsPage() {
         </li>
         <li>
           <strong>Fill and clipboard.</strong> The fill handle continues number series, dates (by
-          the day, or by the month when they fall on the same day), months and days of the week,
-          quarters and &quot;Item 1&quot; runs, and shifts formulas. Pasting inside the workbook
-          shifts formulas; pasting from Excel or Google Sheets brings values, recognising
-          percentages, currency and dates.
+          the day, or by the month when they fall on the same day), times (by the hour), months and
+          days of the week, quarters and &quot;Item 1&quot; runs, and shifts formulas. Typing a time
+          (<C>9:00 AM</C>) or a date with its month&apos;s name (<C>15-Mar-2023</C>) makes a number,
+          as in Excel. Pasting inside the workbook shifts formulas; pasting from Excel or Google
+          Sheets brings values, recognising percentages, currency and dates.
         </li>
         <li>
           <strong>Insert and delete cells.</strong> A cell&apos;s menu shifts neighbouring cells

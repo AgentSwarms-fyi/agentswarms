@@ -170,7 +170,7 @@ Drag the square at the corner of a selection to **fill**. Formulas shift, a seri
 anything else repeats, as Excel's AutoFill does:
 
 - **Numbers** with a step (2, 4 → 6, 8); one number alone repeats.
-- **Dates:** one date goes on by the day, across month ends; dates on the same day of their months
+- **Dates and times:** one date goes on by the day, across month ends, and one time by the hour; dates on the same day of their months
   go on by the month (15 Jan, 15 Feb → 15 Mar), ending short months on their last day, or by the
   year; others by their step in days.
 - **Months and days of the week** by name (Jan → Feb, Monday → Tuesday, Mon, Wed → Fri), in the
@@ -323,7 +323,12 @@ The **Number format** menu has General, Number, Integer, Percent, Currency, Scie
 time, Time and Text, and the **$**, **%**, **,** and increase/decrease decimal buttons. It also accepts
 any Excel format code (`#,##0.0`, `0.0%`, `"Q"0`, `yyyy-mm`); a section color such as
 `#,##0;[Red]-#,##0` paints negatives red. Typing `12%`, `$1,200` or `2024-01-31` picks up the
-matching format, as Excel does. The same codes work in TEXT(). Among them:
+matching format, as Excel does, and so does typing a time (`12:30`, `9:00 AM`, `25:00`) or a date
+with its month's name (`15-Mar-2023`, `Mar 15, 2023`, `15 March 2023`, `Mar 2023`): each is a
+number that adds up and counts, shown as typed. A day past its month's end (`31-Feb-2023`) stays
+text. Dates with slashes (`3/15/2023`) stay text too: which part is the month depends on where
+you are, and a workbook is read the same way by everyone it is shared with. The same codes work in
+TEXT(). Among them:
 
 - **Durations:** `[h]:mm` shows 1.5 days as 36:00, `[mm]:ss` counts minutes past the hour, and
   `[ss]` seconds. A column of them is saved to the lakehouse as numbers, not dates.

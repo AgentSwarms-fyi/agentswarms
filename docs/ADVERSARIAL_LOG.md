@@ -109,6 +109,37 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-29 — Typed times, and dates with a month's name
+
+Tests: `tests/unit/sheetsTypedDates.test.ts` (9). The mutation run caught 15 of 15, and the control
+survived.
+
+#### R166 · S2 · A typed time or a month-name date stayed text: times summed to 0
+
+**Found.** A probe of 17 typed entries against how Excel reads them, then typed in the UI ("R166
+typed before"):
+- **Times stayed text:** 12:30, 9:00 AM, 25:00 were left-aligned text, and `=SUM(A1:A3)` of them
+  was 0, without a warning.
+- **Dates with a month's name stayed text:** 15-Mar-2023 and Mar 15, 2023, so `=B1+1` and
+  `=B2-B1` were `#VALUE!` (Excel: 16-Mar-23 and 0).
+- **An ISO date with AM or PM** (2023-03-15 9:00 AM) stayed text, though the grid picked a
+  date-time format for it.
+
+**The fix.** Typed input and text read as a number (`parseNumberText`) take times, `h:mm`,
+`h:mm:ss`, with AM or PM, hours past 24 without (`parseTimeText`); and dates with a month's name,
+or its three letters, in Excel's orders, two-digit years 00-29 in the 2000s (`parseDateText`, which
+also takes AM or PM after an ISO date). Each shows as Excel shows it: `h:mm`, `h:mm AM/PM`, `[h]:mm`
+past a day, `d-mmm-yy`, `mmm-yy`. A day past its month's end, a word that is no month, minutes past
+59 and AM with an hour past 12 stay text. DATEVALUE reads the same dates. Times alone are kept out of
+the SQL a table sheet compares dates with.
+
+**Found while building it:** the fill handle (R165) read only ISO text as a date, so a typed
+15-Mar-2023 would have gone on as text ending in a number (15-Mar-2024), and 9:00 as 9:01. A typed
+date or time is now a date to it, and a time goes on by the hour.
+
+**Not changed.** Dates with slashes (3/15/2023) stay text: which part is the month depends on the
+place, and the typed text is what the workbook keeps and everyone it is shared with reads.
+
 ### 2026-09-29 — The fill handle's series
 
 Tests: `tests/unit/sheetsFillSeries.test.ts` (10). The mutation run caught 16 of 16, and the control

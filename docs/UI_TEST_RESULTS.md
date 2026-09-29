@@ -15,6 +15,26 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-29 — Typed times and month-name dates, ADVERSARIAL_LOG R166
+
+**Why this round exists.** R165's queue: dates typed in other forms stay text. A probe of 17 typed
+entries found every time and every month-name date read as text.
+
+Fixtures, kept: **"R166 typed before"** (`1de40bc3…`) and **"R166 typed after"** (`6764b672…`),
+typed the same way: A1:A3 `12:30`, `9:00 AM`, `25:00`, A4 `=SUM(A1:A3)` (before) or
+`=SUM(A1:A3)*24` (after); B1:B2 `15-Mar-2023`, `Mar 15, 2023`, B3 `=B1+1`, B4 `=B2-B1`; C1
+`2023-03-15 9:00 AM`, C2 `=ISNUMBER(C1)`. In the second, D1 `9:00` filled down to D3. The R165
+image's smoke test also left H1:H3 Nov, Dec, Jan in "R165 fill after".
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before | The typing | A1:A3 left-aligned text; A4 0; B1:B2 text; B3 and B4 `#VALUE!`; C1 text; C2 FALSE |
+| After | The same | A1:A3 12:30, 9:00 AM, 25:00, right-aligned; A4 46.5 (hours); B1:B2 15-Mar-23; B3 45001; B4 0; C1 a date-time (`####` in the narrow column); C2 TRUE |
+| Fill | D1 `9:00`, the handle dragged to D3 | 9:00, 10:00, 11:00 |
+
+B3 shows 45001, not 16-Mar-23: a formula does not take the date format of the cell it adds to, as
+Excel's does. That is older than this round, and filed.
+
 ## 2026-09-29 — The fill handle's series, ADVERSARIAL_LOG R165
 
 **Why this round exists.** Keep hunting: a probe of the fill handle's series against Excel's

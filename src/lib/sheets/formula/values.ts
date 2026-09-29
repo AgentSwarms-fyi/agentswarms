@@ -49,12 +49,16 @@ export function toNumber(v: Scalar): number | SheetError {
   return n === null ? err("#VALUE!") : n;
 }
 
-/** "1,234.5", "12%", "$3", "(4)", "1e3", ISO dates → a number; null otherwise. */
+/** "1,234.5", "12%", "$3", "(4)", "1e3", dates, times → a number; null otherwise. */
 export function parseNumberText(text: string): number | null {
   let t = text.trim();
   if (!t) return null;
   const date = parseDateText(t);
   if (date !== null) return date;
+  // FOUND IN R166: a typed time (12:30, 9:00 AM) stayed text, so a column
+  // of them summed to 0.
+  const time = parseTimeText(t);
+  if (time !== null) return time;
   let neg = false;
   if (/^\(.*\)$/.test(t)) {
     neg = true;
@@ -162,17 +166,81 @@ export function jsDateToSerial(d: Date): number {
   );
 }
 
-/** "2024-01-05", "2024-01-05 13:30", "2024-01-05T13:30:00" → serial; null otherwise. */
-export function parseDateText(text: string): number | null {
-  const m = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?$/.exec(
-    text.trim(),
-  );
-  if (!m) return null;
-  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
-  // FOUND IN R165: a day past the month's end (2023-02-31) rolled into the
-  // next month; Excel keeps such text as text.
+const MONTH_NAMES = [
+  "january",
+  "february",
+  "march",
+  "april",
+  "may",
+  "june",
+  "july",
+  "august",
+  "september",
+  "october",
+  "november",
+  "december",
+];
+
+/** A month by its name or its first three letters (Mar, March), 1-12; 0 when it is neither. */
+function monthNumber(name: string): number {
+  const n = name.toLowerCase();
+  return MONTH_NAMES.findIndex((m) => m === n || m.slice(0, 3) === n) + 1;
+}
+
+/** A calendar date, when it is one: the day within its month (FOUND IN R165: 2023-02-31 rolled over). */
+function calendarDate(y: number, mo: number, d: number): number | null {
   if (mo < 1 || mo > 12 || d < 1 || d > new Date(Date.UTC(y, mo, 0)).getUTCDate()) return null;
-  return dateSerial(y, mo, d, Number(m[4] ?? 0), Number(m[5] ?? 0), Number(m[6] ?? 0));
+  return dateSerial(y, mo, d);
+}
+
+/** Excel's two-digit years: 00-29 are 2000s, 30-99 1900s. */
+const fullYear = (y: string) =>
+  y.length === 4 ? Number(y) : Number(y) + (Number(y) < 30 ? 2000 : 1900);
+
+/**
+ * "12:30", "9:05:30", "9:00 AM", "25:00" → a fraction of a day (R166), as
+ * Excel reads a typed time; hours past 24 only without AM/PM. Null otherwise.
+ */
+export function parseTimeText(text: string): number | null {
+  const m = /^(\d{1,4}):(\d{2})(?::(\d{2}(?:\.\d+)?))?\s*([AP]M?)?$/i.exec(text.trim());
+  if (!m) return null;
+  let h = Number(m[1]);
+  const mi = Number(m[2]);
+  const s = Number(m[3] ?? 0);
+  if (mi > 59 || s >= 60) return null;
+  if (m[4]) {
+    if (h < 1 || h > 12) return null;
+    h = (h % 12) + (/^p/i.test(m[4]) ? 12 : 0);
+  } else if (h > 9999) return null;
+  return (h * 3600 + mi * 60 + s) / 86400;
+}
+
+/**
+ * "2024-01-05", "2024-01-05 13:30", "2024-01-05T13:30:00", "2024-01-05 1:30 PM",
+ * and dates with a month's name (R166): "15-Mar-2023", "15 March 2023",
+ * "Mar 15, 2023", "Mar 2023" (the 1st) → serial; null otherwise.
+ */
+export function parseDateText(text: string): number | null {
+  const t = text.trim();
+  const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](.+))?$/.exec(t);
+  if (iso) {
+    const day = calendarDate(Number(iso[1]), Number(iso[2]), Number(iso[3]));
+    if (day === null) return null;
+    if (iso[4] === undefined) return day;
+    const time = parseTimeText(iso[4]);
+    return time === null || time >= 1 ? null : day + time;
+  }
+  // FOUND IN R166: a date typed with its month's name stayed text, so
+  // =B1+1 was #VALUE! where Excel gives the next day.
+  let m = /^(\d{1,2})[-\s]([A-Za-z]{3,9})[-\s,]+(\d{4}|\d{2})$/.exec(t);
+  if (m)
+    return monthNumber(m[2]) ? calendarDate(fullYear(m[3]), monthNumber(m[2]), Number(m[1])) : null;
+  m = /^([A-Za-z]{3,9})\.?\s+(\d{1,2}),?\s+(\d{4}|\d{2})$/.exec(t);
+  if (m)
+    return monthNumber(m[1]) ? calendarDate(fullYear(m[3]), monthNumber(m[1]), Number(m[2])) : null;
+  m = /^([A-Za-z]{3,9})[-\s](\d{4})$/.exec(t);
+  if (m) return monthNumber(m[1]) ? calendarDate(Number(m[2]), monthNumber(m[1]), 1) : null;
+  return null;
 }
 
 /** Today's serial in the viewer's calendar (TODAY()). */

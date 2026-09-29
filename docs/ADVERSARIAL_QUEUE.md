@@ -423,6 +423,13 @@ Ctrl+Z after a ribbon tool went nowhere). Open from that round:
 - **Sorting by colour or a custom list** (Excel's other Sort options) is not there, nor sorting
   left to right.
 
+Closed with typed times and month-name dates: R166 (they stayed text; a column of times summed to
+0). Open from that round:
+
+- **A formula does not take the format of the cells it reads.** `=B1+1` over a date shows 45001;
+  Excel shows 16-Mar-23 (and `=SUM` of times a time). Only DATE, TODAY and their kin show as dates.
+- **Month names in other languages** (15-mars-2023) are text.
+
 Closed with the fill handle's series: R165 (dates past a month's end written as text, months and
 weekdays repeated, quarters past Q4, dates a month apart repeated; a day past a month's end typed
 was read as a date). Open from that round:
@@ -431,7 +438,8 @@ was read as a date). Open from that round:
 - **Excel's own lists** (File → Options → Custom Lists) are not there, and nor is Flash Fill.
 - **Ordinals** (1st, 2nd) repeat, and a trend over irregular numbers (Excel's Series dialog) is not
   there.
-- **Dates typed in other forms** (3/15/2023, 15-Mar-2023) are text here, so they fill as text.
+- ~~Dates typed in other forms~~ Closed by R166 for times and month-name dates; dates with slashes
+  (3/15/2023) stay text on purpose (see R166).
 
 Closed with a file's text staying text: R164 (£1,234.50, €99, 1e5 came in as numbers; a
 leading `'` was lost). Open from that round:

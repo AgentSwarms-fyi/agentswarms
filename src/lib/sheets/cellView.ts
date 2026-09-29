@@ -7,7 +7,7 @@
 
 import type { CellInput } from "./engine";
 import { formatColor, formatValue } from "./format";
-import { isError, type Scalar } from "./formula/values";
+import { isError, parseDateText, parseTimeText, type Scalar } from "./formula/values";
 
 export type CellView = {
   text: string;
@@ -95,6 +95,16 @@ export function impliedFormat(text: string): string | undefined {
   if (!t || t.startsWith("=") || t.startsWith("'")) return undefined;
   if (/^\d{4}-\d{1,2}-\d{1,2}[ T]\d{1,2}:\d{2}/.test(t)) return "yyyy-mm-dd hh:mm";
   if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(t)) return "yyyy-mm-dd";
+  // A typed time or a date with its month's name (R166), shown as Excel shows it.
+  const time = parseTimeText(t);
+  if (time !== null) {
+    const secs = /:\d{2}:\d{2}/.test(t);
+    if (/[AP]M?$/i.test(t)) return secs ? "h:mm:ss AM/PM" : "h:mm AM/PM";
+    if (time >= 1) return secs ? "[h]:mm:ss" : "[h]:mm";
+    return secs ? "h:mm:ss" : "h:mm";
+  }
+  if (/[A-Za-z]/.test(t) && parseDateText(t) !== null)
+    return /^\D+\d{4}$/.test(t) ? "mmm-yy" : "d-mmm-yy";
   if (/^[+-]?[\d,]*\.?\d+%$/.test(t)) return t.includes(".") ? "0.00%" : "0%";
   // $1,200, -$350.00, $-350 and ($350) are dollars, as Excel takes them.
   if (/^(?:[+-]?\$[+-]?[\d,]*\.?\d+|\(\$[\d,]*\.?\d+\))$/.test(t))

@@ -7,7 +7,7 @@
 
 import type { CellInput } from "./engine";
 import { isDateFormat } from "./format";
-import { dateSerial, parseDateText, serialParts } from "./formula/values";
+import { dateSerial, parseDateText, parseTimeText, serialParts } from "./formula/values";
 
 /** The k-th value after the source's last (k = 1, 2, …), as the input to write. */
 export type Series = (k: number) => string;
@@ -53,11 +53,23 @@ function cycleStepOf(idx: number[], size: number): number | null {
 const ISO_DATE = /^\d{4}-\d{1,2}-\d{1,2}(?:[ T]\d{1,2}:\d{2}(?::\d{2})?)?$/;
 const pad = (n: number) => String(n).padStart(2, "0");
 
-/** A cell's date: typed as 2023-03-15, or a number shown with a date format. */
+/**
+ * A cell's date or time: typed (2023-03-15, 15-Mar-2023, 9:00 AM), or a
+ * number shown with a date or time format.
+ */
 function dateOf(c: CellInput): number | null {
-  if (ISO_DATE.test(c.i.trim())) return parseDateText(c.i);
-  const n = Number(c.i);
-  return Number.isFinite(n) && c.f && isDateFormat(c.f) ? n : null;
+  const t = c.i.trim();
+  const n = Number(t);
+  if (t !== "" && Number.isFinite(n)) return c.f && isDateFormat(c.f) ? n : null;
+  return parseDateText(t) ?? parseTimeText(t);
+}
+
+/** A time of day with no date (9:00, or a number under 1 in a format with no day, month or year). */
+function timeOnly(c: CellInput, serial: number): boolean {
+  if (serial >= 1) return false;
+  if (parseTimeText(c.i) !== null) return true;
+  const f = (c.f ?? "").replace(/"[^"]*"|\[[^\]]*\]/g, "");
+  return /[hs]/i.test(f) && !/[yd]/i.test(f) && !/m{3,}/i.test(f);
 }
 
 /** A serial as the source typed it: 2023-03-15 (with its time, if it had one), or the number. */
@@ -77,7 +89,8 @@ function dateSeries(src: CellInput[]): Series | null {
   const s = serials as number[];
   const last = src[src.length - 1];
   const at = (serial: number) => dateInput(serial, last);
-  if (s.length === 1) return (k) => at(s[0] + k);
+  // A time goes on by the hour (R166), a date by the day.
+  if (s.length === 1) return (k) => at(s[0] + (timeOnly(src[0], s[0]) ? k / 24 : k));
   // By the month (or year) when every date is on the same day of its month:
   // 15 Jan, 15 Feb → 15 Mar, not the 18th (31 days on).
   const parts = s.map(serialParts);
