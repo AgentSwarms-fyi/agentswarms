@@ -314,7 +314,19 @@ The **Number format** menu has General, Number, Integer, Percent, Currency, Scie
 time, Time and Text, and the **$**, **%**, **,** and increase/decrease decimal buttons. It also accepts
 any Excel format code (`#,##0.0`, `0.0%`, `"Q"0`, `yyyy-mm`); a section color such as
 `#,##0;[Red]-#,##0` paints negatives red. Typing `12%`, `$1,200` or `2024-01-31` picks up the
-matching format, as Excel does.
+matching format, as Excel does. The same codes work in TEXT(). Among them:
+
+- **Durations:** `[h]:mm` shows 1.5 days as 36:00, `[mm]:ss` counts minutes past the hour, and
+  `[ss]` seconds. A column of them is saved to the lakehouse as numbers, not dates.
+- **Currency tags:** `[$€-2] #,##0.00` shows € 1,234.50, and `[$-409]` (a locale alone) nothing.
+- **Fractions:** `# ?/?` shows 1 1/2, `?/?` 3/2, `# ?/8` eighths, and `# ??/??` the nearest with
+  two-digit parts.
+- **Conditions:** `[<10]"small";"big"`, or `[>=1000000]0.0,,"M";[>=1000]0.0,"K";0`, choose a section
+  by the value, and its colour with it.
+- **Dates in capitals,** `DD/MM/YYYY` as LibreOffice writes them, read as `dd/mm/yyyy`.
+- **Spacing codes:** `_)` is a space as wide as ")", so `#,##0_);(#,##0)` lines up positives with
+  negatives, and Excel's Accounting format `_("$"* #,##0.00_)` shows ` $1,234.50 `. A fill (`* `),
+  which Excel stretches to the cell's width, is left out.
 
 ### Conditional formatting
 

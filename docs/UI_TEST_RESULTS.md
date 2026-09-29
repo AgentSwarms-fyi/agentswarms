@@ -15,6 +15,28 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-29 — Number formats, ADVERSARIAL_LOG R163
+
+**Why this round exists.** Keep hunting: a probe of 54 Excel formats against Excel's documented
+output found 9 that differ; two of those were my own expectations (Excel does show `-0.00`).
+
+Fixtures, kept: **"R163 formats before"** (`09ab9548…`) and **"R163 formats after"**
+(`667b6910…`), both from `openpyxl-formats.xlsx`, with column A widened to 16 by Column width… In
+the second, D2 `=TEXT(A2,"[h]:mm")&" / "&TEXT(45000,"DD/MM/YYYY")` and A20 1.25 as `[h]:mm` were
+kept.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before: import | Import the fixture; Column width… 16 on A | A2:A6 `:12`, `:00:00`, `:00`, blank, `hours`; A7:A9 1,234.50, 1,234.50, -1,234.50 (red); A10:A12 2, 1, 3/8; A13 small (Excel: big); A16 high (Excel: mid) |
+| After: import | The same | A2:A16 each the same as column C: 36:00, 36:00:00, 90:00, 5400, 66 hours, € 1,234.50, £1,234.50, -$1,234.50 (red), 1 1/2, 3/4, 2 5/8, big, small, high, mid |
+| TEXT() | D2, `=TEXT(A2,"[h]:mm")&" / "&TEXT(45000,"DD/MM/YYYY")` | 36:00 / 15/03/2023 |
+| Custom… | A20 1.25; Number format → Custom… → `[h]:mm`, Enter | A20 30:00; the dialog closed, the focus on A20 |
+| Before: spacing (probe) | `formatValue` on the committed code: `#,##0_);(#,##0)` and Excel's Accounting format on 1234.5 | `1,235_)` and `_($* 1,234.50_)` |
+| After: Accounting | A21 1234.5, A22 -1234.5; Custom… → `_("$"* #,##0.00_);_("$"* \(#,##0.00\);_("$"* "-"??_);_(@_)` on A21:A22 | A21 ` $1,234.50 `, A22 ` $(1,234.50)` (the $ beside the number: the fill is left out) |
+
+Found in passing, and filed as the next round: C8 holds the text "£1,234.50" in the file and came
+in as the number 1234.5 (the status bar's Count and Sum take it).
+
 ## 2026-09-29 — Formulas from older Excel, ADVERSARIAL_LOG R162
 
 **Why this round exists.** R161 left it open: a file of older formulas read the dynamic way.

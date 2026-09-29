@@ -109,6 +109,50 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-29 — Number formats: durations, currency tags, fractions, conditions, capitals
+
+Tests: `tests/unit/sheetsNumberFormats.test.ts` (14). The mutation run caught 21 of 21, and the
+control survived. Two were missed on the way and their tests sharpened: the fixed denominator
+(`?/8`) was only tested with a value its nearest fraction also gave (0.3 in quarters added), and no
+text section had a fill (`@*-` added). Fixture:
+`tests/fixtures/sheets/openpyxl-formats.xlsx`, from `make_openpyxl_formats.py`: fifteen rows of a
+value, its format, and what Excel shows.
+
+#### R163 · S2 · Durations, euro amounts and dates in capitals showed the wrong text
+
+**Found.** A probe of 54 formats against Excel's documented output, then the fixture imported
+("R163 formats before"):
+- **Durations.** `[h]:mm` on 1.5 days showed `:12` where Excel shows 36:00; `[h]:mm:ss` showed
+  `:00:00`, `[mm]:ss` `:00`, `[ss]` nothing, and `[h]" hours"` just "hours". The brackets were
+  dropped with every other bracket. Excel's own built-in format 46 is `[h]:mm:ss`, so a timesheet
+  from Excel showed none of its hours. A column of durations also counted as dates, so Save to
+  lakehouse would have written it as timestamps.
+- **Currency tags.** `[$€-2] #,##0.00` showed 1,234.50 with no €, and `[$£-809]` no £.
+- **Fractions.** `# ?/?` showed 1.5 as 2, and `?/?` showed 0.75 as 1.
+- **Conditions.** `[<10]"small";"big"` showed "small" for 12: conditions were read as the positive
+  section, as the module's comment said.
+- **Dates in capitals.** `DD/MM/YYYY`, `MM/DD/YY` and `HH:MM:SS` printed those letters, because the
+  date codes were read in lower case only. LibreOffice writes its date formats in capitals, so every
+  date in such a file showed the format instead.
+- **Found while writing the docs: spacing codes were printed.** `_)` and `*` showed as themselves:
+  `#,##0_);(#,##0)` showed 1234.5 as `1,235_)`, and Excel's built-in Accounting format
+  (`_("$"* #,##0.00_);…`) as `_($* 1,234.50_)`. Both are among the formats Excel files use most.
+
+**The fix** (`lib/sheets/format.ts`).
+- **Durations:** `[h]`, `[m]`, `[s]` (and `[hh]`, `[mm]`, `[ss]`) count whole hours, minutes or
+  seconds from zero. `isDateFormat` says no to them, so a duration stays a number wherever a date
+  is treated as a date (a saved column, a chart's labels, a query variable).
+- **Currency tags:** `[$sym-locale]` shows its symbol; `[$-409]` shows nothing.
+- **Fractions:** the nearest fraction with as many digits as the `?`s allow, or the denominator
+  written. `?` holds a space where a digit is not, so parts line up as Excel aligns them. A whole
+  number leaves the fraction's place blank.
+- **Conditions:** the first section whose condition holds; a section without one takes the rest,
+  and a value that meets none shows #s. The colour comes from the same section. A section only for
+  negatives (`[<0]`), or one of text alone, writes no minus.
+- **Dates:** the codes are read in any case.
+- **Spacing:** `_x` is a space as wide as x; `*x`, a fill to the cell's width, is left out, since
+  a format here does not know the cell's width. The same in numbers, dates and text.
+
 ### 2026-09-29 — Formulas from older Excel, and @
 
 Tests: `tests/unit/sheetsImplicitIntersection.test.ts` (18). The mutation run caught 21 of 21, and

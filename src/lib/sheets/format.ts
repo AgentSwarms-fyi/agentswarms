@@ -1,10 +1,11 @@
 // Excel number formats: what a cell shows, and what TEXT() returns.
 //
 // Supported: General; digits with 0 # , . and grouping; percent; scientific;
-// currency and literal text ("..." and \x); @ for text; up to four sections
-// (positive;negative;zero;text); dates and times (yyyy yy mmmm mmm mm m dddd
-// ddd dd d hh h mm ss AM/PM). Colours and conditions ([Red], [>100]) are
-// accepted and ignored, which is how a formula copied from Excel keeps working.
+// fractions (# ?/?, ?/8); currency and literal text ("..." and \x, [$€-2]);
+// @ for text; up to four sections (positive;negative;zero;text), or sections
+// chosen by conditions ([<10], [>=100]); dates and times in either case
+// (yyyy yy mmmm mmm mm m dddd ddd dd d hh h mm ss AM/PM) and durations
+// ([h]:mm, [mm]:ss, [ss]). Colours ([Red]) are the cell's colour, not text.
 
 import { formatGeneral, serialParts, type Scalar } from "./formula/values";
 
@@ -50,17 +51,83 @@ function sections(code: string): string[] {
 
 const stripBrackets = (s: string) => s.replace(/\[[^\]]*\]/g, "");
 
+/**
+ * [$€-2], [$£-809], [$USD]: a currency tag, shown as its symbol; [$-409], a
+ * locale alone, shows nothing. FOUND IN R163: they were dropped with the
+ * other brackets, so a euro amount showed no €.
+ */
+const currencyTags = (s: string) =>
+  s.replace(/\[\$([^\]-]*)(?:-[^\]]*)?\]/g, (_m, sym: string) => (sym ? `"${sym}"` : ""));
+
+/** [h]:mm, [mm]:ss, [ss]: a duration counted in hours, minutes or seconds, past 24 and 60. */
+const ELAPSED = /\[(h+|m+|s+)\]/i;
+
+type Condition = { op: "<" | "<=" | ">" | ">=" | "=" | "<>"; v: number };
+
+/** A section's condition, [<10] or [>=100], when it has one. */
+function conditionOf(sec: string): Condition | undefined {
+  const m = /\[(<=|>=|<>|<|>|=)\s*(-?\d+(?:\.\d+)?)\]/.exec(sec.replace(/"[^"]*"/g, ""));
+  return m ? { op: m[1] as Condition["op"], v: Number(m[2]) } : undefined;
+}
+
+function meets(n: number, c: Condition): boolean {
+  switch (c.op) {
+    case "<":
+      return n < c.v;
+    case "<=":
+      return n <= c.v;
+    case ">":
+      return n > c.v;
+    case ">=":
+      return n >= c.v;
+    case "=":
+      return n === c.v;
+    case "<>":
+      return n !== c.v;
+  }
+}
+
+/**
+ * Which section formats a number, and whether it writes the number's sign
+ * itself. Without conditions: positive;negative;zero. With them (R163), the
+ * first section whose condition holds, a section without one taking the
+ * rest; -1 when none applies. A section only for negatives ([<0]) writes no
+ * minus, as the negative section does not.
+ */
+function sectionFor(v: number, secs: string[]): { i: number; ownSign: boolean } {
+  const conds = secs.slice(0, 2).map(conditionOf);
+  if (conds[0] || conds[1]) {
+    let i = -1;
+    if (conds[0] ? meets(v, conds[0]) : true) i = 0;
+    else if (secs.length > 1 && (!conds[1] || meets(v, conds[1]))) i = 1;
+    else if (secs.length > 2) i = 2;
+    const c = i >= 0 && i < 2 ? conds[i] : undefined;
+    const negativesOnly = !!c && (c.op === "<" || c.op === "<=") && c.v <= 0;
+    // A section of text alone ("small") shows no number, so no minus either.
+    const digits = i >= 0 && /[0#?]/.test(secs[i].replace(/"[^"]*"|\\.|_.|\*.|\[[^\]]*\]/g, ""));
+    return { i, ownSign: v < 0 && (negativesOnly || !digits) };
+  }
+  if (v < 0 && secs.length >= 2) return { i: 1, ownSign: true };
+  if (v === 0 && secs.length >= 3) return { i: 2, ownSign: false };
+  return { i: 0, ownSign: false };
+}
+
+/** A calendar date or time format; a duration ([h]:mm) is a number of hours, not a date. */
 export function isDateFormat(code: string): boolean {
+  if (ELAPSED.test(code)) return false;
   const s = stripBrackets(code)
     .replace(/"[^"]*"/g, "")
-    .replace(/\\./g, "");
+    .replace(/\\.|_.|\*./g, "");
   return /[ymdhs]/i.test(s) && !/[0#]/.test(s);
 }
 
 function formatDate(serial: number, code: string): string {
   const p = serialParts(serial);
-  const s = stripBrackets(code);
+  // Brackets go, but for a duration's [h], [mm], [ss].
+  const s = code.replace(/\[(?!(?:h+|m+|s+)\])[^\]]*\]/gi, "");
   const ampm = /AM\/PM|A\/P/i.test(s);
+  // A duration counts whole seconds from zero (R163).
+  const secondsIn = Math.round(serial * 86400);
   let out = "";
   let i = 0;
   let lastWasHour = false;
@@ -73,17 +140,42 @@ function formatDate(serial: number, code: string): string {
       i = j < 0 ? s.length : j + 1;
       continue;
     }
+    // _x is a space as wide as x; *x fills the cell with x, which is left
+    // to the cell's width here (R163).
+    if (ch === "_" || ch === "*") {
+      if (ch === "_") out += " ";
+      i += 2;
+      continue;
+    }
     if (ch === "\\") {
       out += s[i + 1] ?? "";
       i += 2;
       continue;
     }
-    const m = /^(yyyy|yy|mmmmm|mmmm|mmm|mm|m|dddd|ddd|dd|d|hh|h|ss|s|AM\/PM|am\/pm|A\/P|a\/p)/.exec(
-      rest,
-    );
+    // FOUND IN R163: tokens were read in lower case only, so a file's
+    // DD/MM/YYYY (LibreOffice writes them so) showed those letters for a date.
+    const m =
+      /^(\[h+\]|\[m+\]|\[s+\]|yyyy|yy|mmmmm|mmmm|mmm|mm|m|dddd|ddd|dd|d|hh|h|ss|s|AM\/PM|A\/P)/i.exec(
+        rest,
+      );
     if (m) {
       const tok = m[1];
       const lower = tok.toLowerCase();
+      const elapsed = /^\[(h+|m+|s+)\]$/.exec(lower);
+      if (elapsed) {
+        // FOUND IN R163: [h] was dropped as a bracket, so 36 hours showed ":12".
+        const unit = elapsed[1];
+        const total =
+          unit[0] === "h"
+            ? Math.floor(secondsIn / 3600)
+            : unit[0] === "m"
+              ? Math.floor(secondsIn / 60)
+              : secondsIn;
+        out += String(total).padStart(unit.length, "0");
+        lastWasHour = unit[0] === "h";
+        i += tok.length;
+        continue;
+      }
       // "mm" after an hour (or before seconds) means minutes.
       const minuteCtx = lastWasHour || /^m{1,2}:?s/i.test(rest.replace(/[^a-z:]/gi, ""));
       switch (lower) {
@@ -162,11 +254,19 @@ function formatNumberSection(n: number, code: string): string {
     return `${String.fromCharCode(0xe100 + lits.length - 1)}`;
   };
   s = s.replace(/"([^"]*)"/g, (_m, t: string) => mark(t));
-  s = s.replace(/\\(.)/g, (_m, t: string) => mark(t));
+  // \x is x; _x a space as wide as x; *x a fill to the cell's width, left to
+  // the cell here. FOUND IN R163: _ and * were printed, so Excel's Accounting
+  // format showed "_($* 1,234.50_)" and #,##0_) "1,235_)".
+  s = s.replace(/\\(.)|_(.)|\*(.)/g, (_m, esc?: string, space?: string) =>
+    mark(esc !== undefined ? esc : space !== undefined ? " " : ""),
+  );
   const restore = (t: string) =>
     t.replace(/([-])/g, (_m, k: string) => lits[k.charCodeAt(0) - 0xe100]);
 
   if (!/[0#?]/.test(s)) return restore(s); // pure literal section
+
+  const fraction = formatFraction(n, s);
+  if (fraction !== null) return restore(fraction);
 
   let v = n;
   const pct = (s.match(/%/g) ?? []).length;
@@ -221,6 +321,55 @@ function formatNumberSection(n: number, code: string): string {
   return restore(prefix + body + suffix);
 }
 
+/**
+ * Excel's fractions (R163): # ?/? is 1 1/2, ?/? is 3/2, # ?/8 is 2 5/8. The
+ * denominator is the nearest fraction with as many digits as the ?s allow,
+ * or the one written. Null when the section is not a fraction.
+ */
+function formatFraction(n: number, s: string): string | null {
+  const m = /^(.*?)(?:([#0?]+)(\s+))?([#0?]+)\/([#0?]+|[1-9]\d*)(.*)$/.exec(s);
+  if (!m) return null;
+  const [, pre, intPat, gap, numPat, denPat, post] = m;
+  const a = Math.abs(n);
+  let whole = intPat ? Math.trunc(a) : 0;
+  const frac = intPat ? a - whole : a;
+  let num: number;
+  let den: number;
+  if (/^\d+$/.test(denPat)) {
+    den = Number(denPat);
+    num = Math.round(frac * den);
+  } else {
+    const maxDen = 10 ** denPat.length - 1;
+    [num, den] = [Math.round(frac), 1];
+    let best = Math.abs(frac - num);
+    for (let d = 2; d <= maxDen && best > 1e-12; d++) {
+      const k = Math.round(frac * d);
+      const e = Math.abs(frac - k / d);
+      if (e < best - 1e-12) [num, den, best] = [k, d, e];
+    }
+  }
+  if (intPat && num === den) {
+    whole += 1;
+    num = 0;
+  }
+  // ? holds a space where a digit is not, 0 a zero, # nothing.
+  const fill = (t: string, pat: string, left: boolean) => {
+    const width = pat.length;
+    if (t.length >= width) return t;
+    const ch = pat.includes("0") ? "0" : pat.includes("?") ? " " : "";
+    return left ? t.padStart(width, ch) : t.padEnd(width, ch);
+  };
+  const wholeText = intPat ? (whole === 0 && !intPat.includes("0") ? "" : String(whole)) : "";
+  if (num === 0 && (intPat || a === 0)) {
+    // A whole number: the fraction's place is left blank, as Excel does.
+    const blank = " ".repeat(numPat.length + 1 + denPat.length);
+    return pre + (wholeText || "0") + (intPat ? gap : "") + blank + post;
+  }
+  const numText = fill(String(num), numPat, true);
+  const denText = /^\d+$/.test(denPat) ? denPat : fill(String(den), denPat, false);
+  return pre + wholeText + (intPat ? gap : "") + `${numText}/${denText}` + post;
+}
+
 /** Format a value with an Excel format code. */
 export function formatValue(v: Scalar, code?: string | null): string {
   if (v === null) return "";
@@ -232,24 +381,34 @@ export function formatValue(v: Scalar, code?: string | null): string {
     const secs = sections(fmt);
     const textSec = secs.length >= 4 ? secs[3] : secs.find((x) => x.includes("@"));
     if (!textSec) return v;
-    return textSec.replace(/"([^"]*)"/g, "$1").replace(/@/g, v);
+    return textSec.replace(
+      /"([^"]*)"|\\(.)|_(.)|\*(.)|@/g,
+      (_m, q?: string, esc?: string, space?: string, fill?: string) =>
+        q !== undefined
+          ? q
+          : esc !== undefined
+            ? esc
+            : space !== undefined
+              ? " "
+              : fill !== undefined
+                ? ""
+                : v,
+    );
   }
   if (!fmt || fmt.toLowerCase() === "general") return formatGeneral(v);
   const secs = sections(fmt);
-  let sec = secs[0];
-  let n = v;
-  if (v < 0 && secs.length >= 2) {
-    sec = secs[1];
-    n = -v; // the negative section supplies its own sign
-  } else if (v === 0 && secs.length >= 3) {
-    sec = secs[2];
-  }
-  if (isDateFormat(sec)) {
+  const { i, ownSign } = sectionFor(v, secs);
+  // No section for the number (every condition fails): Excel shows #s.
+  if (i < 0) return "#".repeat(8);
+  const sec = currencyTags(secs[i]);
+  // The section that writes its own sign is given the number without it.
+  const n = ownSign ? -v : v;
+  if (isDateFormat(sec) || ELAPSED.test(sec)) {
     if (v < 0) return "#".repeat(8);
     return formatDate(v, sec);
   }
   const body = formatNumberSection(n, sec);
-  return v < 0 && secs.length < 2 && !/^-/.test(body) ? `-${body}` : body;
+  return n < 0 && !/^-/.test(body) ? `-${body}` : body;
 }
 
 /** The formats offered in the toolbar, by name. */
@@ -421,8 +580,9 @@ const INDEXED = [
 export function formatColor(v: Scalar, code: string | undefined | null): string | undefined {
   if (typeof v !== "number" || !code) return undefined;
   const secs = sections(code);
-  const sec = v < 0 && secs.length >= 2 ? secs[1] : v === 0 && secs.length >= 3 ? secs[2] : secs[0];
-  for (const m of sec.matchAll(/\[([^\]]+)\]/g)) {
+  const { i } = sectionFor(v, secs);
+  if (i < 0) return undefined;
+  for (const m of secs[i].matchAll(/\[([^\]]+)\]/g)) {
     const name = m[1].trim().toLowerCase();
     if (NAMED_COLORS[name]) return NAMED_COLORS[name];
     const idx = /^color\s*(\d{1,2})$/.exec(name);
