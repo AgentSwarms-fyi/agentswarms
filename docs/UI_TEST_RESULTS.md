@@ -15,6 +15,24 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-29 — Dynamic array formulas in downloads, ADVERSARIAL_LOG R161
+
+**Why this round exists.** Keep hunting: whether a download computes in Excel as it does in
+Sheets. No Excel or LibreOffice is on this machine, so each file was read part by part and
+compared with the parts XlsxWriter writes for Excel's own dynamic array formulas.
+
+Fixtures, kept: **"R161 array formulas"** (`8f477b6b…`) and **"R161 round trip"** (`cee50ecd…`),
+imported from the second download. The downloads of "R160 duplicate rich" were read, and it was
+not changed.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| The workbook | New workbook; A1:A3 one, three, eleven; B5 `=SUM(LEN(A1:A3))`; D1 `=FILTER(A1:A3,LEN(A1:A3)>3)`; E1 `=LEN(A1)` | B5 14; D1:D2 three, eleven; E1 3 |
+| Before: download | Download as Excel (.xlsx), the file's XML read | B5 `<f>SUM(LEN(A1:A3))</f>`, plain; D1 `<f t="array" ref="D1:D2">`, no `cm`; no `xl/metadata.xml`; `fullCalcOnLoad="1"`. Excel would compute B5 as `=SUM(LEN(@A1:A3))`, which is `#VALUE!` in row 5 |
+| After: download | The same | B5 `cm="1"` with `<f t="array" ref="B5">`; D1 `cm="1"` with `ref="D1:D2"`; E1 still `<f>LEN(A1)</f>`; `xl/metadata.xml`, its content type and its relationship, the part identical to XlsxWriter's. openpyxl reads B5 and D1 as array formulas |
+| Round trip | Import the downloaded file | "Sheet1 6 cells"; B5 `=SUM(LEN(A1:A3))` 14; D1:D2 three, eleven; E1 3 |
+| The sample | Download as Excel, "R160 duplicate rich" | Dashboard and Dashboard (2): J9 and K9 (SORTBY) and J18 (FILTER) marked; the other 2,588 formulas plain, none of them an array formula |
+
 ## 2026-09-29 — Hidden sheets, ADVERSARIAL_LOG R160
 
 **Why this round exists.** Keep hunting: Excel's hidden sheets, and the sheet tab's missing

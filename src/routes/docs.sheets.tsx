@@ -291,10 +291,12 @@ function SheetsDocsPage() {
         <strong>File → Download as Excel</strong> writes every sheet: grid sheets with their
         formulas and current values, table sheets as Excel tables named like the sheet (so{" "}
         <C>Orders[amount]</C> keeps working), up to <C>SHEETS_EXPORT_MAX_ROWS</C> rows each and read
-        with your own grants, and the workbook&apos;s names.{" "}
-        <strong>Download this sheet as CSV</strong> writes what the sheet shows. Conditional
-        formatting, data validation, the filter&apos;s range and charts go both ways: a chart
-        arrives in Excel as an Excel chart over the same cells.
+        with your own grants, and the workbook&apos;s names. A formula that spills, or that works
+        over a range where older Excel took one value, goes out as Excel 365&apos;s dynamic array
+        formula, so Excel computes it as Sheets does. <strong>Download this sheet as CSV</strong>{" "}
+        writes what the sheet shows. Conditional formatting, data validation, the filter&apos;s
+        range and charts go both ways: a chart arrives in Excel as an Excel chart over the same
+        cells.
       </P>
 
       <H2 id="save">Saving to the lakehouse and the catalog</H2>

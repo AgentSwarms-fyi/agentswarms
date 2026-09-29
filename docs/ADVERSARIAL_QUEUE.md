@@ -425,6 +425,19 @@ Ctrl+Z after a ribbon tool went nowhere). Open from that round:
 - **Sorting by colour or a custom list** (Excel's other Sort options) is not there, nor sorting
   left to right.
 
+Closed with dynamic arrays in downloads: R161 (a formula working over a range went out plain,
+so Excel took one value from it; a spill went out as a fixed Ctrl+Shift+Enter block). Open from
+that round:
+
+- **Reading older files the older way.** A plain formula in a file from Excel 2019 or older, or
+  written by a library such as openpyxl, is computed here the dynamic way; Excel 365 shows `@` in it
+  and takes one value. See "Legacy files' implicit intersection" under array formulas below.
+- **`@` and `_xlfn.SINGLE`** (how a dynamic formula keeps an older one's single value) are neither
+  read nor written.
+- **More is marked than Excel would mark.** `=SUMPRODUCT(A1:A3*B1:B3)` works over arrays in every
+  Excel, and is marked dynamic here. Excel 365 computes it the same; Excel 2019 shows it in braces.
+- **Only a download writes the mark.** Save to lakehouse writes values, so it is not affected.
+
 Closed with Hidden sheets: R160 (a very hidden sheet was dropped on import and its formulas said
 `#REF!`; a hidden one came in showing; no Hide, Unhide or Duplicate). Open from that round:
 

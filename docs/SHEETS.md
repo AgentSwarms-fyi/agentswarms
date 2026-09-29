@@ -696,6 +696,11 @@ them (unsaved edits included), each formula with its current value and Excel tol
 open; table sheets as Excel tables named like the sheet, so `Orders[amount]` still works in Excel.
 Excel refuses a sheet name longer than 31 characters, so a longer one is cut to fit in the file
 (kept unique with ` (2)`), and every formula that names that sheet is rewritten to match.
+A formula that spills, and one that works over a range where Excel before dynamic arrays took a
+single value (`=SUM(LEN(A1:A3))`, `=SUM(IF(A1:A3="x",1,0))`), goes out as Excel 365's dynamic array
+formula. Excel then computes it as Sheets does, and a spill grows or shrinks with its data. Written
+as a plain formula, Excel would take only the value in the formula's own row. Excel 2019 and older
+show these formulas in braces, as array formulas.
 A table sheet contributes the rows its view shows (its filters, sort and hidden columns), read
 through the lakehouse, so your grants and row and column policies apply, up to
 `SHEETS_EXPORT_MAX_ROWS` (100,000). **Download this sheet as CSV** writes the active sheet as it

@@ -109,6 +109,50 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-29 — Dynamic array formulas in downloads
+
+Tests: `tests/unit/sheetsDynamicArrays.test.ts` (12). The mutation run caught 17 of 17, and the
+control survived; its first run missed one, because the test's whole column had five rows, and the
+test was changed to use a column of one row. Fixture: `tests/fixtures/sheets/xlsxwriter-dynamic.xlsx`,
+from `make_xlsxwriter_dynamic.py`.
+
+#### R161 · S2 · A download changed what Excel computes: array formulas went out as older Excel's
+
+**Found.** Excel reads a formula in a file as one from before dynamic arrays unless the cell is
+marked. Where such a formula expects one value and meets a range, Excel takes the value in the
+formula's own row, and shows `@` there. The [libxlsxwriter
+documentation](https://libxlsxwriter.github.io/working_with_formulas.html) describes it: written
+plainly, `LEN(A1:A3)` gives one value, and to work on the whole range a formula has to be written
+as an array or a dynamic array formula. A download from Sheets marked nothing.
+- **A formula that works over a range went out plain.** In "R161 array formulas", B5
+  `=SUM(LEN(A1:A3))` is 14 in Sheets. The file held `<f>SUM(LEN(A1:A3))</f>`, and the workbook
+  tells Excel to recalculate when it opens (`fullCalcOnLoad`). Excel then computes
+  `=SUM(LEN(@A1:A3))`: row 5 is outside A1:A3, so the answer is `#VALUE!`. In a row inside the
+  range it would be one word's length, a wrong number with no error. `SUM(IF(…))`, `MAX(IF(…))` and
+  `MATCH(1,(A=x)*(B=y),0)` are the common kinds.
+- **A spilling formula went out as an older array formula.** `=FILTER(A1:A3,LEN(A1:A3)>3)` was an
+  array formula over D1:D2 with no mark: Excel's Ctrl+Shift+Enter kind, fixed to two cells. When
+  the data changes in Excel, it does not spill: extra rows are cut off without a warning, and
+  missing ones show `#N/A`. The Sales performance sample shipped three of them.
+
+**The fix.** The engine now notes, for each formula, whether it worked over several values where
+older Excel took one: an operator on a range, or a function of single values given one (the
+evaluator's `onArray`, and `WorkbookEngine.arrayFormula`). A whole column counts as many values
+even when one row is used.
+- **The download** writes such a formula, and every one that spills, as an array formula over the
+  cells it fills: one cell for `=SUM(LEN(A1:A3))`, D1:D2 for the FILTER.
+- **Excel's mark** (`lib/sheets/xlsxDynamic.ts`) adds `cm="1"` to the cell, and the workbook's
+  `xl/metadata.xml` with its content type and relationship. ExcelJS writes neither. The part is the
+  same as the one XlsxWriter writes for Excel's dynamic array formulas, which the tests compare
+  against.
+- **Formulas that need no mark stay plain,** such as `=SUM(A1:A3)`, `=COUNTIF(…)`, `=INDEX(…)` and
+  XLOOKUP. None of the other 1,319 formulas in the Sales sample is marked.
+- **The Sales performance sample was written again,** so its SORTBY and FILTER spill in Excel.
+  Its 41 figures, checked in Python with openpyxl, still agree.
+
+**Found while fixing it.** ExcelJS's `fillFormula` reads a one-cell range ("B5") as no range at
+all, and writes nothing, not even the value. A one-cell array formula is set on the cell instead.
+
 ### 2026-09-29 — Hidden sheets
 
 Tests: `tests/unit/sheetsHiddenSheets.test.ts` (15). The mutation run caught 22 of 22, and the

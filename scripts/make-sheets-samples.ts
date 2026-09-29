@@ -131,6 +131,7 @@ async function save(file: string, sheets: SheetSpec[]) {
       grid: s.grid,
       value: (r: number, c: number) => engine.getValue(`s${i}`, r, c),
       spill: (r: number, c: number) => engine.spillSize(`s${i}`, r, c),
+      arrayFormula: (r: number, c: number) => engine.arrayFormula(`s${i}`, r, c),
     })),
   );
   writeFileSync(resolve(OUT, file), Buffer.from(buf));

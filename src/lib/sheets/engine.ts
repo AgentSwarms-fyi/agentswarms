@@ -520,11 +520,14 @@ export class WorkbookEngine {
       if (!set) this.tableReaders.set(t, (set = new Set()));
       set.add(id);
     }
+    // Worked over an array where older Excel takes one value (R161).
+    this.arrayFormulas.delete(id);
     const env: EvalEnv = {
       sheet: sheetName,
       row,
       col,
       now: this.now,
+      onArray: () => this.arrayFormulas.add(id),
       hasSheet: (name) => this.byName.has(name.toLowerCase()),
       used: (name) => this.used(this.byName.get(name.toLowerCase()) ?? ""),
       ...this.cellFacts(),
@@ -591,6 +594,17 @@ export class WorkbookEngine {
   }
 
   private cachedIds = new Set<CellId>();
+  private arrayFormulas = new Set<CellId>();
+
+  /**
+   * Did the formula, when last computed, work over several values where
+   * Excel before dynamic arrays takes one (=SUM(LEN(A1:A3)))? A download
+   * writes it as a dynamic array formula, or Excel would compute it the old
+   * way, with the value in its own row (R161).
+   */
+  arrayFormula(sheetId: string, row: number, col: number): boolean {
+    return this.arrayFormulas.has(cid(sheetId, row, col));
+  }
 
   private cachedFallback(
     sheetId: string,

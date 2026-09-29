@@ -29,6 +29,7 @@ import {
 } from "./xlsxRules";
 import { strFromU8 } from "fflate";
 import { addChartsToXlsx, readXlsxCharts } from "./xlsxCharts";
+import { markDynamicArrays } from "./xlsxDynamic";
 import { namesFromWorkbookXml, namesToWorkbookXml, type DefinedName } from "./definedNames";
 import { sheetNotes, withoutCommentRels } from "./xlsxNotes";
 import {
@@ -658,6 +659,8 @@ export type ExportGridSheet = {
   value: (row: number, col: number) => Scalar;
   /** The size of the array a formula spills, when it spills. */
   spill?: (row: number, col: number) => { rows: number; cols: number } | undefined;
+  /** Does a formula work over arrays where older Excel takes one value (R161)? */
+  arrayFormula?: (row: number, col: number) => boolean;
 };
 export type ExportTableSheet = {
   kind: "table";
@@ -741,6 +744,8 @@ export async function writeXlsx(
       visibility: "visible",
     },
   ];
+  // Each sheet's dynamic array formulas, by their cells (R161).
+  const dynamicCells = new Map<string, string[]>();
   for (const [index, s] of sheets.entries()) {
     const sheetName = fileNames[index];
     if (s.kind === "table") {
@@ -790,6 +795,8 @@ export async function writeXlsx(
       if (row.height === undefined) row.height = pxToPt(24);
     }
     const spilled = new Set<string>();
+    const dynamic: string[] = [];
+    dynamicCells.set(fileNames[index], dynamic);
     for (const [key, input] of Object.entries(s.grid.cells)) {
       const [r, c] = key.split(",").map(Number);
       const cell = ws.getCell(r + 1, c + 1);
@@ -797,19 +804,31 @@ export async function writeXlsx(
       if (input.i.startsWith("=")) {
         const formula = toFileFormula(inFile(input.i));
         const size = s.spill?.(r, c);
-        if (size && (size.rows > 1 || size.cols > 1)) {
-          // A spilling formula goes out as an array formula over the range
-          // it fills, which every Excel computes the same way.
-          const ref: RangeAddr = { r0: r, c0: c, r1: r + size.rows - 1, c1: c + size.cols - 1 };
-          ws.fillFormula(
-            rangeA1(ref),
-            formula,
-            (row: number, col: number) => fileValue(s.value(row - 1, col - 1)),
-            "array",
-          );
-          for (let y = ref.r0; y <= ref.r1; y++)
-            for (let x = ref.c0; x <= ref.c1; x++)
-              if (y !== r || x !== c) spilled.add(cellKey(y, x));
+        const spills = !!size && (size.rows > 1 || size.cols > 1);
+        if (spills || s.arrayFormula?.(r, c)) {
+          // A spilling formula, or one that works over arrays, goes out as
+          // Excel 365's dynamic array formula (R161): an array formula over
+          // the cells it fills, marked dynamic below. FOUND IN R161: written
+          // plain, Excel took one value from each range (=SUM(LEN(A1:A3)) in
+          // row 5 was #VALUE!); as an older array formula alone, a spill was
+          // fixed to the size it had here, and cut short when it grew.
+          if (size && spills) {
+            const ref: RangeAddr = { r0: r, c0: c, r1: r + size.rows - 1, c1: c + size.cols - 1 };
+            ws.fillFormula(
+              rangeA1(ref),
+              formula,
+              (row: number, col: number) => fileValue(s.value(row - 1, col - 1)),
+              "array",
+            );
+            for (let y = ref.r0; y <= ref.r1; y++)
+              for (let x = ref.c0; x <= ref.c1; x++)
+                if (y !== r || x !== c) spilled.add(cellKey(y, x));
+          } else {
+            // One cell. ExcelJS's fillFormula reads "B5" as no range at all
+            // and writes nothing, so the cell is given its array formula here.
+            cell.value = { formula, result: fileValue(v), shareType: "array", ref: a1(r, c) };
+          }
+          dynamic.push(a1(r, c));
         } else {
           cell.value = { formula, result: fileValue(v) };
         }
@@ -853,7 +872,7 @@ export async function writeXlsx(
       )
     : withRules;
   // Charts: parts ExcelJS does not write, added to its zip.
-  return addChartsToXlsx(
+  const withCharts = addChartsToXlsx(
     withNames,
     sheets.flatMap((s, i) =>
       s.kind === "grid" && s.grid.charts?.length
@@ -870,6 +889,8 @@ export async function writeXlsx(
         : [],
     ),
   );
+  // Dynamic array formulas: the mark ExcelJS cannot write (R161).
+  return markDynamicArrays(withCharts, dynamicCells);
 }
 
 // The sheet's default sizes as this writer sets them (see defaultColWidth and defaultRowHeight).

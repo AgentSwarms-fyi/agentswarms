@@ -20,7 +20,7 @@ import {
   type Value,
 } from "./values";
 import { FUNCTIONS, LIFTS } from "./functions";
-import { wholeRange, zipN } from "./arrays";
+import { tailOf, wholeRange, zipN } from "./arrays";
 
 export type RangeRef = {
   sheet: string;
@@ -109,6 +109,13 @@ export interface EvalEnv {
   definedName?(name: string): Node | undefined;
   /** Defined names being evaluated, so one that refers to itself says so. */
   naming?: ReadonlySet<string>;
+  /**
+   * Told when the formula works over several values where Excel before
+   * dynamic arrays took one: an operator on a range, or a function of single
+   * values given one (R161). A download marks such a formula as a dynamic
+   * array formula, so that Excel computes it as this engine did.
+   */
+  onArray?(): void;
 }
 
 /** Thrown through the evaluator when a table answer is pending. */
@@ -190,6 +197,10 @@ function rangeOf(node: Node, env: EvalEnv): RangeRef | undefined {
   }
   return undefined;
 }
+
+/** Several values, or a whole column or row: where older Excel took the one in the formula's row. */
+const manyValues = (v: Value): boolean =>
+  isMatrix(v) && (v.length > 1 || (v[0]?.length ?? 0) > 1 || !!tailOf(v));
 
 /** Apply fn to every element of one or two values, broadcasting scalars (dynamic arrays). */
 function broadcast(a: Value, b: Value, fn: (x: Scalar, y: Scalar) => Scalar): Value {
@@ -297,6 +308,7 @@ export function evaluate(node: Node, env: EvalEnv): Value {
     case "unary": {
       const v = evaluate(node.arg, env);
       if (node.op === "+") return v;
+      if (manyValues(v)) env.onArray?.();
       return mapValue(v, (x) => {
         const n = toNumber(x);
         return isError(n) ? n : -n;
@@ -304,6 +316,7 @@ export function evaluate(node: Node, env: EvalEnv): Value {
     }
     case "percent": {
       const v = evaluate(node.arg, env);
+      if (manyValues(v)) env.onArray?.();
       return mapValue(v, (x) => {
         const n = toNumber(x);
         return isError(n) ? n : n / 100;
@@ -312,6 +325,7 @@ export function evaluate(node: Node, env: EvalEnv): Value {
     case "bin": {
       const a = evaluate(node.left, env);
       const b = evaluate(node.right, env);
+      if (manyValues(a) || manyValues(b)) env.onArray?.();
       if (node.op === "&") {
         return broadcast(a, b, (x, y) => {
           const s = toText(x);
@@ -364,6 +378,7 @@ export function evaluate(node: Node, env: EvalEnv): Value {
         const at = lift(args.length).filter((i) => i < args.length);
         const vals = at.map((i) => (args[i].node.k === "empty" ? null : args[i].value()));
         if (vals.some(isMatrix)) {
+          if (vals.some(manyValues)) env.onArray?.();
           return zipN(vals, (xs) =>
             scalarOf(
               impl(

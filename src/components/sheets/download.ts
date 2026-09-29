@@ -102,6 +102,7 @@ export async function downloadXlsx(opts: {
       grid,
       value: (r, c) => opts.engine.getValue(tab.id, r, c),
       spill: (r, c) => opts.engine.spillSize(tab.id, r, c),
+      arrayFormula: (r, c) => opts.engine.arrayFormula(tab.id, r, c),
     });
   }
   const buf = await writeXlsx(sheets, { names: opts.engine.definedNames() });
