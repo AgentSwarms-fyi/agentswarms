@@ -193,10 +193,18 @@ export function adjustRuleFormulas(
   at: number,
   count: number,
 ): GridData {
+  return mapRuleFormulas(grid, (f) => adjustFormula(f, formulaSheet, target, axis, at, count));
+}
+
+/**
+ * A sheet's rule formulas (conditional formats, validations) passed through
+ * `fn`, as its cell formulas are. Returns the same object when none changed.
+ */
+export function mapRuleFormulas(grid: GridData, fn: (formula: string) => string): GridData {
   let changed = false;
   const adj = (text: string): string => {
     if (!text.trim().startsWith("=")) return text;
-    const next = adjustFormula(text.trim(), formulaSheet, target, axis, at, count);
+    const next = fn(text.trim());
     if (next !== text.trim()) changed = true;
     return next === text.trim() ? text : next;
   };

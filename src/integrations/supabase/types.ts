@@ -6877,6 +6877,7 @@ export type Database = {
           kind: string;
           label: string | null;
           sheet_count: number;
+          names: Json | null;
           size_bytes: number;
           snapshot: Json;
           user_id: string;
@@ -6889,6 +6890,7 @@ export type Database = {
           kind: string;
           label?: string | null;
           sheet_count?: number;
+          names?: Json | null;
           size_bytes?: number;
           snapshot: Json;
           user_id: string;
@@ -6901,6 +6903,7 @@ export type Database = {
           kind?: string;
           label?: string | null;
           sheet_count?: number;
+          names?: Json | null;
           size_bytes?: number;
           snapshot?: Json;
           user_id?: string;
@@ -6922,6 +6925,7 @@ export type Database = {
           description: string | null;
           id: string;
           name: string;
+          names: Json;
           updated_at: string;
           user_id: string;
         };
@@ -6930,6 +6934,7 @@ export type Database = {
           description?: string | null;
           id?: string;
           name: string;
+          names?: Json;
           updated_at?: string;
           user_id: string;
         };
@@ -6938,6 +6943,7 @@ export type Database = {
           description?: string | null;
           id?: string;
           name?: string;
+          names?: Json;
           updated_at?: string;
           user_id?: string;
         };

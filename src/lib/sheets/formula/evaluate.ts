@@ -105,6 +105,10 @@ export interface EvalEnv {
   formula?(sheet: string, row: number, col: number): string | undefined;
   /** Names LET has given values to, lower-cased. */
   names?: ReadonlyMap<string, Value>;
+  /** A workbook's defined name (Revenue, TaxRate): what it refers to, parsed (R148). */
+  definedName?(name: string): Node | undefined;
+  /** Defined names being evaluated, so one that refers to itself says so. */
+  naming?: ReadonlySet<string>;
 }
 
 /** Thrown through the evaluator when a table answer is pending. */
@@ -146,6 +150,11 @@ function rangeOf(node: Node, env: EvalEnv): RangeRef | undefined {
       r1: node.ref.row,
       c1: node.ref.col,
     };
+  }
+  if (node.k === "name") {
+    // A defined name for a cell or range is that reference, wherever one is needed.
+    const def = env.definedName?.(node.name);
+    return def && (def.k === "cell" || def.k === "range") ? rangeOf(def, env) : undefined;
   }
   if (node.k === "range") {
     const sheet = node.sheet ?? env.sheet;
@@ -275,6 +284,12 @@ export function evaluate(node: Node, env: EvalEnv): Value {
     case "name": {
       const bound = env.names?.get(node.name.toLowerCase());
       if (bound !== undefined) return bound;
+      const def = env.definedName?.(node.name);
+      if (def) {
+        const key = node.name.toLowerCase();
+        if (env.naming?.has(key)) return err("#CYCLE!", `The name ${node.name} refers to itself`);
+        return evaluate(def, { ...env, naming: new Set([...(env.naming ?? []), key]) });
+      }
       return err("#NAME?", `Unknown name "${node.name}"`);
     }
     case "array":
@@ -327,10 +342,11 @@ export function evaluate(node: Node, env: EvalEnv): Value {
       const args: Arg[] = node.args.map((n) => {
         let cached: Value | undefined;
         let done = false;
+        const ref = rangeOf(n, env);
         return {
           node: n,
-          isRef: n.k === "cell" || n.k === "range" || n.k === "struct",
-          ref: rangeOf(n, env),
+          isRef: n.k === "cell" || n.k === "range" || n.k === "struct" || (n.k === "name" && !!ref),
+          ref,
           value() {
             if (!done) {
               cached = evaluate(n, env);

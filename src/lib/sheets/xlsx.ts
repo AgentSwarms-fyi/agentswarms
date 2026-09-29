@@ -29,6 +29,7 @@ import {
 } from "./xlsxRules";
 import { strFromU8 } from "fflate";
 import { addChartsToXlsx, readXlsxCharts } from "./xlsxCharts";
+import { namesFromWorkbookXml, namesToWorkbookXml, type DefinedName } from "./definedNames";
 import {
   addTextRuleAttributes,
   patchParts,
@@ -304,7 +305,12 @@ export type ImportedSheet = {
   cachedFormulas: number;
 };
 
-export type ImportResult = { sheets: ImportedSheet[]; warnings: string[] };
+export type ImportResult = {
+  sheets: ImportedSheet[];
+  warnings: string[];
+  /** The workbook's defined names (R148). */
+  names: DefinedName[];
+};
 
 function textOf(v: unknown): string {
   if (v && typeof v === "object" && "richText" in (v as object)) {
@@ -335,31 +341,60 @@ function literalInput(v: unknown): { i: string; f?: string } | null {
  * Whether this engine can compute a formula: it parses, calls only functions
  * the engine has, and names no defined name (those stay in the file).
  */
-export function computable(formula: string): boolean {
+export function computable(formula: string, names: ReadonlySet<string> = new Set()): boolean {
   let ast: Node;
   try {
     ast = parseFormula(formula.startsWith("=") ? formula.slice(1) : formula);
   } catch {
     return false;
   }
-  const ok = (n: Node): boolean => {
+  // `scope`: the workbook's names this engine can compute, and LET's own.
+  const ok = (n: Node, scope: ReadonlySet<string>): boolean => {
     switch (n.k) {
-      case "call":
-        return !!FUNCTIONS[n.name] && n.args.every(ok);
+      case "call": {
+        if (n.name === "LET") {
+          // LET(name, value, …, result): each name is known after its value.
+          if (n.args.length < 3 || n.args.length % 2 === 0) return false;
+          const inner = new Set(scope);
+          for (let i = 0; i < n.args.length - 1; i += 2) {
+            const bound = n.args[i];
+            if (bound.k !== "name" || !ok(n.args[i + 1], inner)) return false;
+            inner.add(bound.name.toLowerCase());
+          }
+          return ok(n.args[n.args.length - 1], inner);
+        }
+        return !!FUNCTIONS[n.name] && n.args.every((a) => ok(a, scope));
+      }
       case "name":
-        return false;
+        return scope.has(n.name.toLowerCase());
       case "unary":
       case "percent":
-        return ok(n.arg);
+        return ok(n.arg, scope);
       case "bin":
-        return ok(n.left) && ok(n.right);
+        return ok(n.left, scope) && ok(n.right, scope);
       case "array":
-        return n.rows.every((r) => r.every(ok));
+        return n.rows.every((r) => r.every((x) => ok(x, scope)));
       default:
         return true;
     }
   };
-  return ok(ast);
+  return ok(ast, new Set([...names].map((x) => x.toLowerCase())));
+}
+
+/** The names whose references this engine computes, directly or through other such names. */
+export function computableNames(names: DefinedName[]): Set<string> {
+  const known = new Set<string>();
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const d of names) {
+      const key = d.name.toLowerCase();
+      if (!known.has(key) && computable(d.ref, known)) {
+        known.add(key);
+        grew = true;
+      }
+    }
+  }
+  return known;
 }
 
 /** A formula's saved result as a value this workbook can hold. */
@@ -411,6 +446,14 @@ export async function readXlsx(data: ArrayBuffer, opts: ReadOptions): Promise<Im
   const parts = files ? sheetParts(files) : [];
   const theme = themeColors(wb._themes?.theme1);
   const warnings: string[] = [];
+  // The workbook's names (R148): a formula that uses one computes here
+  // rather than keep Excel's saved value.
+  const namesRead = files?.["xl/workbook.xml"]
+    ? namesFromWorkbookXml(strFromU8(files["xl/workbook.xml"]))
+    : { names: [], warnings: [] };
+  const names = namesRead.names.map((d) => ({ ...d, ref: fromFileFormula(d.ref) }));
+  warnings.push(...namesRead.warnings);
+  const knownNames = computableNames(names);
   const sheets: ImportedSheet[] = [];
   for (const ws of wb.worksheets as XSheet[]) {
     if (ws.state === "veryHidden") continue;
@@ -446,7 +489,7 @@ export async function readXlsx(data: ArrayBuffer, opts: ReadOptions): Promise<Im
             // Excel's saved value, kept only where it will be needed: a
             // formula this engine cannot compute shows it instead.
             const cv = cachedValue((v as { result?: unknown }).result);
-            if (cv !== undefined && !computable(input.i)) input.c = cv;
+            if (cv !== undefined && !computable(input.i, knownNames)) input.c = cv;
             const ref: string | undefined = (v as { ref?: string }).ref;
             if ((v as { shareType?: string }).shareType === "array" && ref) {
               const rr = parseRangeA1(ref);
@@ -576,10 +619,21 @@ export async function readXlsx(data: ArrayBuffer, opts: ReadOptions): Promise<Im
       `${found.skipped.length} chart${found.skipped.length === 1 ? "" : "s"} left out: ${found.skipped.slice(0, 3).join("; ")}${found.skipped.length > 3 ? "; …" : ""}.`,
     );
   }
-  return { sheets, warnings };
+  return { sheets, warnings, names };
 }
 
 // ── Writing ────────────────────────────────────────────────────────────────
+
+/** Names into a workbook part: into its <definedNames>, or one placed after <sheets>. */
+export function addDefinedNames(xml: string, names: DefinedName[]): string {
+  const block = namesToWorkbookXml(names);
+  if (!block) return xml;
+  const inner = block.slice("<definedNames>".length, -"</definedNames>".length);
+  if (xml.includes("<definedNames>"))
+    return xml.replace("<definedNames>", `<definedNames>${inner}`);
+  if (/<definedNames\s*\/>/.test(xml)) return xml.replace(/<definedNames\s*\/>/, block);
+  return xml.replace("</sheets>", `</sheets>${block}`);
+}
 
 export type ExportGridSheet = {
   kind: "grid";
@@ -636,6 +690,7 @@ export function excelSheetNames(names: readonly string[]): string[] {
 
 export async function writeXlsx(
   sheets: (ExportGridSheet | ExportTableSheet)[],
+  opts: { names?: DefinedName[] } = {},
 ): Promise<ArrayBuffer> {
   const ExcelJS = await excel();
   const wb: XBook = new ExcelJS.Workbook();
@@ -754,9 +809,18 @@ export async function writeXlsx(
         (_name, xml) => addTextRuleAttributes(xml),
       )
     : written;
+  // Names (R148), with the file's sheet names and function prefixes.
+  const names = (opts.names ?? []).map((d) => ({ ...d, ref: toFileFormula(inFile(`=${d.ref}`)) }));
+  const withNames = names.length
+    ? patchParts(
+        withRules,
+        (name) => name === "xl/workbook.xml",
+        (_name, xml) => addDefinedNames(xml, names),
+      )
+    : withRules;
   // Charts: parts ExcelJS does not write, added to its zip.
   return addChartsToXlsx(
-    withRules,
+    withNames,
     sheets.flatMap((s, i) =>
       s.kind === "grid" && s.grid.charts?.length
         ? [

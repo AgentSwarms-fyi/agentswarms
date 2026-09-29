@@ -104,7 +104,7 @@ export async function downloadXlsx(opts: {
       spill: (r, c) => opts.engine.spillSize(tab.id, r, c),
     });
   }
-  const buf = await writeXlsx(sheets);
+  const buf = await writeXlsx(sheets, { names: opts.engine.definedNames() });
   saveBlob(
     new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }),
     fileName(opts.name, "xlsx"),

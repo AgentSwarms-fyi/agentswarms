@@ -97,8 +97,16 @@ function SheetsDocsPage() {
       </P>
       <UL>
         <li>
-          <strong>Typing formulas.</strong> Function names are suggested as you type (Tab inserts
-          one), a hint shows the arguments, and clicking cells inserts their reference.
+          <strong>Typing formulas.</strong> Function names and the workbook&apos;s names are
+          suggested as you type (Tab inserts one), a hint shows the arguments, and clicking cells
+          inserts their reference.
+        </li>
+        <li>
+          <strong>Named ranges.</strong> Select cells and type a new name in the Name box to name
+          them; type a name there to go to its cells. Data → Names lists, adds, edits, renames and
+          deletes names, each with what it comes to now. Formulas use them as in Excel (
+          <C>=SUM(Revenue)*TaxRate</C>). A renamed name is renamed in every formula that uses it,
+          and names move with inserted rows, shifted cells and renamed sheets.
         </li>
         <li>
           <strong>Keyboard.</strong> Enter/Tab commit and move, and Enter after a run of Tabs
@@ -227,17 +235,19 @@ function SheetsDocsPage() {
         <strong>File → Import sheets</strong> adds a file&apos;s sheets to an open one. An .xlsx
         brings its formulas (array formulas and newer functions such as XLOOKUP included), number
         formats, fonts, fills, borders, alignment, merged cells, links, widths, heights and hidden
-        rows and columns. A formula using a function Sheets does not compute yet shows the value
-        Excel last saved, marked, and goes back to Excel as written. A CSV&apos;s delimiter is
-        detected, and text that looks like a formula stays text.
+        rows and columns, and its named ranges (the import names any it leaves out). A formula using
+        a function Sheets does not compute yet shows the value Excel last saved, marked, and goes
+        back to Excel as written. A CSV&apos;s delimiter is detected, and text that looks like a
+        formula stays text.
       </P>
       <P>
         <strong>File → Download as Excel</strong> writes every sheet: grid sheets with their
         formulas and current values, table sheets as Excel tables named like the sheet (so{" "}
         <C>Orders[amount]</C> keeps working), up to <C>SHEETS_EXPORT_MAX_ROWS</C> rows each and read
-        with your own grants. <strong>Download this sheet as CSV</strong> writes what the sheet
-        shows. Conditional formatting, data validation, the filter&apos;s range and charts go both
-        ways: a chart arrives in Excel as an Excel chart over the same cells.
+        with your own grants, and the workbook&apos;s names.{" "}
+        <strong>Download this sheet as CSV</strong> writes what the sheet shows. Conditional
+        formatting, data validation, the filter&apos;s range and charts go both ways: a chart
+        arrives in Excel as an Excel chart over the same cells.
       </P>
 
       <H2 id="save">Saving to the lakehouse and the catalog</H2>

@@ -33,6 +33,7 @@ import { WorkbookEditor } from "@/components/sheets/WorkbookEditor";
 import { useWorkbook } from "@/components/sheets/useWorkbook";
 import { useWorkbookPreview } from "@/components/sheets/useWorkbookPreview";
 import type { WorkbookPreview } from "@/lib/sheets/preview";
+import type { DefinedName } from "@/lib/sheets/definedNames";
 import {
   sheetsGet,
   sheetsUpdateWorkbook,
@@ -68,6 +69,7 @@ function WorkbookPage() {
   const [busy, setBusy] = useState<"xlsx" | "csv" | null>(null);
   const [name, setName] = useState<string | null>(null);
   const [tabs, setTabs] = useState<SheetTabRow[] | null>(null);
+  const [names, setNames] = useState<DefinedName[] | null>(null);
   const [limits, setLimits] = useState<SheetsLimits | null>(null);
   // The gallery thumbnail kept now; undefined until the workbook has loaded.
   const [storedPreview, setStoredPreview] = useState<WorkbookPreview | null | undefined>();
@@ -96,6 +98,7 @@ function WorkbookPage() {
       setName(r.workbook.name);
       setStoredPreview(r.workbook.preview);
       setLimits(r.limits);
+      setNames(r.names);
       setTabs(r.tabs);
     } catch (e) {
       setError({ message: (e as Error).message });
@@ -118,6 +121,7 @@ function WorkbookPage() {
     readOnly,
     role: access?.role,
     asShare: asShare ?? null,
+    names,
   });
   // The thumbnail is drawn from what this page shows: only from everything.
   useWorkbookPreview({ wb, token, workbookId, stored: readOnly ? undefined : storedPreview });
@@ -389,10 +393,16 @@ function WorkbookPage() {
           workbookId={workbookId}
           takenNames={wb.tabs.map((t) => t.name)}
           onImported={(r) => {
+            // The names first, so the new sheets' formulas compute with them.
+            if (r.names.length) wb.addNamesLocal(r.names);
             for (const tab of r.tabs) wb.addTabLocal(tab);
             toast.success(
-              `Added ${r.tabs.length} sheet${r.tabs.length > 1 ? "s" : ""} from the file`,
+              `Added ${r.tabs.length} sheet${r.tabs.length > 1 ? "s" : ""} from the file${r.names.length ? ` and ${r.names.length} name${r.names.length > 1 ? "s" : ""}` : ""}`,
             );
+            if (r.skippedNames.length)
+              toast.warning(
+                `This workbook already has ${r.skippedNames.join(", ")}; its own ${r.skippedNames.length > 1 ? "were" : "was"} kept, and the file's formulas use ${r.skippedNames.length > 1 ? "them" : "it"}.`,
+              );
           }}
         />
       )}

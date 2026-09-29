@@ -135,6 +135,14 @@ export function workbookContext(args: {
       for (const row of d.sample) lines.push(`  ${row.map((x) => x.slice(0, 40)).join(" | ")}`);
     }
   }
+  // The workbook's names, which formulas use as they are (R148).
+  const names = engine.definedNames();
+  if (names.length) {
+    lines.push(`\nNAMES (use in formulas by name, e.g. =SUM(${names[0].name})):`);
+    for (const d of names.slice(0, 100))
+      lines.push(`  ${d.name} = ${d.ref}${d.comment ? ` (${d.comment.slice(0, 80)})` : ""}`);
+    if (names.length > 100) lines.push(`  … and ${names.length - 100} more`);
+  }
   const text = lines.join("\n");
   return text.length > 40_000 ? `${text.slice(0, 40_000)}\n… (cut)` : text;
 }

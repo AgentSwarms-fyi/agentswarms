@@ -15,6 +15,42 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-29 — Named ranges, ADVERSARIAL_LOG R148
+
+**Why this round exists.** Keep hunting: an Excel model's names. One file was imported through
+Sheets → Import before and after the fix:
+- in the repo: `tests/fixtures/sheets/openpyxl-names.xlsx`;
+- served to the page for the round as `/samples/sheets/r148-names.xlsx`.
+
+The file has six names, nine formulas using them, and Excel's saved answers.
+
+Fixtures kept:
+- the workbook **"R148 names before"** (`97fd1c50…`), imported on the old build;
+- the workbook **"R148 names after"** (`2f2f7018…`);
+- a view share of "R148 names after" to the IAM group `sheets-share-test`, leaving out Q 3.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before: the dialog | Import the file | No mention of names. "6 kept at Excel's value" on Data and 2 on Q 3, said to use "a function Sheets does not compute" |
+| Before: the sheet | D3:D9 | 60, 6, 60, 12, 10, 10, 40. Each formula over a name had the hover "refers to something outside this workbook" |
+| Before: an input | B2 10 → 100 | `=SUM(B2:B4)` 150. `=SUM(Revenue)` stayed 60, `*Rate` 6, `*TaxRate` 12 |
+| After: the dialog | Import the same file | "5 named ranges (Revenue, Rate, TaxRate, Other, …) come in with the sheets". "1 kept at Excel's value". A warning that Two covers several areas and was left out |
+| After: the sheet | D3:D9 | D3:D8 computed: 60, 6, 60, 12, 10, 10. D9 (`=SUM(Two)`) showed 40, Excel's value, with the hover |
+| After: an input | B2 10 → 100 | D3 150, D4 15, D5 150, D6 30 |
+| Name Manager | Data → Names | Revenue (Monthly revenue) `Data!$B$2:$B$4` {100;20;30} (3×1); Rate 0.1; TaxRate 0.2; Other `'Q 3'!$A$1` 5; Local 0.1 |
+| A bad name | New name `A1` | "A1" reads as a cell reference; choose another name |
+| Add a name | Bonus = `B2*TaxRate`, with a comment | Kept as `Data!B2*TaxRate`, value 20. The save answered ok |
+| Name box: a name | `revenue` | B2:B4 selected. The box reads Revenue; the status bar says Sum 150 |
+| Name box: another sheet | `Other` | Q 3 shown, A1 selected (5) |
+| Name box: a new name | C1:C2 selected, then `Budget` | "C1:C2 is named Budget". The ribbon says Names 7 |
+| Autocomplete | `=SUM(Bud` in D1, Tab, `)*2` | The list offered Budget, "Name: 'Q 3'!$C$1:$C$2". Tab gave `=SUM(Budget)*2`. C1 set to 7 made D1 14 |
+| Insert a row | Row 1 of Q 3 → Insert 1 row above | Other became `'Q 3'!$A$2` and Budget `'Q 3'!$C$2:$C$3`. D2 still 14 |
+| Undo | Ctrl+Z | Other back to `$A$1`, Budget to `$C$1:$C$2` |
+| Rename | Revenue → Sales in the Name Manager | Q 3!B2 became `=ROWS(Sales)`, Data!D6 `=SUM(Sales)*TaxRate`. Values unchanged |
+| Reload | The page again | D3:D9 150, 15, 150, 30, 10, 10, 40 on opening. The names as left |
+| Export | File → Download as Excel | 7,638 bytes. openpyxl read all 7 names, both comments, `=SUM(Sales)`, `=SUM(Budget)*2`, and saved values 150, 15, 30 |
+| A viewer | Share with a group, can view, Q 3 left out → View as | Only Data was sent, with the names Sales, Rate, TaxRate, Local and Bonus (not Other or Budget). D7 `=Other*2` showed #NAME? |
+
 ## 2026-09-29 — Missing Excel functions, ADVERSARIAL_LOG R147
 
 **Why this round exists.** Keep hunting: 187 everyday Excel functions were checked, and 41 showed

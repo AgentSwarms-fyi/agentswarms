@@ -102,11 +102,41 @@ clear them and it spills again. A formula that reaches itself shows `#CYCLE!`.
 
 While a formula is being typed:
 
-- The list under the formula bar suggests function names. Press **Tab** to insert one.
+- The list under the formula bar suggests function names and the workbook's names. Press
+  **Tab** to insert one.
 - A hint shows the arguments of the function the caret is in.
 - Clicking or dragging across cells inserts their reference, as Excel's point mode does.
 
 Open parentheses are closed for you on **Enter**.
+
+### Named ranges
+
+A name stands for cells, a range or a value, and formulas use it as Excel's do:
+`=SUM(Revenue)*TaxRate`. Names belong to the workbook, so any sheet can use them.
+
+- **Name the selection.** Select the cells, type a new name in the **Name box** (left of the
+  formula bar) and press Enter. The name refers to the cells absolutely, with their sheet:
+  `Data!$B$2:$B$13`.
+- **Go to a name.** Type it in the Name box (its list offers the names for cells), and the cells
+  are selected, on their own sheet. When the selection is exactly a name's cells, the Name box
+  shows the name.
+- **Data → Names** lists every name, what it refers to and what it comes to now, such as
+  `{10;20;30} (3×1)`. There you add, edit, rename and delete names, with an optional comment. A
+  name can refer to a value (`0.2`) or a formula (`Data!B2*TaxRate`); a reference typed without
+  its sheet is kept on the active one.
+- **Renaming a name** renames it in every formula that uses it: cells, conditional formatting and
+  validation rules, and other names. Deleting one leaves those formulas showing `#NAME?`.
+- **Names follow the cells.** Inserting or deleting rows or columns, inserting or deleting cells, and
+  renaming a sheet move a name as they move formulas. Deleting all of a name's cells makes it
+  `#REF!`. Undo puts the names back with the cells.
+- A name for cells is a reference wherever a function takes one: `ROWS(Revenue)`,
+  `INDEX(Revenue,2)`, `OFFSET(Revenue,1,0)`, `SUMIFS(Revenue,Region,"West")`. A name that refers
+  to itself shows `#CYCLE!`. LET's own names come before the workbook's.
+
+A name follows Excel's rules: it starts with a letter or `_`, holds letters, digits, `.` and `_`, and
+cannot read as a cell (`A1`, `R1C1`) or as TRUE or FALSE. Case does not matter. A workbook keeps up
+to 1,000. Names are kept in each version and restored with it. Someone whose share leaves a sheet
+out is not sent the names that refer to it.
 
 ### Editing
 
@@ -420,8 +450,19 @@ borders, alignment and wrapping, merged cells, links, column widths, row heights
 columns, and gridlines. A sheet name with a character a formula cannot carry (`'`, `[`, `]`…) is
 renamed, and every formula that named it follows.
 
-A formula that uses a function Sheets does not compute yet (CUBEVALUE, a defined name, a link to
-another workbook) shows **the value Excel last saved**, with a small amber mark and a note on hover
+The file's **named ranges** come with it, with their comments, and the formulas that use them
+compute here. The dialog says how many there are. Some are left out, and the import says which:
+- Excel's own names (print areas, filter ranges);
+- hidden helper names;
+- names pointing into another workbook;
+- names over several areas, such as `Data!$B$2,Data!$B$4`.
+
+A name that one sheet of the file scopes to itself comes in for the whole workbook, if no other
+name has it. Importing into an open workbook keeps that workbook's own name when both have one of
+the same name, and says so. A download writes every name back, in the file's sheet names.
+
+A formula that uses a function Sheets does not compute yet (CUBEVALUE, a link to another
+workbook, a name the import had to leave out) shows **the value Excel last saved**, with a small amber mark and a note on hover
 saying why it does not recalculate. It is kept exactly as written, so it goes back to Excel intact.
 Editing it drops the saved value.
 

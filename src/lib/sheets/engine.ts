@@ -23,6 +23,7 @@ import type { CondFormat } from "./condFormat";
 import type { AutoFilter } from "./filter";
 import type { Borders } from "./style";
 import type { Validation } from "./validation";
+import { parseRef, type DefinedName } from "./definedNames";
 import {
   err,
   isError,
@@ -202,9 +203,15 @@ export class WorkbookEngine {
   private tableReaders = new Map<string, Set<CellId>>();
   resolver?: TableResolver;
   now?: Date;
+  /** The workbook's defined names, by lower-cased name (R148). */
+  private defined = new Map<string, { d: DefinedName; ast?: Node }>();
+  /** The same list until the names change, so a page can compare it. */
+  private definedList: DefinedName[] = [];
 
-  constructor(sheets: SheetDef[], resolver?: TableResolver) {
+  constructor(sheets: SheetDef[], resolver?: TableResolver, opts: { names?: DefinedName[] } = {}) {
     this.resolver = resolver;
+    // Known before the first computation, so formulas that use them are right at once.
+    if (opts.names) this.setDefinedNames(opts.names, { recalc: false });
     for (const s of sheets) this.addSheetDef(s);
     this.recalcAll();
   }
@@ -874,7 +881,7 @@ export class WorkbookEngine {
    * is hidden, by a filter or by hand (SUBTOTAL), and its formula (SUBTOTAL
    * leaves other subtotals out; ISFORMULA, FORMULATEXT).
    */
-  private cellFacts(): Pick<EvalEnv, "rowHidden" | "formula"> {
+  private cellFacts(): Pick<EvalEnv, "rowHidden" | "formula" | "definedName"> {
     const hidden = new Map<string, { filter: Set<number>; manual: Set<number> }>();
     const gridOf = (sheet: string) =>
       this.sheets.get(this.byName.get(sheet.toLowerCase()) ?? "")?.grid;
@@ -892,6 +899,26 @@ export class WorkbookEngine {
         const i = gridOf(sheet)?.cells[cellKey(row, col)]?.i;
         return i && i.startsWith("=") ? i : undefined;
       },
+      definedName: (name) => this.defined.get(name.toLowerCase())?.ast,
     };
+  }
+
+  /** The workbook's defined names, as set (the engine's own list; do not change it). */
+  definedNames(): DefinedName[] {
+    return this.definedList;
+  }
+
+  /**
+   * Replace the workbook's defined names. Every formula is recomputed, as any
+   * may use one, unless the caller recomputes anyway (a structural change).
+   */
+  setDefinedNames(names: DefinedName[], opts: { recalc?: boolean } = {}): void {
+    this.defined.clear();
+    this.definedList = [...names];
+    for (const d of names) {
+      const r = parseRef(d.ref);
+      this.defined.set(d.name.toLowerCase(), { d, ast: r.ok ? r.node : undefined });
+    }
+    if (opts.recalc !== false) this.recalcAll();
   }
 }

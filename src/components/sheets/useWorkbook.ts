@@ -20,9 +20,11 @@ import { renameSheetInFormula, renameTableInFormula } from "@/lib/sheets/formula
 import { GridTableResolver } from "@/lib/sheets/gridTableResolver";
 import type { TableConfig } from "@/lib/sheets/sql/tableQuery";
 import type { Role } from "@/lib/sheets/share";
+import { adjustNames, type DefinedName } from "@/lib/sheets/definedNames";
 import {
   sheetsGet,
   sheetsSaveGrid,
+  sheetsSetNames,
   type SheetTabRow,
   type SheetsLimits,
 } from "@/utils/sheets.functions";
@@ -53,6 +55,15 @@ type UndoEntry =
       tabId: string;
       before: Record<string, GridData>;
       after: Record<string, GridData>;
+      /** The workbook's names, when the change moved one (R148). */
+      names?: { before: DefinedName[]; after: DefinedName[] };
+    }
+  | {
+      // The Name Manager's changes (R148); not tied to a sheet.
+      kind: "names";
+      tabId: "";
+      before: DefinedName[];
+      after: DefinedName[];
     }
   | {
       // A sheet setting (widths, heights, merges, hidden rows): the keys changed.
@@ -102,6 +113,8 @@ export function useWorkbook(args: {
   role?: Role;
   /** The owner looking at the workbook as this share sees it. */
   asShare?: string | null;
+  /** The workbook's defined names, loaded with its sheets (R148). */
+  names?: DefinedName[] | null;
 }) {
   const saveFn = useServerFn(sheetsSaveGrid);
   const saveTableFn = useServerFn(sheetsSaveTableConfig);
@@ -111,6 +124,13 @@ export function useWorkbook(args: {
   callsFnRef.current = callsFn;
   const resolverRef = useRef<GridTableResolver | null>(null);
   const getFn = useServerFn(sheetsGet);
+  const setNamesFn = useServerFn(sheetsSetNames);
+  // Read when the engine is built: the names come with the tabs.
+  const namesArgRef = useRef(args.names);
+  namesArgRef.current = args.names;
+  // Names save as a whole list, one save at a time; a change made while one
+  // is running is sent once it lands.
+  const namesSave = useRef({ dirty: false, inFlight: false, again: false });
   // A table sheet's settings (source, calculated columns, sort, filters).
   const [tableConfigs, setTableConfigs] = useState<Record<string, TableConfig>>({});
   const tableConfigsRef = useRef<Record<string, TableConfig>>({});
@@ -178,7 +198,8 @@ export function useWorkbook(args: {
       onError: (m) => toast.error(`Formulas over tables could not be computed: ${m}`),
     });
     resolverRef.current = resolver;
-    engineRef.current = new WorkbookEngine(defs, resolver);
+    engineRef.current = new WorkbookEngine(defs, resolver, { names: namesArgRef.current ?? [] });
+    namesSave.current = { dirty: false, inFlight: false, again: false };
     setTabs(meta);
     const configs: Record<string, TableConfig> = {};
     for (const t of args.tabs) {
@@ -316,10 +337,55 @@ export function useWorkbook(args: {
   const saveStateRef = useRef(saveState);
   saveStateRef.current = saveState;
 
+  /** Send the workbook's names as the engine holds them now. */
+  const saveNames = useCallback(async () => {
+    const engine = engineRef.current;
+    const token = tokenRef.current;
+    const st = namesSave.current;
+    if (!engine || !token || !hydrated.current || readOnlyRef.current) return;
+    if (st.inFlight) {
+      st.again = true;
+      return;
+    }
+    st.inFlight = true;
+    st.dirty = false;
+    try {
+      const r = await setNamesFn({
+        data: { access_token: token, id: args.workbookId, names: engine.definedNames() },
+      });
+      if (!r.ok) {
+        st.dirty = true;
+        toast.error(`The names were not saved: ${r.error}`);
+      }
+    } catch (e) {
+      st.dirty = true;
+      toast.error(`The names were not saved: ${(e as Error).message}`);
+    } finally {
+      st.inFlight = false;
+      if (st.again) {
+        st.again = false;
+        void saveNamesRef.current();
+      }
+    }
+  }, [setNamesFn, args.workbookId]);
+  const saveNamesRef = useRef(saveNames);
+  saveNamesRef.current = saveNames;
+
+  const namesChanged = useCallback(() => {
+    if (!hydrated.current || readOnlyRef.current) return;
+    namesSave.current.dirty = true;
+    void saveNamesRef.current();
+  }, []);
+
   // Warn before leaving with unsaved work.
   useEffect(() => {
     const handler = (e: BeforeUnloadEvent) => {
-      if (dirty.current.size || inFlight.current.size) {
+      if (
+        dirty.current.size ||
+        inFlight.current.size ||
+        namesSave.current.dirty ||
+        namesSave.current.inFlight
+      ) {
         e.preventDefault();
         e.returnValue = "";
       }
@@ -380,7 +446,10 @@ export function useWorkbook(args: {
       clearTimeout(t);
       timers.current.delete(id);
     }
-    await Promise.all([...dirty.current].map((id) => saveTabRef.current(id)));
+    await Promise.all([
+      ...[...dirty.current].map((id) => saveTabRef.current(id)),
+      ...(namesSave.current.dirty ? [saveNamesRef.current()] : []),
+    ]);
   }, []);
 
   // ── Editing ──────────────────────────────────────────────────────────────
@@ -414,9 +483,19 @@ export function useWorkbook(args: {
   const restore = (entry: UndoEntry, which: "before" | "after") => {
     const engine = engineRef.current;
     if (!engine) return;
+    if (entry.kind === "names") {
+      engine.setDefinedNames(entry[which]);
+      namesChanged();
+      bump();
+      return;
+    }
     if (entry.kind === "snapshot") {
       const grids = entry[which];
       for (const [id, g] of Object.entries(grids)) engine.replaceGrid(id, g);
+      if (entry.names) {
+        engine.setDefinedNames(entry.names[which], { recalc: false });
+        namesChanged();
+      }
       engine.recalcAll();
       for (const id of Object.keys(grids)) markDirty(id);
       setActiveTabId(entry.tabId);
@@ -479,10 +558,20 @@ export function useWorkbook(args: {
         return out;
       };
       const before = snap();
+      const namesBefore = engine.definedNames();
       mutate(engine);
       engine.recalcAll();
       const after = snap();
-      undoStack.current.push({ kind: "snapshot", tabId, before, after });
+      const namesAfter = engine.definedNames();
+      const namesMoved = JSON.stringify(namesAfter) !== JSON.stringify(namesBefore);
+      undoStack.current.push({
+        kind: "snapshot",
+        tabId,
+        before,
+        after,
+        ...(namesMoved ? { names: { before: namesBefore, after: namesAfter } } : {}),
+      });
+      if (namesMoved) namesChanged();
       if (undoStack.current.length > 500) undoStack.current.shift();
       redoStack.current = [];
       for (const id of Object.keys(after)) {
@@ -490,7 +579,26 @@ export function useWorkbook(args: {
       }
       bump();
     },
-    [bump, markDirty],
+    [bump, markDirty, namesChanged],
+  );
+
+  /**
+   * Replace the workbook's defined names (the Name Manager, the Name box),
+   * undoably. The caller has checked them (namesProblem).
+   */
+  const setNames = useCallback(
+    (next: DefinedName[]) => {
+      const engine = engineRef.current;
+      if (!engine || readOnlyRef.current) return;
+      const before = engine.definedNames();
+      engine.setDefinedNames(next);
+      undoStack.current.push({ kind: "names", tabId: "", before, after: next });
+      if (undoStack.current.length > 500) undoStack.current.shift();
+      redoStack.current = [];
+      namesChanged();
+      bump();
+    },
+    [bump, namesChanged],
   );
 
   /**
@@ -697,10 +805,32 @@ export function useWorkbook(args: {
           markDirty(s.id);
         }
       }
+      // A name's reference says its sheet's name too (R148).
+      const names = engine.definedNames();
+      const renamed = adjustNames(names, rewrite);
+      if (renamed.some((d, i) => d !== names[i])) {
+        engine.setDefinedNames(renamed, { recalc: false });
+        namesChanged();
+      }
       engine.renameSheet(tabId, newName);
       bump();
     },
-    [bump, markDirty, setTabsBoth],
+    [bump, markDirty, namesChanged, setTabsBoth],
+  );
+
+  /** Names the server has already kept (a file's, imported): the engine takes them, nothing is saved. */
+  const addNamesLocal = useCallback(
+    (added: DefinedName[]) => {
+      const engine = engineRef.current;
+      if (!engine || !added.length) return;
+      const have = new Set(engine.definedNames().map((d) => d.name.toLowerCase()));
+      engine.setDefinedNames([
+        ...engine.definedNames(),
+        ...added.filter((d) => !have.has(d.name.toLowerCase())),
+      ]);
+      bump();
+    },
+    [bump],
   );
 
   const removeTabLocal = useCallback(
@@ -734,6 +864,12 @@ export function useWorkbook(args: {
     () => Object.values(saveState).some((s) => s.kind !== "saved"),
     [saveState],
   );
+  // The engine holds the names; read again on each change it reports.
+  const names = useMemo(
+    () => engineRef.current?.definedNames() ?? [],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rev],
+  );
 
   return {
     engine: engineRef.current,
@@ -746,6 +882,8 @@ export function useWorkbook(args: {
     anyDirty,
     applyEdits,
     structural,
+    names,
+    setNames,
     undo,
     redo,
     canUndo: undoStack.current.length > 0,
@@ -766,6 +904,7 @@ export function useWorkbook(args: {
     tableDataChanged,
     applyServerTab,
     addTabLocal,
+    addNamesLocal,
     renameTabLocal,
     removeTabLocal,
     reorderLocal,

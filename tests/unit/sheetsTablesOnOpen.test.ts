@@ -64,7 +64,7 @@ describe("the page knows the sheets before the engine computes", () => {
 
   it("opening a workbook", () => {
     const build = between("// Build the engine once per load", "const setTabsBoth");
-    before(build, "tabsRef.current = meta;", "new WorkbookEngine(defs, resolver)");
+    before(build, "tabsRef.current = meta;", "new WorkbookEngine(defs, resolver");
   });
 
   it("adding a sheet", () => {

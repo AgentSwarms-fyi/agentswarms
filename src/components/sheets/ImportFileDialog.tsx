@@ -19,6 +19,7 @@ import { Label } from "@/components/ui/label";
 import { clickable } from "@/lib/clickable";
 import type { GridData } from "@/lib/sheets/engine";
 import { renameSheetInFormula } from "@/lib/sheets/formula/shift";
+import { adjustNames, type DefinedName } from "@/lib/sheets/definedNames";
 import { sheetsImportGrids, type SheetTabRow } from "@/utils/sheets.functions";
 
 type Parsed = {
@@ -30,6 +31,8 @@ type Parsed = {
     hidden?: boolean;
   }[];
   warnings: string[];
+  /** The file's defined names (an .xlsx's; a CSV has none). */
+  names?: DefinedName[];
   kind: "xlsx" | "csv";
 };
 
@@ -82,7 +85,13 @@ export function ImportFileDialog({
   initialFile?: File;
   /** The new workbook's name for `initialFile`, in place of its file name. */
   initialName?: string;
-  onImported: (r: { workbookId: string; tabs: SheetTabRow[] }) => void;
+  /** `names`: the file's names the workbook now has (into an open workbook). */
+  onImported: (r: {
+    workbookId: string;
+    tabs: SheetTabRow[];
+    names: DefinedName[];
+    skippedNames: string[];
+  }) => void;
 }) {
   const importFn = useServerFn(sheetsImportGrids);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -175,6 +184,10 @@ export function ImportFileDialog({
         name: named[i].to,
         grid: renamed.length ? renameInGrid(s.grid, renamed) : s.grid,
       }));
+      // The file's names say its sheets' names too (R148).
+      const names = adjustNames(parsed.names ?? [], (f) =>
+        renamed.reduce((out, r) => renameSheetInFormula(out, r.from, r.to), f),
+      );
       const r = await importFn({
         data: {
           access_token: token,
@@ -182,10 +195,17 @@ export function ImportFileDialog({
             ? { workbook_id: workbookId }
             : { name: name.trim() || "Imported workbook" }),
           sheets,
+          ...(names.length ? { names } : {}),
         },
       });
       if (!r.ok) return setError(r.error);
-      onImported({ workbookId: r.workbook_id, tabs: r.tabs });
+      const skipped = r.skipped_names ?? [];
+      onImported({
+        workbookId: r.workbook_id,
+        tabs: r.tabs,
+        names: names.filter((d) => !skipped.includes(d.name)),
+        skippedNames: skipped,
+      });
       onOpenChange(false);
     } catch (e) {
       setError(`Could not import: ${(e as Error).message}`);
@@ -273,11 +293,22 @@ export function ImportFileDialog({
                 </li>
               ))}
             </ul>
+            {(parsed.names?.length ?? 0) > 0 && (
+              <p className="text-xs text-muted-foreground" data-testid="import-names">
+                {parsed.names!.length} named range{parsed.names!.length === 1 ? "" : "s"} (
+                {parsed
+                  .names!.slice(0, 4)
+                  .map((d) => d.name)
+                  .join(", ")}
+                {parsed.names!.length > 4 ? ", …" : ""}) come in with the sheets
+                {workbookId ? "; a name this workbook already has keeps its own meaning" : ""}.
+              </p>
+            )}
             {parsed.sheets.some((s) => s.cachedFormulas > 0) && (
               <p className="text-xs text-muted-foreground">
-                Formulas that use a function Sheets does not compute yet show the value Excel last
-                saved, and say so on hover. They are kept as written, so the file goes back to Excel
-                unchanged.
+                Formulas that use a function or a name Sheets does not compute yet show the value
+                Excel last saved, and say so on hover. They are kept as written, so the file goes
+                back to Excel unchanged.
               </p>
             )}
             {parsed.warnings.length > 0 && (

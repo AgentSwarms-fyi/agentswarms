@@ -57,6 +57,11 @@ export async function takeVersion(
   }
   const tabs = await snapshotOf(workbookId);
   const text = JSON.stringify(tabs);
+  const { data: wbRow } = await supabaseAdmin
+    .from("sheet_workbooks")
+    .select("names")
+    .eq("id", workbookId)
+    .maybeSingle();
   const { error } = await supabaseAdmin.from("sheet_workbook_versions").insert({
     workbook_id: workbookId,
     user_id: userId,
@@ -64,6 +69,8 @@ export async function takeVersion(
     kind,
     label,
     snapshot: tabs as unknown as Json,
+    // The names the sheets' formulas use (R148).
+    names: (wbRow?.names ?? []) as Json,
     sheet_count: tabs.length,
     size_bytes: text.length,
   });

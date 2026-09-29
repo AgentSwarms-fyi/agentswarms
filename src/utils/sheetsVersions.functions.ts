@@ -87,7 +87,7 @@ export const sheetsVersionSave = createServerFn({ method: "POST" })
 async function versionOf(workbookId: string, versionId: string) {
   const { data, error } = await supabaseAdmin
     .from("sheet_workbook_versions")
-    .select("id, label, kind, created_at, snapshot")
+    .select("id, label, kind, created_at, snapshot, names")
     .eq("id", versionId)
     .eq("workbook_id", workbookId)
     .maybeSingle();
@@ -144,9 +144,14 @@ export const sheetsVersionRestore = createServerFn({ method: "POST" })
         await supabaseAdmin.from("sheet_tabs").insert(rows(before));
         return { ok: false, error: `Could not restore: ${ins.error.message}` };
       }
+      // The version's names come back with its sheets; one taken before
+      // names existed leaves them as they are (R148).
       await supabaseAdmin
         .from("sheet_workbooks")
-        .update({ updated_at: new Date().toISOString() })
+        .update({
+          updated_at: new Date().toISOString(),
+          ...(v.names ? { names: v.names } : {}),
+        })
         .eq("id", data.workbook_id);
       return { ok: true };
     } catch (e) {
@@ -171,7 +176,12 @@ export const sheetsVersionOpenCopy = createServerFn({ method: "POST" })
       const name = copyName(wb.name, v as VersionRef, shown);
       const { data: created, error } = await supabaseAdmin
         .from("sheet_workbooks")
-        .insert({ user_id: who.userId, name, description: `A copy of the version of ${shown}` })
+        .insert({
+          user_id: who.userId,
+          name,
+          description: `A copy of the version of ${shown}`,
+          names: v.names ?? [],
+        })
         .select("id")
         .single();
       if (error || !created)

@@ -24,6 +24,7 @@ import {
   type Role,
 } from "@/utils/sheets/access.server";
 import { previewSchema, type WorkbookPreview } from "@/lib/sheets/preview";
+import { MAX_NAMES, namesProblem, namesShown, type DefinedName } from "@/lib/sheets/definedNames";
 
 type Fail = { ok: false; error: string };
 
@@ -108,6 +109,15 @@ export function sheetNameProblem(name: string): string | null {
   if (/^(true|false)$/i.test(n)) return `"${n}" is a reserved word`;
   return null;
 }
+
+/** A defined name as the browser sends it (R148). */
+const nameSchema = z
+  .object({
+    name: z.string().trim().min(1).max(255),
+    ref: z.string().trim().min(1).max(8000),
+    comment: z.string().max(1000).optional(),
+  })
+  .strict();
 
 const tokenOnly = z.object({ access_token: z.string().min(1) });
 
@@ -270,6 +280,7 @@ export const sheetsGet = createServerFn({ method: "POST" })
           ok: true;
           workbook: Omit<WorkbookSummary, "sheet_count" | "sheets" | "role" | "owner">;
           tabs: SheetTabRow[];
+          names: DefinedName[];
           limits: SheetsLimits;
           access: WorkbookAccessInfo;
         }
@@ -282,7 +293,7 @@ export const sheetsGet = createServerFn({ method: "POST" })
       const access = got.access;
       const { data: wb, error: wbErr } = await supabaseAdmin
         .from("sheet_workbooks")
-        .select("id, name, description, created_at, updated_at")
+        .select("id, name, description, created_at, updated_at, names")
         .eq("id", data.id)
         .maybeSingle();
       if (wbErr) return { ok: false, error: `Could not read the workbook: ${wbErr.message}` };
@@ -339,6 +350,11 @@ export const sheetsGet = createServerFn({ method: "POST" })
           preview: keptPreview(kept),
         },
         tabs: shown,
+        // A viewer's share that leaves a sheet out leaves out the names into it
+        // too: a name's reference says the sheet's name (R148).
+        names: namesShown((wb.names ?? []) as unknown as DefinedName[], (s) =>
+          sheetShown(access, s),
+        ),
         limits: await limits(),
         access: {
           role: access.role,
@@ -688,14 +704,22 @@ export const sheetsImportGrids = createServerFn({ method: "POST" })
         sheets: z
           .array(z.object({ name: z.string().trim().min(1).max(100), grid: gridSchema }).strict())
           .min(1),
+        /** The file's defined names (R148). */
+        names: z.array(nameSchema).max(MAX_NAMES).optional(),
       })
       .refine((d) => d.workbook_id || d.name, "A new workbook needs a name")
       .parse(input),
   )
   .handler(
-    async ({ data }): Promise<{ ok: true; workbook_id: string; tabs: SheetTabRow[] } | Fail> => {
+    async ({
+      data,
+    }): Promise<
+      { ok: true; workbook_id: string; tabs: SheetTabRow[]; skipped_names?: string[] } | Fail
+    > => {
       const caller = await resolveCaller(data.access_token);
       if (!caller.ok) return caller;
+      const problem = data.names?.length ? namesProblem(data.names) : null;
+      if (problem) return { ok: false, error: `The file's names: ${problem}` };
       const { maxCells, maxImportSheets } = await limits();
       if (data.sheets.length > maxImportSheets) {
         return {
@@ -781,10 +805,59 @@ export const sheetsImportGrids = createServerFn({ method: "POST" })
               : `Could not save the sheets: ${error?.message ?? "no rows"}`,
         };
       }
+      // The file's names: all of them for a new workbook; into an existing
+      // one, those it does not have yet (R148).
+      let skipped: string[] = [];
+      if (data.names?.length) {
+        const { data: cur } = await supabaseAdmin
+          .from("sheet_workbooks")
+          .select("names")
+          .eq("id", workbookId!)
+          .maybeSingle();
+        const have = ((cur?.names ?? []) as unknown as DefinedName[]).slice();
+        const taken = new Set(have.map((d) => d.name.toLowerCase()));
+        skipped = data.names.filter((d) => taken.has(d.name.toLowerCase())).map((d) => d.name);
+        const next = [...have, ...data.names.filter((d) => !taken.has(d.name.toLowerCase()))];
+        if (next.length > MAX_NAMES)
+          return { ok: false, error: `A workbook keeps at most ${MAX_NAMES} names` };
+        const { error: namesErr } = await supabaseAdmin
+          .from("sheet_workbooks")
+          .update({ names: next as unknown as Json })
+          .eq("id", workbookId!);
+        if (namesErr) return { ok: false, error: `Could not save the names: ${namesErr.message}` };
+      }
       return {
         ok: true,
         workbook_id: workbookId!,
         tabs: (tabs as SheetTabRow[]).sort((a, b) => a.position - b.position),
+        ...(skipped.length ? { skipped_names: skipped } : {}),
       };
     },
   );
+
+/**
+ * Save the workbook's defined names: its owner or an editor. The whole list
+ * is sent and kept as sent, once every name is valid and unique (R148).
+ */
+export const sheetsSetNames = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    tokenOnly
+      .extend({ id: z.string().uuid(), names: z.array(nameSchema).max(MAX_NAMES) })
+      .parse(input),
+  )
+  .handler(async ({ data }): Promise<{ ok: true } | Fail> => {
+    const caller = await resolveCaller(data.access_token);
+    if (!caller.ok) return caller;
+    const got = await requireAccess(caller.userId, data.id, "edit");
+    if (!got.ok) return got;
+    const problem = namesProblem(data.names);
+    if (problem) return { ok: false, error: problem };
+    const { data: rows, error } = await supabaseAdmin
+      .from("sheet_workbooks")
+      .update({ names: data.names as unknown as Json })
+      .eq("id", data.id)
+      .select("id");
+    if (error) return { ok: false, error: `Could not save the names: ${error.message}` };
+    if (!rows?.length) return { ok: false, error: "This workbook no longer exists" };
+    return { ok: true };
+  });

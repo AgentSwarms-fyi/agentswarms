@@ -109,6 +109,79 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-29 — Named ranges: an Excel model's names came in as nothing
+
+An Excel model built on names (`=SUM(Revenue)*TaxRate`) imported looking right, and then never
+changed. Sheets had no names at all.
+
+Tests: `tests/unit/sheetsDefinedNames.test.ts` (37), over the openpyxl fixture
+`tests/fixtures/sheets/openpyxl-names.xlsx` and its generator. The mutation run first caught 24 of
+25. The miss was a test that pinned only part of the server's viewer filter: a mutant that let
+every name through still matched it. With the whole call pinned, it caught that one too. The
+control survived both runs.
+
+#### R148 · S2 · A workbook's names were dropped on import, and the formulas using them froze
+
+**Found.** A file with six names was imported through the dialog. The names were:
+- a range with a comment;
+- a cell;
+- a value;
+- a cell on a sheet whose name needs quotes;
+- one over two areas;
+- one scoped to a sheet.
+
+Nine formulas used them. The dialog did not mention the names. It said 8 formulas were "kept at
+Excel's value" because they use "a function Sheets does not compute", which was not true. On the
+sheet:
+- every formula over a name showed Excel's saved answer, with a hover saying it "refers to
+  something outside this workbook";
+- changing B2 from 10 to 100 moved `=SUM(B2:B4)` to 150, and left `=SUM(Revenue)` at 60,
+  `=SUM(Revenue)*Rate` at 6 and `=SUM(Revenue)*TaxRate` at 12.
+
+Typed, a formula with a name showed `#NAME?`, and there was no way to define a name.
+
+**The fix.**
+- **Storage.** Names are the workbook's: `sheet_workbooks.names`. Each version keeps them, and
+  restoring a version restores them (migration `20260929000000_sheets_defined_names.sql`).
+- **Computing.**
+  - The engine is built with the names and evaluates one wherever a formula uses it.
+  - A name for cells is a reference wherever a function takes one (ROWS, INDEX, OFFSET, SUMIFS,
+    ISREF).
+  - A name that refers to itself is `#CYCLE!`. LET's own names come first.
+- **Import.** The import reads the file's `<definedNames>`. It leaves some out, and says which:
+  - print areas;
+  - hidden helper names;
+  - links into other workbooks;
+  - names over several areas.
+
+  A formula over a name it keeps computes; one over a name it left out keeps Excel's value.
+- **Export.** The download writes the names back, with their comments, the file's sheet names and
+  its function prefixes.
+- **The Name box** goes to a name, and names the selection when given a new one, as Excel's does.
+  It shows a name when the selection is exactly that name's cells.
+- **Data → Names** (the Name Manager) lists the names with what each comes to. It adds, edits,
+  renames and deletes them. A rename rewrites every formula, rule formula and other name that uses
+  it.
+- **Names move as formulas do** when rows or columns are inserted or deleted, cells shifted, or a
+  sheet renamed. Undo restores them with the cells.
+- **Autocomplete** offers names, without an opening bracket.
+- **The AI assistant** is told the workbook's names.
+- **Viewers.** Someone whose share leaves a sheet out is not sent the names into it, nor into a
+  table sheet it leaves out.
+
+Two smaller things came with it:
+- **Imported LET formulas kept a saved value they never used.** `computable` did not know LET's own
+  names, so the import kept Excel's value for every formula with LET. It knows them now.
+- **The viewer filter's first version was wrong.** It hid a name unless every sheet the name reads
+  existed and was shown. A name into a deleted sheet would have vanished for its owner too, who
+  could then neither see it nor fix it. It now hides only names into sheets the share leaves out
+  (`namesShown`).
+
+**Driven.** The file was imported before and after the fix. Then these were driven on the new
+workbook: the Name Manager, the Name box, autocomplete, insert-row and undo, a rename, a reload,
+the export (read back with openpyxl) and a viewer's cut. UI_TEST_RESULTS has each step and what
+came back.
+
 ### 2026-09-29 — Functions Excel has, and seven the long tail lost without a word
 
 A list of 187 everyday Excel functions was typed into a grid, one at a time. 41 showed #NAME?. From

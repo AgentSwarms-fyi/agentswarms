@@ -21,6 +21,7 @@ import {
   Loader2,
   Pencil,
   Plus,
+  Tag,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -65,6 +66,7 @@ import {
   adjustRuleFormulas,
   describeRange,
   fillEdits,
+  mapRuleFormulas,
   moveCells,
   parseTsv,
   toTsv,
@@ -90,6 +92,16 @@ import {
   type ShiftDir,
 } from "@/lib/sheets/shiftCells";
 import { SheetToolbar, ZoomControl, type ClearKind } from "./SheetToolbar";
+import { NameManagerDialog } from "./NameManagerDialog";
+import {
+  adjustNames,
+  nameProblem,
+  nameTarget,
+  refForRange,
+  renameNameInFormula,
+  valuePreview,
+  type DefinedName,
+} from "@/lib/sheets/definedNames";
 import { useSheetAssist } from "./useSheetAssist";
 import { SaveToLakehouseDialog } from "./SaveToLakehouseDialog";
 import { TableSheet } from "./TableSheet";
@@ -162,6 +174,9 @@ export function WorkbookEditor({
   const [editing, setEditing] = useState<Editing | null>(null);
   const [extent, setExtent] = useState({ rows: MIN_ROWS, cols: MIN_COLS });
   const [nameBox, setNameBox] = useState<string | null>(null);
+  const [namesOpen, setNamesOpen] = useState(false);
+  // A Name box jump to a name on another sheet: selected once it shows.
+  const pendingSelect = useRef<RangeAddr | null>(null);
   const [acIndex, setAcIndex] = useState(0);
   const [menu, setMenu] = useState<{
     x: number;
@@ -229,13 +244,29 @@ export function WorkbookEditor({
   useEffect(() => {
     if (!engine || !tabId) return;
     const used = engine.used(tabId);
+    const want = pendingSelect.current;
+    pendingSelect.current = null;
     setExtent({
-      rows: Math.max(MIN_ROWS, used.rows + 200),
-      cols: Math.max(MIN_COLS, used.cols + 10),
+      rows: Math.max(MIN_ROWS, used.rows + 200, want ? want.r1 + 200 : 0),
+      cols: Math.max(MIN_COLS, used.cols + 10, want ? want.c1 + 10 : 0),
     });
-    setSelection({ anchor: { row: 0, col: 0 }, focus: { row: 0, col: 0 } });
+    setSelection(
+      want
+        ? { anchor: { row: want.r0, col: want.c0 }, focus: { row: want.r1, col: want.c1 } }
+        : { anchor: { row: 0, col: 0 }, focus: { row: 0, col: 0 } },
+    );
     setEditing(null);
   }, [tabId, engine]);
+
+  // The names that stand for cells, parsed once per change of names.
+  const nameTargets = useMemo(
+    () =>
+      wb.names.flatMap((d) => {
+        const t = nameTarget(d.ref);
+        return t ? [{ d, t }] : [];
+      }),
+    [wb.names],
+  );
 
   // A selection never cuts a merged cell in two.
   const range = expandToMerges(selRange(selection), merges);
@@ -516,7 +547,7 @@ export function WorkbookEditor({
   const acPrefix = useMemo(() => {
     if (!editing || !editing.text.startsWith("=")) return null;
     const caret = editing.caret ?? editing.text.length;
-    const m = /([A-Za-z][A-Za-z0-9.]*)$/.exec(editing.text.slice(0, caret));
+    const m = /([A-Za-z_][A-Za-z0-9._]*)$/.exec(editing.text.slice(0, caret));
     if (!m) return null;
     // Not a cell reference being typed (A1, B12), nor the letters of a
     // reference's second half or a column (A:A, $B, Sheet2!C, [@col]).
@@ -525,17 +556,23 @@ export function WorkbookEditor({
     return { word: m[1], at: caret - m[1].length, caret };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editing?.text, editing?.caret]);
-  const suggestions = useMemo(() => {
+  const suggestions = useMemo((): { text: string; def?: DefinedName }[] => {
     if (!acPrefix) return [];
     const w = acPrefix.word.toUpperCase();
-    return FUNCTION_NAMES.filter((n) => n.startsWith(w) && n !== w).slice(0, 8);
-  }, [acPrefix]);
+    // The workbook's names first, as Excel lists them among the functions (R148).
+    const names = wb.names
+      .filter((d) => d.name.toUpperCase().startsWith(w) && d.name.toUpperCase() !== w)
+      .map((d) => ({ text: d.name, def: d }));
+    const fns = FUNCTION_NAMES.filter((n) => n.startsWith(w) && n !== w).map((n) => ({ text: n }));
+    return [...names, ...fns].slice(0, 8);
+  }, [acPrefix, wb.names]);
 
-  const acceptSuggestion = (name: string) => {
+  const acceptSuggestion = (s: { text: string; def?: DefinedName }) => {
     if (!editing || !acPrefix) return;
-    const text =
-      editing.text.slice(0, acPrefix.at) + name + "(" + editing.text.slice(acPrefix.caret);
-    setEditing({ ...editing, text, caret: acPrefix.at + name.length + 1, mode: "edit" });
+    // A function opens its brackets; a name is a value, so it does not.
+    const put = s.def ? s.text : `${s.text}(`;
+    const text = editing.text.slice(0, acPrefix.at) + put + editing.text.slice(acPrefix.caret);
+    setEditing({ ...editing, text, caret: acPrefix.at + put.length, mode: "edit" });
   };
 
   // The function whose arguments the caret is inside, for the hint line.
@@ -926,6 +963,8 @@ export function WorkbookEditor({
         }
         if (changed) eng.replaceGrid(s.id, { ...shifted, cells });
       }
+      // A name's cells move as a formula's do; it lives on no sheet (R148).
+      moveNames(eng, (f) => adjustFormulaForShift(f, "", target, range, dir));
     });
   };
 
@@ -951,7 +990,119 @@ export function WorkbookEditor({
         }
         if (changed) eng.replaceGrid(s.id, { ...moved, cells });
       }
+      moveNames(eng, (f) => adjustFormula(f, "", target, axis, at, count));
     });
+  };
+
+  /** The workbook's names rewritten as its formulas were, inside a structural change. */
+  const moveNames = (
+    eng: NonNullable<typeof engine>,
+    rewrite: (formula: string) => string,
+  ): void => {
+    const names = eng.definedNames();
+    const next = adjustNames(names, rewrite);
+    if (next.some((d, i) => d !== names[i])) eng.setDefinedNames(next, { recalc: false });
+  };
+
+  /**
+   * The Name Manager's changes. A renamed name is renamed in every formula
+   * that uses it (cells, rules, other names), undone as one step, as Excel
+   * does; any other change replaces the list.
+   */
+  const changeNames = (next: DefinedName[], renamed?: { from: string; to: string }) => {
+    if (!tabId) return;
+    if (!renamed) {
+      wb.setNames(next);
+      return;
+    }
+    const fn = (f: string) => renameNameInFormula(f, renamed.from, renamed.to);
+    wb.structural(tabId, (eng) => {
+      for (const s of eng.listSheets()) {
+        const g = eng.snapshot(s.id);
+        if (!g) continue;
+        const ruled = mapRuleFormulas(g, fn);
+        const cells = { ...ruled.cells };
+        let changed = ruled !== g;
+        for (const [k, cell] of Object.entries(cells)) {
+          if (!cell.i.startsWith("=")) continue;
+          const f = fn(cell.i);
+          if (f !== cell.i) {
+            cells[k] = { ...cell, i: f };
+            changed = true;
+          }
+        }
+        if (changed) eng.replaceGrid(s.id, { ...ruled, cells });
+      }
+      eng.setDefinedNames(adjustNames(next, fn), { recalc: false });
+    });
+  };
+
+  /**
+   * The Name box's Enter, as Excel's: a cell or range is selected; a name
+   * selects its cells, on its sheet; a new name names the selection.
+   */
+  const nameBoxEnter = (typed: string) => {
+    const text = typed.trim();
+    const done = () => {
+      setNameBox(null);
+      gridRef.current?.focus({ preventScroll: true });
+    };
+    const select = (r: RangeAddr) => {
+      setSelection({ anchor: { row: r.r0, col: r.c0 }, focus: { row: r.r1, col: r.c1 } });
+      setExtent((x) => ({
+        rows: Math.max(x.rows, r.r1 + 200),
+        cols: Math.max(x.cols, r.c1 + 10),
+      }));
+    };
+    const r = parseRangeA1(text);
+    if (r) {
+      select(r);
+      done();
+      return;
+    }
+    if (!engine || !activeTab) return;
+    const d = wb.names.find((x) => x.name.toLowerCase() === text.toLowerCase());
+    if (d) {
+      const t = nameTarget(d.ref);
+      if (!t) {
+        toast.error(`${d.name} is ${d.ref}: a value, not cells to go to`);
+        return;
+      }
+      const sheet = wb.tabs.find((x) => x.name.toLowerCase() === t.sheet.toLowerCase());
+      if (!sheet || sheet.kind !== "grid") {
+        toast.error(`${d.name} refers to "${t.sheet}", which is not a grid sheet here`);
+        return;
+      }
+      // A whole column or row: as far as the sheet's data goes.
+      const used = engine.used(sheet.id);
+      const target = {
+        ...t.range,
+        ...(t.wholeCols ? { r1: Math.max(t.range.r0, used.rows - 1) } : {}),
+        ...(t.wholeRows ? { c1: Math.max(t.range.c0, used.cols - 1) } : {}),
+      };
+      if (sheet.id !== tabId) {
+        pendingSelect.current = target;
+        wb.setActiveTabId(sheet.id);
+      } else select(target);
+      done();
+      return;
+    }
+    const problem = nameProblem(text);
+    if (problem) {
+      toast.error(`"${text}" is not a cell, a range or a name (e.g. B3, A1:D20 or Revenue)`);
+      return;
+    }
+    if (wb.readOnly) {
+      toast.error(`There is no name "${text}" in this workbook`);
+      return;
+    }
+    if (wb.tabs.some((x) => x.kind === "table" && x.name.toLowerCase() === text.toLowerCase())) {
+      toast.error(`"${text}" is a table sheet's name; choose another name`);
+      return;
+    }
+    wb.setNames([...wb.names, { name: text, ref: refForRange(activeTab.name, range) }]);
+    toast.success(`${describeRange(range)} is named ${text}`);
+    done();
   };
 
   // ── Clipboard ────────────────────────────────────────────────────────────
@@ -1467,6 +1618,15 @@ export function WorkbookEditor({
   }
 
   const saving: SaveState | undefined = wb.saveState[tabId];
+  // The selection's name, when a name is exactly it (the Name box shows it, as Excel's).
+  const selectionName = nameTargets.find(
+    ({ t }) =>
+      t.sheet.toLowerCase() === activeTab.name.toLowerCase() &&
+      t.range.r0 === range.r0 &&
+      t.range.c0 === range.c0 &&
+      t.range.r1 === range.r1 &&
+      t.range.c1 === range.c1,
+  )?.d.name;
   const help = activeFunction ? FUNCTION_HELP[activeFunction] : undefined;
 
   return (
@@ -1514,7 +1674,29 @@ export function WorkbookEditor({
                   painting={!!painter}
                   zoom={zoom}
                   gridlines={!grid?.hideGrid}
-                  extra={{ ...rules.ribbon, insert: charts.ribbon }}
+                  extra={{
+                    ...rules.ribbon,
+                    insert: charts.ribbon,
+                    data: (
+                      <>
+                        {rules.ribbon.data}
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 gap-1 px-2 text-xs"
+                          title="Names for cells, ranges and values (Name Manager)"
+                          data-testid="tool-names"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => setNamesOpen(true)}
+                        >
+                          <Tag className="h-4 w-4" /> Names
+                          {wb.names.length > 0 && (
+                            <span className="text-muted-foreground">{wb.names.length}</span>
+                          )}
+                        </Button>
+                      </>
+                    ),
+                  }}
                   actions={{
                     undo: () => wb.undo(),
                     redo: () => wb.redo(),
@@ -1563,9 +1745,11 @@ export function WorkbookEditor({
               <div className="relative flex items-center gap-2 border-b border-border px-2 py-1">
                 <input
                   aria-label="Name box"
-                  className="h-7 w-24 rounded border border-input bg-background px-2 font-mono text-xs"
+                  list="sheet-defined-names"
+                  className="h-7 w-28 rounded border border-input bg-background px-2 font-mono text-xs"
                   value={
                     nameBox ??
+                    selectionName ??
                     (range.r0 === range.r1 && range.c0 === range.c1
                       ? a1(focus.row, focus.col)
                       : describeRange(range))
@@ -1574,27 +1758,18 @@ export function WorkbookEditor({
                   onFocus={(e) => e.currentTarget.select()}
                   onBlur={() => setNameBox(null)}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      const r = parseRangeA1(nameBox ?? "");
-                      if (r) {
-                        setSelection({
-                          anchor: { row: r.r0, col: r.c0 },
-                          focus: { row: r.r1, col: r.c1 },
-                        });
-                        setExtent((x) => ({
-                          rows: Math.max(x.rows, r.r1 + 200),
-                          cols: Math.max(x.cols, r.c1 + 10),
-                        }));
-                        setNameBox(null);
-                        gridRef.current?.focus({ preventScroll: true });
-                      } else toast.error(`"${nameBox}" is not a cell or range (e.g. B3 or A1:D20)`);
-                    }
+                    if (e.key === "Enter") nameBoxEnter(nameBox ?? "");
                     if (e.key === "Escape") {
                       setNameBox(null);
                       gridRef.current?.focus({ preventScroll: true });
                     }
                   }}
                 />
+                <datalist id="sheet-defined-names">
+                  {nameTargets.map(({ d }) => (
+                    <option key={d.name} value={d.name} />
+                  ))}
+                </datalist>
                 <span className="select-none font-serif text-sm italic text-muted-foreground">
                   fx
                 </span>
@@ -1652,7 +1827,7 @@ export function WorkbookEditor({
                   >
                     {suggestions.map((n, i) => (
                       <button
-                        key={n}
+                        key={`${n.def ? "name" : "fn"}:${n.text}`}
                         className={cn(
                           "flex w-full items-baseline gap-2 rounded px-2 py-1 text-left text-xs",
                           i === acIndex ? "bg-primary/15" : "hover:bg-muted",
@@ -1662,9 +1837,11 @@ export function WorkbookEditor({
                           acceptSuggestion(n);
                         }}
                       >
-                        <span className="font-mono font-semibold">{n}</span>
+                        <span className="font-mono font-semibold">{n.text}</span>
                         <span className="truncate text-muted-foreground">
-                          {FUNCTION_HELP[n]?.desc ?? ""}
+                          {n.def
+                            ? `Name: ${n.def.ref}${n.def.comment ? ` · ${n.def.comment}` : ""}`
+                            : (FUNCTION_HELP[n.text]?.desc ?? "")}
                         </span>
                       </button>
                     ))}
@@ -1944,6 +2121,18 @@ export function WorkbookEditor({
       </div>
       {rules.dialogs}
       {assist.dialogs}
+      <NameManagerDialog
+        open={namesOpen}
+        onOpenChange={setNamesOpen}
+        onClosed={() => gridRef.current?.focus({ preventScroll: true })}
+        names={wb.names}
+        readOnly={wb.readOnly}
+        activeSheet={activeTab.name}
+        selectionRef={refForRange(activeTab.name, range)}
+        tableNames={wb.tabs.filter((t) => t.kind === "table").map((t) => t.name)}
+        preview={(ref) => valuePreview(engine.evaluateAt(tabId, 0, 0, `=${ref}`, { array: true }))}
+        onChange={changeNames}
+      />
       {shiftAsk && (
         <ShiftCellsDialog
           mode={shiftAsk}

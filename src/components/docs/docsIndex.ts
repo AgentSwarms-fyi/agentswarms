@@ -4065,6 +4065,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "#Summary!B6",
       "-2^2",
       "=$C2&lt;0",
+      "=SUM(Revenue)*TaxRate",
       "Orders[amount]",
       "SHEETS_AI_FILL_MAX_ROWS",
       "SHEETS_ASSIST_MODEL",
