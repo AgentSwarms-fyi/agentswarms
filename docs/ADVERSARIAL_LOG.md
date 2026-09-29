@@ -109,6 +109,53 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-29 — Hidden sheets
+
+Tests: `tests/unit/sheetsHiddenSheets.test.ts` (15). The mutation run caught 22 of 22, and the
+control survived. Fixture: `tests/fixtures/sheets/openpyxl-hidden.xlsx`, from
+`make_openpyxl_hidden.py`.
+
+#### R160 · S2 · A very hidden sheet was dropped on import, and its formulas said #REF!
+
+**Found.** Excel keeps helper sheets hidden, and a macro-built workbook keeps some very hidden.
+The fixture's Summary reads a rate from a hidden sheet (`=C2*Rates!$B$2`) and a key from a very
+hidden one (`=Keys!A1`).
+- **The very hidden sheet was dropped.** The import dialog listed Summary and Rates only. In the
+  workbook, B7 showed `#REF!` ("No sheet "Keys""), and a download kept `=Keys!A1` with no Keys
+  sheet in the file, so Excel shows `#REF!` too.
+- **The hidden sheet came in showing.** Rates was an ordinary tab, marked only in the dialog, and
+  a download wrote it visible.
+- **A sheet could not be hidden, unhidden or duplicated.** The tab menu had Rename, Move left,
+  Move right and Delete.
+
+**The fix.** A grid sheet has a `hiddenSheet` flag, saved with it, and undone with Ctrl+Z like any
+other change to the sheet.
+- **Excel files.** A hidden or very hidden sheet comes in hidden, with its cells, so formulas that
+  read it compute. A download writes it hidden, and points Excel at the first sheet showing; if
+  every sheet were hidden, the first is written showing.
+- **The tab menu.** Duplicate, Hide, and Unhide ▸ with the hidden sheets. The tab bar shows only
+  the sheets not hidden, and hiding the sheet in view moves to the next one. The copy opens.
+- **One sheet always shows.** Hiding the last sheet showing is refused ("A workbook keeps at least
+  one sheet showing"), and so is deleting it while every other sheet is hidden.
+- **Around hidden sheets.** Find (Within: Workbook) leaves them out, as Excel's does. Moving a tab
+  passes over the hidden ones next to it.
+- **Duplicate** copies the sheet's cells, formats, rules, notes and charts into a new sheet named
+  `Summary (2)`, through the same server call as an import. A copy of a hidden sheet shows.
+
+**Found while driving it: after Hide, the keyboard was on the page.** The menu hands the keyboard
+back to the tab it was opened from, and hiding had taken that tab away. Ctrl+Z and the arrows did
+nothing until the grid was clicked. Hide, Unhide and Duplicate now give the keyboard to the grid.
+
+**Found while driving it: Ctrl+Z after Unhide left a hidden sheet in view.** Undoing a sheet's
+setting goes to that sheet, so undoing Unhide hid Rates again and kept it on screen, with no tab
+lit and its cells open to editing. Ctrl+Y after Hide did the same. Now a hidden sheet is never the
+one in view: the next sheet showing is, or else the one before (`shownInstead` in
+`lib/sheets/sheetTabs.ts`). The same rule opens a file whose first sheet is hidden on the first
+sheet showing.
+
+**Not changed.** A very hidden sheet goes back out as a hidden one, which Excel's Unhide then
+lists. Hiding is not a permission: the sheet is still sent to everyone the workbook is shared with.
+
 ### 2026-09-29 — Paste special
 
 Tests: `tests/unit/sheetsPasteSpecial.test.ts` (14). The mutation run caught 12 of 12, and the

@@ -200,6 +200,25 @@ to unmerge it first.
 The status bar shows the Average, Count and Sum of the selection, and the zoom (**−**, the level,
 **+**). The zoom is remembered per sheet in your browser.
 
+### Sheet tabs
+
+A sheet tab's menu (the arrow on the tab) renames, duplicates, moves, hides and deletes the sheet.
+
+- **Duplicate** adds a copy at the end of the tabs, named like `Summary (2)`. It has the same
+  cells, formats, rules, notes and charts, and its formulas work on its own cells, as a copy in
+  Excel does.
+- **Hide** takes the sheet off the tab bar. Its cells stay, and formulas read them as before.
+  **Unhide ▸** lists the hidden sheets; picking one shows it and goes to it. Hiding the sheet in
+  view moves to the next one showing. Ctrl+Z takes back a Hide or an Unhide, and a hidden sheet
+  is never left on screen.
+- A workbook keeps at least one sheet showing, so hiding or deleting the last one is refused.
+- Moving a tab passes over the hidden sheets beside it, and Find leaves hidden sheets out, as
+  Excel's does.
+- Only grid sheets can be hidden or duplicated for now.
+
+Hiding a sheet does not keep it from anyone: it is sent to everyone the workbook is shared with.
+To keep a sheet from someone, leave it out of their share (see [Sharing](#sharing)).
+
 ### Find and replace
 
 **Ctrl+F** (or **Home → Find**) opens Find over the grid, and **Ctrl+H** opens it on Replace. The
@@ -641,6 +660,11 @@ formulas, and Excel's `_xlfn.` names such as XLOOKUP and UNIQUE), number formats
 borders, alignment and wrapping, merged cells, links, notes, column widths, row heights, hidden rows
 and columns, frozen panes and gridlines. A sheet name with a character a formula cannot carry (`'`, `[`, `]`…) is
 renamed, and every formula that named it follows.
+
+**Hidden sheets** come in hidden, and so do very hidden ones (helper sheets that only a macro can
+show), so the formulas that read them still compute. The dialog marks each one "(hidden, as in
+Excel)". The workbook opens on the first sheet showing. A download writes them hidden, and Excel
+opens on the first sheet showing too. A very hidden sheet goes back out as an ordinary hidden one.
 
 The file's **named ranges** come with it, with their comments, and the formulas that use them
 compute here. The dialog says how many there are. Some are left out, and the import says which:

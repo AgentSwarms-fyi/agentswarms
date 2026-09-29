@@ -113,6 +113,13 @@ function SheetsDocsPage() {
           alone a formula the change would break.
         </li>
         <li>
+          <strong>Sheet tabs.</strong> A tab&apos;s menu renames, duplicates, moves, hides and
+          deletes the sheet. A hidden sheet&apos;s cells still count in formulas, and Unhide shows
+          it again; one sheet always stays showing. An Excel file&apos;s hidden and very hidden
+          sheets come in hidden and go back out hidden. Hiding does not keep a sheet from anyone the
+          workbook is shared with.
+        </li>
+        <li>
           <strong>Paste special.</strong> Ctrl+Alt+V pastes all, formulas, values, formats or notes
           of cells copied in the workbook; adds, subtracts, multiplies or divides them into the
           cells they land on; skips blanks; or transposes rows and columns.

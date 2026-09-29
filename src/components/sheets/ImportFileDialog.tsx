@@ -280,7 +280,7 @@ export function ImportFileDialog({
                     </span>
                   )}
                   {s.hidden && (
-                    <span className="text-xs text-muted-foreground">(hidden in Excel)</span>
+                    <span className="text-xs text-muted-foreground">(hidden, as in Excel)</span>
                   )}
                   <span className="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground">
                     {s.cells.toLocaleString()} {s.cells === 1 ? "cell" : "cells"}

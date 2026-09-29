@@ -31,6 +31,9 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { confirmAsk, promptAsk } from "@/components/ui/confirm-dialog";
@@ -87,10 +90,12 @@ import {
 import {
   sheetsAddTab,
   sheetsDeleteTab,
+  sheetsImportGrids,
   sheetsRenameTab,
   sheetsReorderTabs,
 } from "@/utils/sheets.functions";
 import { selRange, type Selection } from "@/lib/sheets/selection";
+import { shownInstead } from "@/lib/sheets/sheetTabs";
 import { LinkDialog } from "./LinkDialog";
 import { NoteDialog } from "./NoteDialog";
 import { PasteSpecialDialog } from "./PasteSpecialDialog";
@@ -216,6 +221,7 @@ export function WorkbookEditor({
   const clip = useRef<Clip | null>(null);
 
   const addTabFn = useServerFn(sheetsAddTab);
+  const importGridsFn = useServerFn(sheetsImportGrids);
   const renameTabFn = useServerFn(sheetsRenameTab);
   const deleteTabFn = useServerFn(sheetsDeleteTab);
   const reorderFn = useServerFn(sheetsReorderTabs);
@@ -1112,7 +1118,13 @@ export function WorkbookEditor({
     if (!engine || !tabId) return [];
     return [...wb.tabs]
       .sort((a, b) => a.position - b.position)
-      .filter((t) => t.kind === "grid" && (within === "workbook" || t.id === tabId))
+      .filter(
+        (t) =>
+          t.kind === "grid" &&
+          (within === "workbook" || t.id === tabId) &&
+          // A hidden sheet is not searched, as in Excel (R160).
+          (t.id === tabId || !engine.gridOf(t.id)?.hiddenSheet),
+      )
       .map((t) => {
         const used = engine.used(t.id);
         return {
@@ -1730,6 +1742,57 @@ export function WorkbookEditor({
     }
   };
 
+  // ── Hidden sheets, and a sheet's copy (R160) ──
+  const isHiddenTab = (t: TabMeta) => t.kind === "grid" && !!engine?.gridOf(t.id)?.hiddenSheet;
+  const shownTabs = tabs.filter((t) => !isHiddenTab(t));
+  const hiddenTabs = tabs.filter(isHiddenTab);
+
+  // The sheet in view is never a hidden one: the next sheet showing is, or
+  // the one before. FOUND IN R160: Ctrl+Z after Unhide (or Ctrl+Y after Hide)
+  // hid the sheet but left it in view, no tab lit and its cells editable. This
+  // also covers hiding the sheet in view, and a file whose first sheet is hidden.
+  const moveTo = shownInstead(tabs, tabId, isHiddenTab);
+  const { setActiveTabId } = wb;
+  useEffect(() => {
+    if (moveTo) setActiveTabId(moveTo);
+  }, [moveTo, setActiveTabId]);
+
+  const hideSheet = (t: TabMeta) => {
+    if (t.kind !== "grid") return void toast.error("Only grid sheets can be hidden for now");
+    if (shownTabs.length <= 1)
+      return void toast.error("A workbook keeps at least one sheet showing");
+    wb.setGridMeta(t.id, { hiddenSheet: true });
+    toast.success(`Hid ${t.name}. Unhide on any sheet's menu shows it again.`);
+  };
+  const unhideSheet = (t: TabMeta) => {
+    wb.setGridMeta(t.id, { hiddenSheet: undefined });
+    wb.setActiveTabId(t.id);
+  };
+  const duplicateSheet = async (t: TabMeta) => {
+    if (t.kind !== "grid" || !engine)
+      return void toast.error("Only grid sheets can be duplicated for now");
+    const snap = engine.snapshot(t.id);
+    if (!snap) return;
+    const names = new Set(tabs.map((x) => x.name.toLowerCase()));
+    let n = 2;
+    while (names.has(`${t.name} (${n})`.toLowerCase())) n++;
+    const name = `${t.name} (${n})`.slice(0, 100);
+    try {
+      const r = await importGridsFn({
+        data: {
+          access_token: token,
+          workbook_id: workbookId,
+          sheets: [{ name, grid: { ...snap, hiddenSheet: undefined } }],
+        },
+      });
+      if (!r.ok) return void toast.error(r.error);
+      for (const row of r.tabs) wb.addTabLocal(row);
+      toast.success(`Added ${name}, a copy of ${t.name}`);
+    } catch (e) {
+      toast.error(`Could not duplicate the sheet: ${(e as Error).message}`);
+    }
+  };
+
   const renameSheet = async (t: TabMeta) => {
     const name = await promptAsk({
       title: "Rename sheet",
@@ -1752,6 +1815,8 @@ export function WorkbookEditor({
 
   const deleteSheet = async (t: TabMeta) => {
     if (tabs.length <= 1) return toast.error("A workbook keeps at least one sheet");
+    if (!isHiddenTab(t) && shownTabs.length <= 1)
+      return toast.error("Unhide another sheet first: a workbook keeps at least one sheet showing");
     const ok = await confirmAsk({
       title: `Delete "${t.name}"?`,
       body: "Its cells go with it. Formulas elsewhere that refer to it will show #REF!.",
@@ -1771,7 +1836,9 @@ export function WorkbookEditor({
   const moveSheet = async (t: TabMeta, dir: -1 | 1) => {
     const order = tabs.map((x) => x.id);
     const i = order.indexOf(t.id);
-    const j = i + dir;
+    let j = i + dir;
+    // Past a hidden sheet, to the next one showing (R160).
+    while (j >= 0 && j < order.length && isHiddenTab(tabs[j])) j += dir;
     if (j < 0 || j >= order.length) return;
     [order[i], order[j]] = [order[j], order[i]];
     const prev = tabs.map((x) => x.id);
@@ -2334,11 +2401,16 @@ export function WorkbookEditor({
           role="tablist"
           aria-label="Sheets"
         >
-          {tabs.map((t) => (
+          {shownTabs.map((t) => (
             <SheetTab
               key={t.id}
               tab={t}
               active={t.id === tabId}
+              hiddenTabs={hiddenTabs}
+              onHide={() => hideSheet(t)}
+              onUnhide={unhideSheet}
+              onDuplicate={() => void duplicateSheet(t)}
+              onDone={backToGrid}
               state={wb.saveState[t.id]}
               onSelect={() => {
                 if (editing) commit(0, 0);
@@ -2559,9 +2631,21 @@ function SheetTab({
   onDelete,
   onMove,
   readOnly,
+  hiddenTabs = [],
+  onHide,
+  onUnhide,
+  onDuplicate,
+  onDone,
 }: {
   tab: TabMeta;
   active: boolean;
+  /** The workbook's hidden sheets, for Unhide (R160). */
+  hiddenTabs?: TabMeta[];
+  onHide?: () => void;
+  onUnhide?: (t: TabMeta) => void;
+  onDuplicate?: () => void;
+  /** The keyboard back to the grid. */
+  onDone?: () => void;
   state: SaveState | undefined;
   onSelect: () => void;
   onRename: () => void;
@@ -2571,6 +2655,15 @@ function SheetTab({
   readOnly?: boolean;
 }) {
   const unsaved = state && state.kind !== "saved";
+  // FOUND IN R160: after Hide the menu handed the keyboard back to this tab,
+  // which hiding had taken away, so it was left on the page and Ctrl+Z or the
+  // arrows did nothing until the grid was clicked. Hide, Unhide and Duplicate
+  // change the sheet in view: the keyboard goes to its grid.
+  const toGrid = useRef(false);
+  const thenGrid = (fn: () => void) => () => {
+    toGrid.current = true;
+    fn();
+  };
   return (
     <div
       role="tab"
@@ -2615,10 +2708,37 @@ function SheetTab({
           </DropdownMenuTrigger>
           {/* A portal's events still bubble through React to the tab: without
             this, choosing an item also "clicked" the tab and switched to it. */}
-          <DropdownMenuContent onClick={(e) => e.stopPropagation()}>
+          <DropdownMenuContent
+            onClick={(e) => e.stopPropagation()}
+            onCloseAutoFocus={(e) => {
+              if (!toGrid.current) return;
+              toGrid.current = false;
+              e.preventDefault();
+              onDone?.();
+            }}
+          >
             <DropdownMenuItem onSelect={onRename}>Rename</DropdownMenuItem>
+            {tab.kind === "grid" && onDuplicate && (
+              <DropdownMenuItem onSelect={thenGrid(onDuplicate)}>Duplicate</DropdownMenuItem>
+            )}
             <DropdownMenuItem onSelect={() => onMove(-1)}>Move left</DropdownMenuItem>
             <DropdownMenuItem onSelect={() => onMove(1)}>Move right</DropdownMenuItem>
+            <DropdownMenuSeparator />
+            {tab.kind === "grid" && onHide && (
+              <DropdownMenuItem onSelect={thenGrid(onHide)}>Hide</DropdownMenuItem>
+            )}
+            {hiddenTabs.length > 0 && onUnhide && (
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>Unhide</DropdownMenuSubTrigger>
+                <DropdownMenuSubContent onClick={(e) => e.stopPropagation()}>
+                  {hiddenTabs.map((h) => (
+                    <DropdownMenuItem key={h.id} onSelect={thenGrid(() => onUnhide(h))}>
+                      {h.name}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+            )}
             <DropdownMenuSeparator />
             <DropdownMenuItem className="text-destructive" onSelect={onDelete}>
               Delete

@@ -425,6 +425,16 @@ Ctrl+Z after a ribbon tool went nowhere). Open from that round:
 - **Sorting by colour or a custom list** (Excel's other Sort options) is not there, nor sorting
   left to right.
 
+Closed with Hidden sheets: R160 (a very hidden sheet was dropped on import and its formulas said
+`#REF!`; a hidden one came in showing; no Hide, Unhide or Duplicate). Open from that round:
+
+- **A very hidden sheet goes back out merely hidden,** so Excel's Unhide lists it in the
+  downloaded file.
+- **Table sheets** can be neither hidden nor duplicated.
+- **A copy goes at the end of the tabs;** Excel's Move or Copy lets you choose where, and copies
+  to another workbook. Tab colours are not there, nor a protected workbook structure (Excel's way
+  to stop Unhide).
+
 Closed with Paste special: R159 (no Paste Special; Ctrl+Z went nowhere after its dialog). Open from
 that round:
 

@@ -15,6 +15,49 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-29 — Hidden sheets, ADVERSARIAL_LOG R160
+
+**Why this round exists.** Keep hunting: Excel's hidden sheets, and the sheet tab's missing
+Hide, Unhide and Duplicate.
+
+Fixtures, kept: **"R160 hidden before"** (`b23aecb1…`, imported on the build before the fix) and
+**"R160 hidden sheets"** (`64a1ffb6…`), both from `openpyxl-hidden.xlsx`. In the second, Rates!B2
+was changed from 0.9 to 1.1, and **Summary (2)** was added by Duplicate; both were left for review,
+with Rates and Keys hidden. **"R160 first hidden"** (`e0cc408f…`): a two-sheet file whose first
+sheet is hidden. **"R160 duplicate rich"** (`cfae37c9…`): the Sales performance sample, with
+Dashboard (2) and Orders (2) added by Duplicate.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before: import | Import Excel or CSV, the fixture | Summary 15 cells; Rates "(hidden in Excel)" 4 cells; no Keys |
+| Before: the workbook | Create workbook | Tabs Summary and Rates; B2 900, B6 3510, B7 `#REF!` ("No sheet "Keys"") |
+| Before: the tab menu | Rates' tab arrow | Rename, Move left, Move right, Delete |
+| Before: download | Download as Excel (.xlsx), read with openpyxl | Summary and Rates both visible; no Keys; B7 still `=Keys!A1` |
+| After: import | The same file | Summary 15 cells; Rates and Keys each "(hidden, as in Excel)" |
+| After: the workbook | Create workbook | One tab, Summary; B2 900, B6 3510, B7 K-2026 |
+| The tab menu | Summary's tab arrow | Rename, Duplicate, Move left, Move right, Hide, Unhide, Delete |
+| The last sheet showing | Hide, on Summary | "A workbook keeps at least one sheet showing"; Summary still the only tab |
+| Unhide | Unhide ▸ (Rates, Keys) → Rates | Tabs Summary and Rates; Rates in view, A1 "Currency", B2 0.9 |
+| Formulas across | Rates!B2 set to 1.1; Hide, on Rates | "Hid Rates. Unhide on any sheet's menu shows it again."; Summary in view; B2:B4 1100, 2750, 440; B6 4290 |
+| Duplicate | Duplicate, on Summary | "Added Summary (2), a copy of Summary"; its tab: B2 1100, B6 4290, B7 K-2026 |
+| Find | Within: Workbook, "Currency" (only on hidden Rates) | "Nothing matches "Currency" in the workbook" |
+| Find All | "K-2026" (on Summary, its copy, and hidden Keys) | "2 cells found": Summary B7, Summary (2) B7; not Keys |
+| Download | Download as Excel (.xlsx), read with openpyxl | Summary visible, Rates hidden, Keys hidden, Summary (2) visible; `activeTab="0"`; B6 `=SUM(B2:B4)` cached 4290; Rates!B2 1.1 |
+| Found: the keyboard | Hide, on Summary (2) (first build) | The focus on the page, not the grid |
+| Delete, one sheet showing | Delete, on Summary (Summary (2) hidden) | "Unhide another sheet first: a workbook keeps at least one sheet showing"; nothing asked, nothing deleted |
+| Undo of Hide | Find closed (the focus back on A1), then Ctrl+Z | Summary (2) back |
+| Found: undo of Unhide | Unhide ▸ Rates, then Ctrl+Z (first build) | Rates hidden again but still on screen: its cells, no tab lit |
+| After both fixes: Hide | Reload; Summary (2) in view; Hide | Summary in view, the focus on its A1; Ctrl+Z at once: Summary (2) back and in view |
+| Saved | The reload | Rates and Keys still hidden; Rates!B2 still 1.1 |
+| After both fixes: Unhide | Unhide ▸ Rates, then Ctrl+Z, Ctrl+Y, Ctrl+Z | In view in turn: Rates (focus on A1), Summary (2) (the next showing), Rates, Summary (2) |
+| Redo of Hide | Hide Summary (2), then Ctrl+Z, Ctrl+Y, Ctrl+Z | In view: Summary, Summary (2), Summary, Summary (2); the focus on the grid throughout |
+| First sheet hidden | Import a file: Lookup (hidden) B1 2; Report A1 `=Lookup!B1*10` | "Lookup (hidden, as in Excel) 2 cells"; opens on Report, its only tab, A1 20; the same after a reload |
+| Duplicate, charts | The Sales performance sample; Duplicate, on Dashboard | "Added Dashboard (2), a copy of Dashboard"; it opens, the focus on A1; its three charts ("Revenue by month and region", "Monthly revenue, stacked", "Revenue by category"), its colour scale and its figures ($448,677 revenue) |
+| Duplicate, rules | Duplicate, on Orders | Orders (2): the header row frozen, 12 filter buttons, the returned order struck through, Revenue's data bars; C2, Alt+Down lists North, South, East, West |
+
+An earlier click of mine landed on the status bar's Zoom out, leaving Summary at 90% in this
+browser; the zoom is a per-browser setting and was put back.
+
 ## 2026-09-29 — Paste special, ADVERSARIAL_LOG R159
 
 **Why this round exists.** Keep hunting: Excel's Paste Special was missing.

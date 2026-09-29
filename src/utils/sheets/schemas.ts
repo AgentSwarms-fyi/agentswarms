@@ -386,6 +386,7 @@ export const gridSchema = z
     hiddenRows: z.array(z.number().int().min(0).max(1_048_575)).max(1_048_576).optional(),
     hiddenCols: z.array(z.number().int().min(0).max(16_383)).max(16_384).optional(),
     hideGrid: z.boolean().optional(),
+    hiddenSheet: z.boolean().optional(),
     cond: z.array(condSchema).max(1000).optional(),
     validations: z.array(validationSchema).max(1000).optional(),
     filter: filterSchemaGrid.optional(),

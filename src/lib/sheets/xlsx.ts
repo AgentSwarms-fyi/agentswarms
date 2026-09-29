@@ -459,7 +459,9 @@ export async function readXlsx(data: ArrayBuffer, opts: ReadOptions): Promise<Im
   const knownNames = computableNames(names);
   const sheets: ImportedSheet[] = [];
   for (const ws of wb.worksheets as XSheet[]) {
-    if (ws.state === "veryHidden") continue;
+    // FOUND IN R160: a very hidden sheet (Excel's helper sheets, shown only by
+    // VBA) was left out, and every formula reading it said #REF!. It comes in
+    // hidden, as a hidden sheet does.
     const cells: Record<string, CellInput> = {};
     let count = 0;
     let cached = 0;
@@ -603,11 +605,13 @@ export async function readXlsx(data: ArrayBuffer, opts: ReadOptions): Promise<Im
         cells[key] = { ...(cells[key] ?? { i: "" }), n: text };
       }
     }
+    const hidden = ws.state === "hidden" || ws.state === "veryHidden";
+    if (hidden) grid.hiddenSheet = true;
     sheets.push({
       name: ws.name,
       grid,
       cells: count,
-      hidden: ws.state === "hidden",
+      hidden,
       cachedFormulas: cached,
     });
   }
@@ -722,6 +726,21 @@ export async function writeXlsx(
     for (const r of renamed) out = renameSheetInFormula(out, r.from, r.to);
     return out;
   };
+  // Hidden sheets go out hidden (R160); Excel wants one showing, and opens on it.
+  const shown = sheets.map((s) => s.kind === "table" || !s.grid.hiddenSheet);
+  const firstShown = Math.max(0, shown.indexOf(true));
+  if (!shown.some(Boolean) && sheets.length) shown[0] = true;
+  wb.views = [
+    {
+      x: 0,
+      y: 0,
+      width: 20000,
+      height: 12000,
+      firstSheet: 0,
+      activeTab: firstShown,
+      visibility: "visible",
+    },
+  ];
   for (const [index, s] of sheets.entries()) {
     const sheetName = fileNames[index];
     if (s.kind === "table") {
@@ -754,6 +773,7 @@ export async function writeXlsx(
         },
       ],
     });
+    if (!shown[index]) ws.state = "hidden";
     ws.properties.defaultColWidth = pxToWidth(104);
     ws.properties.defaultRowHeight = pxToPt(24);
     for (const [k, w] of Object.entries(s.grid.colWidths ?? {}))

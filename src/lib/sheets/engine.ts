@@ -82,6 +82,8 @@ export type GridData = {
   hiddenCols?: number[];
   /** Gridlines off (View > Gridlines). */
   hideGrid?: boolean;
+  /** Hidden from the sheet tabs, as Excel's Hide (R160); formulas still read it. */
+  hiddenSheet?: boolean;
   /** Conditional formatting rules, highest priority first. */
   cond?: CondFormat[];
   /** Data validation rules. */
