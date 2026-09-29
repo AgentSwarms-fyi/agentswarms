@@ -109,6 +109,42 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-29 — Find and Replace
+
+Tests: `tests/unit/sheetsFind.test.ts` (19). The mutation run caught 18 of 18, and the control
+survived.
+
+#### R150 · S2 · No Find or Replace, and the browser's own find cannot reach rows off screen
+
+**Found.** In the Sales sample's Orders sheet (240 orders), Ctrl+F and Ctrl+H did nothing, and no
+menu offered Find. The only Search (Ctrl+K) is the product's, not the sheet's. The grid draws only
+the rows on screen, 105 cells of the Dashboard and 240 of Orders. So a browser's page find cannot
+reach SO-10200 in row 201: it is not in the page until scrolled to. Excel's Find and Replace are
+among its most used commands; a workbook of any size had no way to look for a value.
+
+**The fix.** Find and Replace as Excel's:
+- **Opening it.** Ctrl+F, Ctrl+H, or Home → Find opens a panel over the grid. The grid stays
+  usable while it is open.
+- **Finding.** Find Next and Find Previous go on from the active cell and wrap round. Find All
+  lists the matches; clicking one goes to it, switching sheets when it has to.
+- **Options.** Search the sheet or the workbook. Look in Values (what cells show) or Formulas
+  (what was typed). Match case and Entire cell narrow the match. Excel's `*`, `?` and `~` work.
+- **Replacing.** Replace works on what was typed. The first press goes to a match; the next
+  replaces it. Replace All is one undo step across sheets, and leaves a formula the change would
+  break, saying how many it left.
+- **Viewers** find, and are not offered Replace.
+
+`lib/sheets/find.ts` has the pattern and the search, and `FindPanel.tsx` the panel.
+
+**Found while driving it:**
+- **The list could overflow.** At 715 pixels high, Find All's list ran past the grid, over the
+  sheet tabs. The panel now keeps within the grid, and the list scrolls inside it.
+- **The panel forgot the last search.** Closed and opened again, it came back empty, where
+  Excel's keeps the search. It now opens with the last one.
+- **Find All's rows answered only to a mouse.** The repo's keyboard guard
+  (`keyboardOperable.test.ts`) failed the first gate run on them. They are keyboard controls now:
+  Tab reaches them, and Enter goes to the match.
+
 ### 2026-09-29 — Rules left behind when their cells or sheet moved
 
 Seen in the code while wiring names through the same paths (R148), then proven in the UI.

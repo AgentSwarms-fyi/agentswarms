@@ -21,6 +21,7 @@ import {
   Loader2,
   Pencil,
   Plus,
+  Search,
   Tag,
   X,
 } from "lucide-react";
@@ -92,6 +93,16 @@ import {
 } from "@/lib/sheets/shiftCells";
 import { SheetToolbar, ZoomControl, type ClearKind } from "./SheetToolbar";
 import { NameManagerDialog } from "./NameManagerDialog";
+import { FindPanel } from "./FindPanel";
+import {
+  EMPTY_FIND,
+  findAll,
+  replaceInput,
+  type FindMemory,
+  type FindOptions,
+  type FindSource,
+  type FindWithin,
+} from "@/lib/sheets/find";
 import {
   adjustNames,
   nameProblem,
@@ -174,6 +185,13 @@ export function WorkbookEditor({
   const [extent, setExtent] = useState({ rows: MIN_ROWS, cols: MIN_COLS });
   const [nameBox, setNameBox] = useState<string | null>(null);
   const [namesOpen, setNamesOpen] = useState(false);
+  // Find and Replace (Ctrl+F, Ctrl+H), open over the grid (R150).
+  const [findMode, setFindMode] = useState<"find" | "replace" | null>(null);
+  // The last search: the panel opens with it again, as Excel's does.
+  const findMemory = useRef<FindMemory>(EMPTY_FIND);
+  const rememberFind = useCallback((m: FindMemory) => {
+    findMemory.current = m;
+  }, []);
   // A Name box jump to a name on another sheet: selected once it shows.
   const pendingSelect = useRef<RangeAddr | null>(null);
   const [acIndex, setAcIndex] = useState(0);
@@ -1012,6 +1030,74 @@ export function WorkbookEditor({
     });
   };
 
+  /** Select cells, on their own sheet: switched to first when it is another (the Name box, Find). */
+  const goTo = (sheetId: string, r: RangeAddr) => {
+    if (sheetId !== tabId) {
+      pendingSelect.current = r;
+      wb.setActiveTabId(sheetId);
+      return;
+    }
+    setSelection({ anchor: { row: r.r0, col: r.c0 }, focus: { row: r.r1, col: r.c1 } });
+    setExtent((x) => ({
+      rows: Math.max(x.rows, r.r1 + 200),
+      cols: Math.max(x.cols, r.c1 + 10),
+    }));
+  };
+
+  // ── Find and Replace (R150) ──────────────────────────────────────────────
+
+  /** The grid sheets Find reads, in the workbook's order: each cell's typed or shown text. */
+  const findSources = (lookIn: FindOptions["lookIn"], within: FindWithin): FindSource[] => {
+    if (!engine || !tabId) return [];
+    return [...wb.tabs]
+      .sort((a, b) => a.position - b.position)
+      .filter((t) => t.kind === "grid" && (within === "workbook" || t.id === tabId))
+      .map((t) => {
+        const used = engine.used(t.id);
+        return {
+          sheetId: t.id,
+          sheet: t.name,
+          rows: used.rows,
+          cols: used.cols,
+          text:
+            lookIn === "formulas"
+              ? (r: number, c: number) => engine.getInput(t.id, r, c)?.i || undefined
+              : (r: number, c: number) =>
+                  cellView(engine.getValue(t.id, r, c), engine.getInput(t.id, r, c)).text ||
+                  undefined,
+        };
+      });
+  };
+
+  /** Replace All: every match changed, workbook-wide, undone as one step. */
+  const replaceAllHits = (
+    hits: { sheetId: string; row: number; col: number }[],
+    opts: FindOptions,
+    replacement: string,
+  ): { replaced: number; broken: number } => {
+    if (!engine || !tabId) return { replaced: 0, broken: 0 };
+    let replaced = 0;
+    let broken = 0;
+    const bySheet = new Map<string, CellEdit[]>();
+    for (const h of hits) {
+      const r = replaceInput(engine.getInput(h.sheetId, h.row, h.col)?.i ?? "", opts, replacement);
+      if (!r) continue;
+      if ("broken" in r) {
+        broken++;
+        continue;
+      }
+      replaced++;
+      const list = bySheet.get(h.sheetId) ?? [];
+      list.push({ row: h.row, col: h.col, input: r.next });
+      bySheet.set(h.sheetId, list);
+    }
+    if (bySheet.size)
+      wb.structural(tabId, (eng) => {
+        for (const [id, edits] of bySheet) eng.setInputs(id, edits);
+      });
+    return { replaced, broken };
+  };
+
   /**
    * The Name box's Enter, as Excel's: a cell or range is selected; a name
    * selects its cells, on its sheet; a new name names the selection.
@@ -1022,16 +1108,9 @@ export function WorkbookEditor({
       setNameBox(null);
       gridRef.current?.focus({ preventScroll: true });
     };
-    const select = (r: RangeAddr) => {
-      setSelection({ anchor: { row: r.r0, col: r.c0 }, focus: { row: r.r1, col: r.c1 } });
-      setExtent((x) => ({
-        rows: Math.max(x.rows, r.r1 + 200),
-        cols: Math.max(x.cols, r.c1 + 10),
-      }));
-    };
     const r = parseRangeA1(text);
     if (r) {
-      select(r);
+      if (tabId) goTo(tabId, r);
       done();
       return;
     }
@@ -1055,10 +1134,7 @@ export function WorkbookEditor({
         ...(t.wholeCols ? { r1: Math.max(t.range.r0, used.rows - 1) } : {}),
         ...(t.wholeRows ? { c1: Math.max(t.range.c0, used.cols - 1) } : {}),
       };
-      if (sheet.id !== tabId) {
-        pendingSelect.current = target;
-        wb.setActiveTabId(sheet.id);
-      } else select(target);
+      goTo(sheet.id, target);
       done();
       return;
     }
@@ -1422,6 +1498,11 @@ export function WorkbookEditor({
       } else if (k === "5") {
         e.preventDefault();
         toggle("st");
+      } else if (k === "f" || k === "h") {
+        // Excel's Find (Ctrl+F) and Replace (Ctrl+H), not the browser's find,
+        // which sees only the rows on screen (R150).
+        e.preventDefault();
+        setFindMode(k === "h" && !wb.readOnly ? "replace" : "find");
       } else if (k === "k") {
         // The grid's Ctrl+K (a link, as in Excel), not the app's search.
         e.preventDefault();
@@ -1651,6 +1732,22 @@ export function WorkbookEditor({
                   gridlines={!grid?.hideGrid}
                   extra={{
                     ...rules.ribbon,
+                    home: (
+                      <>
+                        {rules.ribbon.home}
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 gap-1 px-2 text-xs"
+                          title="Find and replace (Ctrl+F, Ctrl+H)"
+                          data-testid="tool-find"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => setFindMode("find")}
+                        >
+                          <Search className="h-4 w-4" /> Find
+                        </Button>
+                      </>
+                    ),
                     insert: charts.ribbon,
                     data: (
                       <>
@@ -1912,6 +2009,37 @@ export function WorkbookEditor({
                     )
                   }
                 />
+                {findMode && (
+                  <FindPanel
+                    mode={findMode}
+                    onModeChange={setFindMode}
+                    onClose={() => {
+                      setFindMode(null);
+                      gridRef.current?.focus({ preventScroll: true });
+                    }}
+                    readOnly={wb.readOnly}
+                    search={(opts, within) => findAll(findSources(opts.lookIn, within), opts)}
+                    activeCell={() => ({ sheetId: tabId, row: focus.row, col: focus.col })}
+                    sheetOrder={[...wb.tabs]
+                      .sort((a, b) => a.position - b.position)
+                      .map((t) => t.id)}
+                    onGo={(h) => goTo(h.sheetId, { r0: h.row, c0: h.col, r1: h.row, c1: h.col })}
+                    onReplaceOne={(h, opts, replacement) => {
+                      const r = replaceInput(
+                        engine.getInput(h.sheetId, h.row, h.col)?.i ?? "",
+                        opts,
+                        replacement,
+                      );
+                      if (!r) return "none";
+                      if ("broken" in r) return "broken";
+                      wb.applyEdits(h.sheetId, [{ row: h.row, col: h.col, input: r.next }]);
+                      return "done";
+                    }}
+                    onReplaceAll={replaceAllHits}
+                    initial={findMemory.current}
+                    onRemember={rememberFind}
+                  />
+                )}
                 {menu && (
                   <ContextMenu
                     x={menu.x}

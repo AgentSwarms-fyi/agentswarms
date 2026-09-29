@@ -15,6 +15,32 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-29 — Find and Replace, ADVERSARIAL_LOG R150
+
+**Why this round exists.** Keep hunting: a sheet of 240 rows had no way to find a value.
+
+Fixtures: the **"Sales performance 2026"** sample (`66818463…`) for Find, left unchanged; the
+**"R149 rule formulas"** workbook for Replace, every change undone. The viewer check used the view
+share of "R148 names after".
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before | Orders sheet; Ctrl+F, then Ctrl+H, in the grid; the menus | Nothing opened. No Find in any menu; only the product's Search (Ctrl+K). SO-10200 (row 201) was not in the page |
+| After: Ctrl+F | In the grid | The panel opened with the focus in Find what |
+| Find in the sheet | `SO-10200` on the Dashboard, Enter | "Nothing matches "SO-10200" in this sheet" |
+| Find in the workbook | Within → Workbook, Find Next | Orders shown, A201 SO-10200 selected and scrolled to; "1 of 1" |
+| Find All | `Asha Rao`, Workbook, Values | "55 cells found": Dashboard J9 (the leaderboard's formula answer), Orders, Reps |
+| A result | Click Reps A2 in the list | Reps shown, A2 selected, the panel still open |
+| Look in | Formulas, Find All | "53 cells found", Orders and Reps only: the Dashboard's answers are not typed text |
+| Seen, then fixed | Find All's list at 715 px high | Before the fix: the list ran over the sheet tabs. After: the panel ends inside the grid (673 of 681 px) and the list scrolls |
+| Ctrl+H | R149 workbook | Replace with shown; Look in fixed to Formulas |
+| Replace All | `North` → `Norte`, Workbook | "Made 2 replacements. Undo (Ctrl+Z) takes them all back."; Find All: Sheet1 B2 and Areas A1 read Norte |
+| Undo | Esc, Ctrl+Z once | Both back to North |
+| A break refused | `COUNTA(` → `COUNTA((`, Replace All | "Made 0 replacements; 2 left, as the change would break their formula"; C2 3 and D5 "3 x" unchanged |
+| Replace | `hello` → `hi`, Replace twice | First: G1 selected, "1 of 1". Second: G1 hi, "Replaced; no more matches". Ctrl+Z: hello |
+| Seen, then fixed | Esc, then Ctrl+F again | Before the fix: the panel came back empty. After: `Asha Rao` and Workbook kept, the text selected; Enter went on to J9, "1 of 55" |
+| A viewer | View as the share, Ctrl+H | Find only, no Replace; `Rate` found at D1 |
+
 ## 2026-09-29 — Rules following renames and shifts, ADVERSARIAL_LOG R149
 
 **Why this round exists.** Keep hunting. R148's wiring showed that three paths rewrote only cells'

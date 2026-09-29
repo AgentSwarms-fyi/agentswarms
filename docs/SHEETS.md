@@ -155,6 +155,7 @@ out is not sent the names that refer to it.
 | Ctrl+B / Ctrl+I / Ctrl+U | Bold, italic, underline                                                                                                                                   |
 | Ctrl+5                   | Strikethrough                                                                                                                                             |
 | Ctrl+K                   | Insert or edit a link                                                                                                                                     |
+| Ctrl+F / Ctrl+H          | Find / Find and replace (below)                                                                                                                           |
 | Alt+Enter                | A line break inside the cell (Wrap text turns on)                                                                                                         |
 | Ctrl+mouse wheel         | Zoom                                                                                                                                                      |
 | Ctrl+S                   | Save now                                                                                                                                                  |
@@ -167,8 +168,9 @@ series, formulas shift, and anything else repeats.
 The right-click menu inserts and deletes rows and columns. Every formula in the workbook that
 pointed at the moved cells follows them, and one that pointed into deleted cells shows `#REF!`.
 Merged cells, row heights and hidden rows and columns move with them. Renaming a sheet rewrites
-the formulas that name it, in cells and in rules alike: a validation list over
-`=Lists!$A$2:$A$9`, or a conditional format's formula, follows the new name. Right-click a row or column header for its own menu: hide and unhide,
+the formulas that name it, in cells and in rules alike: a validation list over `=Lists!$A$2:$A$9`,
+or a conditional format's formula, follows the new name. Right-click a row or column header for its
+own menu: hide and unhide,
 **Row height…** (in points, as Excel measures it) and **Column width…** (in characters).
 **Paste values only** and **Paste formatting only** work on cells copied in the workbook.
 
@@ -179,11 +181,36 @@ that pointed into deleted cells shows `#REF!`. A range follows when it lies whol
 columns) that move, so `=SUM(A2:E2)` grows with a cell inserted into row 2, while `=SUM(C1:C9)`
 stays. Rules, validations and charts over such a range move the same way, and the formulas inside
 rules follow moved cells as cell formulas do: a list over `=$E$1:$E$3` still lists the same three
-cells after they shift down. A merged cell that the
-shift would cut in two is refused, with a note to unmerge it first.
+cells after they shift down. A merged cell that the shift would cut in two is refused, with a note
+to unmerge it first.
 
 The status bar shows the Average, Count and Sum of the selection, and the zoom (**−**, the level,
 **+**). The zoom is remembered per sheet in your browser.
+
+### Find and replace
+
+**Ctrl+F** (or **Home → Find**) opens Find over the grid, and **Ctrl+H** opens it on Replace. The
+grid stays usable while it is open, and **Esc** closes it.
+
+- **Find Next** (Enter) goes to the next match after the active cell, and wraps round at the end.
+  **Find Previous** (Shift+Enter) goes back.
+- **Find All** lists every match with its sheet and cell; click one to go there.
+- **Within**: the sheet, or every grid sheet of the workbook. A table sheet lives in the lakehouse
+  and is searched with its own filters.
+- **Look in: Values** matches what a cell shows, so a formula's answer, or `$1,350.00` for a
+  number formatted as currency. **Formulas** matches what was typed: a formula's text, or a
+  constant.
+- **Match case** and **Entire cell** narrow the match. As in Excel, `*` stands for any run of
+  characters, `?` for any one, and `~` before either (or before `~`) for the character itself:
+  `SO-102??` finds SO-10200 to SO-10299, and `5~*` finds `5*`.
+- **Replace** changes what was typed, as Excel's does, so Look in is Formulas. The first **Replace**
+  goes to a match and the next one replaces it. **Replace All** changes every match at once, and a
+  single Ctrl+Z takes all of them back, across sheets.
+- A change that would break a formula (`COUNTA(` → `COUNTA((`) is not made; the panel says how many
+  cells it left.
+
+The panel opens with the last search. Someone who can only view a workbook finds, and has no
+Replace. Sheets their share leaves out are never sent to them, so Find cannot show them.
 
 ### Formatting
 

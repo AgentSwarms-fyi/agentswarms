@@ -381,6 +381,15 @@ frozen at Excel's values). Open from that round:
 - **A rule saved before R149 keeps its stale source.** A list whose sheet was renamed before the
   fix still names the old sheet. Setting the rule again repairs it.
 
+Closed with Find and Replace: R150 (no Find or Replace; a browser's find cannot reach rows the
+grid does not draw). Open from that round:
+
+- **Table sheets are not searched by Find.** Their rows live in the lakehouse, and their own
+  filters search them.
+- **Find looks through every used cell of a sheet on each press.** That is fast at the grid's
+  limit (200,000 cells). A far larger sheet would want an index.
+- **Excel's Format search** (find cells by their format) and "Search: By Columns" are not there.
+
 ## Rules that came out of doing this
 
 - A test that asserts source text is pinning a USE, not a definition; bound it

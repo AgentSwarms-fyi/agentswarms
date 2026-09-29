@@ -102,6 +102,12 @@ function SheetsDocsPage() {
           inserts their reference.
         </li>
         <li>
+          <strong>Find and replace.</strong> Ctrl+F finds and Ctrl+H replaces, in the sheet or the
+          whole workbook, in what cells show or what was typed, with Excel&apos;s <C>*</C> and{" "}
+          <C>?</C>. Find All lists every match; Replace All is one Ctrl+Z to take back, and leaves
+          alone a formula the change would break.
+        </li>
+        <li>
           <strong>Named ranges.</strong> Select cells and type a new name in the Name box to name
           them; type a name there to go to its cells. Data → Names lists, adds, edits, renames and
           deletes names, each with what it comes to now. Formulas use them as in Excel (
