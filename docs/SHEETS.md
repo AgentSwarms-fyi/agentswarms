@@ -398,6 +398,7 @@ Leaving the page with unsaved changes asks first.
 Add one from the **+** beside the sheet tabs → **Table sheet**. The data can come from:
 
 - **Lakehouse**: any table you can read.
+- **Lakehouse query**: a SELECT you write. See [Query sheets](#query-sheets).
 - **Data catalog**: a table in the catalog. A lakehouse table opens in place. A table in a
   connected database is copied into a new lakehouse table through its connection. Seeing a table
   in the catalog does not give access to its rows; its connection must be shared with you.
@@ -412,6 +413,35 @@ that table's rows. It asks first, because anything else reading the table sees t
 
 The sheet's name is how formulas refer to it (`Orders[amount]`): letters, digits, `_` and `.`,
 starting with a letter.
+
+### Query sheets
+
+A query sheet's rows are what a SELECT over the lakehouse returns, as a connected table is in
+Row Zero. Nothing is copied: the query runs whenever the sheet is read.
+
+- **Writing it.** **Lakehouse query** in **Add a table sheet** has the SQL, the tables you can
+  read (a click puts one in the query), and **Preview** (Ctrl+Enter), which shows the first 50
+  rows and how long they took.
+- **What it may be.** One `SELECT` or `WITH` statement. Anything that writes is refused, and so is
+  a second statement. As in the Query editor, the lakehouse refuses file and database functions
+  such as `read_csv`.
+- **Who it runs as.** Whoever reads the sheet, with their own schema grants, row filters and
+  column masks. A shared workbook never shows a viewer more than they could query themselves, and
+  a share's row filter narrows further.
+- **Everything else is a table sheet's.** Sort, filters, calculated columns, pivots, **Save to
+  lakehouse**, downloads, and formulas over it from a grid sheet (`=SUM(Revenue[revenue])`) all
+  work on what the query returns.
+- **Refresh** runs the query again.
+- **Edit query** (owners and editors) changes the SQL. The sheet keeps its calculated columns,
+  sort and filters, and one that names a column the new query lacks says why.
+
+Each column the query returns needs a name of its own (`SELECT a.id, b.id` needs an `AS`), and
+none may be called `__row`. A query is at most 20,000 characters.
+
+The SQL a read runs is always the one saved with the sheet, never one sent with the read. A viewer's
+copy of the sheet does not carry the SQL. Making a query sheet and changing its query are audited
+(`sheets.query.create`, `sheets.query.update`) with the SQL, and each read is audited as a
+lakehouse query.
 
 ### Tables a sheet holds
 

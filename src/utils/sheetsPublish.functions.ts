@@ -26,7 +26,7 @@ import {
   resolveCaller,
   type Fail,
 } from "@/utils/sheets/shared.server";
-import { othersFor, requireTab } from "@/utils/sheets/access.server";
+import { othersFor, requireTab, savedSource } from "@/utils/sheets/access.server";
 
 const COLUMN_TYPES = ["DOUBLE", "BIGINT", "VARCHAR", "BOOLEAN", "DATE", "TIMESTAMP"] as const;
 
@@ -246,7 +246,8 @@ export const sheetsSaveTableAs = createServerFn({ method: "POST" })
       const problem = await importTarget(caller.userId, data.target_schema, data.target_table);
       if (problem) return { ok: false, error: problem.replace("importing never", "saving never") };
       const others = await othersFor(got.access, tab.id);
-      const cfg = data.config as TableConfig;
+      // A query sheet saves what its saved query returns, not SQL sent here.
+      const cfg = savedSource(tab.table_config, data.config as TableConfig);
       const rel = buildTableRelation(cfg, {
         name: tab.name,
         others: (n) => others.get(n.toLowerCase()),

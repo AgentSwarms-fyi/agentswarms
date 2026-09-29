@@ -421,6 +421,20 @@ Ctrl+Z after a ribbon tool went nowhere). Open from that round:
 - **Text to Columns and Flash Fill,** Excel's other Data tools, are not there.
 - **Custom Sort** (several levels) is not there; Sort A to Z sorts by the active column only.
 
+Closed with Query sheets: R154 (a sheet could only open a table that already existed; no query
+over the lakehouse). Open from that round, the rest of Row Zero's connected tables:
+
+- **No scheduled refresh.** A table imported from a connection refreshes only when its owner
+  presses Refresh from source. A query sheet is live, but nothing runs it on a schedule for the
+  formulas and charts built on it.
+- **No query variables.** Row Zero binds `{{name}}` in a query to a value; here a query can't
+  read a cell or a workbook name.
+- **A connection import stops at `WAREHOUSE_ABS_MAX_ROWS`** (5,000); larger ones are refused
+  rather than paged.
+- **A connection's query can't be changed** once imported, and a failed import is not audited.
+- **SaaS and object-store sources** can't be opened straight into a sheet; they reach the
+  lakehouse first (a sync, or a lake mount).
+
 ## Rules that came out of doing this
 
 - A test that asserts source text is pinning a USE, not a definition; bound it

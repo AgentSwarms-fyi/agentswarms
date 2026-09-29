@@ -6,7 +6,12 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { Json } from "@/integrations/supabase/types";
 import { tableNameProblem } from "@/lib/sheets/names";
 import { qid } from "@/lib/sheets/sql/compile";
-import type { OtherTable, TableConfig } from "@/lib/sheets/sql/tableQuery";
+import {
+  checkSheetQuery,
+  ROW_ID,
+  type OtherTable,
+  type TableConfig,
+} from "@/lib/sheets/sql/tableQuery";
 import type { SheetTabRow } from "@/utils/sheets.functions";
 import { tableConfigSchema } from "@/utils/sheets/schemas";
 
@@ -43,6 +48,39 @@ export async function describeSource(
     { rowCap: 1, auditVia: "sheets", useCache: false },
   );
   return r.columns.map((c) => ({ name: c.name, type: c.type }));
+}
+
+/**
+ * The columns a query over the lakehouse returns, read as the caller reads
+ * it (their grants and policies): a query they can't run is refused here,
+ * before a sheet that could never show a row is made. Each column needs a
+ * name of its own, since the sheet, its filters and its formulas name them.
+ */
+export async function describeQuery(
+  userId: string,
+  sql: string,
+): Promise<{ name: string; type: string }[]> {
+  const q = checkSheetQuery(sql);
+  if (!q.ok) throw new Error(q.error);
+  const { runLakehouseStatement } = await import("@/utils/lakehouse/core.server");
+  const r = await runLakehouseStatement(userId, `SELECT * FROM (${q.sql}\n) AS __query LIMIT 0`, {
+    rowCap: 1,
+    auditVia: "sheets",
+    useCache: false,
+  });
+  const cols = r.columns.map((c) => ({ name: c.name, type: c.type }));
+  if (!cols.length) throw new Error("The query returns no columns");
+  const seen = new Set<string>();
+  for (const c of cols) {
+    const key = c.name.toLowerCase();
+    if (key === ROW_ID) throw new Error(`A column can't be named ${ROW_ID}; rename it with AS`);
+    if (c.name.length > 255) throw new Error(`"${c.name.slice(0, 40)}…" is too long a column name`);
+    if (seen.has(key)) {
+      throw new Error(`Two columns are named "${c.name}"; name one of them apart with AS`);
+    }
+    seen.add(key);
+  }
+  return cols;
 }
 
 /**

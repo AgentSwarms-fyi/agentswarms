@@ -16,6 +16,7 @@ import {
   ArrowUp,
   Calendar,
   ChevronDown,
+  Code2,
   Database,
   LayoutGrid,
   EyeOff,
@@ -51,6 +52,7 @@ import {
 } from "@/lib/sheets/sql/tableQuery";
 import { sheetsRefreshImport, sheetsTablePage } from "@/utils/sheetsTables.functions";
 import { CalculatedColumnDialog } from "./CalculatedColumnDialog";
+import { EditQueryDialog } from "./EditQueryDialog";
 import { PivotDialog } from "./PivotDialog";
 import { SaveToLakehouseDialog } from "./SaveToLakehouseDialog";
 import { TableFilterPopover } from "./TableFilterPopover";
@@ -104,6 +106,7 @@ export function TableSheet({
   const pageFn = useServerFn(sheetsTablePage);
   const refreshImportFn = useServerFn(sheetsRefreshImport);
   const [reimporting, setReimporting] = useState(false);
+  const [editingQuery, setEditingQuery] = useState(false);
   const [saveOpen, setSaveOpen] = useState(false);
   const [pivotOpen, setPivotOpen] = useState<"new" | "edit" | null>(null);
   // A pivot's table, by name (it may have been renamed or deleted since).
@@ -391,9 +394,28 @@ export function TableSheet({
     <div className="flex h-full min-h-0 flex-col" data-testid="table-sheet">
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-2 border-b border-border bg-muted/30 px-2 py-1 text-xs">
-        <span className="font-mono text-foreground" title="The lakehouse table this sheet reads">
+        <span
+          className="font-mono text-foreground"
+          title={
+            config.source.kind === "query"
+              ? config.source.sql || "A query over the lakehouse"
+              : "The lakehouse table this sheet reads"
+          }
+        >
           {label}
         </span>
+        {config.source.kind === "query" && !wb.readOnly && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 gap-1 px-2 text-xs"
+            onClick={() => setEditingQuery(true)}
+            title="Change the query this sheet's rows come from"
+            data-testid="edit-query"
+          >
+            <Code2 className="h-3.5 w-3.5" /> Edit query
+          </Button>
+        )}
         {origin && origin.kind === "warehouse" && (
           <>
             <span className="text-muted-foreground">from {origin.connection_name}</span>
@@ -429,7 +451,7 @@ export function TableSheet({
           variant="ghost"
           className="h-7 gap-1 px-2 text-xs"
           onClick={refresh}
-          title="Read the table again"
+          title={config.source.kind === "query" ? "Run the query again" : "Read the table again"}
         >
           <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} /> Refresh
         </Button>
@@ -714,6 +736,16 @@ export function TableSheet({
         </div>
       </div>
 
+      {editingQuery && config.source.kind === "query" && (
+        <EditQueryDialog
+          open
+          onOpenChange={setEditingQuery}
+          wb={wb}
+          token={token}
+          tab={tab}
+          config={config}
+        />
+      )}
       {pivotOpen === "new" && (
         <PivotDialog
           open

@@ -15,6 +15,36 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-29 — Query sheets, ADVERSARIAL_LOG R154
+
+**Why this round exists.** The user asked whether Sheets can query data sources and the
+lakehouse straight into a sheet, as Row Zero does.
+
+Fixtures: **"R154 query sheets"** (`6b6a8810…`), with a grid Sheet1 (a total and a lookup over
+the query) and the query sheet **Revenue** over `analytics.bi_demo_sales`, left in place.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before: Lakehouse | + → Table sheet…, the Lakehouse tab | 54 tables to open; no query |
+| Before: Connection | The Connection tab | "No database connections yet"; the lakehouse connection is hidden there |
+| After: the tab | + → Table sheet… | Lakehouse, Lakehouse query, Data catalog, Connection, Upload CSV |
+| A table into the query | Click `analytics.bi_demo_sales` | `SELECT * FROM analytics.bi_demo_sales`; the name "Query" suggested |
+| Preview | Preview | "7 columns · the first 50 rows · 2035 ms", month…margin_pct |
+| A write | `DELETE FROM analytics.bi_demo_sales`, Ctrl+Enter | "Only read-only queries (SELECT / WITH) are allowed" |
+| A file function | `SELECT * FROM read_csv('/etc/passwd')` | "read_csv() is not available here — query lakehouse tables, or use a lake view for raw files" |
+| The query | Revenue by region, Ctrl+Enter | "3 columns · 3 rows": AMER 25874.92, APAC 10349.98, EMEA 15524.94 |
+| Added | Named Revenue, the footer button | The sheet: "Lakehouse query · Edit query · 3 rows", the three regions |
+| Grid formulas | Sheet1: `=SUM(Revenue[revenue])`, `=XLOOKUP(A2,Revenue[region],Revenue[revenue])` | 51749.84; EMEA 15524.94 |
+| Edit query | `WHERE region <> 'APAC'`, Save query | 2 rows (AMER, EMEA); Sheet1's total 41399.86 |
+| Tampered read | A page read rewritten in the browser to `region <> 'NONE'` (1 request) | Still AMER and EMEA: the saved query ran |
+| Reload | The page again | Revenue as saved, 2 rows |
+| Audit | Audit Log | `sheets.query.create` and `sheets.query.update` with the SQL; each read a `lakehouse.select` |
+
+Along the way the footer button said "Open table" for a query; it now says "Add query sheet". While
+capturing a request's shape, the page's session token appeared in the tool's output; it was not
+kept or repeated, and the capture was changed to count rewrites only. A viewer was not driven (no
+second account); the viewer's copy and a share's row filter over a query are tested on DuckDB.
+
 ## 2026-09-29 — Remove duplicates, ADVERSARIAL_LOG R153
 
 **Why this round exists.** Keep hunting: the Data tab had no way to drop repeated rows.

@@ -50,6 +50,9 @@ export const tableConfigSchema = z
   .object({
     source: z.discriminatedUnion("kind", [
       z.object({ kind: z.literal("lakehouse"), schema: nameStr, table: nameStr }).strict(),
+      // A query over the lakehouse (R154). Whatever a browser sends here, a
+      // read runs the SQL saved with the sheet (sheets/access.server).
+      z.object({ kind: z.literal("query"), sql: z.string().max(20_000) }).strict(),
       z
         .object({
           kind: z.literal("pivot"),

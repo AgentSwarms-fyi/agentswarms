@@ -16,6 +16,7 @@ import type { TableCallRequest } from "@/lib/sheets/formula/evaluate";
 import { qid } from "@/lib/sheets/sql/compile";
 import {
   buildTableRelation,
+  checkSheetQuery,
   isVolatile,
   pageSql,
   selectAllSql,
@@ -31,6 +32,7 @@ import type { SheetTabRow } from "@/utils/sheets.functions";
 import { nameStr, originSchema, tableConfigSchema, tokenOnly } from "@/utils/sheets/schemas";
 import {
   addTableTab,
+  describeQuery,
   describeSource,
   engineMessage,
   importTarget,
@@ -48,6 +50,7 @@ import {
   requireAccess,
   requireTab,
   restrictedConfig,
+  savedSource,
   type WorkbookAccess,
 } from "@/utils/sheets/access.server";
 
@@ -131,6 +134,186 @@ export const sheetsAddTableTab = createServerFn({ method: "POST" })
     if (!caller.ok) return caller;
     return addTableTab(caller.userId, data);
   });
+
+// ── A query over the lakehouse ─────────────────────────────────────────────
+//
+// Row Zero's "connected table", for the lakehouse (R154): a sheet whose rows
+// are a SELECT the person writes. Nothing is copied; the query runs whenever
+// the sheet is read, as whoever reads it, with their own grants and policies,
+// so a shared workbook never shows a viewer more than they could query.
+
+const querySql = z.string().trim().min(1).max(20_000);
+
+/** A query's first rows, read as the caller, for the dialog's preview. */
+export const sheetsPreviewQuery = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    tokenOnly.extend({ workbook_id: z.string().uuid(), sql: querySql }).parse(input),
+  )
+  .handler(
+    async ({
+      data,
+    }): Promise<
+      | {
+          ok: true;
+          columns: { name: string; type: string }[];
+          rows: (string | number | boolean | null)[][];
+          more: boolean;
+          duration_ms: number;
+        }
+      | Fail
+    > => {
+      const caller = await resolveCaller(data.access_token);
+      if (!caller.ok) return caller;
+      const got = await requireAccess(caller.userId, data.workbook_id, "edit");
+      if (!got.ok) return got;
+      const q = checkSheetQuery(data.sql);
+      if (!q.ok) return { ok: false, error: q.error };
+      const started = Date.now();
+      try {
+        const columns = await describeQuery(caller.userId, q.sql);
+        const { runLakehouseStatement } = await import("@/utils/lakehouse/core.server");
+        const PREVIEW = 50;
+        const r = await runLakehouseStatement(
+          caller.userId,
+          `SELECT * FROM (${q.sql}\n) AS __query LIMIT ${PREVIEW + 1}`,
+          { rowCap: PREVIEW + 1, auditVia: "sheets" },
+        );
+        return {
+          ok: true,
+          columns,
+          rows: r.rows.slice(0, PREVIEW) as (string | number | boolean | null)[][],
+          more: r.rows.length > PREVIEW,
+          duration_ms: Date.now() - started,
+        };
+      } catch (e) {
+        return { ok: false, error: engineMessage(e) };
+      }
+    },
+  );
+
+/** A new table sheet whose rows are a query over the lakehouse. */
+export const sheetsAddQueryTab = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    tokenOnly
+      .extend({
+        workbook_id: z.string().uuid(),
+        name: z.string().trim().min(1).max(100),
+        sql: querySql,
+      })
+      .parse(input),
+  )
+  .handler(async ({ data }): Promise<{ ok: true; tab: SheetTabRow } | Fail> => {
+    const caller = await resolveCaller(data.access_token);
+    if (!caller.ok) return caller;
+    const problem = tableNameProblem(data.name);
+    if (problem) return { ok: false, error: problem };
+    // The owner or an editor, as for opening a table: nothing is copied.
+    const got = await requireAccess(caller.userId, data.workbook_id, "edit");
+    if (!got.ok) return got;
+    const q = checkSheetQuery(data.sql);
+    if (!q.ok) return { ok: false, error: q.error };
+    let columns: { name: string; type: string }[];
+    try {
+      columns = await describeQuery(caller.userId, q.sql);
+    } catch (e) {
+      return { ok: false, error: `The query can't run: ${engineMessage(e)}` };
+    }
+    const r = await insertTableTab(got.access.ownerId, data.workbook_id, data.name, {
+      source: { kind: "query", sql: q.sql },
+      columns,
+      calculated: [],
+      sort: [],
+      filters: [],
+      hidden: [],
+      widths: {},
+      origin: { kind: "lakehouse" },
+    });
+    if (r.ok) {
+      const { auditEvent } = await import("@/utils/audit.server");
+      auditEvent({
+        userId: caller.userId,
+        action: "sheets.query.create",
+        resourceType: "sheet_workbook",
+        resourceId: data.workbook_id,
+        resourceName: data.name.trim(),
+        detail: { tab_id: r.tab.id, columns: columns.length, sql: q.sql.slice(0, 2000) },
+      });
+    }
+    return r;
+  });
+
+/**
+ * Change a query sheet's SQL. Its calculated columns, sort and filters stay;
+ * one that names a column the new query lacks shows why, as after a table
+ * loses a column. Versioned like any save of the sheet.
+ */
+export const sheetsSetTableQuery = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    tokenOnly
+      .extend({
+        tab_id: z.string().uuid(),
+        base_version: z.number().int().min(1),
+        sql: querySql,
+        // The editor's settings as they are (unsaved sort, filters, columns
+        // included), saved with the new query; where the rows come from is
+        // only ever the SQL above.
+        config: tableConfigSchema,
+      })
+      .parse(input),
+  )
+  .handler(
+    async ({ data }): Promise<{ ok: true; tab: SheetTabRow } | (Fail & { conflict?: boolean })> => {
+      const caller = await resolveCaller(data.access_token);
+      if (!caller.ok) return caller;
+      const got = await requireTab(caller.userId, data.tab_id, "edit", { kind: "table" });
+      if (!got.ok) return got;
+      const stored = tableConfigSchema.safeParse(got.tab.table_config);
+      if (!stored.success) return { ok: false, error: "This sheet's settings could not be read" };
+      if (stored.data.source.kind !== "query") {
+        return { ok: false, error: "Only a query sheet has a query to change" };
+      }
+      const q = checkSheetQuery(data.sql);
+      if (!q.ok) return { ok: false, error: q.error };
+      let columns: { name: string; type: string }[];
+      try {
+        columns = await describeQuery(caller.userId, q.sql);
+      } catch (e) {
+        return { ok: false, error: `The query can't run: ${engineMessage(e)}` };
+      }
+      const config: TableConfig = {
+        ...(data.config as TableConfig),
+        source: { kind: "query", sql: q.sql },
+        columns,
+        origin: stored.data.origin,
+      };
+      const { data: rows, error } = await supabaseAdmin
+        .from("sheet_tabs")
+        .update({ table_config: config as unknown as Json, version: data.base_version + 1 })
+        .eq("id", data.tab_id)
+        .eq("kind", "table")
+        .eq("version", data.base_version)
+        .select("id, workbook_id, name, kind, position, grid, table_config, version, updated_at");
+      if (error) return { ok: false, error: `Could not save the query: ${error.message}` };
+      if (!rows?.length) {
+        return {
+          ok: false,
+          conflict: true,
+          error:
+            "This sheet was saved elsewhere after you opened it. Reload it, then change the query.",
+        };
+      }
+      const { auditEvent } = await import("@/utils/audit.server");
+      auditEvent({
+        userId: caller.userId,
+        action: "sheets.query.update",
+        resourceType: "sheet_workbook",
+        resourceId: got.tab.workbook_id,
+        resourceName: got.tab.name,
+        detail: { tab_id: data.tab_id, columns: columns.length, sql: q.sql.slice(0, 2000) },
+      });
+      return { ok: true, tab: rows[0] as SheetTabRow };
+    },
+  );
 
 // ── Bringing data in ───────────────────────────────────────────────────────
 //
@@ -404,13 +587,16 @@ export const sheetsTablePage = createServerFn({ method: "POST" })
     const { runLakehouseStatement } = await import("@/utils/lakehouse/core.server");
     // A viewer's share keeps only some rows: forced in here, whatever the
     // browser's settings say (buildTableRelation applies it at the source).
-    let cfg = restrictedConfig(access, tab.name, data.config as TableConfig);
+    let cfg = restrictedConfig(access, tab.name, data.config as TableConfig, tab.table_config);
     let sourceColumns: { name: string; type: string }[] | undefined;
     try {
       // The source may have gained or lost columns since the sheet was made.
       // (A pivot's columns come from its definition, not a table.)
-      if (data.offset === 0 && cfg.source.kind === "lakehouse") {
-        const now = await describeSource(caller.userId, cfg.source.schema, cfg.source.table);
+      if (data.offset === 0 && cfg.source.kind !== "pivot") {
+        const now =
+          cfg.source.kind === "query"
+            ? await describeQuery(caller.userId, cfg.source.sql)
+            : await describeSource(caller.userId, cfg.source.schema, cfg.source.table);
         const same =
           now.length === cfg.columns.length &&
           now.every((c, i) => c.name === cfg.columns[i].name && c.type === cfg.columns[i].type);
@@ -518,7 +704,12 @@ export const sheetsTableValues = createServerFn({ method: "POST" })
       const { tab, access } = got;
       try {
         const others = await othersFor(access, tab.id);
-        const cfg = restrictedConfig(access, tab.name, data.config as TableConfig);
+        const cfg = restrictedConfig(
+          access,
+          tab.name,
+          data.config as TableConfig,
+          tab.table_config,
+        );
         const rel = buildTableRelation(cfg, {
           name: tab.name,
           others: (n) => others.get(n.toLowerCase()),
@@ -1083,7 +1274,7 @@ export const sheetsTableExport = createServerFn({ method: "POST" })
       if (!got.ok) return got;
       const { tab, access } = got;
       // A download is the rows the screen shows: the share's filter too.
-      const cfg = restrictedConfig(access, tab.name, data.config as TableConfig);
+      const cfg = restrictedConfig(access, tab.name, data.config as TableConfig, tab.table_config);
       try {
         const others = await othersFor(access, tab.id);
         const rel = buildTableRelation(cfg, {

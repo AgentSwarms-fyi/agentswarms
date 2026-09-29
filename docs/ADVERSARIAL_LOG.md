@@ -109,6 +109,43 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-29 — Query sheets: a SELECT over the lakehouse as a sheet
+
+Tests: `tests/unit/sheetsQuerySheets.test.ts` (20), 7 of them on DuckDB. The mutation run caught
+18 of 18, and the control survived.
+
+#### R154 · S2 · A sheet could only open a table that already existed
+
+**Found.** Asked whether Sheets does what Row Zero's connected tables do (query a source and fill
+a sheet), a research pass and the UI answered: in part.
+- **What was there.** A table sheet could open a lakehouse table, or copy a connection's table or
+  query into a new lakehouse table, with a manual Refresh from source.
+- **What was missing.** Add a table sheet's Lakehouse tab listed 54 tables and had no query. The
+  lakehouse connection, which would have taken one, is hidden from the Connection tab, and this
+  account had no other connection ("No database connections yet").
+- **The cost.** A join, a filter or a total had to be saved as a table (or a scheduled
+  materialized view) before a sheet could show it.
+
+**The fix.** A table sheet's source can be a query: **Lakehouse query** in Add a table sheet.
+- **Writing it.** The SQL, the tables you can read (a click puts one in), and Preview (the first
+  50 rows).
+- **What it may be.** One SELECT or WITH, checked by the same guard as the local SQL engines, with
+  matching parentheses (it runs inside the sheet's own SELECT) and at most 20,000 characters. The
+  lakehouse refuses file functions as it does in the Query editor.
+- **How it runs.** As a subquery at the base of the sheet's relation, so sorts, filters,
+  calculated columns, pivots, lookups, downloads, Save to lakehouse and grid formulas all work on
+  it. It runs as the reader, with their own grants and policies; a share's row filter applies at
+  its edge.
+- **Nothing is copied.** Refresh runs it again, and Edit query changes it, keeping the sheet's
+  settings.
+- **Lineage.** Save to lakehouse's catalog lineage names the tables the query reads.
+
+**The SQL a read runs is the saved one.** A read sends the sheet's settings from the editor, so a
+sort shows before it is saved. For a query sheet that would be SQL from a browser. Every read (a
+page, a filter's values, a download, Save to lakehouse) runs the SQL saved with the sheet instead,
+and a read can't turn a table sheet into a query. A viewer's copy carries no SQL. Proved in the
+UI: a read whose request was rewritten to another query returned the saved query's rows.
+
 ### 2026-09-29 — Remove duplicates, and the keyboard after a ribbon tool
 
 Tests: `tests/unit/sheetsDedupe.test.ts` (12), over `tests/fixtures/sheets/openpyxl-dupes.xlsx` (made

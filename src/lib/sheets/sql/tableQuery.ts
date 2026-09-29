@@ -23,6 +23,8 @@ import {
   type TableSource,
 } from "./compile";
 import { parseDateText, serialParts } from "../formula/values";
+import { checkLocalReadOnlySql } from "@/lib/sqlSafety";
+import { extractTableRefs } from "@/lib/sqlRefs";
 
 export const ROW_ID = "__row";
 
@@ -58,12 +60,52 @@ export type PivotAgg = "sum" | "avg" | "count" | "count_distinct" | "min" | "max
 export type PivotValue = { column: string; agg: PivotAgg };
 
 /**
- * Where a table sheet's rows come from: a lakehouse table, or a pivot (a
- * GROUP BY) of another table sheet of the workbook.
+ * Where a table sheet's rows come from: a lakehouse table, a query over the
+ * lakehouse (a single read-only SELECT, run by whoever reads the sheet, with
+ * their own grants), or a pivot (a GROUP BY) of another table sheet of the
+ * workbook.
  */
 export type TableSourceRef =
   | { kind: "lakehouse"; schema: string; table: string }
+  | { kind: "query"; sql: string }
   | { kind: "pivot"; from: string; rows: string[]; values: PivotValue[] };
+
+/** The longest query a sheet keeps. */
+export const MAX_QUERY_SQL = 20_000;
+
+/**
+ * A query sheet's SQL, checked: one SELECT or WITH statement, nothing that
+ * writes, trailing semicolons trimmed. The lakehouse then applies the
+ * reader's grants and policies, and refuses file and database functions
+ * (read_csv, postgres_scan…), as it does for the Query editor.
+ */
+export function checkSheetQuery(
+  sql: string,
+): { ok: true; sql: string } | { ok: false; error: string } {
+  if (sql.length > MAX_QUERY_SQL) {
+    return { ok: false, error: `A query is at most ${MAX_QUERY_SQL.toLocaleString()} characters` };
+  }
+  const v = checkLocalReadOnlySql(sql);
+  if (!v.ok) return { ok: false, error: v.reason };
+  // It runs inside ( … ) under the sheet's own SELECT: a stray ")" would
+  // close that early and splice the rest in beside it.
+  if (!parensBalanced(v.sql)) return { ok: false, error: "The query's parentheses don't match" };
+  return { ok: true, sql: v.sql };
+}
+
+function parensBalanced(sql: string): boolean {
+  const s = sql
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/--[^\n]*/g, " ")
+    .replace(/'(?:[^']|'')*'/g, "''")
+    .replace(/"(?:[^"]|"")*"/g, '""');
+  let depth = 0;
+  for (const ch of s) {
+    if (ch === "(") depth++;
+    else if (ch === ")" && --depth < 0) return false;
+  }
+  return depth === 0;
+}
 
 /** A pivot value column's name: sum_amount, count_distinct_customer. */
 export function pivotValueName(v: PivotValue): string {
@@ -74,7 +116,9 @@ export function pivotValueName(v: PivotValue): string {
 export function sourceLabel(source: TableSourceRef): string {
   return source.kind === "lakehouse"
     ? `${source.schema}.${source.table}`
-    : `Pivot of ${source.from}`;
+    : source.kind === "query"
+      ? "Lakehouse query"
+      : `Pivot of ${source.from}`;
 }
 
 /** Where the data came from before it was in the lakehouse, for the sheet's label. */
@@ -243,7 +287,15 @@ export function buildTableRelation(
       `${base} AS (SELECT *, row_number() OVER (${order}) AS ${ROW_ID} FROM (${inner})${keep})`,
     );
   } else {
-    const src = `${qid(cfg.source.schema)}.${qid(cfg.source.table)}`;
+    let src: string;
+    if (cfg.source.kind === "query") {
+      // Checked again where it runs, whatever stored it.
+      const q = checkSheetQuery(cfg.source.sql);
+      if (!q.ok) throw new TableQueryError(`The sheet's query can't run: ${q.error}`);
+      src = `(${q.sql}\n) AS ${qid(`${base}_query`)}`;
+    } else {
+      src = `${qid(cfg.source.schema)}.${qid(cfg.source.table)}`;
+    }
     // A shared viewer's rows (sheets/access.server), kept at the source. A
     // pivot or lookup reads this sheet through `others`, which carries the
     // same restriction, so no read built on it can reach the other rows.
@@ -553,6 +605,10 @@ export function lakehouseInputs(
   const out = new Set<string>();
   const visit = (c: TableConfig) => {
     if (c.source.kind === "lakehouse") out.add(`${c.source.schema}.${c.source.table}`);
+    // A query's tables, as written (schema.table); a CTE's name is not one.
+    if (c.source.kind === "query") {
+      for (const ref of extractTableRefs(c.source.sql)) if (ref.includes(".")) out.add(ref);
+    }
     const names = new Set<string>();
     if (c.source.kind === "pivot") names.add(c.source.from.toLowerCase());
     for (const calc of c.calculated) {

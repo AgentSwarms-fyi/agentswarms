@@ -1,13 +1,14 @@
-// Add a table sheet: a lakehouse table, a table from the data catalog, a
-// table or query from a connected database, or an uploaded CSV. Everything
-// that is not already in the lakehouse lands there first, as a new table in a
-// schema the person owns; the sheet then reads that table.
+// Add a table sheet: a lakehouse table, a query over the lakehouse, a table
+// from the data catalog, a table or query from a connected database, or an
+// uploaded CSV. Everything that is not already in the lakehouse lands there
+// first, as a new table in a schema the person owns; the sheet then reads
+// that table. A lakehouse query is not copied: it runs as the sheet is read.
 
 import { useEffect, useMemo, useState } from "react";
 import { useTokenRef } from "@/hooks/use-token-ref";
 import { Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { BookOpen, Database, FileUp, Loader2, Plug } from "lucide-react";
+import { BookOpen, Code2, Database, FileUp, Loader2, Plug } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -31,6 +32,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { suggestTableName, tableNameProblem } from "@/lib/sheets/names";
 import {
+  sheetsAddQueryTab,
   sheetsAddTableTab,
   sheetsCatalogAssets,
   sheetsConnectionTables,
@@ -43,11 +45,13 @@ import {
 } from "@/utils/sheetsTables.functions";
 import { listWarehouseConnections } from "@/utils/warehouse.functions";
 import type { SheetTabRow } from "@/utils/sheets.functions";
+import { QueryEditor } from "./QueryEditor";
 
-type Mode = "lakehouse" | "catalog" | "connection" | "upload";
+type Mode = "lakehouse" | "query" | "catalog" | "connection" | "upload";
 
 const MODES: { id: Mode; label: string; icon: typeof Database }[] = [
   { id: "lakehouse", label: "Lakehouse", icon: Database },
+  { id: "query", label: "Lakehouse query", icon: Code2 },
   { id: "catalog", label: "Data catalog", icon: BookOpen },
   { id: "connection", label: "Connection", icon: Plug },
   { id: "upload", label: "Upload CSV", icon: FileUp },
@@ -90,6 +94,7 @@ export function OpenTableDialog({
 }) {
   const sourcesFn = useServerFn(sheetsTableSources);
   const addFn = useServerFn(sheetsAddTableTab);
+  const addQueryFn = useServerFn(sheetsAddQueryTab);
   const catalogFn = useServerFn(sheetsCatalogAssets);
   const openAssetFn = useServerFn(sheetsOpenCatalogAsset);
   const connsFn = useServerFn(listWarehouseConnections);
@@ -112,6 +117,8 @@ export function OpenTableDialog({
   const [connTables, setConnTables] = useState<{ schema: string; name: string }[] | null>(null);
   const [connTable, setConnTable] = useState<{ schema: string; name: string } | null>(null);
   const [query, setQuery] = useState("");
+  // A query over the lakehouse (R154); the connection's query above is its own.
+  const [lakeQuery, setLakeQuery] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [name, setName] = useState("");
   const [targetSchema, setTargetSchema] = useState("");
@@ -244,11 +251,13 @@ export function OpenTableDialog({
   const chosen =
     mode === "lakehouse"
       ? Boolean(picked)
-      : mode === "catalog"
-        ? Boolean(asset && asset.via !== "unsupported")
-        : mode === "connection"
-          ? Boolean(connId && (connTable || query.trim()))
-          : Boolean(file);
+      : mode === "query"
+        ? Boolean(lakeQuery.trim())
+        : mode === "catalog"
+          ? Boolean(asset && asset.via !== "unsupported")
+          : mode === "connection"
+            ? Boolean(connId && (connTable || query.trim()))
+            : Boolean(file);
 
   const go = async () => {
     if (!chosen || nameProblem || targetProblem) return;
@@ -264,6 +273,15 @@ export function OpenTableDialog({
             name: name.trim(),
             schema: picked!.schema,
             table: picked!.table,
+          },
+        });
+      } else if (mode === "query") {
+        r = await addQueryFn({
+          data: {
+            access_token: token,
+            workbook_id: workbookId,
+            name: name.trim(),
+            sql: lakeQuery.trim(),
           },
         });
       } else if (mode === "catalog") {
@@ -355,6 +373,7 @@ export function OpenTableDialog({
                   setSearch("");
                   setError(null);
                   setLoadError(null);
+                  if (m.id === "query" && !name) choose("query");
                 }}
               >
                 <m.icon className="h-3.5 w-3.5" /> {m.label}
@@ -364,7 +383,7 @@ export function OpenTableDialog({
         </div>
 
         <div className="grid gap-3">
-          {mode !== "upload" && (mode !== "connection" || connId) && (
+          {mode !== "upload" && mode !== "query" && (mode !== "connection" || connId) && (
             <Input
               placeholder={mode === "catalog" ? "Search the catalog" : "Search tables"}
               value={search}
@@ -414,6 +433,23 @@ export function OpenTableDialog({
                 );
               })}
             </div>
+          )}
+
+          {mode === "query" && (
+            <>
+              <p className="text-xs text-muted-foreground">
+                The sheet&apos;s rows are what this query returns, run whenever the sheet is read,
+                by whoever reads it, with their own lakehouse access. Nothing is copied; Refresh
+                runs it again.
+              </p>
+              <QueryEditor
+                token={token}
+                workbookId={workbookId}
+                sql={lakeQuery}
+                onSql={setLakeQuery}
+                tables={tables ?? undefined}
+              />
+            </>
           )}
 
           {mode === "catalog" && (
@@ -630,7 +666,7 @@ export function OpenTableDialog({
             disabled={!chosen || Boolean(nameProblem) || Boolean(targetProblem) || busy}
           >
             {busy && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
-            {importing ? "Import and open" : "Open table"}
+            {importing ? "Import and open" : mode === "query" ? "Add query sheet" : "Open table"}
           </Button>
         </DialogFooter>
       </DialogContent>

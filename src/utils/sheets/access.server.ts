@@ -271,12 +271,38 @@ export const sheetShown = (a: WorkbookAccess, name: string): boolean => !a.hidde
 export const rowFiltersFor = (a: WorkbookAccess, name: string): RowFilter[] =>
   a.filters.get(lower(name)) ?? [];
 
-/** A table sheet's settings as this caller reads them: the share's rows forced in. */
-export function restrictedConfig(a: WorkbookAccess, name: string, cfg: TableConfig): TableConfig {
+/**
+ * A table sheet's settings as this caller reads them: the share's rows forced
+ * in, and, given the sheet as stored, where its rows come from when that is a
+ * query (savedSource).
+ */
+export function restrictedConfig(
+  a: WorkbookAccess,
+  name: string,
+  cfg: TableConfig,
+  stored?: unknown,
+): TableConfig {
+  const base = stored === undefined ? cfg : savedSource(stored, cfg);
   const fs = rowFiltersFor(a, name);
-  if (!fs.length) return cfg;
+  if (!fs.length) return base;
   const restrict: TableFilter[] = fs.map((f) => ({ column: f.column, op: "in", values: f.values }));
-  return { ...cfg, restrict };
+  return { ...base, restrict };
+}
+
+/**
+ * A read takes a sheet's settings from the editor, so a new sort shows before
+ * it is saved. Where a query sheet's rows come from is its SQL, and that is
+ * never taken from a read (R154): the SQL saved with the sheet runs, and a
+ * sheet saved over a table is not turned into a query by one. A viewer's copy
+ * carries no SQL at all (viewerConfig).
+ */
+export function savedSource(stored: unknown, cfg: TableConfig): TableConfig {
+  const saved = tableConfigSchema.safeParse(stored);
+  const source = saved.success ? (saved.data.source as TableConfig["source"]) : undefined;
+  if (source?.kind === "query") return { ...cfg, source };
+  if (cfg.source.kind !== "query") return cfg;
+  // A query the sheet doesn't have: run nothing (an empty query is refused).
+  return { ...cfg, source: source ?? { kind: "query", sql: "" } };
 }
 
 /**
@@ -284,6 +310,9 @@ export function restrictedConfig(a: WorkbookAccess, name: string, cfg: TableConf
  * from, without the owner's import query or connection.
  */
 export function viewerConfig(cfg: TableConfig): TableConfig {
+  // A query sheet's SQL stays with the owner and editors, as an import's
+  // query does; a viewer's reads run the saved one (savedSource).
+  if (cfg.source.kind === "query") cfg = { ...cfg, source: { kind: "query", sql: "" } };
   const o = cfg.origin;
   if (!o || o.kind === "lakehouse" || o.kind === "upload") return cfg;
   if (o.kind === "warehouse") {

@@ -664,7 +664,7 @@ describe("every Sheets server function asks the resolver", () => {
   it("reads of a table sheet force the viewer's restriction and use the hidden-aware lookups", () => {
     for (const name of ["sheetsTablePage", "sheetsTableValues", "sheetsTableExport"]) {
       const b = bodies.get(name)!;
-      expect(b, name).toMatch(/restrictedConfig\(access, tab\.name,/);
+      expect(b, name).toMatch(/restrictedConfig\(\s*access,\s*tab\.name,/);
       expect(b, name).toMatch(/othersFor\(access, tab\.id\)/);
     }
     expect(bodies.get("sheetsTableCalls")).toMatch(/othersFor\(got\.access, ""\)/);

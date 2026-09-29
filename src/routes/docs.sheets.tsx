@@ -208,6 +208,13 @@ function SheetsDocsPage() {
       </P>
       <UL>
         <li>
+          <strong>Query sheets.</strong> A table sheet&apos;s rows can be a SELECT over the
+          lakehouse (<strong>Lakehouse query</strong>), as a connected table is in Row Zero. Nothing
+          is copied: the query runs whenever the sheet is read, as whoever reads it, with their own
+          grants and policies. <strong>Refresh</strong> runs it again; <strong>Edit query</strong>{" "}
+          changes it and keeps the sheet&apos;s calculated columns, sort and filters.
+        </li>
+        <li>
           <strong>Sort and filter.</strong> The engine sorts and filters every row. A column&apos;s
           value list shows counts across the whole table.
         </li>
