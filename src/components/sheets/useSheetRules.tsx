@@ -9,6 +9,7 @@ import {
   ArrowDownAZ,
   ArrowUpAZ,
   ArrowUpDown,
+  Columns3,
   ChevronDown,
   CopyMinus,
   Filter,
@@ -19,7 +20,17 @@ import {
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { colLetters, parseRangeA1, rangeA1, type RangeAddr } from "@/lib/sheets/a1";
+import {
+  a1,
+  colLetters,
+  MAX_COLS,
+  parseA1,
+  parseRangeA1,
+  rangeA1,
+  type RangeAddr,
+} from "@/lib/sheets/a1";
+import { confirmAsk } from "@/components/ui/confirm-dialog";
+import { splitColumn, splitEdits, type SplitOptions } from "@/lib/sheets/textToColumns";
 import { cellView } from "@/lib/sheets/cellView";
 import { CondFormatter, type CfRule, type CondFormat } from "@/lib/sheets/condFormat";
 import { duplicateRows, removeRowsEdits } from "@/lib/sheets/dedupe";
@@ -50,6 +61,7 @@ import {
 } from "./CondFormatMenu";
 import { DedupeDialog } from "./DedupeDialog";
 import { SortDialog, type SortLevel } from "./SortDialog";
+import { TextToColumnsDialog } from "./TextToColumnsDialog";
 import { GridFilterMenu } from "./GridFilterMenu";
 import type { GridGeometry } from "./SheetGrid";
 import type { useWorkbook } from "./useWorkbook";
@@ -126,6 +138,8 @@ export function useSheetRules({
   // Data > Remove duplicates: the block it works on, and whether its first
   // row looks like a header (R153).
   const [deduping, setDeduping] = useState<{ block: RangeAddr; header: boolean } | null>(null);
+  // Data > Text to columns…: the column's cells and their text (R157).
+  const [splitting, setSplitting] = useState<{ range: RangeAddr; texts: string[] } | null>(null);
   // Data > Sort…: the block, its header, the column the first level starts on (R156).
   const [sorting, setSorting] = useState<{
     block: RangeAddr;
@@ -293,9 +307,9 @@ export function useSheetRules({
    * merge where it was, so it then joined two other records' cells and hid
    * the second one's value. Excel refuses; so does every sort here.
    */
-  const mergedIn = (block: RangeAddr) => {
+  const mergedIn = (block: RangeAddr, doing = "sort it") => {
     if (!parseMerges(grid?.merges).some((m) => intersects(m, block))) return false;
-    toast.error(`${rangeA1(block)} has merged cells. Unmerge them to sort it.`);
+    toast.error(`${rangeA1(block)} has merged cells. Unmerge them to ${doing}.`);
     onDone();
     return true;
   };
@@ -411,6 +425,82 @@ export function useSheetRules({
       `Sorted ${rangeA1(s.block)} by ${keys
         .map((k) => `${name(k.col)}${k.desc ? " (Z to A)" : ""}`)
         .join(", then ")}`,
+    );
+    onDone();
+  };
+
+  /** Data > Text to columns…, as Excel's (R157): one column's cells, split to the right. */
+  const openSplit = () => {
+    if (!engine || !tabId) return;
+    if (range.c0 !== range.c1) {
+      toast.error("Select cells in one column to split them.");
+      onDone();
+      return;
+    }
+    // A whole column selected is split down to its last cell in use.
+    const r1 = Math.min(range.r1, Math.max(engine.used(tabId).rows - 1, range.r0));
+    const texts: string[] = [];
+    for (let r = range.r0; r <= r1; r++) {
+      const input = engine.getInput(tabId, r, range.c0);
+      // What was typed, or what a formula shows.
+      const t =
+        input && !input.i.startsWith("=")
+          ? input.i.startsWith("'")
+            ? input.i.slice(1)
+            : input.i
+          : shownText(r, range.c0);
+      texts.push(t);
+    }
+    setSplitting({ range: { ...range, r1 }, texts });
+  };
+  const doSplit = async (opts: SplitOptions, destText: string) => {
+    const s = splitting;
+    setSplitting(null);
+    if (!s || !engine || !tabId) return;
+    const dest = parseA1(destText.replace(/\$/g, ""));
+    if (!dest) {
+      toast.error(`${destText} is not a cell. Type a destination such as B2.`);
+      onDone();
+      return;
+    }
+    const { rows, width } = splitColumn(s.texts, opts);
+    if (dest.col + width > MAX_COLS) {
+      toast.error("The pieces would run past the sheet's last column.");
+      onDone();
+      return;
+    }
+    const target: RangeAddr = {
+      r0: dest.row,
+      c0: dest.col,
+      r1: dest.row + rows.length - 1,
+      c1: dest.col + width - 1,
+    };
+    if (mergedIn(target, "split text into it")) return;
+    // Excel asks before writing over what is there (the cells being split aside).
+    let taken = false;
+    for (let r = target.r0; r <= target.r1 && !taken; r++) {
+      for (let c = target.c0; c <= target.c1; c++) {
+        const isSource = c === s.range.c0 && r >= s.range.r0 && r <= s.range.r1;
+        if (!isSource && engine.getInput(tabId, r, c)?.i) {
+          taken = true;
+          break;
+        }
+      }
+    }
+    if (
+      taken &&
+      !(await confirmAsk({
+        title: "Replace what is there?",
+        body: `${rangeA1(target)} already holds data. Splitting writes over it; Ctrl+Z takes it back.`,
+        actionLabel: "Replace",
+      }))
+    ) {
+      onDone();
+      return;
+    }
+    wb.applyEdits(tabId, splitEdits(rows, width, dest));
+    toast.success(
+      `Split ${rangeA1(s.range)} into ${width} column${width === 1 ? "" : "s"} from ${a1(dest.row, dest.col)}`,
     );
     onDone();
   };
@@ -542,6 +632,7 @@ export function useSheetRules({
         {filter &&
           tool("Reapply", <RotateCw className="h-4 w-4" />, reapply, "tool-filter-reapply")}
         {tool("Remove duplicates…", <CopyMinus className="h-4 w-4" />, openDedupe, "tool-dedupe")}
+        {tool("Text to columns…", <Columns3 className="h-4 w-4" />, openSplit, "tool-split")}
         {tool(
           "Data validation…",
           <ListChecks className="h-4 w-4" />,
@@ -713,6 +804,18 @@ export function useSheetRules({
             toast.success("Rules saved");
             onDone();
           }}
+        />
+      )}
+      {splitting && (
+        <TextToColumnsDialog
+          range={rangeA1(splitting.range)}
+          texts={splitting.texts}
+          initialDest={a1(splitting.range.r0, splitting.range.c0)}
+          onCancel={() => {
+            setSplitting(null);
+            onDone();
+          }}
+          onSplit={(opts, dest) => void doSplit(opts, dest)}
         />
       )}
       {sorting && (

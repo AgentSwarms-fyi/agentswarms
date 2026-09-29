@@ -128,7 +128,9 @@ describe("Data → Sort… and merged cells", () => {
     expect(rules).toMatch(
       /const sortByKeys = [\s\S]{0,160}if \(!engine \|\| !tabId\) return false;\s*if \(mergedIn\(block\)\) return false;/,
     );
-    expect(rules).toMatch(/Unmerge them to sort it\./);
+    expect(rules).toMatch(
+      /const mergedIn = \(block: RangeAddr, doing = "sort it"\) => \{[\s\S]{0,160}Unmerge them to \$\{doing\}\./,
+    );
     expect(rules).toMatch(/if \(mergedIn\(block\)\) return;\s*setSorting\(/);
     // Sort A to Z says it sorted only when it did; the filter's arrows likewise.
     expect(rules).toMatch(

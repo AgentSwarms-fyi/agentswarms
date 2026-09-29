@@ -178,7 +178,9 @@ function SheetsDocsPage() {
           <strong>Filter and sort.</strong> Data → Filter (Ctrl+Shift+L) adds header buttons that
           sort, keep ticked values or keep rows meeting a condition; Sort A to Z sorts the data
           around the active cell, formulas moving with their rows. Data → Sort… sorts by several
-          columns in turn, each A to Z or Z to A. A range with merged cells is not sorted.
+          columns in turn, each A to Z or Z to A. A range with merged cells is not sorted. Data →
+          Text to columns… splits one column&apos;s text at commas, spaces or any character into the
+          cells to its right, asking before it writes over anything.
         </li>
         <li>
           <strong>Charts.</strong> Insert → Chart draws column, bar, line, area, pie, doughnut,

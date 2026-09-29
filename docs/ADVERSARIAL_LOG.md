@@ -109,6 +109,33 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-29 — Text to columns
+
+Tests: `tests/unit/sheetsTextToColumns.test.ts` (10). The mutation run caught 11 of 11, and the
+control survived.
+
+#### R157 · S3 · No Text to Columns
+
+**Found.** The Data tab (Sort A to Z, Sort Z to A, Sort…, Filter, Remove duplicates…, Data
+validation…, Names, Save to lakehouse) had no way to split a column of "Asha Rao" or
+"Lisbon,PT,2026". A formula per piece (TEXTBEFORE, TEXTAFTER, TEXTSPLIT) left the text in place and
+needed a column of formulas per piece. Text to Columns is one of Excel's most used Data tools, and
+the queue listed it after R153.
+
+**The fix.** **Data → Text to columns…**, over one column's cells.
+- **Split at.** Tab, semicolon, comma, space and any other one character. Treat several in a row
+  as one.
+- **Quotes.** Text in double quotes (or single, or none) stays whole; a doubled quote is one quote.
+- **Destination.** The first cell, unless another is typed. A preview shows the first five rows.
+- **What the pieces become.** As a CSV's fields (csvCell): numbers and dates become them with the
+  format they imply, and formula-looking text stays text.
+- **Writing.** The pieces fill the widest row's width; a shorter row's other cells are emptied.
+  Writing over any data other than the column itself asks first ("Replace what is there?"). A
+  merged cell there is refused, and the message now names the action ("…to split text into it").
+  One undo step.
+- **What is split.** A whole column is split down to its last cell in use. Two or more columns are
+  refused.
+
 ### 2026-09-29 — Sort by several columns, and no sort under a merged cell
 
 Tests: `tests/unit/sheetsCustomSort.test.ts` (9). The mutation run caught 10 of 10, and the control

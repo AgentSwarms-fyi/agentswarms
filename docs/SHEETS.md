@@ -360,6 +360,25 @@ formula's references move with its row, as in a sort. Nothing outside the list m
 merged cells is refused, since they cannot move up. The message says how many rows went and how
 many remain. One Ctrl+Z puts them back.
 
+### Text to columns
+
+**Data → Text to columns…** splits each cell of one column into the cells to its right, as
+Excel's does: "Asha Rao" into Asha and Rao, "Lisbon,PT,2026" into three.
+- **Split at.** Tab, semicolon, comma, space, or any other one character. **Treat several in a
+  row as one** makes "Asha   Rao" two pieces, not four.
+- **Quotes.** Text in double quotes (or single, or none) stays whole: `"Lisbon, PT",2026` is two
+  pieces. A doubled quote inside is one quote.
+- **Destination.** The first cell of the column unless you type another. A preview shows the first
+  rows split.
+- **What the pieces become.** As a CSV's fields: 1,200 a number and 2026-03-08 a date, with the
+  format they imply. Text that would read as a formula (`=…`, `@…`) stays text, so splitting never
+  runs anything.
+
+The pieces fill as many columns as the widest cell needs; a shorter row's other cells are emptied.
+If the cells the pieces go to hold anything (other than the column being split), it asks before
+writing over them. A merged cell there is refused. One Ctrl+Z takes it all back. A whole column
+selected is split down to its last cell in use; cells in two or more columns are refused.
+
 ### Charts
 
 **Insert → Chart** charts the selection, or the block of data around the active cell. The range is

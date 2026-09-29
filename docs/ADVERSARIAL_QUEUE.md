@@ -418,7 +418,8 @@ Ctrl+Z after a ribbon tool went nowhere). Open from that round:
   is used as it is.
 - **Table sheets have no Remove duplicates.** Their rows live in the lakehouse; a query or the
   table's own filters are the way there.
-- **Text to Columns and Flash Fill,** Excel's other Data tools, are not there.
+- ~~Text to Columns~~ Closed by R157. **Flash Fill** (pieces guessed from an example) and Text
+  to Columns' **fixed width** are not there.
 - ~~Custom Sort~~ Closed by R156 (Data → Sort…), which also found and closed a sort leaving a
   merged cell behind.
 - **Sorting by colour or a custom list** (Excel's other Sort options) is not there, nor sorting

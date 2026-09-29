@@ -15,6 +15,24 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-29 — Text to columns, ADVERSARIAL_LOG R157
+
+**Why this round exists.** The queue's Text to Columns, the last common Data tool missing.
+
+Fixtures: **"R153 contacts"** (`0ceb0280…`). Every change was undone.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before | The Data tab (the R156 round) | Sort A to Z, Sort Z to A, Sort…, Filter, Remove duplicates…, Data validation…, Names, Save to lakehouse |
+| After: the tab | The Data tab | … Remove duplicates…, **Text to columns…**, Data validation… |
+| Two columns | A2:B8, Text to columns… | "Select cells in one column to split them."; no dialog |
+| The dialog | A2:A8, Text to columns… | "Split each cell of A2:A8…"; Tab ticked; destination A2; preview "Asha Rao…"; "1 column in the first 5 rows." |
+| Space | Tick Space | Preview "Asha / Rao", "Ben / Ode"…; "2 columns in the first 5 rows." |
+| Over data | Split (destination A2) | "Replace what is there? A2:B8 already holds data…"; Cancel: nothing changed, the focus on A2 |
+| Elsewhere | Destination H2, Split | No question; H2:I8 Asha/Rao … Dev/Iyer; "Split A2:A8 into 2 columns from H2"; G unmoved; Ctrl+Z empties H:I |
+| Over data, replaced | Destination A2, Split, Replace | A2 Asha, B2 Rao …; C (City) untouched; "Split A2:A8 into 2 columns from A2" |
+| Undo | Ctrl+Z | The names and emails back as they were, Cleo's note in place |
+
 ## 2026-09-29 — Sort by several columns, ADVERSARIAL_LOG R156
 
 **Why this round exists.** The queue's Custom Sort, and what a sort does to a merged cell.
