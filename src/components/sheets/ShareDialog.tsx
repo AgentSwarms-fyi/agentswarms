@@ -547,6 +547,7 @@ function SheetChoice({
         tab_id: tab.id,
         config: { ...config, filters: [] },
         column: filter.column,
+        params: wb.queryParams,
       },
     })
       .then((r) => {

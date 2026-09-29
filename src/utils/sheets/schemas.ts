@@ -30,6 +30,16 @@ export const filterSchema = z
   })
   .strict();
 
+/**
+ * The workbook names' values a read sends for a query sheet's {{variables}}
+ * (R155): each bound as a literal, never read as SQL. A name over several
+ * cells is a list.
+ */
+const paramScalar = z.union([z.string().max(32_767), z.number(), z.boolean(), z.null()]);
+export const queryParamsSchema = z
+  .record(z.string().max(255), z.union([paramScalar, z.array(paramScalar).max(1000)]))
+  .refine((p) => Object.keys(p).length <= 1000, "Too many names");
+
 export const originSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("lakehouse") }).strict(),
   z

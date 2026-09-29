@@ -46,6 +46,7 @@ import {
 import { listWarehouseConnections } from "@/utils/warehouse.functions";
 import type { SheetTabRow } from "@/utils/sheets.functions";
 import { QueryEditor } from "./QueryEditor";
+import type { QueryParams } from "@/lib/sheets/sql/queryParams";
 
 type Mode = "lakehouse" | "query" | "catalog" | "connection" | "upload";
 
@@ -78,6 +79,7 @@ export function OpenTableDialog({
   takenNames,
   onOpened,
   canImport = true,
+  params,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -91,6 +93,8 @@ export function OpenTableDialog({
    * that are already there.
    */
   canImport?: boolean;
+  /** The workbook names' values, for a query's {{variables}} (R155). */
+  params?: QueryParams;
 }) {
   const sourcesFn = useServerFn(sheetsTableSources);
   const addFn = useServerFn(sheetsAddTableTab);
@@ -448,6 +452,7 @@ export function OpenTableDialog({
                 sql={lakeQuery}
                 onSql={setLakeQuery}
                 tables={tables ?? undefined}
+                params={params}
               />
             </>
           )}

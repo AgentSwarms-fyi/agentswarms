@@ -6,6 +6,7 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { Json } from "@/integrations/supabase/types";
 import { tableNameProblem } from "@/lib/sheets/names";
 import { qid } from "@/lib/sheets/sql/compile";
+import { bindQuery, type QueryParams } from "@/lib/sheets/sql/queryParams";
 import {
   checkSheetQuery,
   ROW_ID,
@@ -59,8 +60,14 @@ export async function describeSource(
 export async function describeQuery(
   userId: string,
   sql: string,
+  params?: QueryParams,
 ): Promise<{ name: string; type: string }[]> {
-  const q = checkSheetQuery(sql);
+  const t = checkSheetQuery(sql);
+  if (!t.ok) throw new Error(t.error);
+  // A variable without a value yet is NULL here: only the columns are asked.
+  const bound = bindQuery(t.sql, params, { blank: true });
+  if (!bound.ok) throw new Error(bound.error);
+  const q = checkSheetQuery(bound.sql);
   if (!q.ok) throw new Error(q.error);
   const { runLakehouseStatement } = await import("@/utils/lakehouse/core.server");
   const r = await runLakehouseStatement(userId, `SELECT * FROM (${q.sql}\n) AS __query LIMIT 0`, {

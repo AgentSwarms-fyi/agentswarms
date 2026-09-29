@@ -150,7 +150,9 @@ function WorkbookPage() {
   };
 
   const tableRows = (args: { tab_id: string; config: TableConfig }) =>
-    exportFn({ data: { access_token: token!, ...args, as_share: asShare ?? null } });
+    exportFn({
+      data: { access_token: token!, ...args, as_share: asShare ?? null, params: wb.queryParams },
+    });
 
   const download = async (kind: "xlsx" | "csv") => {
     if (!wb.engine || !token) return;

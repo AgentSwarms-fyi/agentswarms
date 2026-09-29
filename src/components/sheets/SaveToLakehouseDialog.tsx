@@ -35,6 +35,7 @@ import { exportRows, rangeToTable, type ExportColumn, type ExportType } from "@/
 import type { Scalar } from "@/lib/sheets/formula/values";
 import { describeRange } from "@/lib/sheets/ops";
 import type { TableConfig } from "@/lib/sheets/sql/tableQuery";
+import type { QueryParams } from "@/lib/sheets/sql/queryParams";
 import {
   sheetsRegisterTable,
   sheetsSaveGridAs,
@@ -50,7 +51,14 @@ const COLUMN_NAME = /^[a-z_][a-z0-9_]{0,62}$/;
 const TYPES: ExportType[] = ["VARCHAR", "DOUBLE", "BIGINT", "BOOLEAN", "DATE", "TIMESTAMP"];
 
 export type SaveSource =
-  | { kind: "table"; tabId: string; tabName: string; config: TableConfig }
+  | {
+      kind: "table";
+      tabId: string;
+      tabName: string;
+      config: TableConfig;
+      /** The workbook names' values, for a query's {{variables}} (R155). */
+      params?: QueryParams;
+    }
   | {
       kind: "grid";
       tabId: string;
@@ -169,6 +177,7 @@ export function SaveToLakehouseDialog({
                 access_token: token,
                 tab_id: source.tabId,
                 config: source.config,
+                params: source.params,
                 target_schema: schema,
                 target_table: table,
                 ...meta,

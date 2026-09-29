@@ -77,7 +77,13 @@ export function EditQueryDialog({
             calculated columns, sort and filters stay.
           </DialogDescription>
         </DialogHeader>
-        <QueryEditor token={token} workbookId={wb.workbookId} sql={sql} onSql={setSql} />
+        <QueryEditor
+          token={token}
+          workbookId={wb.workbookId}
+          sql={sql}
+          onSql={setSql}
+          params={wb.queryParams}
+        />
         {error && (
           <p className="text-sm text-destructive" role="alert">
             {error}

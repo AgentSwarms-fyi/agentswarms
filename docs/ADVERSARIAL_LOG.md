@@ -109,6 +109,35 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-29 — Query variables: a cell steers a query sheet
+
+Tests: `tests/unit/sheetsQueryVariables.test.ts` (17), 5 of them on DuckDB. The mutation run caught
+14 of 14, and the control survived.
+
+#### R155 · S3 · A query sheet ran the same SQL whatever the workbook held
+
+**Found.** Row Zero's connected tables take variables (`WHERE FL_DATE >= '{{date}}'`) that a
+person changes without touching the query. A query sheet (R154) could not: its Edit query preview
+with `WHERE region = {{Region}}` said `SQL parse error: syntax error at or near "{"`. To see
+another region, someone who could edit the sheet had to rewrite its SQL. A viewer could not do it
+at all.
+
+**The fix.** `{{Name}}` is the value of the workbook name Name.
+- **Binding.** The value is bound on the server as a literal: text quoted, with its quotes
+  doubled; numbers; TRUE and FALSE; NULL. A name over several cells is a list for IN, and a date
+  cell goes as its date. Row Zero's `'{{name}}'` reads the same. The template is checked, bound,
+  and checked again.
+- **Where the values come from.** The workbook sends the values of its names with every read:
+  a page, a filter's values, a download, Save to lakehouse, and grid formulas over table sheets.
+  Lookups and pivots into a query sheet bind them too.
+- **A change.** When a name's value changes, the query sheets that use variables read again. So do
+  the grid formulas over them. A viewer's copy has no SQL to tell which query uses which name, so
+  every query sheet reads again.
+- **A missing name.** A variable whose name is not defined stops the read with a reason naming what to define.
+  The query editor lists each variable with its current value, and "no such name".
+- **Learning the columns.** A query's columns are read with its variables NULL, so a sheet can be
+  made before a value is set.
+
 ### 2026-09-29 — Query sheets: a SELECT over the lakehouse as a sheet
 
 Tests: `tests/unit/sheetsQuerySheets.test.ts` (20), 7 of them on DuckDB. The mutation run caught

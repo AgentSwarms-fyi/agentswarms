@@ -438,6 +438,35 @@ Row Zero. Nothing is copied: the query runs whenever the sheet is read.
 Each column the query returns needs a name of its own (`SELECT a.id, b.id` needs an `AS`), and
 none may be called `__row`. A query is at most 20,000 characters.
 
+#### Variables
+
+`{{Name}}` in a query is the value of the workbook name `Name` (**Data → Names**, or type a name in
+the Name box with a cell selected). A cell can steer the query:
+
+```sql
+SELECT month, revenue
+FROM analytics.bi_demo_sales
+WHERE region = {{Region}}
+ORDER BY month
+```
+
+Type APAC in the cell `Region` names, and the sheet shows APAC's months. Every formula over the
+sheet follows, as does `=SUM(ByMonth[revenue])` in a grid sheet.
+
+- **Always a value, never SQL.** Text is quoted, with its own quotes doubled, so `x' OR '1'='1`
+  matches nothing rather than every row. A number is a number, TRUE and FALSE are booleans, and an
+  empty cell is NULL.
+- **A date cell** goes as its date (`'2026-03-08'`), so it compares with a DATE column the way it
+  reads.
+- **A name over several cells** is a list for `IN`: `WHERE region IN {{Regions}}`. Blanks are left
+  out, and at most 1,000 values are used.
+- **Row Zero's quoted form** reads the same: `'{{Start}}'` and `{{Start}}` are one value.
+- **A variable whose name is not defined** stops the sheet with a reason (`{{Region}} has no value: name a cell
+  Region…`) rather than showing no rows. The query editor lists each variable with its value now.
+
+The values travel with each read, and the SQL is still the saved one: a value is bound as a literal
+on the server, whatever a browser sends.
+
 The SQL a read runs is always the one saved with the sheet, never one sent with the read. A viewer's
 copy of the sheet does not carry the SQL. Making a query sheet and changing its query are audited
 (`sheets.query.create`, `sheets.query.update`) with the SQL, and each read is audited as a

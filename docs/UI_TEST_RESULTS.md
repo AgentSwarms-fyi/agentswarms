@@ -15,6 +15,27 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-29 — Query variables, ADVERSARIAL_LOG R155
+
+**Why this round exists.** Row Zero's connected tables take variables; a query sheet could not.
+
+Fixtures: **"R154 query sheets"** (`6b6a8810…`). Sheet1 D1 is named **Region** and holds EMEA. The
+query sheet **ByMonth** reads `WHERE region = {{Region}}`, and Sheet1 E1 is `=SUM(ByMonth[revenue])`.
+All three are left in place.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before | Revenue → Edit query, `… WHERE region = {{Region}}`, Ctrl+Enter (R154 build) | `SQL parse error: syntax error at or near "{"` |
+| A name | D1 `EMEA`, then `Region` typed in the Name box | "D1 is named Region" |
+| Preview | Lakehouse query, `SELECT month, revenue … WHERE region = {{Region}} ORDER BY month` | "Variables: Region = "EMEA""; "2 columns · 36 rows"; 2023-01 300 (EMEA) |
+| Added | Named ByMonth, Add query sheet | 36 rows, EMEA's |
+| A formula over it | Sheet1 E1 `=SUM(ByMonth[revenue])` | 15524.94 |
+| The value changes | D1 `APAC` | E1 10349.98; ByMonth 2023-01 200 (APAC's); B1 (over the query with no variables) still 41399.86 |
+| A value written to escape | D1 `APAC' OR '1'='1` | E1 0: the whole text is one value, and no region is called that |
+| Back | D1 `EMEA` | E1 15524.94 |
+| An undefined name | ByMonth → Edit query, `{{Nope}}`, Ctrl+Enter; then Esc | "Variables: Nope = no such name"; "{{Nope}} has no value: name a cell Nope (Data → Names) and put the value there"; not saved |
+| Reload | The page again | D1 EMEA, E1 15524.94, B1 41399.86, B2 15524.94 |
+
 ## 2026-09-29 — Query sheets, ADVERSARIAL_LOG R154
 
 **Why this round exists.** The user asked whether Sheets can query data sources and the

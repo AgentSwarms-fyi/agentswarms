@@ -19,7 +19,7 @@ import {
   type TableConfig,
 } from "@/lib/sheets/sql/tableQuery";
 import { getPlatformResources } from "@/utils/notebookRuntime/config.server";
-import { nameStr, tableConfigSchema, tokenOnly } from "@/utils/sheets/schemas";
+import { nameStr, queryParamsSchema, tableConfigSchema, tokenOnly } from "@/utils/sheets/schemas";
 import {
   engineMessage,
   importTarget,
@@ -230,6 +230,7 @@ export const sheetsSaveTableAs = createServerFn({ method: "POST" })
         config: tableConfigSchema,
         target_schema: nameStr,
         target_table: nameStr,
+        params: queryParamsSchema.optional(),
         ...catalogMeta,
       })
       .parse(input),
@@ -251,6 +252,7 @@ export const sheetsSaveTableAs = createServerFn({ method: "POST" })
       const rel = buildTableRelation(cfg, {
         name: tab.name,
         others: (n) => others.get(n.toLowerCase()),
+        params: data.params,
       });
       const broken = rel.columns.filter(
         (c) => c.error && !cfg.hidden.some((h) => h.toLowerCase() === c.name.toLowerCase()),

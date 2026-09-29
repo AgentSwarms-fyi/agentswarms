@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import type { FilterOp, TableColumn, TableConfig, TableFilter } from "@/lib/sheets/sql/tableQuery";
+import type { QueryParams } from "@/lib/sheets/sql/queryParams";
 import { sheetsTableValues } from "@/utils/sheetsTables.functions";
 
 const OP_LABEL: Record<FilterOp, string> = {
@@ -49,6 +50,7 @@ export function TableFilterPopover({
   asShare,
   tabId,
   config,
+  params,
   column,
   current,
   onApply,
@@ -58,6 +60,8 @@ export function TableFilterPopover({
   asShare?: string | null;
   tabId: string;
   config: TableConfig;
+  /** The workbook names' values, for a query's {{variables}} (R155). */
+  params?: QueryParams;
   column: TableColumn;
   current: TableFilter | null;
   onApply: (f: TableFilter | null) => void;
@@ -84,7 +88,14 @@ export function TableFilterPopover({
     setValues(null);
     setLoadError(null);
     valuesFn({
-      data: { access_token: token, tab_id: tabId, config, column: column.name, as_share: asShare },
+      data: {
+        access_token: token,
+        tab_id: tabId,
+        config,
+        column: column.name,
+        as_share: asShare,
+        params,
+      },
     })
       .then((r) => {
         if (cancelled) return;

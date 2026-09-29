@@ -2281,6 +2281,7 @@ export function WorkbookEditor({
             workbookId={workbookId}
             takenNames={tabs.map((t) => t.name)}
             canImport={wb.role === "owner"}
+            params={wb.queryParams}
             onOpened={(row) => {
               wb.addTabLocal(row);
               toast.success(`Opened ${row.name}`);

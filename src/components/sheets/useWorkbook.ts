@@ -19,6 +19,8 @@ import { toast } from "sonner";
 import { renameSheetInFormula, renameTableInFormula } from "@/lib/sheets/formula/shift";
 import { GridTableResolver } from "@/lib/sheets/gridTableResolver";
 import type { TableConfig } from "@/lib/sheets/sql/tableQuery";
+import { queryVariables, type QueryParams } from "@/lib/sheets/sql/queryParams";
+import { workbookParams } from "@/lib/sheets/workbookParams";
 import type { Role } from "@/lib/sheets/share";
 import { adjustNames, type DefinedName } from "@/lib/sheets/definedNames";
 import { mapGridFormulas } from "@/lib/sheets/ops";
@@ -188,8 +190,16 @@ export function useWorkbook(args: {
       fetch: async (calls) => {
         const token = tokenRef.current;
         if (!token) throw new Error("Not signed in");
+        // A query sheet's {{variables}} are the names as they are now (R155).
+        const engine = engineRef.current;
         const r = await callsFnRef.current({
-          data: { access_token: token, workbook_id: args.workbookId, calls, as_share: asShare },
+          data: {
+            access_token: token,
+            workbook_id: args.workbookId,
+            calls,
+            as_share: asShare,
+            params: engine ? workbookParams(engine) : undefined,
+          },
         });
         if (!r.ok) throw new Error(r.error);
         return r.answers;
@@ -700,6 +710,30 @@ export function useWorkbook(args: {
     bump();
   };
 
+  // ── Query variables (R155) ──
+  // Each workbook name's value, for a query sheet's {{variables}}: read again
+  // as the workbook changes, and sent with every read of a table sheet.
+  const queryParams = useMemo<QueryParams>(
+    () => (engineRef.current ? workbookParams(engineRef.current) : {}),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rev],
+  );
+  const queryParamsKey = useMemo(() => JSON.stringify(queryParams), [queryParams]);
+  const paramsKeyRef = useRef(queryParamsKey);
+  useEffect(() => {
+    if (paramsKeyRef.current === queryParamsKey) return;
+    paramsKeyRef.current = queryParamsKey;
+    // A name's value changed: a query that uses variables returns other rows,
+    // and the grid formulas over it ask again. (A viewer's copy has no SQL to
+    // tell which variables it uses, so every query sheet asks again.)
+    for (const t of tabsRef.current) {
+      const c = tableConfigsRef.current[t.id];
+      if (c?.source.kind !== "query") continue;
+      if (!c.source.sql || queryVariables(c.source.sql).length) tableDataChanged(t.id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queryParamsKey]);
+
   /** Ask every table formula again (F9): the lakehouse may hold new rows. */
   const recalculate = useCallback(() => {
     resolverRef.current?.invalidate();
@@ -894,6 +928,8 @@ export function useWorkbook(args: {
     reloadTab,
     tableConfigs,
     setTableConfig,
+    queryParams,
+    queryParamsKey,
     limits: args.limits,
     workbookId: args.workbookId,
     readOnly: !!args.readOnly,

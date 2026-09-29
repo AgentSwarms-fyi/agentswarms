@@ -8,6 +8,7 @@ import { Loader2, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { formatGeneral } from "@/lib/sheets/formula/values";
+import { queryVariables, type QueryParams } from "@/lib/sheets/sql/queryParams";
 import { sheetsPreviewQuery } from "@/utils/sheetsTables.functions";
 
 type Preview = {
@@ -23,6 +24,7 @@ export function QueryEditor({
   sql,
   onSql,
   tables,
+  params,
 }: {
   token: string;
   workbookId: string;
@@ -30,12 +32,15 @@ export function QueryEditor({
   onSql: (sql: string) => void;
   /** Lakehouse tables the person can read; a click puts one in the query. */
   tables?: { schema: string; table: string }[];
+  /** The workbook names' values, for {{variables}} (R155). */
+  params?: QueryParams;
 }) {
   const previewFn = useServerFn(sheetsPreviewQuery);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const area = useRef<HTMLTextAreaElement>(null);
+  const vars = queryVariables(sql);
 
   const run = async () => {
     if (!sql.trim() || running) return;
@@ -43,7 +48,7 @@ export function QueryEditor({
     setError(null);
     try {
       const r = await previewFn({
-        data: { access_token: token, workbook_id: workbookId, sql: sql.trim() },
+        data: { access_token: token, workbook_id: workbookId, sql: sql.trim(), params },
       });
       if (!r.ok) {
         setPreview(null);
@@ -132,9 +137,31 @@ export function QueryEditor({
           Preview
         </Button>
         <span className="text-xs text-muted-foreground">
-          Ctrl+Enter. One SELECT (or WITH), read with your own lakehouse access.
+          Ctrl+Enter. One SELECT (or WITH), read with your own lakehouse access.{" "}
+          <code className="font-mono">{"{{Name}}"}</code> is the value of the workbook name Name
+          (Data → Names).
         </span>
       </div>
+      {vars.length > 0 && (
+        <p className="text-xs text-muted-foreground" data-testid="query-variables">
+          Variables:{" "}
+          {vars.map((v, i) => {
+            const val =
+              params?.[Object.keys(params).find((k) => k.toLowerCase() === v.toLowerCase()) ?? ""];
+            return (
+              <span key={v}>
+                {i > 0 && ", "}
+                <code className="font-mono">{v}</code> ={" "}
+                {val === undefined ? (
+                  <span className="text-destructive">no such name</span>
+                ) : (
+                  <span className="font-mono">{JSON.stringify(val)}</span>
+                )}
+              </span>
+            );
+          })}
+        </p>
+      )}
       {error && (
         <p className="text-sm text-destructive" role="alert" data-testid="query-error">
           {error}

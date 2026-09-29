@@ -25,6 +25,7 @@ import {
 import { parseDateText, serialParts } from "../formula/values";
 import { checkLocalReadOnlySql } from "@/lib/sqlSafety";
 import { extractTableRefs } from "@/lib/sqlRefs";
+import { bindQuery, type QueryParams } from "./queryParams";
 
 export const ROW_ID = "__row";
 
@@ -187,6 +188,10 @@ export function buildTableRelation(
     others?: (name: string) => OtherTable | undefined;
     /** Formulas that failed at run time, dropped to empty with this reason. */
     broken?: Record<string, string>;
+    /** The workbook names' values, for a query's {{variables}} (R155). */
+    params?: QueryParams;
+    /** A variable with no value is NULL: to learn a query's columns before any is set. */
+    blankParams?: boolean;
   },
   depth = 0,
   seen: Set<string> = new Set(),
@@ -220,7 +225,13 @@ export function buildTableRelation(
     if (!other) return undefined;
     const rel = buildTableRelation(
       other.config,
-      { name: other.name, prefix: `${prefix}_${++otherCount}_`, others: opts.others },
+      {
+        name: other.name,
+        prefix: `${prefix}_${++otherCount}_`,
+        others: opts.others,
+        params: opts.params,
+        blankParams: opts.blankParams,
+      },
       depth + 1,
       new Set(seen),
     );
@@ -289,8 +300,13 @@ export function buildTableRelation(
   } else {
     let src: string;
     if (cfg.source.kind === "query") {
-      // Checked again where it runs, whatever stored it.
-      const q = checkSheetQuery(cfg.source.sql);
+      // Checked again where it runs, whatever stored it: as written, and
+      // with its variables bound (each a literal, R155).
+      const t = checkSheetQuery(cfg.source.sql);
+      if (!t.ok) throw new TableQueryError(`The sheet's query can't run: ${t.error}`);
+      const bound = bindQuery(t.sql, opts.params, { blank: opts.blankParams });
+      if (!bound.ok) throw new TableQueryError(bound.error);
+      const q = checkSheetQuery(bound.sql);
       if (!q.ok) throw new TableQueryError(`The sheet's query can't run: ${q.error}`);
       src = `(${q.sql}\n) AS ${qid(`${base}_query`)}`;
     } else {
@@ -567,6 +583,7 @@ export function describeFilter(f: TableFilter): string {
 export function workbookTables(
   others: (name: string) => OtherTable | undefined,
   prefix = "w",
+  params?: QueryParams,
 ): { resolve: (name: string) => TableSource | undefined; ctes: string[] } {
   const ctes: string[] = [];
   const built = new Map<string, TableSource>();
@@ -581,6 +598,7 @@ export function workbookTables(
       name: other.name,
       prefix: `${prefix}${++n}_`,
       others,
+      params,
     });
     ctes.push(...rel.ctes);
     const t: TableSource = {

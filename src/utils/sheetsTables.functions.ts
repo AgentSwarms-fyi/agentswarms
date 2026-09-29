@@ -29,7 +29,14 @@ import {
 } from "@/lib/sheets/sql/tableQuery";
 import { getPlatformResources } from "@/utils/notebookRuntime/config.server";
 import type { SheetTabRow } from "@/utils/sheets.functions";
-import { nameStr, originSchema, tableConfigSchema, tokenOnly } from "@/utils/sheets/schemas";
+import {
+  nameStr,
+  originSchema,
+  queryParamsSchema,
+  tableConfigSchema,
+  tokenOnly,
+} from "@/utils/sheets/schemas";
+import { bindQuery } from "@/lib/sheets/sql/queryParams";
 import {
   addTableTab,
   describeQuery,
@@ -147,7 +154,13 @@ const querySql = z.string().trim().min(1).max(20_000);
 /** A query's first rows, read as the caller, for the dialog's preview. */
 export const sheetsPreviewQuery = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) =>
-    tokenOnly.extend({ workbook_id: z.string().uuid(), sql: querySql }).parse(input),
+    tokenOnly
+      .extend({
+        workbook_id: z.string().uuid(),
+        sql: querySql,
+        params: queryParamsSchema.optional(),
+      })
+      .parse(input),
   )
   .handler(
     async ({
@@ -169,13 +182,18 @@ export const sheetsPreviewQuery = createServerFn({ method: "POST" })
       const q = checkSheetQuery(data.sql);
       if (!q.ok) return { ok: false, error: q.error };
       const started = Date.now();
+      // Its {{variables}} are the workbook's names as they are now (R155).
+      const bound = bindQuery(q.sql, data.params);
+      if (!bound.ok) return { ok: false, error: bound.error };
+      const b = checkSheetQuery(bound.sql);
+      if (!b.ok) return { ok: false, error: b.error };
       try {
-        const columns = await describeQuery(caller.userId, q.sql);
+        const columns = await describeQuery(caller.userId, q.sql, data.params);
         const { runLakehouseStatement } = await import("@/utils/lakehouse/core.server");
         const PREVIEW = 50;
         const r = await runLakehouseStatement(
           caller.userId,
-          `SELECT * FROM (${q.sql}\n) AS __query LIMIT ${PREVIEW + 1}`,
+          `SELECT * FROM (${b.sql}\n) AS __query LIMIT ${PREVIEW + 1}`,
           { rowCap: PREVIEW + 1, auditVia: "sheets" },
         );
         return {
@@ -569,6 +587,7 @@ export const sheetsTablePage = createServerFn({ method: "POST" })
         offset: z.number().int().min(0).max(1_000_000_000),
         limit: z.number().int().min(1).max(100_000),
         as_share: asShare,
+        params: queryParamsSchema.optional(),
       })
       .parse(input),
   )
@@ -595,7 +614,7 @@ export const sheetsTablePage = createServerFn({ method: "POST" })
       if (data.offset === 0 && cfg.source.kind !== "pivot") {
         const now =
           cfg.source.kind === "query"
-            ? await describeQuery(caller.userId, cfg.source.sql)
+            ? await describeQuery(caller.userId, cfg.source.sql, data.params)
             : await describeSource(caller.userId, cfg.source.schema, cfg.source.table);
         const same =
           now.length === cfg.columns.length &&
@@ -620,6 +639,7 @@ export const sheetsTablePage = createServerFn({ method: "POST" })
         name: tab.name,
         others: (n) => others.get(n.toLowerCase()),
         broken,
+        params: data.params,
       });
     const run = (sql: string, rowCap: number) =>
       runLakehouseStatement(caller.userId, sql, {
@@ -641,7 +661,12 @@ export const sheetsTablePage = createServerFn({ method: "POST" })
           const name = cfg.calculated[i].name.trim();
           const partial = buildTableRelation(
             { ...cfg, calculated: cfg.calculated.slice(0, i + 1) },
-            { name: tab.name, others: (n) => others.get(n.toLowerCase()), broken },
+            {
+              name: tab.name,
+              others: (n) => others.get(n.toLowerCase()),
+              broken,
+              params: data.params,
+            },
           );
           const col = partial.columns.find((c) => c.name === name);
           if (!col || col.error) continue;
@@ -687,6 +712,7 @@ export const sheetsTableValues = createServerFn({ method: "POST" })
         config: tableConfigSchema,
         column: nameStr,
         as_share: asShare,
+        params: queryParamsSchema.optional(),
       })
       .parse(input),
   )
@@ -713,6 +739,7 @@ export const sheetsTableValues = createServerFn({ method: "POST" })
         const rel = buildTableRelation(cfg, {
           name: tab.name,
           others: (n) => others.get(n.toLowerCase()),
+          params: data.params,
         });
         const { runLakehouseStatement } = await import("@/utils/lakehouse/core.server");
         const LIMIT = 1000;
@@ -1017,6 +1044,7 @@ export const sheetsTableCalls = createServerFn({ method: "POST" })
           .min(1)
           .max(200),
         as_share: asShare,
+        params: queryParamsSchema.optional(),
       })
       .parse(input),
   )
@@ -1044,7 +1072,7 @@ export const sheetsTableCalls = createServerFn({ method: "POST" })
       const answers: Record<string, TableCallAnswer> = {};
       type Compiled = { key: string; fn: string; sql: string; kind: string };
       const compiled: Compiled[] = [];
-      const tables = workbookTables((n) => others.get(n.toLowerCase()));
+      const tables = workbookTables((n) => others.get(n.toLowerCase()), "w", data.params);
       for (const { key, req } of data.calls as { key: string; req: TableCallRequest }[]) {
         try {
           const text = callText(req);
@@ -1177,6 +1205,7 @@ export const sheetsSavePivot = createServerFn({ method: "POST" })
       const rel = buildTableRelation(draft, {
         name: data.name,
         others: (n) => others.get(n.toLowerCase()),
+        blankParams: true,
       });
       const { runLakehouseStatement } = await import("@/utils/lakehouse/core.server");
       await runLakehouseStatement(caller.userId, pageSql(rel, draft, { offset: 0, limit: 1 }), {
@@ -1248,7 +1277,12 @@ export const sheetsSavePivot = createServerFn({ method: "POST" })
 export const sheetsTableExport = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) =>
     tokenOnly
-      .extend({ tab_id: z.string().uuid(), config: tableConfigSchema, as_share: asShare })
+      .extend({
+        tab_id: z.string().uuid(),
+        config: tableConfigSchema,
+        as_share: asShare,
+        params: queryParamsSchema.optional(),
+      })
       .parse(input),
   )
   .handler(
@@ -1280,6 +1314,7 @@ export const sheetsTableExport = createServerFn({ method: "POST" })
         const rel = buildTableRelation(cfg, {
           name: tab.name,
           others: (n) => others.get(n.toLowerCase()),
+          params: data.params,
         });
         const hidden = new Set(cfg.hidden.map((h) => h.toLowerCase()));
         const columns = rel.columns

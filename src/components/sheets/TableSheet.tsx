@@ -144,8 +144,17 @@ export function TableSheet({
         k: config.calculated,
         o: config.sort,
         f: config.filters,
+        // The names' values, for a query's {{variables}} (R155).
+        p: config.source.kind === "query" ? wb.queryParamsKey : "",
       }),
-    [config.source, config.columns, config.calculated, config.sort, config.filters],
+    [
+      config.source,
+      config.columns,
+      config.calculated,
+      config.sort,
+      config.filters,
+      wb.queryParamsKey,
+    ],
   );
 
   const setConfig = useCallback(
@@ -167,6 +176,7 @@ export function TableSheet({
             offset: page * pageRows,
             limit: pageRows,
             as_share: wbRef.current.asShare,
+            params: wbRef.current.queryParams,
           },
         });
         if (g !== gen.current) return; // settings changed meanwhile
@@ -622,6 +632,7 @@ export function TableSheet({
                     asShare={wb.asShare}
                     tabId={tab.id}
                     config={config}
+                    params={wb.queryParams}
                     column={c}
                     current={f ?? null}
                     onApply={(nf) => setFilter(c.name, nf)}
@@ -772,7 +783,13 @@ export function TableSheet({
           token={token}
           workbookId={wb.workbookId}
           takenSheetNames={wb.tabs.map((t) => t.name)}
-          source={{ kind: "table", tabId: tab.id, tabName: tab.name, config }}
+          source={{
+            kind: "table",
+            tabId: tab.id,
+            tabName: tab.name,
+            config,
+            params: wb.queryParams,
+          }}
           onOpenedTab={(row) => {
             wb.addTabLocal(row);
             toast.success(`Opened ${row.name}`);
