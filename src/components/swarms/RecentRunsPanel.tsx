@@ -4,8 +4,8 @@
 // across navigation) with the durable swarm_runs history in the DB. Running
 // or paused ("waiting") runs can be cancelled from here — directly if this tab
 // owns the run, or via a DB flag the owning tab's cancel-watch picks up. A run
-// parked on the server at an approval ("suspended") is ended by deciding the
-// approval, so its row opens the approvals inbox instead (R108).
+// parked on the server at an approval ("suspended") opens the approvals inbox
+// (R108), and its Cancel ends it on the server and closes that approval (R179).
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
@@ -26,6 +26,8 @@ import {
   Ban,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useServerFn } from "@tanstack/react-start";
+import { cancelParkedSwarmRun } from "@/utils/swarmResume.functions";
 import {
   subscribe as subscribeRuns,
   getSnapshot as getRunsSnapshot,
@@ -122,16 +124,26 @@ export function RecentRunsPanel() {
   const [dbRuns, setDbRuns] = useState<DbRun[]>([]);
   const [requests, setRequests] = useState<ParkedRequests>({ byRun: new Map(), failed: false });
   const [loading, setLoading] = useState(true);
+  // FOUND IN R179 (the R63 shape): a failed read of the runs read as "No runs
+  // yet", over runs that were parked and waiting for someone.
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const cancelParkedFn = useServerFn(cancelParkedSwarmRun);
 
   const load = useCallback(async () => {
     if (!user) return;
-    const { data } = await supabase
+    const { data, error: readErr } = await supabase
       .from("swarm_runs")
       .select(
         "id, swarm_id, swarm_name, status, started_at, finished_at, step_count, total_cost_usd, total_tokens_in, total_tokens_out, cancel_requested",
       )
       .order("started_at", { ascending: false })
       .limit(50);
+    if (readErr) {
+      setLoadError(readErr.message);
+      setLoading(false);
+      return;
+    }
+    setLoadError(null);
     const rows = (data ?? []) as DbRun[];
     // A parked run is only waiting for someone if its request is still
     // pending; the request says so, the run row cannot (R108).
@@ -212,6 +224,30 @@ export function RecentRunsPanel() {
   }, [dbRuns, liveRuns]);
 
   const cancel = async (item: RunItem) => {
+    // A run parked on the server is ended there, with its approval (R179).
+    if (item.status === "suspended" && item.dbRunId) {
+      const { data: sess } = await supabase.auth.getSession();
+      const token = sess.session?.access_token;
+      if (!token) {
+        toast.error("Sign in again to cancel this run");
+        return;
+      }
+      const res = await cancelParkedFn({ data: { access_token: token, run_id: item.dbRunId } });
+      if (!res.ok) {
+        toast.error("The run was not cancelled", { description: res.error });
+      } else if (res.note) {
+        toast.warning("Run cancelled", { description: res.note });
+      } else {
+        toast.success("Run cancelled", {
+          description:
+            res.closedApprovals > 0
+              ? "Its approval request is closed; nobody will be asked to decide it."
+              : "It had no approval request still open.",
+        });
+      }
+      void load();
+      return;
+    }
     if (item.localRunId && item.live) {
       cancelManagedRun(item.localRunId);
     } else if (item.dbRunId) {
@@ -243,8 +279,8 @@ export function RecentRunsPanel() {
             )}
           </h2>
           <p className="text-xs text-muted-foreground mt-1">
-            Runs keep executing even if you leave the canvas. Cancel a running run here; a run
-            waiting for an approval goes on or stops when the approval is decided.
+            Runs keep executing even if you leave the canvas. Cancel a running run here, or one
+            parked at an approval: that also closes its approval request.
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={() => void load()} className="h-8">
@@ -256,6 +292,19 @@ export function RecentRunsPanel() {
         <div className="flex items-center gap-2 text-sm text-muted-foreground py-8">
           <Loader2 className="h-4 w-4 animate-spin" /> Loading runs…
         </div>
+      ) : loadError ? (
+        <Card className="border-destructive/40">
+          <CardContent className="flex flex-col items-center justify-center py-10 gap-2">
+            <XCircle className="h-8 w-8 text-destructive" />
+            <p className="text-sm text-center max-w-md">
+              The runs could not be loaded, so this list says nothing about them:{" "}
+              <span className="text-muted-foreground">{loadError}</span>
+            </p>
+            <Button variant="outline" size="sm" onClick={() => void load()} className="h-8">
+              <RefreshCw className="h-3.5 w-3.5 mr-1.5" /> Try again
+            </Button>
+          </CardContent>
+        </Card>
       ) : items.length === 0 ? (
         <Card className="border-dashed border-2 border-border/50">
           <CardContent className="flex flex-col items-center justify-center py-12">
@@ -338,7 +387,7 @@ export function RecentRunsPanel() {
                         <Hourglass className="h-3.5 w-3.5 mr-1.5" /> Review approval
                       </Button>
                     )}
-                    {view.cancellable && (
+                    {(view.cancellable || view.parked) && (
                       <Button
                         variant="outline"
                         size="sm"

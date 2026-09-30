@@ -908,8 +908,8 @@ over the lakehouse). Open from that round, the rest of Row Zero's connected tabl
   error and sets the snapshot to null, which HIDES the "draft ahead of
   what is live" badge: no write, but a warning silenced by a failed read.
   `playground.tsx:2509` (an execution trace) and `mcpApps.functions.ts:69`
-  are not yet read. The Recent runs "No runs yet" (R108's note) is the
-  same shape without the write.
+  are not yet read. The Recent runs "No runs yet" (R108's note), the
+  same shape without the write, was closed in R179.
 - A failed read that becomes an empty document becomes a data loss at the
   next save (R109): the swarm chat opened a conversation over
   `data?.messages ?? []`, kept its id, and saved the next turn over the
@@ -931,12 +931,12 @@ over the lakehouse). Open from that round, the rest of Row Zero's connected tabl
   branches in any status display; an unknown word should read as itself.
   Swept for that shape: `workflows.tsx`'s `STATE_STYLE … ?? pending` is
   CLEAR, because node rows only ever take the five `NODE_STATES`, and
-  "cancelled" belongs to the run, which has its own map. Still open:
-  nothing cancels a parked run outright, and `resumeApprovedSwarmRun`
-  stops only for `success` and `error`. A cancel for parked runs must
-  close the checkpoint and the approval with it, and resume must refuse
-  `cancelled`. Recent runs also still reads a failed load of
-  `swarm_runs` as "No runs yet" (the R63 shape).
+  "cancelled" belongs to the run, which has its own map. R179 closed the
+  rest: Recent runs cancels a parked run on the server, removing its
+  checkpoint and closing its pending approval; resume refuses
+  `cancelled`; and a failed load of `swarm_runs` reads as one. Still
+  open: a run cancelled after twelve hours parked shows `12h 19m` as its
+  duration on Recent runs, while Observability shows `0ms`.
 - Ask what a status word is FOR before trusting it (R90): the swarm resume
   gated on `status === "suspended"`, a word written by a stamp that could
   fail, when the thing a resume needs is the checkpoint. Where a guard and

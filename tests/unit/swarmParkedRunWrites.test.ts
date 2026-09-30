@@ -19,6 +19,13 @@ const approval = between(
   "export async function executeSwarmServer(",
 );
 const finish = between(ex, "const finish = async (", "try {");
+// The resume alone: the cancel beside it (R179) requires "suspended" on
+// purpose, as the precondition of its conditional update.
+const resume = between(
+  rs,
+  "export const resumeApprovedSwarmRun",
+  "export const cancelParkedSwarmRun",
+);
 
 describe("parking a run at an approval", () => {
   it("says when nobody was asked, because the approval row could not be written", () => {
@@ -36,16 +43,19 @@ describe("parking a run at an approval", () => {
 
 describe("approving a parked run", () => {
   it("decides on the checkpoint, not on the word the stamp writes", () => {
-    expect(rs).toContain('if (run.status === "success" || run.status === "error") {');
-    expect(rs).not.toContain('if (run.status !== "suspended") {');
-    expect(rs).toContain(
+    expect(resume.length).toBeGreaterThan(0);
+    expect(resume).toContain('if (run.status === "success" || run.status === "error") {');
+    expect(resume).not.toContain('if (run.status !== "suspended") {');
+    expect(resume).toContain(
       'const { loadCheckpoint } = await import("@/utils/swarmCheckpoint.server");',
     );
-    expect(rs).toContain("if (!(await loadCheckpoint(run.id, run.user_id))) {");
+    expect(resume).toContain("if (!(await loadCheckpoint(run.id, run.user_id))) {");
   });
 
   it("still treats a run with no checkpoint as one already resumed", () => {
-    const gate = rs.slice(rs.indexOf("if (!(await loadCheckpoint(run.id, run.user_id))) {"));
+    const gate = resume.slice(
+      resume.indexOf("if (!(await loadCheckpoint(run.id, run.user_id))) {"),
+    );
     expect(gate.slice(0, 200)).toContain(
       'return { ok: true, status: run.status, runId: run.id, output: "" };',
     );

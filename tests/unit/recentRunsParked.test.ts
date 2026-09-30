@@ -77,6 +77,8 @@ describe("what the approval request says about a parked run", () => {
     for (const a of ["pending", "decided", "none", "unknown"] as const) {
       expect(parkedRunView(a).cancellable).toBe(false);
       expect(parkedRunView(a).live).toBe(false);
+      // Ended through the server instead (R179).
+      expect(parkedRunView(a).parked).toBe(true);
     }
   });
 });
@@ -121,10 +123,12 @@ describe("the panel", () => {
     expect(panel).not.toMatch(/\?\?\s*map\.running/);
   });
 
-  it("offers the approval, not a duration or a Cancel, on a parked run", () => {
+  it("offers the approval, and a Cancel that ends it on the server (R179), not a duration", () => {
     expect(panel).toMatch(/\{view\.awaitingDecision && \([\s\S]{0,300}openApprovalsInbox\(\)/);
     expect(panel).toMatch(/Review approval/);
-    expect(panel).toMatch(/\{view\.cancellable && \(/);
+    // R108 kept a Cancel that could not reach a parked run off its row; R179
+    // gave it one that does, through the server.
+    expect(panel).toMatch(/\{\(view\.cancellable \|\| view\.parked\) && \(/);
     expect(panel).toMatch(
       /\{showsDuration\(view, item\.finishedAt\) && \([\s\S]{0,120}duration\(item\.startedAt, item\.finishedAt\)/,
     );

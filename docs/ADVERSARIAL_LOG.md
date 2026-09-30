@@ -109,6 +109,49 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-30 — A run parked at an approval could not be cancelled
+
+Tests: `tests/unit/swarmParkedCancel.test.ts` (8 tests), with `tests/unit/recentRunsParked.test.ts`
+and `tests/unit/swarmParkedRunWrites.test.ts` updated. R90's pin, that the resume never gates on
+the word `suspended`, read the whole file, and the cancel requires that word on purpose; the pin now
+reads the resume alone, and still fails when R90's gate is put back. The mutation run caught 20 of
+20, and the control survived.
+
+#### R179 · S2 · Thirty-five parked runs, and nothing on the page could stop one
+
+**Found** as Phase A's second item, left open by R108's entry in the queue. The scheduled
+"Approval durability check" swarm parks a run at its approval node each time it fires. Driven on
+the hot deploy of R178:
+- Swarms → Recent runs: rows `Approval durability check (schedule) · Awaiting approval · started
+  12h ago`, and more back to `4d ago`, each with Open, Trace and Review approval, and no Cancel.
+- The header: "Cancel a running run here; a run waiting for an approval goes on or stops when the
+  approval is decided."
+- The bell: `Pending approvals (35)`.
+
+A decision on the approval was the only way to end one. Approving runs the rest of the swarm;
+rejecting ends the run as an error, "Rejected at human-approval step", recorded as a rejection
+of content nobody reviewed. `resumeApprovedSwarmRun` also stopped only for `success` and `error`,
+so a decision that landed after any other kind of stop would still have resumed the run. And
+Recent runs dropped the error of its `swarm_runs` read and showed `data ?? []`, so a failed load
+read as "No runs yet" over runs that were parked and waiting (the R63 shape; read from the source,
+then driven after the fix).
+
+**The fix** (`utils/swarmResume.functions.ts`, `lib/swarmRunStatus.ts`,
+`components/swarms/RecentRunsPanel.tsx`). A new server function, `cancelParkedSwarmRun`, reads the
+run under the caller's session, so row-level security decides whose it is, and requires
+`suspended`. It ends the run with an update that holds only while the run is still `suspended`:
+a resume that got there first wins, and the caller is told to refresh. Then it removes the
+checkpoint, closes the run's pending approvals as `cancelled`, and records `swarm_run.cancel` in
+the audit log. If an approval cannot be closed it says so; deciding that approval later does not
+resume the run, because `resumeApprovedSwarmRun` now refuses a `cancelled` run before it looks for
+a checkpoint. Every parked view carries `parked: true`, and Recent runs offers Cancel on those
+rows beside Review approval. A failed read of the runs shows its message and Try again.
+
+**Not changed.** A run cancelled after twelve hours parked shows `12h 19m` as its duration on Recent
+runs, while Observability shows `0ms`: queued. A run parked in another tab's memory (`waiting`)
+is still cancelled through the `cancel_requested` flag. Rejecting still ends a run as an error,
+which is what a rejection means.
+
 ### 2026-09-30 — A SQL model's build replaced a table made after the model was saved
 
 Tests: `tests/unit/sqlModelTargetMark.test.ts` (12 tests); its catalog half runs on a real DuckLake

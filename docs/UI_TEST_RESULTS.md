@@ -15,6 +15,22 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-30 — A parked swarm run cancelled from Recent runs, ADVERSARIAL_LOG R179
+
+**Why this round exists.** Phase A's second item: the cancel R108 left open.
+
+Fixtures, kept: the cancelled run `c4ff22a3…`. The other parked runs of "Approval durability check
+(schedule)" are untouched.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before (hot deploy of R178) | Swarms → Recent runs; the bell | rows `Approval durability check (schedule) · Awaiting approval · started 12h ago` back to `4d ago`, each with Open, Trace, Review approval and no Cancel; the header "Cancel a running run here; a run waiting for an approval goes on or stops when the approval is decided."; `Pending approvals (35)` |
+| After (hot deploy) | Swarms → Recent runs | every `Awaiting approval` row offers Cancel beside Review approval; the header "Cancel a running run here, or one parked at an approval: that also closes its approval request." |
+| After | Cancel on the first row (`started 12h ago`, run `c4ff22a3`) | the toast "Run cancelled · Its approval request is closed; nobody will be asked to decide it."; the row `Cancelled · started 12h ago · 12h 19m` with Open and Trace only; the bell `Pending approvals (34)` |
+| After | That row's Trace | Observability `Approval durability check (schedule) · cancelled · run c4ff22a3` |
+| After | Audit log | `swarm_run.cancel · Approval durability check (schedule)`, 1 minute ago |
+| After | The page's `swarm_runs` read made to fail in the browser (a 500 carrying a statement-timeout message), then the Recent runs tab | "The runs could not be loaded, so this list says nothing about them: canceling statement due to statement timeout (R179 probe)" with Try again; the fetch restored, Try again → the list, the cancelled row first |
+
 ## 2026-09-30 — A SQL model built over a table made after its save, ADVERSARIAL_LOG R178
 
 **Why this round exists.** Phase A's first item: the case R103 left open.

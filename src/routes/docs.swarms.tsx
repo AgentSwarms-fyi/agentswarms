@@ -599,7 +599,8 @@ input ──▶ split ┼──▶ legal analysis ─────┼──▶ me
       <P>
         <strong>Watch for</strong> approvals that never get answered. A parked run holds its state
         and waits, which is correct, but nobody is watching by default — decide who is notified and
-        what happens to a run nobody answers.
+        what happens to a run nobody answers. A run nobody will answer can be cancelled from Recent
+        runs; rejecting it instead records a rejection and ends the run as an error.
       </P>
 
       <Callout kind="info" title="Combining them">
@@ -694,7 +695,10 @@ input ──▶ split ┼──▶ legal analysis ─────┼──▶ me
           running, done, error, waiting, skipped) and shows each node's last output.
         </li>
         <li>
-          <strong>Recent runs</strong> — history with inputs and results.
+          <strong>Recent runs</strong> — history with inputs and results. A run parked at an
+          approval reads Awaiting approval, with Review approval to open the inbox and Cancel to end
+          it: cancelling removes its saved state and closes its approval request, so nobody is asked
+          to decide a run that is over, and a decision made afterwards does not resume it.
         </li>
         <li>
           <strong>Traces</strong> — per-node steps with prompts, tool calls, tokens and cost.

@@ -20,6 +20,11 @@ export type RunStatusView = {
   cancellable: boolean;
   /** Parked until someone decides its approval, which is what ends it. */
   awaitingDecision: boolean;
+  /**
+   * Parked on the server with a checkpoint: the panel's Cancel ends it there,
+   * and closes its approval (R179). Before, nothing on the panel could.
+   */
+  parked: boolean;
 };
 
 const VIEWS: Record<string, RunStatusView> = {
@@ -29,6 +34,7 @@ const VIEWS: Record<string, RunStatusView> = {
     live: true,
     cancellable: true,
     awaitingDecision: false,
+    parked: false,
   },
   // A run in THIS tab waiting at an approval node: still in memory, so Cancel
   // reaches it.
@@ -38,15 +44,17 @@ const VIEWS: Record<string, RunStatusView> = {
     live: true,
     cancellable: true,
     awaitingDecision: false,
+    parked: false,
   },
-  // A run parked on the server with a checkpoint. Nothing in this panel can
-  // end it; approving or rejecting its approval does.
+  // A run parked on the server with a checkpoint. Deciding its approval ends
+  // it, and so does the panel's Cancel, which goes through the server (R179).
   suspended: {
     label: "Awaiting approval",
     tone: "waiting",
     live: false,
     cancellable: false,
     awaitingDecision: true,
+    parked: true,
   },
   success: {
     label: "Success",
@@ -54,6 +62,7 @@ const VIEWS: Record<string, RunStatusView> = {
     live: false,
     cancellable: false,
     awaitingDecision: false,
+    parked: false,
   },
   error: {
     label: "Error",
@@ -61,6 +70,7 @@ const VIEWS: Record<string, RunStatusView> = {
     live: false,
     cancellable: false,
     awaitingDecision: false,
+    parked: false,
   },
   cancelled: {
     label: "Cancelled",
@@ -68,6 +78,7 @@ const VIEWS: Record<string, RunStatusView> = {
     live: false,
     cancellable: false,
     awaitingDecision: false,
+    parked: false,
   },
 };
 
@@ -80,6 +91,7 @@ export function runStatusView(status: string): RunStatusView {
       live: false,
       cancellable: false,
       awaitingDecision: false,
+      parked: false,
     }
   );
 }
@@ -114,6 +126,7 @@ export function parkedRunView(approval: ParkedApproval): RunStatusView {
         live: false,
         cancellable: false,
         awaitingDecision: false,
+        parked: true,
       };
     // Parked with no request at all: nobody was ever asked (R90).
     case "none":
@@ -123,6 +136,7 @@ export function parkedRunView(approval: ParkedApproval): RunStatusView {
         live: false,
         cancellable: false,
         awaitingDecision: false,
+        parked: true,
       };
     // The requests could not be read: claim only what the run row says, and
     // leave the inbox, where a decision would be, one click away.
@@ -133,6 +147,7 @@ export function parkedRunView(approval: ParkedApproval): RunStatusView {
         live: false,
         cancellable: false,
         awaitingDecision: true,
+        parked: true,
       };
   }
 }
