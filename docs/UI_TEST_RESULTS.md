@@ -15,6 +15,21 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-30 — A materialized view's failed rebuild, ADVERSARIAL_LOG R185
+
+**Why this round exists.** Phase B's third item: R101's hover-only failure.
+
+Fixtures, kept: `analytics.r185_base` (1 row) and the materialized view `analytics.r185_mv`
+over it, manual, rebuilt successfully last.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before (hot deploy of R184) | Query `CREATE TABLE analytics.r185_base AS SELECT 185 AS id, 'base row' AS note`; `SELECT * FROM analytics.r185_base` → Save as view → `analytics` / `r185_mv` / manual | `Count 1`; "Built analytics.r185_mv — 1 row(s)" |
+| Before | `ALTER TABLE analytics.r185_base RENAME TO r185_base_moved`; the `r185_mv` tab → Rebuild | the toast "Rebuild failed: Catalog Error: Table with name r185_base does not exist! …"; the badge `materialized`, title "Last rebuild failed: …" |
+| Before | reload, reopen `r185_mv` | `analytics.r185_mv · 1 row(s) · Monitor this table · Define metrics on this · Publish to Iceberg · materialized · Rebuild`; no failure text on the tab |
+| After (hot deploy) | reopen `r185_mv` | `last rebuild failed` (red) · "Catalog Error: Table with name r185_base does not exist! These rows are from the rebuild of 9/30/2026, 7:52:16 PM." |
+| After | `ALTER TABLE analytics.r185_base_moved RENAME TO r185_base`; Rebuild | "Rebuilt — 1 row(s) in 3497 ms"; the badge `materialized`; no failure text |
+
 ## 2026-09-30 — A workflow's status over an edited graph, ADVERSARIAL_LOG R184
 
 **Why this round exists.** Phase B's second item: sweep item 2's workflow saves.

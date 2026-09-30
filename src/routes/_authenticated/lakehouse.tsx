@@ -65,6 +65,7 @@ import {
   PublishToIcebergDialog,
 } from "@/components/lakehouse/IcebergDialog";
 import { downloadCsv } from "@/lib/exportData";
+import { matviewBadge } from "@/lib/matviewBadge";
 import { useAuth } from "@/hooks/use-auth";
 import { useTokenRef } from "@/hooks/use-token-ref";
 import { supabase } from "@/integrations/supabase/client";
@@ -913,6 +914,7 @@ function TableTab({
   const [detail, setDetail] = useState<LakehouseTableDetail | null>(null);
   const [policy, setPolicy] = useState<LakehousePolicy | null>(null);
   const [matview, setMatview] = useState<LakehouseMatview | null>(null);
+  const matviewState = matview ? matviewBadge(matview) : null;
   const [preview, setPreview] = useState<LakehouseResult | null>(null);
 
   useEffect(() => {
@@ -989,19 +991,24 @@ function TableTab({
           Define metrics on this
         </Link>
         <PublishToIcebergDialog schema={schema} table={table} />
-        {matview && (
+        {matviewState && (
+          // FOUND IN R185: a failed rebuild read "materialized", the failure
+          // only in this badge's hover title.
           <Badge
             variant="outline"
-            className="gap-1 text-[10px]"
-            title={
-              matview.last_status === "error"
-                ? `Last rebuild failed: ${matview.last_error ?? ""}`
-                : `Rebuilt ${matview.schedule}`
+            className={
+              matviewState.failed
+                ? "gap-1 border-destructive/50 text-[10px] text-destructive"
+                : "gap-1 text-[10px]"
             }
+            title={matviewState.title}
           >
             <Layers className="h-3 w-3" />
-            {matview.schedule === "manual" ? "materialized" : `rebuilt ${matview.schedule}`}
+            {matviewState.label}
           </Badge>
+        )}
+        {matviewState?.note && (
+          <span className="text-[11px] text-destructive">{matviewState.note}</span>
         )}
         {policy && (
           <Badge

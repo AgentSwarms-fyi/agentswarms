@@ -703,7 +703,10 @@ describe("materialized views", () => {
     expect(page).toContain("SaveMatviewDialog");
     expect(page).toContain("Save as view");
     expect(page).toContain("Rebuild");
-    expect(page).toContain("rebuilt ${matview.schedule}");
+    // The badge's words moved into lib/matviewBadge.ts in R185, which also
+    // says when the last rebuild failed.
+    expect(page).toContain("matviewBadge(matview)");
+    expect(read("src/lib/matviewBadge.ts")).toContain("rebuilt ${mv.schedule}");
   });
 });
 

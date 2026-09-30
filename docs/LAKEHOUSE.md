@@ -220,8 +220,11 @@ something goes wrong:
 <query>`, so anyone querying during a rebuild sees the old rows or the new
   ones, never a half-built table.
 - **A failed rebuild keeps the previous data.** Stale rows a user can see and
-  diagnose beat an empty table. The failure is recorded on the view and shown
-  in the UI.
+  diagnose beat an empty table. The failure is recorded on the view, and the
+  table's tab says so where people look: the badge reads **last rebuild
+  failed** in red, beside the reason's first line and the time of the rebuild
+  the rows are from (the whole error on hover). Until R185 the badge went on
+  reading "materialized" and the failure lived only in its hover title.
 - **The definition is re-checked every time, not just when saved.** A grant
   revoked since then stops the refresh, and a definition edited into a write is
   refused rather than executed.

@@ -182,10 +182,11 @@ function LakehouseDocsPage() {
         <strong>one commit</strong> (<C>CREATE OR REPLACE TABLE … AS query</C>), so anyone querying
         mid-rebuild sees the old rows or the new ones, never a half-built table. A{" "}
         <strong>failed rebuild keeps the previous data</strong> — stale rows you can see and
-        diagnose beat an empty table — and the error is recorded on the view. And the definition is{" "}
-        <strong>re-checked at every rebuild</strong>, not just when it was saved, so a grant revoked
-        since then stops the refresh and a definition edited into a write is refused rather than
-        executed.
+        diagnose beat an empty table — and the table&apos;s badge reads{" "}
+        <strong>last rebuild failed</strong>, beside the reason and the time of the rebuild the rows
+        are from. And the definition is <strong>re-checked at every rebuild</strong>, not just when
+        it was saved, so a grant revoked since then stops the refresh and a definition edited into a
+        write is refused rather than executed.
       </P>
       <P>
         Rebuilds run as the view&apos;s owner, since a schedule has no session behind it, and ride

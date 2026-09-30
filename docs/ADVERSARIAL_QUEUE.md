@@ -178,8 +178,12 @@ least twice, not a hypothetical.
    `workflow_runs.graph`, with layout and labels left out of the
    comparison. Still open in this sweep, neither reachable from a page:
    the data-monitor config update and the app-source re-save (both
-   server-function only, above). Then the materialized view's failed
-   rebuild shown only in the badge's hover title (R101, S3).
+   server-function only, above). The materialized view's failed rebuild,
+   shown only in the badge's hover title, is R185: the badge now reads
+   "last rebuild failed" beside the reason and the rows' age. A failure
+   carried only by a `title=` is the same shape anywhere: grep
+   `title=\{.*(error|fail)` for a state the page shows to a hovering
+   mouse and nobody else.
 3. **A cause named that the evidence cannot support.** R31's freshness test, and
    Prompt Compare crowning the model that failed fastest. R63's dashboard
    chip is the degenerate case: a count of `last_status = 'error'` on a

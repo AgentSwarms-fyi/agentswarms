@@ -109,6 +109,38 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-30 — A failed materialized-view rebuild, told only to a hovering mouse
+
+Tests: `tests/unit/matviewBadgeFailed.test.ts` (6 tests). The mutation run caught 11 of 11, and
+the control survived.
+
+#### R185 · S3 · "materialized", over rows whose source was gone
+
+**Found** as Phase B's third item, left open by R101 at S3. Driven on the hot deploy of R184, in
+the Lakehouse:
+- Query: `CREATE TABLE analytics.r185_base AS SELECT 185 AS id, 'base row' AS note` → `Count 1`.
+- `SELECT * FROM analytics.r185_base` → Save as view → `analytics` / `r185_mv` / manual → "Built
+  analytics.r185_mv — 1 row(s)".
+- `ALTER TABLE analytics.r185_base RENAME TO r185_base_moved`; the `r185_mv` tab → Rebuild → the
+  toast "Rebuild failed: Catalog Error: Table with name r185_base does not exist!", gone in
+  seconds; the badge still `materialized`, its hover title "Last rebuild failed: …".
+- Reloaded and reopened: `analytics.r185_mv · 1 row(s) · … · materialized · Rebuild`, and no word
+  of a failure anywhere on the tab.
+
+The rebuild keeps the previous rows on purpose, and the server's comment gives the reason:
+"stale data a user can see and diagnose beats no data at all". Nobody could see it, and a
+scheduled rebuild has no toast at all.
+
+**The fix** (`lib/matviewBadge.ts`, `lakehouse.tsx`). One function decides what the badge says.
+A rebuild whose last status is `error` reads "last rebuild failed", in the destructive colour,
+beside a line with the error's first line as a sentence and the time of the rebuild the rows are
+from (`last_refreshed_at`, which a failure leaves alone), or that the view has never been built.
+The whole error stays in the hover title.
+
+**Driven after.** The tab: `last rebuild failed` · "Catalog Error: Table with name r185_base does
+not exist! These rows are from the rebuild of 9/30/2026, 7:52:16 PM."; the base renamed back,
+Rebuild → "Rebuilt — 1 row(s) in 3497 ms", the badge `materialized`, no failure text.
+
 ### 2026-09-30 — A workflow's "succeeded" over a step that could no longer succeed
 
 Tests: `tests/unit/workflowBadgeDrift.test.ts` (9 tests). The mutation run caught 13 of 13, and
