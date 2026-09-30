@@ -109,6 +109,45 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-30 — Evaluations: five reads that failed into absence, two deletes that failed in silence
+
+Tests: `tests/unit/evalReadsWrites.test.ts` (8 tests). The mutation run caught 14 of 14, and the
+control survived.
+
+#### R186 · S2 · "running · 0/2 · Executing cases…", with nothing executing
+
+**Found** as Phase C's first item: evaluations' five error-less reads (the client read survey) and
+two deletes (the write survey). Driven on the hot deploy of R185, on a dataset made for it, "r186
+evals" (two cases, `hello one` and `hello two`), run against "R109 chat echo" with the
+"Contains expected text" evaluator, so no model was called ($0). Each PostgREST call was refused
+from the browser with a 500 carrying "R186 injected: the <METHOD> did not reach the database":
+- The run's results read: "Progress 2/2 · Pass rate 100% … No results.", no error.
+- The dataset's case read: "r186 evals · 0 cases", New eval run disabled, beside a runs list
+  saying "r186 evals · 2/2".
+- A case delete, confirmed: nothing said, "2 cases", the case still listed.
+- The dataset delete, confirmed: nothing said, the dataset still listed.
+- The driver's case read as a second run started: "running · 0/2 · Run remaining 2 · Executing
+  cases…", and nothing executed.
+- The baseline's results read under Compare against: "vs baseline: 0 improved · 0 regressed · 0
+  unchanged", both cases `only_b` ("— → pass 1.00"): a comparison against nothing.
+
+**The fix** (`routes/_authenticated/evaluations.tsx`). The case read keeps its error: the count
+reads "cases not read", the list is empty under "The cases could not be read, so this list says
+nothing about them: …" with Try again. The results read does the same in place of "No results.".
+The driver stops before building its queue when either of its reads fails, with "The run could
+not carry on · Its cases could not be read: …", and "Executing cases…" now shows only while the
+driver runs; a running run with no driver says "No case is executing now. Run remaining carries
+on." The baseline read draws no comparison when it fails, and says "The baseline's results could
+not be read: …" beside the picker. Both deletes say so when refused, and the dataset delete stops
+there. The page already had a `compareError` for the list of comparable runs (module 28); the
+baseline's own state is `baselineError`.
+
+**Driven after.** Each refusal again: the error text in place of "No results."; the baseline
+error and no comparison; "cases not read" with Try again, which, the fault lifted, brought back
+"2 cases"; "The case was not deleted · R186 injected: …" with the case kept; "\"r186 evals\" was
+not deleted · …" with the dataset kept; a third run's driver: the toast and "No case is executing
+now", then Run remaining → 2/2, 100%.
+
 ### 2026-09-30 — A failed materialized-view rebuild, told only to a hovering mouse
 
 Tests: `tests/unit/matviewBadgeFailed.test.ts` (6 tests). The mutation run caught 11 of 11, and

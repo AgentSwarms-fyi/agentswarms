@@ -845,6 +845,13 @@ input ──▶ split ┼──▶ legal analysis ─────┼──▶ me
         gate from a swarm you mean to evaluate unattended. Each result links to its full execution
         trace.
       </P>
+      <P>
+        A list the page could not read says so, rather than showing nothing: the cases, a run&apos;s
+        results and a comparison baseline each name the error, and a comparison is never drawn
+        against a baseline that was not read. When a run cannot read its cases to carry on it stops
+        and says why, and &ldquo;Executing cases…&rdquo; shows only while cases execute. A delete
+        that is refused says so, and the case or dataset stays.
+      </P>
 
       <H2 id="export">Export</H2>
       <Table

@@ -1069,8 +1069,14 @@ over the lakehouse). Open from that round, the rest of Row Zero's connected tabl
   nine agents the page could not read. A list surface has four states, not
   two; the pure `listState` in `lib/listState` names them, and an error is
   ahead of empty. The client-side survey that found it (55 error-less reads
-  in 25 files) still has: the playground (12 reads), swarms (6), evaluations
-  (5), the swarm node inspector (4) — next, in that order.
+  in 25 files) still has: the playground (12 reads), swarms (6), the swarm
+  node inspector (4). Evaluations' five are R186, with its two deletes
+  from the write survey: the driver's own read is the one with teeth, a
+  run left "running · Executing cases…" with nothing executing, and the
+  baseline read drew a comparison against nothing. The page had already
+  guarded the comparable-runs list (module 28) and missed the rows of the
+  run it compared with: a guard on a list does not cover the reads that
+  hang off one of its items.
 - The home dashboard's seven counts (R63): a failed read was zero, and the
   SQL-models chip asked for a value its column cannot hold, so it never
   fired. A predicate is a claim about what the column holds; check it

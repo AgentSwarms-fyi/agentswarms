@@ -15,6 +15,30 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-30 — Evaluations' reads and deletes under refusal, ADVERSARIAL_LOG R186
+
+**Why this round exists.** Phase C's first item: evaluations' five reads and two deletes. Each
+call was refused from the browser (a `window.fetch` override answering 500 "R186 injected: the
+<METHOD> did not reach the database") for that step only.
+
+Fixtures, kept: the dataset "r186 evals" (two cases) and its three runs on "R109 chat echo",
+"Contains expected text", all 2/2 at $0.
+
+| Round | What was refused | What came back |
+| --- | --- | --- |
+| Before (hot deploy of R185) | GET the run's `eval_results` | "Progress 2/2 · Pass rate 100% … No results." |
+| Before | GET the dataset's `eval_cases` | "r186 evals · 0 cases", New eval run disabled; the runs list "r186 evals · 2/2" |
+| Before | DELETE a case, confirmed | no message; "2 cases", the case listed |
+| Before | DELETE the dataset, confirmed | no message; the dataset listed |
+| Before | GET `eval_cases?select=id` as run 2 started | "running · 0/2 · Run remaining 2 · Executing cases…"; nothing executed (lifted: Run remaining → 2/2) |
+| Before | GET the baseline's `eval_results` on Compare against | "vs baseline: 0 improved · 0 regressed · 0 unchanged", both cases `only_b` "— → pass 1.00" |
+| After (hot deploy) | GET the run's `eval_results` | "The results could not be read, so this list says nothing about them: R186 injected: the GET did not reach the database" |
+| After | GET the baseline's `eval_results` | "The baseline's results could not be read: R186 injected: …"; no "vs baseline" card |
+| After | GET the dataset's `eval_cases`; then lifted, Try again | "cases not read" and the error with Try again; then "2 cases" |
+| After | DELETE a case, confirmed | "The case was not deleted · R186 injected: the DELETE did not reach the database"; "2 cases" |
+| After | DELETE the dataset, confirmed | "\"r186 evals\" was not deleted · R186 injected: …"; the dataset listed |
+| After | GET `eval_cases?select=id` as run 3 started; then lifted, Run remaining | "The run could not carry on · Its cases could not be read: …" and "No case is executing now. Run remaining carries on."; then 2/2, 100% |
+
 ## 2026-09-30 — A materialized view's failed rebuild, ADVERSARIAL_LOG R185
 
 **Why this round exists.** Phase B's third item: R101's hover-only failure.
