@@ -1069,7 +1069,13 @@ over the lakehouse). Open from that round, the rest of Row Zero's connected tabl
   nine agents the page could not read. A list surface has four states, not
   two; the pure `listState` in `lib/listState` names them, and an error is
   ahead of empty. The client-side survey that found it (55 error-less reads
-  in 25 files) still has: the playground (12 reads), swarms (6). The node
+  in 25 files) still has: the playground (12 reads), and of swarms the
+  canvas's published snapshot (`refreshPublished`, which hides the "draft
+  ahead" warning), the palette's and the component library's component
+  reads, and the versions dialog. The deploy dialog's three are R188: a
+  failed schedules read said "No schedules yet." with Add on, the one
+  invitation in this survey that turns into a duplicate write (the swarm
+  run twice per tick), and a live swarm read "Not deployed". The node
   inspector's are R187 (six reads in one effect, the survey counted four):
   the worst was not the invitation to upload a first CSV but the node's
   own restriction vanishing with the list, so a picker that cannot read

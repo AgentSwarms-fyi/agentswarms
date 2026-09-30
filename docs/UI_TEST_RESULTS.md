@@ -15,6 +15,21 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-30 — The deploy dialog under refusal, ADVERSARIAL_LOG R188
+
+**Why this round exists.** Phase C's third item: the swarms batch, starting with the deploy dialog.
+Before it, R183 to R187 went into a real image, smoked below.
+
+Fixtures: none new.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Smoke, real image `498ec3b7ec48` (R183–R187) | ETL Pipelines; Workflows; Evaluations; Lakehouse → Publish to Iceberg `stg_revenue` → `r181` / `smoke_498ec3b7`, Refuse | five "changed since this run" marks, `r183_chip` unmarked; `r184_badge · changed since this run · failed`; the r186 dataset and runs; `Published 836 row(s) to r181.smoke_498ec3b7` |
+| Before (same image) | "Approval durability check" → Deploy | "Published · pinned 9/23/2026, 1:37:47 AM"; Schedules: "R95 heartbeat", "R92 one-run probe", "R91 park probe (after)", … |
+| Before | the same, GET `swarm_schedules` refused | "Not deployed · No API keys or schedules yet."; Schedules: "No schedules yet.", Add enabled |
+| After (hot deploy) | the same refusal | "Deployment not read · What this swarm has deployed could not be read, so this panel says nothing about it."; Schedules: "The schedules could not be read, so this list says nothing about them: R188 injected: the GET did not reach the database. Adding one is off until they can be: an existing schedule would run the swarm twice.", Add disabled |
+| After | lifted, reopened | "Published · pinned 9/23/2026, 1:37:47 AM" |
+
 ## 2026-09-30 — The node inspector's pickers under refusal, ADVERSARIAL_LOG R187
 
 **Why this round exists.** Phase C's second item: the swarm node inspector's reads. Driven on

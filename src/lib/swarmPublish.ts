@@ -129,7 +129,12 @@ export type DeployState =
   /** Deployed before publishing existed — serving the live draft. */
   | "unpinned"
   /** Not deployed at all. */
-  | "not-deployed";
+  | "not-deployed"
+  /**
+   * What is deployed could not be read (R188): the keys, the schedules or the
+   * swarm's own row. Nothing can be said, and "Not deployed" would be a guess.
+   */
+  | "unknown";
 
 export function deployState(s: PublishableSwarm, deployed: boolean): DeployState {
   if (!deployed) return "not-deployed";
@@ -159,6 +164,12 @@ export function deployStateCopy(state: DeployState): { label: string; detail: st
         label: "Serving the live canvas",
         detail:
           "Every save reaches this swarm's API keys and schedules immediately, including half-finished edits. Publish to pin a version.",
+      };
+    case "unknown":
+      return {
+        label: "Deployment not read",
+        detail:
+          "What this swarm has deployed could not be read, so this panel says nothing about it. Close and reopen to try again.",
       };
     default:
       return { label: "Not deployed", detail: "No API keys or schedules yet." };

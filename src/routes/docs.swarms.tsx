@@ -736,7 +736,11 @@ input ──▶ split ┼──▶ legal analysis ─────┼──▶ me
         current graph, and after that your saves stay private until you press{" "}
         <strong>Publish</strong> — so you can rewrite a prompt at 3am without changing what a live
         integration receives. The Deploy dialog shows <em>Draft ahead</em> whenever the canvas has
-        moved on, and <DocLink to="/docs/api">API &amp; webhooks</DocLink> covers the states.
+        moved on, and <DocLink to="/docs/api">API &amp; webhooks</DocLink> covers the states. When
+        the dialog cannot read the swarm&apos;s keys, schedules or published snapshot it says{" "}
+        <em>Deployment not read</em> rather than guessing, each list names its error, and adding a
+        schedule is off until the schedules can be read, since a second copy of an existing one
+        would run the swarm twice.
       </P>
 
       <H2 id="components">Custom components</H2>

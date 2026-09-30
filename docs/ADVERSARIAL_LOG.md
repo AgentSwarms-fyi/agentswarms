@@ -109,6 +109,39 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-30 — A live swarm read "Not deployed", with Add schedule on
+
+Tests: `tests/unit/swarmDeployReads.test.ts` (5 tests). The mutation run caught 10 of 10, and the
+control survived.
+
+#### R188 · S2 · "No schedules yet.", beside a form that adds the schedule again
+
+**Found** as Phase C's third item, the client read survey's swarms batch, starting with the
+deploy dialog: it reads the swarm's API keys, its schedules and its own row (the published
+snapshot), and dropped all three errors. Driven on the real image `498ec3b7ec48`, on "Approval
+durability check" (published, pinned 9/23/2026, 1:37:47 AM; schedules "R95 heartbeat", "R92
+one-run probe", "R91 park probe (after)" and more):
+- The dialog normally: "Published · pinned 9/23/2026, 1:37:47 AM"; the Schedules tab lists them.
+- The schedules read refused from the browser, the dialog reopened: "Not deployed · No API keys or
+  schedules yet."; the Schedules tab "No schedules yet." with Add enabled.
+
+Two things are wrong at once. The state is computed from `keys.length > 0 || schedules.length >
+0`, so any list that failed to load made a live, pinned swarm read "Not deployed". And the
+schedules list invites the one action that does damage: a schedule added again runs the swarm a
+second time on every tick, each run paying for its models.
+
+**The fix** (`components/swarms/SwarmDeployDialog.tsx`, `lib/swarmPublish.ts`). Each read keeps
+its error, and a list whose read failed is shown empty only behind its error. The deployment state
+gains `unknown`, "Deployment not read · What this swarm has deployed could not be read, so this
+panel says nothing about it.", used whenever any of the three reads failed. The keys and schedules
+say "… could not be read, so this list says nothing about them: …" in place of "No … yet.", and
+Add is off while the schedules are unread, saying why.
+
+**Driven after.** The same refusal: "Deployment not read"; the Schedules tab "The schedules could
+not be read, so this list says nothing about them: R188 injected: the GET did not reach the
+database. Adding one is off until they can be: an existing schedule would run the swarm twice.",
+Add disabled. Lifted and reopened: "Published · pinned 9/23/2026, 1:37:47 AM".
+
 ### 2026-09-30 — A node restricted to one table, shown as having no tables at all
 
 Tests: `tests/unit/nodeInspectorReads.test.ts` (5 tests). The mutation run caught 13 of 13, and
