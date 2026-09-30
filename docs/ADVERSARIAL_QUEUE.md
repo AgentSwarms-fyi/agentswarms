@@ -200,8 +200,8 @@ Closed with formatting: R115 (the keyboard fell to the page after a
 context-menu action), R116 (a stray Enter blanked a cell), R117 (every
 prompt in the app opened on Cancel). Open from that round:
 
-- **Inserted rows and columns take no formats:** Excel formats an inserted
-  row like the one above it; here it arrives plain.
+- ~~Inserted rows and columns take no formats.~~ Closed by R169: rows as the row above, columns
+  as the one to the left, Insert cells as its neighbours. No Insert Options button yet.
 - **An in-workbook link does not follow a sheet rename** (`#Sheet1!B6` after
   Sheet1 became Summary). Excel does not either, but a formula does; worth a
   look once links are common.

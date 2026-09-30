@@ -20,6 +20,7 @@ import {
 import type { CellInput, GridData } from "./engine";
 import { lex, type RefPart, type Token } from "./formula/lexer";
 import { renameSheetInFormula, shiftFormula } from "./formula/shift";
+import { formatInserted } from "./insertFormats";
 import { shiftIndex, shiftIndexList, shiftIndexRecord } from "./layout";
 import { shiftMerges, shiftSpan } from "./merge";
 import { seriesOf } from "./series";
@@ -168,6 +169,8 @@ export function moveCells(grid: GridData, axis: Axis, at: number, count: number)
     if (nr >= MAX_ROWS || nc >= MAX_COLS) continue;
     cells[cellKey(nr, nc)] = v;
   }
+  // New rows are formatted like the row above, new columns like the one to the left (R169).
+  formatInserted(cells, axis === "rows", at, count);
   const next: GridData = { ...grid, cells };
   if (axis === "cols") {
     if (grid.colWidths) next.colWidths = shiftIndexRecord(grid.colWidths, at, count);

@@ -18,6 +18,7 @@ import {
 } from "./a1";
 import type { CellInput, GridData } from "./engine";
 import { lex, type RefPart, type Token } from "./formula/lexer";
+import { formatInserted } from "./insertFormats";
 import { parseMerges } from "./merge";
 
 export type ShiftDir = "right" | "down" | "left" | "up";
@@ -96,6 +97,8 @@ export function shiftCellsGrid(grid: GridData, r: RangeAddr, dir: ShiftDir): Gri
     if (along === null) continue; // deleted
     cells[m.sideways ? cellKey(row, along) : cellKey(along, col)] = v;
   }
+  // The new cells are formatted like the ones above them (or to their left), as Excel's (R169).
+  formatInserted(cells, !m.sideways, m.at, m.count, m.lo, m.hi);
   const moveRange = (a1Text: string): string | null => {
     const x = parseRangeA1(a1Text.replace(/\$/g, ""));
     if (!x) return a1Text;

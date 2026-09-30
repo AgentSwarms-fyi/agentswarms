@@ -15,6 +15,21 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-30 — Inserted rows take their neighbours' formats, ADVERSARIAL_LOG R169
+
+**Why this round exists.** Open in the queue since R117: an inserted row arrived plain.
+
+Fixtures, kept: **"R169 insert before"** (`ad2aecff…`) and **"R169 insert after"** (`fa832199…`),
+each imported from `openpyxl-insert.xlsx` through the gallery's Import: A1:B1 `Item`/`Price` bold
+on blue; A2 `Pens`, B2 `$10.00` with a thin bottom border; A3 `Ink`, B3 `$4.00`. Then row 2's
+header menu → Insert 1 row below, and `12.5` typed in the new B3; then B2's menu → Insert cells… →
+Shift cells down.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before | The row, the typing, Insert cells | The new B3 plain: `12.5` in General with no border, between $10.00 and $4.00. After Insert cells, the new B2 plain under the bold blue B1 |
+| After | The same, then a reload | The new B3 `$12.50` (Currency) with B2's bottom border. After Insert cells, the new B2 blue like B1, A2 `Pens` beside it still plain, and $10.00, $12.50, $4.00 moved down; the same after the reload |
+
 ## 2026-09-30 — A formula's format from what it reads, ADVERSARIAL_LOG R168
 
 **Why this round exists.** Filed in R166: `=B1+1` over a date showed a serial number.

@@ -180,7 +180,11 @@ anything else repeats, as Excel's AutoFill does:
 
 The right-click menu inserts and deletes rows and columns. Every formula in the workbook that
 pointed at the moved cells follows them, and one that pointed into deleted cells shows `#REF!`.
-Merged cells, row heights and hidden rows and columns move with them. Renaming a sheet rewrites
+Merged cells, row heights and hidden rows and columns move with them. New rows take the formats
+of the row above, and new columns those of the column to the left, as Excel's default Insert Options
+("Format Same As Above"): a row inserted into a table of dollars is dollars, with its borders and
+fill. At the top edge, with no row above, they take the row below's (the column to the right's at
+the left edge). Only formats come across, never values, notes or links. Renaming a sheet rewrites
 the formulas that name it, in cells and in rules alike: a validation list over `=Lists!$A$2:$A$9`,
 or a conditional format's formula, follows the new name. Right-click a row or column header for its
 own menu: hide and unhide,
@@ -208,7 +212,8 @@ columns) that move, so `=SUM(A2:E2)` grows with a cell inserted into row 2, whil
 stays. Rules, validations and charts over such a range move the same way, and the formulas inside
 rules follow moved cells as cell formulas do: a list over `=$E$1:$E$3` still lists the same three
 cells after they shift down. A merged cell that the shift would cut in two is refused, with a note
-to unmerge it first.
+to unmerge it first. The new cells take the formats of the cells above them (shifted down) or to
+their left (shifted right), and cells beside the block keep their own.
 
 The status bar shows the Average, Count and Sum of the selection, and the zoom (**−**, the level,
 **+**). The zoom is remembered per sheet in your browser.

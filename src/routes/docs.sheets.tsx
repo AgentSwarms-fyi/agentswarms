@@ -167,10 +167,11 @@ function SheetsDocsPage() {
         </li>
         <li>
           <strong>Rows and columns.</strong> Inserting or deleting them moves every formula that
-          pointed at them, workbook-wide, and merged cells and row heights with them; renaming a
-          sheet rewrites the formulas that name it, in cells and in rules. A header&apos;s
-          right-click menu hides and unhides, and sets a row height in points or a column width in
-          characters.
+          pointed at them, workbook-wide, and merged cells and row heights with them. New rows are
+          formatted like the row above and new columns like the one to the left, as Excel&apos;s
+          are; renaming a sheet rewrites the formulas that name it, in cells and in rules. A
+          header&apos;s right-click menu hides and unhides, and sets a row height in points or a
+          column width in characters.
         </li>
         <li>
           <strong>Formatting.</strong> The ribbon&apos;s Home tab sets fonts and sizes, bold,

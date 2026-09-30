@@ -109,6 +109,31 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-30 — Inserted rows and columns take their neighbours' formats
+
+Tests: `tests/unit/sheetsInsertFormats.test.ts` (10 tests). The mutation run caught 11 of 11, and
+the control survived. One mutant was left out as equivalent: with a deletion's negative count the
+copying loop never runs, so its early return only saves the pass over the cells.
+
+#### R169 · S3 · A row inserted into a formatted table arrived plain
+
+**Found** from the queue (open since R117), then driven in "R169 insert before", imported from an
+openpyxl file: a header row bold on blue, B2:B3 dollars with a border under B2. Insert 1 row below
+row 2, and type 12.5 in the new B3.
+- The new row was plain: 12.5 showed as 12.5 beside $10.00 and $4.00, with no border. Excel's
+  default Insert Options format a new row like the one above it.
+- Insert cells (shift down) left the new cell plain in the same way.
+
+**The fix** (`lib/sheets/insertFormats.ts`, called by both shifts). New rows take the number format
+and style of the row above; new columns, of the column to the left; at the top or left edge, of the
+row below or the column to the right. Insert cells formats the new cells from the cells above (shift
+down) or to the left (shift right), within the block's own columns or rows. A value, a note, a link
+and a saved value never come across, and each new cell gets its own copy of the style.
+
+**Not changed, on purpose.** Row heights and merges do not come across, and there is no Insert
+Options button to choose "Same As Below" or "Clear Formatting" after the fact; Ctrl+Z and Clear
+formats do that.
+
 ### 2026-09-30 — A formula's format from what it reads
 
 Tests: `tests/unit/sheetsFormulaFormat.test.ts` (6 tests). The mutation run caught 10 of 10, and
