@@ -15,6 +15,28 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-30 — A swarm chat turn bound to its conversation, ADVERSARIAL_LOG R180
+
+**Why this round exists.** Phase A's third item: the aborted turn R109 left open.
+
+Fixtures, kept: in "Embed E2E Mini Swarm" (`d51abd6f`), the conversations the before-round made
+(A "R180 turn one", its two copies, and C, overwritten) and the after-round's.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before (hot deploy of R179) | Chat → "R180 turn one: name one planet in a single word." | a reply; one conversation, A |
+| Before | In A, "R180 turn two: and one moon?", New chat 1 s later | two conversations titled "R180 turn one: …", the new one highlighted, over "Start the conversation below." and "Run failed: signal is aborted without reason" |
+| Before | From that screen, "R180 in a new chat: name one star." | a reply; still two conversations, the copy retitled "R180 in a new chat: …"; A holds turn one and its reply only |
+| Before | `/api/chat` made to ignore the abort signal in the browser; in A, "R180 turn three: and one comet?", then C ("R180 in a new chat") 1 s later | C opens with its two messages; 11 s later C's title reads "R180 turn one: …" and "Run failed: Run aborted" shows over C; C reopened holds A's turn one, A's reply and "R180 turn three" |
+| Before | In A, "R180 turn four: and one asteroid?", the dialog closed 1 s later and reopened | a third "R180 turn one: …" conversation, highlighted, over an empty screen and "Run failed: signal is aborted without reason" |
+| After (image `817a8048bbf0`, with R178 and R179) | New chat → "R180 after one: name one river in a single word." | a reply; a fourth conversation, A2, highlighted |
+| After | In A2, "R180 after two: and one lake?", New chat 1 s later | still four conversations, none highlighted; "Start the conversation below." and no error |
+| After | From that screen, "R180 after new: name one mountain in a single word." | a reply, and a new conversation B2: five in the list; A2 opened holds "after one", its reply and "R180 after two: and one lake?", the aborted turn kept for a retry |
+| After | `/api/chat` made to ignore the abort signal; in A2, "R180 after three: and one sea?", then B2 1 s later | B2 opens with its two messages; 12 s later A2 has moved to the top of the list (saved), B2 is still highlighted with its own title, and no error shows; reopened, B2 holds its two messages and A2 ends with "R180 after three: and one sea?" |
+| After | In A2, "R180 after four: and one ocean?", the dialog closed 1 s later and reopened | A2 highlighted, "R180 after four" and "Running Researcher…" with Stop; the reply lands in A2 12 s later; still five conversations |
+| After | The conversation read made to fail in the browser; in A2, "R180 after five: and one bay?", then B2 1 s later | the toast "Could not open that conversation · R180 injected: the conversation read failed. You are still in the conversation you had open."; the turn goes on ("Running Researcher…", Stop) and its reply lands in A2; A2 reopened holds all five turns in order |
+| Smoke, same image | SQL Models → Build all; Swarms → Recent runs | `partial`: `r178_after failed` with R178's refusal, the other four built; the header of R179 and a Cancel on each of the 34 parked rows |
+
 ## 2026-09-30 — A parked swarm run cancelled from Recent runs, ADVERSARIAL_LOG R179
 
 **Why this round exists.** Phase A's second item: the cancel R108 left open.

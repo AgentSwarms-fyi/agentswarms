@@ -109,6 +109,53 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-30 — A swarm chat turn saved into the conversation on screen, not its own
+
+Tests: `tests/unit/swarmChatTurnBinding.test.ts` (6 tests). The mutation run caught 15 of 15, and
+the control survived.
+
+#### R180 · S1 · Switching conversations mid-turn wrote one conversation over another
+
+**Found** as Phase A's third item, left open by R109's entry in the queue: "the aborted turn's save
+follows whichever conversation is selected when it lands". Driven on the hot deploy of R179, in
+Chat on "Embed E2E Mini Swarm" (Researcher → Editor):
+- "R180 turn one: name one planet in a single word." → a reply; the list holds one conversation,
+  A.
+- In A, "R180 turn two: and one moon?", and New chat a second later. The list then held two
+  conversations titled "R180 turn one: …", the new one highlighted, over an empty screen that
+  said "Run failed: signal is aborted without reason". The aborted turn had inserted a copy of A
+  with turn two in it, and bound the empty screen to that copy.
+- From that screen, "R180 in a new chat: name one star." → a reply, and still two conversations:
+  the send wrote over the copy. Turn two was then nowhere; A held turn one and its reply.
+- Reopening does the same. In A, "R180 turn four: and one asteroid?", the dialog closed a second
+  later and reopened: a third "R180 turn one: …" conversation, highlighted over an empty screen
+  with the same error. The comment above the dialog's effect said a turn survives closing and
+  "reopening shows the reply"; reopening aborted it.
+- Switching is the one that loses data. A turn inside a call that takes no abort signal runs on
+  after the switch: an HTTP, tool or retrieve node calls a server function, and the run notices
+  the abort only between nodes. To hold the turn inside such a call, the browser's `/api/chat`
+  request was made to ignore the signal. In A, "R180 turn three: and one comet?", then the
+  conversation "R180 in a new chat" (C) a second later: C opened with its own two messages. Ten
+  seconds later C's list title read "R180 turn one: …", and C, reopened, held A's turn one, A's
+  reply and "R180 turn three". C's own exchange was gone.
+
+The turn saved with `chatIdRef.current`, the conversation on screen when it ended, and it reset
+`running`, the live text and the Stop button's controller of whatever screen was there then.
+
+**The fix** (`components/swarms/SwarmChatDialog.tsx`). The screen has a number that goes up
+whenever the conversation on it changes: New chat, a switch, a reopen that starts afresh. A turn
+takes that number, its conversation's id and its swarm when it starts. If the number has moved by
+the time it ends, it saves into its own conversation (the user's message alone if it failed, with
+the reply if it finished) and changes nothing on screen; a save that fails there is a toast naming
+the conversation. A switch aborts the turn only after the conversation to go to has been read, so
+a switch whose read fails (R109's "You are still in the conversation you had open") no longer
+kills the turn it leaves you with. Reopening the dialog while this swarm's turn is running shows
+that turn instead of aborting it.
+
+**Not changed.** Leaving a conversation still ends its turn; closing the dialog still does not.
+A turn in a call that takes no abort signal still runs to the end of that call before it stops,
+and it bills that call.
+
 ### 2026-09-30 — A run parked at an approval could not be cancelled
 
 Tests: `tests/unit/swarmParkedCancel.test.ts` (8 tests), with `tests/unit/recentRunsParked.test.ts`

@@ -917,10 +917,14 @@ over the lakehouse). Open from that round, the rest of Row Zero's connected tabl
   because they reload the list; the list was all they reloaded. Look for
   a read of a whole document (`maybeSingle()`, `single()`) whose error is
   dropped AND whose id survives into a later update: the save that
-  follows writes a blank over the original. Still open in the dialog:
-  leaving a conversation mid-turn aborts the turn, and the aborted turn's
-  save follows whichever conversation is selected when it lands. That
-  should be bound to the conversation the turn was sent in.
+  follows writes a blank over the original. R180 bound the aborted turn's
+  save to the conversation it was sent in: it had followed the selection,
+  inserting a copy of the conversation after New chat or a reopen, and
+  writing one conversation over another after a switch. The general
+  shape: work that outlives its screen must carry the ids it started
+  with, and must not write the screen's state when it lands. Look for
+  an async handler that reads a ref (`someRef.current`) after an
+  `await`, where the ref can change while it waits.
 - A reader's fallback is a status word too (R108): Recent runs showed any
   status it did not know as "Running", and `suspended`, written since the
   checkpoint work, was one. A parked run read Running for nineteen hours,

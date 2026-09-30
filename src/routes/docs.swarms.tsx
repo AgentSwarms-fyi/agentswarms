@@ -701,6 +701,12 @@ input ──▶ split ┼──▶ legal analysis ─────┼──▶ me
           to decide a run that is over, and a decision made afterwards does not resume it.
         </li>
         <li>
+          <strong>Chat</strong> — a multi-turn conversation with the swarm, saved as you go. A turn
+          belongs to the conversation it was sent in: New chat, or opening another conversation,
+          stops it and saves what it had there. Closing the dialog lets it finish, and reopening
+          shows it.
+        </li>
+        <li>
           <strong>Traces</strong> — per-node steps with prompts, tool calls, tokens and cost.
           Headless runs — the deployed API, schedules, evals — record the same tool calls a canvas
           run does, and a tool node records its own call and result. See{" "}

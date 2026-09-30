@@ -46,6 +46,17 @@ function deriveTitle(msgs: ChatMsg[]): string {
   return t.length > 48 ? t.slice(0, 48) + "…" : t || "New chat";
 }
 
+// Carry user-defined flow-state forward: drop the turn's input and the
+// per-node auto outputs (out_<id>), keep named variables.
+function carriedFrom(finalState: Record<string, string>): Record<string, string> {
+  const carry: Record<string, string> = {};
+  for (const [k, v] of Object.entries(finalState)) {
+    if (k === "input" || k.startsWith("out_")) continue;
+    carry[k] = v;
+  }
+  return carry;
+}
+
 export function SwarmChatDialog({
   swarmId,
   swarmName,
@@ -80,6 +91,18 @@ export function SwarmChatDialog({
   // Mirror of activeChatId updated synchronously so a fast second send can't
   // race a not-yet-committed insert and create a duplicate chat row.
   const chatIdRef = useRef<string | null>(null);
+  // FOUND IN R180. A turn saved into whichever conversation was on screen
+  // when it ended. Leaving mid-turn aborts it, and the aborted turn's save
+  // followed the new selection: after New chat, or a reopen, it inserted a
+  // copy of the old conversation and bound the empty screen to that copy;
+  // after a switch, a turn still inside a call that takes no abort signal (an
+  // HTTP, tool or retrieve node) saved its conversation over the one opened.
+  // This number goes up whenever the conversation on screen changes; a turn
+  // whose screen has gone saves into its own conversation and changes nothing
+  // here.
+  const screenRef = useRef(0);
+  // The swarm the running turn belongs to, so a reopen returns only to its own.
+  const turnSwarmRef = useRef<string | null>(null);
 
   const nodeLabel = useMemo(() => {
     const m = new Map<string, string>();
@@ -104,6 +127,8 @@ export function SwarmChatDialog({
 
   const newChat = useCallback(() => {
     abortRef.current?.abort();
+    abortRef.current = null;
+    screenRef.current += 1;
     chatIdRef.current = null;
     setActiveChatId(null);
     setMessages([]);
@@ -117,7 +142,9 @@ export function SwarmChatDialog({
   useEffect(() => {
     if (open && swarmId) {
       void loadChats();
-      newChat();
+      // Reopened while this swarm's turn is still running: show that turn, as
+      // closing promises below, rather than abort it for an empty chat (R180).
+      if (!(abortRef.current && turnSwarmRef.current === swarmId)) newChat();
     }
     // CLOSING THE DIALOG NO LONGER KILLS THE TURN.
     //
@@ -134,8 +161,9 @@ export function SwarmChatDialog({
     // cause rather than the approval plumbing.
     //
     // A run in flight now survives the dialog being closed and persists its
-    // result when it finishes, so reopening shows the reply. Cancelling is
-    // still available and still explicit — that is what the Stop button is for.
+    // result when it finishes, so reopening shows the reply, or the turn still
+    // running (R180: the reopen used to abort it). Cancelling is still
+    // available and still explicit — that is what the Stop button is for.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, swarmId]);
 
@@ -152,7 +180,6 @@ export function SwarmChatDialog({
   }, [messages, liveText, running]);
 
   const selectChat = async (id: string) => {
-    abortRef.current?.abort();
     const opened = await openChat(supabase, id);
     // FOUND IN R109. A failed read used to select the conversation anyway,
     // over an empty thread, and the next message saved over the stored
@@ -169,6 +196,11 @@ export function SwarmChatDialog({
       if (opened.gone) void loadChats();
       return;
     }
+    // Leaving mid-turn ends the turn, once the conversation to go to has been
+    // read: a switch that failed leaves you, and your turn, where you were.
+    abortRef.current?.abort();
+    abortRef.current = null;
+    screenRef.current += 1;
     chatIdRef.current = id;
     setActiveChatId(id);
     setMessages(opened.messages);
@@ -220,6 +252,30 @@ export function SwarmChatDialog({
     [user, swarmId, loadChats],
   );
 
+  // A turn whose conversation is no longer on screen: saved into its own
+  // conversation, with nothing on screen changed (R180).
+  const saveAway = async (
+    chatId: string | null,
+    msgs: ChatMsg[],
+    state: Record<string, string>,
+  ): Promise<void> => {
+    if (!user || !swarmId) return;
+    const saved = await saveChat(supabase, {
+      chatId,
+      userId: user.id,
+      swarmId,
+      messages: msgs,
+      state,
+      title: deriveTitle(msgs),
+    });
+    void loadChats();
+    if (!saved.ok) {
+      toast.error(`“${deriveTitle(msgs)}” was not saved`, {
+        description: asSentence(saved.error),
+      });
+    }
+  };
+
   const send = async () => {
     const text = input.trim();
     if (!text || running || !swarmId) return;
@@ -238,6 +294,9 @@ export function SwarmChatDialog({
 
     const controller = new AbortController();
     abortRef.current = controller;
+    const screen = screenRef.current;
+    const turnChatId = chatIdRef.current;
+    turnSwarmRef.current = swarmId;
 
     let tokenNode = "";
     let live = "";
@@ -282,6 +341,20 @@ export function SwarmChatDialog({
       failure = err instanceof Error ? err.message : String(err);
     }
 
+    if (screenRef.current !== screen) {
+      const reply: ChatMsg = {
+        role: "assistant",
+        content: finalOut || "_(no output)_",
+        ts: Date.now(),
+      };
+      await saveAway(
+        turnChatId,
+        failure ? withUser : [...withUser, reply],
+        failure ? carriedState : carriedFrom(finalSt),
+      );
+      return;
+    }
+
     setRunning(false);
     setRunningNode(null);
     setLiveText("");
@@ -301,13 +374,7 @@ export function SwarmChatDialog({
     const committed = [...withUser, assistantMsg];
     setMessages(committed);
 
-    // Carry user-defined flow-state forward: drop the turn's input and the
-    // per-node auto outputs (out_<id>), keep named variables.
-    const carry: Record<string, string> = {};
-    for (const [k, v] of Object.entries(finalSt)) {
-      if (k === "input" || k.startsWith("out_")) continue;
-      carry[k] = v;
-    }
+    const carry = carriedFrom(finalSt);
     setCarriedState(carry);
     await persist(committed, carry);
   };
