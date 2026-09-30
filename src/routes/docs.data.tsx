@@ -881,7 +881,10 @@ ORDER  BY 1;`}</Code>
         &ldquo;what percentage of total sales does each region account for?&rdquo; could return a
         different answer in the workspace than on a schedule — and did so <em>silently</em>: a
         running total came back as zero for every row rather than erroring. Window functions, CTEs
-        and correlated subqueries all work now, and they behave identically wherever they run.
+        and correlated subqueries all work now, and they behave identically wherever they run. Every
+        engine also runs in <strong>UTC</strong>, whatever your browser&apos;s or the server&apos;s
+        time zone, so <code>current_date</code> and a timestamp cast to a date name the same day in
+        the workbench as on a schedule.
       </Callout>
       <H3 id="workbench-first-query">The first query in a session is slower</H3>
       <P>

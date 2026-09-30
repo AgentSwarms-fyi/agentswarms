@@ -109,6 +109,54 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-01 — One query, two engines, two days
+
+Tests: `tests/unit/engineTimeZone.test.ts` (4 tests). The mutation run caught 5 of 5, and the
+control survived.
+
+#### R195 · S2 · "today" was tomorrow in the Workbench and today on a schedule
+
+**Found** as sweep 4's second round. Local datasets run on DuckDB in two places: in the browser
+(WebAssembly) for the Workbench and Ask AI, and on the server for scheduled refreshes, prep flows,
+the semantic runner and the agents' `sql_query`. The Data Catalog Workbench offers both engines in
+one editor. At 01:40 in a UTC+4 browser (21:40 UTC), one query:
+
+```sql
+SELECT current_setting('TimeZone') AS tz, current_date AS today,
+       CAST(TIMESTAMPTZ '2026-09-30 22:30:00+00' AS DATE) AS order_day, DATE '2026-09-30' AS plain_date
+```
+
+- "Local (in-browser)": `Etc/GMT-4 | 1790812800000 | 1790812800000 | 1790726400000`, that is,
+  today and the order's day both **2026-10-01**.
+- "Lakehouse · AgentSwarms": `Etc/UTC | 2026-09-30 | 2026-09-30 | 2026-09-30`.
+
+The browser engine takes the viewer's zone (ICU reads it from the browser), and the server engines
+take the container's. A "today" or "orders per day" tile therefore counted different rows in the
+Workbench than in its scheduled refresh. An agent answering from the same data named a different day
+from the one the person had just seen.
+
+**The fix** (`lib/duckdbValues.ts`, `lib/browserDuckdb.ts`, `utils/data/duckdb.server.ts`,
+`utils/lakehouse/core.server.ts`):
+- **One constant,** `ENGINE_TIME_ZONE = "UTC"`.
+- **The browser engine** sets it on its connection before it reports ready.
+- **The local-dataset engine** sets it globally before its configuration is locked.
+- **The lakehouse engine** sets it globally when the instance starts.
+
+The server's two engines were already UTC, but only because their container was: an operator who
+set `TZ` would have split them again. None of these settings is fatal, since an engine without ICU
+has no zone setting and runs in UTC anyway. The test runs the local-dataset engine with `TZ` set
+to `Asia/Dubai` before it starts.
+
+**Driven after** (hot deploy of R195). The same editor and a similar query gave
+`UTC | 1790726400000 | 1790726400000 | 2026-09-30 22:30` in the browser and
+`UTC | 2026-09-30 | 2026-09-30 | 2026-09-30 22:30` on the lakehouse. The lakehouse now reports
+`UTC` rather than `Etc/UTC`, which shows the explicit pin is live. The days agree.
+
+**What is still different,** for R196: the browser writes a DATE as epoch milliseconds
+(`1790726400000`) where the server writes `2026-09-30`. The two formats reach the charts
+differently: V8 reads the server's naive `2026-09-30 22:30:00` as local time, and the browser's
+epoch as UTC.
+
 ### 2026-10-01 — Prompt Compare: "Est. cost —" while the server sent the cost
 
 Tests: `tests/unit/promptCompareCost.test.ts` (4 tests), with `tests/unit/chatStream.test.ts`. The

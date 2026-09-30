@@ -42,7 +42,7 @@
 // merely loads a page that could run one.
 import type * as duckdb from "@duckdb/duckdb-wasm";
 
-import { toJsValue } from "@/lib/duckdbValues";
+import { ENGINE_TIME_ZONE, toJsValue } from "@/lib/duckdbValues";
 import { assertLocalReadOnlySql } from "@/lib/sqlSafety";
 import type { ColumnDef } from "@/lib/datasetParse";
 
@@ -181,6 +181,14 @@ function init(): Promise<Handle> {
       });
     });
     const conn = await db.connect();
+    // FOUND IN R195: this engine took the viewer's time zone (ICU reads it
+    // from the browser: "Etc/GMT-4" here) while the server engine runs in UTC.
+    // So `current_date`, `now()` and anything cast through TIMESTAMPTZ landed
+    // on a different day in the Workbench than in a scheduled refresh or an
+    // agent's sql_query over the same data — one query, two answers. Both run
+    // in UTC now. Without ICU there is no setting to change and TIMESTAMPTZ
+    // is already UTC, so a failure here is not an error.
+    await conn.query(`SET TimeZone = '${ENGINE_TIME_ZONE}'`).catch(() => undefined);
     setStatus({ phase: "ready" });
     return { db, conn, worker };
   })();

@@ -12,6 +12,18 @@
 // browser code would drag node bindings into the client bundle.
 
 /**
+ * The time zone every DuckDB engine in the app runs in (R195).
+ *
+ * The browser engine took the viewer's zone and the server engines took the
+ * container's, so `current_date` and a TIMESTAMPTZ cast to DATE came back a
+ * day apart in the Workbench and in a scheduled refresh over the same data.
+ * Every engine sets this when it starts: the browser engine and the local
+ * dataset engine (`utils/data/duckdb.server`) and the lakehouse engine
+ * (`utils/lakehouse/core.server`).
+ */
+export const ENGINE_TIME_ZONE = "UTC";
+
+/**
  * Convert a DuckDB value into something JSON-serialisable.
  *
  * This is not cosmetic. COUNT(*) comes back as a BigInt, which JSON.stringify

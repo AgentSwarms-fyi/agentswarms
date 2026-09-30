@@ -40,6 +40,7 @@ import {
 } from "@/utils/lakehouse/sqlRefs";
 
 import type { DuckDBConnection, DuckDBInstance } from "@duckdb/node-api";
+import { ENGINE_TIME_ZONE } from "@/lib/duckdbValues";
 import { usesAiSqlFunctions } from "@/utils/aiSql/core";
 import { runWithAiSql, type AiSqlStats } from "@/utils/aiSql/run.server";
 
@@ -111,6 +112,10 @@ async function createEngine(cfg: LakehouseConfig): Promise<DuckDBInstance> {
     threads: String(Math.max(1, resources.lakehouseThreads)),
   });
   const c = await instance.connect();
+  // The same zone as the browser engine, for every connection on this
+  // instance, so a day computed here is the day the Workbench shows (R195).
+  // Not fatal: without ICU there is no TimeZone setting and it is UTC anyway.
+  await c.run(`SET GLOBAL TimeZone='${ENGINE_TIME_ZONE}'`).catch(() => undefined);
   try {
     await c.run("INSTALL ducklake; INSTALL postgres; INSTALL httpfs; INSTALL azure;");
     // Iceberg (and avro, which it needs) are installed HERE, before httpfs

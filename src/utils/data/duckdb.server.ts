@@ -24,7 +24,7 @@
 //     JSON.stringify throws or renders "[object Object]". See toJsValue.
 
 import { assertLocalReadOnlySql } from "@/lib/sqlSafety";
-import { toJsValue } from "@/lib/duckdbValues";
+import { ENGINE_TIME_ZONE, toJsValue } from "@/lib/duckdbValues";
 import type { ColumnDef } from "@/lib/datasetParse";
 
 export type DuckRow = Record<string, unknown>;
@@ -144,6 +144,10 @@ async function configureSandbox(
     const dir = cacheDir().split("\\").join("/").replace(/'/g, "''");
     await conn.run(`SET allowed_directories=['${dir}']`);
     await conn.run("SET enable_external_access=false");
+    // Before the lock, like the rest. The same zone as the browser engine, so
+    // a day computed here is the day the Workbench shows (R195). Not fatal:
+    // an engine without ICU has no TimeZone setting and is already UTC.
+    await conn.run(`SET GLOBAL TimeZone='${ENGINE_TIME_ZONE}'`).catch(() => undefined);
     await conn.run("SET lock_configuration=true");
   } finally {
     conn.closeSync();

@@ -15,6 +15,22 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-01 — The browser and server SQL engines on one query, ADVERSARIAL_LOG R195
+
+**Why this round exists.** Sweep 4, "two surfaces, two answers": the Data Catalog Workbench runs
+one editor against both engines. The browser was at UTC+4, 01:40 local (21:40 UTC).
+
+Fixtures: none.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before (hot deploy of R194) | Lakehouse page: `SELECT current_setting('TimeZone'), strftime(TIMESTAMPTZ '2026-09-30 22:30:00+00', '%Y-%m-%d %H:%M'), date_trunc('day', …), CAST(… AS DATE)` | `Etc/UTC \| 2026-09-30 22:30 \| 2026-09-30 00:00:00+00 \| 2026-09-30` |
+| Before | Workbench, Local (in-browser), the same | `Etc/GMT-4 \| 2026-10-01 02:30 \| 1790798400000 \| 1790812800000` |
+| Before | Workbench, tz / `current_date` / the TIMESTAMPTZ as DATE / `DATE '2026-09-30'`, Local | `Etc/GMT-4 \| 1790812800000 \| 1790812800000 \| 1790726400000` (today and the order day: 2026-10-01) |
+| Before | the same, Lakehouse · AgentSwarms | `Etc/UTC \| 2026-09-30 \| 2026-09-30 \| 2026-09-30` |
+| After (hot deploy of R195) | Workbench, tz / `current_date` / the order day / its time, Local | `UTC \| 1790726400000 \| 1790726400000 \| 2026-09-30 22:30` (2026-09-30) |
+| After | the same, Lakehouse · AgentSwarms | `UTC \| 2026-09-30 \| 2026-09-30 \| 2026-09-30 22:30` |
+
 ## 2026-10-01 — Prompt Compare's cost against Traces, ADVERSARIAL_LOG R194
 
 **Why this round exists.** The smoke test of the real image for R191–R193 turned it up; it opens

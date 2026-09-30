@@ -226,7 +226,14 @@ least twice, not a hypothetical.
      with the shared one. A test over `src` now forbids a `break` at `[DONE]`.
    - **Still open, small.** Prompt Compare rounds cost to four places, so $0.0000046 against
      $0.00011 reads "~$0.0000" against "~$0.0001", and Traces does the same.
-   - **Next.** Grid vs table sheet, and BI in the browser vs on the server.
+   - **R195: the two DuckDB engines.** On one query in the Workbench the browser engine ran in the
+     viewer's zone (`Etc/GMT-4`) and the server's in UTC, so `current_date` and a TIMESTAMPTZ cast
+     to DATE named different days. Every engine now sets `ENGINE_TIME_ZONE`.
+   - **Next, R196.** The browser writes DATE and TIMESTAMP as epoch milliseconds, the server as
+     text. Charts read the server's naive `2026-09-30 22:30:00` as local time and the browser's
+     epoch as UTC, and `hasRawDateValues` relabels only the numbers. Drive one date tile live
+     against its scheduled refresh.
+   - **Then.** Grid vs table sheet.
 
 ### Sheets (new, 2026-09-25)
 
