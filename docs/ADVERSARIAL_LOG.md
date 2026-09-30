@@ -109,6 +109,27 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-30 — Three newer functions went into a download without Excel's prefix
+
+Tests: `tests/unit/sheetsFilePrefixes.test.ts` (3 tests), against
+`tests/fixtures/sheets/excel-future-functions.txt`, XlsxWriter 3.2.9's list, from
+`make_excel_future_functions.py`. The mutation run caught 7 of 7, and the control survived.
+
+#### R172 · S3 · NUMBERVALUE, ISFORMULA and FORMULATEXT went out bare
+
+**Found** in R171's probe, comparing the download's prefix list with XlsxWriter's list of the
+functions Excel stores as `_xlfn.NAME`, for the functions the engine computes. Driven in "R172
+prefixes before": A1 `=NUMBERVALUE("1.234,5",",",".")`, A2 `=ISFORMULA(A1)`, A3
+`=FORMULATEXT(A1)`; File → Download as Excel.
+- The file held `NUMBERVALUE(…)`, `ISFORMULA(A1)` and `FORMULATEXT(A1)` bare. Excel reads a bare
+  newer name as an unknown function, and a download asks Excel to recalculate on open, so the three
+  cells would show #NAME? there, though Sheets showed 1234.5, TRUE and the formula.
+
+**The fix** (`lib/sheets/xlsx.ts`). The three are in the prefix list. The test reads XlsxWriter's
+list and requires the prefix for every function in it that the engine computes, and none for older
+ones (SUM, VLOOKUP, NETWORKDAYS.INTL), so a function added to the engine later cannot go out bare
+without the test failing.
+
 ### 2026-09-30 — The spill reference, A2#
 
 Tests: `tests/unit/sheetsSpillRef.test.ts` (11 tests), and `tests/fixtures/sheets/xlsxwriter-spillref.xlsx`

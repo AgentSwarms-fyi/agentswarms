@@ -111,7 +111,9 @@ function anchorArraysForFile(body: string): string {
 /**
  * Functions added to Excel after 2007 must be written with the _xlfn.
  * prefix (FILTER and SORT also _xlws.), or Excel reads them as unknown
- * names and shows #NAME?.
+ * names and shows #NAME?. A test holds this to XlsxWriter's list for every
+ * function the engine computes (R172 found FORMULATEXT, ISFORMULA and
+ * NUMBERVALUE missing).
  */
 const XLFN = new Set([
   "AGGREGATE",
@@ -126,8 +128,10 @@ const XLFN = new Set([
   "DECIMAL",
   "FLOOR.MATH",
   "FORECAST.LINEAR",
+  "FORMULATEXT",
   "IFNA",
   "IFS",
+  "ISFORMULA",
   "ISOWEEKNUM",
   "MAXIFS",
   "MINIFS",
@@ -136,6 +140,7 @@ const XLFN = new Set([
   "NORM.INV",
   "NORM.S.DIST",
   "NORM.S.INV",
+  "NUMBERVALUE",
   "PERCENTILE.EXC",
   "PERCENTILE.INC",
   "QUARTILE.INC",

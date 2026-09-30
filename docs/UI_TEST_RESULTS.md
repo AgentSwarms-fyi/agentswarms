@@ -15,6 +15,19 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-30 — Newer functions in a download, ADVERSARIAL_LOG R172
+
+**Why this round exists.** Found by comparing the download's prefix list with XlsxWriter's.
+
+Fixtures, kept: **"R172 prefixes before"** (`1394a952…`) and **"R172 prefixes after"**
+(`1f797416…`), typed the same way: A1 `=NUMBERVALUE("1.234,5",",",".")`, A2 `=ISFORMULA(A1)`, A3
+`=FORMULATEXT(A1)`. Then File → Download as Excel, and the file's sheet part read.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before | The typing and the download | Sheets showed 1234.5, TRUE, the formula; the file held `NUMBERVALUE(…)`, `ISFORMULA(A1)`, `FORMULATEXT(A1)` without `_xlfn.` |
+| After | The same | Sheets showed the same; the file held `_xlfn.NUMBERVALUE(…)`, `_xlfn.ISFORMULA(A1)`, `_xlfn.FORMULATEXT(A1)` |
+
 ## 2026-09-30 — The spill reference A1#, ADVERSARIAL_LOG R171
 
 **Why this round exists.** Found by probing: `=SUM(A1#)` was #NAME?.

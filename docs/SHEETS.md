@@ -772,6 +772,9 @@ single value (`=SUM(LEN(A1:A3))`, `=SUM(IF(A1:A3="x",1,0))`), goes out as Excel 
 formula. Excel then computes it as Sheets does, and a spill grows or shrinks with its data. Written
 as a plain formula, Excel would take only the value in the formula's own row. Excel 2019 and older
 show these formulas in braces, as array formulas.
+Functions Excel added after 2007 go out under the names Excel's files use for them
+(`_xlfn.XLOOKUP`, `_xlfn._xlws.FILTER`, `_xlfn.NUMBERVALUE`), every one Sheets computes; without
+the prefix Excel reads the name as unknown and, recalculating on open, shows #NAME?.
 A table sheet contributes the rows its view shows (its filters, sort and hidden columns), read
 through the lakehouse, so your grants and row and column policies apply, up to
 `SHEETS_EXPORT_MAX_ROWS` (100,000). **Download this sheet as CSV** writes the active sheet as it
