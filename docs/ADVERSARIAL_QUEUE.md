@@ -790,13 +790,31 @@ over the lakehouse). Open from that round, the rest of Row Zero's connected tabl
     the copy into the old name, a reader of the catalog sees no table,
     for a few seconds. An Iceberg catalog's own rename (`RENAME TABLE`,
     if the extension gains it) or a REST `renameTable` call would close
-    that window.
+    that window. Probed while preparing R181: the extension this image
+    bakes does rename (`ALTER TABLE … RENAME TO`, `IF EXISTS` too, and
+    two renames in one transaction), and the rename reaches the catalog.
+  - **Publish itself, R181, DONE**: on an image built 2026-09-30 every
+    publish failed, `Failed to create directory "data": Permission
+    denied`. The iceberg extension build baked into a fresh image writes a
+    `CREATE TABLE AS`'s files to a relative `data/` whenever the ducklake
+    extension is loaded, and this engine always loads it. DuckDB and
+    node-api had not moved since July: `INSTALL` fetches the extension
+    build that is current when the image is built, so an extension can
+    change under a pinned DuckDB. Publish is now a `CREATE TABLE` with the
+    source's columns and an `INSERT`. Every other engine feature that
+    depends on extension behaviour is exposed the same way; a smoke drive
+    of each after an image rebuild is what catches it.
   - The development Iceberg catalog (`aswarm-iceberg-rest`,
     `tabulario/iceberg-rest` on SQLite) can hold its store locked between
     requests, answering every DELETE with `[SQLITE_BUSY] The database file
     is locked` until it is restarted. That is the fixture, not this app,
     but an Iceberg round that sees HTTP 500 on a drop should check the
-    catalog's log before blaming the code.
+    catalog's log before blaming the code. A steady reader of a table (a
+    loop loading it 4 to 30 times a second) is enough to starve its
+    writer: in R181 every commit into a replace's staging table was
+    refused this way while a poller ran, and none once it stopped. Time a
+    catalog-side window from the catalog's own log ("Dropped table",
+    "Successfully committed"), not from a poller.
   - Reading them found R106: the BROWSER's copies of the dataset delete and
     replace (`lib/sqlEngine.ts`) never read the database's answer. R87 had
     fixed only the server's. Sweep: every direct `supabase.from(…).delete()`

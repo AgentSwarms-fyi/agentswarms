@@ -19,10 +19,12 @@ import {
   icebergAlias,
   icebergAttachSql,
   icebergDetachSql,
+  icebergDropTableSql,
   icebergImportSql,
   icebergListNamespacesSql,
   icebergListTablesSql,
   icebergPublishSql,
+  icebergSourceColumnsSql,
   icebergStagingName,
   icebergSecretNames,
   icebergSecretSql,
@@ -360,8 +362,8 @@ const TABLE_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
 
 /**
  * Publish a lakehouse table into the catalog: the namespace if needed, then
- * CREATE TABLE AS over the governed table. The caller has already checked
- * that the source schema is theirs to read.
+ * the table from the source's columns, then its rows. The caller has already
+ * checked that the source schema is theirs to read.
  */
 export async function publishToIceberg(args: {
   row: IcebergCatalogRow;
@@ -377,6 +379,9 @@ export async function publishToIceberg(args: {
   if (!TABLE_NAME.test(args.table)) throw new Error("That table name is not usable here.");
   const rows = await withCatalog(args.row, async (c, alias) => {
     const staging = icebergStagingName(args.table, randomBytes(4).toString("hex"));
+    const columns = (
+      await (await c.run(icebergSourceColumnsSql(args.sourceSchema, args.sourceTable))).getRows()
+    ).map((r) => ({ name: String(r[0]), type: String(r[1]) }));
     const plan = icebergPublishSql({
       alias,
       namespace: args.namespace,
@@ -384,6 +389,7 @@ export async function publishToIceberg(args: {
       sourceSchema: args.sourceSchema,
       sourceTable: args.sourceTable,
       mode: args.mode,
+      columns,
       staging,
     });
     // In a replace, the statement that drops the OLD table (not the staging
@@ -397,6 +403,15 @@ export async function publishToIceberg(args: {
         await c.run(sql);
       } catch (e) {
         const message = (e as Error).message;
+        if (args.mode === "create" && i === plan.length - 1) {
+          // The table was created a statement ago and its rows did not go
+          // in. A create refuses an existing table, so this one is the
+          // publish's own: remove it rather than leave an empty table under
+          // the owner's name (R181; the CREATE TABLE AS it replaced left
+          // nothing behind).
+          await c.run(icebergDropTableSql(alias, args.namespace, args.table)).catch(() => {});
+          throw e;
+        }
         if (dropsOld >= 0 && i <= dropsOld) {
           // The old table stands: nothing ran, or the catalog refused its
           // drop. The staging table is this publish's own, and the new data
@@ -405,14 +420,15 @@ export async function publishToIceberg(args: {
           await c.run(plan[plan.length - 1]).catch(() => {});
           throw e;
         }
-        if (dropsOld >= 0 && i === dropsOld + 1) {
-          // The old table is gone and the copy into its name failed: say
-          // where the new data is rather than leave the owner guessing.
+        if (dropsOld >= 0 && i > dropsOld && i < plan.length - 1) {
+          // The old table is gone and the copy into its name (the create or
+          // the insert) failed: say where the new data is rather than leave
+          // the owner guessing.
           throw new Error(
             `${message}. The old ${args.namespace}.${args.table} had already been dropped; the new data is in ${args.namespace}.${staging}.`,
           );
         }
-        if (dropsOld >= 0 && i > dropsOld + 1) {
+        if (dropsOld >= 0 && i === plan.length - 1) {
           // Only the staging table's cleanup: the publish itself has landed.
           console.warn(`[iceberg] could not drop ${args.namespace}.${staging}: ${message}`);
           continue;

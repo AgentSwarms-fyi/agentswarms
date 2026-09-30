@@ -29,6 +29,15 @@ vi.mock("@/utils/lakehouse/core.server", () => ({
   icebergExtensionAvailable: () => true,
   lakehouseConnection: async () => ({
     run: async (sql: string) => {
+      // The source's columns (R181): the publish creates the table from them.
+      if (sql.includes("duckdb_columns()")) {
+        return {
+          getRows: async () => [
+            ["id", "INTEGER"],
+            ["note", "VARCHAR"],
+          ],
+        };
+      }
       state.statements.push(sql);
       if (state.failWhen?.(sql)) {
         throw new Error("Invalid Input Error: Column type INTERVAL is not a valid Iceberg Type.");
@@ -113,7 +122,7 @@ describe("a replace that cannot be written leaves the old table", () => {
   it("stages the new data before it drops the old table", async () => {
     await publish("replace");
     const staged = state.statements.findIndex(
-      (s) => s.startsWith("CREATE TABLE") && STAGING.test(s) && s.includes('"analytics"'),
+      (s) => s.startsWith("INSERT INTO") && STAGING.test(s) && s.includes('"analytics"'),
     );
     const dropped = state.statements.findIndex((s) =>
       /^DROP TABLE IF EXISTS .*"r107"\."r107_pub";$/.test(s),
@@ -123,13 +132,17 @@ describe("a replace that cannot be written leaves the old table", () => {
   });
 
   it("says where the new data is if the copy into the old name fails", async () => {
-    state.failWhen = (sql) =>
-      /^CREATE TABLE .*"r107"\."r107_pub" AS SELECT \* FROM .*"r107_pub__publishing_[0-9a-f]{8}";$/.test(
-        sql,
+    // The copy is two statements since R181, the create and the insert.
+    for (const copy of [
+      /^CREATE TABLE .*"r107"\."r107_pub" \(/,
+      /^INSERT INTO .*"r107"\."r107_pub" \(.*\) SELECT .* FROM .*"r107_pub__publishing_[0-9a-f]{8}";$/,
+    ]) {
+      state.statements = [];
+      state.failWhen = (sql) => copy.test(sql);
+      await expect(publish("replace")).rejects.toThrow(
+        /The old r107\.r107_pub had already been dropped; the new data is in r107\.r107_pub__publishing_[0-9a-f]{8}\./,
       );
-    await expect(publish("replace")).rejects.toThrow(
-      /The old r107\.r107_pub had already been dropped; the new data is in r107\.r107_pub__publishing_[0-9a-f]{8}\./,
-    );
+    }
   });
 
   it("does not fail a publish that landed because the staging cleanup failed", async () => {
@@ -146,7 +159,7 @@ describe("a replace drops nothing it was not asked to", () => {
     await publish("replace");
     const created = new Set<string>();
     for (const s of state.statements) {
-      const make = /^CREATE TABLE .*\."([^"]+)" AS /.exec(s);
+      const make = /^CREATE TABLE .*\."([^"]+)" \(/.exec(s);
       if (make) created.add(make[1]);
       const drop = /^DROP TABLE IF EXISTS .*\."([^"]+)";$/.exec(s);
       if (drop) expect(drop[1] === "r107_pub" || created.has(drop[1])).toBe(true);

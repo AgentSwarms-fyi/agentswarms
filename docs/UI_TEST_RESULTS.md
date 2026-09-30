@@ -15,6 +15,22 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-30 — Publish to Iceberg on a freshly built image, ADVERSARIAL_LOG R181
+
+**Why this round exists.** Found preparing Phase A's fourth item: no publish worked.
+
+Fixtures, kept: the Iceberg namespace `r181` in `local_rest`, with `swap_target` (836 rows), the
+stray staging table `swap_target__publishing_fe36c8e4`, and the probe tables (`probe_b`, `nope`,
+`local_c2_*`, `d_*`, `e_*`).
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before (image `817a8048bbf0`) | Lakehouse → `analytics.stg_revenue` → Publish to Iceberg → `local_rest` / `r181` / `swap_target`, Refuse | `IO Error: Failed to create directory "data": Permission denied`; the catalog logged one 404 lookup |
+| Before | the same → `local_rest` / `r107` / `r181_probe`, Refuse | the same error |
+| After (hot deploy) | the same as the first row | `Published 836 row(s) to r181.swap_target`; the catalog: location `s3://iceberg/r181/swap_target`, six columns (`order_id` long … `placed_on` date), current snapshot an `append` of 836 records |
+| After | the same, Replace it, with a poller loading the table from the host (30/s, then 4/s), three times | `TransactionContext Error: Failed to commit … HTTP 500 … /v1/transactions/commit`; the catalog's log: `[SQLITE_BUSY] The database file is locked` on the commit into the staging table; the old table stood each time. The fixture: its SQLite store starves a writer under a steady reader |
+| After | the catalog restarted, Replace it with no poller | `Published 836 row(s) to r181.swap_target`; the catalog's log: staging created 13:54:36.732 and filled 13:54:38.574, `swap_target` dropped 13:54:39.456, created 13:54:40.375 and filled 13:54:42.076, staging dropped 13:54:44.446. For 0.9 s there was no table, then for 1.7 s an empty one (R182) |
+
 ## 2026-09-30 — A swarm chat turn bound to its conversation, ADVERSARIAL_LOG R180
 
 **Why this round exists.** Phase A's third item: the aborted turn R109 left open.

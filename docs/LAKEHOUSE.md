@@ -518,9 +518,17 @@ an attached catalog directly; the guard refuses every catalog but the
 lakehouse's own, so the only way to an Iceberg table is a mount you can see.
 
 **Publish a table.** On a table tab, **Publish to Iceberg** writes a copy of
-the table into a catalog namespace as an Iceberg table (`CREATE TABLE AS`
-through the catalog, which commits the metadata and owns the files from then
-on). "Replace" drops and recreates - the extension has no `CREATE OR
+the table into a catalog namespace as an Iceberg table: a `CREATE TABLE`
+with the source's own column list, then an `INSERT` of its rows, through the
+catalog, which commits the metadata and owns the files from then on. It is
+not a `CREATE TABLE AS`: the iceberg extension build a fresh image bakes
+writes a `CREATE TABLE AS`'s files to a relative `data/` directory whenever
+the ducklake extension is loaded, as it always is here, and every publish
+failed (R181). Column types are accepted or refused exactly as before
+(`UTINYINT`, `UBIGINT`, `ENUM` and `INTERVAL` are not Iceberg types). A
+publish whose rows do not go in removes the empty table it made. "Replace"
+stages the new data under a name made for that publish, and drops the old
+table only once that has worked (R107) - the extension has no `CREATE OR
 REPLACE` for Iceberg - and "refuse" keeps an existing table. **Import** is
 the reverse: copy an Iceberg table into a schema you created as a real
 DuckLake table, with no dependence on the catalog afterwards.

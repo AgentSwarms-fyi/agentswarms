@@ -393,9 +393,11 @@ function LakehouseDocsPage() {
         </li>
         <li>
           <strong>Publish a table.</strong> On a table tab, <em>Publish to Iceberg</em> writes a
-          copy into a catalog namespace as an Iceberg table; replace drops and recreates, refuse
-          keeps an existing one. Import is the reverse: an Iceberg table copied into a schema you
-          created, as a real lakehouse table.
+          copy into a catalog namespace as an Iceberg table: the table from the source&apos;s own
+          columns, then its rows. A publish whose rows do not go in removes the empty table it made.
+          Replace stages the new data first and drops the old table only once that has worked;
+          refuse keeps an existing one. Import is the reverse: an Iceberg table copied into a schema
+          you created, as a real lakehouse table.
         </li>
         <li>
           <strong>Audited:</strong> catalog definitions through the <C>iceberg_catalog</C> row

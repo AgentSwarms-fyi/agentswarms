@@ -109,6 +109,55 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-30 — Every publish to Iceberg failed on a freshly built image
+
+Tests: `tests/unit/icebergPublishColumns.test.ts` (6 tests), with `tests/unit/iceberg.test.ts` and
+`tests/unit/icebergReplaceStaged.test.ts` updated to the new statements. The mutation run caught
+13 of 13, and the control survived.
+
+#### R181 · S2 · `Failed to create directory "data"`, on every publish
+
+**Found** while preparing Phase A's fourth item, the replace's swap: the before-drive needed a
+publish, and none worked. On image `817a8048bbf0`, built that afternoon with R178 to R180:
+- Lakehouse → `analytics.stg_revenue` (836 rows) → Publish to Iceberg → `local_rest` / `r181` /
+  `swap_target`, Refuse → `IO Error: Failed to create directory "data": Permission denied`. The
+  catalog's log shows one lookup of `r181.swap_target` (404) and nothing else.
+- The same into `local_rest` / `r107` / `r181_probe` → the same error. `r107` was made by this app
+  in R107, where this path published; `r181` had been made over the REST API for a probe. The
+  namespace was not the cause.
+
+DuckDB (`@duckdb/node-api` 1.5.5-r.2) and the code around the publish had not changed since R107
+published successfully on 2026-09-24. The iceberg extension had: an image bakes the build that
+`INSTALL iceberg` fetches when it is built. Probed in the container with that build (45163a28)
+and no storage credentials, so a write aimed at the right place answers S3's 403:
+- A fresh connection, attached exactly as the app attaches `local_rest`: `CREATE TABLE … AS
+  SELECT 1` → 403 on `s3://iceberg/r181/local_ctas/data/…`, the right place.
+- The same after `LOAD ducklake` (not even attached), after attaching a DuckLake, after `USE
+  lake`, after `USE memory`: `Failed to create directory "data"`.
+- `CREATE TABLE … (id INTEGER)` then `INSERT`, with ducklake loaded, attached or in use: 403 on
+  the table's own `s3://` location.
+- `CREATE TABLE … AS … WITH NO DATA` and `… LIMIT 0`: the `data` error again.
+
+This engine loads ducklake at boot and uses it on every connection, so every publish met it.
+
+**The fix** (`utils/lakehouse/iceberg.ts`, `iceberg.server.ts`). A publish reads the source's
+columns in order (`duckdb_columns()`, database `lake`), then creates the table with that column
+list and inserts its rows by name. A replace does the same into its staging table, and again into
+the old name after the drop. Types behave as before: checked on the extension one by one,
+`UTINYINT`, `UBIGINT`, `ENUM` and `INTERVAL` are refused by the explicit create with the same
+"not a valid Iceberg Type", and `HUGEINT`, `MAP`, `TIMESTAMPTZ`, lists, structs, `DECIMAL`,
+`BLOB`, `UUID`, `TIME`, `DATE`, `DOUBLE` and `BOOLEAN` are accepted. A CREATE TABLE AS failed as
+one statement and left nothing behind; this publish is two, so a create whose insert fails drops
+the table it has just made. It can only be its own: a create refuses an existing name, and a
+refused create drops nothing.
+
+**Not changed.** The replace still drops the old table before the copy into its name (R182). The
+drive also met the development catalog's `SQLITE_BUSY`: while a poller loaded the table 4 to 30
+times a second, every commit into a replace's staging table was refused, and the old table stood
+each time. The first attempt left its staging table, `swap_target__publishing_fe36c8e4`, because
+its cleanup met the same lock. With the poller stopped the replace went through. That is the
+fixture's SQLite store; the queue has it.
+
 ### 2026-09-30 — A swarm chat turn saved into the conversation on screen, not its own
 
 Tests: `tests/unit/swarmChatTurnBinding.test.ts` (6 tests). The mutation run caught 15 of 15, and

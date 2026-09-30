@@ -7,9 +7,9 @@
 // tables, readable and - on a catalog that allows it - writable. A mount
 // creates views under a lakehouse schema over those tables, so the per-user
 // schema guard, the listing and the tools see Iceberg tables exactly as they
-// see everything else; nothing is copied. Publishing is a CREATE TABLE AS
-// into the catalog. Everything below is text and rules; the server and the
-// tests import it.
+// see everything else; nothing is copied. Publishing creates the table in the
+// catalog from the source's columns and inserts its rows. Everything below is
+// text and rules; the server and the tests import it.
 
 export const ICEBERG_AUTH_TYPES = ["none", "bearer", "oauth2"] as const;
 export type IcebergAuthType = (typeof ICEBERG_AUTH_TYPES)[number];
@@ -181,10 +181,24 @@ export function icebergViewSql(
   );
 }
 
+/** A source column as the engine describes it (`duckdb_columns()`). */
+export type PublishColumn = { name: string; type: string };
+
 /**
- * Publishing a lakehouse table into the catalog: the namespace first, then a
- * CREATE TABLE AS over the governed table. `replace` drops and recreates on
- * the catalog side; `create` refuses an existing table.
+ * Publishing a lakehouse table into the catalog: the namespace first, then
+ * the table from the source's own column list, then its rows. `replace`
+ * swaps the new table in on the catalog side; `create` refuses an existing
+ * table.
+ *
+ * FOUND IN R181. This was a CREATE TABLE AS, and the extension build a fresh
+ * image bakes writes a CREATE TABLE AS to a relative `data/` directory
+ * whenever the ducklake extension is loaded, which in this engine it always
+ * is: every publish failed with `Failed to create directory "data":
+ * Permission denied`. A CREATE TABLE with columns, then an INSERT, writes to
+ * the table's own location in the catalog. Explicit column types are refused
+ * or accepted exactly as the CREATE TABLE AS did (checked type by type on
+ * the extension: UTINYINT, UBIGINT, ENUM and INTERVAL refused; HUGEINT, MAP,
+ * TIMESTAMPTZ, lists and structs accepted).
  */
 export function icebergPublishSql(args: {
   alias: string;
@@ -193,15 +207,25 @@ export function icebergPublishSql(args: {
   sourceSchema: string;
   sourceTable: string;
   mode: "create" | "replace";
+  /** The source's columns in order, from icebergSourceColumnsSql. */
+  columns: PublishColumn[];
   /** A replace's staging table, from icebergStagingName; unused by create. */
   staging?: string;
 }): string[] {
+  if (args.columns.length === 0) {
+    throw new Error(`${args.sourceSchema}.${args.sourceTable} has no columns to publish.`);
+  }
   const ns = `${ident(args.alias)}.${ident(args.namespace)}`;
   const target = `${ns}.${ident(args.table)}`;
   const source = `${ident("lake")}.${ident(args.sourceSchema)}.${ident(args.sourceTable)}`;
   const schema = `CREATE SCHEMA IF NOT EXISTS ${ns};`;
+  const defs = args.columns.map((col) => `${ident(col.name)} ${col.type}`).join(", ");
+  const names = args.columns.map((col) => ident(col.name)).join(", ");
+  const make = (t: string) => `CREATE TABLE ${t} (${defs});`;
+  const fill = (t: string, from: string) =>
+    `INSERT INTO ${t} (${names}) SELECT ${names} FROM ${from};`;
   if (args.mode === "create") {
-    return [schema, `CREATE TABLE ${target} AS SELECT * FROM ${source};`];
+    return [schema, make(target), fill(target, source)];
   }
   // The extension has no CREATE OR REPLACE for Iceberg tables, so a replace
   // is a drop and a create. FOUND IN R107: run in that order, a create that
@@ -217,11 +241,26 @@ export function icebergPublishSql(args: {
   const staging = `${ns}.${ident(args.staging)}`;
   return [
     schema,
-    `CREATE TABLE ${staging} AS SELECT * FROM ${source};`,
+    make(staging),
+    fill(staging, source),
     `DROP TABLE IF EXISTS ${target};`,
-    `CREATE TABLE ${target} AS SELECT * FROM ${staging};`,
+    make(target),
+    fill(target, staging),
     `DROP TABLE IF EXISTS ${staging};`,
   ];
+}
+
+/** The source's columns in order, for icebergPublishSql. */
+export function icebergSourceColumnsSql(sourceSchema: string, sourceTable: string): string {
+  return (
+    `SELECT column_name, data_type FROM duckdb_columns() WHERE database_name = 'lake' ` +
+    `AND schema_name = ${lit(sourceSchema)} AND table_name = ${lit(sourceTable)} ORDER BY column_index`
+  );
+}
+
+/** Dropping a table this publish created, when filling it failed. */
+export function icebergDropTableSql(alias: string, namespace: string, table: string): string {
+  return `DROP TABLE IF EXISTS ${ident(alias)}.${ident(namespace)}.${ident(table)};`;
 }
 
 /**
