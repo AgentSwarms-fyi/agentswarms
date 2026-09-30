@@ -4068,6 +4068,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "1e5",
       "=$C2&lt;0",
       "=A1+30",
+      "=FLOOR(4.35,0.05)",
       "=SORT()",
       "=SUM()",
       "=SUM(Revenue)*TaxRate",

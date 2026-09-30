@@ -194,7 +194,7 @@ showing `\u2014` as text). Open, from the first rounds:
   to compare at 15 significant digits and give TRUE, but `=0.1+0.2-0.3=0` is FALSE there too, and
   neither was checked in Excel. Settle it in Excel before changing every comparison. Found in
   R175's probe.
-- **`=BASE(255,16)` is `ff`** (formula.js); Excel writes `FF`.
+- ~~`=BASE(255,16)` is `ff`.~~ Closed by R176, with DEC2HEX, BIN2HEX and OCT2HEX.
 - **Excel's 1900 calendar before March 1900**: serials 1 to 60 read a day early here
   (`=YEAR(1)` is 1899, `=DATE(1900,2,28)` 60 where Excel says 59), and 0 is 1899-12-30 where Excel
   shows 1900-01-00. Excel counts a 29 February 1900 that never was; from serial 61 on the two agree.

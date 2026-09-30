@@ -79,6 +79,10 @@ Type `=` and a formula, as in Excel. About 240 functions are available:
 - **Statistics:** STDEV, VAR, RANK, MODE, PERCENTILE and QUARTILE, under their old names and new
   ones; FORECAST(.LINEAR), TREND, GROWTH, FREQUENCY.
 - **The long tail** of statistical, financial and engineering functions.
+  - CEILING, FLOOR and their .MATH forms land on the multiple a decimal step names
+    (`=FLOOR(4.35,0.05)` is 4.35), and a positive number with a negative step is #NUM!, as in
+    Excel. GCD and LCM truncate to whole numbers and refuse negatives. Hexadecimal comes out in
+    capitals, and all twelve base conversions are there (DEC2HEX, HEX2BIN, OCT2HEX…).
   - They read their arguments as Excel does. In a range, a blank cell is not a 0, and text and TRUE
     are left out, so `=GEOMEAN(A1:A3)` over 1, a blank and 3 is 1.73 and `=NPV(0.1,A1:A3)`
     discounts two payments, not three. STDEVA counts text as 0 and TRUE as 1, and still skips

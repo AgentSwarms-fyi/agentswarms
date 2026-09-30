@@ -689,13 +689,34 @@ F.TRUNC = (args) => {
   const f = Math.pow(10, Math.trunc(d));
   return Math.trunc(n * f) / f;
 };
+/**
+ * A quotient float noise put a hair off a whole number, as the whole number:
+ * 0.3 / 0.1 is 2.9999999999999996, and FLOOR(0.3,0.1) must be 0.3 (R176).
+ */
+const snapWhole = (q: number): number => {
+  const r = Math.round(q);
+  return Math.abs(q - r) < 1e-9 * Math.max(1, Math.abs(q)) ? r : q;
+};
+/** A multiple of a step without the step's float noise: 3 × 0.1 is 0.3, not 0.30000000000000004. */
+const tidy = (x: number): number => Number(x.toPrecision(15));
+/**
+ * n rounded to a multiple of s, up (ceil) or down (floor), as CEILING and
+ * FLOOR do. FOUND IN R176: FLOOR(0.3,0.1) was 0.2 and FLOOR(4.35,0.05) 4.3,
+ * because the quotient landed just under a whole number; and a positive
+ * number with a negative step gave a number where Excel gives #NUM!.
+ */
+function toMultiple(n: number, s: number, up: boolean): number {
+  const q = snapWhole(n / s);
+  return tidy((up ? Math.ceil(q) : Math.floor(q)) * s);
+}
 F.CEILING = (args) => {
   const n = num(args[0]);
   const s = num(args[1], 1);
   if (isError(n)) return n;
   if (isError(s)) return s;
   if (s === 0) return 0;
-  return Math.ceil(n / s) * s;
+  if (n > 0 && s < 0) return err("#NUM!", "A positive number takes a positive significance");
+  return toMultiple(n, s, true);
 };
 F.FLOOR = (args) => {
   const n = num(args[0]);
@@ -703,7 +724,57 @@ F.FLOOR = (args) => {
   if (isError(n)) return n;
   if (isError(s)) return s;
   if (s === 0) return err("#DIV/0!");
-  return Math.floor(n / s) * s;
+  if (n > 0 && s < 0) return err("#NUM!", "A positive number takes a positive significance");
+  return toMultiple(n, s, false);
+};
+/**
+ * CEILING.MATH and FLOOR.MATH: the significance's sign is ignored; a
+ * negative number goes toward zero by default (CEILING.MATH) or away from it
+ * (FLOOR.MATH), and a non-zero mode turns that round. Written here for the
+ * same float noise as FLOOR (R176): FLOOR.MATH(0.3,0.1) was 0.2.
+ */
+const multipleMath =
+  (ceiling: boolean): FnImpl =>
+  (args) => {
+    const n = num(args[0]);
+    if (isError(n)) return n;
+    const sig = num(args[1], 1);
+    if (isError(sig)) return sig;
+    const mode = num(args[2], 0);
+    if (isError(mode)) return mode;
+    const s = Math.abs(sig);
+    if (s === 0) return 0;
+    // For a negative number, a non-zero mode turns the default direction round.
+    const up = n < 0 && mode !== 0 ? !ceiling : ceiling;
+    return toMultiple(n, s, up);
+  };
+F["CEILING.MATH"] = multipleMath(true);
+F["FLOOR.MATH"] = multipleMath(false);
+/** The whole numbers GCD and LCM take: truncated, as Excel's, and none negative (R176). */
+function wholeNumbers(args: Arg[]): number[] | SheetError {
+  const xs = collectNumbers(args);
+  if (isError(xs)) return xs;
+  if (xs.some((x) => x < 0)) return err("#NUM!", "GCD and LCM take no negative numbers");
+  return xs.map((x) => Math.trunc(x));
+}
+const gcdOf = (a: number, b: number): number => {
+  while (b) [a, b] = [b, a % b];
+  return a;
+};
+F.GCD = (args) => {
+  const bad = arity(args, 1);
+  if (bad) return bad;
+  const xs = wholeNumbers(args);
+  if (isError(xs)) return xs;
+  return xs.reduce(gcdOf, 0);
+};
+F.LCM = (args) => {
+  const bad = arity(args, 1);
+  if (bad) return bad;
+  const xs = wholeNumbers(args);
+  if (isError(xs)) return xs;
+  if (xs.some((x) => x === 0)) return 0;
+  return xs.reduce((a, b) => (a / gcdOf(a, b)) * b, 1);
 };
 F.RAND = () => Math.random();
 F.RANDBETWEEN = (args) => {
@@ -1939,6 +2010,14 @@ export const LIBRARY_NAMES = [
   "DEC2BIN",
   "HEX2DEC",
   "DEC2HEX",
+  "DEC2OCT",
+  "OCT2DEC",
+  "OCT2BIN",
+  "OCT2HEX",
+  "BIN2OCT",
+  "BIN2HEX",
+  "HEX2BIN",
+  "HEX2OCT",
   "CLEAN",
   "UNICHAR",
   "UNICODE",
@@ -2010,6 +2089,16 @@ if (libraryDollar) {
     if (n >= 0) return libraryDollar(args, ctx);
     const v = libraryDollar([numberArg(-n), ...args.slice(1)], ctx);
     return typeof v === "string" ? `(${v})` : v;
+  };
+}
+
+/** Hexadecimal and base-36 digits in capitals, as Excel writes them. FOUND IN R176: ff. */
+for (const name of ["DEC2HEX", "BIN2HEX", "OCT2HEX", "BASE"]) {
+  const lower = F[name];
+  if (!lower) continue;
+  F[name] = (args, ctx) => {
+    const v = lower(args, ctx);
+    return typeof v === "string" ? v.toUpperCase() : v;
   };
 }
 

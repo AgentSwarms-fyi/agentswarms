@@ -15,6 +15,19 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-30 — FLOOR, GCD, LCM and hexadecimal, ADVERSARIAL_LOG R176
+
+**Why this round exists.** Found by probing the math functions against Excel's rules.
+
+Fixtures, kept: **"R176 math before"** (`23bc1dec…`) and **"R176 math after"** (`2deea7de…`), typed
+the same way: A1 `=FLOOR(0.3,0.1)`, A2 `=FLOOR(4.35,0.05)`, A3 `=FLOOR(2.5,-2)`, A4
+`=CEILING(2.5,-2)`, A5 `=GCD(12.5,5)`, A6 `=LCM(4.9,6.2)`, A7 `=DEC2HEX(255)`, A8 `=HEX2BIN("F")`.
+
+| Round | What was driven | What came back (A1 to A8) |
+| --- | --- | --- |
+| Before | The typing | 0.2, 4.3, 4, 2, 2.5, 30.38, `ff`, #NAME? |
+| After | The same | 0.3, 4.35, #NUM!, #NUM!, 1, 12, `FF`, `1111`; the same after a reload |
+
 ## 2026-09-30 — A number turned into text, ADVERSARIAL_LOG R175
 
 **Why this round exists.** Found by probing the text functions: numbers became text at 10 digits.

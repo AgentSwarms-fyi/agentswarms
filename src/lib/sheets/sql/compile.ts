@@ -733,9 +733,13 @@ class Compiler {
         const x = S(0);
         const sig = args[1] ? S(1) : num(1);
         const f = fn.startsWith("CEILING") ? "ceil" : "floor";
-        const ss = `nullif(${toNum(sig)}, 0)`;
+        // The .MATH forms ignore the significance's sign, as Excel's do.
+        const ss = fn.endsWith(".MATH")
+          ? `nullif(abs(${toNum(sig)}), 0)`
+          : `nullif(${toNum(sig)}, 0)`;
+        // The quotient rounded first: 0.3 / 0.1 is 2.9999999999999996, and FLOOR(0.3,0.1) is 0.3 (R176).
         return {
-          sql: `(${f}(${toNum(x)} / ${ss}) * ${ss})`,
+          sql: `(${f}(round(${toNum(x)} / ${ss}, 9)) * ${ss})`,
           kind: "number",
           dbl: true,
           sub: sub(x, sig),

@@ -109,6 +109,35 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-30 — FLOOR to a decimal step, GCD, LCM and hexadecimal
+
+Tests: `tests/unit/sheetsMultiples.test.ts` (7 tests), the table-sheet cases on a real DuckDB. The
+mutation run caught 16 of 16, and the control survived.
+
+#### R176 · S2 · FLOOR(4.35,0.05) was 4.3
+
+**Found** probing the math functions against Excel's rules. Driven in "R176 math before": A1
+`=FLOOR(0.3,0.1)`, A2 `=FLOOR(4.35,0.05)`, A3 `=FLOOR(2.5,-2)`, A4 `=CEILING(2.5,-2)`, A5
+`=GCD(12.5,5)`, A6 `=LCM(4.9,6.2)`, A7 `=DEC2HEX(255)`, A8 `=HEX2BIN("F")`.
+- A1 was 0.2 and A2 4.3, where Excel gives 0.3 and 4.35: 0.3 / 0.1 is 2.9999999999999996, and
+  FLOOR took the whole number below it. FLOOR.MATH did the same, and a table sheet's FLOOR column,
+  compiled to SQL, too.
+- A3 was 4 and A4 2; Excel gives #NUM! for a positive number with a negative step.
+- A5 was 2.5 and A6 30.38; Excel truncates to whole numbers (1 and 12), and `=GCD(-4,6)` is #NUM!
+  there, 2 here.
+- A7 was `ff` (Excel `FF`), and A8 #NAME?: DEC2OCT, OCT2DEC, OCT2BIN, OCT2HEX, BIN2OCT, BIN2HEX,
+  HEX2BIN and HEX2OCT were not registered, though formula.js has them.
+
+FLOOR to a step is how prices round down to a nickel or a cent, so a wrong one is a wrong price.
+
+**The fix** (`lib/sheets/formula/functions.ts`, `sql/compile.ts`). CEILING, FLOOR, CEILING.MATH and
+FLOOR.MATH divide, snap a quotient within float noise of a whole number to it, round to the step and
+drop the step's own noise (3 × 0.1 is 0.3); CEILING and FLOOR give #NUM! for a positive number with
+a negative step; the .MATH forms ignore the step's sign and turn only negative numbers by their
+mode. The SQL form rounds the quotient to 9 places before `floor`/`ceil`. GCD and LCM truncate, and a
+negative is #NUM!. DEC2HEX, BIN2HEX, OCT2HEX and BASE write capitals, and the eight missing
+conversions are registered.
+
 ### 2026-09-30 — A number turned into text kept 10 digits
 
 Tests: `tests/unit/sheetsNumberText.test.ts` (7 tests). The mutation run caught 12 of 12, and the
