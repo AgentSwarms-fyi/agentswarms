@@ -7,7 +7,7 @@
 // reaches itself is #CYCLE!. Table references go to a resolver that may
 // answer later; until it does the cell shows #BUSY!.
 
-import { cellKey, MAX_COLS, MAX_ROWS, parseKey } from "./a1";
+import { cellKey, colLetters, MAX_COLS, MAX_ROWS, parseKey } from "./a1";
 import {
   evaluate,
   PendingValue,
@@ -31,6 +31,7 @@ import {
   parseNumberText,
   type Matrix,
   type Scalar,
+  type SheetError,
   type Value,
 } from "./formula/values";
 
@@ -569,6 +570,15 @@ export class WorkbookEngine {
         }
         return out;
       },
+      spillRange: (sheet, r, cc) => {
+        const sid = this.byName.get(sheet.toLowerCase());
+        if (!sid) return err("#REF!", `No sheet "${sheet}"`);
+        const anchor = cid(sid, r, cc);
+        if (anchor === id) return err("#CYCLE!", "This formula refers to its own spill");
+        // A spill changes only when its formula does: following the anchor is enough.
+        this.recordDep(id, anchor);
+        return this.spillExtent(sid, sheet, r, cc);
+      },
       table: this.resolver ? (node) => this.resolver!.resolve(node, sheetName) : undefined,
       isTable: this.resolver?.isTable ? (name) => this.resolver!.isTable!(name) : undefined,
       tableCall: this.resolver?.call ? (req) => this.resolver!.call!(req) : undefined,
@@ -593,6 +603,27 @@ export class WorkbookEngine {
     const scalar = this.place(id, result);
     this.memo.set(id, scalar);
     return scalar;
+  }
+
+  /**
+   * The range a formula spills into, for A2# (R171): from the anchor to the
+   * far corner of its array. #REF! when it holds no array that spilled (a
+   * value, a one-cell answer, or a spill that is blocked), as Excel's.
+   */
+  private spillExtent(sid: string, sheet: string, row: number, col: number): RangeRef | SheetError {
+    const v = this.valueOf(cid(sid, row, col));
+    const arr = this.arrays.get(cid(sid, row, col));
+    if (!arr) {
+      if (isError(v) && v.err === "#CYCLE!") return v;
+      return err("#REF!", `${colLetters(col)}${row + 1} does not spill`);
+    }
+    return {
+      sheet,
+      r0: row,
+      c0: col,
+      r1: row + arr.length - 1,
+      c1: col + (arr[0]?.length ?? 1) - 1,
+    };
   }
 
   private cachedIds = new Set<CellId>();
@@ -675,6 +706,11 @@ export class WorkbookEngine {
           out.push(line);
         }
         return out;
+      },
+      spillRange: (sheet, r, cc) => {
+        const sid = this.byName.get(sheet.toLowerCase());
+        if (!sid) return err("#REF!", `No sheet "${sheet}"`);
+        return this.spillExtent(sid, sheet, r, cc);
       },
       table: this.resolver ? (node) => this.resolver!.resolve(node, sheetName) : undefined,
       isTable: this.resolver?.isTable ? (name) => this.resolver!.isTable!(name) : undefined,

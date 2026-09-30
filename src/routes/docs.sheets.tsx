@@ -90,7 +90,8 @@ function SheetsDocsPage() {
         Type <C>=</C> and a formula. About 240 functions follow Excel&apos;s rules: SUMIFS and
         COUNTIFS criteria, XLOOKUP, VLOOKUP and LOOKUP, SUBTOTAL (which leaves out filtered rows),
         LET, OFFSET and INDIRECT, dynamic arrays that spill (UNIQUE, FILTER, SORT, SEQUENCE, TAKE,
-        VSTACK, TEXTSPLIT, with <C>#SPILL!</C> when a cell is in the way), array formulas such as{" "}
+        VSTACK, TEXTSPLIT, with <C>#SPILL!</C> when a cell is in the way, and <C>A2#</C> for the
+        whole of what A2 spills), array formulas such as{" "}
         <C>SUMPRODUCT(--ISNUMBER(SEARCH(&quot;x&quot;,A2:A9)))</C>, TEXT and date arithmetic,
         whole-column and cross-sheet references, and Excel&apos;s precedence (<C>-2^2</C> is 4).
         Statistics skip blank cells and text in a range, as Excel&apos;s do. A cell with an error

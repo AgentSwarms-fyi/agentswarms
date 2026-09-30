@@ -4,7 +4,9 @@
 // formula can be rewritten token by token (copy, fill, shift) without
 // re-printing anything the user typed. References are lexed whole: a cell,
 // a range, a whole column or row, each with an optional sheet prefix, and
-// structured references to a table sheet (Orders[amount], [@amount]).
+// structured references to a table sheet (Orders[amount], [@amount]). A
+// cell followed by # is the range its formula spills (A2#, R171): the # is a
+// token of its own, so a rewrite that moves the cell keeps it.
 
 import { colIndex, MAX_ROWS } from "../a1";
 
@@ -230,12 +232,12 @@ export function lex(src: string): Token[] {
       p.t === "name" ||
       p.t === ")" ||
       p.t === "}" ||
-      (p.t === "op" && p.v === "%")
+      (p.t === "op" && (p.v === "%" || p.v === "#"))
     );
   };
 
-  const pushRef = (sheet: string | undefined, start: number) => {
-    // A reference begins at `start` (after any sheet prefix).
+  const pushRef = (sheet: string | undefined, start: number, from = start) => {
+    // A reference begins at `start` (after any sheet prefix, which starts at `from`).
     const run = refRun(src, start);
     // Row range: 1:3
     if (/^\$?\d+$/.test(run) && src[start + run.length] === ":") {
@@ -244,7 +246,7 @@ export function lex(src: string): Token[] {
       const b = rowPart(run2);
       if (a && b) {
         const e = start + run.length + 1 + run2.length;
-        out.push({ t: "range", sheet, start: a, end: b, wholeRows: true, s: start, e });
+        out.push({ t: "range", sheet, start: a, end: b, wholeRows: true, s: from, e });
         return e;
       }
     }
@@ -255,13 +257,19 @@ export function lex(src: string): Token[] {
         const cell2 = cellPart(run2);
         if (cell2) {
           const e = start + run.length + 1 + run2.length;
-          out.push({ t: "range", sheet, start: cell, end: cell2, s: start, e });
+          out.push({ t: "range", sheet, start: cell, end: cell2, s: from, e });
           return e;
         }
         throw new FormulaSyntaxError(`"${run}:${run2}" is not a range`, start);
       }
-      out.push({ t: "cell", sheet, ref: cell, s: start, e: start + run.length });
-      return start + run.length;
+      const e = start + run.length;
+      out.push({ t: "cell", sheet, ref: cell, s: from, e });
+      // A2#: the range the formula in A2 spills into.
+      if (src[e] === "#") {
+        out.push({ t: "op", v: "#", s: e, e: e + 1 });
+        return e + 1;
+      }
+      return e;
     }
     // Column range: A:C
     const col = colPart(run);
@@ -270,7 +278,7 @@ export function lex(src: string): Token[] {
       const col2 = colPart(run2);
       if (col2) {
         const e = start + run.length + 1 + run2.length;
-        out.push({ t: "range", sheet, start: col, end: col2, wholeCols: true, s: start, e });
+        out.push({ t: "range", sheet, start: col, end: col2, wholeCols: true, s: from, e });
         return e;
       }
     }
@@ -330,9 +338,8 @@ export function lex(src: string): Token[] {
         j++;
       }
       if (src[j + 1] !== "!") throw new FormulaSyntaxError("A quoted sheet name needs !", i);
-      const e = pushRef(name, j + 2);
+      const e = pushRef(name, j + 2, i);
       if (e < 0) throw new FormulaSyntaxError(`Expected a reference after '${name}'!`, j + 2);
-      out[out.length - 1].s = i;
       i = e;
       continue;
     }
@@ -384,9 +391,8 @@ export function lex(src: string): Token[] {
         continue;
       }
       if (next === "!") {
-        const e = pushRef(word, j + 1);
+        const e = pushRef(word, j + 1, i);
         if (e < 0) throw new FormulaSyntaxError(`Expected a reference after ${word}!`, j + 1);
-        out[out.length - 1].s = i;
         i = e;
         continue;
       }

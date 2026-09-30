@@ -63,6 +63,11 @@ Type `=` and a formula, as in Excel. About 240 functions are available:
 - **Dynamic arrays:**
   - UNIQUE, SORT, SORTBY, FILTER, SEQUENCE, RANDARRAY, TRANSPOSE;
   - TAKE, DROP, CHOOSECOLS, CHOOSEROWS, VSTACK, HSTACK, TOCOL, TOROW.
+  - `A2#` is the whole range the formula in A2 spills into, however big it grows: `=SUM(A2#)`,
+    `=XLOOKUP(x,A2#,C2#)`, `=A2#*10` (which spills too), and `Sheet2!A2#` from another sheet. A
+    cell that does not spill (a value, a one-cell answer, a spill that is blocked) makes it #REF!.
+    Copying, inserting rows and renaming the sheet move it as they move A2, and an Excel file holds
+    it as `_xlfn.ANCHORARRAY(A2)`, both ways.
 - **Text:** TEXT, VALUE, NUMBERVALUE, LEFT, MID, TEXTJOIN, TEXTSPLIT, TEXTBEFORE, TEXTAFTER.
 - **Dates and times:** DATE, TIME, TIMEVALUE, EDATE, EOMONTH, DAYS, NETWORKDAYS(.INTL),
   WORKDAY(.INTL).

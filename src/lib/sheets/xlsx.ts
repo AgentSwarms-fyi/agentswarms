@@ -14,6 +14,7 @@
 import { a1, cellKey, parseRangeA1, rangeA1, type RangeAddr } from "./a1";
 import { literalValue, type CellInput, type CellStyle, type GridData } from "./engine";
 import { FUNCTIONS } from "./formula/functions";
+import { lex, type Token } from "./formula/lexer";
 import { parseFormula, type Node } from "./formula/parser";
 import {
   intersectionsForFile,
@@ -78,7 +79,33 @@ export const dateToSerial = (d: Date): number => d.getTime() / 86_400_000 + 25_5
  * prefixes in the file (_xlfn.XLOOKUP, _xlfn._xlws.FILTER, _xlpm.x in LET).
  */
 export function fromFileFormula(f: string): string {
-  return f.replace(/_xlfn\._xlws\.|_xlfn\.|_xlws\.|_xlpm\./gi, "");
+  return f.replace(/_xlfn\._xlws\.|_xlfn\.|_xlws\.|_xlpm\./gi, "").replace(ANCHOR_IN, "$1$2#");
+}
+
+/** The file's ANCHORARRAY(A2), which Excel shows as A2#: the range A2 spills into (R171). */
+const ANCHOR_IN =
+  /\bANCHORARRAY\(\s*((?:'(?:[^']|'')+'|[A-Za-z_][A-Za-z0-9_.]*)!)?(\$?[A-Za-z]{1,3}\$?\d+)\s*\)/gi;
+
+/** A2# as the file must hold it, _xlfn.ANCHORARRAY(A2), or Excel reads # as nothing it knows. */
+function anchorArraysForFile(body: string): string {
+  if (!body.includes("#")) return body;
+  let tokens: Token[];
+  try {
+    tokens = lex(body);
+  } catch {
+    return body;
+  }
+  let out = "";
+  let last = 0;
+  for (let k = 0; k + 1 < tokens.length; k++) {
+    const t = tokens[k];
+    const h = tokens[k + 1];
+    // The lexer gives a # of its own only straight after a cell.
+    if (t.t !== "cell" || h.t !== "op" || h.v !== "#") continue;
+    out += `${body.slice(last, t.s)}_xlfn.ANCHORARRAY(${body.slice(t.s, t.e)})`;
+    last = h.e;
+  }
+  return out + body.slice(last);
 }
 
 /**
@@ -150,7 +177,7 @@ const XLFN = new Set([
 const XLWS = new Set(["FILTER", "SORT"]);
 
 export function toFileFormula(f: string): string {
-  const body = f.startsWith("=") ? f.slice(1) : f;
+  const body = anchorArraysForFile(f.startsWith("=") ? f.slice(1) : f);
   let out = "";
   let i = 0;
   while (i < body.length) {

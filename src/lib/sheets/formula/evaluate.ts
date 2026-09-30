@@ -17,6 +17,7 @@ import {
   toText,
   type Matrix,
   type Scalar,
+  type SheetError,
   type Value,
 } from "./values";
 import { FUNCTIONS, LIFTS, OWN_LIFTS } from "./functions";
@@ -89,6 +90,11 @@ export interface EvalEnv {
   col: number;
   cell(sheet: string, row: number, col: number): Scalar;
   range(ref: RangeRef): Matrix;
+  /**
+   * Where the formula at (row, col) spills, for A2# (R171): from it to the
+   * far corner of its array, or #REF! when it does not spill.
+   */
+  spillRange?(sheet: string, row: number, col: number): RangeRef | SheetError;
   hasSheet(name: string): boolean;
   /** How far down/right a sheet has data, for whole-column/row references. */
   used(sheet: string): { rows: number; cols: number };
@@ -148,7 +154,17 @@ const MISSING = Symbol("missing");
 export type Missing = typeof MISSING;
 export const isMissing = (a: Arg) => a.node.k === "empty";
 
+/** The range A2# names, or why it names none. */
+function spillOf(node: Extract<Node, { k: "cell" }>, env: EvalEnv): RangeRef | SheetError {
+  if (!env.spillRange) return err("#REF!", "A spill reference needs a workbook");
+  return env.spillRange(node.sheet ?? env.sheet, node.ref.row, node.ref.col);
+}
+
 function rangeOf(node: Node, env: EvalEnv): RangeRef | undefined {
+  if (node.k === "cell" && node.spill) {
+    const ref = spillOf(node, env);
+    return isError(ref) ? undefined : ref;
+  }
   if (node.k === "cell") {
     return {
       sheet: node.sheet ?? env.sheet,
@@ -277,6 +293,10 @@ export function evaluate(node: Node, env: EvalEnv): Value {
     case "cell": {
       const sheet = node.sheet ?? env.sheet;
       if (node.sheet && !env.hasSheet(node.sheet)) return err("#REF!", `No sheet "${node.sheet}"`);
+      if (node.spill) {
+        const ref = spillOf(node, env);
+        return isError(ref) ? ref : env.range(ref);
+      }
       return env.cell(sheet, node.ref.row, node.ref.col);
     }
     case "range": {

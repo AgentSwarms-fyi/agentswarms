@@ -12,7 +12,8 @@ export type Node =
   | { k: "bool"; v: boolean }
   | { k: "err"; v: ErrorCode }
   | { k: "empty" }
-  | { k: "cell"; sheet?: string; ref: RefPart }
+  /** spill: A2#, the range the formula in A2 spills into (R171). */
+  | { k: "cell"; sheet?: string; ref: RefPart; spill?: boolean }
   | {
       k: "range";
       sheet?: string;
@@ -106,8 +107,14 @@ export function parseFormula(body: string): Node {
         return { k: "bool", v: t.v };
       case "err":
         return { k: "err", v: t.v };
-      case "cell":
+      case "cell": {
+        const after = peek();
+        if (after?.t === "op" && after.v === "#") {
+          i++;
+          return { k: "cell", sheet: t.sheet, ref: t.ref, spill: true };
+        }
         return { k: "cell", sheet: t.sheet, ref: t.ref };
+      }
       case "range":
         return {
           k: "range",

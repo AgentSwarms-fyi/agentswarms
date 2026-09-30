@@ -15,6 +15,19 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-30 — The spill reference A1#, ADVERSARIAL_LOG R171
+
+**Why this round exists.** Found by probing: `=SUM(A1#)` was #NAME?.
+
+Fixtures, kept: **"R171 spill before"** (`94f7931b…`) and **"R171 spill after"** (`6201f519…`),
+typed the same way: A1 `=SEQUENCE(3)`; C1 `=SUM(A1#)`, C2 `=ROWS(A1#)`, C3 `=XLOOKUP(2,A1#,E1#)`;
+E1 `=A1#*10`. After: then A1 changed to `=SEQUENCE(5)`, and a reload.
+
+| Round | What was driven | What came back (C1, C2, C3; E1) |
+| --- | --- | --- |
+| Before | The typing | #NAME? ×3, each "Unknown error value" on hover; E1 #NAME? |
+| After | The typing, the change, a reload | C1 6, C2 3, C3 20; E1:E3 10, 20, 30. After A1 became `=SEQUENCE(5)`: C1 15, C2 5, E1:E5 10 to 50; the same after the reload. File → Download as Excel wrote `SUM(_xlfn.ANCHORARRAY(A1))` in C1 and `_xlfn.ANCHORARRAY(A1)*10` as a dynamic array formula over E1:E5 |
+
 ## 2026-09-30 — Statistics over a range with a blank, ADVERSARIAL_LOG R170
 
 **Why this round exists.** Found by probing: formula.js counted a blank cell as 0.

@@ -4071,6 +4071,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "=SORT()",
       "=SUM()",
       "=SUM(Revenue)*TaxRate",
+      "A2#",
       "Orders[amount]",
       "SHEETS_AI_FILL_MAX_ROWS",
       "SHEETS_ASSIST_MODEL",

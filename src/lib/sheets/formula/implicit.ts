@@ -148,7 +148,15 @@ export function withIntersections(formula: string, isRange: (name: string) => bo
   const at: number[] = [];
   walk(p.ast, "value", (n, ctx) => {
     if (ctx !== "value") return;
-    const many = n.k === "range" ? manyCells(n) : n.k === "name" ? isRange(n.name) : false;
+    // A2# is the whole spill (R171): several cells, as a range is.
+    const many =
+      n.k === "range"
+        ? manyCells(n)
+        : n.k === "cell"
+          ? !!n.spill
+          : n.k === "name"
+            ? isRange(n.name)
+            : false;
     const s = spanOf(n)?.[0];
     if (many && s !== undefined) at.push(s);
   });

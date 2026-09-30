@@ -109,6 +109,43 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-30 — The spill reference, A2#
+
+Tests: `tests/unit/sheetsSpillRef.test.ts` (11 tests), and `tests/fixtures/sheets/xlsxwriter-spillref.xlsx`
+from `make_xlsxwriter_spillref.py`. The mutation run caught 14 of 14, and the control survived.
+
+#### R171 · S2 · =SUM(A1#) was #NAME?, and a file's ANCHORARRAY an unknown function
+
+**Found** checking which newer functions a download prefixes for Excel (`_xlfn.`), against
+XlsxWriter's list: its ANCHORARRAY is how a file holds Excel 365's `A1#`, and the probe found the
+engine had no `A1#` at all. Driven in "R171 spill before": A1 `=SEQUENCE(3)` (spilling 1, 2, 3);
+C1 `=SUM(A1#)`, C2 `=ROWS(A1#)`, C3 `=XLOOKUP(2,A1#,E1#)`; E1 `=A1#*10`.
+- All four were #NAME?, "Unknown error value": the lexer read `#` as the start of an error value.
+- An Excel 365 file that uses `A1#` holds `_xlfn.ANCHORARRAY(A1)`; it came in as `ANCHORARRAY(A1)`,
+  an unknown function, and showed only Excel's saved value.
+
+`A1#` is how Excel 365 formulas read a spilled list (a UNIQUE, a FILTER, a SEQUENCE) without
+knowing its length, so a workbook built around dynamic arrays leans on it throughout.
+
+**The fix.**
+- The lexer gives a `#` straight after a cell a token of its own (`lexer.ts`), so every rewrite that
+  moves the cell (copy, fill, insert and delete rows, Insert cells, a sheet rename) keeps it
+  untouched. The parser marks the cell `spill`.
+- The evaluator reads a spill cell as the range from the anchor to the far corner of its array
+  (`env.spillRange`), as a value and as the reference ROWS, INDEX, OFFSET and COUNTIF take.
+- The engine answers from the anchor's array and records a dependency on the anchor alone: a spill
+  changes only when its formula does, so a growing spill reaches `=SUM(A1#)`. #REF! when the cell
+  holds no spilled array (a value, a one-cell answer, a blocked spill); #CYCLE! when the spill
+  depends on the formula reading it.
+- A download writes `_xlfn.ANCHORARRAY(A1)`, and an import reads it back as `A1#`, with sheet names
+  quoted or not. A plain (pre-dynamic) formula from a file takes one value of a spill where older
+  Excel would, as it does of a range (R162).
+
+**Not changed.** Clicking a spilled range while typing a formula inserts `A1:A3`, not `A1#`, and a
+one-cell array answer (`=SEQUENCE(1)`) counts as not spilling; Excel's handling of that case was not
+checked. One mutant was left out as equivalent: a formula reading its own spill is #CYCLE! with or
+without the early check, which is there so that no cell records a dependency on itself.
+
 ### 2026-09-30 — The long-tail functions read a range as Excel does
 
 Tests: `tests/unit/sheetsLibraryArgs.test.ts` (10 tests). The mutation run caught 23 of 23, and

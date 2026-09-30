@@ -190,6 +190,10 @@ showing `\u2014` as text). Open, from the first rounds:
 
 - ~~Excel parity, small: a dynamic array over an empty cell spills a blank.~~ It spills 0 (checked
   in R170). `=A9+30` over a date cell carries the date format forward since R168.
+- **Point mode does not write A1#**: clicking a spilled range while typing a formula inserts
+  `A1:A3`, fixed to today's size, where Excel inserts `A1#` (R171 added the reference itself). A
+  one-cell array answer counts as not spilling; Excel's handling of `=SEQUENCE(1)` then `A1#` was
+  not checked.
 - **TREND, GROWTH, XNPV and XIRR over a range with a blank** still count the blank as 0 (R170
   fixed the rest of the formula.js functions). A list with no numbers is an error, not always
   Excel's code: `=GEOMEAN(A2)` over a blank is #VALUE!, Excel's #NUM!.
