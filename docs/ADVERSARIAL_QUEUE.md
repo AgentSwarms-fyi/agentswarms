@@ -188,9 +188,11 @@ Closed while building it: R112 (a `;` inside a string refused as a second
 statement), R113 (`now()` served from the result cache), R114 (JSX text
 showing `\u2014` as text). Open, from the first rounds:
 
-- **Excel parity, small:** a dynamic array over an empty cell spills a blank
-  where Excel spills 0. (`=A9+30` over a date cell now carries the date
-  format forward: R168.)
+- ~~Excel parity, small: a dynamic array over an empty cell spills a blank.~~ It spills 0 (checked
+  in R170). `=A9+30` over a date cell carries the date format forward since R168.
+- **TREND, GROWTH, XNPV and XIRR over a range with a blank** still count the blank as 0 (R170
+  fixed the rest of the formula.js functions). A list with no numbers is an error, not always
+  Excel's code: `=GEOMEAN(A2)` over a blank is #VALUE!, Excel's #NUM!.
 - **Deleting the last two sheets at once:** `sheetsDeleteTab` counts, then
   deletes, so two concurrent deletes can leave a workbook with none.
 - **A connection import was not driven:** the account has no database

@@ -254,14 +254,150 @@ function fromFormulaJs(r: unknown): Value {
   return conv(r);
 }
 
+/**
+ * As collectNumbers, for STDEVA: from a reference, text counts as 0 and TRUE
+ * as 1. Blanks are still skipped.
+ */
+function collectNumbersA(args: Arg[]): number[] | SheetError {
+  const out: number[] = [];
+  for (const a of args) {
+    if (a.node.k === "empty") continue;
+    const v = a.value();
+    if (a.isRef || isMatrix(v)) {
+      for (const x of flat(v)) {
+        if (isError(x)) return x;
+        if (typeof x === "number") out.push(x);
+        else if (typeof x === "boolean") out.push(x ? 1 : 0);
+        else if (typeof x === "string") out.push(0);
+      }
+    } else {
+      const n = toNumber(v);
+      if (isError(n)) return n;
+      out.push(n);
+    }
+  }
+  return out;
+}
+
+/**
+ * Two lists read side by side, as CORREL and SLOPE read them: a position
+ * where either is not a number is left out. Lists of different sizes are
+ * #N/A.
+ */
+function pairedNumbers(a: Arg, b: Arg): [number[], number[]] | SheetError {
+  const xs = flat(asMatrix(a.value()));
+  const ys = flat(asMatrix(b.value()));
+  if (xs.length !== ys.length) return err("#N/A", "The two ranges are different sizes");
+  const px: number[] = [];
+  const py: number[] = [];
+  for (let i = 0; i < xs.length; i++) {
+    const x = xs[i];
+    const y = ys[i];
+    if (isError(x)) return x;
+    if (isError(y)) return y;
+    if (typeof x === "number" && typeof y === "number") {
+      px.push(x);
+      py.push(y);
+    }
+  }
+  return [px, py];
+}
+
+/** Argument indices from `k` on. */
+const fromIndex = (k: number) => (n: number) =>
+  Array.from({ length: Math.max(0, n - k) }, (_, i) => k + i);
+
+/**
+ * How formula.js is given the arguments it reads differently from Excel
+ * (R170). It counted a blank cell in a range as 0 (GEOMEAN(A1:A3) was 0,
+ * SMALL and PERCENTILE ranked the blank, NPV discounted it as a period),
+ * paired a blank with a number (CORREL, SLOPE), refused text or TRUE in a
+ * range (SUMSQ, RANK, MODE: #VALUE!), and took no single value where it
+ * wanted an array (VSTACK("Name",A2:A9), TAKE(A1,1): #VALUE!).
+ */
+type LibraryArgs = {
+  /** Lists of numbers, read as SUM reads them: from a reference only numbers count. */
+  lists?: (n: number) => number[];
+  /** The lists count text in a reference as 0 and TRUE as 1 (STDEVA). */
+  countAll?: boolean;
+  /** Two lists read side by side (pairedNumbers). */
+  pairs?: [number, number];
+  /** Arrays: one value is a 1×1 array. */
+  arrays?: (n: number) => number[];
+  /** A rank of 0 is a number not in the list: #N/A, as Excel's (formula.js says 0). */
+  rank?: boolean;
+};
+const EVERY_LIST: LibraryArgs = { lists: fromIndex(0) };
+const FIRST_LIST: LibraryArgs = { lists: () => [0] };
+/** Keyed by the name formula.js has; the older names (STDEV, RANK…) are SAME_AS these. */
+const LIBRARY_ARGS: Record<string, LibraryArgs> = {
+  SUMSQ: EVERY_LIST,
+  "STDEV.S": EVERY_LIST,
+  "STDEV.P": EVERY_LIST,
+  STDEVP: EVERY_LIST,
+  STDEVA: { lists: fromIndex(0), countAll: true },
+  "VAR.S": EVERY_LIST,
+  "VAR.P": EVERY_LIST,
+  GEOMEAN: EVERY_LIST,
+  HARMEAN: EVERY_LIST,
+  AVEDEV: EVERY_LIST,
+  DEVSQ: EVERY_LIST,
+  KURT: EVERY_LIST,
+  SKEW: EVERY_LIST,
+  "MODE.SNGL": EVERY_LIST,
+  LARGE: FIRST_LIST,
+  SMALL: FIRST_LIST,
+  "PERCENTILE.INC": FIRST_LIST,
+  "PERCENTILE.EXC": FIRST_LIST,
+  "QUARTILE.INC": FIRST_LIST,
+  IRR: FIRST_LIST,
+  "RANK.EQ": { lists: () => [1], rank: true },
+  "RANK.AVG": { lists: () => [1], rank: true },
+  NPV: { lists: fromIndex(1) },
+  CORREL: { pairs: [0, 1] },
+  "COVARIANCE.S": { pairs: [0, 1] },
+  "COVARIANCE.P": { pairs: [0, 1] },
+  SLOPE: { pairs: [0, 1] },
+  INTERCEPT: { pairs: [0, 1] },
+  RSQ: { pairs: [0, 1] },
+  FORECAST: { pairs: [1, 2] },
+  TAKE: { arrays: () => [0] },
+  DROP: { arrays: () => [0] },
+  CHOOSECOLS: { arrays: () => [0] },
+  CHOOSEROWS: { arrays: () => [0] },
+  VSTACK: { arrays: fromIndex(0) },
+  HSTACK: { arrays: fromIndex(0) },
+};
+
 /** Wrap a formula.js function: arguments evaluated eagerly, converted both ways. */
 function fromLibrary(name: string): FnImpl | undefined {
   const fn = (formulajs as unknown as Record<string, unknown>)[name.replace(/\./g, "")];
   if (typeof fn !== "function") return undefined;
+  const how = LIBRARY_ARGS[name] ?? {};
   return (args) => {
-    const vals = args.map((a) => (a.node.k === "empty" ? undefined : toFormulaJs(a.value())));
+    const lists = new Set(how.lists?.(args.length));
+    const arrays = new Set(how.arrays?.(args.length));
+    const vals: unknown[] = [];
+    for (let i = 0; i < args.length; i++) {
+      const a = args[i];
+      if (a.node.k === "empty" || how.pairs?.includes(i)) vals.push(undefined);
+      else if (lists.has(i)) {
+        const xs = how.countAll ? collectNumbersA([a]) : collectNumbers([a]);
+        if (isError(xs)) return xs;
+        vals.push(xs);
+      } else if (arrays.has(i)) vals.push(toFormulaJs(asMatrix(a.value())));
+      else vals.push(toFormulaJs(a.value()));
+    }
+    if (how.pairs) {
+      const [i, j] = how.pairs;
+      if (!args[i] || !args[j]) return err("#N/A", "Wrong number of arguments");
+      const got = pairedNumbers(args[i], args[j]);
+      if (isError(got)) return got;
+      [vals[i], vals[j]] = got;
+    }
     try {
-      return fromFormulaJs((fn as (...x: unknown[]) => unknown)(...vals));
+      const out = fromFormulaJs((fn as (...x: unknown[]) => unknown)(...vals));
+      return how.rank && out === 0 ? err("#N/A", "The number is not in the list") : out;
     } catch {
       return err("#VALUE!");
     }

@@ -109,6 +109,50 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-30 — The long-tail functions read a range as Excel does
+
+Tests: `tests/unit/sheetsLibraryArgs.test.ts` (10 tests). The mutation run caught 23 of 23, and
+the control survived.
+
+#### R170 · S2 · A blank cell counted as 0 in GEOMEAN, SMALL, PERCENTILE, NPV, CORREL and SLOPE
+
+**Found** by probing the engine for the queue's "a dynamic array over an empty cell spills a blank"
+(that one was already fixed: it spills 0). The probe gave a range with a blank cell to the functions
+that come from formula.js, and several answered as if the blank were 0. Driven in "R170 stats
+before": A1 1, A2 blank, A3 3, A4 `x`; B1:B3 2, 4, 6.
+- `=GEOMEAN(A1:A3)` was 0 (Excel 1.73), `=SMALL(A1:A3,2)` 1 (Excel 3), `=PERCENTILE(A1:A3,0.5)`
+  1 (Excel 2).
+- `=NPV(0.1,A1:A3)` was 3.163: it discounted the blank as a period of 0 and the 3 over three
+  years. Excel skips the blank: 3.388.
+- `=CORREL(A1:A3,B1:B3)` was 0.655 and `=SLOPE(B1:B3,A1:A3)` 0.857: the blank was paired with 4.
+  Excel leaves the row out: 1 and 2.
+- `=SUMSQ(A1:A4)` was #VALUE! over the text in A4 (Excel 10), and `=RANK(4,A1:A3)`, a number not
+  in the list, was 0 (Excel #N/A).
+- `=VSTACK("Name",A1:A3)` was #VALUE!, and so were TAKE, CHOOSECOLS and LARGE given one cell.
+
+These are silent wrong numbers: nothing on the cell says the answer is off. The functions the file
+writes itself (SUM, AVERAGE, MEDIAN…) read ranges Excel's way; the ones handed to formula.js got the
+range as it stood, blanks as nulls.
+
+**The fix** (`lib/sheets/formula/functions.ts`, `LIBRARY_ARGS`). Each formula.js function that reads
+a range is told how, and its arguments are read before formula.js sees them:
+- lists of numbers (SUMSQ, STDEV, VAR, GEOMEAN, HARMEAN, AVEDEV, DEVSQ, KURT, SKEW, MODE, LARGE,
+  SMALL, PERCENTILE, QUARTILE, IRR, RANK's list, NPV's values) as SUM reads them: from a reference
+  only numbers count; a value typed into the call is coerced;
+- STDEVA with text as 0 and TRUE as 1, blanks still skipped;
+- two lists side by side (CORREL, COVARIANCE, SLOPE, INTERCEPT, RSQ, FORECAST), dropping a row where
+  either is not a number, #N/A when their sizes differ, and an error in either passed on;
+- arrays (VSTACK, HSTACK, TAKE, DROP, CHOOSECOLS, CHOOSEROWS): one value is a one-cell array;
+- a RANK of 0 (not in the list) is #N/A.
+
+The table is keyed by formula.js's names. The older names (STDEV, VAR, MODE, PERCENTILE, QUARTILE,
+RANK, FORECAST.LINEAR) are aliases of the new ones, which a first version of the table missed: its
+entries for them never ran, and the mutation run showed it.
+
+**Not changed.** TREND, GROWTH, XNPV and XIRR are handed their ranges as before; a blank among
+TREND's known x values still counts as 0. A list with no numbers at all is an error, though not
+always Excel's code (`=GEOMEAN(A2)` is #VALUE!, Excel's #NUM!).
+
 ### 2026-09-30 — Inserted rows and columns take their neighbours' formats
 
 Tests: `tests/unit/sheetsInsertFormats.test.ts` (10 tests). The mutation run caught 11 of 11, and

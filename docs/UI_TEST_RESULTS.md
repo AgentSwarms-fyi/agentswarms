@@ -15,6 +15,21 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-30 — Statistics over a range with a blank, ADVERSARIAL_LOG R170
+
+**Why this round exists.** Found by probing: formula.js counted a blank cell as 0.
+
+Fixtures, kept: **"R170 stats before"** (`bdfa3109…`) and **"R170 stats after"** (`c7c8a7fd…`),
+typed the same way: A1 `1`, A2 left blank, A3 `3`, A4 `x`; B1:B3 `2`, `4`, `6`; D1:D8
+`=GEOMEAN(A1:A3)`, `=SMALL(A1:A3,2)`, `=PERCENTILE(A1:A3,0.5)`, `=NPV(0.1,A1:A3)`,
+`=CORREL(A1:A3,B1:B3)`, `=SLOPE(B1:B3,A1:A3)`, `=SUMSQ(A1:A4)`, `=RANK(4,A1:A3)`; F1
+`=VSTACK("Name",A1:A3)`.
+
+| Round | What was driven | What came back (D1 to D8; F1) |
+| --- | --- | --- |
+| Before | The typing | 0, 1, 1, 3.163035312, 0.6546536707, 0.8571428571, #VALUE!, 0; F1 #VALUE! |
+| After | The same | 1.732050808, 3, 2, 3.388429752, 1, 2, 10, #N/A; F1:F4 Name, 1, 0, 3; the same after a reload |
+
 ## 2026-09-30 — Inserted rows take their neighbours' formats, ADVERSARIAL_LOG R169
 
 **Why this round exists.** Open in the queue since R117: an inserted row arrived plain.

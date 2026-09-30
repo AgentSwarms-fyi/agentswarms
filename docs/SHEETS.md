@@ -69,6 +69,15 @@ Type `=` and a formula, as in Excel. About 240 functions are available:
 - **Statistics:** STDEV, VAR, RANK, MODE, PERCENTILE and QUARTILE, under their old names and new
   ones; FORECAST(.LINEAR), TREND, GROWTH, FREQUENCY.
 - **The long tail** of statistical, financial and engineering functions.
+  - They read their arguments as Excel does. In a range, a blank cell is not a 0, and text and TRUE
+    are left out, so `=GEOMEAN(A1:A3)` over 1, a blank and 3 is 1.73 and `=NPV(0.1,A1:A3)`
+    discounts two payments, not three. STDEVA counts text as 0 and TRUE as 1, and still skips
+    blanks.
+  - CORREL, SLOPE, INTERCEPT, RSQ, COVARIANCE and FORECAST read their two ranges side by side, and
+    leave out a row where either is not a number.
+  - VSTACK, HSTACK, TAKE, DROP, CHOOSECOLS and CHOOSEROWS take one value as a one-cell array, so
+    `=VSTACK("Name",A2:A9)` puts a heading over a list. A RANK of a number not in the list is
+    `#N/A`.
 
 Not yet: LAMBDA and AGGREGATE. A file that uses them shows the value Excel last saved.
 

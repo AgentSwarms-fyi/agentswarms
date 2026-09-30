@@ -92,8 +92,9 @@ function SheetsDocsPage() {
         LET, OFFSET and INDIRECT, dynamic arrays that spill (UNIQUE, FILTER, SORT, SEQUENCE, TAKE,
         VSTACK, TEXTSPLIT, with <C>#SPILL!</C> when a cell is in the way), array formulas such as{" "}
         <C>SUMPRODUCT(--ISNUMBER(SEARCH(&quot;x&quot;,A2:A9)))</C>, TEXT and date arithmetic,
-        whole-column and cross-sheet references, and Excel&apos;s precedence (<C>-2^2</C> is 4). A
-        cell with an error explains it on hover.
+        whole-column and cross-sheet references, and Excel&apos;s precedence (<C>-2^2</C> is 4).
+        Statistics skip blank cells and text in a range, as Excel&apos;s do. A cell with an error
+        explains it on hover.
       </P>
       <UL>
         <li>
