@@ -1,4 +1,4 @@
-// An Iceberg "replace" that could leave the catalog with no table.
+// An Iceberg "replace": never without a table, never an empty one.
 //
 // FOUND IN R107. The extension has no CREATE OR REPLACE for Iceberg tables,
 // so publishing with "Replace it (drop, then create)" ran exactly that: a
@@ -10,10 +10,17 @@
 // Mounting namespace r107 afterwards answered "Mounted 0 tables". The
 // replace had dropped the published table and put nothing in its place.
 //
+// FOUND IN R182. The staged copy then went into the old name by a drop, a
+// create and an insert. The catalog's log for one replace of
+// r181.swap_target: dropped 13:54:39.456, created 13:54:40.375, filled
+// 13:54:42.076. A reader found no table for 0.9 s and an empty one for
+// 1.7 s. The staged table is now renamed into the name, and the old one
+// renamed aside, in one transaction.
+//
 // Run here against a fake engine that fails the statements the test names,
-// so it sees what had already happened when one failed. The staging table
-// is named afresh for each publish (a fixed `<table>__publishing` would be a
-// table somebody could own, and the replace began by dropping it).
+// so it sees what had already happened when one failed. The staging and
+// retired tables are named afresh for each publish (a fixed name would be a
+// table somebody could own).
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = {
@@ -75,12 +82,15 @@ const publish = (mode: "create" | "replace") =>
     userId: "owner",
   });
 
+// Anything that removes the owner's table by its own name.
 const droppedTheTable = () =>
-  state.statements.some((s) => /^DROP TABLE IF EXISTS .*"r107"\."r107_pub";$/.test(s));
+  state.statements.some((s) => /DROP TABLE IF EXISTS .*"r107"\."r107_pub";/.test(s));
 
 const STAGING = /"(r107_pub__publishing_[0-9a-f]{8})"/;
-const stagingOf = (statements: string[]) =>
-  statements.map((s) => STAGING.exec(s)?.[1]).find(Boolean);
+const RETIRED = /"(r107_pub__replaced_[0-9a-f]{8})"/;
+const nameOf = (re: RegExp, statements: string[]) =>
+  statements.map((s) => re.exec(s)?.[1]).find(Boolean);
+const SWAP = (sql: string) => sql.startsWith("BEGIN TRANSACTION;");
 
 beforeEach(() => {
   state.statements = [];
@@ -91,90 +101,132 @@ beforeEach(() => {
   });
 });
 
+describe("a replace swaps the new table in by name", () => {
+  it("renames the old table aside and the staged one into its name, in one transaction", async () => {
+    await publish("replace");
+    const swap = state.statements.find(SWAP) ?? "";
+    const staging = nameOf(STAGING, state.statements);
+    const retired = nameOf(RETIRED, state.statements);
+    expect(swap).toMatch(
+      new RegExp(
+        `^BEGIN TRANSACTION; ALTER TABLE IF EXISTS .*"r107"\\."r107_pub" RENAME TO "${retired}"; ` +
+          `ALTER TABLE .*"r107"\\."${staging}" RENAME TO "r107_pub"; COMMIT;$`,
+      ),
+    );
+  });
+
+  it("never drops, recreates or refills the table under the owner's name", async () => {
+    await publish("replace");
+    expect(droppedTheTable()).toBe(false);
+    expect(state.statements.some((s) => /^CREATE TABLE .*"r107"\."r107_pub" \(/.test(s))).toBe(
+      false,
+    );
+    expect(state.statements.some((s) => /^INSERT INTO .*"r107"\."r107_pub" \(/.test(s))).toBe(
+      false,
+    );
+  });
+
+  it("stages the new data before the swap, and drops the old table only after it", async () => {
+    await publish("replace");
+    const filled = state.statements.findIndex(
+      (s) => s.startsWith("INSERT INTO") && STAGING.test(s) && s.includes('"analytics"'),
+    );
+    const swapped = state.statements.findIndex(SWAP);
+    const retired = nameOf(RETIRED, state.statements);
+    const droppedOld = state.statements.findIndex((s) =>
+      new RegExp(`^DROP TABLE IF EXISTS .*"r107"\\."${retired}";$`).test(s),
+    );
+    expect(filled).toBeGreaterThan(-1);
+    expect(swapped).toBeGreaterThan(filled);
+    expect(droppedOld).toBeGreaterThan(swapped);
+  });
+});
+
 describe("a replace that cannot be written leaves the old table", () => {
-  it("fails on the staged write, before anything is dropped", async () => {
-    // The whole bug: the DROP ran first, and then this failed.
+  it("fails on the staged write, before the swap", async () => {
+    // R107's whole bug: the DROP ran first, and then this failed.
     state.failWhen = (sql) => sql.startsWith("CREATE TABLE") && STAGING.test(sql);
     await expect(publish("replace")).rejects.toThrow(/INTERVAL is not a valid Iceberg Type/);
+    expect(state.statements.some(SWAP)).toBe(false);
     expect(droppedTheTable()).toBe(false);
   });
 
   it("removes its own staging table when the staged write fails", async () => {
-    state.failWhen = (sql) => sql.startsWith("CREATE TABLE") && STAGING.test(sql);
-    await expect(publish("replace")).rejects.toThrow();
-    const staging = stagingOf(state.statements);
-    expect(state.statements.at(-1)).toMatch(
-      new RegExp(`^DROP TABLE IF EXISTS .*"r107"\\."${staging}";$`),
-    );
-  });
-
-  it("removes its own staging table when the catalog refuses to drop the old one", async () => {
-    // Driven: the catalog's store was locked and answered HTTP 500 to the
-    // DELETE. The old table stood, and a stray staging copy would have too.
-    state.failWhen = (sql) => /^DROP TABLE IF EXISTS .*"r107"\."r107_pub";$/.test(sql);
-    await expect(publish("replace")).rejects.toThrow();
-    const staging = stagingOf(state.statements);
-    expect(state.statements.at(-1)).toMatch(
-      new RegExp(`^DROP TABLE IF EXISTS .*"r107"\\."${staging}";$`),
-    );
-  });
-
-  it("stages the new data before it drops the old table", async () => {
-    await publish("replace");
-    const staged = state.statements.findIndex(
-      (s) => s.startsWith("INSERT INTO") && STAGING.test(s) && s.includes('"analytics"'),
-    );
-    const dropped = state.statements.findIndex((s) =>
-      /^DROP TABLE IF EXISTS .*"r107"\."r107_pub";$/.test(s),
-    );
-    expect(staged).toBeGreaterThan(-1);
-    expect(dropped).toBeGreaterThan(staged);
-  });
-
-  it("says where the new data is if the copy into the old name fails", async () => {
-    // The copy is two statements since R181, the create and the insert.
-    for (const copy of [
-      /^CREATE TABLE .*"r107"\."r107_pub" \(/,
-      /^INSERT INTO .*"r107"\."r107_pub" \(.*\) SELECT .* FROM .*"r107_pub__publishing_[0-9a-f]{8}";$/,
-    ]) {
+    for (const step of ["CREATE TABLE", "INSERT INTO"]) {
       state.statements = [];
-      state.failWhen = (sql) => copy.test(sql);
-      await expect(publish("replace")).rejects.toThrow(
-        /The old r107\.r107_pub had already been dropped; the new data is in r107\.r107_pub__publishing_[0-9a-f]{8}\./,
+      state.failWhen = (sql) => sql.startsWith(step) && STAGING.test(sql);
+      await expect(publish("replace")).rejects.toThrow();
+      const staging = nameOf(STAGING, state.statements);
+      expect(state.statements.at(-1)).toMatch(
+        new RegExp(`^DROP TABLE IF EXISTS .*"r107"\\."${staging}";$`),
       );
     }
   });
+});
 
-  it("does not fail a publish that landed because the staging cleanup failed", async () => {
-    state.failWhen = (sql) => sql.startsWith("DROP TABLE IF EXISTS") && STAGING.test(sql);
+describe("a swap that fails", () => {
+  it("rolls back, puts the old table back if it had moved, then removes the staging table", async () => {
+    state.failWhen = SWAP;
+    await expect(publish("replace")).rejects.toThrow(
+      /r107\.r107_pub was not replaced, and is as it was\./,
+    );
+    const staging = nameOf(STAGING, state.statements);
+    const retired = nameOf(RETIRED, state.statements);
+    const after = state.statements.slice(state.statements.findIndex(SWAP) + 1);
+    expect(after).toEqual([
+      "ROLLBACK;",
+      expect.stringMatching(
+        new RegExp(`^ALTER TABLE IF EXISTS .*"r107"\\."${retired}" RENAME TO "r107_pub";$`),
+      ),
+      expect.stringMatching(new RegExp(`^DROP TABLE IF EXISTS .*"r107"\\."${staging}";$`)),
+    ]);
+    expect(droppedTheTable()).toBe(false);
+  });
+
+  it("says where the old table is when it cannot be put back", async () => {
+    state.failWhen = (sql) => SWAP(sql) || (RETIRED.test(sql) && sql.startsWith("ALTER TABLE"));
+    const error = await publish("replace").then(
+      () => null,
+      (e: Error) => e.message,
+    );
+    expect(error).toMatch(
+      /If r107\.r107_pub is missing, the old table is at r107\.r107_pub__replaced_[0-9a-f]{8}\./,
+    );
+    // It cannot promise what it could not check.
+    expect(error).not.toMatch(/as it was/);
+  });
+});
+
+describe("after the swap", () => {
+  it("does not fail a publish that landed because the old table's removal failed", async () => {
+    state.failWhen = (sql) => sql.startsWith("DROP TABLE IF EXISTS") && RETIRED.test(sql);
     await expect(publish("replace")).resolves.toEqual({ rows: 1 });
     expect(
-      state.warnings.some((w) => /could not drop r107\.r107_pub__publishing_[0-9a-f]{8}/.test(w)),
+      state.warnings.some((w) => /could not drop r107\.r107_pub__replaced_[0-9a-f]{8}/.test(w)),
     ).toBe(true);
   });
 });
 
 describe("a replace drops nothing it was not asked to", () => {
-  it("drops only the named table and the staging table it created", async () => {
+  it("drops only the tables it made or moved, under this publish's own names", async () => {
     await publish("replace");
-    const created = new Set<string>();
+    const own = [nameOf(STAGING, state.statements), nameOf(RETIRED, state.statements)];
     for (const s of state.statements) {
-      const make = /^CREATE TABLE .*\."([^"]+)" \(/.exec(s);
-      if (make) created.add(make[1]);
       const drop = /^DROP TABLE IF EXISTS .*\."([^"]+)";$/.exec(s);
-      if (drop) expect(drop[1] === "r107_pub" || created.has(drop[1])).toBe(true);
+      if (drop) expect(own).toContain(drop[1]);
     }
   });
 
-  it("stages each publish under a name of its own", async () => {
+  it("names its staging and retired tables afresh for each publish", async () => {
     await publish("replace");
-    const first = stagingOf(state.statements);
+    const first = [nameOf(STAGING, state.statements), nameOf(RETIRED, state.statements)];
     state.statements = [];
     await publish("replace");
-    const second = stagingOf(state.statements);
-    expect(first).toBeTruthy();
-    expect(second).toBeTruthy();
-    expect(second).not.toBe(first);
+    const second = [nameOf(STAGING, state.statements), nameOf(RETIRED, state.statements)];
+    expect(first.every(Boolean)).toBe(true);
+    expect(second.every(Boolean)).toBe(true);
+    expect(second[0]).not.toBe(first[0]);
+    expect(second[1]).not.toBe(first[1]);
   });
 });
 

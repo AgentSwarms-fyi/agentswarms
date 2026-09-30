@@ -505,7 +505,7 @@ export function PublishToIcebergDialog({ schema, table }: { schema: string; tabl
                 onChange={(e) => setMode(e.target.value as "create" | "replace")}
               >
                 <option value="create">Refuse (keep the existing table)</option>
-                <option value="replace">Replace it (drop, then create)</option>
+                <option value="replace">Replace it (swap the new table in)</option>
               </select>
             </div>
             <Button

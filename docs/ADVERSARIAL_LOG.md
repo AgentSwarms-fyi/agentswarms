@@ -109,6 +109,50 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-30 — An Iceberg replace left the name empty, then empty-handed
+
+Tests: `tests/unit/icebergReplaceInPlace.test.ts` (6 tests) and a rewritten
+`tests/unit/icebergReplaceStaged.test.ts` (R107's cases, now over the swap), with
+`iceberg.test.ts` and `icebergPublishColumns.test.ts` updated. The mutation run caught 22 of 22,
+and the control survived; a first run missed a failed swap that also claimed the table "is as it
+was", and the test now requires that claim to be absent.
+
+#### R182 · S2 · No table for 0.9 s, then an empty one for 1.7 s
+
+**Found** as Phase A's fourth item, queued by R107: "the swap is not atomic". Measured on the hot
+deploy of R181, from the catalog's own log, since a poller loading the table starves the
+development catalog's SQLite writer (R181). Lakehouse → `analytics.stg_revenue` → Publish to
+Iceberg → `local_rest` / `r181` / `swap_target`, Replace it (drop, then create) → "Published 836
+row(s)", and in the catalog:
+- 13:54:39.456 `Dropped table: r181.swap_target`
+- 13:54:40.375 `swap_target` committed: created, empty
+- 13:54:42.076 `swap_target` committed: filled
+
+A reader of the catalog found no table for 0.9 s and then an empty one for 1.7 s. A dashboard,
+a Spark job or a mount reading at that moment sees a missing table or zero rows, and nothing
+says the publish was still going.
+
+**The fix** (`utils/lakehouse/iceberg.ts`, `iceberg.server.ts`, the dialog's label). Two paths,
+chosen by the old table's columns as the engine reads them (`DESCRIBE`):
+- The same names, order and types as the new data: `BEGIN; DELETE FROM t; INSERT INTO t …;
+  COMMIT`. Driven: the catalog logged one commit (14:26:00.608) carrying a delete snapshot and an
+  append snapshot, and no rename or drop. The table's current state went from the old rows to the
+  new ones in that commit. A failed write rolls back and says the table keeps its old rows.
+- Anything else, or no table yet: the new data is staged as before, then `BEGIN; ALTER TABLE IF
+  EXISTS t RENAME TO t__replaced_<token>; ALTER TABLE staging RENAME TO t; COMMIT`, and the old
+  table is dropped last. Driven twice: the renames landed 1.46 s apart (14:17:19.107 and
+  20.571) and 0.39 s apart (14:31:32.219 and 32.613). The catalog applies them one after the
+  other, so a reader can miss the table for that moment, but never finds it empty, and the new
+  data is written once instead of twice. The extension accepts both renames in one transaction
+  and checks a clash before sending either (probed). A swap that fails anyway rolls back, renames
+  the old table back if it had moved, removes the staging table, and names where the old table is
+  if it could not be put back.
+
+**Not changed.** The REST catalog has no call that renames two tables at once, so a replace that
+changes the columns keeps a short gap. The old rows of an in-place replace stay in the table's
+history until the catalog expires its snapshots. The label now reads "Replace it (swap the new
+table in)".
+
 ### 2026-09-30 — Every publish to Iceberg failed on a freshly built image
 
 Tests: `tests/unit/icebergPublishColumns.test.ts` (6 tests), with `tests/unit/iceberg.test.ts` and

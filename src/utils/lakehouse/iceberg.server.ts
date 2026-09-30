@@ -18,18 +18,23 @@ import {
   ICEBERG_NAMESPACE,
   icebergAlias,
   icebergAttachSql,
+  icebergDescribeSql,
   icebergDetachSql,
   icebergDropTableSql,
   icebergImportSql,
   icebergListNamespacesSql,
   icebergListTablesSql,
+  icebergOverwriteSql,
   icebergPublishSql,
+  icebergRetiredName,
   icebergSourceColumnsSql,
   icebergStagingName,
+  icebergSwapBackSql,
   icebergSecretNames,
   icebergSecretSql,
   icebergViewName,
   icebergViewSql,
+  sameColumns,
   validateIcebergCatalog,
   type IcebergCatalogConfig,
 } from "@/utils/lakehouse/iceberg";
@@ -378,7 +383,9 @@ export async function publishToIceberg(args: {
     throw new Error("That namespace name is not usable here.");
   if (!TABLE_NAME.test(args.table)) throw new Error("That table name is not usable here.");
   const rows = await withCatalog(args.row, async (c, alias) => {
-    const staging = icebergStagingName(args.table, randomBytes(4).toString("hex"));
+    const token = randomBytes(4).toString("hex");
+    const staging = icebergStagingName(args.table, token);
+    const retired = icebergRetiredName(args.table, token);
     const columns = (
       await (await c.run(icebergSourceColumnsSql(args.sourceSchema, args.sourceTable))).getRows()
     ).map((r) => ({ name: String(r[0]), type: String(r[1]) }));
@@ -391,13 +398,51 @@ export async function publishToIceberg(args: {
       mode: args.mode,
       columns,
       staging,
+      retired,
     });
-    // In a replace, the statement that drops the OLD table (not the staging
-    // one). Everything before it leaves the old table untouched, so a failure
-    // there is an ordinary error.
-    const dropsOld = plan.findIndex(
-      (s) => s.startsWith("DROP TABLE IF EXISTS") && !s.includes(staging),
-    );
+    const countRows = async () => {
+      const [n] = await firstColumn(
+        c,
+        `SELECT count(*) FROM ${qi(alias)}.${qi(args.namespace)}.${qi(args.table)}`,
+      );
+      return Number(n ?? 0);
+    };
+    // FOUND IN R182. A replace left the catalog without the table while it
+    // dropped, recreated and refilled it. When the old table already has the
+    // new data's columns, the replace is one transaction instead: its rows
+    // deleted and the new ones inserted, one commit, never a gap. A table
+    // that does not exist, or has other columns, takes the staged swap.
+    if (args.mode === "replace") {
+      const current = await c
+        .run(icebergDescribeSql(alias, args.namespace, args.table))
+        .then(async (r) =>
+          (await r.getRows()).map((row) => ({ name: String(row[0]), type: String(row[1]) })),
+        )
+        .catch(() => null);
+      if (current && sameColumns(current, columns)) {
+        try {
+          await c.run(
+            icebergOverwriteSql({
+              alias,
+              namespace: args.namespace,
+              table: args.table,
+              sourceSchema: args.sourceSchema,
+              sourceTable: args.sourceTable,
+              columns,
+            }),
+          );
+        } catch (e) {
+          await c.run("ROLLBACK;").catch(() => {});
+          throw new Error(
+            `${(e as Error).message}. ${args.namespace}.${args.table} was not replaced; it keeps its old rows.`,
+          );
+        }
+        return countRows();
+      }
+    }
+    // In a replace, the swap. Everything before it leaves the old table
+    // untouched, so a failure there is an ordinary error.
+    const swap = plan.findIndex((s) => s.startsWith("BEGIN TRANSACTION;"));
     for (const [i, sql] of plan.entries()) {
       try {
         await c.run(sql);
@@ -412,35 +457,42 @@ export async function publishToIceberg(args: {
           await c.run(icebergDropTableSql(alias, args.namespace, args.table)).catch(() => {});
           throw e;
         }
-        if (dropsOld >= 0 && i <= dropsOld) {
-          // The old table stands: nothing ran, or the catalog refused its
-          // drop. The staging table is this publish's own, and the new data
-          // is still in the lakehouse, so remove it rather than leave a
-          // stray table behind for every failed attempt.
-          await c.run(plan[plan.length - 1]).catch(() => {});
+        if (swap >= 0 && i < swap) {
+          // The old table stands: nothing ran, or the staged write failed.
+          // The staging table is this publish's own, and the new data is
+          // still in the lakehouse, so remove it rather than leave a stray
+          // table behind for every failed attempt.
+          await c.run(icebergDropTableSql(alias, args.namespace, staging)).catch(() => {});
           throw e;
         }
-        if (dropsOld >= 0 && i > dropsOld && i < plan.length - 1) {
-          // The old table is gone and the copy into its name (the create or
-          // the insert) failed: say where the new data is rather than leave
-          // the owner guessing.
+        if (swap >= 0 && i === swap) {
+          // The catalog applies the two renames one after the other, so a
+          // swap that failed may have moved the old table aside and stopped
+          // there. Put it back, then remove the staging table, and say
+          // where things are if that could not be done.
+          await c.run("ROLLBACK;").catch(() => {});
+          const back = await c
+            .run(icebergSwapBackSql(alias, args.namespace, retired, args.table))
+            .then(
+              () => true,
+              () => false,
+            );
+          await c.run(icebergDropTableSql(alias, args.namespace, staging)).catch(() => {});
           throw new Error(
-            `${message}. The old ${args.namespace}.${args.table} had already been dropped; the new data is in ${args.namespace}.${staging}.`,
+            back
+              ? `${message}. ${args.namespace}.${args.table} was not replaced, and is as it was.`
+              : `${message}. If ${args.namespace}.${args.table} is missing, the old table is at ${args.namespace}.${retired}.`,
           );
         }
-        if (dropsOld >= 0 && i === plan.length - 1) {
-          // Only the staging table's cleanup: the publish itself has landed.
-          console.warn(`[iceberg] could not drop ${args.namespace}.${staging}: ${message}`);
+        if (swap >= 0 && i === plan.length - 1) {
+          // Only the old table's removal: the publish itself has landed.
+          console.warn(`[iceberg] could not drop ${args.namespace}.${retired}: ${message}`);
           continue;
         }
         throw e;
       }
     }
-    const [n] = await firstColumn(
-      c,
-      `SELECT count(*) FROM ${qi(alias)}.${qi(args.namespace)}.${qi(args.table)}`,
-    );
-    return Number(n ?? 0);
+    return countRows();
   });
   auditEvent({
     userId: args.userId,

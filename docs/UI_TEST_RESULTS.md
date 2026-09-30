@@ -15,6 +15,22 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-30 — An Iceberg replace without a gap, ADVERSARIAL_LOG R182
+
+**Why this round exists.** Phase A's fourth item: R107's replace was not atomic. Every window
+below is read from the catalog's own log (`docker logs aswarm-iceberg-rest`), with no poller
+running (R181: a poller starves the development catalog's writer).
+
+Fixtures, kept: `r181.swap_target` in `local_rest`, now holding `analytics.r107_src2`'s two rows.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before (hot deploy of R181) | `analytics.stg_revenue` → Publish to Iceberg → `local_rest` / `r181` / `swap_target`, Replace it (drop, then create) | `Published 836 row(s)`; the catalog: dropped 13:54:39.456, created 13:54:40.375, filled 13:54:42.076: no table for 0.9 s, then an empty one for 1.7 s |
+| After, rename swap only (hot deploy) | the same | `Published 836 row(s)` in 9 s (14 s before); renamed aside 14:17:19.107, staged table renamed in 14:17:20.571, old table dropped 14:17:22.485; never empty, missing for 1.5 s. Not good enough, hence the next row |
+| After (hot deploy, final) | the same, the option now "Replace it (swap the new table in)" | `Published 836 row(s)`; the catalog: ONE commit, 14:26:00.608, no rename, no drop; the table's snapshots: 1 append (836), 2 delete (836 position deletes), 3 append (836), current 3 |
+| After | `analytics.r107_src2` (`id`, `note`, 2 rows) → the same table, Replace | `Published 2 row(s)`; staged, then renamed aside 14:31:32.219 and in 14:31:32.613, old table dropped 14:31:33.048 |
+| After | `analytics.r107_bad` (an INTERVAL column) → the same table, Replace | `Invalid Input Error: Column type INTERVAL is not a valid Iceberg Type.`; the catalog logged no commit, rename or drop; `swap_target` still `id`, `note`, 2 records |
+
 ## 2026-09-30 — Publish to Iceberg on a freshly built image, ADVERSARIAL_LOG R181
 
 **Why this round exists.** Found preparing Phase A's fourth item: no publish worked.

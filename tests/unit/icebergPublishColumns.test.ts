@@ -86,14 +86,19 @@ describe("a publish never asks the extension for a CREATE TABLE AS", () => {
       state.statements = [];
       await expect(publish(mode)).resolves.toEqual({ rows: 836 });
       expect(state.statements.some((s) => /^CREATE TABLE [^(]* AS /.test(s))).toBe(false);
+      // A create makes the table itself; a replace makes its staging table,
+      // which is swapped into the name (R182).
+      const name = mode === "create" ? "swap_target" : "swap_target__publishing_[0-9a-f]{8}";
       const target = state.statements.findIndex((s) =>
-        /^CREATE TABLE .*"r181"\."swap_target" \("order_id" BIGINT, "region" VARCHAR, "net_usd" DECIMAL\(18,2\)\);$/.test(
-          s,
-        ),
+        new RegExp(
+          `^CREATE TABLE .*"r181"\\."${name}" \\("order_id" BIGINT, "region" VARCHAR, "net_usd" DECIMAL\\(18,2\\)\\);$`,
+        ).test(s),
       );
       expect(target).toBeGreaterThan(-1);
       expect(state.statements[target + 1]).toMatch(
-        /^INSERT INTO .*"r181"\."swap_target" \("order_id", "region", "net_usd"\) SELECT "order_id", "region", "net_usd" FROM /,
+        new RegExp(
+          `^INSERT INTO .*"r181"\\."${name}" \\("order_id", "region", "net_usd"\\) SELECT "order_id", "region", "net_usd" FROM "lake"\\.`,
+        ),
       );
     }
   });

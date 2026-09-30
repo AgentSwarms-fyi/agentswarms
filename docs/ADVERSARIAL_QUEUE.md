@@ -786,13 +786,19 @@ over the lakehouse). Open from that round, the rest of Row Zero's connected tabl
     anything. The first fix used a fixed staging name and dropped a
     table the owner had given that name. A drive caught it, so any
     staging, temp or scratch name elsewhere is worth the same look: can a
-    user own it? Still open: the swap is not atomic. Between the drop and
-    the copy into the old name, a reader of the catalog sees no table,
-    for a few seconds. An Iceberg catalog's own rename (`RENAME TABLE`,
-    if the extension gains it) or a REST `renameTable` call would close
-    that window. Probed while preparing R181: the extension this image
-    bakes does rename (`ALTER TABLE … RENAME TO`, `IF EXISTS` too, and
-    two renames in one transaction), and the rename reaches the catalog.
+    user own it? The swap that followed was not atomic: measured in R182
+    from the catalog's log, no table for 0.9 s, then an empty one for
+    1.7 s. **R182, DONE**: when the old table has the new data's columns,
+    a replace is a DELETE and an INSERT in one transaction, which the
+    catalog takes as one commit (a delete snapshot and an append, no
+    gap). Otherwise the staged table is swapped in by two renames in one
+    transaction. The REST catalog applies those one after the other
+    (0.4 to 1.5 s apart on the development catalog), so a reader can
+    still miss the table for that long, though never find it empty.
+    Nothing in the REST spec renames two tables atomically; a schema
+    change inside the one commit (the extension's ALTER support) would
+    close that case too. Old rows stay in the table's history until the
+    catalog expires its snapshots.
   - **Publish itself, R181, DONE**: on an image built 2026-09-30 every
     publish failed, `Failed to create directory "data": Permission
     denied`. The iceberg extension build baked into a fresh image writes a

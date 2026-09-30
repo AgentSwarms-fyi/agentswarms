@@ -526,12 +526,23 @@ writes a `CREATE TABLE AS`'s files to a relative `data/` directory whenever
 the ducklake extension is loaded, as it always is here, and every publish
 failed (R181). Column types are accepted or refused exactly as before
 (`UTINYINT`, `UBIGINT`, `ENUM` and `INTERVAL` are not Iceberg types). A
-publish whose rows do not go in removes the empty table it made. "Replace"
-stages the new data under a name made for that publish, and drops the old
-table only once that has worked (R107) - the extension has no `CREATE OR
-REPLACE` for Iceberg - and "refuse" keeps an existing table. **Import** is
-the reverse: copy an Iceberg table into a schema you created as a real
-DuckLake table, with no dependence on the catalog afterwards.
+publish whose rows do not go in removes the empty table it made.
+
+"Replace" never leaves the name empty (R182); the extension has no `CREATE
+OR REPLACE` for Iceberg. When the catalog's table already has the new
+data's columns (same names, order and types as the engine reads them), its
+rows are deleted and the new ones inserted in one transaction: one commit,
+so a reader sees the old rows or the new ones and a failed write leaves the
+old rows. The old rows stay in the table's history until the catalog expires
+its snapshots. Otherwise the new data is staged under a name made for that
+publish (a write that cannot happen fails there, before anything is touched,
+R107), then swapped in by two renames in one transaction, and the old table
+is dropped last. A REST catalog applies those renames one after the other, so
+for that moment (0.4 to 1.5 s on the development catalog) a reader can miss
+the table, but never finds it empty. A swap that fails puts the old table
+back. "Refuse" keeps an existing table. **Import** is the reverse: copy an
+Iceberg table into a schema you created as a real DuckLake table, with no
+dependence on the catalog afterwards.
 
 Every action is audited: catalog definitions through the `iceberg_catalog`
 row trigger; `lakehouse.iceberg.mount`, `lakehouse.iceberg.refresh`,
