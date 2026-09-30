@@ -15,6 +15,28 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-01 — Knowledge: Add Source under a refused insert, the list while it loads, ADVERSARIAL_LOG R192
+
+**Why this round exists.** Phase C's last item: the add-source dialog. Files were seeded into its
+input with a `DataTransfer`. Refusals fired once each (the injector drops a rule after its first
+hit), and the list's read was held rather than refused.
+
+Fixtures, **kept**, on the base "R192 add-source" (created for this round): documents
+`r192-beta.txt`, `r192-delta.txt`, `r192-gamma.txt`. Sources: `r192-alpha.txt` (ok · 0 docs, the
+before-round's orphan, left as evidence), and `r192-epsilon.txt` and `r192-zeta.txt` (error · 0
+docs, from the withdraw's fallback).
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before (hot deploy of R191 on `c9e16c0b2b3b`) | Add Source → File, `r192-alpha.txt` + `r192-beta.txt`, the first POST `knowledge_documents` refused | "2 files added"; the dialog closed; Documents (1): `r192-beta.txt`; Sources (2): "r192-beta.txt · ok · 1 doc", "r192-alpha.txt · ok · 0 docs" |
+| Before | from Agent Builder, GET `knowledge_bases` held 6 s → sidebar Knowledge Base | at 2 s "No knowledge bases yet."; then the list |
+| After (hot deploy of R192) | the same hold | "Loading your knowledge bases…"; then the list |
+| After | `r192-gamma.txt` + `r192-delta.txt`, the first document insert refused | "1 of 2 files added · Not added, still listed here to try again: r192-gamma.txt: R192 injected: the POST did not reach the database"; the dialog open with gamma alone; Sources 2 → 3 |
+| After | Add source again | "1 file added"; the dialog closed; Documents (3), Sources (4); gamma, delta and beta each 1 doc |
+| After (first cut) | `r192-epsilon.txt`, the document insert and DELETE `kb_sources` refused | toast "The file was added …" (wrong) and Sources not refreshed; after a reload "r192-epsilon.txt · error · 0 docs · The document was not saved: …": fixed |
+| After (second cut) | `r192-zeta.txt`, both refused | Sources (6) at once: "r192-zeta.txt · error · 0 docs · The document was not saved: R192 injected: …" |
+| After | the same file, POST `kb_sources` refused | "The file was not added · Not added, still listed here to try again: r192-zeta.txt: R192 injected: …"; Sources still (6); zeta still in the dialog |
+
 ## 2026-09-30 — Agent Chat's agent list and trace under refusal, ADVERSARIAL_LOG R191
 
 **Why this round exists.** Phase C's next item: the playground's reads. Before it, R188 to R190

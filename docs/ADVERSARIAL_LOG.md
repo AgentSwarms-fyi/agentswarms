@@ -109,6 +109,53 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-01 — "2 files added", and a source reading "ok · 0 docs"
+
+Tests: `tests/unit/kbAddSourceWrites.test.ts` (7 tests). The mutation run caught 14 of 14, and
+the control survived.
+
+#### R192 · S2 · A file that was not added, counted as added and listed as ok
+
+**Found** as Phase C's last item, the add-source dialog from the write survey, on the hot deploy
+of R191:
+- **The File tab** writes a `kb_sources` row and then a `knowledge_documents` row per file. It
+  dropped the document insert's error, and it toasted the number of files dropped in, not the
+  number that landed. The setup was a fixture base, "R192 add-source" (kept), and two small .txt
+  files, `r192-alpha.txt` and `r192-beta.txt`, with only the first document insert refused from
+  the browser.
+- **What came back:** "2 files added" and the dialog closed. The tabs read Documents (1) and
+  Sources (2), and the Sources list showed "r192-alpha.txt · ok · 0 docs". A source said its file
+  was there, and the file itself was gone from the dialog, so trying again meant finding it again.
+  The Manual tab left the same orphan when its document insert failed.
+- **The list, seen in passing.** With the base list's read held for six seconds, the page said
+  "No knowledge bases yet." beside *New Knowledge Base* until the read landed. The error state
+  was handled already (R76); loading was not.
+
+**The fix** (`components/knowledge/AddSourceDialog.tsx`, `routes/_authenticated/knowledge.tsx`):
+- **The document insert** keeps its error. A file whose document did not land takes its source back
+  (`withdrawSource`); if that delete fails too, the source is set to `status = 'error'` with the
+  reason.
+- **The dialog counts what landed.** "1 of 2 files added", or "The file was not added" / "None of
+  the N files were added", names each file that did not land with its reason, and keeps those
+  files listed and the dialog open. The lists refresh either way.
+- **The base list** has a loaded flag and uses `listState`, so until the read lands it says
+  "Loading your knowledge bases…".
+
+**The first after-drive found a fault in the fix.** With both the document insert and the
+withdraw refused, the toast read "The file was added": the ternary had lost its "not". The lists
+were not refreshed when nothing landed, so the source now marked as an error only showed after a
+reload. Both were fixed, and a test and two mutants were added.
+
+**Driven after:**
+- **The list:** "Loading your knowledge bases…", then the bases.
+- **Two files, one refused:** "1 of 2 files added · Not added, still listed here to try again:
+  r192-gamma.txt: R192 injected: …". The dialog stayed open with gamma alone, and Sources rose by
+  one. Add source again gave "1 file added", and gamma, delta and beta each have 1 doc.
+- **Document and withdraw both refused:** Sources showed "r192-zeta.txt · error · 0 docs · The
+  document was not saved: …" at once.
+- **Source insert refused:** "The file was not added · Not added, still listed here to try again:
+  r192-zeta.txt: …", with no new row.
+
 ### 2026-09-30 — "Trace not recorded" for a trace that was recorded
 
 Tests: `tests/unit/playgroundReads.test.ts` (5 tests). The mutation run caught 11 of 11, and the

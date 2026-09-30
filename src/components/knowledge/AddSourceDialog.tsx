@@ -37,6 +37,21 @@ type Props = {
   onConnectInstead?: () => void;
 };
 
+/**
+ * A source whose document did not land read "ok · 0 docs" in the Sources
+ * list, as if the file were there (R192). Take the source back; if even that
+ * fails, mark it so the list says what happened.
+ */
+async function withdrawSource(sourceId: string, why: string) {
+  const { error } = await supabase.from("kb_sources").delete().eq("id", sourceId);
+  if (error) {
+    await supabase
+      .from("kb_sources")
+      .update({ status: "error", error: `The document was not saved: ${why}` })
+      .eq("id", sourceId);
+  }
+}
+
 export function AddSourceDialog({
   open,
   onOpenChange,
@@ -296,7 +311,9 @@ export function AddSourceDialog({
           .select("id")
           .single();
         if (docErr || !insertedDoc) {
-          toast.error(docErr?.message || "Insert failed");
+          const why = docErr?.message || "no row came back";
+          await withdrawSource(src.id, why);
+          toast.error("The document was not added", { description: why });
           return;
         }
         try {
@@ -315,6 +332,12 @@ export function AddSourceDialog({
           return;
         }
         const newDocIds: string[] = [];
+        // FOUND IN R192: with one document insert refused, two files said "2
+        // files added", the dialog closed, and the refused file's source
+        // stayed in the list as "ok · 0 docs". Each file now either lands
+        // with its source or leaves neither, and the ones that did not land
+        // stay in the dialog for another try.
+        const notAdded: { file: (typeof files)[number]; why: string }[] = [];
         for (const f of files) {
           const ext = f.name.split(".").pop()?.toLowerCase() || "";
           const kind = ext === "pdf" ? "pdf" : ext === "csv" ? "csv" : "manual";
@@ -332,10 +355,10 @@ export function AddSourceDialog({
             .select("id")
             .single();
           if (srcErr || !src) {
-            toast.error(srcErr?.message || `Could not record source for ${f.name}`);
+            notAdded.push({ file: f, why: srcErr?.message || "the source was not recorded" });
             continue;
           }
-          const { data: insertedDoc } = await supabase
+          const { data: insertedDoc, error: docErr } = await supabase
             .from("knowledge_documents")
             .insert({
               knowledge_base_id: knowledgeBaseId,
@@ -347,7 +370,13 @@ export function AddSourceDialog({
             })
             .select("id")
             .single();
-          if (insertedDoc) newDocIds.push(insertedDoc.id);
+          if (docErr || !insertedDoc) {
+            const why = docErr?.message || "no row came back";
+            await withdrawSource(src.id, why);
+            notAdded.push({ file: f, why });
+            continue;
+          }
+          newDocIds.push(insertedDoc.id);
         }
         if (newDocIds.length > 0) {
           try {
@@ -356,7 +385,24 @@ export function AddSourceDialog({
             console.warn("[AddSourceDialog] embedding failed:", err);
           }
         }
-        toast.success(`${files.length} file${files.length === 1 ? "" : "s"} added`);
+        const added = files.length - notAdded.length;
+        if (notAdded.length > 0) {
+          const reasons = notAdded.map((n) => `${n.file.name}: ${n.why}`).join("; ");
+          toast.error(
+            added > 0
+              ? `${added} of ${files.length} files added`
+              : notAdded.length === 1
+                ? "The file was not added"
+                : `None of the ${notAdded.length} files were added`,
+            { description: `Not added, still listed here to try again: ${reasons}` },
+          );
+          // Even with nothing added, a source that could not be withdrawn is
+          // now marked as an error, and the Sources list should show it.
+          onAdded();
+          setFiles(notAdded.map((n) => n.file));
+          return;
+        }
+        toast.success(`${added} file${added === 1 ? "" : "s"} added`);
         reset();
         onAdded();
         onOpenChange(false);

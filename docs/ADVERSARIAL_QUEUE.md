@@ -1030,9 +1030,16 @@ over the lakehouse). Open from that round, the rest of Row Zero's connected tabl
   whose `.update(`/`.delete(` drop their error and return `{ ok: true }`.
 - The bell's badge is the same promise (R71): a count that goes to zero on
   screen before the delete lands must come back when it does not. The
-  write survey's remaining files: evaluations' two deletes, the swarm chat
-  dialog, the add-source dialog, and Agent Chat's conversation and message
-  deletes and updates.
+  write survey's remaining files: Agent Chat's conversation and message
+  deletes and updates. The add-source dialog is R192: a two-write step
+  (source, then document) whose second write failed left the first one
+  standing as "ok · 0 docs", and the toast counted files dropped in rather
+  than files that landed. A step of several writes owes the first ones back
+  when a later one fails, or at least a mark on them. Open from R192: an
+  uploaded .txt is recorded as kind `manual` and listed as "Manual paste";
+  and the dialog does not look at the embed step's result, so a document
+  added while embeddings are unavailable is announced like any other (the
+  Documents list does show its index state).
 - An optimistic switch is a promise about the database (R70): a control
   that flips before the write lands must flip back when it does not, and
   say what the stored state will do — an alert still on will still fire.

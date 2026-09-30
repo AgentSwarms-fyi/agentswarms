@@ -290,6 +290,10 @@ function KnowledgePage() {
   // Why a list could not be read. Each is rendered ahead of its empty state:
   // a read that failed is not "No knowledge bases yet".
   const [basesError, setBasesError] = useState<string | null>(null);
+  // FOUND IN R192: until the first read landed the list said "No knowledge
+  // bases yet." (two seconds and more on a slow read) beside "New Knowledge
+  // Base", over an account with a dozen.
+  const [basesLoaded, setBasesLoaded] = useState(false);
   const [docsError, setDocsError] = useState<string | null>(null);
   const [sourcesError, setSourcesError] = useState<string | null>(null);
   // Whether the selected base's lists have been read. FOUND FROM THE UI
@@ -316,6 +320,7 @@ function KnowledgePage() {
   // about what is indexed, because a document missing from a partial scan
   // looks exactly like a document with no chunks.
   const [chunkCountsWhole, setChunkCountsWhole] = useState(true);
+  const basesState = listState({ loaded: basesLoaded, error: basesError, count: bases.length });
   const docsState = listState({ loaded: docsLoaded, error: docsError, count: docs.length });
   const sourcesState = listState({
     loaded: sourcesLoaded,
@@ -528,6 +533,7 @@ function KnowledgePage() {
       .order("created_at", { ascending: false });
     setBasesError(error ? error.message : null);
     if (data) setBases(data);
+    setBasesLoaded(true);
   }
 
   async function reindexWithCurrentSettings() {
@@ -1742,12 +1748,16 @@ function KnowledgePage() {
                 )}
               </Card>
             ))}
-            {basesError ? (
+            {basesState === "error" ? (
               <p className="text-sm text-destructive py-8 text-center" role="alert">
                 <AlertTriangle className="inline h-4 w-4 mr-1 align-text-bottom" />
                 Could not load your knowledge bases: {basesError}
               </p>
-            ) : bases.length === 0 ? (
+            ) : basesState === "loading" ? (
+              <p className="text-sm text-muted-foreground py-8 text-center">
+                Loading your knowledge bases…
+              </p>
+            ) : basesState === "empty" ? (
               <p className="text-sm text-muted-foreground py-8 text-center">
                 No knowledge bases yet.
               </p>

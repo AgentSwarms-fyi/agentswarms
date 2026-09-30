@@ -41,6 +41,13 @@ dropped; if every page is, the upload reports it rather than adding an empty
 document. The transcription prompt forbids description, commentary and
 translation, and asks for tables as rows with `|` between cells.
 
+An upload writes a `kb_sources` row and then its `knowledge_documents` row.
+When the document does not land, the source is deleted again. If that delete
+fails too, the source is set to `status = 'error'` with the reason. A source
+never reads `ok` with no document behind it. The dialog counts what landed
+("1 of 2 files added"), names each file that did not with its reason, and
+keeps those files listed to try again.
+
 ## Connected services
 
 | Provider     | Credentials                                                                                       | What syncs                                                                                                                                      | ACL mirroring                   |

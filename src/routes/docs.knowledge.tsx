@@ -59,6 +59,10 @@ function KnowledgePage() {
         <strong>Add source</strong> covers one-shot ingestion — files, a web page, a repository.{" "}
         <strong>Connect</strong> links an external service that is synced on a schedule and kept
         deduplicated. Both land documents in the same collection and the same retrieval pipeline.
+        Each file added lands with its source or leaves neither: when some do not, the dialog says
+        how many did, names the rest with the reason, and keeps them listed to try again. A source
+        whose document did not land and that could not be taken back is marked as an error in{" "}
+        <em>Sources</em>, not left reading <em>ok</em>.
       </P>
 
       <H3 id="s-file">File upload</H3>
