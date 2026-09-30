@@ -625,7 +625,7 @@ GROUP BY region`}</Code>
             <C key="b">dateGrain</C>,
             "auto | day | week | month | quarter | year",
             "line, area",
-            "Default bucketing; viewers can toggle it.",
+            "Default bucketing; viewers can toggle it. Buckets are UTC, the zone the SQL engines run in: a timestamp written without an offset is read as UTC, so a viewer in any time zone sees the months and days the query returned.",
           ],
           [
             <C key="c">compare</C>,

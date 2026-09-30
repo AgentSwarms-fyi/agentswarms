@@ -109,6 +109,41 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-01 — January charted as December, east of UTC
+
+Tests: `tests/unit/chartDateUtc.test.ts` (6 tests; runs at `Asia/Dubai`). The mutation run caught
+7 of 7, and the control survived.
+
+#### R196 · S2 · A server-run tile moved every month back one for a viewer at UTC+4
+
+**Found** following R195's leftover, the two value formats:
+- **The two forms.** The browser engine hands a TIMESTAMP to the chart as an epoch number, and the
+  server engine as text, `2026-01-01 00:00:00`. `parseDateValue` passed that text to
+  `new Date`, which reads a date-time with no offset as the viewer's local time. At UTC+4 that is
+  20:00 UTC the day before.
+- **The unit probe** (`TZ=Asia/Dubai`): `"2022-01-01 00:00:00"` bucketed to month `2021-12`, while
+  `"2022-01-01"`, `"…+00"` and the epoch all gave `2022-01`.
+- **In the UI.** A new fixture BI project, "R196 dates" (kept), got a line chart on the lakehouse:
+  `SELECT date_trunc('month', CAST(placed_on AS TIMESTAMP)) AS month, count(*) AS orders FROM
+  analytics.stg_revenue GROUP BY 1 ORDER BY 1`. At DATE GRAIN month it labelled the three months
+  **2025-12, 2026-01, 2026-02**. The Lakehouse page's answer to the same SQL: 2026-01-01 272,
+  2026-02-01 273, 2026-03-01 291.
+- **The scope.** Every month moved back one, for every viewer east of UTC, on every tile a server
+  computes (lakehouse tiles live, and any tile after a scheduled refresh). The same tile run in the
+  browser was right. The generated lakehouse dashboards were not affected, because their values
+  carry an offset or are dates.
+
+**The fix** (`lib/biChartMath.ts`): `parseDateValue` reads text without an offset as UTC
+wall-clock time, the zone the engines run in since R195. It leaves alone what `new Date` already
+reads as UTC (`2026`, `2026-01`, `2026-01-01`) and anything carrying Z, ±hh[[:]mm], GMT or UTC.
+A written date such as `11/9/2024` now names that calendar day for every viewer. The 37 BI,
+chart, report and date test files (622 tests) pass at UTC+4.
+
+**Driven after** (hot deploy of R196): the same chart at month grain read **2026-01, 2026-02,
+2026-03**, and at day grain 2026-01-01, 2026-02-01, 2026-03-01. It was added to the project as
+"Orders by month (naive TIMESTAMP, R196)". Seen in passing: *Add to dashboard* stays disabled until
+the chart has a title, and nothing says so.
+
 ### 2026-10-01 — One query, two engines, two days
 
 Tests: `tests/unit/engineTimeZone.test.ts` (4 tests). The mutation run caught 5 of 5, and the

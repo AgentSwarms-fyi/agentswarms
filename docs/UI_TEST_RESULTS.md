@@ -15,6 +15,22 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-01 — A BI month axis over a naive TIMESTAMP, ADVERSARIAL_LOG R196
+
+**Why this round exists.** R195's leftover: the chart layer reads the server's text and the
+browser's epoch differently. The browser was at UTC+4.
+
+Fixtures, **kept**: BI project "R196 dates" with the tile "Orders by month (naive TIMESTAMP, R196)".
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before (hot deploy of R195) | Workbench, Local, `saas_sales`: `date_trunc('month', strptime("Order Date", '%m/%d/%Y'))`, `CAST(… AS DATE)` | `1640995200000 \| 1641254400000 \| 16`: the grid shows epoch milliseconds |
+| Before | "AI from the lakehouse - generated" → Monthly Revenue Trend → D | `2023-01-01, 2023-07-01, …` (its values carry an offset: unaffected) |
+| Before | "R196 dates" → Add a chart → Line → Lakehouse → `SELECT date_trunc('month', CAST(placed_on AS TIMESTAMP)) AS month, count(*) AS orders FROM analytics.stg_revenue GROUP BY 1 ORDER BY 1` → Run → DATE GRAIN month | "3 rows · 2 cols"; axis **2025-12, 2026-01, 2026-02** |
+| Before (control) | Lakehouse page, the same SQL | `2026-01-01 00:00:00 \| 272`, `2026-02-01 … \| 273`, `2026-03-01 … \| 291` |
+| After (hot deploy of R196) | the same chart, DATE GRAIN month; then D | **2026-01, 2026-02, 2026-03**; 2026-01-01, 2026-02-01, 2026-03-01 |
+| After | titled "Orders by month (naive TIMESTAMP, R196)" → Add to dashboard | the tile reads 2026-01, 2026-02, 2026-03; Saved. (Add to dashboard was disabled until a title was given, with no hint) |
+
 ## 2026-10-01 — The browser and server SQL engines on one query, ADVERSARIAL_LOG R195
 
 **Why this round exists.** Sweep 4, "two surfaces, two answers": the Data Catalog Workbench runs
