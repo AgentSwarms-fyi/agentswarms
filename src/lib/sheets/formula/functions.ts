@@ -1936,6 +1936,35 @@ const SAME_AS: Record<string, string> = {
 };
 for (const [name, now] of Object.entries(SAME_AS)) if (!F[name] && F[now]) F[name] = F[now];
 
+/** A number as an argument, for handing a library function a value read here. */
+const numberArg = (v: number): Arg => ({ node: { k: "num", v }, value: () => v, isRef: false });
+
+/**
+ * Working days between two dates, read as Excel reads them (R173). FOUND IN
+ * R173: formula.js counts only forwards and, given a later start, returned
+ * the calendar days between the two, weekends and holidays included (a year
+ * counted backwards was -364 working days where Excel says -262); it counted
+ * a start later in the day than the end as no day at all; and it turned an
+ * error in a date into #VALUE!. Here the dates are whole days, an error
+ * passes through, and backwards is minus forwards.
+ */
+for (const name of ["NETWORKDAYS", "NETWORKDAYS.INTL"]) {
+  const forwards = F[name];
+  if (!forwards) continue;
+  F[name] = (args, ctx) => {
+    if (args.length < 2) return forwards(args, ctx);
+    const from = num(args[0]);
+    if (isError(from)) return from;
+    const to = num(args[1]);
+    if (isError(to)) return to;
+    const a = Math.floor(from);
+    const b = Math.floor(to);
+    if (a <= b) return forwards([numberArg(a), numberArg(b), ...args.slice(2)], ctx);
+    const v = forwards([numberArg(b), numberArg(a), ...args.slice(2)], ctx);
+    return typeof v === "number" ? -v : v;
+  };
+}
+
 export const FUNCTIONS: Readonly<Record<string, FnImpl>> = F;
 
 /**

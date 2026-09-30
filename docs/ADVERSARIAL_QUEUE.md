@@ -190,6 +190,10 @@ showing `\u2014` as text). Open, from the first rounds:
 
 - ~~Excel parity, small: a dynamic array over an empty cell spills a blank.~~ It spills 0 (checked
   in R170). `=A9+30` over a date cell carries the date format forward since R168.
+- **Excel's 1900 calendar before March 1900**: serials 1 to 60 read a day early here
+  (`=YEAR(1)` is 1899, `=DATE(1900,2,28)` 60 where Excel says 59), and 0 is 1899-12-30 where Excel
+  shows 1900-01-00. Excel counts a 29 February 1900 that never was; from serial 61 on the two agree.
+  Found in R173's probe.
 - **Point mode does not write A1#**: clicking a spilled range while typing a formula inserts
   `A1:A3`, fixed to today's size, where Excel inserts `A1#` (R171 added the reference itself). A
   one-cell array answer counts as not spilling; Excel's handling of `=SEQUENCE(1)` then `A1#` was

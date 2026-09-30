@@ -109,6 +109,29 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-30 — Working days counted backwards
+
+Tests: `tests/unit/sheetsNetworkdays.test.ts` (4 tests). The mutation run caught 6 of 6, and the
+control survived.
+
+#### R173 · S2 · NETWORKDAYS from a later date gave the calendar days between
+
+**Found** probing the date functions against answers worked out by hand. Driven in "R173 dates
+before": A1 `2024-01-12` (a Friday), B1 `2024-01-08` (a Monday); C1 `=NETWORKDAYS(A1,B1)`, C2
+`=NETWORKDAYS(B1,A1)`, C3 `=NETWORKDAYS(DATE(2024,12,31),DATE(2024,1,1))`.
+- C1 was -3 where Excel gives -5, and C3 -364 where Excel gives -262; forwards (C2) was right, 5.
+  formula.js counts only forwards: given a later start, its count of days is negative, its loop over
+  them never runs, and it returns the calendar days between the dates, weekends and holidays
+  included.
+- It also counted a start later in the day than the end (`2024-01-12 18:00` to `2024-01-12`) as no
+  day at all, and turned an error in a date into #VALUE!.
+
+A negative count of working days is how a schedule shows lateness, so the wrong ones read as plausible.
+
+**The fix** (`lib/sheets/formula/functions.ts`). NETWORKDAYS and NETWORKDAYS.INTL read their two
+dates here: an error passes through, times are dropped, and a later start counts forwards from the
+end and negates, with the same weekend and holidays.
+
 ### 2026-09-30 — Three newer functions went into a download without Excel's prefix
 
 Tests: `tests/unit/sheetsFilePrefixes.test.ts` (3 tests), against

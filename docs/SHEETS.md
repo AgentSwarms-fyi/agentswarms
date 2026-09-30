@@ -71,6 +71,8 @@ Type `=` and a formula, as in Excel. About 240 functions are available:
 - **Text:** TEXT, VALUE, NUMBERVALUE, LEFT, MID, TEXTJOIN, TEXTSPLIT, TEXTBEFORE, TEXTAFTER.
 - **Dates and times:** DATE, TIME, TIMEVALUE, EDATE, EOMONTH, DAYS, NETWORKDAYS(.INTL),
   WORKDAY(.INTL).
+  - NETWORKDAYS from a later date back to an earlier one is minus the count forwards (Friday back to
+    Monday is -5), times of day are dropped, and an error in a date is passed on, as in Excel.
 - **Statistics:** STDEV, VAR, RANK, MODE, PERCENTILE and QUARTILE, under their old names and new
   ones; FORECAST(.LINEAR), TREND, GROWTH, FREQUENCY.
 - **The long tail** of statistical, financial and engineering functions.

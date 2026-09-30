@@ -15,6 +15,20 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-30 — Working days backwards, and WEEKDAY and DAYS360, ADVERSARIAL_LOG R173 and R174
+
+**Why this round exists.** Found by probing the date functions against answers worked out by hand.
+
+Fixtures, kept: **"R173 dates before"** (`f4ed1db4…`) and **"R173 dates after"** (`011d3751…`),
+typed the same way: A1 `2024-01-12`, B1 `2024-01-08`; C1 `=NETWORKDAYS(A1,B1)`, C2
+`=NETWORKDAYS(B1,A1)`, C3 `=NETWORKDAYS(DATE(2024,12,31),DATE(2024,1,1))`, C4 `=WEEKDAY(B1,11)`,
+C5 `=DAYS360(DATE(2011,1,1),DATE(2011,12,31))` (C4 and C5 are R174's).
+
+| Round | What was driven | What came back (C1 to C5) |
+| --- | --- | --- |
+| Before | The typing | -3, 5, -364, #NUM!, #NAME? |
+| After | The same | -5, 5, -262, 1, 360; the same after a reload |
+
 ## 2026-09-30 — Newer functions in a download, ADVERSARIAL_LOG R172
 
 **Why this round exists.** Found by comparing the download's prefix list with XlsxWriter's.
