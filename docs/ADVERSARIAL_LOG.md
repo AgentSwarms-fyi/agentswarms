@@ -109,6 +109,45 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-01 — `1640995200000` in the Workbench, text on the server
+
+Tests: `tests/unit/engineTemporalText.test.ts` (8 tests). The mutation run caught 11 of 11, and
+the control survived.
+
+#### R197 · S1 · The browser engine wrote dates as epoch milliseconds
+
+**Found** as R196's queued item, on the real image `cad98aaa39f9`:
+- **The grid.** Arrow hands DATE and TIMESTAMP to JavaScript as epoch milliseconds, and the browser
+  engine passed them on. On "Local (in-browser)", the Workbench grid for
+  `date_trunc('month', strptime("Order Date", '%m/%d/%Y'))` and its day read
+  `1640995200000 | 1641254400000`; the server engine writes `2022-01-01 00:00:00` and `2022-01-04`.
+  A CSV export writes whatever the grid holds.
+- **The charts.** The auto axis relabels only numbers, so one query shape was labelled two ways. A
+  builder preview over the local `saas_sales` read "2022-01-01, 2022-02-01, 2022-03-01", while the
+  lakehouse tile from R196 read "2026-02-01 00:00:00, 2026-03-01 00:00:00".
+
+**The fix** (`lib/duckdbValues.ts`, `lib/browserDuckdb.ts`, `lib/biChartMath.ts`):
+- **`arrowTemporalKind`** tells a DATE, TIMESTAMP and TIMESTAMPTZ field apart by Arrow type id, with
+  the type's name as a fallback.
+- **`formatTemporal`** writes the value the way the server engine does: `2022-01-04`,
+  `2026-09-30 22:30:00.25`, `2026-09-30 22:30:00+00`. `runBrowserSql` uses both.
+- **`hasRawDateValues`** now counts the engines' TIMESTAMP text, a date with a time down to the
+  second, as raw, so the auto axis labels it like an epoch.
+
+**A first cut went too far.** It counted a bare `2026-01-05` as raw as well, and an existing test
+failed. That test pins the rule that a bare day may be a `strftime` label someone chose, and text
+cannot tell it from a DATE. The rule stands, with a test and a mutant for it.
+
+**Seen while driving it:** the browser engine is DuckDB **1.4.3** and the server's **1.5.5**.
+`date_trunc('month', <TIMESTAMP>)` returns a DATE in the browser and a TIMESTAMP on the server,
+so over a long span the server's axis relabels and the browser's does not. Queued.
+
+**Driven after** (hot deploy of R197):
+- **The grid** read `2022-01-01 | 2022-01-04 | 16`, and a probe gave `2026-09-30 22:30:00.25 |
+  2026-09-30 22:30:00+00 | 2026-09-30`.
+- **The lakehouse tile** at AUTO read "2026-01-01, 2026-02-01, 2026-03-01". The browser preview read
+  "2022-01-01, 2022-02-01, 2022-03-01", as before.
+
 ### 2026-10-01 — January charted as December, east of UTC
 
 Tests: `tests/unit/chartDateUtc.test.ts` (6 tests; runs at `Asia/Dubai`). The mutation run caught

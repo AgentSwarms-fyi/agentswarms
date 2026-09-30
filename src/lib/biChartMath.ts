@@ -201,6 +201,15 @@ function plausibleEpoch(n: number): boolean {
   return (a >= 1e12 && a <= 4.102e12) || (a >= 1e9 && a <= 4.102e9);
 }
 
+/**
+ * The engines' TIMESTAMP text: "2026-01-01 00:00:00", with fractions and an
+ * offset or not. A day alone ("2026-01-05") is NOT here: text cannot tell a
+ * DATE from a `strftime(d, '%Y-%m-%d')` label someone chose, and a label must
+ * not be rewritten (see the tests on hasRawDateValues).
+ */
+const ENGINE_TIMESTAMP_TEXT =
+  /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}(:?\d{2})?)?$/;
+
 export function hasRawDateValues(rows: Record<string, unknown>[], field: string): boolean {
   let raw = 0;
   let total = 0;
@@ -213,6 +222,11 @@ export function hasRawDateValues(rows: Record<string, unknown>[], field: string)
     // same reading parseDateValue takes of it. Everything else must look like
     // an actual epoch, or a column of revenue becomes a column of dates.
     else if (typeof v === "number" && plausibleEpoch(v)) raw++;
+    // The SQL engines' own TIMESTAMP text is a stamp too, not a label a person
+    // wrote: a time down to the second is what a query returns. The server's
+    // rows reached an axis as "2026-02-01 00:00:00" where the browser's,
+    // epochs then, were labelled "2026-02-01" (R197).
+    else if (typeof v === "string" && ENGINE_TIMESTAMP_TEXT.test(v.trim())) raw++;
   }
   return total > 0 && raw / total >= 0.8;
 }

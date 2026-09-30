@@ -15,6 +15,29 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-01 — Dates from the browser engine, as text, ADVERSARIAL_LOG R197
+
+**Why this round exists.** R196's queued item. Before it, R194 to R196 went into a real image,
+smoked below.
+
+Fixtures: Iceberg table `r181.smoke_cad98aaa`. Nothing else new; the builder previews were not
+added.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Smoke, real image `cad98aaa39f9` (R194–R196) | "R196 dates" dashboard, fresh load | the tile reads 2026-01, 2026-02, 2026-03 |
+| Smoke | Workbench, Local: tz / `current_date` / a TIMESTAMPTZ formatted | `UTC \| 1790726400000 \| 2026-09-30 22:30` |
+| Smoke | Prompt Compare, Flash vs Mini | Est. cost ~$0.0000 / ~$0.0001; Tokens 7/1 / 13/62 |
+| Smoke | Publish to Iceberg `r181` / `smoke_cad98aaa` | committed (create 1476 ms, then fill 4130 ms); listed |
+| Before (same image) | "R196 dates" tile → AUTO | `2026-02-01 00:00:00`, `2026-03-01 00:00:00` |
+| Before | builder preview, Line, Local, `saas_sales` monthly count to 2022-03 → AUTO | `2022-01-01, 2022-02-01, 2022-03-01` |
+| Before | Workbench, Local, `saas_sales` month / day / revenue | `1640995200000 \| 1641254400000 \| 16` |
+| After (hot deploy of R197, first cut) | BI and chart tests | `biAutoDateGrain.test.ts` failed: a bare day had been made raw; reverted |
+| After | Workbench, Local, the same | `2022-01-01 \| 2022-01-04 \| 16 \| true` |
+| After | Workbench, Local: TIMESTAMP, TIMESTAMPTZ, DATE, `typeof(date_trunc(…))`, `version()` | `2026-09-30 22:30:00.25 \| 2026-09-30 22:30:00+00 \| 2026-09-30 \| DATE \| v1.4.3` |
+| After | "R196 dates" tile → AUTO | `2026-01-01, 2026-02-01, 2026-03-01` |
+| After | the builder preview, AUTO | `2022-01-01, 2022-02-01, 2022-03-01` |
+
 ## 2026-10-01 — A BI month axis over a naive TIMESTAMP, ADVERSARIAL_LOG R196
 
 **Why this round exists.** R195's leftover: the chart layer reads the server's text and the

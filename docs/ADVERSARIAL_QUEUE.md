@@ -232,12 +232,13 @@ least twice, not a hypothetical.
    - **R196: charts east of UTC.** `parseDateValue` read the server's naive `2026-01-01 00:00:00` as
      the viewer's local time, so a lakehouse month axis at UTC+4 read "2025-12, 2026-01, 2026-02"
      for January to March. Text without an offset is UTC wall-clock time now.
-   - **Still open from R196.**
-     - The browser engine still writes DATE and TIMESTAMP as epoch milliseconds: the Workbench grid
-       shows `1640995200000`, and so would its CSV export. `hasRawDateValues` relabels only
-       numbers, so a table block formats a browser date and leaves the server's text as written.
-       Formatting temporal Arrow fields as the server writes them would end the split; check the
-       chart relabel on both paths when doing it.
+   - **R197: the date formats.** The browser engine now writes DATE and TIMESTAMP as the server
+     does, and the auto axis reads the engines' timestamp text as raw.
+   - **Still open.**
+     - The two engines are different DuckDB versions: 1.4.3 in the browser (`@duckdb/duckdb-wasm`
+       1.32.0) and 1.5.5 on the server. `date_trunc('month', <TIMESTAMP>)` is a DATE in one and a
+       TIMESTAMP in the other, so over a long span only the server's axis relabels. Either align
+       the versions, or pass column types to the charts instead of reading them from text.
      - The chart builder's *Add to dashboard* is disabled until the chart has a title, and nothing
        says why.
    - **Then.** Grid vs table sheet.

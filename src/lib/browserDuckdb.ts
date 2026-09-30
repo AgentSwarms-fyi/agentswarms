@@ -42,7 +42,7 @@
 // merely loads a page that could run one.
 import type * as duckdb from "@duckdb/duckdb-wasm";
 
-import { ENGINE_TIME_ZONE, toJsValue } from "@/lib/duckdbValues";
+import { arrowTemporalKind, ENGINE_TIME_ZONE, formatTemporal, toJsValue } from "@/lib/duckdbValues";
 import { assertLocalReadOnlySql } from "@/lib/sqlSafety";
 import type { ColumnDef } from "@/lib/datasetParse";
 
@@ -306,13 +306,21 @@ export async function runBrowserSql(sql: string): Promise<BrowserQueryResult> {
   const safe = assertLocalReadOnlySql(sql);
   const { conn } = await init();
   const table = await conn.query(safe);
-  const columns = table.schema.fields.map((f) => f.name);
+  const fields = table.schema.fields;
+  const columns = fields.map((f) => f.name);
+  // DATE and TIMESTAMP arrive from Arrow as epoch milliseconds; the server
+  // engine writes them as text, and so does this one now (R197).
+  const kinds = fields.map((f) => arrowTemporalKind(f.type));
   const rows: Record<string, unknown>[] = [];
   for (const row of table.toArray()) {
     const obj: Record<string, unknown> = {};
     // Arrow rows expose columns as properties; toJsValue is shared with the
     // server engine so BigInt and DECIMAL land the same way on both.
-    for (const name of columns) obj[name] = toJsValue((row as Record<string, unknown>)[name]);
+    columns.forEach((name, i) => {
+      const raw = (row as Record<string, unknown>)[name];
+      const kind = kinds[i];
+      obj[name] = kind && typeof raw === "number" ? formatTemporal(raw, kind) : toJsValue(raw);
+    });
     rows.push(obj);
   }
   return { columns, rows };

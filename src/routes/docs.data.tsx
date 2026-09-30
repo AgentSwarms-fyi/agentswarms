@@ -884,7 +884,11 @@ ORDER  BY 1;`}</Code>
         and correlated subqueries all work now, and they behave identically wherever they run. Every
         engine also runs in <strong>UTC</strong>, whatever your browser&apos;s or the server&apos;s
         time zone, so <code>current_date</code> and a timestamp cast to a date name the same day in
-        the workbench as on a schedule.
+        the workbench as on a schedule. Dates and timestamps come back written the same way from
+        both, <code>2022-01-04</code> and <code>2022-01-01 00:00:00</code>, in the results grid and
+        in exports. One difference remains: the browser&apos;s engine is an older DuckDB, so a few
+        expressions are typed differently (<code>date_trunc</code> on a timestamp returns a date
+        there and a timestamp on the server).
       </Callout>
       <H3 id="workbench-first-query">The first query in a session is slower</H3>
       <P>
