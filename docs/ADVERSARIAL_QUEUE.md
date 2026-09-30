@@ -1069,7 +1069,15 @@ over the lakehouse). Open from that round, the rest of Row Zero's connected tabl
   nine agents the page could not read. A list surface has four states, not
   two; the pure `listState` in `lib/listState` names them, and an error is
   ahead of empty. The client-side survey that found it (55 error-less reads
-  in 25 files) still has the playground (12 reads). The last of swarms are
+  in 25 files) is done for reads. The playground's two with teeth are
+  R191: the inspector's Trace tab said "Trace not recorded · The request may
+  have failed before the trace row was written." for a trace the Traces
+  page listed (a claim about the server, made from a failed read in the
+  browser), and a failed agent read pointed a pulsing "Pick an agent to
+  begin" at an empty selector. Left there: the tour's approvals poll (a
+  failed read only delays a checkpoint), three title updates (a failed one
+  leaves "New Chat"), and the first conversation's auto-insert, whose
+  error is dropped (worth a round: does the page stay usable?). The last of swarms are
   R189: the canvas's published-snapshot re-read switched "Draft ahead" off
   after a Publish while the canvas went on changing (now "Live not
   checked"), and the components (palette and library) and the version

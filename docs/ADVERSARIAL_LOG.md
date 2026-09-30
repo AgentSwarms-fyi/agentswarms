@@ -109,6 +109,46 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-30 — "Trace not recorded" for a trace that was recorded
+
+Tests: `tests/unit/playgroundReads.test.ts` (5 tests). The mutation run caught 11 of 11, and the
+control survived.
+
+#### R191 · S2 · The inspector blamed the request for a read that failed in the browser
+
+**Found** as Phase C's next item, the client read survey's playground batch, driven on the real
+image `c9e16c0b2b3b` with the reads refused from the browser:
+- **The Trace tab** polls `execution_traces` for the last message's trace, eight times, 750 ms
+  apart, and dropped every error. "Sample · SQL Reviewer" (`openai/gpt-4o-mini`) was sent "Reply
+  with the single word OK." in a new chat, with the read refused. It answered "OK". After eight
+  refused reads the tab said "Trace not recorded · The request may have failed before the trace
+  row was written." The Traces page listed the trace at the top: "Sep 30 23:15:34 · Sample · SQL
+  Reviewer · openai/gpt-4o-mini · 4.1s · 100/1 · ok". The one page built to show what really
+  happened blamed the server for a failure in the browser.
+- **The agent list.** The page was reached client-side with the read refused. The selector opened
+  with no options under a pulsing "Pick an agent to begin"; the middle said "Select an agent to
+  start · Choose an agent from the top bar". A normal load lists nine agents.
+
+**The fix** (`routes/_authenticated/playground.tsx`):
+- **The trace poll** keeps the last read's error. When it ends without a row after an error, the
+  tab says "Trace not read · The trace could not be read, so this says nothing about whether it
+  was recorded: …" with *Try again*. "Trace not recorded" is left for polls that read the table
+  and found nothing.
+- **The agent read** keeps its error and fills the list only from a read that worked. The bar shows
+  an error mark in place of the pick hint. The middle says "Your agents could not be read · So
+  there is nothing to pick yet: …" with *Try again*, which reads them again.
+- **Where Try again sits.** The first after-drive put "Agents not read · Try again" in the bar,
+  and with the inspector open it ran under the inspector's toggle. The bar is about 330 px wide
+  there, and the picker takes 170 of it. The mark stayed in the bar and Try again moved to the
+  middle.
+
+**Driven after** (hot deploy of R191):
+- **Agents:** refused, the mark and "Your agents could not be read … Try again"; lifted, Try
+  again gave "Chat with Sample · Graph RAG Explorer (Acme Corp)".
+- **Trace:** the same prompt in the same chat, with the read refused, gave "Trace not read …
+  R191 injected: the GET did not reach the database · Try again". Lifted, Try again gave the trace:
+  success, 2136 ms, $0.000018, 116 in / 1 out.
+
 ### 2026-09-30 — A restore promised as undoable, done without its undo
 
 Tests: `tests/unit/swarmVersionWrites.test.ts` (5 tests). The mutation run caught 10 of 10, and

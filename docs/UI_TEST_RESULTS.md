@@ -15,6 +15,31 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-30 — Agent Chat's agent list and trace under refusal, ADVERSARIAL_LOG R191
+
+**Why this round exists.** Phase C's next item: the playground's reads. Before it, R188 to R190
+went into a real image, smoked below. The refusals were set in the browser on a page that reaches
+Agent Chat client-side (Agent Builder, then the sidebar or a card's *Chat*).
+
+Fixtures, **kept**: the conversation "Reply with the single word OK." on "Sample · SQL Reviewer"
+(two exchanges, `openai/gpt-4o-mini`, about $0.00002 each); Iceberg table `r181.smoke_c9e16c0b`.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Smoke, real image `c9e16c0b2b3b` (R188–R190) | "Approval durability check" → Deploy, GET `swarm_schedules` refused | "Deployment not read · What this swarm has deployed could not be read, so this panel says nothing about it. Close and reopen to try again." |
+| Smoke | Version history → Save version, POST `swarm_versions` refused | "The version was not saved · Smoke injected: the POST did not reach the database"; the list: Before restore 10:46:35 PM, R190 capture after retry, Initial version |
+| Smoke | Manage, GET `swarm_components` refused | "Your components could not be read, so this list says nothing about them: Smoke injected: …" |
+| Smoke | Lakehouse → `analytics.stg_revenue` → Publish to Iceberg → `local_rest` / `r181` / `smoke_c9e16c0b`, Refuse | "Published 836 row(s) to r181.smoke_c9e16c0b"; the catalog's REST listing has it |
+| Before (same image) | GET `agents?select=id,name,llm_provider…` refused → Agent Chat | "Select an agent…" with a pulsing "Pick an agent to begin"; "Select an agent to start · Choose an agent from the top bar, then send your first message."; the selector opens with 0 options |
+| Before (control) | a normal load | "Chat with Sample · Graph RAG Explorer (Acme Corp)"; the selector lists 9 agents |
+| Before | "Sample · SQL Reviewer" → New Chat → inspector's Trace tab ("No trace yet"); GET `execution_traces` refused; "Reply with the single word OK." sent | the reply "OK"; eight refused reads of `id=eq.de74e8a5…`; "Trace not recorded · The request may have failed before the trace row was written." |
+| Before (control) | Traces page | top row "Sep 30 23:15:34 · Sample · SQL Reviewer · openai/gpt-4o-mini · 4.1s · 100/1 · ok · $0.0000" |
+| After (hot deploy of R191, first cut) | agents refused | "Agents not read · Try again" in the bar, running under the inspector's toggle (bar ~330 px, picker 170 px): moved |
+| After | agents refused | an error mark in the bar, no pick hint; "Your agents could not be read · So there is nothing to pick yet: R191 injected: the GET did not reach the database. · Try again" |
+| After | lifted → Try again | "Chat with Sample · Graph RAG Explorer (Acme Corp)"; the mark gone |
+| After | SQL Reviewer, the same chat, GET `execution_traces` refused, the same prompt | "OK"; "Trace not read · The trace could not be read, so this says nothing about whether it was recorded: R191 injected: the GET did not reach the database · Try again" |
+| After | lifted → Try again | "Execution Trace · success · 2136 ms · $0.000018 · 116 / 1 · openrouter · openai/gpt-4o-mini · 3d5748b5-…" |
+
 ## 2026-09-30 — Save version and Restore under a refused insert, ADVERSARIAL_LOG R190
 
 **Why this round exists.** R189's round found the versions dialog's two writes going on as if

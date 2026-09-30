@@ -10,11 +10,15 @@ grounded in your own data.
 ## Chatting with an agent
 
 1. Pick an agent from the selector (create one first in **Agent Builder**).
+   If your agents cannot be read, the page says so, with the error and
+   **Try again**, instead of asking for a pick from an empty selector.
 2. Type a message. The agent runs with its configured system prompt, tools,
    knowledge base and model.
 3. The right-hand **inspector** shows the live thinking, tool calls, and the
    full request/response for the last turn; everything is also recorded in
-   **Traces**. A tool call shows its arguments and a preview of its result —
+   **Traces**. Its Trace tab says "Trace not recorded" only after reading the
+   table and finding no row; a read that fails says "Trace not read", with the
+   error and **Try again**. A tool call shows its arguments and a preview of its result —
    except the ML tools, whose results are shown as a person reads them: a
    prediction table with the key columns first, the model and version above
    it, which keys were not found and where the features came from beside it

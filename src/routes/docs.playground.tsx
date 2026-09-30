@@ -54,7 +54,9 @@ function PlaygroundDoc() {
       <P>
         Pick an agent from the selector and the conversation runs against its saved configuration:
         provider, model, system prompt, knowledge bases, skills, tools, guardrails, and memory.
-        Conversations are persisted, so you can leave and pick a thread back up later.
+        Conversations are persisted, so you can leave and pick a thread back up later. If your
+        agents cannot be read, the page says so and offers <em>Try again</em>, rather than asking
+        you to pick from an empty selector.
       </P>
       <UL>
         <li>
@@ -83,7 +85,10 @@ function PlaygroundDoc() {
         for any message: the resolved prompt, tool calls with their arguments and results, tokens,
         cost, and latency. This is the playground's real purpose — the fastest loop from "I changed
         something in my agent" to "I can see exactly what that change did". The same traces are
-        queryable later from <DocLink to="/docs/debugging">Logs &amp; traces</DocLink>.
+        queryable later from <DocLink to="/docs/debugging">Logs &amp; traces</DocLink>. The Trace
+        tab says <em>Trace not recorded</em> only when it read the table and found no row; when the
+        read itself fails it says <em>Trace not read</em>, names the error and offers{" "}
+        <em>Try again</em>.
       </P>
 
       <H2 id="skill-samples">Skill-sample agents</H2>

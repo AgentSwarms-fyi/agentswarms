@@ -199,6 +199,10 @@ function PlaygroundPage() {
   const { user } = useAuth();
   const { agentId } = Route.useSearch();
   const [agents, setAgents] = useState<Agent[]>([]);
+  // Why the agent list is empty when its read failed; bumping the attempt
+  // reads it again.
+  const [agentsError, setAgentsError] = useState<string | null>(null);
+  const [agentsAttempt, setAgentsAttempt] = useState(0);
   const [selectedAgent, setSelectedAgent] = useState<string>("");
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConvo, setActiveConvo] = useState<string>("");
@@ -387,10 +391,14 @@ function PlaygroundPage() {
         console.warn("[playground] sample-agent seed failed:", err);
       }
       if (cancelled) return;
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("agents")
         .select("id, name, llm_provider, llm_model, system_prompt, tools");
-      if (cancelled || !data) return;
+      if (cancelled) return;
+      // FOUND IN R191: a failed read left an empty picker under a pulsing
+      // "Pick an agent to begin", pointing at a list with nothing in it.
+      setAgentsError(error ? error.message : null);
+      if (error || !data) return;
       setAgents(data as Agent[]);
       if (agentId && data.find((a) => a.id === agentId)) {
         setSelectedAgent(agentId);
@@ -401,7 +409,7 @@ function PlaygroundPage() {
     return () => {
       cancelled = true;
     };
-  }, [agentId]);
+  }, [agentId, agentsAttempt]);
 
   useEffect(() => {
     if (!selectedAgent) return;
@@ -1589,16 +1597,29 @@ function PlaygroundPage() {
                 ))}
               </SelectContent>
             </Select>
-            {!selectedAgent && (
-              <div
-                className="flex animate-pulse items-center gap-1.5 rounded-full border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-amber-600 dark:text-amber-400"
-                title="Pick the agent you want to chat with from the dropdown"
+            {agentsError ? (
+              // Only a mark here: with the inspector open this bar is ~330px
+              // wide, and the picker takes 170 of it. The message and Try
+              // again are in the middle of the page.
+              <span
+                className="grid h-6 w-6 shrink-0 place-items-center rounded-full border border-destructive/40 bg-destructive/10 text-destructive"
+                title={`Your agents could not be read: ${agentsError}`}
               >
-                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                <span className="hidden whitespace-nowrap text-[11px] font-medium sm:inline">
-                  Pick an agent to begin
-                </span>
-              </div>
+                <AlertTriangle className="h-3.5 w-3.5" />
+                <span className="sr-only">Agents not read</span>
+              </span>
+            ) : (
+              !selectedAgent && (
+                <div
+                  className="flex animate-pulse items-center gap-1.5 rounded-full border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-amber-600 dark:text-amber-400"
+                  title="Pick the agent you want to chat with from the dropdown"
+                >
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                  <span className="hidden whitespace-nowrap text-[11px] font-medium sm:inline">
+                    Pick an agent to begin
+                  </span>
+                </div>
+              )
             )}
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
@@ -1662,13 +1683,29 @@ function PlaygroundPage() {
                     <Bot className="h-8 w-8" />
                   </div>
                   <h2 className="text-2xl font-semibold tracking-tight">
-                    {currentAgent ? `Chat with ${currentAgent.name}` : "Select an agent to start"}
+                    {currentAgent
+                      ? `Chat with ${currentAgent.name}`
+                      : agentsError
+                        ? "Your agents could not be read"
+                        : "Select an agent to start"}
                   </h2>
                   <p className="mt-1.5 max-w-sm text-sm text-muted-foreground">
                     {currentAgent
                       ? "Ask a question, share a task, or try a starter below."
-                      : "Choose an agent from the top bar, then send your first message."}
+                      : agentsError
+                        ? `So there is nothing to pick yet: ${agentsError.replace(/[.!?]?\s*$/, ".")}`
+                        : "Choose an agent from the top bar, then send your first message."}
                   </p>
+                  {!currentAgent && agentsError && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="mt-4"
+                      onClick={() => setAgentsAttempt((n) => n + 1)}
+                    >
+                      Try again
+                    </Button>
+                  )}
                   {currentAgent && activeConvo && (
                     <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
                       {STARTER_PROMPTS.map((p) => (
@@ -2490,6 +2527,10 @@ type TraceRow = {
 function RealExecutionTrace({ traceId, thinking }: { traceId: string | null; thinking: boolean }) {
   const [trace, setTrace] = useState<TraceRow | null>(null);
   const [loading, setLoading] = useState(false);
+  // The last read's error. "Trace not recorded" is a claim about the server,
+  // so it is only made when the reads worked and found no row.
+  const [readError, setReadError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   // Poll the execution_traces table by trace_id (set as the row's `id`).
   // The chat route generates the UUID and writes the row when the LLM call
@@ -2503,10 +2544,11 @@ function RealExecutionTrace({ traceId, thinking }: { traceId: string | null; thi
     let attempts = 0;
     setLoading(true);
     setTrace(null);
+    setReadError(null);
 
     const tick = async () => {
       attempts += 1;
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("execution_traces")
         .select("*")
         .eq("id", traceId)
@@ -2514,9 +2556,14 @@ function RealExecutionTrace({ traceId, thinking }: { traceId: string | null; thi
       if (cancelled) return;
       if (data) {
         setTrace(data as TraceRow);
+        setReadError(null);
         setLoading(false);
         return;
       }
+      // FOUND IN R191: eight refused reads ended in "Trace not recorded · The
+      // request may have failed before the trace row was written." for a
+      // request that had answered and whose trace was in the table.
+      setReadError(error ? error.message : null);
       if (attempts < 8) {
         setTimeout(tick, 750);
       } else {
@@ -2527,7 +2574,7 @@ function RealExecutionTrace({ traceId, thinking }: { traceId: string | null; thi
     return () => {
       cancelled = true;
     };
-  }, [traceId]);
+  }, [traceId, attempt]);
 
   if (!traceId && !thinking) {
     return (
@@ -2547,6 +2594,27 @@ function RealExecutionTrace({ traceId, thinking }: { traceId: string | null; thi
         <Activity className="h-8 w-8 text-primary/60 mb-3 animate-pulse" />
         <p className="text-sm font-medium text-muted-foreground">Recording trace…</p>
         <p className="text-xs text-muted-foreground/70 mt-1 font-mono break-all">{traceId}</p>
+      </div>
+    );
+  }
+
+  if (!trace && readError) {
+    return (
+      <div className="h-full rounded-lg border border-border bg-background/60 flex flex-col items-center justify-center text-center p-6">
+        <AlertTriangle className="h-8 w-8 text-destructive/70 mb-3" />
+        <p className="text-sm font-medium text-muted-foreground">Trace not read</p>
+        <p className="text-xs text-muted-foreground/70 mt-1">
+          The trace could not be read, so this says nothing about whether it was recorded:{" "}
+          {readError}
+        </p>
+        <Button
+          variant="outline"
+          size="sm"
+          className="mt-3 h-7 text-xs"
+          onClick={() => setAttempt((n) => n + 1)}
+        >
+          Try again
+        </Button>
       </div>
     );
   }
