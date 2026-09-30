@@ -86,7 +86,31 @@ export function toText(v: Scalar): string | SheetError {
   if (typeof v === "string") return v;
   if (typeof v === "boolean") return v ? "TRUE" : "FALSE";
   if (isError(v)) return v;
-  return formatGeneral(v);
+  return numberText(v);
+}
+
+/**
+ * A number as text, as Excel turns one into text in a formula (=A1&"",
+ * LEN, LEFT, TEXTJOIN): to 15 significant digits, whole numbers written out
+ * below 1E+15, scientific from there and below 1E-9. FOUND IN R175: text
+ * took the cell's narrow General display (11 digits, 10 significant), so
+ * =A1&"-"&B1 over 123456789012 gave "1.23457E+11-…", and a lookup on such a
+ * key found nothing.
+ */
+export function numberText(n: number): string {
+  if (!Number.isFinite(n)) return "#NUM!";
+  if (n === 0) return "0";
+  const r = Number(n.toPrecision(15));
+  const abs = Math.abs(r);
+  // The exponent as written, not Math.log10's, which is 14 just under 1E+14.
+  const [mantissa, exp] = r.toExponential().split("e");
+  const e = Number(exp);
+  if (abs >= 1e15 || abs < 1e-9) {
+    // At 1E+15 and up, or under 1E-9, the exponent always has two digits.
+    return `${mantissa}E${e < 0 ? "-" : "+"}${Math.abs(e)}`;
+  }
+  const s = r.toFixed(Math.max(0, 14 - e));
+  return s.includes(".") ? s.replace(/\.?0+$/, "") : s;
 }
 
 export function toBool(v: Scalar): boolean | SheetError {

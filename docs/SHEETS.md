@@ -94,6 +94,10 @@ Not yet: LAMBDA and AGGREGATE. A file that uses them shows the value Excel last 
 The same rules as Excel apply:
 
 - Precedence: `-2^2` is 4, `^` is left-associative, `&` joins text.
+- A number joined into text (`=A1&"-"&B1`, LEN, LEFT, TEXTJOIN) is written to 15 significant digits,
+  as Excel writes it: 123456789012 stays whole (`LEN` 12), `=1/3&""` is `0.333333333333333`, and
+  `=0.1+0.2&""` is `0.3`. From 1E+15 up, and under 1E-9, it is written in scientific notation. The
+  cell itself still shows a long number the way a narrow cell does (`1.23457E+11`).
 - Criteria are strings such as `">100"`, `"<>West"` and `"ap*"`.
 - References can be relative or absolute (`$A$1`), whole columns (`A:A`), or cross-sheet (`'Sales Data'!D2`).
   - A whole column is all 1,048,576 rows, as in Excel, and a whole row all 16,384 columns.

@@ -15,6 +15,19 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-30 — A number turned into text, ADVERSARIAL_LOG R175
+
+**Why this round exists.** Found by probing the text functions: numbers became text at 10 digits.
+
+Fixtures, kept: **"R175 text before"** (`4b92d7a1…`) and **"R175 text after"** (`4249ab74…`), typed
+the same way: A1 `123456789012`, B1 `1234567.891234`, C1 `'123456789012`, D1 `found`; E1
+`=A1&"-"&B1`, E2 `=LEN(A1)`, E3 `=VLOOKUP(A1&"",C1:D1,2,FALSE)`, E4 `=DOLLAR(-1234.567)`.
+
+| Round | What was driven | What came back (E1 to E4) |
+| --- | --- | --- |
+| Before | The typing | `1.23457E+11-1234567.891`, 11, #N/A, `$(1,234.57)` |
+| After | The same | `123456789012-1234567.891234`, 12, `found`, `($1,234.57)`; A1 itself still shows `1.23457E+11`; the same after a reload |
+
 ## 2026-09-30 — Working days backwards, and WEEKDAY and DAYS360, ADVERSARIAL_LOG R173 and R174
 
 **Why this round exists.** Found by probing the date functions against answers worked out by hand.

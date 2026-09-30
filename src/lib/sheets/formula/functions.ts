@@ -1998,6 +1998,21 @@ for (const name of ["NETWORKDAYS", "NETWORKDAYS.INTL"]) {
   };
 }
 
+/**
+ * DOLLAR brackets a negative amount outside the sign, "($1,234.57)", as
+ * Excel's currency format does. FOUND IN R175: formula.js wrote "$(1,234.57)".
+ */
+const libraryDollar = F.DOLLAR;
+if (libraryDollar) {
+  F.DOLLAR = (args, ctx) => {
+    const n = num(args[0]);
+    if (isError(n)) return n;
+    if (n >= 0) return libraryDollar(args, ctx);
+    const v = libraryDollar([numberArg(-n), ...args.slice(1)], ctx);
+    return typeof v === "string" ? `(${v})` : v;
+  };
+}
+
 export const FUNCTIONS: Readonly<Record<string, FnImpl>> = F;
 
 /**

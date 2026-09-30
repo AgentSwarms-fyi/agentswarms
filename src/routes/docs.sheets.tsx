@@ -96,7 +96,8 @@ function SheetsDocsPage() {
         whole-column and cross-sheet references, and Excel&apos;s precedence (<C>-2^2</C> is 4).
         Statistics skip blank cells and text in a range, as Excel&apos;s do, and working days count
         backwards as Excel counts them, as do DAYS360 and WEEKDAY&apos;s return types 11 to 17. A
-        cell with an error explains it on hover.
+        cell with an error explains it on hover. A number joined into text keeps 15 significant
+        digits, as in Excel.
       </P>
       <UL>
         <li>

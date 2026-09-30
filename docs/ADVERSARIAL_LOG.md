@@ -109,6 +109,35 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-30 — A number turned into text kept 10 digits
+
+Tests: `tests/unit/sheetsNumberText.test.ts` (7 tests). The mutation run caught 12 of 12, and the
+control survived. One mutant was taken out with the code it tested: an exponent padded to two
+digits, which never happens in the ranges that are written in scientific notation.
+
+#### R175 · S2 · =A1&"-"&B1 over 123456789012 gave "1.23457E+11-…"
+
+**Found** probing the text functions against Excel's answers. Driven in "R175 text before": A1
+`123456789012`, B1 `1234567.891234`, C1 `'123456789012` (typed as text), D1 `found`; E1
+`=A1&"-"&B1`, E2 `=LEN(A1)`, E3 `=VLOOKUP(A1&"",C1:D1,2,FALSE)`, E4 `=DOLLAR(-1234.567)`.
+- E1 was `1.23457E+11-1234567.891` where Excel gives `123456789012-1234567.891234`, E2 11 (Excel
+  12), E3 #N/A (Excel `found`), and `=LEN(1/3)` 12 (Excel 17).
+- A formula turned a number into text with the cell's General display, which is narrow on purpose
+  (11 digits, 10 significant). Excel's conversion keeps 15 significant digits.
+- E4 was `$(1,234.57)`; Excel's DOLLAR writes `($1,234.57)`.
+
+A key built by joining numbers (an account and a line, a date and an ID) lost digits, so lookups on
+it failed or, worse, matched a different key that rounded the same way.
+
+**The fix** (`lib/sheets/formula/values.ts`, `functions.ts`). `numberText` writes a number as a
+formula's text: rounded to 15 significant digits, whole numbers in full below 1E+15, scientific from
+there and under 1E-9, with no trailing zeros. `toText` uses it; the cell's General display is
+unchanged. DOLLAR formats the amount and brackets a negative outside the sign.
+
+**Not changed.** Between 1E-9 and 1E-5, Excel may write some long fractions in scientific notation
+where Sheets writes them out; that was not checked against Excel. A table sheet's formulas turn
+numbers into text in the lakehouse, which has its own rules.
+
 ### 2026-09-30 — WEEKDAY's return types 11 to 17, and DAYS360
 
 Tests: `tests/unit/sheetsDays360.test.ts` (6 tests). The mutation run caught 11 of 11, and the
