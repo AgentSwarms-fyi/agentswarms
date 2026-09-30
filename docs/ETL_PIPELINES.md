@@ -114,6 +114,16 @@ The run sequence:
 **The runtime must be enabled** (Admin → Developer runtime; its containers start with every install; on
 Compose). Without it, runs fail immediately with a message saying exactly that.
 
+**What a card's status vouches for.** The chip on a pipeline card is the last
+finished run's outcome, and that run's pinned code is what it vouches for. When
+the program a run started now would execute differs from it - the pipeline was
+edited, its engine switched, or a newer compiler builds its graph differently
+(a visual pipeline is recompiled at every run start) - the card says **changed
+since this run** under the chip (R183). The comparison uses the code each run
+already pins on its `etl_runs` row, compiled the way the run start compiles it;
+the next run of the current definition clears it. Before, a save kept
+"Succeeded" over a target the pipeline had never written.
+
 ## Engines: the sandbox, or a Spark cluster
 
 Every pipeline runs on the **pandas engine** unless it says otherwise: one

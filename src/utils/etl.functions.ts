@@ -21,6 +21,7 @@ import {
   type EtlGraph,
 } from "@/utils/etl/codegen";
 import { compilePipeline, engineOf, pipelineRequirements } from "@/utils/etl/compile";
+import { changedSinceRun } from "@/utils/etl/runDrift";
 import { chainTargetsOf, validateChainTargets } from "@/lib/etlChain";
 import { CONTINUOUS_SCHEDULE, canRunContinuously } from "@/utils/etl/continuous";
 import {
@@ -116,6 +117,40 @@ export type EtlPipelineSummary = Pick<
   | "created_at"
   | "updated_at"
 > & { has_trigger_token: boolean };
+
+/**
+ * Per pipeline, whether the run behind its `last_run_status` ran something
+ * other than what the next run would (R183); null when there is no such run,
+ * or its program could not be read. That run is the latest one that
+ * finished, which is the one that wrote the status.
+ */
+async function lastRunDrift(
+  pipelines: {
+    id: string;
+    last_run_status: string | null;
+    mode: string;
+    graph: unknown;
+    engine: string | null;
+    source_code: string;
+  }[],
+): Promise<Map<string, boolean | null>> {
+  const drift = new Map<string, boolean | null>();
+  await Promise.all(
+    pipelines.map(async (p) => {
+      if (!p.last_run_status) return drift.set(p.id, null);
+      const { data: run, error } = await supabaseAdmin
+        .from("etl_runs")
+        .select("source_code")
+        .eq("pipeline_id", p.id)
+        .in("status", ["succeeded", "failed"])
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      drift.set(p.id, error ? null : changedSinceRun(p, run?.source_code));
+    }),
+  );
+  return drift;
+}
 
 // ── List / read ─────────────────────────────────────────────────────────────
 
@@ -255,7 +290,7 @@ export const getEtlOverview = createServerFn({ method: "POST" })
       supabaseAdmin
         .from("etl_pipelines")
         .select(
-          "id, name, description, mode, schedule, poll_seconds, cron_expr, timezone, is_active, next_run_at, last_run_at, last_run_status, dest_catalog_source_id, retry_count, run_after, chain_sql_models, chain_ml_schedules, created_at, updated_at",
+          "id, name, description, mode, schedule, poll_seconds, cron_expr, timezone, is_active, next_run_at, last_run_at, last_run_status, dest_catalog_source_id, retry_count, run_after, chain_sql_models, chain_ml_schedules, created_at, updated_at, graph, source_code, engine",
         )
         .eq("user_id", userId)
         .order("updated_at", { ascending: false }),
@@ -330,11 +365,15 @@ export const getEtlOverview = createServerFn({ method: "POST" })
       }
     }
 
+    // FOUND IN R183: a card's status chip outlived the definition it vouched
+    // for. The definition is read for this and left out of the answer.
+    const drift = await lastRunDrift(pipelines ?? []);
     return {
-      pipelines: (pipelines ?? []).map((p) => ({
+      pipelines: (pipelines ?? []).map(({ graph: _g, source_code: _s, engine: _e, ...p }) => ({
         ...p,
         live_run: liveRun.get(p.id) ?? null,
         exactly_once: exactlyOnce.has(p.id),
+        changed_since_last_run: drift.get(p.id) ?? null,
       })),
       stats: overview.stats,
       per_pipeline: overview.per_pipeline,

@@ -578,6 +578,12 @@ function EtlDocsPage() {
         shared with you works in a pipeline exactly as it does in BI, and the AI assist obeys your
         model allow-lists.
       </P>
+      <P>
+        A pipeline card&apos;s status chip is its last finished run&apos;s outcome. When the program
+        a run started now would execute differs from what that run ran (an edit, an engine switch,
+        or a newer compiler building the graph differently), the card says{" "}
+        <strong>changed since this run</strong> under the chip, and the next run clears it.
+      </P>
 
       <H2 id="sizing">Data-size limits and machine sizing</H2>
       <P>

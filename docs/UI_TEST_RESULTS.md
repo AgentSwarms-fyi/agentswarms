@@ -15,6 +15,21 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-30 — An ETL pipeline's status chip over an edited definition, ADVERSARIAL_LOG R183
+
+**Why this round exists.** Phase B's first item: sweep item 2's ETL chip.
+
+Fixtures, kept: the pipeline `r183_chip` (the reconciliation sample, destination "MinIO local etl
+demo", its "Reconciled" target now `orders_reconciled_r183`) and its two runs.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Smoke, R181 and R182 on the real image `8651672bd6c6` | Lakehouse → `analytics.stg_revenue` → Publish to Iceberg → `local_rest` / `r181` / `smoke_8651672b`, Refuse | `Published 836 row(s) to r181.smoke_8651672b`: the image's freshly fetched extension build publishes |
+| Before (same image) | New pipeline `r183_chip` from the reconciliation sample; destination set; Save; Run now | "Saved"; "Run started"; the run `Succeeded`, `309 rows → 2 target(s)` |
+| Before | Build → "Reconciled" → Table `orders_reconciled` → `orders_reconciled_r183` → Save; ETL Pipelines | "Saved"; the card `r183_chip · last run 9/30/2026, 7:00:02 PM · 100% · Succeeded` |
+| After (hot deploy) | ETL Pipelines | `r183_chip · Succeeded · changed since this run`; also marked: `matrix_transforms`, `param_probe2`, `revenue_conform`, `kafka orders`, `sample_reconciliation`; unmarked: the other fifteen, `bi_seed` and the `*_live` pipelines among them |
+| After | Run on the `r183_chip` card; the page reloaded once it finished | Recent runs `Succeeded · r183_chip · 24s · 309 rows`; the card `last run 9/30/2026, 7:16:21 PM · Succeeded`, no mark |
+
 ## 2026-09-30 — An Iceberg replace without a gap, ADVERSARIAL_LOG R182
 
 **Why this round exists.** Phase A's fourth item: R107's replace was not atomic. Every window

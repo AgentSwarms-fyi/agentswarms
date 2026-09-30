@@ -167,8 +167,15 @@ least twice, not a hypothetical.
    replaced that table's data and reported "Built". That is fixed as
    R101. Still open there, at S3: a failed rebuild shows only in the
    badge's hover title, while the badge itself reads "materialized" as
-   before. Next in this sweep: the ETL pipeline save's `last_run_status`
-   chip.
+   before. The ETL pipeline's `last_run_status` chip is R183: a save kept
+   "Succeeded" over a target the pipeline had never written. Each run pins
+   its code on `etl_runs.source_code`, so the card compares it with what a
+   run would compile now and says "changed since this run", no migration.
+   The same comparison flagged five older pipelines whose graphs the
+   current compiler builds differently: an upgrade, not an edit, and just
+   as true. Where a run already pins what it ran, compare with that before
+   reaching for a trigger. Next in this sweep: the workflow saves
+   (`workflows.functions`, `last_run_status` in `workflows.tsx`).
 3. **A cause named that the evidence cannot support.** R31's freshness test, and
    Prompt Compare crowning the model that failed fastest. R63's dashboard
    chip is the degenerate case: a count of `last_status = 'error'` on a

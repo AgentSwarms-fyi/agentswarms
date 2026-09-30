@@ -109,6 +109,45 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-30 — An ETL pipeline's "Succeeded" over a definition that never ran
+
+Tests: `tests/unit/etlChipDrift.test.ts` (11 tests), on the real compiler and the real
+reconciliation sample. The mutation run caught 11 of 11, and the control survived.
+
+#### R183 · S2 · Succeeded, for a table the pipeline had never written
+
+**Found** as Phase B's first item, sweep item 2 (a badge that outlives what it vouched for), next
+in line after R101. Driven on the real image `8651672bd6c6`:
+- ETL Pipelines → New pipeline → `r183_chip` from "Orders ↔ payments reconciliation" → Settings:
+  default destination "MinIO local etl demo" → Save → Run now → the run `Succeeded`, `309 rows →
+  2 target(s)`.
+- Build → the "Reconciled" target → Table `orders_reconciled` → `orders_reconciled_r183` →
+  "Saved".
+- ETL Pipelines: `r183_chip · last run 9/30/2026, 7:00:02 PM · 100% · Succeeded`. No run had
+  written `orders_reconciled_r183`.
+
+The save writes the definition and none of the run stamps, and the card showed
+`last_run_status` as though it were about the pipeline on the row. A visual pipeline is also
+recompiled by the current compiler at every run start, so an upgrade changes what runs next
+with no edit at all, and the chip says nothing about that either.
+
+**The fix** (`utils/etl/runDrift.ts`, `etl.functions.ts` `getEtlOverview`, `etl.tsx`). Each
+run already pins the program it ran on `etl_runs.source_code`. The overview reads each
+pipeline's latest finished run, the one that wrote the status, and compares its program with
+the one a run started now would execute: the graph compiled by the current compiler for the
+pipeline's engine, as the run start does, or a code pipeline's own source. When they differ, or
+the graph no longer compiles, the card says "changed since this run" under the chip. With no
+finished run, or a read that failed, it says nothing. The definition is read for this and left
+out of the answer. No migration: R60 needed a trigger because a SQL model's build does not pin
+its SQL, and an ETL run does.
+
+**Also seen.** The first load after the fix marked five older pipelines: `matrix_transforms`,
+`param_probe2`, `revenue_conform`, `kafka orders` and `sample_reconciliation`, last run between
+8/30 and 9/18. None had been edited: the current compiler builds their graphs differently, so
+their next run executes something their chips never checked. The fifteen others, including
+`bi_seed` (9/22) and the 9/18 `*_live` pipelines, compile to what they last ran, which is also
+the evidence the compiler is deterministic.
+
 ### 2026-09-30 — An Iceberg replace left the name empty, then empty-handed
 
 Tests: `tests/unit/icebergReplaceInPlace.test.ts` (6 tests) and a rewritten

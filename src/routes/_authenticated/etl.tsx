@@ -614,7 +614,18 @@ function PipelineRow({
             <RunDots pulse={pulse} />
           </div>
         </button>
-        <StatusChip status={p.last_run_status} />
+        <div className="flex flex-col items-end gap-0.5">
+          <StatusChip status={p.last_run_status} />
+          {/* FOUND IN R183: the chip outlived the definition it vouched for. */}
+          {p.changed_since_last_run && (
+            <span
+              className="text-[11px] text-amber-600 dark:text-amber-400"
+              title="The pipeline changed after this run (an edit, or a newer version of the compiler): the next run executes something this status never checked."
+            >
+              changed since this run
+            </span>
+          )}
+        </div>
         <div className="flex items-center gap-1">
           {p.schedule === "continuous" && p.live_run ? (
             <Button size="sm" variant="outline" onClick={stopLive} disabled={busy}>
