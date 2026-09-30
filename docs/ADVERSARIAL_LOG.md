@@ -109,6 +109,44 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-30 — A restore promised as undoable, done without its undo
+
+Tests: `tests/unit/swarmVersionWrites.test.ts` (5 tests). The mutation run caught 10 of 10, and
+the control survived.
+
+#### R190 · S2 · "Your current graph is saved as a snapshot first", when it was not
+
+**Found** in R189's round, on the same dialog. `snapshotSwarmVersion` swallowed its insert error
+("versioning is best-effort; never block a save"). That is right for the autosave on Save, its
+first caller, and wrong for the other two. Driven on the hot deploy of R189, on "Approval
+durability check", with the `swarm_versions` insert refused from the browser:
+- **Save version**, named "R190 refused capture": the toast said "Version saved", the name was
+  cleared, and the list still held only the Initial version.
+- **Restore.** The canvas had a Set Variable node added (6 nodes, unsaved). *Restore* on the
+  Initial version opened a confirm: 'The canvas will be replaced with this snapshot (5 nodes). Your
+  current graph is saved as a snapshot first, so you can restore back.' Confirmed with the insert
+  refused, it gave "Version restored — hit Save to keep it." and 5 nodes. Reopened with the refusal
+  lifted, the history had no *Before restore* version. The 6-node graph was gone, and pressing
+  Save, as the toast asks, would have made that permanent.
+
+**The fix** (`lib/swarmVersions.ts`, `components/swarms/SwarmVersionsDialog.tsx`,
+`routes/_authenticated/swarms.tsx`):
+- **`snapshotSwarmVersion`** resolves to the insert's error message, or null. It prunes only after
+  a version landed. The autosave still ignores the result.
+- **Save version** shows "The version was not saved" with the error, and keeps the name for another
+  try.
+- **Restore** does nothing when the snapshot of the current graph did not land: "Nothing was
+  restored · Your current graph could not be saved as a version first, so the restore could not be
+  undone: …". The handler returns whether it restored, and the dialog stays open when it did not.
+
+**Driven after:**
+- **Save version:** under the refusal, "The version was not saved · R190 injected: the POST did not
+  reach the database", with the name still in the field. Lifted and renamed, "R190 capture after
+  retry" landed ("Version saved"; kept).
+- **Restore:** with the node added and the insert refused, "Nothing was restored …"; the canvas kept
+  its 6 nodes and the dialog stayed open. Lifted, the restore went through (5 nodes, dialog closed).
+  The history then opened on "Before restore 10:46:35 PM · pre-restore · 6 nodes" (kept).
+
 ### 2026-09-30 — "Draft ahead" gone after a Publish, and three lists that read as empty
 
 Tests: `tests/unit/swarmCanvasReads.test.ts` (7 tests). The mutation run caught 15 of 15, and the

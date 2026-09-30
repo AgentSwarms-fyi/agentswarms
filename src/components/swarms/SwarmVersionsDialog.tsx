@@ -62,7 +62,8 @@ export function SwarmVersionsDialog({
   edges: Edge[];
   open: boolean;
   onOpenChange: (v: boolean) => void;
-  onRestore: (nodes: Node<SwarmNodeData>[], edges: Edge[]) => void | Promise<void>;
+  /** Resolves to false when nothing was restored; the dialog then stays open. */
+  onRestore: (nodes: Node<SwarmNodeData>[], edges: Edge[]) => Promise<boolean>;
 }) {
   const { user } = useAuth();
   const [versions, setVersions] = useState<VersionRow[]>([]);
@@ -92,7 +93,7 @@ export function SwarmVersionsDialog({
   const saveVersion = async () => {
     if (!swarmId || !user) return;
     setSaving(true);
-    await snapshotSwarmVersion({
+    const error = await snapshotSwarmVersion({
       swarmId,
       userId: user.id,
       nodes,
@@ -101,6 +102,12 @@ export function SwarmVersionsDialog({
       kind: "manual",
     });
     setSaving(false);
+    // FOUND IN R190: this said "Version saved" whether or not the row landed.
+    // The label stays, so trying again is one click.
+    if (error) {
+      toast.error("The version was not saved", { description: error });
+      return;
+    }
     setLabel("");
     await load();
     toast.success("Version saved");
@@ -109,9 +116,9 @@ export function SwarmVersionsDialog({
   const restore = async (v: VersionRow) => {
     const vNodes = (Array.isArray(v.nodes) ? v.nodes : []) as Node<SwarmNodeData>[];
     const vEdges = (Array.isArray(v.edges) ? v.edges : []) as Edge[];
-    await onRestore(vNodes, vEdges);
+    const restored = await onRestore(vNodes, vEdges);
     await load(); // a pre-restore safety snapshot was just added
-    onOpenChange(false);
+    if (restored) onOpenChange(false);
   };
 
   const remove = async (id: string) => {

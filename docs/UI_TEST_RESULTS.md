@@ -15,6 +15,27 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-30 — Save version and Restore under a refused insert, ADVERSARIAL_LOG R190
+
+**Why this round exists.** R189's round found the versions dialog's two writes going on as if
+their insert had landed. On "Approval durability check", the `swarm_versions` insert was refused
+from the browser, as in R186–R189.
+
+Fixtures, **kept**: the versions "R190 capture after retry" (saved, 5 nodes) and "Before restore
+10:46:35 PM" (pre-restore, 6 nodes: the 5 saved nodes and a Set Variable) on "Approval durability
+check". The canvas was never saved; the added nodes went with a reload.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before (hot deploy of R189 on `498ec3b7ec48`) | Version history → "R190 refused capture" → Save version, POST `swarm_versions` refused | toast "Version saved"; the name cleared; the list only "Initial version · autosave · 5 nodes" |
+| Before | Set Variable added (6 nodes, unsaved) → Restore on the Initial version | confirm 'Restore "Initial version"? The canvas will be replaced with this snapshot (5 nodes). Your current graph is saved as a snapshot first, so you can restore back. …' |
+| Before | confirmed, the insert refused | "Version restored — hit Save to keep it."; 5 nodes |
+| Before | lifted, the history reopened | only the Initial version: no *Before restore*, the 6-node graph gone |
+| After (hot deploy of R190) | "R190 refused capture" → Save version, refused | "The version was not saved · R190 injected: the POST did not reach the database"; the name kept; the list unchanged |
+| After | lifted, renamed "R190 capture after retry" → Save version | "Version saved"; listed "saved · 5 nodes · 9/30/2026, 10:45:52 PM" |
+| After | Set Variable added (6 nodes) → Restore on the Initial version, refused | "Nothing was restored · Your current graph could not be saved as a version first, so the restore could not be undone: R190 injected: …"; still 6 nodes; the dialog open |
+| After | lifted → Restore again | "Version restored — hit Save to keep it."; 5 nodes; the dialog closed; reopened, "Before restore 10:46:35 PM · pre-restore · 6 nodes" at the top |
+
 ## 2026-09-30 — The canvas's snapshot, components and versions under refusal, ADVERSARIAL_LOG R189
 
 **Why this round exists.** Phase C's third item, the rest of the swarms batch. The reads were

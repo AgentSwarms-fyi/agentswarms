@@ -1462,10 +1462,13 @@ function SwarmsCanvas({
     }
   };
 
-  const handleRestoreVersion = async (vNodes: Node<SwarmNodeData>[], vEdges: Edge[]) => {
+  const handleRestoreVersion = async (
+    vNodes: Node<SwarmNodeData>[],
+    vEdges: Edge[],
+  ): Promise<boolean> => {
     // Snapshot the current graph first so restoring is itself reversible.
     if (swarmId && user) {
-      await snapshotSwarmVersion({
+      const error = await snapshotSwarmVersion({
         swarmId,
         userId: user.id,
         nodes,
@@ -1473,6 +1476,14 @@ function SwarmsCanvas({
         label: `Before restore ${new Date().toLocaleTimeString()}`,
         kind: "restore",
       });
+      // FOUND IN R190: a failed snapshot was ignored and the canvas replaced
+      // anyway, moments after the confirm promised "you can restore back".
+      if (error) {
+        toast.error("Nothing was restored", {
+          description: `Your current graph could not be saved as a version first, so the restore could not be undone: ${error}`,
+        });
+        return false;
+      }
     }
     setNodes(vNodes);
     setEdges(vEdges.map(withDefaultEdgeStyle));
@@ -1482,6 +1493,7 @@ function SwarmsCanvas({
     idCounter.current = vNodes.length + 1;
     lastVersionHashRef.current = null; // force the next Save to snapshot the restored graph
     toast.success("Version restored — hit Save to keep it.");
+    return true;
   };
 
   // Auto-arrange nodes left-to-right by dependency level (a simple layered

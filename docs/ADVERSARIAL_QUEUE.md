@@ -1073,11 +1073,17 @@ over the lakehouse). Open from that round, the rest of Row Zero's connected tabl
   R189: the canvas's published-snapshot re-read switched "Draft ahead" off
   after a Publish while the canvas went on changing (now "Live not
   checked"), and the components (palette and library) and the version
-  history read as empty. Open from R189 (as R190): the versions dialog's
-  *Save version* toasts "Version saved" whether or not the insert landed
-  (`snapshotSwarmVersion` swallows its error for the autosave's sake), and
-  *Restore*, promised as undoable, replaces the canvas even when its
-  safety snapshot failed. The deploy dialog's three are R188: a
+  history read as empty. R190 took the versions dialog's writes:
+  *Save version* toasted "Version saved" whether or not the insert landed,
+  and *Restore*, promised as undoable by its own confirm, replaced the
+  canvas when its safety snapshot had failed. A helper that swallows an
+  error "because it is best-effort" is best-effort only for the caller
+  that said so. Still open in that dialog, both small: the trash icon
+  deletes a version at once, with no confirm (the component library asks
+  first), and Enter in the name field calls *Save version* past the
+  button's `disabled={saving}`, so two quick Enters can capture it twice
+  (read in the source, not yet driven). The
+  deploy dialog's three are R188: a
   failed schedules read said "No schedules yet." with Add on, the one
   invitation in this survey that turns into a duplicate write (the swarm
   run twice per tick), and a live swarm read "Not deployed". The node

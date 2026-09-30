@@ -54,6 +54,10 @@ export function graphHash(nodes: Node<SwarmNodeData>[], edges: Edge[]): string {
   return JSON.stringify({ n: cleanNodes, e: cleanEdges });
 }
 
+// Resolves to the insert's error message, or null when the version landed.
+// The autosave on Save ignores it, since versioning must never block a save.
+// A version asked for by name, and the snapshot a restore promises to take
+// first, must not: FOUND IN R190, both went on as if it had landed.
 export async function snapshotSwarmVersion(opts: {
   swarmId: string;
   userId: string;
@@ -61,7 +65,7 @@ export async function snapshotSwarmVersion(opts: {
   edges: Edge[];
   label: string;
   kind: SwarmVersionKind;
-}): Promise<void> {
+}): Promise<string | null> {
   const { cleanNodes, cleanEdges } = serializeGraph(opts.nodes, opts.edges);
   const { error } = await supabase.from("swarm_versions").insert({
     swarm_id: opts.swarmId,
@@ -72,7 +76,7 @@ export async function snapshotSwarmVersion(opts: {
     edges: cleanEdges as never,
     node_count: cleanNodes.length,
   });
-  if (error) return; // versioning is best-effort; never block a save
+  if (error) return error.message;
 
   // Prune to the most recent MAX_VERSIONS for this swarm.
   const { data: ids } = await supabase
@@ -84,4 +88,5 @@ export async function snapshotSwarmVersion(opts: {
     const toDelete = ids.slice(MAX_VERSIONS).map((r) => r.id);
     if (toDelete.length) await supabase.from("swarm_versions").delete().in("id", toDelete);
   }
+  return null;
 }
