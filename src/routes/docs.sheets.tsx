@@ -97,8 +97,8 @@ function SheetsDocsPage() {
         Statistics skip blank cells and text in a range, as Excel&apos;s do, and working days count
         backwards as Excel counts them, as do DAYS360 and WEEKDAY&apos;s return types 11 to 17. A
         cell with an error explains it on hover. A number joined into text keeps 15 significant
-        digits, and FLOOR and CEILING land on a decimal step (<C>=FLOOR(4.35,0.05)</C> is 4.35), as
-        in Excel.
+        digits, and FLOOR and CEILING land on a decimal step (<C>=FLOOR(4.35,0.05)</C> is 4.35).
+        Loan sheets have CUMIPMT and CUMPRINC, as in Excel.
       </P>
       <UL>
         <li>

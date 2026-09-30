@@ -284,4 +284,19 @@ export const FUNCTION_HELP: Record<string, FunctionHelp> = {
   },
   NPV: { sig: "NPV(rate, value1, [value2], …)", desc: "Net present value.", cat: "Financial" },
   IRR: { sig: "IRR(values, [guess])", desc: "Internal rate of return.", cat: "Financial" },
+  CUMIPMT: {
+    sig: "CUMIPMT(rate, nper, pv, start_period, end_period, type)",
+    desc: "Interest paid on a loan between two periods.",
+    cat: "Financial",
+  },
+  CUMPRINC: {
+    sig: "CUMPRINC(rate, nper, pv, start_period, end_period, type)",
+    desc: "Principal paid on a loan between two periods.",
+    cat: "Financial",
+  },
+  MIRR: {
+    sig: "MIRR(values, finance_rate, reinvest_rate)",
+    desc: "Rate of return with separate borrowing and reinvestment rates.",
+    cat: "Financial",
+  },
 };

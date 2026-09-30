@@ -15,6 +15,20 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-30 — Loan functions, ADVERSARIAL_LOG R177
+
+**Why this round exists.** Found by probing the financial functions against Microsoft's examples.
+
+Fixtures, kept: **"R177 loans before"** (`69507927…`) and **"R177 loans after"** (`6dc1494b…`),
+typed the same way: A1 `=CUMIPMT(0.09/12,360,125000,13,24,0)`, A2
+`=CUMPRINC(0.09/12,360,125000,13,24,0)`, A3 `=MIRR({-120000,39000,30000,21000,37000,46000},0.1,0.12)`,
+A4 `=PDURATION(0.025,2000,2200)`.
+
+| Round | What was driven | What came back (A1 to A4) |
+| --- | --- | --- |
+| Before | The typing | #NAME? ×4 |
+| After | The same | -11135.23213, -934.1071234, 0.1260941304, 3.859866163; the same after a reload |
+
 ## 2026-09-30 — FLOOR, GCD, LCM and hexadecimal, ADVERSARIAL_LOG R176
 
 **Why this round exists.** Found by probing the math functions against Excel's rules.

@@ -109,6 +109,33 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-30 — CUMIPMT, CUMPRINC and six more financial functions
+
+Tests: `tests/unit/sheetsFinancial.test.ts` (5 tests), Microsoft's worked examples. The mutation run
+caught 12 of 12, and the control survived.
+
+#### R177 · S3 · A loan sheet's CUMIPMT was #NAME?
+
+**Found** probing the financial functions against Microsoft's examples. PMT, FV, PV, NPER, RATE,
+IPMT, PPMT, IRR, NPV, XNPV, XIRR, SLN, DDB, DB, EFFECT and NOMINAL all matched; CUMIPMT, CUMPRINC,
+MIRR, FVSCHEDULE, SYD, ISPMT, PDURATION and RRI were #NAME?, though formula.js has every one. Driven
+in "R177 loans before": A1 `=CUMIPMT(0.09/12,360,125000,13,24,0)`, A2 the same CUMPRINC, A3
+`=MIRR({-120000,39000,30000,21000,37000,46000},0.1,0.12)`, A4 `=PDURATION(0.025,2000,2200)`:
+#NAME? ×4.
+
+CUMIPMT and CUMPRINC are how an amortization sheet totals a year's interest and principal; an Excel
+file using them came in showing only the values Excel saved, and stopped following its inputs.
+
+**The fix** (`lib/sheets/formula/functions.ts`, `xlsx.ts`, `functionHelp.ts`). The eight are
+registered. MIRR reads its values as IRR does (R170), skipping blanks and text where formula.js
+counted a blank as a period of 0; FVSCHEDULE counts a blank rate as none, as Excel does. PDURATION
+and RRI, Excel 2013's, carry the `_xlfn.` prefix in a download (R172's test found them bare and
+failed, as it is meant to). Autocomplete describes CUMIPMT, CUMPRINC and MIRR.
+
+**Not changed.** VDB is not in formula.js and is still #NAME?. About 170 more of formula.js's
+functions (MMULT, AVERAGEA, TRIMMEAN, the database functions, distributions, complex numbers) are
+not registered; each needs checking against Excel before it is, as R170 showed.
+
 ### 2026-09-30 — FLOOR to a decimal step, GCD, LCM and hexadecimal
 
 Tests: `tests/unit/sheetsMultiples.test.ts` (7 tests), the table-sheet cases on a real DuckDB. The
