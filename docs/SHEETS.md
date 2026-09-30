@@ -69,8 +69,11 @@ Type `=` and a formula, as in Excel. About 240 functions are available:
     Copying, inserting rows and renaming the sheet move it as they move A2, and an Excel file holds
     it as `_xlfn.ANCHORARRAY(A2)`, both ways.
 - **Text:** TEXT, VALUE, NUMBERVALUE, LEFT, MID, TEXTJOIN, TEXTSPLIT, TEXTBEFORE, TEXTAFTER.
-- **Dates and times:** DATE, TIME, TIMEVALUE, EDATE, EOMONTH, DAYS, NETWORKDAYS(.INTL),
+- **Dates and times:** DATE, TIME, TIMEVALUE, EDATE, EOMONTH, DAYS, DAYS360, NETWORKDAYS(.INTL),
   WORKDAY(.INTL).
+  - DAYS360 counts twelve 30-day months, the US (NASD) way or, with TRUE, the European way.
+    WEEKDAY takes all of Excel's return types: 1 to 3, and 11 to 17 (the week from Monday to
+    Sunday).
   - NETWORKDAYS from a later date back to an earlier one is minus the count forwards (Friday back to
     Monday is -5), times of day are dropped, and an error in a date is passed on, as in Excel.
 - **Statistics:** STDEV, VAR, RANK, MODE, PERCENTILE and QUARTILE, under their old names and new

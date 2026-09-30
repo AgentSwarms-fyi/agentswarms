@@ -109,6 +109,25 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-30 — WEEKDAY's return types 11 to 17, and DAYS360
+
+Tests: `tests/unit/sheetsDays360.test.ts` (6 tests). The mutation run caught 11 of 11, and the
+control survived.
+
+#### R174 · S3 · WEEKDAY(d,11) was #NUM!, DAYS360 #NAME?
+
+**Found** in R173's probe; driven in the same workbooks (C4 `=WEEKDAY(B1,11)`, C5
+`=DAYS360(DATE(2011,1,1),DATE(2011,12,31))`): #NUM! and #NAME?, where Excel gives 1 and 360.
+- WEEKDAY knew return types 1 to 3; Excel's 11 to 17 number the week from Monday (11) through
+  Sunday (17).
+- DAYS360, the 360-day count that interest and payroll schedules use, did not exist.
+
+**The fix** (`lib/sheets/formula/functions.ts`, `functionHelp.ts`). WEEKDAY takes 11 to 17. DAYS360
+counts `(years × 360) + (months × 30) + days`, the US (NASD) way: a start on the 31st or on the last
+day of February counts as the 30th, and an end on the 31st counts as the 30th when the start is the
+30th or 31st; with TRUE, the European way: every 31st counts as the 30th. The cases are
+Microsoft's examples and the edges of each rule. It lifts over arrays, and autocomplete describes it.
+
 ### 2026-09-30 — Working days counted backwards
 
 Tests: `tests/unit/sheetsNetworkdays.test.ts` (4 tests). The mutation run caught 6 of 6, and the

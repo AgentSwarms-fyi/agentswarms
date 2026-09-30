@@ -249,7 +249,12 @@ export const FUNCTION_HELP: Record<string, FunctionHelp> = {
   DAY: { sig: "DAY(serial_number)", desc: "The day of the month.", cat: "Date" },
   WEEKDAY: {
     sig: "WEEKDAY(serial_number, [return_type])",
-    desc: "Day of the week (1 = Sunday by default).",
+    desc: "Day of the week: 1 = Sunday by default; 2 or 11 from Monday, 12–17 from Tuesday–Sunday.",
+    cat: "Date",
+  },
+  DAYS360: {
+    sig: "DAYS360(start_date, end_date, [method])",
+    desc: "Days between two dates on a 360-day year (US method; TRUE for European).",
     cat: "Date",
   },
   EDATE: {

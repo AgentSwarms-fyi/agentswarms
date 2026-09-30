@@ -1038,10 +1038,43 @@ F.WEEKDAY = (args) => {
   if (isError(n)) return n;
   if (isError(type)) return type;
   const dow = serialParts(n).dow; // 0 = Sunday
-  if (type === 1) return dow + 1;
-  if (type === 2) return ((dow + 6) % 7) + 1;
-  if (type === 3) return (dow + 6) % 7;
+  const t = Math.trunc(type);
+  if (t === 1) return dow + 1;
+  if (t === 2) return ((dow + 6) % 7) + 1;
+  if (t === 3) return (dow + 6) % 7;
+  // 11 to 17: day 1 is Monday (11) through Sunday (17). FOUND IN R174: #NUM!.
+  if (t >= 11 && t <= 17) return ((dow - ((t - 10) % 7) + 7) % 7) + 1;
   return err("#NUM!");
+};
+/**
+ * DAYS360(start, end, [european]): the days between two dates on a year of
+ * twelve 30-day months, as Excel counts them (R174; it was #NAME?). The US
+ * (NASD) way: a start on the 31st or on the last day of February counts as
+ * the 30th, and an end on the 31st counts as the 30th when the start is the
+ * 30th or 31st. The European way: every 31st counts as the 30th.
+ */
+F.DAYS360 = (args) => {
+  const bad = arity(args, 2, 3);
+  if (bad) return bad;
+  const a = num(args[0]);
+  if (isError(a)) return a;
+  const b = num(args[1]);
+  if (isError(b)) return b;
+  const european = bool(args[2], false);
+  if (isError(european)) return european;
+  const s = serialParts(Math.floor(a));
+  const e = serialParts(Math.floor(b));
+  let d1 = s.d;
+  let d2 = e.d;
+  if (european) {
+    d1 = Math.min(d1, 30);
+    d2 = Math.min(d2, 30);
+  } else {
+    const lastOfFebruary = s.m === 2 && serialParts(Math.floor(a) + 1).m === 3;
+    if (d1 === 31 || lastOfFebruary) d1 = 30;
+    if (d2 === 31 && d1 >= 30) d2 = 30;
+  }
+  return (e.y - s.y) * 360 + (e.m - s.m) * 30 + (d2 - d1);
 };
 F.DATEVALUE = (args) => {
   const s = text(args[0]);
@@ -2042,6 +2075,7 @@ const SCALAR_FUNCTIONS = [
   "EDATE",
   "EOMONTH",
   "DAYS",
+  "DAYS360",
 ];
 export const LIFTS: ReadonlyMap<string, (argCount: number) => number[]> = new Map([
   ...SCALAR_FUNCTIONS.map((name) => [name, all] as const),
