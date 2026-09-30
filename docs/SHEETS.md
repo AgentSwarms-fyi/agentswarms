@@ -338,6 +338,11 @@ TEXT(). Among them:
 - **Conditions:** `[<10]"small";"big"`, or `[>=1000000]0.0,,"M";[>=1000]0.0,"K";0`, choose a section
   by the value, and its colour with it.
 - **Dates in capitals,** `DD/MM/YYYY` as LibreOffice writes them, read as `dd/mm/yyyy`.
+- **A formula's format from what it reads.** A formula typed into a cell with no format of its own
+  takes one, as Excel does: `=A1` takes A1's; `+` and `-` take their first formatted operand's, so
+  `=A1+30` over a date is a date; SUM, AVERAGE, MIN, MAX, MEDIAN and the ROUNDs take their first
+  argument's, so `=SUM(B1:B9)` over dollars is dollars. Two dates apart (`=A2-A1`) are a number of
+  days. `*` and `/` take none (Excel would show `=A1*100` over 12% as 1200%).
 - **Spacing codes:** `_)` is a space as wide as ")", so `#,##0_);(#,##0)` lines up positives with
   negatives, and Excel's Accounting format `_("$"* #,##0.00_)` shows ` $1,234.50 `. A fill (`* `),
   which Excel stretches to the cell's width, is left out.

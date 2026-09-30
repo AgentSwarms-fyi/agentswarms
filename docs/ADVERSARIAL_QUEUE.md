@@ -189,8 +189,8 @@ statement), R113 (`now()` served from the result cache), R114 (JSX text
 showing `\u2014` as text). Open, from the first rounds:
 
 - **Excel parity, small:** a dynamic array over an empty cell spills a blank
-  where Excel spills 0; `=A9+30` over a date cell shows the serial number
-  where Excel carries the date format forward.
+  where Excel spills 0. (`=A9+30` over a date cell now carries the date
+  format forward: R168.)
 - **Deleting the last two sheets at once:** `sheetsDeleteTab` counts, then
   deletes, so two concurrent deletes can leave a workbook with none.
 - **A connection import was not driven:** the account has no database
@@ -433,8 +433,8 @@ approximate lookups over data it sorted took the wrong rows). Open from that rou
 Closed with typed times and month-name dates: R166 (they stayed text; a column of times summed to
 0). Open from that round:
 
-- **A formula does not take the format of the cells it reads.** `=B1+1` over a date shows 45001;
-  Excel shows 16-Mar-23 (and `=SUM` of times a time). Only DATE, TODAY and their kin show as dates.
+- ~~A formula does not take the format of the cells it reads.~~ Closed by R168 for `+`, `-`,
+  a bare reference and SUM-like functions; `*` and `/` take none on purpose.
 - **Month names in other languages** (15-mars-2023) are text.
 
 Closed with the fill handle's series: R165 (dates past a month's end written as text, months and

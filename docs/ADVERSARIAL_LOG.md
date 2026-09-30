@@ -109,6 +109,33 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-30 — A formula's format from what it reads
+
+Tests: `tests/unit/sheetsFormulaFormat.test.ts` (6 tests). The mutation run caught 10 of 10, and
+the control survived.
+
+#### R168 · S3 · =A1+30 over a date showed 45030
+
+**Found** in R166's round, then typed in "R168 formats before": A1 2023-03-15, A2 `=A1+30`, A3
+`=A2-A1`, A4 `=A1`; B1 $1,200, B2 $300.50, B3 `=SUM(B1:B2)`, B4 `=B1*2`.
+- A2 showed 45030 and A4 45000, where Excel shows 2023-04-14 and 2023-03-15: a formula took no
+  format from the cells it read. Only DATE, TODAY and their kin showed as dates.
+- B3 showed 1500.5, where Excel shows it in B1's dollars. (Typed `$1,200` has no cents, so B3 shows
+  $1,501: a formula takes the format of the first cell it reads.)
+
+A number of days is easy to mistake for a count; the dates were right, only shown as serials.
+
+**The fix** (`lib/sheets/formulaFormat.ts`, used when a formula is entered). A formula typed into a
+cell with no format of its own takes one from what it reads, as Excel gives one on entry:
+- a bare reference takes that cell's (its own format, or the one its formula implies);
+- `+` and `-` take the first formatted operand's; two dates apart are a number of days, and keep
+  none;
+- SUM, AVERAGE, MIN, MAX, MEDIAN and the ROUNDs take their first argument's.
+
+**Not changed, on purpose.** `*` and `/` take none. Excel carries a percentage through them too,
+showing `=A1*100` over 12% as 1200%; here the plain number is shown. A cell that has a format keeps
+it, and a formula entered before this round keeps what it had.
+
 ### 2026-09-29 — One order for text: the sort, =SORT() and the lookups
 
 Tests: `tests/unit/sheetsSortOrder.test.ts` (4). The mutation run caught 3 of 3, and the control

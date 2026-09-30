@@ -48,7 +48,8 @@ import {
   rangeA1,
   type RangeAddr,
 } from "@/lib/sheets/a1";
-import { cellView, editText, impliedFormat } from "@/lib/sheets/cellView";
+import { cellView, editText, effectiveFormat, impliedFormat } from "@/lib/sheets/cellView";
+import { formulaFormat } from "@/lib/sheets/formulaFormat";
 import type { CellStyle } from "@/lib/sheets/engine";
 import type { Scalar } from "@/lib/sheets/formula/values";
 import { adjustDecimals } from "@/lib/sheets/format";
@@ -520,7 +521,17 @@ export function WorkbookEditor({
           })
         )
           return;
-        const fmt = prev?.f ? undefined : impliedFormat(text);
+        // A value's format from what was typed; a formula's from the cells it
+        // reads (R168): =A1+30 over a date is a date, as in Excel.
+        const fmt = prev?.f
+          ? undefined
+          : (impliedFormat(text) ??
+            formulaFormat(text, (sheet, r, c) => {
+              const id = sheet
+                ? tabs.find((t) => t.name.toLowerCase() === sheet.toLowerCase())?.id
+                : tabId;
+              return id ? effectiveFormat(engine?.getInput(id, r, c)) : undefined;
+            }));
         // Text with a line break wraps, as Excel turns Wrap Text on for it.
         const wrap = text.includes(NEWLINE) && !prev?.s?.wrap && !text.startsWith("=");
         wb.applyEdits(tabId, [
@@ -542,7 +553,7 @@ export function WorkbookEditor({
       // the next letters lost) instead of the grid.
       gridRef.current?.focus({ preventScroll: true });
     },
-    [editing, engine, tabId, wb, nextCell, rules],
+    [editing, engine, tabId, tabs, wb, nextCell, rules],
   );
   // The alert finishes an edit after this render's commit is gone.
   const commitRef = useRef(commit);

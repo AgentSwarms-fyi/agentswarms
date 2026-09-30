@@ -15,6 +15,19 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-30 — A formula's format from what it reads, ADVERSARIAL_LOG R168
+
+**Why this round exists.** Filed in R166: `=B1+1` over a date showed a serial number.
+
+Fixtures, kept: **"R168 formats before"** (`9e65edad…`) and **"R168 formats after"**
+(`1c964600…`), typed the same way: A1 `2023-03-15`, A2 `=A1+30`, A3 `=A2-A1`, A4 `=A1`; B1 `$1,200`,
+B2 `$300.50`, B3 `=SUM(B1:B2)`, B4 `=B1*2`.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before | The typing | A2 45030, A3 30, A4 45000; B3 1500.5, B4 2400 |
+| After | The same, then a reload | A2 2023-04-14, A3 30, A4 2023-03-15; B3 $1,501 (B1's whole-dollar format, as Excel takes the first cell's), B4 2400; the same after the reload |
+
 ## 2026-09-29 — One order for text, ADVERSARIAL_LOG R167
 
 **Why this round exists.** Keep hunting: the ribbon's sort and the engine's lookups compared text
