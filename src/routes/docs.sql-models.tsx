@@ -142,6 +142,12 @@ group by 1`}</Code>
         stale data someone can see and diagnose beats no data at all.
       </P>
       <P>
+        A build replaces only what that model built: each build marks its table or view with a
+        comment DuckLake keeps. If a table imported, uploaded or created in SQL after the model was
+        saved stands at its target, the build fails and names it, a scheduled build included. Rename
+        the model, or rename or drop that table.
+      </P>
+      <P>
         A build&apos;s status and row count describe the definition that was built. Change a
         model&apos;s SQL, target, materialization or tests and it is marked <strong>edited</strong>{" "}
         until its next build: the previous build&apos;s figures are still shown, named as the

@@ -15,6 +15,20 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-30 — A SQL model built over a table made after its save, ADVERSARIAL_LOG R178
+
+**Why this round exists.** Phase A's first item: the case R103 left open.
+
+Fixtures, kept: the models `r178_target` and `r178_after` in `analytics`, and their tables.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before (image of R177) | New model `r178_target` (Table, `SELECT 178 AS id`) → Create; Lakehouse `CREATE TABLE analytics.r178_target AS SELECT 'made after the model was saved' AS note`; Build this and what it reads; `SELECT *` | "Created r178_target"; `Count 1`; "Built 1 model"; `id 178`: the table was replaced |
+| After (hot deploy, first version) | New model `r178_after` (Table, `SELECT 1782 AS id`) → Create; `CREATE TABLE analytics.r178_after AS SELECT 'made after the model was saved' AS note`; Build this and what it reads; `SELECT *` | "Created r178_after"; `Count 1`; run `error · r178_after failed · A table named analytics.r178_after is at this model's target, and this model did not build it: the build would replace it. Rename the model, or rename or drop that table.`; `note · made after the model was saved`, kept |
+| After, first version | `r178_target` (built before marks) → Build this and what it reads; then Build all | `r178_target built 1 rows`; Build all `partial`: `stg_revenue failed` with the same refusal and `fct_region_revenue skipped`. A model's own table refused: its creation snapshot had been expired by maintenance. Fixed in the same round |
+| After (hot deploy, corrected) | Build all | `partial`: `r103_keep built 1 rows`, `r178_after failed` (the refusal), `r178_target built 1 rows`, `stg_revenue built 836 rows`, `fct_region_revenue built 4 rows` |
+| Catalog, read-only | `ducklake_tag` comments on the five targets | `agentswarms: built by SQL model <id>` on `stg_revenue`, `fct_region_revenue`, `r103_keep` (a view), `r178_target`; none on `r178_after` |
+
 ## 2026-09-30 — Loan functions, ADVERSARIAL_LOG R177
 
 **Why this round exists.** Found by probing the financial functions against Microsoft's examples.

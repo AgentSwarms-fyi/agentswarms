@@ -758,12 +758,9 @@ over the lakehouse). Open from that round, the rest of Row Zero's connected tabl
     table-materialized one would replace it. The guard has to be "refuse
     a table this model did not build". A model rebuilding its own target
     is its job. Fixed at SAVE: a new or renamed model must find its name
-    free. Still open: a table created at a model's target after the model
-    was saved is replaced by its next build, and a scheduled build does it
-    unattended. Closing that needs the build to leave a mark it can
-    recognise on what it made. A table COMMENT would do, if DuckLake keeps
-    it; check that first. Then refuse to replace an object that lacks the
-    mark and that the model did not build before.
+    free. A table created at a model's target after the save is refused at
+    build since R178: each build marks what it made with a comment DuckLake
+    keeps, and replaces only its own mark.
   - **ML batch scoring, R104, DONE**: an existing output is allowed only if
     a succeeded prediction of the same user wrote it, and the input is
     never the output. The output-schema gap for Iceberg mounts is DONE in

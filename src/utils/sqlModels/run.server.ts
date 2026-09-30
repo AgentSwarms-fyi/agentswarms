@@ -27,6 +27,7 @@ import {
   stripSqlComments,
 } from "@/utils/lakehouse/core.server";
 import { nextEtlRunAt } from "@/utils/etl/schedule.server";
+import { markStatement, targetObject, targetRefusal } from "@/utils/sqlModels/target.server";
 import {
   buildPlan,
   type BuildPlan,
@@ -293,6 +294,12 @@ async function buildOne(
     const { sheetOwnedRefusal } = await import("@/utils/sheets/owned.server");
     const held = await sheetOwnedRefusal([{ schema: model.schema_name, table: model.name }]);
     if (held) return fail(held);
+    // FOUND IN R178. Any other table or view made at the target after the
+    // save (an import, an upload, a view saved over it) was replaced below
+    // without a question, by a scheduled build too. A build replaces only
+    // what it marked (target.server).
+    const refused = targetRefusal(await targetObject(c, model.schema_name, model.name), model);
+    if (refused) return fail(refused);
     assertSchemasAllowed(await selectReferencedSchemas(c, rendered), allowed);
 
     const body = stripSqlComments(rendered).replace(/;\s*$/, "");
@@ -304,6 +311,8 @@ async function buildOne(
       .run(`DROP ${kind === "TABLE" ? "VIEW" : "TABLE"} IF EXISTS ${target}`)
       .catch(() => undefined);
     await c.run(`CREATE OR REPLACE ${kind} ${target} AS ${body}`);
+    // A new object carries no comment: mark this one as the model's (R178).
+    await c.run(markStatement(kind, target, model.id));
 
     const counted = await (await c.run(`SELECT count(*) FROM ${target}`)).getRows();
     const rows = Number(counted[0][0]);

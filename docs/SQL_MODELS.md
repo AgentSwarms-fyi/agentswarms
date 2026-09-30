@@ -88,6 +88,15 @@ A build lands as one DuckLake commit, so readers see the previous table or the
 new one and never a half-built one. A **failed** build leaves the previous
 table in place: stale data someone can see and diagnose beats no data at all.
 
+A build replaces only what that model built. Each build marks its table or view with a comment,
+`agentswarms: built by SQL model <id>`, which DuckLake keeps in its catalog. If something else
+stands at the model's target (a table imported, uploaded or created in SQL after the model was
+saved, a view saved over it, another model's output), the build fails and names it: rename the
+model, or rename or drop that table. A scheduled build is refused the same way, so nothing is
+replaced while nobody watches. A table a model built before builds left marks counts as its own
+after a successful last build if it is no newer than that build, or older than the week of history
+the catalog keeps.
+
 ---
 
 ## Tests

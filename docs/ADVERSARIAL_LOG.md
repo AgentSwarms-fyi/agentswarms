@@ -109,6 +109,55 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-30 — A SQL model's build replaced a table made after the model was saved
+
+Tests: `tests/unit/sqlModelTargetMark.test.ts` (12 tests); its catalog half runs on a real DuckLake
+when the extension loads. The mutation run caught 15 of 15, and the control survived.
+
+#### R178 · S1 · Built 1 model, over a table nobody asked it to replace
+
+**Found** as Phase A's first item: the case R103's entry in the queue left open. R103 made a new
+or renamed model find its name free when it is saved, and R128 refused a table a sheet holds.
+Nothing stopped a table made at the target after the save. Driven on the image of R177:
+- SQL Models → New model `r178_target`, schema `analytics`, stored as Table, `SELECT 178 AS id` →
+  Create: "Created r178_target", not built.
+- Lakehouse → `CREATE TABLE analytics.r178_target AS SELECT 'made after the model was saved' AS
+  note` → `Count 1`.
+- The model → Build this and what it reads → "Built 1 model".
+- `SELECT * FROM analytics.r178_target` → `id 178`. The table and its row were gone, and nothing
+  on either page said so.
+
+The same happens with any way of making a table at that name: an import, a CSV upload, a view saved
+over it. A build on a schedule does it with nobody watching, and a model whose materialization
+changes also runs `DROP <other shape> IF EXISTS`, which dropped someone's view the same way.
+
+**The fix** (`utils/sqlModels/target.server.ts`, `run.server.ts`). Each build marks what it made
+with `COMMENT ON TABLE|VIEW … IS 'agentswarms: built by SQL model <id>'`, right after the `CREATE`.
+DuckLake keeps the comment in its catalog (`ducklake_tag`), and `CREATE OR REPLACE` drops it, so
+every build writes it again. Before touching its target, a build reads what stands there
+(`duckdb_tables()` and `duckdb_views()`, without case) and goes ahead only if nothing does, or its
+own mark does. An object with no comment still counts as the model's, after a successful last
+build, if DuckLake's catalog began it no later than that build, or if the snapshot that began it
+has been expired: that is how a table built before marks looks. Anything else, including an object
+whose age cannot be read, is refused with its name and the way out. The check sits before the
+other-shape `DROP`, so a view is covered too.
+
+**Found in this round's own "after" drive.** The first version read an object's age by joining
+its catalog row to `ducklake_snapshot`, and refused when that found nothing. Build all then refused
+`stg_revenue`, a model's own table, and skipped `fct_region_revenue` after it. The catalog showed
+why: lakehouse maintenance expires snapshots older than a week (the oldest kept was from
+2026-09-24), so every table older than that has no snapshot row at all. Each unmarked model table
+past a week old, which is nearly every existing model, would have been refused. An expired
+snapshot now means "older than the kept history", which is a date the rule can use; a local
+DuckLake test expires snapshots and checks that the mark survives.
+
+**Not changed.** A model whose last build failed, and whose table was built before marks, is
+refused until it is renamed or its table dropped: the failed build moved its clock, and the rule
+does not guess. A comment someone sets on the model's table by hand removes the mark. One case
+the transition cannot see: a model's table dropped and a different table made at its name more
+than a week ago, before marks, with the model not rebuilt since; that table would be taken as the
+model's.
+
 ### 2026-09-30 — CUMIPMT, CUMPRINC and six more financial functions
 
 Tests: `tests/unit/sheetsFinancial.test.ts` (5 tests), Microsoft's worked examples. The mutation run
