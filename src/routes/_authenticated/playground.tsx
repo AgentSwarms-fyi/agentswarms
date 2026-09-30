@@ -91,6 +91,7 @@ import {
   ModelFallbackDialog,
   type FallbackChoice,
 } from "@/components/playground/ModelFallbackDialog";
+import { classifyChatFailure, type ChatFailureReason } from "@/lib/chatFailure";
 import { TemplateTour, type TourSignals } from "@/components/playground/TemplateTour";
 import { SkillSampleTour } from "@/components/playground/SkillSampleTour";
 import { ensureSampleAgentsForUser } from "@/lib/sampleAgentsWithSkills";
@@ -597,7 +598,7 @@ function PlaygroundPage() {
         ok: false;
         status: number;
         errorMessage: string;
-        reason: "rate_limit" | "credits" | "error";
+        reason: ChatFailureReason;
       }
   > {
     if (!user || !activeConvo) {
@@ -794,8 +795,10 @@ function PlaygroundPage() {
         const errText = await resp.text();
         rawResponseText = errText;
         let errMsg = `Request failed (${resp.status})`;
+        let errBody: unknown = null;
         try {
           const j = JSON.parse(errText);
+          errBody = j;
           // Prefer the human-readable message (e.g. IAM model_not_allowed).
           if (j?.message) errMsg = j.message;
           else if (j?.error) errMsg = j.error;
@@ -812,16 +815,9 @@ function PlaygroundPage() {
           durationMs: Date.now() - startedAt,
           traceId,
         });
-        let reason: "rate_limit" | "credits" | "error";
-        if (resp.status === 429) {
-          reason = "rate_limit";
-        } else if (resp.status === 402 || /credit|payment required|insufficient/i.test(errMsg)) {
-          reason = "credits";
-        } else if (/rate limit|too many requests/i.test(errMsg)) {
-          reason = "rate_limit";
-        } else {
-          reason = "error";
-        }
+        // A budget cap or a model rule is the platform's refusal, not the
+        // provider's: no fallback model helps, and the provider did not say it.
+        const reason = classifyChatFailure(resp.status, errBody, errMsg);
         if (reason === "error") {
           errMsg = `${provider}: ${errMsg}`;
         }

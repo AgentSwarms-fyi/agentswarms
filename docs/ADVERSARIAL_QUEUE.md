@@ -193,6 +193,27 @@ least twice, not a hypothetical.
    column's CHECK (78 constrained columns in the migrations) — the
    dashboard's was the only mismatch; the survey re-run with the old
    predicate in place catches it, so the zero is a real zero.
+   Phase D (2026-10-01) surveyed the app's own strings for an asserted
+   cause ("may have", "because the", "is not configured", "no API key").
+   R191's "The request may have failed before the trace row was written"
+   was one. R193 is the playground's failure handling: every 402 was "AI
+   credits exhausted" with five fallback models offered, including the
+   platform's own budget cap, which refuses them all; and the administrator's
+   model rule read "openrouter: …". A response that names who refused it
+   (the route's `error` code) is evidence, and a status code alone is not.
+   Left from the survey, to check each claim against its condition:
+   the integrations test's "the request may have been blocked before
+   reaching it" (`integrations.tsx`), the lakehouse's "it may have been
+   cancelled elsewhere", the swarm URL's "It may have been deleted.", and
+   the runtime tab's "this app is probably not …". The four "The lakehouse /
+   Qdrant is not configured on this deployment" were checked against their
+   conditions: three are the config flag (`listLakehouseTablesForUser`'s
+   `enabled`, the store brief's `externalAvailable`). The fourth, BI Data
+   Prep's *Save as* select, says it in its hover title while the lakehouse
+   list is loading or after its read failed. The panel beside it does say
+   "Could not list lakehouse tables.", though without the reason, which its
+   `.catch(() => setLake("error"))` drops. Small; take it with the next BI
+   round.
 4. **Two surfaces, two answers.** The same figure computed twice by different
    code — the browser engine and the server refresh disagreeing on a row cap is
    the recorded instance.

@@ -109,6 +109,51 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-01 — "AI credits exhausted" for a budget cap
+
+Tests: `tests/unit/chatFailure.test.ts` (6 tests). The mutation run caught 8 of 8, and the control
+survived.
+
+#### R193 · S2 · The platform's refusals, blamed on the provider
+
+**Found** as Phase D's first item, the survey for sweep 3 ("a cause named that the evidence
+cannot support"). The survey searched the app's own strings for asserted causes ("may have",
+"because the", "is not configured", "no API key"); R191's "The request may have failed before the
+trace row was written" was already one. The playground's chat failure handling was the next:
+- **Every 402 was "AI credits exhausted".** The chat route answers 402 `budget_exceeded` itself
+  when a monthly cap is reached (`ENFORCE_BUDGET_CAP`), before any provider is called. The
+  playground showed "AI credits exhausted · This model can't be used right now because the AI
+  credits are exhausted. Pick another model and we'll continue this chat with full context." It
+  offered five models, every one of which the same cap refuses. The route's own sentence ("You
+  have reached your monthly AI budget ($5.00). (spent $5.12 of $5.00 this month.)") appeared
+  nowhere.
+- **Every other failure was prefixed with the provider's name.** The route's 403
+  `model_not_allowed` read "openrouter: Your administrator has not allowed
+  openrouter/openai/gpt-4o-mini for your account…", putting the administrator's rule in the
+  provider's mouth.
+
+The cap is opt-in through `.env`, and it was not switched on. So the route's exact bodies were
+answered from the browser, on "Sample · SQL Reviewer" in R191's fixture conversation, on the hot
+deploy of R192. What was under test is how the client reads a real response shape; the route's
+side is covered by its own tests.
+
+**The fix** (`lib/chatFailure.ts`, `routes/_authenticated/playground.tsx`):
+- **`classifyChatFailure`** reads the parsed body. The route marks its own refusals with a code
+  in `error` and the sentence in `message`: `budget_exceeded`, `model_not_allowed` and
+  `conversation_too_large` are "platform". An upstream provider's failure carries only its
+  sentence in `error`, and it still classifies by status and wording as before.
+- **The playground** opens the fallback picker only for a provider's rate limit or credits. It
+  names the provider only in front of the provider's own errors, so a platform refusal is shown
+  as the route wrote it.
+
+**Driven after:**
+- **The budget body:** no dialog, and the toast "You have reached your monthly AI budget ($5.00).
+  (spent $5.12 of $5.00 this month.)".
+- **The model-rule body:** the toast "Your administrator has not allowed
+  openrouter/openai/gpt-4o-mini …", with no provider name in front.
+- **The control,** the route's upstream shape for a provider's 402 (`{error: "AI credits
+  exhausted for this provider."}`): the picker, "AI credits exhausted", as before.
+
 ### 2026-10-01 — "2 files added", and a source reading "ok · 0 docs"
 
 Tests: `tests/unit/kbAddSourceWrites.test.ts` (7 tests). The mutation run caught 14 of 14, and

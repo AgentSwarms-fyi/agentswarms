@@ -73,9 +73,11 @@ function PlaygroundDoc() {
           "remembered" rather than guessing.
         </li>
         <li>
-          <strong>Fallback override</strong> — if the primary model fails, the playground offers a
-          fallback model picker; your choice sticks for the rest of the session and is shown
-          explicitly.
+          <strong>Fallback override</strong> — if the provider rate-limits the model or runs out of
+          credits, the playground offers a fallback model picker; your choice sticks for the rest of
+          the session and is shown explicitly. A refusal from the platform itself (your monthly
+          budget, your administrator&apos;s model rules, a conversation too large to send) is shown
+          in its own words instead: another model would be refused the same way.
         </li>
       </UL>
 

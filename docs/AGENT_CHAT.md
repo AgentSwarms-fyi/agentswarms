@@ -18,7 +18,13 @@ grounded in your own data.
    full request/response for the last turn; everything is also recorded in
    **Traces**. Its Trace tab says "Trace not recorded" only after reading the
    table and finding no row; a read that fails says "Trace not read", with the
-   error and **Try again**. A tool call shows its arguments and a preview of its result —
+   error and **Try again**.
+4. When a turn fails, the playground names who refused it. A provider's rate
+   limit or exhausted credits opens the fallback model picker. The platform's
+   own refusals — `budget_exceeded` (402), `model_not_allowed` (403),
+   `conversation_too_large` — are shown in the route's own words, with no
+   provider name in front and no picker, since every model is refused alike
+   (`src/lib/chatFailure.ts`). A tool call shows its arguments and a preview of its result —
    except the ML tools, whose results are shown as a person reads them: a
    prediction table with the key columns first, the model and version above
    it, which keys were not found and where the features came from beside it

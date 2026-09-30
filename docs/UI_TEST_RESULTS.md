@@ -15,6 +15,24 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-01 — Agent Chat's failed turns, named by who refused them, ADVERSARIAL_LOG R193
+
+**Why this round exists.** Phase D, sweep 3's survey: a cause named that the evidence cannot
+support. The budget cap is opt-in through `.env` (`ENFORCE_BUDGET_CAP`) and was not switched on,
+so `POST /api/chat` was answered from the browser with the route's exact bodies. Each rule fired
+once.
+
+Fixtures: none new. The five refused sends left user messages without replies in R191's
+conversation "Reply with the single word OK." (kept).
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before (hot deploy of R192) | a send answered 402 `{error: "budget_exceeded", message: "You have reached your monthly AI budget ($5.00). (spent $5.12 of $5.00 this month.)"}` | dialog "AI credits exhausted · This model can't be used right now because the AI credits are exhausted. Pick another model and we'll continue this chat with full context.", five OpenRouter models offered; the route's sentence nowhere |
+| Before | a send answered 403 `{error: "model_not_allowed", message: "Your administrator has not allowed openrouter/openai/gpt-4o-mini …"}` | toast "openrouter: Your administrator has not allowed openrouter/openai/gpt-4o-mini for your account. …" |
+| After (hot deploy of R193) | the 402 budget body | no dialog; toast "You have reached your monthly AI budget ($5.00). (spent $5.12 of $5.00 this month.)" |
+| After | the 403 body | toast "Your administrator has not allowed openrouter/openai/gpt-4o-mini for your account. Ask a superadmin to adjust your model access." |
+| After (control) | 402 `{error: "AI credits exhausted for this provider."}`, the route's upstream shape | the fallback picker, "AI credits exhausted", as before |
+
 ## 2026-10-01 — Knowledge: Add Source under a refused insert, the list while it loads, ADVERSARIAL_LOG R192
 
 **Why this round exists.** Phase C's last item: the add-source dialog. Files were seeded into its
