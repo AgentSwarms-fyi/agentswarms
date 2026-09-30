@@ -719,7 +719,8 @@ input ──▶ split ┼──▶ legal analysis ─────┼──▶ me
           <DocLink to="/docs/debugging">Logs &amp; traces</DocLink>.
         </li>
         <li>
-          <strong>Versions</strong> — the graph is snapshotted on save; diff and restore.
+          <strong>Versions</strong> — the graph is snapshotted on save; diff and restore. A history
+          that cannot be read says so rather than <em>No versions yet</em>.
         </li>
       </UL>
 
@@ -740,14 +741,19 @@ input ──▶ split ┼──▶ legal analysis ─────┼──▶ me
         the dialog cannot read the swarm&apos;s keys, schedules or published snapshot it says{" "}
         <em>Deployment not read</em> rather than guessing, each list names its error, and adding a
         schedule is off until the schedules can be read, since a second copy of an existing one
-        would run the swarm twice.
+        would run the swarm twice. The toolbar&apos;s Deploy button carries the same{" "}
+        <em>Draft ahead</em> badge; if what is live cannot be re-read after a Publish, the button
+        says <em>Live not checked</em> instead of dropping the badge.
       </P>
 
       <H2 id="components">Custom components</H2>
       <P>
         A <strong>Function</strong> node holds a snippet used once. <strong>Components</strong> are
         the reusable form: author a snippet with a declared parameter schema in the palette&rsquo;s{" "}
-        <em>My components → Manage</em>, and it appears in the palette of every swarm you build.
+        <em>My components → Manage</em>, and it appears in the palette of every swarm you build. If
+        your components cannot be read, the palette and the library say so and name the error rather
+        than showing <em>None yet</em>; the palette reads them once, so its message has a{" "}
+        <em>Try again</em>.
       </P>
       <Table
         headers={["Piece", "What it is"]}

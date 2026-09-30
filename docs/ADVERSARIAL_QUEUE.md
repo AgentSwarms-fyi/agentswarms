@@ -1069,10 +1069,15 @@ over the lakehouse). Open from that round, the rest of Row Zero's connected tabl
   nine agents the page could not read. A list surface has four states, not
   two; the pure `listState` in `lib/listState` names them, and an error is
   ahead of empty. The client-side survey that found it (55 error-less reads
-  in 25 files) still has: the playground (12 reads), and of swarms the
-  canvas's published snapshot (`refreshPublished`, which hides the "draft
-  ahead" warning), the palette's and the component library's component
-  reads, and the versions dialog. The deploy dialog's three are R188: a
+  in 25 files) still has the playground (12 reads). The last of swarms are
+  R189: the canvas's published-snapshot re-read switched "Draft ahead" off
+  after a Publish while the canvas went on changing (now "Live not
+  checked"), and the components (palette and library) and the version
+  history read as empty. Open from R189 (as R190): the versions dialog's
+  *Save version* toasts "Version saved" whether or not the insert landed
+  (`snapshotSwarmVersion` swallows its error for the autosave's sake), and
+  *Restore*, promised as undoable, replaces the canvas even when its
+  safety snapshot failed. The deploy dialog's three are R188: a
   failed schedules read said "No schedules yet." with Add on, the one
   invitation in this survey that turns into a duplicate write (the swarm
   run twice per tick), and a live swarm read "Not deployed". The node

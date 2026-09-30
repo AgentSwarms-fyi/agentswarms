@@ -15,6 +15,35 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-30 — The canvas's snapshot, components and versions under refusal, ADVERSARIAL_LOG R189
+
+**Why this round exists.** Phase C's third item, the rest of the swarms batch. The reads were
+refused from the browser, as in R186–R188. Each case below was first read without the refusal,
+so an empty list shows the defect rather than an empty account.
+
+Fixtures: the component "R189 fixture first 100 chars" (category Custom, the default slice code),
+authored in the Component library and saved to v3, **kept**. "R109 chat echo" was published five
+times, each time the same saved 2-node graph. Nothing was saved on either canvas; the added nodes
+went with a reload.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before (hot deploy of R188 on `498ec3b7ec48`) | "Approval durability check" → Version history | "Initial version · autosave · 5 nodes · 9/23/2026, 1:34:27 AM · Restore" |
+| Before | the same, GET `swarm_versions` refused | "No versions yet — Save the swarm or capture one above." |
+| Before | Manage → New component, "R189 fixture: first 100 chars" | toast "Name must start with a letter or digit and use only letters, digits, spaces, _ or -." (validation, not a finding) |
+| Before | the name without the colon → Create component | 'Created "R189 fixture first 100 chars"'; the library lists it at v1, the palette has its button |
+| Before | the fixture → Save as v2, GET `swarm_components` refused (2 hits: library and palette) | 'Saved "R189 fixture first 100 chars" (v2)'; library "No components yet. Author one and it shows up in the palette."; palette "None yet — author a reusable node."; the palette button gone |
+| Before | "R109 chat echo" → Deploy → Publish (the button, not a tab: this one went out before the refusal was armed) | "Published — deployed runs now use this version" |
+| Before | Publish again, GET `swarms?select=published_nodes…` refused; closed; Set Variable added (3 nodes against 2) | the same toast; no badge beside Deploy |
+| Before (control) | reloaded, the same node added | "Draft ahead · The canvas has changes that deployed runs are not using yet" |
+| After (hot deploy of R189) | Version history, GET `swarm_versions` refused | "The versions could not be read, so this list says nothing about them: R189 injected: the GET did not reach the database" |
+| After | lifted, reopened | "Initial version · autosave · 5 nodes" |
+| After | the fixture → Save as v3, GET `swarm_components` refused | 'Saved … (v3)'; library and palette "Your components could not be read, so this list says nothing about them: R189 injected: …", the palette with "Try again" |
+| After | lifted → the palette's Try again; Manage reopened | the fixture back in the palette; the library lists it at v3 |
+| After | "R109 chat echo" → Publish with the re-read refused; Set Variable added | "Live not checked", title "What is live could not be read, so whether the canvas is ahead of it is unknown: R189 injected: …", still after the node (3 against 2) |
+| After | lifted → Publish ("The canvas has unsaved edits. Publishing pins the last SAVED version …") | "Draft ahead"; "Live not checked" gone |
+| After | refused again → Publish → Back to gallery | "Live not checked"; the gallery reloads the page, so no in-page switch to drive (Import and deleting the open swarm are the only ones) |
+
 ## 2026-09-30 — The deploy dialog under refusal, ADVERSARIAL_LOG R188
 
 **Why this round exists.** Phase C's third item: the swarms batch, starting with the deploy dialog.

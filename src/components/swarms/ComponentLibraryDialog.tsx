@@ -71,12 +71,15 @@ export function ComponentLibraryDialog({ open, onOpenChange, onChanged }: Props)
   );
   const [testing, setTesting] = useState(false);
 
+  // FOUND IN R189: a failed read read as "No components yet".
+  const [loadError, setLoadError] = useState<string | null>(null);
   const load = useCallback(async () => {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("swarm_components")
       .select("id, name, description, category, params, code, version, updated_at")
       .order("updated_at", { ascending: false });
-    setList((data as unknown as SwarmComponent[]) ?? []);
+    setLoadError(error ? error.message : null);
+    setList(error ? [] : ((data as unknown as SwarmComponent[]) ?? []));
   }, []);
   useEffect(() => {
     if (open && user?.id) void load();
@@ -202,10 +205,16 @@ export function ComponentLibraryDialog({ open, onOpenChange, onChanged }: Props)
             >
               <Plus className="h-3.5 w-3.5 mr-1" /> New component
             </Button>
-            {list.length === 0 && (
-              <p className="p-2 text-[11px] text-muted-foreground">
-                No components yet. Author one and it shows up in the palette.
+            {loadError ? (
+              <p className="p-2 text-[11px] text-destructive">
+                Your components could not be read, so this list says nothing about them: {loadError}
               </p>
+            ) : (
+              list.length === 0 && (
+                <p className="p-2 text-[11px] text-muted-foreground">
+                  No components yet. Author one and it shows up in the palette.
+                </p>
+              )
             )}
             {list.map((c) => (
               <button

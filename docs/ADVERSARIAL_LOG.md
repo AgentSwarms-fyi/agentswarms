@@ -109,6 +109,60 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-30 — "Draft ahead" gone after a Publish, and three lists that read as empty
+
+Tests: `tests/unit/swarmCanvasReads.test.ts` (7 tests). The mutation run caught 15 of 15, and the
+control survived.
+
+#### R189 · S2 · The one warning that deployed runs lag the canvas, gone after a failed re-read
+
+**Found** as Phase C's third item, the rest of the client read survey's swarms batch: four reads
+on the canvas and its dialogs dropped their errors. Driven on the hot deploy of R188, with each
+read refused from the browser:
+- **The published snapshot.** After a Publish the canvas re-reads what is live, to compare it with
+  the canvas for the *Draft ahead* badge on the toolbar's Deploy button. On "R109 chat echo" (2
+  nodes, no keys or schedules), Publish with that re-read refused: the toast said "Published —
+  deployed runs now use this version", the snapshot went to null, and a node added afterwards (3
+  against 2) drew no badge. The control, reloaded and the same node added: "Draft ahead · The
+  canvas has changes that deployed runs are not using yet". Until a reload, every later edit was
+  shown as live.
+- **My components**, in the palette and in the Component library. Neither said anything when the
+  read failed. So that the empty state would prove something, a component was authored first ("R189
+  fixture first 100 chars", kept). Then the component was saved as v2 with the read refused: the
+  save went through ('Saved "R189 fixture first 100 chars" (v2)'). The library then read "No
+  components yet. Author one and it shows up in the palette.", the palette "None yet — author a
+  reusable node.", and the component's palette button was gone.
+- **The version history.** On "Approval durability check", which normally lists "Initial version ·
+  autosave · 5 nodes": "No versions yet — Save the swarm or capture one above."
+
+The snapshot is the one with teeth. The badge exists because a canvas edit does not reach API and
+scheduled callers until it is published, and a failed read switched the badge off while the canvas
+went on changing.
+
+**The fix** (`routes/_authenticated/swarms.tsx`, `components/swarms/ComponentLibraryDialog.tsx`,
+`components/swarms/SwarmVersionsDialog.tsx`):
+- **The snapshot re-read** keeps its error. The snapshot stays unknown: keeping the old one would
+  call a canvas that was just published "ahead". The Deploy button says *Live not checked*, with
+  the error in its title, and opening another swarm clears it. In the UI that path is only Import
+  or deleting the open swarm; the gallery reloads the page.
+- **The component and version reads** keep their errors. Each list says "… could not be read, so
+  this list says nothing about them: …" in place of its empty state, and shows no stale items
+  under it.
+- **The palette** reads its components once, so its message has *Try again*.
+
+**Driven after:**
+- **Versions:** "The versions could not be read, so this list says nothing about them: R189
+  injected: the GET did not reach the database"; lifted and reopened, the Initial version.
+- **Components:** saved as v3 under the refusal, both lists named the error; lifted, the palette's
+  Try again brought the component back, and the reopened library listed it at v3.
+- **Snapshot:** a refused Publish gave "Live not checked", and it stayed that way with the extra
+  node added. Lifted, a second Publish gave "Draft ahead" for the 3-node canvas against the saved 2.
+
+**Left for R190**, from the same dialog: *Save version* toasts "Version saved" whether or not the
+insert landed, since `snapshotSwarmVersion` swallows its error for the autosave's sake. And
+*Restore*, promised as undoable ("your current graph is saved first"), replaces the canvas even
+when that safety snapshot failed.
+
 ### 2026-09-30 — A live swarm read "Not deployed", with Add schedule on
 
 Tests: `tests/unit/swarmDeployReads.test.ts` (5 tests). The mutation run caught 10 of 10, and the

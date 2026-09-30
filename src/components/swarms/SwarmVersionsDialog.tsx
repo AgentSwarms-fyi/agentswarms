@@ -68,17 +68,20 @@ export function SwarmVersionsDialog({
   const [versions, setVersions] = useState<VersionRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [label, setLabel] = useState("");
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
     if (!swarmId) return;
     setLoading(true);
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("swarm_versions")
       .select("id, label, kind, node_count, created_at, nodes, edges")
       .eq("swarm_id", swarmId)
       .order("created_at", { ascending: false });
-    setVersions((data ?? []) as VersionRow[]);
+    // FOUND IN R189: a failed read read as "No versions yet".
+    setLoadError(error ? error.message : null);
+    setVersions(error ? [] : ((data ?? []) as VersionRow[]));
     setLoading(false);
   }, [swarmId]);
 
@@ -162,6 +165,11 @@ export function SwarmVersionsDialog({
               <div className="px-1 space-y-1.5">
                 {loading ? (
                   <p className="text-xs text-muted-foreground py-3">Loading…</p>
+                ) : loadError ? (
+                  <p className="text-xs text-destructive py-3">
+                    The versions could not be read, so this list says nothing about them:{" "}
+                    {loadError}
+                  </p>
                 ) : versions.length === 0 ? (
                   <p className="text-xs text-muted-foreground py-3">
                     No versions yet — Save the swarm or capture one above.

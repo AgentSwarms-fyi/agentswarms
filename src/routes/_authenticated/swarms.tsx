@@ -912,6 +912,8 @@ function SwarmsCanvas({
     published_edges?: unknown;
     published_at: string | null;
   } | null>(null);
+  // Why the snapshot above is not known, when a re-read of it failed.
+  const [publishedError, setPublishedError] = useState<string | null>(null);
 
   const applySwarmRow = useCallback(
     (row: {
@@ -925,6 +927,7 @@ function SwarmsCanvas({
     }) => {
       setSwarmId(row.id);
       // Kept so the toolbar can say "not live yet" without opening a dialog.
+      setPublishedError(null);
       setPublished(
         row.published_at !== undefined || row.published_nodes !== undefined
           ? {
@@ -964,14 +967,21 @@ function SwarmsCanvas({
   // question the badge answers is "is what I am looking at what my callers
   // get?" — and an unsaved edit is just as absent from production as an
   // unpublished one.
+  //
+  // FOUND IN R189: a failed re-read set the snapshot to null and said nothing,
+  // so "Draft ahead", the one warning that deployed runs are not getting the
+  // canvas, quietly went away. The snapshot is still unknown after a failure
+  // (keeping the old one would call a canvas that was just published "ahead"),
+  // but the toolbar now says the check could not be made.
   const refreshPublished = useCallback(async () => {
     if (!swarmId) return;
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("swarms")
       .select("published_nodes, published_edges, published_at")
       .eq("id", swarmId)
       .maybeSingle();
-    setPublished(data ?? null);
+    setPublishedError(error ? error.message : null);
+    setPublished(error ? null : (data ?? null));
   }, [swarmId]);
 
   const draftAhead = useMemo(
@@ -1276,12 +1286,15 @@ function SwarmsCanvas({
   // Saved custom components shown in the palette.
   const [myComponents, setMyComponents] = useState<SwarmComponent[]>([]);
   const [componentLibOpen, setComponentLibOpen] = useState(false);
+  // FOUND IN R189: a failed read read as "None yet — author a reusable node".
+  const [componentsError, setComponentsError] = useState<string | null>(null);
   const loadComponents = useCallback(async () => {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("swarm_components")
       .select("id, name, description, category, params, code, version, updated_at")
       .order("updated_at", { ascending: false });
-    setMyComponents((data as unknown as SwarmComponent[]) ?? []);
+    setComponentsError(error ? error.message : null);
+    setMyComponents(error ? [] : ((data as unknown as SwarmComponent[]) ?? []));
   }, []);
   // Keyed on the user: the component query runs under RLS, so firing it before
   // the session hydrates returns an empty list and the palette would stay
@@ -1916,7 +1929,19 @@ function SwarmsCanvas({
                 <Puzzle className="h-3 w-3 mr-1" /> Manage
               </Button>
             </div>
-            {myComponents.length === 0 ? (
+            {componentsError ? (
+              <p className="px-1 pb-1 text-[10px] text-destructive">
+                Your components could not be read, so this list says nothing about them:{" "}
+                {componentsError}
+                {/* The palette reads them once, so it needs its own way back. */}
+                <button
+                  className="block underline hover:text-foreground"
+                  onClick={() => void loadComponents()}
+                >
+                  Try again
+                </button>
+              </p>
+            ) : myComponents.length === 0 ? (
               <p className="px-1 pb-1 text-[10px] text-muted-foreground">
                 None yet —{" "}
                 <button
@@ -2166,6 +2191,14 @@ function SwarmsCanvas({
                     title="Deploy via API key or schedule"
                   >
                     <Rocket className="h-3.5 w-3.5 mr-1.5" /> Deploy
+                    {publishedError && (
+                      <span
+                        className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground"
+                        title={`What is live could not be read, so whether the canvas is ahead of it is unknown: ${publishedError}`}
+                      >
+                        Live not checked
+                      </span>
+                    )}
                     {draftAhead && (
                       // Drift is only actionable if you can see it without
                       // opening the dialog you have no reason to open.
