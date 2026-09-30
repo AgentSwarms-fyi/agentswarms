@@ -109,6 +109,39 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-01 — Prompt Compare: "Est. cost —" while the server sent the cost
+
+Tests: `tests/unit/promptCompareCost.test.ts` (4 tests), with `tests/unit/chatStream.test.ts`. The
+mutation run caught 6 of 6, and the control survived.
+
+#### R194 · S2 · The page built to compare cost showed none, beside Traces showing it
+
+**Found** smoke-testing the real image `6b8a7e784718` (R191–R193). This is the first round of sweep 4,
+"two surfaces, two answers":
+- **The run.** Prompt Compare ran Gemini 2.5 Flash against GPT-5 Mini ("Reply with the single
+  word OK.") and showed "Est. cost — / —" and "Tokens ~1 / ~1". The footnote under it says "Cost
+  and token counts come from the server".
+- **Traces for the same calls:** gpt-5-mini 13/55 tokens, $0.0001; gemini-2.5-flash 7/1, $0.0000.
+- **The raw bodies,** tee'd in the browser, each arrived as one chunk ending `data: [DONE]` and then
+  the platform's `event: cost`: Flash `{"costUsd":0.0000046,"tokensIn":7,"tokensOut":1}`, Mini
+  `{"costUsd":0.00012325,"tokensIn":13,"tokensOut":60}`, about 27 times Flash. The one comparison
+  the page exists to make was blank.
+- **The cause.** The page had its own copy of the stream reader, and it did `break` at `[DONE]`.
+  Nothing read the rest of the buffer after the loop. The playground had fixed the same bug in its
+  own reader, with a comment ("Do NOT stop reading here…"), and every other reader in `src` does
+  `continue` there; this copy never got the fix.
+
+**The fix** (`lib/chatStream.ts`, `routes/_authenticated/prompt-compare.tsx`):
+- **One reader.** Prompt Compare reads the stream with `readChatStream`, the one the swarm executor
+  uses, which gains an optional `delta` callback so the page can show the text as it streams.
+- **A test over every reader in `src`.** None may `break` at `[DONE]`. A `return` from a per-line
+  `consumeLine` skips the line and is allowed.
+
+**Driven after** (hot deploy of R194): the same run showed "Est. cost ~$0.0000 / ~$0.0001" and
+"Tokens 7/1 / 13/55". That is what the streamed cost events carried, and the Traces rows agree
+(13/55, $0.0001; 7/1, $0.0000). R27's ranking was re-checked on the same image with a third panel
+refused: "(ranking excludes 1 did not answer)", and the failed panel's 0.1s was not crowned.
+
 ### 2026-10-01 — "AI credits exhausted" for a budget cap
 
 Tests: `tests/unit/chatFailure.test.ts` (6 tests). The mutation run caught 8 of 8, and the control

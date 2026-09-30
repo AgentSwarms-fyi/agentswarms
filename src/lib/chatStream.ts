@@ -26,10 +26,20 @@ export const TOOL_NODE_PREVIEW_CHARS = 400;
  * Read an OpenAI-compatible SSE body to the assistant's text, handing the
  * platform's `cost` and `tool` events to the caller as they arrive. A
  * malformed event is telemetry and is skipped; it never ends the read.
+ * `delta` hands over each piece of text as it arrives, for a page that
+ * shows the answer while it streams.
+ *
+ * `[DONE]` is not the end of the body: the platform's `cost` event comes
+ * after it, usually in the same chunk. Prompt Compare had its own reader
+ * that stopped at `[DONE]` and so never saw a cost (R194).
  */
 export async function readChatStream(
   body: ReadableStream<Uint8Array>,
-  on: { usage?: (u: ChatUsage) => void; tool?: (e: ToolEvent) => void } = {},
+  on: {
+    usage?: (u: ChatUsage) => void;
+    tool?: (e: ToolEvent) => void;
+    delta?: (text: string) => void;
+  } = {},
 ): Promise<string> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
@@ -92,7 +102,10 @@ export async function readChatStream(
           choices?: { delta?: { content?: string }; message?: { content?: string } }[];
         };
         const delta = p.choices?.[0]?.delta?.content ?? p.choices?.[0]?.message?.content ?? "";
-        if (typeof delta === "string") text += delta;
+        if (typeof delta === "string" && delta) {
+          text += delta;
+          on.delta?.(delta);
+        }
       } catch {
         /* keep-alive */
       }

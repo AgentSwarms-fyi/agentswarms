@@ -15,6 +15,26 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-01 — Prompt Compare's cost against Traces, ADVERSARIAL_LOG R194
+
+**Why this round exists.** The smoke test of the real image for R191–R193 turned it up; it opens
+sweep 4, "two surfaces, two answers". The `/api/chat` bodies were tee'd in the browser to see what
+the server sent. Model calls: seven short ones (about $0.0005 in all).
+
+Fixtures: Iceberg table `r181.smoke_6b8a7e78`.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Smoke, real image `6b8a7e784718` (R191–R193) | Agent Chat, GET `agents` refused once | the mark and "Your agents could not be read · … · Try again"; Try again → the agents |
+| Smoke | SQL Reviewer fixture chat, `/api/chat` answered 402 `budget_exceeded` | toast "You have reached your monthly AI budget ($5.00). (spent $5.12 of $5.00 this month.)", no dialog |
+| Smoke | Knowledge Base, GET `knowledge_bases` held 6 s; Add Source `smoke-eta.txt` with POST `kb_sources` refused | "Loading your knowledge bases…"; "The file was not added · Not added, still listed here to try again: smoke-eta.txt: …", Sources unchanged |
+| Smoke | `analytics.stg_revenue` → Publish to Iceberg → `r181` / `smoke_6b8a7e78` | the catalog: "Successfully committed to table r181.smoke_6b8a7e78 in 3954 ms" |
+| Smoke (R27) | Prompt Compare, Flash + Mini + Flash Lite, Lite's request refused | Flash 2.4s and Mini 2.9s answered, Lite 0.1s failed; "Comparison (ranking excludes 1 did not answer)", Flash crowned |
+| Before (same image) | Prompt Compare, Flash vs Mini, "Reply with the single word OK." | "Est. cost — / —", "Tokens ~1 / ~1"; the bodies, one chunk each, ending `[DONE]` then `event: cost` with $0.0000046 7/1 and $0.00012325 13/60 |
+| Before (control) | Traces | the same calls: gpt-5-mini 13/55 $0.0001, gemini-2.5-flash 7/1 $0.0000 |
+| After (hot deploy of R194) | the same run | "Est. cost ~$0.0000 / ~$0.0001", "Tokens 7/1 / 13/55", as the streamed cost events said |
+| After | Traces | gpt-5-mini 13/55 $0.0001, gemini-2.5-flash 7/1 $0.0000: the two pages agree |
+
 ## 2026-10-01 — Agent Chat's failed turns, named by who refused them, ADVERSARIAL_LOG R193
 
 **Why this round exists.** Phase D, sweep 3's survey: a cause named that the evidence cannot

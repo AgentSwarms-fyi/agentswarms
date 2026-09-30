@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useRef, useCallback } from "react";
 import { comparisonCaveat, winnerIndex } from "@/lib/compareWinner";
+import { readChatStream, type ChatUsage } from "@/lib/chatStream";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
@@ -161,62 +162,23 @@ function PromptComparePage() {
           return;
         }
 
-        const reader = resp.body.getReader();
-        const decoder = new TextDecoder();
-        let textBuffer = "";
+        // FOUND IN R194: this page had its own stream reader, which stopped at
+        // `[DONE]`. The platform's `cost` event comes after it, in the same
+        // chunk, so every panel showed "Est. cost —" and "~1" tokens while the
+        // server had sent the real figures (and the Traces page showed them).
+        // One reader for the chat stream: the one the swarm executor uses.
         let fullContent = "";
-        let currentEvent: string | null = null;
-        let cost: { costUsd: number; tokensIn: number; tokensOut: number } | null = null;
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          textBuffer += decoder.decode(value, { stream: true });
-
-          let newlineIndex: number;
-          while ((newlineIndex = textBuffer.indexOf("\n")) !== -1) {
-            let line = textBuffer.slice(0, newlineIndex);
-            textBuffer = textBuffer.slice(newlineIndex + 1);
-            if (line.endsWith("\r")) line = line.slice(0, -1);
-            if (line.startsWith(":")) continue;
-            if (line.trim() === "") {
-              currentEvent = null;
-              continue;
-            }
-            if (line.startsWith("event: ")) {
-              currentEvent = line.slice(7).trim();
-              continue;
-            }
-            if (!line.startsWith("data: ")) continue;
-            const jsonStr = line.slice(6).trim();
-            if (jsonStr === "[DONE]") break;
-            // The server emits a final `event: cost` with real $ + token counts.
-            if (currentEvent === "cost") {
-              try {
-                const c = JSON.parse(jsonStr);
-                cost = {
-                  costUsd: Number(c.costUsd) || 0,
-                  tokensIn: Number(c.tokensIn) || 0,
-                  tokensOut: Number(c.tokensOut) || 0,
-                };
-              } catch {
-                /* ignore */
-              }
-              continue;
-            }
-            if (currentEvent && currentEvent !== "message") continue;
-            try {
-              const parsed = JSON.parse(jsonStr);
-              const delta = parsed.choices?.[0]?.delta?.content as string | undefined;
-              if (delta) {
-                fullContent += delta;
-                setPanel((p) => ({ ...p, content: fullContent }));
-              }
-            } catch {
-              /* skip */
-            }
-          }
-        }
+        const usage: { value: ChatUsage | null } = { value: null };
+        await readChatStream(resp.body, {
+          delta: (d) => {
+            fullContent += d;
+            setPanel((p) => ({ ...p, content: fullContent }));
+          },
+          usage: (u) => {
+            usage.value = u;
+          },
+        });
+        const cost = usage.value;
 
         const durationMs = Date.now() - startedAt;
         const tokenEstimate = cost

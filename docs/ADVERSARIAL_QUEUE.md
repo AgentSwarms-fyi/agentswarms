@@ -216,7 +216,17 @@ least twice, not a hypothetical.
    round.
 4. **Two surfaces, two answers.** The same figure computed twice by different
    code — the browser engine and the server refresh disagreeing on a row cap is
-   the recorded instance.
+   the recorded instance. R194 (2026-10-01) is the second:
+   - **What happened.** Prompt Compare showed "Est. cost —" and "~1" tokens while Traces showed
+     the same calls' real figures.
+   - **The cause.** The page kept its own copy of the chat stream reader, which stopped at
+     `[DONE]`, and the platform's cost event comes after it. The playground had fixed the same
+     bug in its reader; the copy never heard.
+   - **The lesson.** A copy of a reader does not get its original's fixes, so replace the copy
+     with the shared one. A test over `src` now forbids a `break` at `[DONE]`.
+   - **Still open, small.** Prompt Compare rounds cost to four places, so $0.0000046 against
+     $0.00011 reads "~$0.0000" against "~$0.0001", and Traces does the same.
+   - **Next.** Grid vs table sheet, and BI in the browser vs on the server.
 
 ### Sheets (new, 2026-09-25)
 
