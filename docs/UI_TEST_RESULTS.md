@@ -15,6 +15,22 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-30 — The node inspector's pickers under refusal, ADVERSARIAL_LOG R187
+
+**Why this round exists.** Phase C's second item: the swarm node inspector's reads. Driven on
+"Embed E2E Mini Swarm" without saving: the Researcher node's SQL Query tool switched on and
+`ecom_returns` ticked in the canvas only, the inspector closed on the empty canvas and reopened,
+since it reads its lists once, when it opens.
+
+Fixtures: none new; nothing was saved.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before (hot deploy of R186) | SQL Query on, `ecom_returns` ticked | "Node will only see 1 selected table." |
+| Before | the inspector reopened with GET `user_data_tables` refused | "Allowed tables (optional) · No tables yet. Upload a CSV in Data & SQL Agents."; the selection line gone |
+| After (hot deploy) | the same, with GET `provider_credentials` refused too | "Your tables could not be read, so this list says nothing about them: R187 injected: the GET did not reach the database The node keeps its selection: ecom_returns."; under the provider picker "Your connected providers could not be read, so none is marked as not connected: …" |
+| After (the sentence fixed) | the tables read refused again | "… did not reach the database. The node keeps its selection: ecom_returns." |
+
 ## 2026-09-30 — Evaluations' reads and deletes under refusal, ADVERSARIAL_LOG R186
 
 **Why this round exists.** Phase C's first item: evaluations' five reads and two deletes. Each

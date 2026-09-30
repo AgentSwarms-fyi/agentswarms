@@ -1069,8 +1069,11 @@ over the lakehouse). Open from that round, the rest of Row Zero's connected tabl
   nine agents the page could not read. A list surface has four states, not
   two; the pure `listState` in `lib/listState` names them, and an error is
   ahead of empty. The client-side survey that found it (55 error-less reads
-  in 25 files) still has: the playground (12 reads), swarms (6), the swarm
-  node inspector (4). Evaluations' five are R186, with its two deletes
+  in 25 files) still has: the playground (12 reads), swarms (6). The node
+  inspector's are R187 (six reads in one effect, the survey counted four):
+  the worst was not the invitation to upload a first CSV but the node's
+  own restriction vanishing with the list, so a picker that cannot read
+  its choices must still show what is chosen. Evaluations' five are R186, with its two deletes
   from the write survey: the driver's own read is the one with teeth, a
   run left "running · Executing cases…" with nothing executing, and the
   baseline read drew a comparison against nothing. The page had already

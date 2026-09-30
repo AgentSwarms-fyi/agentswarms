@@ -109,6 +109,36 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-30 — A node restricted to one table, shown as having no tables at all
+
+Tests: `tests/unit/nodeInspectorReads.test.ts` (5 tests). The mutation run caught 13 of 13, and
+the control survived.
+
+#### R187 · S2 · "No tables yet. Upload a CSV", over a node that may only see `ecom_returns`
+
+**Found** as Phase C's second item, the client read survey's "swarm node inspector (4)". The
+inspector reads the caller's connected providers, tables, semantic models, ML models and MCP
+servers once, when it opens, six reads in one effect, and dropped every error. Driven on the hot
+deploy of R186, on "Embed E2E Mini Swarm", nothing saved: the Researcher node's SQL Query tool
+on, `ecom_returns` ticked, "Node will only see 1 selected table."; the inspector closed and
+reopened with the tables read refused from the browser → "Allowed tables (optional) · No tables
+yet. Upload a CSV in Data & SQL Agents." The node's restriction was gone from view, and the page
+invited a first upload to an account with a whole catalogue of tables. A refused providers read
+would have marked every connected provider "(not connected)".
+
+**The fix** (`components/swarms/NodeInspector.tsx`). Each read keeps its error, by list. A picker
+whose list was not read says "<Your tables> could not be read, so this list says nothing about
+them: <error>." ahead of its empty-account invitation, and "The node keeps its selection: …" for
+whatever the node has chosen. The MCP selection is still pruned only from a list that was read.
+With the providers unread, no provider is marked "(not connected)", and a line under the picker
+says why.
+
+**Driven after.** The same drive: "Your tables could not be read, so this list says nothing about
+them: R187 injected: the GET did not reach the database. The node keeps its selection:
+ecom_returns."; with the providers read refused too, "Your connected providers could not be
+read, so none is marked as not connected: …". A first build ran the error into the next sentence
+("…the database The node keeps…"); the error now ends as a sentence.
+
 ### 2026-09-30 — Evaluations: five reads that failed into absence, two deletes that failed in silence
 
 Tests: `tests/unit/evalReadsWrites.test.ts` (8 tests). The mutation run caught 14 of 14, and the

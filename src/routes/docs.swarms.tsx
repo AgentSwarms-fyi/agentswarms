@@ -168,6 +168,12 @@ function SwarmsPage() {
           [<C key="l">memory</C>, "object", "See memory scope below"],
         ]}
       />
+      <P>
+        The inspector&apos;s pickers read your tables, semantic models, ML models, MCP servers and
+        connected providers when it opens. A list that could not be read says so rather than
+        inviting you to create your first one, and names what the node keeps selected, so a node
+        restricted to one table still shows that it is.
+      </P>
       <H3 id="node-memory">Node memory scope</H3>
       <Table
         headers={["ltm_scope", "Behaviour"]}

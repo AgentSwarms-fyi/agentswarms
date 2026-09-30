@@ -364,13 +364,25 @@ export function NodeInspector({
     { id: string; name: string; type: string; status: string }[]
   >([]);
   const [mcpServersLoaded, setMcpServersLoaded] = useState(false);
+  // FOUND IN R187: each of these reads dropped its error, and a failed one
+  // read as an empty account: "No tables yet. Upload a CSV…", with the
+  // node's own restriction ("Node will only see 1 selected table.") gone
+  // from view. Why a list could not be read, by list.
+  const [listErrors, setListErrors] = useState<
+    Partial<Record<"providers" | "tables" | "semantic" | "ml" | "mcp", string>>
+  >({});
+  const noteError = (list: "providers" | "tables" | "semantic" | "ml" | "mcp", message: string) =>
+    setListErrors((e) => ({ ...e, [list]: message }));
   useEffect(() => {
     (async () => {
       const connected = new Set<string>(["openrouter"]);
-      const [{ data: creds }, { data: integ }] = await Promise.all([
-        supabase.from("provider_credentials").select("provider, is_active"),
-        supabase.from("integrations").select("provider, type, is_active"),
-      ]);
+      const [{ data: creds, error: credsErr }, { data: integ, error: integErr }] =
+        await Promise.all([
+          supabase.from("provider_credentials").select("provider, is_active"),
+          supabase.from("integrations").select("provider, type, is_active"),
+        ]);
+      const providersErr = credsErr ?? integErr;
+      if (providersErr) noteError("providers", providersErr.message);
       creds?.forEach((r: { provider: string | null; is_active: boolean | null }) => {
         if (r.is_active !== false && r.provider) connected.add(r.provider);
       });
@@ -380,30 +392,35 @@ export function NodeInspector({
           if (r.is_active !== false && r.provider) connected.add(r.provider);
         });
       setConnectedProviders(connected);
-      const { data: dt } = await supabase
+      const { data: dt, error: dtErr } = await supabase
         .from("user_data_tables")
         .select("id, name, is_sample")
         .order("name", { ascending: true });
-      if (dt) setAvailableDataTables(dt);
+      if (dtErr) noteError("tables", dtErr.message);
+      else if (dt) setAvailableDataTables(dt);
       setDataTablesLoaded(true);
-      const { data: sm } = await supabase
+      const { data: sm, error: smErr } = await supabase
         .from("semantic_models")
         .select("id, name")
         .order("name", { ascending: true });
-      if (sm) setAvailableSemanticModels(sm);
+      if (smErr) noteError("semantic", smErr.message);
+      else if (sm) setAvailableSemanticModels(sm);
       setSemanticModelsLoaded(true);
-      const { data: ml } = await supabase
+      const { data: ml, error: mlErr } = await supabase
         .from("ml_models")
         .select("id, name, task, production_version_id")
         .order("name", { ascending: true });
-      if (ml) setAvailableMlModels(ml);
+      if (mlErr) noteError("ml", mlErr.message);
+      else if (ml) setAvailableMlModels(ml);
       setMlModelsLoaded(true);
-      const { data: mcp } = await supabase
+      const { data: mcp, error: mcpErr } = await supabase
         .from("mcp_servers")
         .select("id, name, type, status")
         .eq("status", "connected")
         .order("name", { ascending: true });
-      if (mcp) {
+      if (mcpErr) noteError("mcp", mcpErr.message);
+      // Only a list that was read may prune the node's selection.
+      else if (mcp) {
         setAvailableMcpServers(mcp as any);
         // Only live servers are selectable. Prune anything removed or no
         // longer connected on the inspected node before it can render.
@@ -665,11 +682,13 @@ export function NodeInspector({
                   {availableProviders.map((p) => (
                     <SelectItem key={p.value} value={p.value}>
                       {p.label}
-                      {!connectedProviders.has(p.value) && p.value !== "openrouter" && (
-                        <span className="ml-2 text-[10px] text-muted-foreground">
-                          (not connected)
-                        </span>
-                      )}
+                      {!listErrors.providers &&
+                        !connectedProviders.has(p.value) &&
+                        p.value !== "openrouter" && (
+                          <span className="ml-2 text-[10px] text-muted-foreground">
+                            (not connected)
+                          </span>
+                        )}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -678,6 +697,12 @@ export function NodeInspector({
                 Only providers you've connected appear here. Add more in{" "}
                 <strong>Integrations</strong>.
               </p>
+              {listErrors.providers && (
+                <p className="text-[10px] text-destructive">
+                  Your connected providers could not be read, so none is marked as not connected:{" "}
+                  {listErrors.providers}
+                </p>
+              )}
             </Section>
 
             <Section label="Model">
@@ -972,6 +997,12 @@ export function NodeInspector({
                                 </Label>
                                 {!mcpServersLoaded ? (
                                   <p className="text-[10px] text-muted-foreground">Loading…</p>
+                                ) : listErrors.mcp ? (
+                                  <PickerReadError
+                                    what="Your MCP servers"
+                                    error={listErrors.mcp}
+                                    kept={(tc.mcp_server_names ?? []) as string[]}
+                                  />
                                 ) : availableMcpServers.length === 0 ? (
                                   <p className="text-[10px] text-muted-foreground">
                                     No MCP servers connected. Add one under{" "}
@@ -1052,6 +1083,12 @@ export function NodeInspector({
                                   <p className="text-[10px] text-muted-foreground">
                                     Loading tables…
                                   </p>
+                                ) : listErrors.tables ? (
+                                  <PickerReadError
+                                    what="Your tables"
+                                    error={listErrors.tables}
+                                    kept={tc.sql_table_names ?? []}
+                                  />
                                 ) : availableDataTables.length === 0 ? (
                                   <p className="text-[10px] text-muted-foreground">
                                     No tables yet. Upload a CSV in{" "}
@@ -1113,6 +1150,12 @@ export function NodeInspector({
                                   <p className="text-[10px] text-muted-foreground">
                                     Loading models…
                                   </p>
+                                ) : listErrors.semantic ? (
+                                  <PickerReadError
+                                    what="Your semantic models"
+                                    error={listErrors.semantic}
+                                    kept={tc.metric_model_names ?? []}
+                                  />
                                 ) : availableSemanticModels.length === 0 ? (
                                   <p className="text-[10px] text-muted-foreground">
                                     No semantic models yet. Define one under{" "}
@@ -1182,6 +1225,12 @@ export function NodeInspector({
                                   <p className="text-[10px] text-muted-foreground">
                                     Loading models…
                                   </p>
+                                ) : listErrors.ml ? (
+                                  <PickerReadError
+                                    what="Your ML models"
+                                    error={listErrors.ml}
+                                    kept={tc.ml_model_names ?? []}
+                                  />
                                 ) : availableMlModels.length === 0 ? (
                                   <p className="text-[10px] text-muted-foreground">
                                     No ML models yet. Train one under{" "}
@@ -1323,7 +1372,9 @@ export function NodeInspector({
                           ).map((r) => (
                             <SelectItem key={r.id} value={r.id}>
                               {r.label}
-                              {!connectedProviders.has(r.id) && r.id !== "openrouter"
+                              {!listErrors.providers &&
+                              !connectedProviders.has(r.id) &&
+                              r.id !== "openrouter"
                                 ? " (not connected)"
                                 : ""}
                             </SelectItem>
@@ -1741,6 +1792,20 @@ function GuardrailsSection({
         )}
       </div>
     </Section>
+  );
+}
+
+/**
+ * A picker whose list could not be read (R187): says so, and names what the
+ * node keeps selected, since a restriction must stay visible.
+ */
+function PickerReadError({ what, error, kept }: { what: string; error: string; kept: string[] }) {
+  const sentence = /[.!?]$/.test(error.trim()) ? error.trim() : `${error.trim()}.`;
+  return (
+    <p className="text-[10px] text-destructive">
+      {what} could not be read, so this list says nothing about them: {sentence}
+      {kept.length > 0 ? ` The node keeps its selection: ${kept.join(", ")}.` : ""}
+    </p>
   );
 }
 
