@@ -174,8 +174,12 @@ least twice, not a hypothetical.
    The same comparison flagged five older pipelines whose graphs the
    current compiler builds differently: an upgrade, not an edit, and just
    as true. Where a run already pins what it ran, compare with that before
-   reaching for a trigger. Next in this sweep: the workflow saves
-   (`workflows.functions`, `last_run_status` in `workflows.tsx`).
+   reaching for a trigger. The workflow saves are R184, the same way over
+   `workflow_runs.graph`, with layout and labels left out of the
+   comparison. Still open in this sweep, neither reachable from a page:
+   the data-monitor config update and the app-source re-save (both
+   server-function only, above). Then the materialized view's failed
+   rebuild shown only in the badge's hover title (R101, S3).
 3. **A cause named that the evidence cannot support.** R31's freshness test, and
    Prompt Compare crowning the model that failed fastest. R63's dashboard
    chip is the degenerate case: a count of `last_status = 'error'` on a

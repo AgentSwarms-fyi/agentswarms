@@ -13,6 +13,7 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { auditEvent } from "@/utils/audit.server";
 import type { Json } from "@/integrations/supabase/types";
 import { validateCron } from "@/lib/cron";
+import { workflowChangedSinceRun } from "@/lib/workflowDrift";
 import {
   MAX_NODES,
   NODE_KINDS,
@@ -56,6 +57,11 @@ export type WorkflowRowDto = {
   has_trigger_token: boolean;
   last_run_at: string | null;
   last_run_status: string | null;
+  /**
+   * Whether the graph changed since the run behind `last_run_status` (R184);
+   * null when there is no run to compare with. Set by the list only.
+   */
+  changed_since_last_run: boolean | null;
   created_at: string;
   updated_at: string;
 };
@@ -104,6 +110,7 @@ function toRow(row: Record<string, unknown>): WorkflowRowDto {
     has_trigger_token: Boolean(row.trigger_token_hash),
     last_run_at: (row.last_run_at as string | null) ?? null,
     last_run_status: (row.last_run_status as string | null) ?? null,
+    changed_since_last_run: null,
     created_at: String(row.created_at ?? ""),
     updated_at: String(row.updated_at ?? ""),
   };
@@ -119,7 +126,27 @@ export const workflowsList = createServerFn({ method: "POST" })
       .eq("user_id", userId)
       .order("updated_at", { ascending: false });
     if (error) return { ok: false, error: error.message };
-    return { ok: true, workflows: (rows ?? []).map(toRow) };
+    const workflows = (rows ?? []).map(toRow);
+    // FOUND IN R184: the status beside a workflow outlived the graph it
+    // vouched for. The run behind it is the latest one started: the run
+    // writes "running" when it starts and its outcome when it ends.
+    const drift = await Promise.all(
+      workflows.map(async (w) => {
+        if (!w.last_run_status) return null;
+        const { data: run, error: runErr } = await supabaseAdmin
+          .from("workflow_runs")
+          .select("graph")
+          .eq("workflow_id", w.id)
+          .order("started_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        return runErr || !run ? null : workflowChangedSinceRun(w.graph, run.graph);
+      }),
+    );
+    return {
+      ok: true,
+      workflows: workflows.map((w, i) => ({ ...w, changed_since_last_run: drift[i] })),
+    };
   });
 
 export const workflowGet = createServerFn({ method: "POST" })

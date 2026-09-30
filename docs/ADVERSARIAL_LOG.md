@@ -109,6 +109,38 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-09-30 — A workflow's "succeeded" over a step that could no longer succeed
+
+Tests: `tests/unit/workflowBadgeDrift.test.ts` (9 tests). The mutation run caught 13 of 13, and
+the control survived; a first run left one mutant alive, a filter on undefined keys that
+JSON.stringify already makes, and the filter was removed as dead code.
+
+#### R184 · S2 · succeeded, for `SELECT * FROM analytics.r184_no_such_table`
+
+**Found** as Phase B's second item, sweep item 2's workflow saves. Driven on the hot deploy of
+R183:
+- Workflows → New workflow `r184_badge` → SQL statement step `SELECT 184 AS r184` → Save
+  ("Saved") → Run now: the list reads `r184_badge · manual · less than a minute ago · succeeded`.
+- The statement → `SELECT * FROM analytics.r184_no_such_table` → Save; reloaded, the step holds
+  that statement and the list still reads `succeeded`.
+
+A save writes the graph and none of the run stamps, so the status described a graph that no
+longer existed, and here one that could not succeed.
+
+**The fix** (`lib/workflowDrift.ts`, `workflows.functions.ts` `workflowsList`,
+`workflows.tsx`). Each run pins its graph on `workflow_runs.graph`. The list reads each
+workflow's latest run, the one its status is about (a run writes "running" when it starts and
+its outcome when it ends), and compares the graphs as a run executes them: a step's position
+and label left out, and a parameter's description, with steps, arrows and parameters in one
+order and every object's keys sorted, since Postgres stores `jsonb` in its own key order. When
+they differ, the row says "changed since this run" under the name. With no run, or a read that
+failed, it says nothing.
+
+**Driven after.** The row marked; Run now → `failed` (the missing table), unmarked; the step
+dragged up the canvas and saved, its new position stored → still unmarked; the statement set
+back to `SELECT 184 AS r184` → "changed since this run" over `failed`. The two other workflows
+stayed unmarked throughout.
+
 ### 2026-09-30 — An ETL pipeline's "Succeeded" over a definition that never ran
 
 Tests: `tests/unit/etlChipDrift.test.ts` (11 tests), on the real compiler and the real

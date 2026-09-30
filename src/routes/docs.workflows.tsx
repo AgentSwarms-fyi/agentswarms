@@ -326,7 +326,10 @@ function WorkflowsDocs() {
         </li>
         <li>
           <strong>The graph and the parameters are pinned.</strong> Editing the workflow never
-          rewrites the history of what ran.
+          rewrites the history of what ran. The status beside a workflow in the list is about the
+          graph its last run pinned: when the steps have changed since, the list says{" "}
+          <strong>changed since this run</strong> under the name. Moving or renaming a step does not
+          count; what a step runs, its retries, the arrows and the parameters&apos; defaults do.
         </li>
         <li>
           <strong>Re-run</strong> repeats a finished run with its own parameters.{" "}

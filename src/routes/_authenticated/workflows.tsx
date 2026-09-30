@@ -562,6 +562,15 @@ function WorkflowsPage() {
                           ? ` · ${formatDistanceToNow(new Date(w.last_run_at), { addSuffix: true })}`
                           : " · never run"}
                       </span>
+                      {/* FOUND IN R184: the status outlived the graph it vouched for. */}
+                      {w.changed_since_last_run && (
+                        <span
+                          className="block truncate text-[10px] text-amber-600 dark:text-amber-400"
+                          title="The steps changed after this run: the next run executes something this status never checked."
+                        >
+                          changed since this run
+                        </span>
+                      )}
                     </button>
                     {w.last_run_status ? (
                       <Badge

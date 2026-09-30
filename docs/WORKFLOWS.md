@@ -365,6 +365,17 @@ A run with any failure is failed, even when later steps succeeded around it.
 Calling it green because the last step it reached was fine is how a broken
 nightly load goes unnoticed for a week. A skip alone is not a failure.
 
+The status beside a workflow in the list is the latest run's, and it is
+about the graph that run pinned (`workflow_runs.graph`). When the graph now
+differs in anything a run executes, the list says **changed since this run**
+under the name (R184); before, a save kept "succeeded" over a step that
+could no longer succeed. Layout and labels do not count (a step's `x`, `y`
+and `label`, a parameter's description), nor the order steps and arrows are
+stored in; a step's kind, target, statement, retries, trigger rule and
+timeout, the arrows and their branches, and the parameters' names and
+defaults do. With no run, or a run that could not be read, the list says
+nothing.
+
 ## Guarantees and limits
 
 - **One run at a time per workflow.** Two runs of the same graph would start

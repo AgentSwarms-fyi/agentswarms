@@ -15,6 +15,22 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-09-30 — A workflow's status over an edited graph, ADVERSARIAL_LOG R184
+
+**Why this round exists.** Phase B's second item: sweep item 2's workflow saves.
+
+Fixtures, kept: the workflow `r184_badge` (one SQL step, now `SELECT 184 AS r184` again) and its
+two runs.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before (hot deploy of R183) | New workflow `r184_badge`; SQL statement step `SELECT 184 AS r184`; Save; Run now | "Saved"; "Run started"; the list `r184_badge · manual · less than a minute ago · succeeded` |
+| Before | the statement → `SELECT * FROM analytics.r184_no_such_table`; Save; reload | the step holds the new statement; the list `r184_badge · manual · 1 minute ago · succeeded` |
+| After (hot deploy) | Workflows | `r184_badge · manual · 8 minutes ago · changed since this run · succeeded`; `R96 notebook step` and `Test` unmarked |
+| After | Run now; reload | `r184_badge · … · failed`, unmarked |
+| After | the step dragged up the canvas (y 60 → 25.7); Save; reload | "Saved"; the position kept; still unmarked |
+| After | the statement back to `SELECT 184 AS r184`; Save; reload | `r184_badge · … · changed since this run · failed` |
+
 ## 2026-09-30 — An ETL pipeline's status chip over an edited definition, ADVERSARIAL_LOG R183
 
 **Why this round exists.** Phase B's first item: sweep item 2's ETL chip.
