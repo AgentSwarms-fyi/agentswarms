@@ -349,8 +349,11 @@ function KnowledgePage() {
   // Vector store settings
   const [embeddingModel, setEmbeddingModel] = useState("text-embedding-3-small");
   const [embedProvider, setEmbedProvider] = useState(DEFAULT_EMBED_PROVIDER);
-  // Set once the user picks a provider, so the auto-default stops interfering.
-  const [embedProviderTouched, setEmbedProviderTouched] = useState(false);
+  // Set once the user picks a provider or a model, so the auto-default stops
+  // interfering. R220: only the provider set it, so a model picked under the
+  // default provider was put back to that provider's first model whenever the
+  // default ran again, which a session refresh made it do.
+  const [embedChoiceTouched, setEmbedChoiceTouched] = useState(false);
   const [anyProviderResolvable, setAnyProviderResolvable] = useState<boolean | null>(null);
   // Result of actually calling the provider. The store is vector(1536) and
   // ingest hard-rejects any other width, so "has an embeddings API" is not the
@@ -435,9 +438,10 @@ function KnowledgePage() {
   // instances already have a key for, so embedding works without connecting a
   // second account. Falls back to any other connected embedding-capable
   // integration. Only ever moves off an untouched default — once the user picks
-  // a provider themselves, `embedProviderTouched` stops this from overriding it.
+  // a provider or model themselves, `embedChoiceTouched` stops this from
+  // overriding it.
   useEffect(() => {
-    if (embedProviderTouched) return;
+    if (embedChoiceTouched) return;
     // Mirrors resolveEmbedTarget on the server: a connected OpenRouter
     // integration, then the operator's OpenRouter key, then any other connected
     // provider. If this order disagreed with the server's, the dialog would
@@ -455,7 +459,7 @@ function KnowledgePage() {
       setEmbedProvider(preferred.id);
       if (preferred.models[0]) setEmbeddingModel(preferred.models[0]);
     }
-  }, [anyProviderResolvable, openrouterAvailable, connectedProviders, embedProviderTouched]);
+  }, [anyProviderResolvable, openrouterAvailable, connectedProviders, embedChoiceTouched]);
   const embedModelSuggestions = EMBED_PROVIDERS.find((p) => p.id === embedProvider)?.models ?? [];
   const effectiveEmbedModel = customEmbedModel.trim() || embeddingModel;
   const currentEmbeddingDef = ALL_EMBEDDING_MODELS.find((m) => m.value === embeddingModel);
@@ -507,9 +511,14 @@ function KnowledgePage() {
     setConnectedProviders(connected);
   }
 
+  // R220: keyed on the user's id, not the user object, which is new on every
+  // session refresh: each refresh reloaded the providers into a new Set and
+  // ran the embedding default above again.
+  const userId = user?.id;
   useEffect(() => {
-    if (user) loadConnectedProviders();
-  }, [user]);
+    if (userId) loadConnectedProviders();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
 
   // The dialog must open showing what this KB actually does. Leaving the
   // controls on their defaults would tell a user with hybrid enabled that they
@@ -1239,7 +1248,7 @@ function KnowledgePage() {
                         value={embedProvider}
                         onValueChange={(v) => {
                           setEmbedProvider(v);
-                          setEmbedProviderTouched(true);
+                          setEmbedChoiceTouched(true);
                           setCustomEmbedModel("");
                           setProbe(null);
                           const first = EMBED_PROVIDERS.find((p) => p.id === v)?.models[0];
@@ -1324,6 +1333,7 @@ function KnowledgePage() {
                                 : "__custom__"
                           }
                           onValueChange={(v) => {
+                            setEmbedChoiceTouched(true);
                             if (v === "__custom__") setCustomEmbedModel(embeddingModel);
                             else {
                               setEmbeddingModel(v);

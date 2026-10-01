@@ -94,7 +94,10 @@ describe("the settings dialog surfaces the measurement", () => {
   it("clears a previous result when the provider changes", () => {
     // A stale green tick beside a provider that was never tested is worse than
     // no tick: it is a claim the app has not checked.
-    const onChange = ui.slice(ui.indexOf("setEmbedProviderTouched(true);"));
-    expect(onChange.slice(0, 200)).toContain("setProbe(null)");
+    // The provider picker's handler (R220 renamed the flag it also sets, and
+    // the model picker sets that flag too, so anchor on the provider itself).
+    const at = ui.indexOf("setEmbedProvider(v);");
+    expect(at).toBeGreaterThan(-1);
+    expect(ui.slice(at, at + 260)).toContain("setProbe(null)");
   });
 });

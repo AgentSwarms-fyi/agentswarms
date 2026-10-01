@@ -253,7 +253,9 @@ question ──▶ embed ──▶ nearest chunks ──▶ pasted into the prom
         through your own integration or, with no integration at all, through the operator's{" "}
         <C>OPENROUTER_API_KEY</C>, so a fresh install gets retrieval for free from the same account
         that already makes chat work. Any other connected provider exposing an OpenAI-compatible{" "}
-        <C>/embeddings</C> endpoint can be selected instead.
+        <C>/embeddings</C> endpoint can be selected instead. The suggested default applies only
+        until you pick a provider or a model; after that, your pick is what uploads and re-indexing
+        use, and the line under Add Document names it.
       </P>
       <Callout kind="warn" title="Not every embedding model fits this store">
         The vector column is fixed at <strong>1536 dimensions</strong> and ingest rejects any other

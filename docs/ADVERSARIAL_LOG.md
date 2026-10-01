@@ -109,6 +109,48 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-02 — A session refresh, and the knowledge base embeds with the default model again
+
+Tests: `tests/unit/userObjectKeySweep.test.ts` (4 tests: the knowledge page's fix, and a ratchet
+over hooks keyed on the user object). `tests/unit/tokenReloadSweep.test.ts` (R125's negative
+sample now has a body, so it can fail). `tests/unit/kbEmbedProbe.test.ts` found the provider
+picker by the flag this round renamed; it is anchored on the provider itself now (a mutant that
+drops the probe reset is caught). The mutation runs caught 5 of 5 and 1 of 1, and the controls
+survived.
+
+#### R220 · S2 · A session refresh replaced the embedding model the user had picked
+
+**Found** by a survey of every effect that copies a prop or a load into state the user edits
+(sweep 6, after R219). `useAuth()` hands out a new `user` object on every auth event, a refresh
+included, and thirteen hooks were keyed on it. One of them, on **Knowledge Bases**, reloads
+the connected providers into a new `Set`. That runs the embedding default again, and the default
+stands back only once a *provider* has been picked, not a model.
+
+In the UI (image `6a12aae557e9`): R192 add-source → RAG Settings → Embedding, provider OpenRouter
+untouched, and the model changed to `openai/text-embedding-3-large`. After a forced session
+refresh the model read **`openai/text-embedding-3-small`**.
+
+The model is page state that every upload, re-index and new knowledge base uses. So about an hour
+into a session, documents would be embedded with a model the user had replaced. Their vectors sit
+in the same 1536-wide space as the others, so nothing fails; retrieval just compares unlike
+vectors.
+
+**The fix.**
+- The providers reload when the user's **id** changes (`[userId]`), not their object.
+- Picking a model also marks the choice as the user's (`embedChoiceTouched`, renamed from
+  `embedProviderTouched`), so the default never replaces it.
+
+**The guard.** `tests/unit/userObjectKeySweep.test.ts` is R125's ratchet for the user object.
+The twelve other hooks keyed on it were read; each re-reads a list, a profile or a status (the
+budget page saves each field as it is typed). Building it showed that R125's own negative
+sample, `useCallback(() => x, [tokenRef, signedIn])`, had no `}` before its list, so the pattern
+could never match it and the test could not fail. It and the new file's samples now have bodies.
+The mutation run loosens both name matchers to prove those samples now bite.
+
+**Driven after** (hot deploy of R220): the same pick held through a forced refresh, and **Add
+Document** reads "embedded with OpenAI text-embedding-3-large (→1536d) — via OpenRouter".
+Nothing was uploaded.
+
 ### 2026-10-02 — A session refresh, a deck's choices and a connector's edit undone
 
 Tests: `tests/unit/useResetOnOpen.test.ts` (6 tests; its list of dialogs filled on open gains

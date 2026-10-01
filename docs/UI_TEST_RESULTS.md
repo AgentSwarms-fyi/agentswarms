@@ -15,6 +15,19 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-02 — The embedding model through a session refresh, ADVERSARIAL_LOG R220
+
+**Why this round exists.** Sweep 6: the survey of effects that copy a prop or a load into
+edited state found the user object as a key. The refresh was forced as in R217.
+
+Fixtures: none. The model choice is page state and was not saved; nothing was uploaded.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before (image `6a12aae557e9`) | Knowledge Bases → R192 add-source → RAG Settings → Embedding: provider OpenRouter (untouched), model `openai/text-embedding-3-large`; session refresh | Model **`openai/text-embedding-3-small`** |
+| After (hot deploy of R220) | The same | Model **`openai/text-embedding-3-large`** |
+| After | Add Document (not submitted) | "embedded with OpenAI text-embedding-3-large (→1536d) — via OpenRouter" |
+
 ## 2026-10-02 — Smoke of the real image after R217 to R219
 
 **Why this round exists.** R217 to R219 had been hot-deployed onto the R216 image. This round

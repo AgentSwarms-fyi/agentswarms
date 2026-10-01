@@ -377,6 +377,13 @@ provider the _user_ had connected, so an instance with `OPENROUTER_API_KEY` set
 and no personal integration displayed OpenAI as the default while the server
 was already embedding through OpenRouter.
 
+The dialog suggests that default only until the user picks a provider **or a
+model**. Before R220 only a provider pick stopped it. The page reloaded the
+connected providers on every session refresh, which ran the default again, so
+a model picked under the default provider went back to that provider's first
+model about hourly. Uploads and re-indexing then used a model nobody chose. The
+providers now reload when the signed-in user changes, not on a refresh.
+
 OpenRouter embedding models offered, all confirmed against the live endpoint to
 return 1536 dimensions (the pgvector column width):
 

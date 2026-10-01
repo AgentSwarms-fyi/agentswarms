@@ -341,7 +341,9 @@ describe("every hook keyed on the token has been read", () => {
         items(m[1]).some((x) => TOKEN_DEP.test(x)),
       ),
     ).toHaveLength(1);
-    const ref = "useCallback(() => x, [tokenRef, signedIn]);";
+    // R220: with a body ending in "}", so the miss is the name test refusing a
+    // ref, not the shape (the old sample had no "}" and could never match).
+    const ref = "useCallback(() => {\n  x();\n}, [tokenRef, signedIn]);";
     expect(
       [...ref.matchAll(new RegExp(DEPS.source, "g"))].filter((m) =>
         items(m[1]).some((x) => TOKEN_DEP.test(x)),
