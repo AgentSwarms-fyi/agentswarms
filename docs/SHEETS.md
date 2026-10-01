@@ -105,6 +105,15 @@ The same rules as Excel apply:
   as Excel writes it: 123456789012 stays whole (`LEN` 12), `=1/3&""` is `0.333333333333333`, and
   `=0.1+0.2&""` is `0.3`. From 1E+15 up, and under 1E-9, it is written in scientific notation. The
   cell itself still shows a long number the way a narrow cell does (`1.23457E+11`).
+- General shows ten significant digits, and a whole part of eleven digits in full:
+  12345678901.005 shows as `12345678901`. Numbers from 1E+11 up and under 1E-6 show in scientific
+  notation with a two-digit exponent (`1.5E-07`).
+- A number format past 15 digits shows 15 and then zeros, as Excel does:
+  `=TEXT(12345678901234567,"#,##0")` is `12,345,678,901,234,600`, and `=TEXT(1.5E+21,"0")` writes
+  out all 22 digits.
+- CEILING, FLOOR and their .MATH forms read the quotient at the same 15 digits:
+  `=CEILING(0.0000000001,1)` is 1 and `=CEILING(5.0000000001,1)` is 6, while `=FLOOR(0.3,0.1)` is
+  still 0.3.
 - A number format and TEXT() round the 15 digits Excel keeps, as ROUND does. 2.675 is stored a
   hair under 2.675, but `=TEXT(2.675,"0.00")` and a cell formatted `0.00` both show 2.68, and
   `=TEXT(0.01+0.075,"0.00")` is 0.09. TEXT of a blank cell is TEXT of 0 (`0.00`).
@@ -686,7 +695,8 @@ It follows Excel where SQL would differ:
   binary is a hair under each. Most rows take plain arithmetic; only a value on the edge of a half
   is worked out from its digits, so the cost over a million rows is close to SQL's own `round()`.
 - A number in text is written to 15 significant digits, as in a grid: `[@total] & ""` over
-  0.01 + 0.075 is `0.085`, not the 17-digit `0.08499999999999999`.
+  0.01 + 0.075 is `0.085`, not the 17-digit `0.08499999999999999`. TEXT past 15 digits shows 15
+  and then zeros, and CEILING and FLOOR read the quotient at 15 digits, as a grid does.
 - PROPER capitalises each word in any alphabet, a word starting after anything that is not a
   letter: `o'neil 2-way` becomes `O'Neil 2-Way`, as in Excel.
 - A number with no value, a negative to a fractional power or MROUND with signs that differ, shows

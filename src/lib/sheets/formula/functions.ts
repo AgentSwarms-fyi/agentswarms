@@ -680,13 +680,15 @@ F.ROUNDDOWN = roundTo("down");
 // TRUNC(0.29, 2) was 0.28 (0.29 × 100 is 28.999999999999996).
 F.TRUNC = roundTo("down");
 /**
- * A quotient float noise put a hair off a whole number, as the whole number:
- * 0.3 / 0.1 is 2.9999999999999996, and FLOOR(0.3,0.1) must be 0.3 (R176).
+ * A quotient as Excel reads it, to 15 significant digits: 0.3 / 0.1 is
+ * 2.9999999999999996, and FLOOR(0.3,0.1) must be 0.3 (R176).
+ *
+ * FOUND IN R201: this snapped anything within 1e-9 × the quotient of a whole
+ * number, so CEILING(5.0000000001, 1) was 5, CEILING(0.0000000001, 1) 0 and
+ * CEILING(12345678901.005, 1) …901, where Excel says 6, 1 and …902. A table
+ * sheet's SQL reads the quotient the same way (sql/compile.ts quotient15Sql).
  */
-const snapWhole = (q: number): number => {
-  const r = Math.round(q);
-  return Math.abs(q - r) < 1e-9 * Math.max(1, Math.abs(q)) ? r : q;
-};
+const quotient15 = (q: number): number => (Number.isFinite(q) ? Number(q.toPrecision(15)) : q);
 /** A multiple of a step without the step's float noise: 3 × 0.1 is 0.3, not 0.30000000000000004. */
 const tidy = (x: number): number => Number(x.toPrecision(15));
 /**
@@ -696,7 +698,7 @@ const tidy = (x: number): number => Number(x.toPrecision(15));
  * number with a negative step gave a number where Excel gives #NUM!.
  */
 function toMultiple(n: number, s: number, up: boolean): number {
-  const q = snapWhole(n / s);
+  const q = quotient15(n / s);
   return tidy((up ? Math.ceil(q) : Math.floor(q)) * s);
 }
 F.CEILING = (args) => {

@@ -15,6 +15,28 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-01 — Numbers past 15 digits in a grid and a table, ADVERSARIAL_LOG R201
+
+**Why this round exists.** R200's QUEUED rows. Before it, R197 to R200 went into a real image,
+smoked below.
+
+Fixtures, **kept**:
+- Workbook "R201 big numbers". Sheet1 grid holds row 1 and G1:H1. The Query table sheet runs over
+  `SELECT 1 AS id, 1e-10::DOUBLE AS tiny, 5.0000000001::DOUBLE AS five, 1.3::DOUBLE AS m, 12345678901.005::DOUBLE AS amount, 1.5e21::DOUBLE AS big, 12345678901234567::DOUBLE AS long`,
+  with calculated columns ceil_tiny, ceil_five, mround, text_big and text_long.
+- Iceberg table `r181.smoke_f1e4fc4c`.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Smoke, real image `f1e4fc4ca514` (R197–R200) | "R200 table rounding", both sheets | grid 1.01, 1.01, 0.085, 0.085, 0.29, O'Neil 2-Way; table the same, share2 1.01 |
+| Smoke | "R199 grid text" | 2.68, 2.68, 2.68, École Normale, 0.00, 0.085, 0.09, ß Straße Ñandú |
+| Smoke | Lakehouse, `analytics.fct_region_revenue` → Publish to Iceberg `local_rest` / `r181` / `smoke_f1e4fc4c` | "Published 4 row(s) to r181.smoke_f1e4fc4c"; committed in 869 ms, then 1106 ms |
+| Before (same image) | Sheet1: `=CEILING(0.0000000001,1)`, `=CEILING(5.0000000001,1)`, `=MROUND(1.3,0.2)`, `=CEILING(12345678901.005,1)`, `=TEXT(1.5E+21,"0")`, `=TEXT(12345678901234567,"#,##0")` | **0**, **5**, 1.4, **12345678901**, **1**, **12,345,678,901,234,568** |
+| Before | G1 12345678901.005, H1 `=G1*2` | **###########**, **###########** |
+| Before | Query: + Column ceil_tiny, ceil_five, mround, text_big, text_long; the amount column itself | **0**, **5**, 1.4, 1500000000000000000000, **12,345,678,901,234,568**; amount **1.234567890e+1** |
+| After (hot deploy of R201) | the workbook, reopened | Sheet1: **1, 6**, 1.4, **12345678902, 1500000000000000000000, 12,345,678,901,234,600**, G1 **12345678901**, H1 **24691357802** |
+| After | the Query sheet | amount **12345678901**; **1, 6**, 1.4, 1500000000000000000000, **12,345,678,901,234,600** |
+
 ## 2026-10-01 — Rounding in a table sheet against a grid, ADVERSARIAL_LOG R200
 
 **Why this round exists.** R199's second probe. One workbook holds the same values in a grid

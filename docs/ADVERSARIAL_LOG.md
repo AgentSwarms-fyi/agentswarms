@@ -109,6 +109,57 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-01 — 12,345,678,901 shown as "1.234567890e+1"
+
+Tests: `tests/unit/sheetsBigNumbers.test.ts` (9 tests: Excel's answers, and the table's CEILING,
+FLOOR and TEXT held to the grid over about 1,400 values), `sheetsGridTableParity.test.ts` (its
+QUEUED rows emptied), `sheetsGridExcelText.test.ts` (one pin corrected). The mutation run caught
+10 of 10, and the control survived.
+
+#### R201 · S2 · Numbers at the edge of 15 digits: one shown as about 12, quotients a hair off, formats past 15 digits
+
+**Found** following R200's QUEUED rows, in workbook "R201 big numbers" (kept): a grid row and a
+table sheet over a lakehouse query with the same values.
+
+| | Grid | Table | Excel |
+| --- | --- | --- | --- |
+| 12345678901.005 in General | **####** | **1.234567890e+1** | 12345678901 |
+| `CEILING(0.0000000001,1)` | **0** | **0** | 1 |
+| `CEILING(5.0000000001,1)` | **5** | **5** | 6 |
+| `CEILING(12345678901.005,1)` | **12345678901** | 12345678902 | 12345678902 |
+| `TEXT(1.5E+21,"0")` | **1** | 1500000000000000000000 | 1500000000000000000000 |
+| `TEXT(12345678901234567,"#,##0")` | **…234,568** | **…234,568** | 12,345,678,901,234,600 |
+
+- **The worst is the first.** General used `toPrecision(10)`, which writes an exponent of its own
+  for eleven whole digits ("1.234567890e+10"). The trailing-zero trim then cut the exponent's last
+  digit, so the table showed a number of twelve billion as about 12. The grid measured the long
+  string, found it too wide and showed ####. 1.5E-07 showed as "1.500000000e-7".
+- **CEILING and FLOOR.** The grid snapped a quotient within 1e-9 × itself of a whole number, which
+  at 1.2e10 is a band of about 12. The table rounded the quotient to 9 places, which loses a tenth
+  of a billionth.
+- **Formats.** The grid's number format wrote `toFixed`, which from 1E+21 is exponent text that
+  "0" read as 1; below that it writes the binary's own digits past the 15th, as the table's
+  `format()` did.
+- **A test helper.** The parity test's `shown()` rounded to 9 places and made the table's right
+  12345678902 read as 12345678902.000002. It now shows 15 digits.
+
+**The fix.**
+- **General** (`values.ts`) takes 11 digits from 1E+10 and goes to scientific notation whenever
+  toPrecision would, with a two-digit exponent.
+- **Number formats** (`format.ts excelFixed`) past 15 digits write the 15 and then zeros.
+- **CEILING, FLOOR and the .MATH forms** read the quotient at 15 digits: `functions.ts quotient15`
+  in the grid, and `compile.ts quotient15Sql` in a table. The SQL takes R200's fast path: only a
+  quotient within its 15th digit of a whole number is read from its digits.
+- **A table's TEXT** past 15 digits writes the 15 digits and zeros, with thousands separators
+  through HUGEINT.
+
+**Driven after** (hot deploy of R201): the grid row read **1, 6, 1.4, 12345678902,
+1500000000000000000000, 12,345,678,901,234,600**, and G1 and H1 (12345678901.005 and twice it)
+read **12345678901** and **24691357802** where they had shown ####. The table read amount
+**12345678901**, ceil_tiny **1**, ceil_five **6**, text_long **12,345,678,901,234,600**.
+
+**Checked and left alone.** MROUND(1.3, 0.2), Microsoft's own example, is 1.4 in both engines.
+
 ### 2026-10-01 — ROUND(1.005, 2) is 1 in a table and 1.01 in the grid beside it
 
 Tests: `tests/unit/sheetsExcelRounding.test.ts` (13 tests: Excel's answers, and the compiled SQL

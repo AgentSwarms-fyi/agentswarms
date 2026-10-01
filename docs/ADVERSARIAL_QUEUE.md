@@ -251,15 +251,11 @@ least twice, not a hypothetical.
      number in text follow Excel's 15 digits in a grid and in a table sheet's SQL, and PROPER in a
      table starts a word after anything that is not a letter. A fast path keeps the SQL near
      `round()`'s cost. `sheetsExcelRounding.test.ts`.
-   - **Next, R201: numbers past 15 digits.** These are the QUEUED rows in
-     `sheetsGridTableParity.test.ts`.
-     - CEILING and FLOOR in the grid snap a quotient within 1e-9 × itself of a whole number, so
-       `CEILING(12345678901.005,1)` is …901, where Excel gives …902. The table gives
-       12345678902.000002.
-     - A grid number format past 1E+21 is toFixed's exponent text: `TEXT(1.5E+21,"0")` gives "1".
-       The table writes every binary digit, where Excel writes 15 and then zeros.
-     - Measured, not fixed: a number in text over random 17-digit doubles takes the exact path on
-       every row (846 ms per million against a cast's 100).
+   - **R201: numbers at the edge of 15 digits.** General wrote 12345678901.005 as
+     "1.234567890e+1". CEILING and FLOOR now read the quotient at 15 digits in both engines, and
+     formats past 15 digits show zeros. The QUEUED rows are emptied. `sheetsBigNumbers.test.ts`.
+   - **Measured, not fixed.** A number in text over random 17-digit doubles takes the exact path on
+     every row: 846 ms per million, against a cast's 100.
    - **Still open, grid.**
      - `YEAR`/`MONTH`/`DAY` of a blank give 1899/12/30, where Excel gives 1900/1/0.
      - DATEDIF from 1900-03-01 is one day long.

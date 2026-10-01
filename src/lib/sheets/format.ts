@@ -331,7 +331,23 @@ function formatNumberSection(n: number, code: string): string {
  * 15-digit value is scaled by a power of ten as text, which is exact.
  */
 export function excelFixed(v: number, places: number): string {
-  return excelRound(v, places, "half").toFixed(places);
+  const r = excelRound(v, places, "half");
+  if (!Number.isFinite(r) || r === 0) return r.toFixed(places);
+  const [mantissa, exp] = Math.abs(r).toExponential(14).split("e");
+  const e = Number(exp);
+  // Up to 15 digits shown, toFixed writes them as they are.
+  if (e + places < 15) return r.toFixed(places);
+  // FOUND IN R201: past 15 digits toFixed wrote the binary's own digits
+  // (TEXT(12345678901234567, "#,##0") was …234,568 where Excel shows
+  // …234,600), and from 1E+21 an exponent, which "0" then read as 1
+  // (TEXT(1.5E+21, "0") was "1"). Excel shows 15 digits and then zeros.
+  const digits = mantissa.replace(".", "");
+  const sign = r < 0 ? "-" : "";
+  if (e < 0)
+    return `${sign}0.${("0".repeat(-e - 1) + digits).padEnd(places, "0").slice(0, places)}`;
+  const all = digits.padEnd(e + 1 + places, "0");
+  const frac = all.slice(e + 1, e + 1 + places);
+  return sign + all.slice(0, e + 1) + (places > 0 ? `.${frac}` : "");
 }
 
 /**

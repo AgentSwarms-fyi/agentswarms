@@ -100,8 +100,10 @@ function SheetsDocsPage() {
         digits, and ROUND, TRUNC, a number format and TEXT() all round those digits (
         <C>=TEXT(2.675,&quot;0.00&quot;)</C> is 2.68, and TEXT of a blank is TEXT of 0). PROPER
         capitalises words in any alphabet (<C>=PROPER(&quot;ÉCOLE&quot;)</C> is École). FLOOR and
-        CEILING land on a decimal step (<C>=FLOOR(4.35,0.05)</C> is 4.35). Loan sheets have CUMIPMT
-        and CUMPRINC, as in Excel.
+        CEILING read the quotient at 15 digits, so they land on a decimal step (
+        <C>=FLOOR(4.35,0.05)</C> is 4.35) and still see a tenth of a billionth (
+        <C>=CEILING(0.0000000001,1)</C> is 1). A format past 15 digits shows zeros after the 15th,
+        as Excel does. Loan sheets have CUMIPMT and CUMPRINC, as in Excel.
       </P>
       <UL>
         <li>

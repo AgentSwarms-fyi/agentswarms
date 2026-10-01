@@ -93,20 +93,11 @@ const AGREE = [
 ];
 
 /**
- * Rows a formula is not held to yet, each queued in ADVERSARIAL_QUEUE as R201
- * (numbers past 15 digits). Remove a row here when its fix lands.
+ * Rows a formula is not held to yet, each queued in ADVERSARIAL_QUEUE with
+ * its reason. Remove a row here when its fix lands. R201 emptied it: CEILING
+ * over a large amount, and TEXT past 15 digits.
  */
-const QUEUED: Record<string, number[]> = {
-  // The grid snaps a quotient within 1e-9 × itself of a whole number, so
-  // CEILING(12345678901.005, 1) is …901 there; the table says …902.000002.
-  "=CEILING([@n],1)": [10],
-  // A grid number format past 1E+21 is toFixed's exponent text ("1.5e+21",
-  // and "1" for "0"); the table writes every binary digit, not Excel's 15.
-  '=TEXT([@n],"0.00")': [12],
-  '=TEXT([@n],"#,##0.00")': [12],
-  '=TEXT([@n],"0")': [12],
-  '=TEXT([@n],"0.0%")': [12],
-};
+const QUEUED: Record<string, number[]> = {};
 
 let conn: Awaited<ReturnType<DuckDBInstance["connect"]>>;
 
@@ -135,7 +126,9 @@ afterAll(() => conn?.closeSync());
 function shown(v: unknown): string {
   if (v === null || v === undefined || v === "") return "(blank)";
   if (isError(v)) return "(error)";
-  if (typeof v === "number") return String(Math.round(v * 1e9) / 1e9);
+  // The 15 digits a person is shown. Rounding to 9 places instead made a
+  // right 12345678902 read as 12345678902.000002 (R201).
+  if (typeof v === "number") return String(Number(v.toPrecision(15)));
   if (typeof v === "boolean") return v ? "TRUE" : "FALSE";
   return String(v);
 }

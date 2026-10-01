@@ -30,11 +30,15 @@ describe("excelFixed", () => {
     expect(excelFixed(0.03 + 0.285, 2)).toBe("0.32");
   });
 
-  it("leaves what was already exact, and the tiny and the huge, as toFixed does", () => {
+  it("leaves what was already exact, and the tiny, as toFixed does", () => {
     expect(excelFixed(1234567.891, 2)).toBe("1234567.89");
     expect(excelFixed(3, 2)).toBe("3.00");
     expect(excelFixed(1e-7, 2)).toBe("0.00");
-    expect(excelFixed(1.5e21, 0)).toBe((1.5e21).toFixed(0));
+  });
+
+  it("writes the huge as Excel does, not as toFixed does (R201)", () => {
+    // This pinned toFixed's "1.5e+21", which a "0" format then read as 1.
+    expect(excelFixed(1.5e21, 0)).toBe("1500000000000000000000");
   });
 });
 

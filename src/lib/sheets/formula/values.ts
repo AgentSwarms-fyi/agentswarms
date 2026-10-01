@@ -133,13 +133,21 @@ export function formatGeneral(n: number): string {
   if (!Number.isFinite(n)) return "#NUM!";
   if (Number.isInteger(n) && Math.abs(n) < 1e11) return String(n);
   const abs = Math.abs(n);
-  if (abs !== 0 && (abs >= 1e11 || abs < 1e-9)) {
+  // Ten significant digits, and eleven from 1E+10, so that a whole part of
+  // eleven digits is written out as an eleven-digit whole number is.
+  const s = n.toPrecision(abs >= 1e10 ? 11 : 10);
+  // FOUND IN R201: toPrecision writes an exponent of its own for eleven whole
+  // digits and under 1E-6, and the zero trim below then cut it short:
+  // 12345678901.005 showed as "1.234567890e+1", about 12, in a table sheet
+  // and as #### in a grid; 1.5E-07 showed as "1.500000000e-7". Excel
+  // writes those as 12345678901 and 1.5E-07.
+  if (abs !== 0 && (abs >= 1e11 || abs < 1e-9 || s.includes("e"))) {
     return n
       .toExponential(5)
       .replace(/\.?0+e/, "e")
+      .replace(/e([+-])(\d)$/, "e$10$2")
       .replace(/e/, "E");
   }
-  const s = n.toPrecision(10);
   return s.includes(".") ? s.replace(/\.?0+$/, "") : s;
 }
 

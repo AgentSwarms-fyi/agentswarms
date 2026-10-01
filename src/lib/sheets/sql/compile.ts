@@ -241,6 +241,23 @@ function numberTextSql(x: string): string {
   return `(list_transform([${vx}], lambda xt_v: ${body("xt_v")})[1])`;
 }
 
+/**
+ * A quotient at Excel's 15 significant digits, as the grid reads one
+ * (functions.ts quotient15), for CEILING and FLOOR to take whole.
+ *
+ * FOUND IN R201: the quotient was rounded to 9 decimal places, so
+ * CEILING(0.0000000001, 1) and CEILING(5.0000000001, 1) were 0 and 5 in a
+ * table; Excel says 1 and 6. Most rows are clear of a whole number by more
+ * than the 15th digit could move them and are taken as they are; only a
+ * quotient on the edge is read from its digits.
+ */
+function quotient15Sql(q: string): string {
+  const body = (v: string) =>
+    `CASE WHEN ${v} IS NULL OR NOT isfinite(${v}) OR (abs(${v}) < 1e14 AND (${v} = floor(${v}) OR least(${v} - floor(${v}), ceil(${v}) - ${v}) > abs(${v}) * 1e-13)) THEN ${v} ELSE CAST(format('{:.14e}', ${v}) AS DOUBLE) END`;
+  if (writtenOut(q)) return `(${body(`(${q})`)})`;
+  return `(list_transform([${q}], lambda xq_v: ${body("xq_v")})[1])`;
+}
+
 function toText(t: T): string {
   switch (t.kind) {
     case "text":
@@ -837,9 +854,10 @@ class Compiler {
         const ss = fn.endsWith(".MATH")
           ? `nullif(abs(${toNum(sig)}), 0)`
           : `nullif(${toNum(sig)}, 0)`;
-        // The quotient rounded first: 0.3 / 0.1 is 2.9999999999999996, and FLOOR(0.3,0.1) is 0.3 (R176).
+        // The quotient at 15 digits: 0.3 / 0.1 is 2.9999999999999996, and
+        // FLOOR(0.3,0.1) is 0.3 (R176); CEILING(0.0000000001,1) is 1 (R201).
         return {
-          sql: `(${f}(round(${toNum(x)} / ${ss}, 9)) * ${ss})`,
+          sql: `(${f}(${quotient15Sql(`(${toNum(x)} / ${ss})`)}) * ${ss})`,
           kind: "number",
           dbl: true,
           sub: sub(x, sig),
@@ -1214,8 +1232,29 @@ class Compiler {
     const x = pct ? `(${toNum(v)} * 100)` : toNum(v);
     const spec = `{:${m[1] ? "," : ""}.${places}f}`;
     // Round half away from zero first; format() alone rounds half to even.
+    const grouping = Boolean(m[1]);
+    const shown = (v: string) => `format('${spec}', ${excelRoundSql(v, String(places), "half")})`;
+    // FOUND IN R201: past 15 digits format() wrote the binary's own digits
+    // (TEXT(12345678901234567, "#,##0") was …234,568; Excel and the grid
+    // show …234,600). There the 15 digits are written out, then zeros.
+    const big = (v: string) => {
+      const mt = `format('{:.14e}', abs(${v}))`;
+      const e = `CAST(split_part(${mt}, 'e', 2) AS INTEGER)`;
+      const all = `rpad(replace(split_part(${mt}, 'e', 1), '.', ''), ${e} + ${places + 1}, '0')`;
+      const whole = `left(${all}, ${e} + 1)`;
+      const grouped = grouping
+        ? `(CASE WHEN ${e} < 38 THEN format('{:,}', CAST(${whole} AS HUGEINT)) ELSE ${whole} END)`
+        : whole;
+      const frac = places > 0 ? ` || '.' || substring(${all}, ${e} + 2, ${places})` : "";
+      return `(CASE WHEN ${v} < 0 THEN '-' ELSE '' END || ${grouped}${frac})`;
+    };
+    const body = (v: string) =>
+      `CASE WHEN isfinite(${v}) AND abs(${v}) * ${10 ** places} >= 1e15 THEN ${big(v)} ELSE ${shown(v)} END`;
+    const text = writtenOut(x)
+      ? body(`(${x})`)
+      : `list_transform([${x}], lambda xt_x: ${body("xt_x")})[1]`;
     return {
-      sql: `(format('${spec}', ${excelRoundSql(x, String(places), "half")})${pct ? " || '%'" : ""})`,
+      sql: `(${text}${pct ? " || '%'" : ""})`,
       kind: "text",
       sub: v.sub,
     };
