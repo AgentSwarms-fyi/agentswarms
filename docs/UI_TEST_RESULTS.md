@@ -15,6 +15,21 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-01 — An uploaded file's name and its index in a knowledge base, ADVERSARIAL_LOG R208
+
+**Why this round exists.** R192's leftovers.
+
+Fixtures, **kept**, in the knowledge base "R192 add-source": `r208-one.txt` and `r208-two.txt`
+(both pending embedding, as their toasts said) and `r208-three.txt` (indexed).
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before (hot deploy of R207) | the knowledge base's Sources and Documents | uploaded `r192-*.txt`: **"MANUAL · Manual paste"**; documents badged **"Manual"** |
+| Before | Add Source, `r208-one.txt`, the embed call failing | toast **"1 file added"**; the source "MANUAL · ok · Manual paste"; the document "Pending embedding" |
+| After (hot deploy of R208) | Sources and Documents | **"FILE · Uploaded file"** for every uploaded `.txt`; documents badged **File** |
+| After | Add Source, `r208-two.txt`, the embed call failing | toast **"1 file added, not fully indexed · Not indexed yet: Failed to fetch. Re-index retries; until then it is found by keyword only."** |
+| After | Add Source, `r208-three.txt`, the embed working | toast "1 file added"; "Indexed · 1 chunk" |
+
 ## 2026-10-01 — The swarm Versions dialog's double Enter and trash, ADVERSARIAL_LOG R207
 
 **Why this round exists.** Queued from R190, read in the source and not yet driven.

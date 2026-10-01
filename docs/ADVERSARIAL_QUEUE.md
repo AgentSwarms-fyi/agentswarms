@@ -1102,11 +1102,11 @@ over the lakehouse). Open from that round, the rest of Row Zero's connected tabl
   (source, then document) whose second write failed left the first one
   standing as "ok · 0 docs", and the toast counted files dropped in rather
   than files that landed. A step of several writes owes the first ones back
-  when a later one fails, or at least a mark on them. Open from R192: an
-  uploaded .txt is recorded as kind `manual` and listed as "Manual paste";
-  and the dialog does not look at the embed step's result, so a document
-  added while embeddings are unavailable is announced like any other (the
-  Documents list does show its index state).
+  when a later one fails, or at least a mark on them. R192's two leftovers
+  are R208: an uploaded .txt (kind `manual`) is listed as a File, and a
+  document added but not indexed is announced as not fully indexed, with
+  the reason. A kind of its own for an uploaded text file would be a
+  migration (`kb_sources.kind` allows manual, pdf, csv, url and github).
 - An optimistic switch is a promise about the database (R70): a control
   that flips before the write lands must flip back when it does not, and
   say what the stored state will do — an alert still on will still fire.

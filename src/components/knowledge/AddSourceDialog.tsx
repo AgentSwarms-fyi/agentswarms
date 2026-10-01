@@ -24,6 +24,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { indexNote, type EmbedOutcome } from "@/lib/kbIndexNote";
 import { Globe, GitBranch, UploadCloud, FileText, Loader2, X } from "lucide-react";
 
 type Props = {
@@ -64,6 +65,16 @@ export function AddSourceDialog({
   const [tab, setTab] = useState<"file" | "url" | "github" | "manual">("file");
   const [busy, setBusy] = useState(false);
   const embedFn = useServerFn(embedKbDocuments);
+  /** Embed what was just added, and say what came of it (R208). */
+  const embedAndNote = async (documentIds: string[]): Promise<string | null> => {
+    let outcome: EmbedOutcome;
+    try {
+      outcome = { ok: await embedFn({ data: { documentIds } }) };
+    } catch (err) {
+      outcome = { error: err };
+    }
+    return indexNote(outcome);
+  };
   const visionFn = useServerFn(documentVisionExtract);
 
   // ── URL state ──────────────────────────────────────────────────────────
@@ -317,12 +328,9 @@ export function AddSourceDialog({
           toast.error("The document was not added", { description: why });
           return;
         }
-        try {
-          await embedFn({ data: { documentIds: [insertedDoc.id] } });
-        } catch (err) {
-          console.warn("[AddSourceDialog] embedding failed:", err);
-        }
-        toast.success("Document added");
+        const note = await embedAndNote([insertedDoc.id]);
+        if (note) toast.warning("Document added, not fully indexed", { description: note });
+        else toast.success("Document added");
         reset();
         onAdded();
         onOpenChange(false);
@@ -379,13 +387,7 @@ export function AddSourceDialog({
           }
           newDocIds.push(insertedDoc.id);
         }
-        if (newDocIds.length > 0) {
-          try {
-            await embedFn({ data: { documentIds: newDocIds } });
-          } catch (err) {
-            console.warn("[AddSourceDialog] embedding failed:", err);
-          }
-        }
+        const note = newDocIds.length > 0 ? await embedAndNote(newDocIds) : null;
         const added = files.length - notAdded.length;
         if (notAdded.length > 0) {
           const reasons = notAdded.map((n) => `${n.file.name}: ${n.why}`).join("; ");
@@ -395,7 +397,9 @@ export function AddSourceDialog({
               : notAdded.length === 1
                 ? "The file was not added"
                 : `None of the ${notAdded.length} files were added`,
-            { description: `Not added, still listed here to try again: ${reasons}` },
+            {
+              description: `Not added, still listed here to try again: ${reasons}${note ? ` ${note}` : ""}`,
+            },
           );
           // Even with nothing added, a source that could not be withdrawn is
           // now marked as an error, and the Sources list should show it.
@@ -403,7 +407,9 @@ export function AddSourceDialog({
           setFiles(notAdded.map((n) => n.file));
           return;
         }
-        toast.success(`${added} file${added === 1 ? "" : "s"} added`);
+        const addedTitle = `${added} file${added === 1 ? "" : "s"} added`;
+        if (note) toast.warning(`${addedTitle}, not fully indexed`, { description: note });
+        else toast.success(addedTitle);
         reset();
         onAdded();
         onOpenChange(false);

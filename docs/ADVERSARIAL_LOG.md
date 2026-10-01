@@ -109,6 +109,36 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-01 — "1 file added" for a file search could not find
+
+Tests: `tests/unit/kbSourceAndIndex.test.ts` (6 tests), and `kbAddSourceWrites.test.ts`, whose
+slice ended at the old toast. The mutation run caught 9 of 9, and the control survived.
+
+#### R208 · S2 · Add Source said nothing of a failed index, and an uploaded file read as a manual paste
+
+**Found** in R192's leftovers. In the kept knowledge base "R192 add-source":
+- **The labels.** Its uploaded `r192-*.txt` sources read **"MANUAL · Manual paste"** and their
+  documents carried a **"Manual"** badge. An uploaded text file is stored as kind `manual`, the
+  only kind the table's check allows for text, and the page named every `manual` source a paste.
+- **The silent index.** `r208-one.txt`, added with the browser's fault injector failing the embed
+  call, was announced **"1 file added"**. The dialog called the embed step and looked at nothing
+  it returned: a thrown call went to the console, and a skipped one (no embedding key) went
+  nowhere. The document sat "Pending embedding", found by keyword only.
+
+**The fix.**
+- **`src/lib/kbIndexNote.ts indexNote`** turns the embed step's outcome into a sentence: a failure
+  with its reason, a skip for want of a key, or warnings. The dialog toasts "… added, not fully
+  indexed" with it, on the File and Manual paths alike.
+- **`src/lib/kbSourceLabel.ts`** names a `manual` source with an upload's filename in its config a
+  **File** and an "Uploaded file". A real paste, which records no filename, stays "Manual paste".
+  No migration.
+
+**Driven after** (hot deploy of R208):
+- **The labels.** Every uploaded `.txt` read **"FILE · Uploaded file"**, and its document **File**.
+- **The embed failing.** `r208-two.txt` was announced **"1 file added, not fully indexed · Not
+  indexed yet: Failed to fetch. Re-index retries; until then it is found by keyword only."**
+- **The embed working.** `r208-three.txt` was "1 file added", "Indexed · 1 chunk".
+
 ### 2026-10-01 — One name, two versions; one click, no version
 
 Tests: `tests/unit/swarmVersionGuards.test.ts` (4 tests, by source as R190's). The mutation run

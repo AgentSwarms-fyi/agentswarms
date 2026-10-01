@@ -38,7 +38,8 @@ describe("withdrawSource", () => {
 });
 
 describe("the File tab", () => {
-  const loop = slice(DIALOG, "const notAdded:", "toast.success(`${added} file");
+  // Up to the all-landed toast, which since R208 also says what indexing did.
+  const loop = slice(DIALOG, "const notAdded:", "const addedTitle = `${added} file");
 
   it("keeps each document insert's error, and withdraws the source with it", () => {
     expect(loop).toMatch(/const \{ data: insertedDoc, error: docErr \} = await supabase/);

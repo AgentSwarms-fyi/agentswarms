@@ -9,6 +9,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { cn } from "@/lib/utils";
 import { clickable } from "@/lib/clickable";
 import { parseFileToText } from "@/lib/fileParsers";
+import { isUploadedFile, kbSourceBadge } from "@/lib/kbSourceLabel";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1987,16 +1988,7 @@ function KnowledgePage() {
                       <div className="space-y-2">
                         {docs.map((doc) => {
                           const sourceForDoc = sources.find((s) => s.id === doc.source_id);
-                          const sourceBadge =
-                            sourceForDoc?.kind === "url"
-                              ? "URL"
-                              : sourceForDoc?.kind === "github"
-                                ? "GitHub"
-                                : sourceForDoc?.kind === "pdf"
-                                  ? "PDF"
-                                  : sourceForDoc?.kind === "csv"
-                                    ? "CSV"
-                                    : "Manual";
+                          const sourceBadge = kbSourceBadge(sourceForDoc);
                           return (
                             <Card
                               key={doc.id}
@@ -2195,7 +2187,7 @@ function KnowledgePage() {
                                             "Website")
                                           : src.kind === "dropbox"
                                             ? cfg.path || "Entire Dropbox"
-                                            : src.kind === "pdf" || src.kind === "csv"
+                                            : isUploadedFile(src)
                                               ? "Uploaded file"
                                               : "Manual paste";
                           const docCount = docs.filter((d) => d.source_id === src.id).length;
@@ -2215,7 +2207,7 @@ function KnowledgePage() {
                                       >
                                         {isConnector
                                           ? CONNECTOR_LABELS[src.kind as ConnectorKind]
-                                          : src.kind}
+                                          : kbSourceBadge(src)}
                                       </Badge>
                                       {isConnector && src.sync_schedule !== "manual" && (
                                         <Badge

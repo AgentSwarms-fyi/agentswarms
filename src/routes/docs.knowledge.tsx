@@ -62,7 +62,10 @@ function KnowledgePage() {
         Each file added lands with its source or leaves neither: when some do not, the dialog says
         how many did, names the rest with the reason, and keeps them listed to try again. A source
         whose document did not land and that could not be taken back is marked as an error in{" "}
-        <em>Sources</em>, not left reading <em>ok</em>.
+        <em>Sources</em>, not left reading <em>ok</em>. A file that landed but could not be indexed
+        is announced as not fully indexed, with the reason, and is found by keyword only until{" "}
+        <em>Re-index</em> embeds it. An uploaded text file is listed as a file, not as a manual
+        paste.
       </P>
 
       <H3 id="s-file">File upload</H3>

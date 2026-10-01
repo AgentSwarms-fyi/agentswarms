@@ -48,6 +48,16 @@ never reads `ok` with no document behind it. The dialog counts what landed
 ("1 of 2 files added"), names each file that did not with its reason, and
 keeps those files listed to try again.
 
+A file that landed but was not indexed is announced as such ("1 file added, not
+fully indexed"), with the reason: the embed call failed, or no embedding key
+is set. Until it is indexed, by **Re-index** or the next embed, it is found by
+keyword only, and the Documents list shows it as pending.
+
+An uploaded text file (`.txt`, `.md`, `.json`, `.docx` …) is stored as kind
+`manual`, the kind the table allows for text, with its filename in the
+source's config. The Sources list and its documents show it as a **File** and
+an "Uploaded file", not as a manual paste.
+
 ## Connected services
 
 | Provider     | Credentials                                                                                       | What syncs                                                                                                                                      | ACL mirroring                   |
