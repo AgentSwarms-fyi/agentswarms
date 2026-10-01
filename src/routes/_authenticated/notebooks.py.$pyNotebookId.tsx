@@ -45,6 +45,8 @@ import { PublishNotebookDialog } from "@/components/notebooks/PublishNotebookDia
 import { NotebookGitDialog } from "@/components/notebooks/NotebookGitDialog";
 import type { PyCell } from "@/lib/pythonNotebookTemplate";
 import { mayAutosave } from "@/lib/listClaim";
+import { useSharedFlight } from "@/lib/singleFlight";
+import { cellRunKey } from "@/lib/cellRunKey";
 
 export const Route = createFileRoute("/_authenticated/notebooks/py/$pyNotebookId")({
   component: PyNotebookPage,
@@ -125,25 +127,31 @@ function PyNotebookPage() {
     };
   }, [pyNotebookId]);
 
-  /** Start the kernel on demand; reused for every subsequent cell. */
-  const ensureKernel = useCallback(async (): Promise<ServerRuntime | null> => {
-    if (serverRef.current) return serverRef.current;
-    const rt = new ServerRuntime(() => session?.access_token ?? null, pyNotebookId);
-    rt.onStatus = (s, msg) => {
-      setServerStatus(s);
-      if (s === "error" && msg) setRuntimeError(msg);
-    };
-    serverRef.current = rt;
-    setRuntimeError(null);
-    try {
-      await rt.start();
-      return rt;
-    } catch (e) {
-      serverRef.current = null;
-      setRuntimeError(e instanceof Error ? e.message : "Failed to start the kernel");
-      return null;
-    }
-  }, [session?.access_token, pyNotebookId]);
+  /** Start the kernel on demand; reused for every subsequent cell. A run
+   *  that arrives while it starts joins the start (R213), rather than being
+   *  handed a runtime that has not connected yet. On failure, the reason. */
+  const ensureKernel = useSharedFlight(
+    () => "kernel",
+    async (): Promise<ServerRuntime | string> => {
+      if (serverRef.current) return serverRef.current;
+      const rt = new ServerRuntime(() => session?.access_token ?? null, pyNotebookId);
+      rt.onStatus = (s, msg) => {
+        setServerStatus(s);
+        if (s === "error" && msg) setRuntimeError(msg);
+      };
+      serverRef.current = rt;
+      setRuntimeError(null);
+      try {
+        await rt.start();
+        return rt;
+      } catch (e) {
+        serverRef.current = null;
+        const reason = e instanceof Error ? e.message : "Failed to start the kernel";
+        setRuntimeError(reason);
+        return reason;
+      }
+    },
+  );
 
   const stopKernel = useCallback(async () => {
     const rt = serverRef.current;
@@ -247,22 +255,22 @@ function PyNotebookPage() {
     });
 
   // ── Execution ─────────────────────────────────────────────────────────────
-  const runCell = useCallback(
-    async (cell: PyCell) => {
+  // One run per cell (R213): the button was disabled while a cell ran, but
+  // Shift+Enter ran it again. A second run of a cell already running joins
+  // that run. The error is the start's own reason, not this render's
+  // runtimeError, which is still null while the start is in flight.
+  const runCell = useSharedFlight(
+    (cell: PyCell) => cell.id,
+    async (cell: PyCell): Promise<CellRunResult> => {
       setOutputs((o) => ({ ...o, [cell.id]: "running" }));
       const rt = await ensureKernel();
-      const res = rt
-        ? await rt.run(cell.source)
-        : {
-            stdout: "",
-            result: null,
-            error: runtimeError ?? "The server runtime is unavailable.",
-            durationMs: 0,
-          };
+      const res =
+        typeof rt === "string"
+          ? { stdout: "", result: null, error: rt, durationMs: 0 }
+          : await rt.run(cell.source);
       setOutputs((o) => ({ ...o, [cell.id]: res }));
       return res;
     },
-    [ensureKernel, runtimeError],
   );
 
   const runAll = async () => {
@@ -516,19 +524,16 @@ function PyNotebookPage() {
                         <Play className="h-4 w-4" />
                       )}
                     </Button>
-                    <div
-                      className="min-w-0 flex-1"
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && e.shiftKey) {
-                          e.preventDefault();
-                          void runCell(cell);
-                        }
-                      }}
-                    >
+                    <div className="min-w-0 flex-1">
                       <CodeMirror
                         value={cell.source}
                         onChange={(v) => updateCell(cell.id, v)}
-                        extensions={[python(), editorTheme, EditorView.lineWrapping]}
+                        extensions={[
+                          cellRunKey(() => void runCell(cell)),
+                          python(),
+                          editorTheme,
+                          EditorView.lineWrapping,
+                        ]}
                         theme={isDark ? vscodeDark : vscodeLight}
                         basicSetup={{ lineNumbers: true, foldGutter: false }}
                       />

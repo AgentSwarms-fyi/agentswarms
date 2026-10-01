@@ -97,7 +97,9 @@ function NotebooksDoc() {
         <li>
           Each code cell is a real editor (CodeMirror) — run it with the play button or{" "}
           <strong>Shift+Enter</strong>. stdout, the last expression's value, errors, and run
-          duration appear under the cell.
+          duration appear under the cell. Shift+Enter only runs: it adds no line to the cell. A cell
+          runs once at a time, so a second Shift+Enter while it runs waits for that run instead of
+          starting another, and a run while the kernel is starting waits for the start.
         </li>
         <li>
           Cells execute on a <strong>sandboxed container kernel</strong> — non-root, read-only root

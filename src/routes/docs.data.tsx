@@ -527,6 +527,11 @@ function DataPage() {
         <C>sales/*.parquet</C> is <C>sales</C>. Files in the same bucket can be joined, including
         across formats — a Parquet fact table against a CSV lookup is an ordinary query.
       </P>
+      <P>
+        In the Workbench, <strong>Run Query</strong> and Ctrl+Enter (⌘+Enter on a Mac) run one query
+        at a time. A second press while one runs is ignored, so a query is never sent, kept in
+        Recent queries, or audited twice for one double press.
+      </P>
       <Table
         headers={["Format", "Schema", "Query", "Notes"]}
         rows={[

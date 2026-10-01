@@ -304,6 +304,12 @@ Reuse the existing pieces: `getEffectiveModelRules`/`isModelAllowed` (IAM gate),
   limits (mem/CPU/timeout).
 - Cell execution goes over the gateway websocket to a server kernel. It is the
   only execution path; the Pyodide one this plan compared it against is gone.
+- **Shift+Enter** is bound in the cell editor's own keymap, at the highest
+  precedence, so it runs the cell and adds no line to it. A cell runs once at a
+  time: a second Shift+Enter or play click while it runs joins that run. The
+  kernel start is shared the same way, so a run that arrives while the kernel
+  starts waits for it instead of failing with "Server runtime not connected"
+  (R213).
 - **Packages**: `!pip install …` in a cell just works; optionally a small "Packages" panel that shows installed versions and lets users add from the allowlist.
 - The four framework **samples** need the server runtime like everything else.
   (Originally they were to stay runnable in Lite for teaching; with Pyodide gone

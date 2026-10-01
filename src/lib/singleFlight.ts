@@ -37,3 +37,52 @@ export function useSingleFlight<A extends unknown[]>(
   const [guarded] = useState(() => singleFlight((...args: A) => latest.current(...args)));
   return guarded;
 }
+
+/**
+ * One run per key at a time, where a call for a key already in flight joins
+ * that run and gets its result, instead of being dropped.
+ *
+ * FOUND IN R213: a Python notebook cell's Run button was disabled while the
+ * cell ran, but Shift+Enter ran it again, so a double Shift+Enter executed it
+ * twice on the kernel. And the kernel start had the same gap: a second run
+ * during the start was handed the runtime before it had connected, and
+ * answered "Server runtime not connected". Cells are keyed by id, so one
+ * cell's run never blocks another's, and Run all reaching a cell already
+ * running waits for that run's result.
+ */
+export function sharedFlight<A extends unknown[], R>(
+  keyOf: (...args: A) => string,
+  call: (...args: A) => Promise<R>,
+): (...args: A) => Promise<R> {
+  const inFlight = new Map<string, Promise<R>>();
+  return (...args: A) => {
+    const key = keyOf(...args);
+    const joined = inFlight.get(key);
+    if (joined) return joined;
+    // The async wrapper turns a synchronous throw into a rejection, so the
+    // entry is always set before it can be cleared.
+    const run = (async () => call(...args))();
+    inFlight.set(key, run);
+    const clear = () => {
+      if (inFlight.get(key) === run) inFlight.delete(key);
+    };
+    run.then(clear, clear);
+    return run;
+  };
+}
+
+/** sharedFlight for a component's handler, stable and calling the latest. */
+export function useSharedFlight<A extends unknown[], R>(
+  keyOf: (...args: A) => string,
+  fn: (...args: A) => Promise<R>,
+): (...args: A) => Promise<R> {
+  const latest = useRef({ keyOf, fn });
+  latest.current = { keyOf, fn };
+  const [guarded] = useState(() =>
+    sharedFlight(
+      (...args: A) => latest.current.keyOf(...args),
+      (...args: A) => latest.current.fn(...args),
+    ),
+  );
+  return guarded;
+}

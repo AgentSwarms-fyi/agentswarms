@@ -77,6 +77,7 @@ import { ensureSampleDataset, forceSeedSampleDataset, SAMPLE_TABLE_NAME } from "
 import { CsvUploadDialog } from "@/components/data-sql/CsvUploadDialog";
 import { QueryHistoryPanel } from "@/components/data-sql/QueryHistoryPanel";
 import { recordQuery } from "@/lib/queryHistory";
+import { useSingleFlight } from "@/lib/singleFlight";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   Dialog,
@@ -685,7 +686,11 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
       .catch(() => {});
   }
 
-  async function handleRun() {
+  // R213: Run Query was disabled={running}, but Ctrl+Enter in the editor
+  // called this with no check, so a double Ctrl+Enter ran the query twice:
+  // two warehouse queries, two history rows, two audit rows. One guard now
+  // covers the button and the key.
+  const handleRun = useSingleFlight(async () => {
     if (!sql.trim()) return;
     setRunning(true);
     setQueryError(null);
@@ -710,7 +715,7 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
     } finally {
       setRunning(false);
     }
-  }
+  });
 
   function handleFormat() {
     const keywords = [
@@ -1417,7 +1422,7 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
               </Button>
               <Button
                 size="sm"
-                onClick={handleRun}
+                onClick={() => void handleRun()}
                 disabled={running || !sql.trim()}
                 className="h-8 text-xs bg-primary hover:bg-primary/90 text-primary-foreground font-medium shadow-sm"
               >
@@ -1467,7 +1472,7 @@ function DataSqlPage({ seed }: { seed?: WorkbenchSeed | null }) {
                   onKeyDown={(e) => {
                     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
                       e.preventDefault();
-                      handleRun();
+                      void handleRun();
                     }
                   }}
                 />

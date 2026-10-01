@@ -15,6 +15,32 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-01 — A double Shift+Enter in a notebook, a double Ctrl+Enter in the Workbench, ADVERSARIAL_LOG R213
+
+**Why this round exists.** The third round of sweep 5, "a guard only the button honours".
+
+Fixtures, **kept**:
+- Python notebook `r213 double run` (id `f512c8b4-…`), from the starter template. Cell 6 holds
+  `n = globals().get("n", 0) + 1` / `print(n)`. Its source is back to 2 lines.
+- Recent queries rows `SELECT 213 AS r213_double_before` / `…_after` (×2 each, not a proof, see
+  below), and `r213_slow_probe`, `r213_slow_before` (×2), `r213_slow_after`,
+  `r213_slow_after_redeploy`.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before (hot deploy of R212) | Notebook, fresh page, cell 6, Shift+Enter twice | Cell output **"Server runtime not connected", 0 ms** while the first run was still starting the kernel. The start then timed out (cold container), and the cell showed "The server runtime is unavailable." while the banner said "Kernel connect timed out" |
+| Before | Shift+Enter once, kernel started | Output **1** (454 ms) |
+| Before | Kernel ready: Shift+Enter twice | Output **2**, then **3** 59 ms later: two runs |
+| Before | The cell's source after these presses | 2 lines grew to **7**: a blank line per Shift+Enter, kept by autosave |
+| Not a proof | Workbench, `SELECT 213 AS r213_double_before`, Ctrl+Enter twice; then the same as `…_after` on the R213 build | Two rows each time, about 30 ms each: the first run had finished before the second key, so neither result tests the guard |
+| Probe (R213 build) | `SELECT sum(i % 7) AS r213_slow_probe FROM range(200000000) t(i)`, Ctrl+Enter once | One row, 2619 ms |
+| Before (the R212 build, redeployed from a stash) | The same query as `r213_slow_before`, Ctrl+Enter twice | **Two** rows: 4099 ms and 6641 ms |
+| After (hot deploy of R213) | As `r213_slow_after`, Ctrl+Enter twice | **One** row, 2474 ms |
+| After (R213 rebuilt after the stash) | As `r213_slow_after_redeploy`, Ctrl+Enter twice | **One** row, 3829 ms |
+| After | Notebook, fresh page, cell 6 reset to 2 lines, Shift+Enter twice | No error; one run, output **1** (178 ms) once the kernel had started |
+| After | Kernel ready: Shift+Enter twice | Output **2** (58 ms): one run |
+| After | Shift+Enter once | Output **3**: the guard releases. Source still 2 lines |
+
 ## 2026-10-01 — A double Enter in the SCIM token label, ADVERSARIAL_LOG R212
 
 **Why this round exists.** The second round of sweep 5, "a guard only the button honours".

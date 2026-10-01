@@ -279,11 +279,11 @@ least twice, not a hypothetical.
      Enter drafted SQL twice.
    - **R212: the IAM SCIM token mint.** A double Enter minted two live tokens with one label, and
      only the second's secret was ever shown.
+   - **R213: the Workbench and the Python notebook.** A double Ctrl+Enter ran a Workbench query
+     twice. A double Shift+Enter ran a notebook cell twice on the kernel. A run during the kernel
+     start failed with "Server runtime not connected". And every Shift+Enter also added a blank
+     line to the cell.
    - **Next, in order of consequence:**
-     - The Workbench's Ctrl+Enter (`data-sql.tsx` `handleRun`): a duplicate warehouse query,
-       audit row and history row.
-     - The Python notebook's Shift+Enter (`notebooks.py.$pyNotebookId.tsx` `runCell`): a cell run
-       twice, the second maybe on a kernel not yet started.
      - Nine creates, each a duplicate row from a double Enter:
        - `sheets.tsx` (workbook), `bi.tsx` (dashboard), `etl.tsx` (pipeline),
          `mcp-builder.tsx` (MCP app; its `creating` also never clears on a throw),

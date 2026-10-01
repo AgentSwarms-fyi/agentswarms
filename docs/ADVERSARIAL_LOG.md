@@ -109,6 +109,60 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-01 — A double Shift+Enter, a cell run twice
+
+Tests: `tests/unit/singleFlight.test.ts` (12 tests: `sharedFlight`, and the guarded list gains the
+Workbench and the notebook) and `tests/unit/cellRunKey.test.ts` (4 tests, driving CodeMirror's
+own keymap dispatch). The mutation run caught 11 of 11, and the control survived.
+
+#### R213 · S2 · A notebook cell ran twice for a double Shift+Enter, and a Workbench query twice for a double Ctrl+Enter
+
+**Found** third in sweep 5's queue. Reading the notebook's run path found three faults where the
+queue listed one.
+
+- **A cell ran twice.** The cell's run button is `disabled` while it runs, and Shift+Enter called
+  the same `runCell` with no check. In the fixture notebook `r213 double run`, cell 6 holds
+  `n = globals().get("n", 0) + 1; print(n)`. With the kernel ready after one run (output 1), a
+  double Shift+Enter printed **2 and then 3**, 59 ms apart: two executions on the kernel.
+- **A run during the kernel start failed.** `ensureKernel` stored the runtime before `start()`
+  had connected, so a second call took it and ran on it, and it answered **"Server runtime not
+  connected"** at once. A double Shift+Enter on a fresh page showed that error in the cell while
+  the first run was still starting the kernel. When a start failed, the cell showed "The server
+  runtime is unavailable." rather than the start's reason, because `runCell` read
+  `runtimeError` from the render before the start.
+- **Every Shift+Enter added a blank line.** CodeMirror's standard keymap binds Shift-Enter to
+  "insert a newline", and it handles the key in the editor before the event reaches the wrapper
+  `div` that ran the cell. After the rounds above, the cell had grown from 2 lines to 7, and
+  autosave had kept them.
+
+The Workbench had the first fault: Run Query is `disabled={running}`, and Ctrl+Enter called
+`handleRun()` with no check. Its queries are read-only, so a double press costs a second query, a
+second Recent queries row and a second audit row. A quick query (`SELECT 213`, about 30 ms) is
+over before the second key, so it proves nothing either way. With
+`SELECT sum(i % 7) … FROM range(200000000)` (about 2.5 s) on the R212 build, a double Ctrl+Enter
+left **two** Recent queries rows, 4099 ms and 6641 ms: the second waited behind the first in the
+browser's one DuckDB worker.
+
+**The fix.**
+- **`sharedFlight` / `useSharedFlight`** (`src/lib/singleFlight.ts`): one run per key. A call for
+  a key already in flight joins that run and gets its result. Cells are keyed by id, so one
+  cell's run never holds up another's, and Run all reaching a cell already running waits for it.
+- **`runCell` and `ensureKernel`** are both shared flights. `ensureKernel` returns the start's
+  reason on failure, and `runCell` shows that reason.
+- **`cellRunKey`** (`src/lib/cellRunKey.ts`) binds Shift-Enter in the editor's own keymap at
+  `Prec.highest`, so the run is the binding that handles the key, and no line is inserted.
+- **The Workbench's `handleRun`** is wrapped in R211's `useSingleFlight`.
+
+**Driven after** (hot deploy of R213):
+- **Notebook, fresh page:** a double Shift+Enter gave no error, and one run printed **1**.
+- **Notebook, kernel ready:** a double Shift+Enter printed **2** (one run). A later single
+  Shift+Enter printed **3**, so the guard releases. The source stayed at 2 lines throughout.
+- **Workbench:** the slow query with a double Ctrl+Enter left **one** row, on two separate
+  deploys of the fix: 2474 ms, then 3829 ms.
+
+The R212 build was restored from a stash only to take that Workbench "before", then R213 was
+rebuilt and deployed again.
+
 ### 2026-10-01 — A double Enter, two live SCIM tokens, one secret shown
 
 Tests: `tests/unit/singleFlight.test.ts` (6 tests; the list of guarded keyboard paths gains the
