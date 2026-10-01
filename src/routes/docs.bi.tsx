@@ -66,7 +66,8 @@ function BiPage() {
         that produced it, so an exported report never attributes old numbers to a newly-chosen
         model. Reasoning models are also given a longer request deadline than chat models, because
         their time goes on thinking rather than output — sized for chat models, the analyst&apos;s
-        required model class was the one that timed out.
+        required model class was the one that timed out. One question runs at a time: a second Enter
+        while the first is starting is ignored, so it never runs twice or saves two threads.
       </P>
       <H3 id="analyst-governed">Governed steps</H3>
       <P>

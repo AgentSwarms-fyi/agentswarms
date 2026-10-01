@@ -289,9 +289,9 @@ least twice, not a hypothetical.
      error. The MCP builder's busy flag also stayed set when its create threw.
    - **R215: the Semantic Layer's Add metric to dashboard.** Its form reset on every click
      inside it, and its Enter had R214's gap; both fixed.
-   - **Next, in order of consequence:**
-     - AI Analyst's `askQuestion`: `busy` is set only after `await resolveScope()`, so either
-       path can start two analyst runs.
+   - **R216: the AI Analyst's ask.** `busy` was set only after `await resolveScope()`. On a
+     warehouse analyst's first question, a double Enter ran two analyses and saved two threads.
+     This closes the sweep's survey list.
 
 6. **A form that resets under the user** (sweep 6, found in R215). A dialog fills its form in
    an effect keyed on `open` and on props. When a prop is an object or function the parent

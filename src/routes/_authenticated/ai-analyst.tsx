@@ -137,6 +137,7 @@ import {
 } from "@/lib/biDashboards";
 import { exportAnalysisPdf } from "@/lib/biPdf";
 import { hydrateFromSupabase, type DatasetMeta, type QueryResult } from "@/lib/sqlEngine";
+import { useSingleFlight } from "@/lib/singleFlight";
 import {
   fetchWarehouseSchema,
   runWarehouseQuery,
@@ -501,81 +502,82 @@ function AiAnalystPage() {
   );
 
   // ── Ask ─────────────────────────────────────────────────────────────
-  const askQuestion = useCallback(
-    async (raw: string) => {
-      const q = raw.trim();
-      if (!q || busy || !selected) return;
-      const scope = await resolveScope();
-      if (!scope) return;
+  // R216: `busy`, which disables the input, Ask and the starter chips, was set
+  // only after `await resolveScope()`. A warehouse analyst's first question
+  // fetches the schema there, so a second Enter got in: two analyst runs, two
+  // warehouse queries, two saved threads. One guard now covers every path.
+  const askQuestion = useSingleFlight(async (raw: string) => {
+    const q = raw.trim();
+    if (!q || busy || !selected) return;
+    const scope = await resolveScope();
+    if (!scope) return;
 
-      setQuestion("");
-      setBusy(true);
-      try {
-        const turn = await runAnalystTurn({
-          question: q,
-          datasets: scope.datasets,
-          semantics: scope.semantics,
-          metrics: scope.metrics,
-          priorTurns: thread?.turns ?? [],
-          model: selected.model,
-          execute: scope.execute,
-          dialect: scope.dialect,
-          // The catalog resolved at load, AFTER ensureGovernedCatalog(). Read
-          // straight from the cache here and a cold first question gets an
-          // empty catalog — no step could be governed, and nothing would say
-          // why.
-          catalog,
-          // Trained models the plan may score with, and the scoring itself —
-          // server-side, under this session, like governed compilation.
-          models: scorable,
-          // The ones this analyst could enable but has not, so a question
-          // naming one is answered with the setting, not "no such model".
-          modelsOutsideScope: allModels
-            .filter((m) => !scorable.some((s) => s.name === m.name))
-            .map((m) => m.name),
-          scoreRows: token
-            ? async (req) =>
-                scoreRowsFn({
-                  data: {
-                    accessToken: token,
-                    analystId: selected.id,
-                    model: req.model,
-                    rows: req.rows.map(cellRow),
-                  },
-                })
-            : undefined,
-          // A forecast step: the model's own periods, no SQL — same seam.
-          forecast: token
-            ? async (req) =>
-                forecastFn({
-                  data: { accessToken: token, analystId: selected.id, model: req.model },
-                })
-            : undefined,
-          runSemantic: token
-            ? async (query) => {
-                const res = await runSemanticFn({ data: { accessToken: token, query } });
-                return {
-                  sql: res.sql,
-                  columns: res.columns,
-                  rows: res.rows as Record<string, unknown>[],
-                  rollup: res.rollup,
-                  access_note: res.access_note,
-                  truncated: res.truncated,
-                };
-              }
-            : undefined,
-          onUpdate: setLiveTurn,
-        });
-        // Persist the finished turn (including failures — the trace is the
-        // record), then fold it into the rendered thread.
-        await persistTurns([...(thread?.turns ?? []), trimTurnForStorage(turn)], q);
-        setLiveTurn(null);
-      } finally {
-        setBusy(false);
-      }
-    },
-    [busy, selected, thread, resolveScope, persistTurns],
-  );
+    setQuestion("");
+    setBusy(true);
+    try {
+      const turn = await runAnalystTurn({
+        question: q,
+        datasets: scope.datasets,
+        semantics: scope.semantics,
+        metrics: scope.metrics,
+        priorTurns: thread?.turns ?? [],
+        model: selected.model,
+        execute: scope.execute,
+        dialect: scope.dialect,
+        // The catalog resolved at load, AFTER ensureGovernedCatalog(). Read
+        // straight from the cache here and a cold first question gets an
+        // empty catalog — no step could be governed, and nothing would say
+        // why.
+        catalog,
+        // Trained models the plan may score with, and the scoring itself —
+        // server-side, under this session, like governed compilation.
+        models: scorable,
+        // The ones this analyst could enable but has not, so a question
+        // naming one is answered with the setting, not "no such model".
+        modelsOutsideScope: allModels
+          .filter((m) => !scorable.some((s) => s.name === m.name))
+          .map((m) => m.name),
+        scoreRows: token
+          ? async (req) =>
+              scoreRowsFn({
+                data: {
+                  accessToken: token,
+                  analystId: selected.id,
+                  model: req.model,
+                  rows: req.rows.map(cellRow),
+                },
+              })
+          : undefined,
+        // A forecast step: the model's own periods, no SQL — same seam.
+        forecast: token
+          ? async (req) =>
+              forecastFn({
+                data: { accessToken: token, analystId: selected.id, model: req.model },
+              })
+          : undefined,
+        runSemantic: token
+          ? async (query) => {
+              const res = await runSemanticFn({ data: { accessToken: token, query } });
+              return {
+                sql: res.sql,
+                columns: res.columns,
+                rows: res.rows as Record<string, unknown>[],
+                rollup: res.rollup,
+                access_note: res.access_note,
+                truncated: res.truncated,
+              };
+            }
+          : undefined,
+        onUpdate: setLiveTurn,
+      });
+      // Persist the finished turn (including failures — the trace is the
+      // record), then fold it into the rendered thread.
+      await persistTurns([...(thread?.turns ?? []), trimTurnForStorage(turn)], q);
+      setLiveTurn(null);
+    } finally {
+      setBusy(false);
+    }
+  });
 
   const ask = useCallback(() => askQuestion(question), [askQuestion, question]);
 

@@ -191,6 +191,14 @@ const GUARDED: { file: string; fn: string; key: RegExp }[] = [
     fn: "submit",
     key: /e\.key === "Enter" && void submit\(\)/,
   },
+  // R216: the analyst's `busy` was set only after `await resolveScope()`, so a
+  // double Enter on a warehouse analyst's first question ran it twice and
+  // saved two threads. Enter submits the form, whose handler calls ask().
+  {
+    file: "src/routes/_authenticated/ai-analyst.tsx",
+    fn: "askQuestion",
+    key: /const ask = useCallback\(\(\) => askQuestion\(question\)/,
+  },
 ];
 
 describe("every surveyed keyboard path", () => {

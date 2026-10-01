@@ -436,6 +436,11 @@ the same allow-list rule as an agent's ML tool, enforced when a step scores,
 not only in what the planner is shown. Create as many analysts as you have
 jobs for them.
 
+**One question runs at a time.** Ask, Enter and a starter chip share one
+in-flight guard. It is set the moment a question is asked, before the analyst
+fetches a warehouse schema, so a quick second Enter neither runs the analysis
+again nor saves a second thread (R216).
+
 All three choices stay **editable** — the pencil on an analyst's card reopens the
 same dialog, so a model that turns out too slow, or data that moved, is a
 two-click change rather than a new analyst. Editing applies to your next

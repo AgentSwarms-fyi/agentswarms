@@ -15,6 +15,19 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-02 — A double Enter to the AI Analyst, ADVERSARIAL_LOG R216
+
+**Why this round exists.** The last round of sweep 5, "a guard only the button honours".
+
+Fixtures, **kept**: analyst threads `r216 before: how many rows are in
+analytics.fct_region_revenue?` (×2) and `r216 after: …` (×1), on the Lakehouse analyst
+(gpt-4o-mini).
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before (hot deploy of R215) | AI Analyst, fresh page, Lakehouse analyst, New analysis; the `r216 before` question, Enter twice | **2** schema calls, **2** warehouse queries, **2** thread inserts; the picker lists the question **twice** |
+| After (hot deploy of R216) | The same, as `r216 after` | **1** schema call, **1** query, **1** thread insert; the picker lists it **once** |
+
 ## 2026-10-01 — Add metric to dashboard holds its form, ADVERSARIAL_LOG R215
 
 **Why this round exists.** Found while driving R214: the dialog refilled its form on every click.

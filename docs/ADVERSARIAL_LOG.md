@@ -109,6 +109,38 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-02 — A double Enter to the analyst, two analyses, two threads
+
+Tests: `tests/unit/singleFlight.test.ts` (the guarded list gains the analyst's ask). The mutation
+run caught 2 of 2, and the control survived.
+
+#### R216 · S2 · A double Enter ran the AI Analyst twice and saved two threads
+
+**Found** last in sweep 5's queue. The analyst's input, Ask and starter chips are disabled while
+`busy`. `askQuestion` set `busy` only after `await resolveScope()`, and checked a `busy` read from
+the render that called it. For a warehouse analyst, `resolveScope` fetches the warehouse schema
+the first time on a page, which is long enough for a second Enter to submit the form again.
+
+In the UI: Lakehouse analyst (gpt-4o-mini, the built-in Lakehouse connection), fresh page, New
+analysis, `r216 before: how many rows are in analytics.fct_region_revenue?`, Enter twice. The page
+sent:
+- **two** `/api/warehouse/schema` calls;
+- **two** `/api/warehouse/query` calls;
+- **two** inserts into `ai_analyst_threads`.
+
+The thread picker then listed the question **twice**: two analyses paid for, two threads saved.
+(The picker also holds an older thread, "Which 10 orders in analytics.revenue_facts…", three
+times; it predates this round and was not traced.)
+
+**The fix.** `askQuestion` is wrapped in R211's `useSingleFlight`. The flag is set at the call,
+before the schema fetch, and Enter, Ask and the starter chips all reach it.
+
+**Driven after** (hot deploy of R216): the same steps for `r216 after: …` sent **one** schema
+call, **one** query and **one** thread insert, and the picker lists `r216 after` once.
+
+**Sweep 5 is closed.** Every keyboard path its survey listed now shares its button's guard:
+R211 to R216 put sixteen handlers on `tests/unit/singleFlight.test.ts`'s list.
+
 ### 2026-10-01 — A click in a dialog, and the form fills itself again
 
 Tests: `tests/unit/useResetOnOpen.test.ts` (4 tests: the hook under a minimal stand-in for
