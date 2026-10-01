@@ -15,6 +15,20 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-01 — The Workbench's two engines on one query, ADVERSARIAL_LOG R209
+
+**Why this round exists.** R197's leftover: the browser's DuckDB was an older version than the
+server's.
+
+Fixtures: none. The builder pane was closed without adding.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before (hot deploy of R208) | Workbench, Local (in-browser): `typeof(date_trunc('month', TIMESTAMP '2026-01-15 10:00:00'))`, the value, `version()` | **DATE · 2026-01-01 · v1.4.3** |
+| Before | the same on Lakehouse · AgentSwarms | **TIMESTAMP · 2026-01-01 00:00:00 · v1.5.5** |
+| After (hot deploy of R209) | the same on Local, with `current_setting('TimeZone')`, a TIMESTAMPTZ and a DATE | **TIMESTAMP · 2026-01-01 00:00:00 · v1.5.4** · UTC · 2026-09-30 22:30:00+00 · 2026-09-30 |
+| After | BI builder, Line, Local, monthly `count(*)` over `saas_sales` | a time axis: 2022-07, 2023-03, 2023-11, 2024-07, 2025-03, 2025-12 (R197: the old engine drew text labels) |
+
 ## 2026-10-01 — Smoke of the real image after R206 to R208
 
 **Why this round exists.** The rounds since the last image went into a real image, `2ff4e7c03179`.

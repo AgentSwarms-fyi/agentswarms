@@ -109,6 +109,40 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-01 — One query, DATE in the browser and TIMESTAMP on the server
+
+Tests: `tests/unit/duckdbEnginesParity.test.ts` (12 tests: the browser's wasm build, run under
+Node, beside the server's `@duckdb/node-api`). Against the old build it fails 3 of 12: the minor
+version, and `date_trunc` on a TIMESTAMP and on a DATE. The 9 that agree on both builds are the
+control.
+
+#### R209 · S2 · The Workbench's two engines were different DuckDB versions
+
+**Found** as R197's leftover. On the Workbench, `SELECT typeof(date_trunc('month', TIMESTAMP
+'2026-01-15 10:00:00')), date_trunc(…), version()` answered:
+- on "Local (in-browser)": **DATE · 2026-01-01 · v1.4.3**;
+- on "Lakehouse": **TIMESTAMP · 2026-01-01 00:00:00 · v1.5.5**.
+
+The browser ran `@duckdb/duckdb-wasm` 1.32.0, which bundles DuckDB 1.4.3; the server ran
+`@duckdb/node-api` 1.5.5. The type a column comes back as decides how the charts read it (R197):
+a DATE's text is a label, a TIMESTAMP's a time. So the same monthly query drew labels from one
+engine and a time axis from the other, and the in-app docs said so as a known difference.
+
+**The fix.** `@duckdb/duckdb-wasm` 1.33.1-dev57.0, the build npm's `latest` tag names, published
+2026-06-22. It bundles DuckDB **1.5.4**: probed in a scratch install before the project took it,
+beside `next` (1.33.1-dev65.0, DuckDB 1.5.6, newer than the server). Its worker and wasm file
+names, its Arrow (^17) and its API are the old ones', so the app's imports are unchanged. It adds
+`qs` and its helpers as dependencies. The test runs the wasm build the browser loads, in its Node
+form, beside the server's, and holds them to one minor version and to the same result types
+across date, interval, division, rounding, aggregate and strftime expressions.
+
+**Driven after** (hot deploy of R209):
+- **Local now answers** **TIMESTAMP · 2026-01-01 00:00:00 · v1.5.4**, with time zone UTC
+  (R195), TIMESTAMPTZ `2026-09-30 22:30:00+00` and DATE `2026-09-30` (R197) as before.
+- **The BI builder on Local,** `date_trunc('month', strptime("Order Date", '%m/%d/%Y'))` against
+  `count(*)` over `saas_sales`, drew a time axis (2022-07 … 2025-12), as the server's does. R197
+  recorded the old engine's labels, `2022-01-01, 2022-02-01, 2022-03-01`.
+
 ### 2026-10-01 — "1 file added" for a file search could not find
 
 Tests: `tests/unit/kbSourceAndIndex.test.ts` (6 tests), and `kbAddSourceWrites.test.ts`, whose

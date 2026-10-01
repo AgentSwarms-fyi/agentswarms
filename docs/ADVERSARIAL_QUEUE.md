@@ -236,10 +236,9 @@ least twice, not a hypothetical.
    - **R197: the date formats.** The browser engine now writes DATE and TIMESTAMP as the server
      does, and the auto axis reads the engines' timestamp text as raw.
    - **Still open.**
-     - The two engines are different DuckDB versions: 1.4.3 in the browser (`@duckdb/duckdb-wasm`
-       1.32.0) and 1.5.5 on the server. `date_trunc('month', <TIMESTAMP>)` is a DATE in one and a
-       TIMESTAMP in the other, so over a long span only the server's axis relabels. Either align
-       the versions, or pass column types to the charts instead of reading them from text.
+     - ~~The two engines are different DuckDB versions: 1.4.3 in the browser and 1.5.5 on the
+       server.~~ R209: the browser runs DuckDB 1.5.4 (`@duckdb/duckdb-wasm` 1.33.1-dev57.0), and
+       `duckdbEnginesParity.test.ts` holds the two to one minor line and the same result types.
      - ~~The chart builder's *Add to dashboard* is disabled until the chart has a title, and
        nothing says why.~~ R203: the line under the button says what is missing.
    - **R198: grid vs table sheet.** A probe ran 75 formulas through both engines over the same rows.

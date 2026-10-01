@@ -886,9 +886,9 @@ ORDER  BY 1;`}</Code>
         time zone, so <code>current_date</code> and a timestamp cast to a date name the same day in
         the workbench as on a schedule. Dates and timestamps come back written the same way from
         both, <code>2022-01-04</code> and <code>2022-01-01 00:00:00</code>, in the results grid and
-        in exports. One difference remains: the browser&apos;s engine is an older DuckDB, so a few
-        expressions are typed differently (<code>date_trunc</code> on a timestamp returns a date
-        there and a timestamp on the server).
+        in exports. Both are DuckDB 1.5, the browser&apos;s 1.5.4 and the server&apos;s 1.5.5, and a
+        test holds them to the same line and the same result types, so <code>date_trunc</code> on a
+        timestamp is a timestamp in both, and a chart draws the same axis from either.
       </Callout>
       <H3 id="workbench-first-query">The first query in a session is slower</H3>
       <P>
