@@ -11,7 +11,7 @@
 
 import * as formulajs from "@formulajs/formulajs";
 import type { Arg, FnCtx, FnImpl } from "./evaluate";
-import { formatValue } from "../format";
+import { excelRound, formatValue } from "../format";
 import {
   compareScalars,
   dateSerial,
@@ -669,28 +669,16 @@ const roundTo = (mode: "half" | "up" | "down"): FnImpl => {
     const d = num(args[1], 0);
     if (isError(n)) return n;
     if (isError(d)) return d;
-    const f = Math.pow(10, Math.trunc(d));
-    const x = Math.abs(n) * f;
-    // Guard against float noise: 2.675 * 100 = 267.49999999999997.
-    const eps = 1e-9;
-    let r: number;
-    if (mode === "half") r = Math.floor(x + 0.5 + eps);
-    else if (mode === "up") r = Math.ceil(x - eps);
-    else r = Math.floor(x + eps);
-    return (Math.sign(n) * r) / f;
+    // Excel's 15 digits, shifted as text: 2.675 is 2.68, not 2.67 (R200).
+    return excelRound(n, Math.trunc(d), mode);
   };
 };
 F.ROUND = roundTo("half");
 F.ROUNDUP = roundTo("up");
 F.ROUNDDOWN = roundTo("down");
-F.TRUNC = (args) => {
-  const n = num(args[0]);
-  const d = num(args[1], 0);
-  if (isError(n)) return n;
-  if (isError(d)) return d;
-  const f = Math.pow(10, Math.trunc(d));
-  return Math.trunc(n * f) / f;
-};
+// TRUNC is ROUNDDOWN in Excel. FOUND IN R200: it cut the binary, so
+// TRUNC(0.29, 2) was 0.28 (0.29 × 100 is 28.999999999999996).
+F.TRUNC = roundTo("down");
 /**
  * A quotient float noise put a hair off a whole number, as the whole number:
  * 0.3 / 0.1 is 2.9999999999999996, and FLOOR(0.3,0.1) must be 0.3 (R176).

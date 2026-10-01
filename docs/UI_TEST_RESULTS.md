@@ -15,6 +15,22 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-01 — Rounding in a table sheet against a grid, ADVERSARIAL_LOG R200
+
+**Why this round exists.** R199's second probe. One workbook holds the same values in a grid
+sheet and in a table sheet over a lakehouse query, with the same formulas.
+
+Fixtures, **kept**: workbook "R200 table rounding" (Sheet1 grid, row 1; Query table sheet over
+`SELECT * FROM (VALUES (1, 'o''neil 2-way', 1.005::DOUBLE, 0.29::DOUBLE, 0.01::DOUBLE + 0.075::DOUBLE)) v(id, name, price, rate, total)`,
+with calculated columns round2, text2, joined, trunc2, proper and share2).
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before (hot deploy of R199) | Sheet1: A1 1.005, `=ROUND(A1,2)`, `=TEXT(A1,"0.00")`, `=0.01+0.075`, `=D1&""`, `=TRUNC(0.29,2)`, `=PROPER("o'neil 2-way")` | 1.01, 1.01, 0.085, 0.085, **0.28**, O'Neil 2-Way |
+| Before | Query: + Column round2 `=ROUND([@price],2)`, text2 `=TEXT([@price],"0.00")`, joined `=[@total]&""`, trunc2 `=TRUNC([@rate],2)`, proper `=PROPER([@name])` | **1**, **1.00**, **0.08499999999999999** (the total column beside it shows 0.085), **0.28**, **O'neil 2-way** |
+| After (hot deploy of R200) | the workbook, reopened | Sheet1 F1 **0.29**; Query: **1.01**, **1.01**, **0.085**, **0.29**, **O'Neil 2-Way** |
+| After (final build, fast path) | + Column share2 `=ROUND([@price]*[@rate]/SUM([rate]),2)` (a whole-column total) | **1.01**, no error; "All changes saved" |
+
 ## 2026-10-01 — TEXT, number formats and PROPER in a grid, ADVERSARIAL_LOG R199
 
 **Why this round exists.** R198's probe found the grid's own differences from Excel. ROUND and TEXT

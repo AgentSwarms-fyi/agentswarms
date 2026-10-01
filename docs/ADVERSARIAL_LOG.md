@@ -109,6 +109,73 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-01 — ROUND(1.005, 2) is 1 in a table and 1.01 in the grid beside it
+
+Tests: `tests/unit/sheetsExcelRounding.test.ts` (13 tests: Excel's answers, and the compiled SQL
+against the grid's TypeScript over about 2,100 values), and `sheetsGridTableParity.test.ts` (new
+rows and formulas). The mutation run caught 19 of 19, and the control survived.
+
+#### R200 · S2 · A table sheet rounded the binary and wrote 17 digits, where the grid and Excel do neither
+
+**Found** by R199's second probe, which added the rows 0.01+0.075, 1.005 and "o'neil 2-way" to
+the grid-vs-table parity test. In the UI, workbook "R200 table rounding" (kept): a grid sheet and
+a table sheet (a lakehouse query) hold the same values and formulas.
+
+| Formula | Table sheet | Grid | Excel |
+| --- | --- | --- | --- |
+| `ROUND(1.005,2)` | **1** | 1.01 | 1.01 |
+| `TEXT(1.005,"0.00")` | **1.00** | 1.01 | 1.01 |
+| 0.01+0.075 `&""` | **0.08499999999999999** | 0.085 | 0.085 |
+| `TRUNC(0.29,2)` | **0.28** | **0.28** | 0.29 |
+| `PROPER("o'neil 2-way")` | **O'neil 2-way** | O'Neil 2-Way | O'Neil 2-Way |
+
+- **The table.** DuckDB's `round()` rounds the stored binary, a number became text with
+  DuckDB's 17 digits, and PROPER split at spaces only.
+- **The grid.** It had its own error. TRUNC cut the binary (0.29 × 100 is 28.999999999999996).
+  ROUND guarded float noise with an absolute 1e-9 after scaling, which rounds 2.674999999999 up
+  to 2.68 and is smaller than a large amount's binary error.
+
+**The fix.** One rule in both engines, Excel's: take the 15 significant digits, shift them by d
+places as decimal text (which is exact), round, and shift back.
+- **The grid.** `format.ts excelRound` serves ROUND, ROUNDUP, ROUNDDOWN, TRUNC (now ROUNDDOWN, as
+  in Excel) and every number format.
+- **The table.** `compile.ts excelRoundSql` does the same steps in SQL, `numberTextSql` writes a
+  number as the grid's `numberText` does, and PROPER splits the text into runs of letters and of
+  anything else.
+- **The sweep.** It holds the SQL to the TypeScript over about 2,100 values: decimals ending in
+  5, sums, tiny and huge numbers, and d from −3 to 5.
+
+**Three first cuts were wrong, and the tests caught each:**
+1. **The lambda's name.** It was `p`, the same name the column SQL gives its row. `p.d` read the
+   row's column, and `TRY` turned the error into a blank.
+2. **Speed.** Writing every row as text cost 18 times `round()` over a million rows. Now most
+   rows take plain arithmetic: when the scaled value is clear of the half by more than any
+   15-digit or binary error could move it, plain rounding gives the same answer. Only rows on
+   the edge are worked out from their digits.
+3. **Subqueries.** A lambda that read its argument directly broke a whole-column total
+   (`/SUM([rate])`): DuckDB refuses a subquery inside a lambda. Short arguments are now written
+   out, and long ones are bound once.
+
+Measured over a million rows (DuckDB 1.5.5):
+
+| | ROUND(x,2) | Number in text |
+| --- | --- | --- |
+| Random doubles | 75 ms (`round()` 67) | 846 ms (17 digits each, all worked out from their digits) |
+| Three-place decimals | 209 ms (`round()` 64) | 216 ms (cast 79) |
+
+**Driven after** (hot deploy of R200): the table read round2 **1.01**, text2 **1.01**, joined
+**0.085**, trunc2 **0.29** and proper **O'Neil 2-Way**, the same as the grid, whose F1
+`=TRUNC(0.29,2)` now reads **0.29**. A new column `=ROUND([@price]*[@rate]/SUM([rate]),2)`, over
+a whole-column total, reads 1.01.
+
+**Found beside it, for R201** (numbers past 15 digits): the parity test lists these rows as
+QUEUED.
+- **CEILING.** The grid snaps a quotient within 1e-9 × itself of a whole number, so
+  `CEILING(12345678901.005, 1)` is …901 there, where Excel gives …902. The table gives
+  12345678902.000002.
+- **Large numbers in a format.** A grid number format past 1E+21 writes toFixed's exponent text:
+  `TEXT(1.5E+21,"0")` gives "1". The table writes every binary digit, where Excel stops at 15.
+
 ### 2026-10-01 — 2.67 from TEXT, 2.68 from ROUND, in the same row
 
 Tests: `tests/unit/sheetsGridExcelText.test.ts` (5 tests). The mutation run caught 7 of 7, and the

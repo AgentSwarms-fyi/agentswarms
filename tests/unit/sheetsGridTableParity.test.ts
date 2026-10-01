@@ -28,6 +28,13 @@ const ROWS: { n: number | null; s: string | null }[] = [
   { n: 0, s: "hello world" },
   { n: 1234567.891, s: "ecole" },
   { n: -0.5, s: "abc" },
+  { n: 0.01 + 0.075, s: "o'neil 2-way" },
+  { n: 1.005, s: "ÉCOLE normale" },
+  // R200: a binary cut, a large amount with cents, the small and the huge.
+  { n: 0.29, s: "76BudGet" },
+  { n: 12345678901.005, s: "ß straße" },
+  { n: 0.00001, s: "a1b2" },
+  { n: 1.5e21, s: "x  y" },
 ];
 
 /** Formulas the two engines must answer alike on every row. */
@@ -53,6 +60,9 @@ const AGREE = [
   "=ROUND([@n],2)",
   "=ROUNDUP([@n],0)",
   "=ROUNDDOWN([@n],0)",
+  "=ROUNDUP([@n],2)",
+  "=ROUNDDOWN([@n],2)",
+  "=TRUNC([@n],2)",
   "=INT([@n])",
   "=TRUNC([@n])",
   "=MOD([@n],2)",
@@ -64,6 +74,11 @@ const AGREE = [
   "=TRIM([@s])",
   "=LEN([@s])",
   "=LOWER([@s])",
+  "=PROPER([@s])",
+  '=TEXT([@n],"0.00")',
+  '=TEXT([@n],"#,##0.00")',
+  '=TEXT([@n],"0")',
+  '=TEXT([@n],"0.0%")',
   "=LEFT([@s],2)",
   "=RIGHT([@s],2)",
   "=MID([@s],2,2)",
@@ -76,6 +91,22 @@ const AGREE = [
   "=ISNUMBER([@n])",
   "=AND([@n]>0,[@n]<3)",
 ];
+
+/**
+ * Rows a formula is not held to yet, each queued in ADVERSARIAL_QUEUE as R201
+ * (numbers past 15 digits). Remove a row here when its fix lands.
+ */
+const QUEUED: Record<string, number[]> = {
+  // The grid snaps a quotient within 1e-9 × itself of a whole number, so
+  // CEILING(12345678901.005, 1) is …901 there; the table says …902.000002.
+  "=CEILING([@n],1)": [10],
+  // A grid number format past 1E+21 is toFixed's exponent text ("1.5e+21",
+  // and "1" for "0"); the table writes every binary digit, not Excel's 15.
+  '=TEXT([@n],"0.00")': [12],
+  '=TEXT([@n],"#,##0.00")': [12],
+  '=TEXT([@n],"0")': [12],
+  '=TEXT([@n],"0.0%")': [12],
+};
 
 let conn: Awaited<ReturnType<DuckDBInstance["connect"]>>;
 
@@ -130,7 +161,8 @@ function grid(formula: string): string[] {
 
 describe("a grid sheet and a table sheet", () => {
   it.each(AGREE)("agree on %s, row by row", async (formula) => {
-    expect(await table(formula)).toEqual(grid(formula));
+    const held = (_v: string, i: number) => !QUEUED[formula]?.includes(i);
+    expect((await table(formula)).filter(held)).toEqual(grid(formula).filter(held));
   });
 
   it("show the blank row as Excel does, in the case R198 found in the UI", async () => {
@@ -144,7 +176,7 @@ describe("a grid sheet and a table sheet", () => {
     const { sql } = compileColumnFormula("=MROUND([@n],0.5)", cx);
     const r = await conn.runAndReadAll(`SELECT isnan(${sql}) AS bad FROM t p ORDER BY p.id`);
     const bad = r.getRowObjectsJson().map((row) => row.bad);
-    expect(bad).toEqual([false, true, false, false, false, false, true]);
+    expect(bad).toEqual([false, true, false, false, false, false, true, ...Array(6).fill(false)]);
     expect(grid("=MROUND([@n],0.5)")[1]).toBe("(error)");
   });
 });

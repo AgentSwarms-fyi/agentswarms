@@ -331,12 +331,37 @@ function formatNumberSection(n: number, code: string): string {
  * 15-digit value is scaled by a power of ten as text, which is exact.
  */
 export function excelFixed(v: number, places: number): string {
-  if (!Number.isFinite(v) || places > 15) return v.toFixed(places);
-  const shown = String(Number(v.toPrecision(15)));
-  // An exponent (1e-7, 1.5e+21) cannot take another one as text.
-  if (/e/i.test(shown)) return Number(shown).toFixed(places);
-  const scaled = Math.round(Number(`${shown}e${places}`));
-  return (scaled / 10 ** places).toFixed(places);
+  return excelRound(v, places, "half").toFixed(places);
+}
+
+/**
+ * x rounded at d decimal places as Excel rounds: the 15 significant digits it
+ * keeps are shifted by d as decimal text, which is exact, then rounded half
+ * away from zero ("half"), away from zero ("up") or toward it ("down"), and
+ * shifted back. ROUND, ROUNDUP, ROUNDDOWN, TRUNC and every number format use
+ * it, and a table sheet's SQL does the same steps (sql/compile.ts,
+ * excelRoundSql), so a grid and a table agree.
+ *
+ * FOUND IN R200: ROUND guarded float noise with an absolute 1e-9 after
+ * scaling. A large amount's binary error is bigger than that, so
+ * ROUND(12345678901.005, 2) was ….00 where Excel says ….01, and the guard
+ * rounded 2.674999999999 up to 2.68. TRUNC had no guard: TRUNC(0.29, 2) was
+ * 0.28, as 0.29 × 100 is 28.999999999999996.
+ */
+export function excelRound(x: number, d: number, mode: "half" | "up" | "down"): number {
+  if (!Number.isFinite(x) || x === 0) return x;
+  const [mantissa, exp] = Math.abs(x).toExponential(14).split("e");
+  const e = Number(exp);
+  // At the 15th digit or past it, there is nothing left to round.
+  if (e + d >= 14) return x;
+  const scaled = Number(`${mantissa}e${e + d}`);
+  const r =
+    mode === "half"
+      ? Math.floor(scaled + 0.5)
+      : mode === "up"
+        ? Math.ceil(scaled)
+        : Math.floor(scaled);
+  return Math.sign(x) * Number(`${r}e${-d}`);
 }
 
 /**

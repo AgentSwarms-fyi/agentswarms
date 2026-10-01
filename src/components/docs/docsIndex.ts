@@ -4076,6 +4076,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "=TEXT(2.675,&quot;0.00&quot;)",
       "A2#",
       "Orders[amount]",
+      "ROUND(1.005,2)",
       "SHEETS_AI_FILL_MAX_ROWS",
       "SHEETS_ASSIST_MODEL",
       "SHEETS_ASSIST_PER_MINUTE",

@@ -247,12 +247,19 @@ least twice, not a hypothetical.
    - **R199: the grid's own differences from Excel.** TEXT and number formats round the 15 digits
      Excel keeps (2.675 is 2.68, as ROUND says), PROPER knows accented letters, and TEXT of a
      blank is TEXT of 0. `sheetsGridExcelText.test.ts`.
-   - **Next, R200: the table sheet on R199's cases.** A second probe added the rows 0.01+0.075,
-     1.005, "o'neil 2-way" and "ÉCOLE normale". The parity patch is kept in the session scratchpad.
-     - A number in text is written from DuckDB's 17 digits (`0.08499999999999999`, LEN 19), not 15.
-     - ROUND and TEXT use DuckDB's `round`, so `ROUND(1.005,2)` is 1 and `TEXT(1.005,"0.00")` is
-       1.00, where the grid and Excel give 1.01.
-     - PROPER splits on spaces only.
+   - **R200: one rounding rule in both engines.** ROUND, ROUNDUP, ROUNDDOWN, TRUNC, TEXT and a
+     number in text follow Excel's 15 digits in a grid and in a table sheet's SQL, and PROPER in a
+     table starts a word after anything that is not a letter. A fast path keeps the SQL near
+     `round()`'s cost. `sheetsExcelRounding.test.ts`.
+   - **Next, R201: numbers past 15 digits.** These are the QUEUED rows in
+     `sheetsGridTableParity.test.ts`.
+     - CEILING and FLOOR in the grid snap a quotient within 1e-9 × itself of a whole number, so
+       `CEILING(12345678901.005,1)` is …901, where Excel gives …902. The table gives
+       12345678902.000002.
+     - A grid number format past 1E+21 is toFixed's exponent text: `TEXT(1.5E+21,"0")` gives "1".
+       The table writes every binary digit, where Excel writes 15 and then zeros.
+     - Measured, not fixed: a number in text over random 17-digit doubles takes the exact path on
+       every row (846 ms per million against a cast's 100).
    - **Still open, grid.**
      - `YEAR`/`MONTH`/`DAY` of a blank give 1899/12/30, where Excel gives 1900/1/0.
      - DATEDIF from 1900-03-01 is one day long.

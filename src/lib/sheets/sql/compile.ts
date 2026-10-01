@@ -161,14 +161,93 @@ function referencedNumber(t: T): string {
   }
 }
 
+/**
+ * Whether an argument can be written out each time it is read: a short one
+ * with no subquery (a column, a literal, a little arithmetic). A long one is
+ * bound once by a one-item lambda instead, so a nested formula is not
+ * repeated into itself, and a whole-column total is not summed ten times.
+ * A lambda costs a list per row, which over a million rows was most of the
+ * time, so the common case does without one.
+ *
+ * A lambda's body never reads a subquery (DuckDB refuses one there): what it
+ * needs goes in through the list. Its names are not short: the column SQL
+ * reads its row as `p`, and a lambda named p made `p.d` the row's column d
+ * (R200's first cut).
+ */
+function writtenOut(expr: string): boolean {
+  return expr.length <= 160 && !/\bSELECT\b/i.test(expr);
+}
+
+/**
+ * x rounded at d places as Excel and the grid round (format.ts excelRound):
+ * the 15 significant digits, shifted by d as text, rounded, shifted back.
+ *
+ * FOUND IN R200: DuckDB's round() rounds the binary, so ROUND(1.005, 2) and
+ * TEXT(1.005, "0.00") were 1 and 1.00 in a table and 1.01 in the grid beside
+ * it; ROUNDUP had no guard at all.
+ */
+function excelRoundSql(x: string, d: string, mode: "half" | "up" | "down"): string {
+  const step = (s: string) =>
+    mode === "half" ? `floor(${s} + 0.5)` : mode === "up" ? `ceil(${s})` : `floor(${s})`;
+  const body = (v: string, dd: string) => {
+    // The exact way, as the grid does it: the 15 digits as text, shifted by d.
+    // It runs for few rows, so the 15 digits are written out where read.
+    const m = `format('{:.14e}', abs(${v}))`;
+    const e = `CAST(split_part(${m}, 'e', 2) AS INTEGER)`;
+    const shifted = `CAST(split_part(${m}, 'e', 1) || 'e' || CAST(${e} + ${dd} AS VARCHAR) AS DOUBLE)`;
+    const exact = `CASE WHEN ${e} + ${dd} >= 14 THEN ${v} ELSE sign(${v}) * CAST(CAST(CAST(${step(shifted)} AS BIGINT) AS VARCHAR) || 'e' || CAST(-${dd} AS VARCHAR) AS DOUBLE) END`;
+    // The quick way, for most rows: s = |x| × 10^d in binary (10^d is exact
+    // up to 10^22). The 15 digits and the binary each sit within s × 1e-14
+    // of the true value, so where s is clear of the point the rounding turns
+    // at (a half, or a whole number for up and down) by s × 1e-13, rounding
+    // s gives the exact way's answer. Formatting every row as text was 18
+    // times slower than round() over a million rows; this is 1.1 times on
+    // random doubles and 3 on three-place decimals, a tenth of which sit on
+    // a half and go the exact way.
+    // sheetsExcelRounding.test.ts holds the two ways together.
+    const s = `(abs(${v}) * power(10, ${dd}))`;
+    const clear =
+      mode === "half"
+        ? `abs(${s} - floor(${s}) - 0.5) > ${s} * 1e-13`
+        : `(${s} = floor(${s}) OR least(${s} - floor(${s}), ceil(${s}) - ${s}) > ${s} * 1e-13)`;
+    return `CASE WHEN ${v} IS NULL OR NOT isfinite(${v}) OR ${v} = 0 THEN ${v} WHEN ${dd} BETWEEN 0 AND 22 AND ${s} < 1e14 AND ${clear} THEN sign(${v}) * ${step(s)} / power(10, ${dd}) ELSE ${exact} END`;
+  };
+  const vx = `CAST(${x} AS DOUBLE)`;
+  const dx = `CAST(${d} AS INTEGER)`;
+  if (writtenOut(vx) && writtenOut(dx)) return `(${body(`(${vx})`, `(${dx})`)})`;
+  return `(list_transform([{'v': ${vx}, 'd': ${dx}}], lambda xr_a: ${body("xr_a.v", "xr_a.d")})[1])`;
+}
+
+/**
+ * A number as text, as the grid writes it (values.ts numberText) and Excel
+ * does: 15 significant digits, written out from 1E-9 to under 1E+15, and in
+ * scientific notation outside that.
+ *
+ * FOUND IN R200: DuckDB's own text has 17 digits, so 0.01 + 0.075 joined into
+ * text was "0.08499999999999999" (LEN 19) where the grid says 0.085; 1E-5 was
+ * "1e-05", and 1E+15 "1000000000000000.0".
+ */
+function numberTextSql(x: string): string {
+  const body = (v: string) => {
+    const exact = `list_transform([format('{:.14e}', ${v})], lambda xt_m: CASE WHEN abs(CAST(xt_m AS DOUBLE)) >= 1e15 OR abs(CAST(xt_m AS DOUBLE)) < 1e-9 THEN regexp_replace(xt_m, '\\.?0*e', 'E') ELSE regexp_replace(printf('%.*f', greatest(0, 14 - CAST(split_part(xt_m, 'e', 2) AS INTEGER)), CAST(xt_m AS DOUBLE)), '(\\.[0-9]*[1-9])0+$|\\.0+$', '\\1') END)[1]`;
+    // The quick way, for most rows: a whole number, or a double whose
+    // shortest text (DuckDB's own) has 15 digits or fewer and no exponent,
+    // is already what Excel writes.
+    const shortest = `CAST(${v} AS VARCHAR)`;
+    return `CASE WHEN ${v} IS NULL THEN NULL WHEN NOT isfinite(${v}) THEN '#NUM!' WHEN ${v} = trunc(${v}) AND abs(${v}) < 1e15 THEN CAST(CAST(${v} AS BIGINT) AS VARCHAR) WHEN NOT contains(${shortest}, 'e') AND length(replace(replace(${shortest}, '-', ''), '.', '')) <= 15 THEN ${shortest} ELSE ${exact} END`;
+  };
+  const vx = `CAST(${x} AS DOUBLE)`;
+  if (writtenOut(vx)) return `(${body(`(${vx})`)})`;
+  return `(list_transform([${vx}], lambda xt_v: ${body("xt_v")})[1])`;
+}
+
 function toText(t: T): string {
   switch (t.kind) {
     case "text":
       return t.col ? `coalesce(${t.sql}, '')` : t.sql;
     case "number": {
-      // 3, not 3.0; 0.5 stays 0.5.
-      const x = toNum(t);
-      const shown = `(CASE WHEN ${x} = trunc(${x}) AND abs(${x}) < 1e15 THEN CAST(CAST(${x} AS BIGINT) AS VARCHAR) ELSE CAST(${x} AS VARCHAR) END)`;
+      // 3, not 3.0; 0.085, not 0.08499999999999999 (R200).
+      const shown = numberTextSql(toNum(t));
       // FOUND IN R198: a blank number cell is "" in text, as Excel reads it
       // (A1&"" is "", LEN(A1) is 0, CONCAT of two blanks is ""). Reading it
       // as 0 is for arithmetic only; here it printed "0" where the grid,
@@ -738,13 +817,12 @@ class Compiler {
         const d = args[1] ? S(1) : num(0);
         const xs = toNum(x);
         const ds = `CAST(trunc(${toNum(d)}) AS INTEGER)`;
-        const scale = `power(10, ${ds})`;
-        const sql =
-          fn === "ROUND"
-            ? `round(${xs}, ${ds})`
-            : fn === "ROUNDUP"
-              ? `(sign(${xs}) * ceil(abs(${xs}) * ${scale}) / ${scale})`
-              : `(sign(${xs}) * floor(abs(${xs}) * ${scale}) / ${scale})`;
+        // Excel's 15 digits, as the grid rounds; TRUNC is ROUNDDOWN (R200).
+        const sql = excelRoundSql(
+          xs,
+          ds,
+          fn === "ROUND" ? "half" : fn === "ROUNDUP" ? "up" : "down",
+        );
         return { sql, kind: "number", dbl: true, sub: sub(x, d) };
       }
       case "CEILING":
@@ -804,7 +882,11 @@ class Compiler {
         this.args(fn, args, 1, 1);
         const t = S(0);
         return {
-          sql: `array_to_string(list_transform(string_split(lower(${toText(t)}), ' '), lambda w: upper(left(w, 1)) || substring(w, 2)), ' ')`,
+          // FOUND IN R200: words were split at spaces only, so "o'neil 2-way"
+          // was "O'neil 2-Way" here and "O'Neil 2-Way" in the grid and Excel.
+          // Runs of letters and of anything else alternate; each letter run is
+          // capitalised. "ß", whose capital is two letters, stays, as in the grid.
+          sql: `array_to_string(list_transform(regexp_extract_all(lower(${toText(t)}), '\\p{L}+|\\P{L}+'), lambda xp_w: CASE WHEN left(xp_w, 1) = 'ß' THEN xp_w ELSE upper(left(xp_w, 1)) || substring(xp_w, 2) END), '')`,
           kind: "text",
           sub: t.sub,
         };
@@ -1133,7 +1215,7 @@ class Compiler {
     const spec = `{:${m[1] ? "," : ""}.${places}f}`;
     // Round half away from zero first; format() alone rounds half to even.
     return {
-      sql: `(format('${spec}', round(${x}, ${places}))${pct ? " || '%'" : ""})`,
+      sql: `(format('${spec}', ${excelRoundSql(x, String(places), "half")})${pct ? " || '%'" : ""})`,
       kind: "text",
       sub: v.sub,
     };

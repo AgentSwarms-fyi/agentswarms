@@ -108,6 +108,8 @@ The same rules as Excel apply:
 - A number format and TEXT() round the 15 digits Excel keeps, as ROUND does. 2.675 is stored a
   hair under 2.675, but `=TEXT(2.675,"0.00")` and a cell formatted `0.00` both show 2.68, and
   `=TEXT(0.01+0.075,"0.00")` is 0.09. TEXT of a blank cell is TEXT of 0 (`0.00`).
+- ROUND, ROUNDUP, ROUNDDOWN and TRUNC round the same 15 digits: `=ROUND(1.005,2)` is 1.01, and
+  `=TRUNC(0.29,2)` is 0.29 (TRUNC is ROUNDDOWN, as in Excel).
 - PROPER capitalises the first letter of each word in any alphabet: `=PROPER("ÉCOLE normale")` is
   `École Normale`. As in Excel, anything that is not a letter starts a word, so `o'neil 2-way`
   becomes `O'Neil 2-Way`. A letter whose capital is two letters, such as `ß`, stays as it is.
@@ -679,6 +681,14 @@ It follows Excel where SQL would differ:
   on a row with no amount, as a grid does.
 - MIN, MAX and AVERAGE of this row's values (`AVERAGE([@a], [@b])`) skip a blank, text or
   TRUE/FALSE reference, as Excel skips such a cell.
+- ROUND, ROUNDUP, ROUNDDOWN, TRUNC and TEXT round the 15 significant digits Excel keeps, by the
+  same rule as a grid: `ROUND(1.005, 2)` is 1.01 and `TRUNC(0.29, 2)` is 0.29, though the stored
+  binary is a hair under each. Most rows take plain arithmetic; only a value on the edge of a half
+  is worked out from its digits, so the cost over a million rows is close to SQL's own `round()`.
+- A number in text is written to 15 significant digits, as in a grid: `[@total] & ""` over
+  0.01 + 0.075 is `0.085`, not the 17-digit `0.08499999999999999`.
+- PROPER capitalises each word in any alphabet, a word starting after anything that is not a
+  letter: `o'neil 2-way` becomes `O'Neil 2-Way`, as in Excel.
 - A number with no value, a negative to a fractional power or MROUND with signs that differ, shows
   `#NUM!`.
 - `tests/unit/sheetsGridTableParity.test.ts` runs a list of formulas through the grid engine and
