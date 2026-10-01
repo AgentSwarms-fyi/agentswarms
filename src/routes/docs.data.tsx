@@ -822,7 +822,7 @@ function DataPage() {
           ],
           [
             "AI descriptions",
-            "Generated plain-English descriptions for tables and columns. Agents read these too, so a described catalog measurably improves tool choice.",
+            "Generated plain-English descriptions for tables and columns. Agents read these too, so a described catalog measurably improves tool choice. AI docs in the asset drawer writes the description and leaves the owner, status and tags you are editing as they are; Save keeps them.",
           ],
           [
             "Lineage",

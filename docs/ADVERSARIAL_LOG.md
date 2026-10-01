@@ -109,6 +109,33 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-02 — AI docs, and the owner and tags being typed are gone
+
+Tests: `tests/unit/catalogAssetSheetEdits.test.ts` (2 tests). The mutation run caught 1 of 1, and
+the control survived.
+
+#### R221 · S2 · AI docs in the catalog asset drawer cleared unsaved owner, status and tags
+
+**Found** by the same survey as R220. The asset drawer fills its form (owner, status, tags,
+column tags, description) in an effect keyed on the `asset` prop. **AI docs** writes the
+description and columns, then calls `onSaved` with them, and the catalog gives `selected` a new
+object for the patch. So the effect ran again and put the saved values over everything typed but
+not saved. A Save and a restore replace the object the same way.
+
+In the UI (hot deploy of R220): Data Catalog → re-crawl the Lakehouse catalog source →
+`analytics.r211_double` (R211's fixture). Owner `r221 owner` and tag `r221-tag` were typed and
+not saved, then AI docs pressed. "Documentation generated" — and owner and tags read **empty**.
+Only the generated description was in the form.
+
+**The fix.** The form is filled when a different asset opens: the effect is keyed on `asset?.id`.
+AI docs still sets the description itself, and the patch still updates the list.
+
+**Driven after** (hot deploy of R221): the same steps kept **`r221 owner`** and **`r221-tag`**
+through "Documentation generated". **Save** → "Saved"; after a page reload, the list shows the
+tag and the drawer the owner, tag and description.
+
+**Cost.** Two AI docs calls on the dialog's default model (Server default).
+
 ### 2026-10-02 — A session refresh, and the knowledge base embeds with the default model again
 
 Tests: `tests/unit/userObjectKeySweep.test.ts` (4 tests: the knowledge page's fix, and a ratchet

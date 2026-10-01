@@ -1331,6 +1331,12 @@ function AssetSheet({
   const [saving, setSaving] = useState(false);
   const [aiBusy, setAiBusy] = useState(false);
 
+  // R221: the form is filled when a different asset opens, not whenever the
+  // asset object is replaced. AI docs saves the description and columns and
+  // hands back a patch, which gives `asset` a new object; keyed on the object,
+  // this then put the saved owner, status, tags and column tags back over the
+  // ones being edited. Saves and restores replace it the same way.
+  const assetId = asset?.id;
   useEffect(() => {
     setDescription(asset?.description ?? "");
     setTagsInput(asset?.tags.join(", ") ?? "");
@@ -1339,7 +1345,8 @@ function AssetSheet({
     );
     setOwner(asset?.owner ?? "");
     setStatus(asset?.status ?? "draft");
-  }, [asset]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assetId]);
 
   if (!asset) return null;
   const parseTags = (raw: string) =>

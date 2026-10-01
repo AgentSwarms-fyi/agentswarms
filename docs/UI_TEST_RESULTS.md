@@ -15,6 +15,19 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-02 — AI docs in the catalog asset drawer, ADVERSARIAL_LOG R221
+
+**Why this round exists.** Sweep 6, from the prop-to-state survey: AI docs refilled the drawer.
+
+Fixtures, **kept**: `analytics.r211_double` in the catalog now has owner `r221 owner`, tag
+`r221-tag` and an AI-generated description. The Lakehouse catalog source was re-crawled to list it.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before (hot deploy of R220) | Data Catalog → `r211_double` → owner `r221 owner`, tag `r221-tag` (unsaved) → AI docs | "Documentation generated"; owner and tags **empty**, description generated |
+| After (hot deploy of R221) | The same | "Documentation generated"; owner **`r221 owner`**, tags **`r221-tag`** kept |
+| After | Save; reload the page; reopen | "Saved"; the list's Tags column reads `r221-tag`; the drawer reads the owner, tag and description |
+
 ## 2026-10-02 — The embedding model through a session refresh, ADVERSARIAL_LOG R220
 
 **Why this round exists.** Sweep 6: the survey of effects that copy a prop or a load into

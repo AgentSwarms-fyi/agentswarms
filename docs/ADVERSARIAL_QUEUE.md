@@ -315,10 +315,9 @@ least twice, not a hypothetical.
      or a load into editable state found the `user` object as a third key, new on every session
      refresh. On Knowledge Bases it reran the embedding default and replaced a model the user had
      picked. `tests/unit/userObjectKeySweep.test.ts` reviews the twelve other hooks keyed on it.
+   - **R221: the catalog asset sheet.** AI docs replaced the asset object, and the sheet's
+     `[asset]` effect refilled the owner and tags being edited.
    - **Next, from the same survey:**
-     - The catalog asset sheet (`CatalogView.tsx` `AssetSheet`): **AI docs** saves the
-       description and columns, `onSaved` replaces `selected`, and the sheet's `[asset]` effect
-       refills unsaved tags, owner, status and column tags.
      - The bar-race chart (`BiChartParts.tsx` `BarRace`): playback resets to frame 0 and plays
        whenever `rows` is a new array, which an active dashboard filter makes on every
        re-render, a session refresh included.
