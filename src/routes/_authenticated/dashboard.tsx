@@ -25,6 +25,7 @@
 // impression was five zeroes, a flat 2px sparkline and three "no runs yet"
 // messages, which reads as broken rather than as new.
 
+import { formatUsd } from "@/lib/usd";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 
@@ -794,7 +795,7 @@ function DashboardPage() {
                         <div className="hidden shrink-0 text-right sm:block">
                           <p className="text-xs tabular-nums">{formatMs(r.latency_ms)}</p>
                           <p className="text-xs text-muted-foreground tabular-nums">
-                            ${Number(r.cost_usd ?? 0).toFixed(4)}
+                            {formatUsd(r.cost_usd ?? 0)}
                           </p>
                         </div>
                         <Badge variant="outline" className="shrink-0 font-normal tabular-nums">

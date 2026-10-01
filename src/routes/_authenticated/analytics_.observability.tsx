@@ -1,3 +1,4 @@
+import { formatUsd } from "@/lib/usd";
 import { createFileRoute, Link, Outlet, useLocation } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { listClaim, UNKNOWN_COUNT } from "@/lib/listClaim";
@@ -255,7 +256,7 @@ function ObservabilityList() {
                     params={{ runId: r.id }}
                     className="block p-2"
                   >
-                    ${Number(r.total_cost_usd ?? 0).toFixed(4)}
+                    {formatUsd(r.total_cost_usd ?? 0)}
                   </Link>
                 </TableCell>
               </TableRow>

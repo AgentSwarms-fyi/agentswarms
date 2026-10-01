@@ -3,6 +3,7 @@
 // proposes changes (a formula filled down, a chart, a highlight, a summary
 // sheet) that apply with one click and undo with Ctrl+Z.
 
+import { formatUsd } from "@/lib/usd";
 import { useEffect, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { Check, Loader2, Send, Sparkles, Wand2, X } from "lucide-react";
@@ -409,7 +410,7 @@ export function AssistPanel({
                 <p className="text-[10px] text-muted-foreground" data-testid="assist-meta">
                   {t.model && <span className="font-mono">{t.model}</span>}
                   {t.model && typeof t.cost === "number" && t.cost > 0 && " · "}
-                  {typeof t.cost === "number" && t.cost > 0 && `Cost $${t.cost.toFixed(4)}`}
+                  {typeof t.cost === "number" && t.cost > 0 && `Cost ${formatUsd(t.cost)}`}
                 </p>
               )}
             </div>

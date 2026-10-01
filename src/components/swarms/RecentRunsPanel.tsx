@@ -6,6 +6,7 @@
 // owns the run, or via a DB flag the owning tab's cancel-watch picks up. A run
 // parked on the server at an approval ("suspended") opens the approvals inbox
 // (R108), and its Cancel ends it on the server and closes that approval (R179).
+import { formatUsd } from "@/lib/usd";
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
@@ -344,7 +345,7 @@ export function RecentRunsPanel() {
                       {item.costUsd > 0 && (
                         <>
                           <span>·</span>
-                          <span>${item.costUsd.toFixed(4)}</span>
+                          <span>{formatUsd(item.costUsd)}</span>
                         </>
                       )}
                     </div>

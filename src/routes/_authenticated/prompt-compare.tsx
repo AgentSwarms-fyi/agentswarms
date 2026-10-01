@@ -1,3 +1,4 @@
+import { formatUsd } from "@/lib/usd";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useRef, useCallback } from "react";
 import { comparisonCaveat, winnerIndex } from "@/lib/compareWinner";
@@ -459,7 +460,7 @@ function ResponsePanel({ panel, label }: { panel: PanelState; label: string }) {
             {panel.costUsd !== null && (
               <span className="flex items-center gap-1 text-emerald-500">
                 <Coins className="h-3 w-3" />
-                ~${panel.costUsd.toFixed(4)}
+                {formatUsd(panel.costUsd, { approx: true })}
               </span>
             )}
             <span className="flex items-center gap-1">
@@ -535,7 +536,7 @@ function ComparisonStats({ panels }: { panels: PanelState[] }) {
     {
       label: "Est. cost",
       icon: Coins,
-      values: panels.map((p) => (p.costUsd != null ? `~$${p.costUsd.toFixed(4)}` : "—")),
+      values: panels.map((p) => (p.costUsd != null ? formatUsd(p.costUsd, { approx: true }) : "—")),
       winnerIdx: costWinner,
     },
     {

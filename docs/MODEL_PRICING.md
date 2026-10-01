@@ -120,6 +120,28 @@ The call is recorded with real tokens, `cost_usd = 0`, and
 So the fix for a page full of `unpriced` is `npm run prices:refresh`, and the
 next cron pass corrects the history.
 
+### How a cost is written
+
+Every page writes a cost through `src/lib/usd.ts formatUsd`:
+
+| Figure | Written as |
+| --- | --- |
+| None | `—` |
+| Zero | `$0.00` |
+| From $1 | two decimals (`$1,234.57`) |
+| From a cent | four decimals (`$0.0123`) |
+| Under a cent | two significant digits (`$0.0000046`) |
+
+A priced call never reads as free. Before R202, a Gemini 2.5 Flash call of 7 tokens in and 1 out
+($0.0000046) read `~$0.0000` in Prompt Compare, beside its note that ~$0 means no known price,
+and `$0.0000` in Traces, the same as a free model's calls. Totals and budgets may still show
+whole cents. `tests/unit/usdFormat.test.ts` fails on a cost written with 3 to 8 places anywhere
+else in `src`.
+
+The stored figure has six places (`NUMERIC(10,6)` on `execution_traces.cost_usd`), so that call
+is kept as $0.000005. Prompt Compare shows the stream's own $0.0000046, and Traces shows the
+stored $0.000005.
+
 ---
 
 ## 4. Attribution

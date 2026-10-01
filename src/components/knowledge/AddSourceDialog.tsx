@@ -7,6 +7,7 @@
 //   - Manual paste: same, kind="manual"
 //
 // All four are real ingestion paths — no stubs.
+import { formatUsd } from "@/lib/usd";
 import { useCallback, useState } from "react";
 import { useDropzone } from "react-dropzone";
 import { useServerFn } from "@tanstack/react-start";
@@ -140,7 +141,7 @@ export function AddSourceDialog({
             text = joinPageTexts(texts);
             ocr = { pages: total, model, cost_usd: cost };
             toast.success(
-              `${file.name}: read ${total} page${total === 1 ? "" : "s"} with ${model}${cost !== null ? ` · $${cost.toFixed(4)}` : ""}`,
+              `${file.name}: read ${total} page${total === 1 ? "" : "s"} with ${model}${cost !== null ? ` · ${formatUsd(cost)}` : ""}`,
             );
           }
           if (!text || !text.trim()) {

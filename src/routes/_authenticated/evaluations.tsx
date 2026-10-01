@@ -5,6 +5,7 @@
 // comparable runs. The BATCH is driven from this page: a small concurrent loop
 // of runEvalCase server calls — cancel and resume are therefore natural (the
 // server refuses cases for cancelled runs and skips already-scored ones).
+import { formatUsd } from "@/lib/usd";
 import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -133,7 +134,7 @@ const COMPARE_CHOICES = 50;
  * page contradicted itself on a screen whose entire output is a verdict.
  */
 const fmtScore = (s: number | null) => (s === null ? "—" : s.toFixed(2));
-const fmtUsd = (n: number) => (n > 0 ? `$${n.toFixed(4)}` : "$0");
+const fmtUsd = (n: number) => formatUsd(n);
 
 function statusBadge(s: ResultRow["status"] | Run["status"]) {
   const styles: Record<string, string> = {

@@ -224,8 +224,11 @@ least twice, not a hypothetical.
      bug in its reader; the copy never heard.
    - **The lesson.** A copy of a reader does not get its original's fixes, so replace the copy
      with the shared one. A test over `src` now forbids a `break` at `[DONE]`.
-   - **Still open, small.** Prompt Compare rounds cost to four places, so $0.0000046 against
-     $0.00011 reads "~$0.0000" against "~$0.0001", and Traces does the same.
+   - **R202: cost on every page.** `formatUsd` keeps two significant digits under a cent, and a
+     survey test fails on a cost written with 3 to 8 places anywhere else.
+     - **Still open.** `execution_traces.cost_usd` is `NUMERIC(10,6)`, so a $0.0000046 call is
+       stored as $0.000005, and a total over many such calls carries that rounding. Changing it is
+       a migration (and the run tables' `NUMERIC(12,6)`).
    - **R195: the two DuckDB engines.** On one query in the Workbench the browser engine ran in the
      viewer's zone (`Etc/GMT-4`) and the server's in UTC, so `current_date` and a TIMESTAMPTZ cast
      to DATE named different days. Every engine now sets `ENGINE_TIME_ZONE`.

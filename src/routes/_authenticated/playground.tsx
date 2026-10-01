@@ -1,3 +1,4 @@
+import { formatUsd } from "@/lib/usd";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
@@ -2656,7 +2657,7 @@ function RealExecutionTrace({ traceId, thinking }: { traceId: string | null; thi
         <div className="p-3 space-y-3 text-xs">
           <div className="grid grid-cols-2 gap-2">
             <Stat label="Latency" value={`${trace.latency_ms} ms`} />
-            <Stat label="Cost" value={`$${Number(trace.cost_usd).toFixed(6)}`} />
+            <Stat label="Cost" value={formatUsd(trace.cost_usd)} />
             <Stat label="Tokens in" value={String(trace.tokens_in)} />
             <Stat label="Tokens out" value={String(trace.tokens_out)} />
           </div>

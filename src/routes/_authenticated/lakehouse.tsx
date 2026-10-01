@@ -2,6 +2,7 @@
 // run governed SQL (typed or NL-generated), inspect snapshots, import
 // platform datasets — all through the server chokepoint that enforces
 // schema access, audits every statement, and writes query history.
+import { formatUsd } from "@/lib/usd";
 import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { SharesDialog } from "@/components/lakehouse/SharesDialog";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -792,7 +793,7 @@ function QueryTab({
                     <Badge
                       variant="secondary"
                       className="text-[10px]"
-                      title={`AI functions (${result.ai.functions.join(", ")}): ${result.ai.calls} model call(s), ${result.ai.cached} from the answer cache${result.ai.cost_usd != null ? ` · $${result.ai.cost_usd.toFixed(4)}` : ""}${result.ai.models.length ? ` · ${result.ai.models.join(", ")}` : ""}`}
+                      title={`AI functions (${result.ai.functions.join(", ")}): ${result.ai.calls} model call(s), ${result.ai.cached} from the answer cache${result.ai.cost_usd != null ? ` · ${formatUsd(result.ai.cost_usd)}` : ""}${result.ai.models.length ? ` · ${result.ai.models.join(", ")}` : ""}`}
                     >
                       {result.ai.calls} AI call{result.ai.calls === 1 ? "" : "s"}
                       {result.ai.cached ? ` · ${result.ai.cached} cached` : ""}

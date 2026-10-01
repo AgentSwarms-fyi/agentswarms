@@ -15,6 +15,23 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-01 — A paid model's cost against a free one's, ADVERSARIAL_LOG R202
+
+**Why this round exists.** The queue's Phase E item: Prompt Compare and Traces round cost to four
+places.
+
+Fixtures: none kept. Two Prompt Compare runs, Gemini 2.5 Flash against GPT-5 Mini, together
+about $0.0004, recorded as four traces.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before (hot deploy of R201) | Traces, the list | Gemini 2.5 Flash 7/1 at 02:51:39: **$0.0000**; `openrouter/free` rows: **$0.0000** |
+| Before | that row's detail | Cost **$0.0000** |
+| Before | Prompt Compare, Flash against Mini, "Reply with the single word OK." | Flash **~$0.0000** (7/1), Mini ~$0.0002 (13/74), under "models without a known price show ~$0" |
+| After (first cut) | Traces, the list | Flash **$0.0000050**, Mini $0.00015, free **$0.00**; the trailing zero was then trimmed |
+| After (hot deploy of R202) | Prompt Compare, the same prompt | Flash **~$0.0000046**, Mini **~$0.00016** |
+| After | Traces, the list and the new Flash call's detail | Flash **$0.000005**, Mini **$0.00016**, free **$0.00**; detail Cost **$0.000005** |
+
 ## 2026-10-01 — Numbers past 15 digits in a grid and a table, ADVERSARIAL_LOG R201
 
 **Why this round exists.** R200's QUEUED rows. Before it, R197 to R200 went into a real image,

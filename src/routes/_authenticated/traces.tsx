@@ -1,3 +1,4 @@
+import { formatUsd } from "@/lib/usd";
 import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { traceCountHeadline, windowComplete } from "@/lib/traceWindow";
@@ -513,7 +514,7 @@ function TracesPage() {
                             : undefined
                         }
                       >
-                        ${amount.toFixed(4)}
+                        {formatUsd(amount)}
                         {unpriced ? "+?" : ""}
                       </span>
                     );
@@ -592,7 +593,7 @@ function TracesPage() {
                       value={
                         selected.pricing_missing === "true" && Number(selected.cost_usd) === 0
                           ? "unpriced"
-                          : `$${Number(selected.cost_usd).toFixed(4)}`
+                          : formatUsd(selected.cost_usd)
                       }
                     />
                   </div>

@@ -1,3 +1,4 @@
+import { formatUsd } from "@/lib/usd";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { listClaim } from "@/lib/listClaim";
@@ -316,9 +317,9 @@ function AnalyticsPage() {
         buckets[key].tokens += tr.tokens_in + tr.tokens_out;
       }
     });
-    return Object.values(buckets)
-      .sort((a, b) => a.ts - b.ts)
-      .map((b) => ({ ...b, cost: Number(b.cost.toFixed(4)) }));
+    // The true figures: rounding the data to 4 places drew a sub-cent cost as
+    // 0 (R202). The tooltip formats it.
+    return Object.values(buckets).sort((a, b) => a.ts - b.ts);
   }, [traces, rangeStart, rangeEnd, granularity]);
 
   // Cost by provider
@@ -330,7 +331,7 @@ function AnalyticsPage() {
     return Object.entries(m).map(([name, value]) => ({
       name: PROVIDER_LABELS[name] ?? name,
       rawName: name,
-      value: Number(value.toFixed(4)),
+      value,
     }));
   }, [traces]);
 
@@ -341,7 +342,7 @@ function AnalyticsPage() {
       m[t.agent_name] = (m[t.agent_name] ?? 0) + Number(t.cost_usd);
     });
     return Object.entries(m)
-      .map(([name, value]) => ({ name, value: Number(value.toFixed(4)) }))
+      .map(([name, value]) => ({ name, value }))
       .sort((a, b) => b.value - a.value)
       .slice(0, 6);
   }, [traces]);
@@ -544,7 +545,7 @@ function AnalyticsPage() {
                 contentStyle={tooltipStyle}
                 labelStyle={{ color: "var(--foreground)" }}
                 itemStyle={{ color: "var(--foreground)" }}
-                formatter={(v: number) => [`$${v.toFixed(4)}`, "Cost"]}
+                formatter={(v: number) => [formatUsd(v), "Cost"]}
               />
               <Area
                 type="monotone"
@@ -589,7 +590,7 @@ function AnalyticsPage() {
                   contentStyle={tooltipStyle}
                   labelStyle={{ color: "var(--foreground)" }}
                   itemStyle={{ color: "var(--foreground)" }}
-                  formatter={(v: number) => `$${v.toFixed(4)}`}
+                  formatter={(v: number) => formatUsd(v)}
                 />
                 <Legend
                   wrapperStyle={{ fontSize: 11 }}
@@ -633,7 +634,7 @@ function AnalyticsPage() {
                   contentStyle={tooltipStyle}
                   labelStyle={{ color: "var(--foreground)" }}
                   itemStyle={{ color: "var(--foreground)" }}
-                  formatter={(v: number) => `$${v.toFixed(4)}`}
+                  formatter={(v: number) => formatUsd(v)}
                 />
                 <Legend
                   wrapperStyle={{ fontSize: 11 }}

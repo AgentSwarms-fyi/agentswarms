@@ -1,3 +1,4 @@
+import { formatUsd } from "@/lib/usd";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
@@ -220,7 +221,7 @@ function TraceDetail() {
         <Metric label="Duration" value={`${run.total_latency_ms}ms`} />
         <Metric label="Tokens in" value={run.total_tokens_in.toLocaleString()} />
         <Metric label="Tokens out" value={run.total_tokens_out.toLocaleString()} />
-        <Metric label="Cost" value={`$${Number(run.total_cost_usd).toFixed(4)}`} />
+        <Metric label="Cost" value={formatUsd(run.total_cost_usd)} />
       </div>
 
       {/* Placed under the metrics on purpose: this is where the discrepancy
@@ -320,8 +321,7 @@ function TraceDetail() {
                       />
                     </div>
                     <div className="col-span-3 text-right text-[11px] font-mono text-muted-foreground">
-                      {s.latency_ms}ms · {s.tokens_in}/{s.tokens_out} tok · $
-                      {Number(s.cost_usd).toFixed(4)}
+                      {s.latency_ms}ms · {s.tokens_in}/{s.tokens_out} tok · {formatUsd(s.cost_usd)}
                     </div>
                   </button>
                 );
@@ -383,7 +383,7 @@ function TraceDetail() {
                   label="Tokens"
                   value={`${selectedStep.tokens_in}/${selectedStep.tokens_out}`}
                 />
-                <Metric label="Cost" value={`$${Number(selectedStep.cost_usd).toFixed(4)}`} />
+                <Metric label="Cost" value={formatUsd(selectedStep.cost_usd)} />
               </div>
               <Tabs defaultValue="input" className="mt-4">
                 <TabsList className="flex-wrap h-auto">

@@ -109,6 +109,52 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-01 — A paid call at "~$0.0000" beside "~$0 means no known price"
+
+Tests: `tests/unit/usdFormat.test.ts` (4 tests: the format, and a survey of `src` that fails on a
+cost written with 3 to 8 places). The mutation run caught 10 of 10, and the control survived.
+
+#### R202 · S2 · A cost under half a hundredth of a cent read as zero, and each page wrote cost its own way
+
+**Found** from the queue's Phase E item, "Prompt Compare rounds cost to four places".
+- **Prompt Compare.** On the real image, Gemini 2.5 Flash against GPT-5 Mini on "Reply with the
+  single word OK." showed Flash's call (7 tokens in, 1 out) as **~$0.0000**. The page's own note
+  says "older models without a known price show ~$0", so a priced model read as an unpriced one.
+- **Traces.** The same call read **$0.0000**, the same as the `openrouter/free` rows that cost
+  nothing, and so did its detail.
+- **The other pages.** About 25 places wrote cost: most with `toFixed(4)`, the playground's trace
+  with `toFixed(6)`, Evaluations with "$0" for zero, and the spend panel with "$0.00".
+- **Analytics.** The charts rounded their data to 4 places, so a model's sub-cent total was drawn
+  as 0.
+
+Reading the stored row directly to prove the cost was non-zero would have meant taking the
+session token and API key out of the page, and the session's classifier refused that. The
+evidence is from the UI alone: the paid model's call against the free ones, and the same call
+on a second surface after the fix.
+
+**The fix.** `src/lib/usd.ts formatUsd` is the one format:
+- No figure is "—" and zero is "$0.00".
+- From $1, two grouped decimals; from a cent, four.
+- Under a cent, two significant digits without a trailing zero.
+- `~` marks an estimate.
+
+Every per-call and per-row cost goes through it: Prompt Compare, Traces (row and detail), the
+playground's trace, swarm runs, Team Spend, the audit log, run observability, the dashboard, the
+knowledge base's OCR toast, the lakehouse's AI-functions title, Evaluations, the spend panel and
+the integration test's message. Analytics keeps the true figures and formats them in the
+tooltip. Budgets and totals keep whole cents.
+
+**Driven after** (hot deploy of R202):
+- **Prompt Compare.** The same prompt read Flash **~$0.0000046** and Mini **~$0.00016**.
+- **Traces.** Those calls read **$0.000005** and **$0.00016**, the earlier Flash calls
+  **$0.000005**, and the free model's rows **$0.00**.
+- **The trailing zero.** A first cut wrote the stored 0.000005 as "$0.0000050", so trailing
+  zeros under a cent are now trimmed.
+
+**Left, for the queue:** the database keeps six places (`NUMERIC(10,6)`), so that call is stored
+as $0.000005, about 9% over its $0.0000046. A total over many such calls carries the rounding.
+Changing it is a migration.
+
 ### 2026-10-01 — 12,345,678,901 shown as "1.234567890e+1"
 
 Tests: `tests/unit/sheetsBigNumbers.test.ts` (9 tests: Excel's answers, and the table's CEILING,

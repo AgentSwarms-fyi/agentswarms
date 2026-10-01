@@ -720,6 +720,10 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     "title": "Budgets & cost",
     "description": "Agents spend money on every turn, and a looping graph or a public embed can spend a lot of it quickly. Caps are the control that turns a bad day into a stopped run.",
     "terms": [
+      "$0.00",
+      "$0.0000",
+      "$0.0000046",
+      "$0.000005",
       "$12.34+?",
       "BUDGET_FAIL_CLOSED=true",
       "ENFORCE_BUDGET_CAP",
