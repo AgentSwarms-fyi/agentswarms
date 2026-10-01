@@ -257,10 +257,11 @@ least twice, not a hypothetical.
      formats past 15 digits show zeros. The QUEUED rows are emptied. `sheetsBigNumbers.test.ts`.
    - **Measured, not fixed.** A number in text over random 17-digit doubles takes the exact path on
      every row: 846 ms per million, against a cast's 100.
-   - **Still open, grid.**
-     - `YEAR`/`MONTH`/`DAY` of a blank give 1899/12/30, where Excel gives 1900/1/0.
-     - DATEDIF from 1900-03-01 is one day long.
-     - `UPPER("ß")` is "SS" in the grid and "ẞ" in the table; check Excel first.
+   - **R205: Excel's 1900 dates.** Serials before 1900-03-01 count as Excel's, its 1900-02-29
+     included. YEAR of a blank is 1900, and DATEDIF in days is the serials' difference.
+     `sheets1900Dates.test.ts`.
+   - **Still open, grid.** `UPPER("ß")` is "SS" in the grid and "ẞ" in the table; check Excel
+     first.
    - **Inherent.** IFERROR mixing numbers and text makes a table column text.
 
 ### Sheets (new, 2026-09-25)

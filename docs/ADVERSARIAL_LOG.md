@@ -109,6 +109,41 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-01 — The year of an empty cell was 1899
+
+Tests: `tests/unit/sheets1900Dates.test.ts` (5 tests: the serials both ways, the grid's formulas,
+a table sheet's SQL both ways). The mutation run caught 9 of 9, and the control survived.
+
+#### R205 · S1 · Serials before 1900-03-01 counted from the wrong day, and DATEDIF from formula.js's
+
+**Found** as the last grid items R198's probe queued. In the workbook "R205 1900 dates" (kept):
+
+| Formula | Grid | Excel |
+| --- | --- | --- |
+| `YEAR`, `MONTH`, `DAY` of a blank | **1899, 12, 30** | 1900, 1, 0 |
+| `TEXT(1,"yyyy-mm-dd")` | **1899-12-31** | 1900-01-01 |
+| `DATE(1900,3,1)-DATE(1900,2,28)` | **1** | 2 |
+| `DATEDIF(DATE(1900,2,28),DATE(1900,3,1),"d")` | **0** | 2 |
+
+- **Serials.** Every serial counted days from 1899-12-30, which is Excel's count only from
+  1900-03-01 (serial 61). Before that, Excel counts 1900-01-01 as 1 and keeps Lotus 1-2-3's
+  1900-02-29 as 60, and a blank, serial 0, is 1900-01-00.
+- **DATEDIF** went to formula.js, which turns serials into dates and back by two rules that
+  disagree around that day. Its 1900-03-01 to 03-02 was 2 days, in UTC as well as UTC+4.
+
+**The fix.**
+- **`values.ts dateSerial` and `serialParts`** count Excel's way below 61: 1 to 59 are 1900-01-01
+  to 02-28, 60 is 02-29, 0 is 1900-01-00, and the weekday runs on from serial 1 (a Sunday, by
+  Excel's count). From 61 nothing changes.
+- **DATEDIF in days** is the difference of the serials, with #NUM! for a start after the end. Its
+  calendar units still go to formula.js.
+- **A table sheet's SQL** counts a date and reads a serial with the same one-day step before
+  1900-03-01.
+
+**Driven after** (hot deploy of R205): row 1 read **1900, 1, 0**, 1900-01-01, **1900-01-01**, 1,
+the difference as serial **2**, and DATEDIF **2**. Row 2: `TEXT(60,"yyyy-mm-dd")` **1900-02-29**,
+`DAYS` across it **2**, and DATEDIF from 03-01 to 03-02 **1**.
+
 ### 2026-10-01 — "Not configured" on a lakehouse that works
 
 Tests: `tests/unit/prepSaveAs.test.ts` (4 tests). The mutation run caught 8 of 8, and the control

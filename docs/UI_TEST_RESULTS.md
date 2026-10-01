@@ -15,6 +15,18 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-01 — Excel's 1900 dates in a grid, ADVERSARIAL_LOG R205
+
+**Why this round exists.** The last grid items from R198's probe.
+
+Fixtures, **kept**: workbook "R205 1900 dates" (Sheet1, rows 1 and 2).
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before (hot deploy of R204) | `=YEAR(Z9)`, `=MONTH(Z9)`, `=DAY(Z9)` (Z9 blank), `=DATE(1900,1,1)*1`, `=TEXT(1,"yyyy-mm-dd")`, `=WEEKDAY(1)`, `=DATE(1900,3,1)-DATE(1900,2,28)`, `=DATEDIF(DATE(1900,2,28),DATE(1900,3,1),"d")` | **1899, 12, 30**, 1900-01-01, **1899-12-31**, 1, **1899-12-31** (the difference, serial 1, in date format), **0** |
+| After (hot deploy of R205) | the workbook, reopened | **1900, 1, 0**, 1900-01-01, **1900-01-01**, 1, **1900-01-02** (serial 2), **2** |
+| After | row 2: `=TEXT(60,"yyyy-mm-dd")`, `=DAYS(DATE(1900,3,1),DATE(1900,2,28))`, `=DATEDIF(DATE(1900,3,1),DATE(1900,3,2),"d")` | **1900-02-29**, **2**, **1** |
+
 ## 2026-10-01 — Data Prep's Save as while the lakehouse loads or fails, ADVERSARIAL_LOG R204
 
 **Why this round exists.** Queued from Phase D's survey.

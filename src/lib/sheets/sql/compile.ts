@@ -135,8 +135,9 @@ function toNum(t: T): string {
         ? `(CASE WHEN ${t.sql} IS NULL OR ${t.sql} = '' THEN 0 ELSE TRY_CAST(${t.sql} AS DOUBLE) END)`
         : `TRY_CAST(${t.sql} AS DOUBLE)`;
     case "date":
-      // Excel's serial day number: days since 1899-12-30.
-      return `CAST(date_diff('day', DATE '1899-12-30', ${t.sql}) AS DOUBLE)`;
+      // Excel's serial day number: days since 1899-12-30, one fewer before
+      // 1900-03-01, as the grid counts (values.ts MAR_1_1900, R205).
+      return `CAST(date_diff('day', DATE '1899-12-30', ${t.sql}) - CASE WHEN ${t.sql} < DATE '1900-03-01' THEN 1 ELSE 0 END AS DOUBLE)`;
     case "datetime":
       return `(epoch(CAST(${t.sql} AS TIMESTAMP)) / 86400.0 + 25569)`;
     default:
@@ -302,7 +303,8 @@ function toDate(t: T): string {
     case "datetime":
       return `CAST(${t.sql} AS DATE)`;
     case "number":
-      return `CAST(DATE '1899-12-30' + CAST(trunc(${toNum(t)}) AS INTEGER) AS DATE)`;
+      // One day on before serial 61 (1900-03-01), as the grid reads it (R205).
+      return `CAST(DATE '1899-12-30' + CAST(trunc(${toNum(t)}) AS INTEGER) + CASE WHEN ${toNum(t)} < 61 THEN 1 ELSE 0 END AS DATE)`;
     default:
       return `TRY_CAST(${t.sql} AS DATE)`;
   }

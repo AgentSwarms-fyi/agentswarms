@@ -76,6 +76,11 @@ Type `=` and a formula, as in Excel. About 240 functions are available:
     Sunday).
   - NETWORKDAYS from a later date back to an earlier one is minus the count forwards (Friday back to
     Monday is -5), times of day are dropped, and an error in a date is passed on, as in Excel.
+  - Dates are counted as Excel counts them, with its 1900-02-29 included. Serial 1 is 1900-01-01,
+    60 is the 29th of February 1900 (a day that never was, kept from Lotus 1-2-3), and 61 is
+    1900-03-01. A blank cell read as a date is serial 0, which YEAR, MONTH and DAY read as 1900, 1
+    and 0. DATEDIF in days is the difference of the serials, so 1900-02-28 to 03-01 is 2 days. A
+    table sheet counts its dates the same way.
 - **Statistics:** STDEV, VAR, RANK, MODE, PERCENTILE and QUARTILE, under their old names and new
   ones; FORECAST(.LINEAR), TREND, GROWTH, FREQUENCY.
 - **The long tail** of statistical, financial and engineering functions.

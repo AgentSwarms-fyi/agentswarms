@@ -2100,6 +2100,29 @@ if (libraryDollar) {
   };
 }
 
+/**
+ * DATEDIF in whole days ("D") is the difference of the serials, as Excel's
+ * is. FOUND IN R205: formula.js turns the serials into dates and back by two
+ * rules that disagree around Excel's 1900-02-29, so 1900-02-28 to 03-01 was 0
+ * days (Excel: 2) and 03-01 to 03-02 was 2 (Excel: 1). A start after the end
+ * is #NUM!, as in Excel. The calendar units still go to formula.js.
+ */
+const libraryDatedif = F.DATEDIF;
+if (libraryDatedif) {
+  F.DATEDIF = (args, ctx) => {
+    const unit = text(args[2]);
+    if (isError(unit) || unit.trim().toUpperCase() !== "D") return libraryDatedif(args, ctx);
+    const from = num(args[0]);
+    if (isError(from)) return from;
+    const to = num(args[1]);
+    if (isError(to)) return to;
+    const a = Math.floor(from);
+    const b = Math.floor(to);
+    if (a > b) return err("#NUM!", "DATEDIF's start date is after its end date");
+    return b - a;
+  };
+}
+
 /** Hexadecimal and base-36 digits in capitals, as Excel writes them. FOUND IN R176: ff. */
 for (const name of ["DEC2HEX", "BIN2HEX", "OCT2HEX", "BASE"]) {
   const lower = F[name];
