@@ -15,6 +15,22 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-02 — Smoke of the real image after R214 to R216
+
+**Why this round exists.** R214 to R216 had been hot-deployed onto the R213 image. This round
+built a real image from the R216 commit (`docker compose up -d --build agentswarms`, image
+`51931edc73b7`) and drove the rounds' fixes, and an Iceberg publish, on it.
+
+| Check | What was driven | What came back |
+| --- | --- | --- |
+| R214, Sheets | New workbook `smoke 51931edc73b7`, Enter twice | **One** workbook (`7f4509ef…`) |
+| R215, Semantic Layer | SaaS Sales model → Query: total_sales by order_date, Run, Add to dashboard; title `smoke 51931edc73b7`; click the description twice | The title **held**; closed without inserting |
+| Iceberg publish | Lakehouse → `analytics.fct_region_revenue` → Write this table into an Iceberg catalog: `local_rest`, namespace `r181`, table `smoke_51931edc73b7`, Publish | The catalog logged two commits (2254 ms, then 1553 ms): create, then append, the same pair as the R213 smoke's publish |
+
+R216 (the AI Analyst) was not repeated, to spend no more model calls: its fix is R211's guard,
+and its after-round ran on the hot deploy. Fixtures, **kept**: the workbook and the Iceberg
+table `r181.smoke_51931edc73b7`.
+
 ## 2026-10-02 — A double Enter to the AI Analyst, ADVERSARIAL_LOG R216
 
 **Why this round exists.** The last round of sweep 5, "a guard only the button honours".
