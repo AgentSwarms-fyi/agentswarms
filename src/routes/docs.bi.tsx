@@ -273,7 +273,7 @@ function BiPage() {
           },
           {
             title: "Add a visual",
-            body: "The right-hand builder pane takes your source (table, prepared table, or a governed metric), the fields to plot, and the chart type.",
+            body: "The right-hand builder pane takes your source (table, prepared table, or a governed metric), the fields to plot, the chart type and a title. Until the visual can be added, the line under Add to dashboard says what is still missing: a query to run, the columns to chart, or the title.",
           },
           {
             title: "Or describe it",

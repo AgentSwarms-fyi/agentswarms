@@ -242,8 +242,8 @@ least twice, not a hypothetical.
        1.32.0) and 1.5.5 on the server. `date_trunc('month', <TIMESTAMP>)` is a DATE in one and a
        TIMESTAMP in the other, so over a long span only the server's axis relabels. Either align
        the versions, or pass column types to the charts instead of reading them from text.
-     - The chart builder's *Add to dashboard* is disabled until the chart has a title, and nothing
-       says why.
+     - ~~The chart builder's *Add to dashboard* is disabled until the chart has a title, and
+       nothing says why.~~ R203: the line under the button says what is missing.
    - **R198: grid vs table sheet.** A probe ran 75 formulas through both engines over the same rows.
      The table read a blank number as "0" in text and counted a blank reference in
      MIN/MAX/AVERAGE. `sheetsGridTableParity.test.ts` now holds the agreeing list.

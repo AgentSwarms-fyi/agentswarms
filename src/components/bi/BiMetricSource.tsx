@@ -307,7 +307,7 @@ export function BiMetricSource({
                 <Input
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  placeholder="Revenue by month"
+                  placeholder="e.g. Revenue by month"
                   className="h-8 text-xs"
                 />
               </div>

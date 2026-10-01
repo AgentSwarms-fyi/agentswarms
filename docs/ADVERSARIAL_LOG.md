@@ -109,6 +109,36 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-01 — A finished chart that would not add, and nothing saying why
+
+Tests: `tests/unit/biBuilderReady.test.ts` (6 tests), and `tests/journey/semanticToDashboard.test.ts`,
+whose guard pinned the old inline condition and now pins the `metricBlocker` wiring. The
+mutation run caught 9 of 9, and the control survived.
+
+#### R203 · S1 · "Add to dashboard" stayed disabled for a missing title, silently
+
+**Found** in R196 and queued. Driven again in the BI project "R196 dates":
+- Build a chart, then a query `SELECT * FROM (VALUES ('North', 12), ('South', 7)) v(region,
+  orders)`, then Run (2 rows · 2 cols).
+- The columns were chosen and the bar chart was drawn in the pane, but **Add to dashboard** stayed
+  disabled, with no title attribute and no text.
+- The one thing missing was the widget title. Its empty box showed its placeholder, "Revenue by
+  month", in grey, which reads as a title already given.
+
+**The fix.** `src/lib/biBuilderReady.ts` names the first thing missing, in the order the pane is
+filled:
+- a query to write, then to run;
+- the columns to chart (or, for an ontology, the map);
+- the title.
+
+A governed metric goes model, metrics, Preview, title. The pane disables the button on that same
+answer and shows it beneath, and the placeholder reads "e.g. Revenue by month".
+
+**Driven after** (hot deploy of R203): the empty pane said "Write a query or pick tables, then
+Run it."; with the query typed, "Run the query to see its rows."; with the chart drawn, "Give the
+widget a title."; with "Orders by region" typed, the button was enabled and the line gone. The
+pane was closed without adding, so the kept project is unchanged.
+
 ### 2026-10-01 — A paid call at "~$0.0000" beside "~$0 means no known price"
 
 Tests: `tests/unit/usdFormat.test.ts` (4 tests: the format, and a survey of `src` that fails on a

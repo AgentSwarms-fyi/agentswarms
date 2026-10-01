@@ -15,6 +15,20 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-01 — Why "Add to dashboard" is disabled, ADVERSARIAL_LOG R203
+
+**Why this round exists.** Queued since R196.
+
+Fixtures: none new. The BI project "R196 dates" (kept) was used, and nothing was added to it.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before (hot deploy of R202) | + Chart; the query `SELECT * FROM (VALUES ('North', 12), ('South', 7)) v(region, orders)`; Run | 2 rows · 2 cols; the bar chart drawn; title box empty, showing "Revenue by month" in grey; **Add to dashboard disabled, no title, no text** |
+| After (hot deploy of R203) | + Chart, the pane empty | disabled; beneath: "Write a query or pick tables, then Run it." |
+| After | the same query typed | "Run the query to see its rows." |
+| After | Run | the chart drawn; "Give the widget a title."; placeholder "e.g. Revenue by month" |
+| After | title "Orders by region" | **enabled**, the line gone; the pane closed without adding |
+
 ## 2026-10-01 — A paid model's cost against a free one's, ADVERSARIAL_LOG R202
 
 **Why this round exists.** The queue's Phase E item: Prompt Compare and Traces round cost to four

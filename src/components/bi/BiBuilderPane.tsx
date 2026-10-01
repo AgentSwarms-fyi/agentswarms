@@ -100,6 +100,7 @@ import {
   type BiWidget,
   type SemanticChartType,
 } from "@/lib/biDashboards";
+import { chartBlocker, metricBlocker } from "@/lib/biBuilderReady";
 import { restateWidgetNote } from "@/lib/biTitleClaims";
 import { restateWidgetNarrative } from "@/lib/biNumericClaims";
 import type { SemanticQuery, TimeGrain } from "@/lib/semanticLayer";
@@ -977,10 +978,15 @@ export function BiBuilderPane({
     });
   }, [preview]);
 
-  const canSubmit =
-    chartType === "ontology"
-      ? Boolean(title.trim() && chartSpec)
-      : Boolean(title.trim() && sql.trim() && preview && chartSpec);
+  // What is still missing, said under the button while it is disabled (R203).
+  const blocker = chartBlocker({
+    ontology: chartType === "ontology",
+    sql,
+    ran: Boolean(preview),
+    chart: Boolean(chartSpec),
+    title,
+  });
+  const canSubmit = blocker === null;
 
   function submit() {
     if (!canSubmit || !chartSpec) return;
@@ -1085,7 +1091,13 @@ export function BiBuilderPane({
 
   const mmChart: SemanticChartType = coerceSemanticChart(chartType);
 
-  const canSubmitMetric = Boolean(title.trim() && mmName && mmMetrics.length > 0 && mmPreview);
+  const metricBlocked = metricBlocker({
+    model: mmName,
+    metrics: mmMetrics.length,
+    ran: Boolean(mmPreview),
+    title,
+  });
+  const canSubmitMetric = metricBlocked === null;
 
   function submitMetric() {
     if (!canSubmitMetric || !mmPreview) return;
@@ -1877,7 +1889,7 @@ export function BiBuilderPane({
                           <Input
                             value={title}
                             onChange={(e) => setTitle(e.target.value)}
-                            placeholder="Revenue by month"
+                            placeholder="e.g. Revenue by month"
                             className="h-8 text-xs"
                           />
                         </div>
@@ -1949,6 +1961,15 @@ export function BiBuilderPane({
                 {initial ? "Save widget" : "Add to dashboard"}
               </Button>
             )}
+            {(() => {
+              const why =
+                sourceKey === "semantic" && chartType !== "ontology" ? metricBlocked : blocker;
+              return why ? (
+                <p className="mt-1.5 text-center text-[11px] text-muted-foreground" role="status">
+                  {why}
+                </p>
+              ) : null;
+            })()}
           </div>
         </>
       ) : (
