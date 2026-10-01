@@ -512,7 +512,7 @@ function IamPage() {
         items={[
           {
             title: "SSO → Provisioning (SCIM) → mint a token",
-            body: "One per IdP application, labelled. It is shown once; only its hash is kept, and the tab shows when the IdP last used it.",
+            body: "One per IdP application, labelled. It is shown once; only its hash is kept, and the tab shows when the IdP last used it. Mint token and Enter in the label field share one guard, so a double Enter mints one token, not two with the same label.",
           },
           {
             title: "Give the IdP the base URL and the token",

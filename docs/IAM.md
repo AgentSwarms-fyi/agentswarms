@@ -185,6 +185,8 @@ minute.
 
 1. On **SSO → Provisioning (SCIM)**, mint a provisioning token with a label
    (one per IdP application). The token is shown once; only its hash is kept.
+   A double Enter in the label field mints one token: the key and the Mint
+   token button share one in-flight guard.
 2. In the IdP, enable provisioning on the SAML application and give it the
    base URL `https://<your host>/api/scim/v2` with the token as the bearer
    token. Okta: _Provisioning → Integration → SCIM connector base URL_, unique

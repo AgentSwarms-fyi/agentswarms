@@ -277,9 +277,9 @@ least twice, not a hypothetical.
    round adds its handlers to `tests/unit/singleFlight.test.ts`'s list.
    - **R211: the Lakehouse editor.** Ctrl+Enter ran a statement twice (one INSERT, two rows) and
      Enter drafted SQL twice.
+   - **R212: the IAM SCIM token mint.** A double Enter minted two live tokens with one label, and
+     only the second's secret was ever shown.
    - **Next, in order of consequence:**
-     - The IAM SCIM token mint (`admin.iam.tsx`): two live tokens, only the second's secret ever
-       shown.
      - The Workbench's Ctrl+Enter (`data-sql.tsx` `handleRun`): a duplicate warehouse query,
        audit row and history row.
      - The Python notebook's Shift+Enter (`notebooks.py.$pyNotebookId.tsx` `runCell`): a cell run

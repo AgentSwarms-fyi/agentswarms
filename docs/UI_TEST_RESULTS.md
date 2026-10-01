@@ -15,6 +15,19 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-01 — A double Enter in the SCIM token label, ADVERSARIAL_LOG R212
+
+**Why this round exists.** The second round of sweep 5, "a guard only the button honours".
+
+Fixtures, **kept, revoked**: SCIM tokens `r212 before` (×2) and `r212 after` (×1). No one holds
+their secrets; each was revoked from the tab after the round, so none can authenticate.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before (hot deploy of R211) | IAM → SSO → Provisioning (SCIM): label `r212 before`, Enter twice | **2** live rows `r212 before` (never used, 0 requests); banner "Token for r212 before" (one secret) |
+| After (hot deploy of R212) | Label `r212 after`, Enter twice | **1** live row `r212 after`; one banner; label field cleared |
+| After | Revoke on each fixture row, confirm Revoke | 0 live rows; "3 revoked tokens — an IdP still using one gets a 401" |
+
 ## 2026-10-01 — A double Ctrl+Enter in the Lakehouse editor, ADVERSARIAL_LOG R211
 
 **Why this round exists.** The first round of sweep 5, "a guard only the button honours".

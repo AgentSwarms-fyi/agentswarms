@@ -109,6 +109,33 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-01 — A double Enter, two live SCIM tokens, one secret shown
+
+Tests: `tests/unit/singleFlight.test.ts` (6 tests; the list of guarded keyboard paths gains the
+mint). The mutation run caught 2 of 2, and the control survived.
+
+#### R212 · S2 · A double Enter in the SCIM token label minted two live tokens
+
+**Found** second in sweep 5's queue. On **IAM → SSO → Provisioning (SCIM)** the Mint token button
+is `disabled={busy}`, and Enter in the label field called the same `mint()` with no check. The label
+is cleared only after the server answers, so both calls sent it. In the UI, with the label
+`r212 before` and Enter twice:
+- the table listed **two** live tokens labelled `r212 before`, both "never" used, 0 requests;
+- the "copy it now" banner showed **one** secret, the second.
+
+The first token is a live provisioning credential whose secret no one ever saw. Both rows look the
+same, so an admin who revokes "the extra one" has even odds of revoking the token the identity
+provider holds, and provisioning stops.
+
+**The fix.** `mint` is wrapped in R211's `useSingleFlight`, so the button and the key share one
+guard, and a second Enter while the first mint is in flight does nothing. A later mint, for
+rotation under the same label, still works; the guard releases when the call settles.
+
+**Driven after** (hot deploy of R212): the label `r212 after` and Enter twice listed **one** token
+`r212 after`, one banner, and the label field cleared. All three fixture tokens were then revoked
+from the same tab (no one holds their secrets); the rows are kept, and the card reads
+"3 revoked tokens".
+
 ### 2026-10-01 — One INSERT, Ctrl+Enter twice, two rows
 
 Tests: `tests/unit/singleFlight.test.ts` (5 tests: the guard, and the list of surveyed keyboard

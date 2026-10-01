@@ -62,6 +62,13 @@ const GUARDED: { file: string; fn: string; key: RegExp }[] = [
     fn: "generate",
     key: /e\.key === "Enter" && void generate\(\)/,
   },
+  // R212: a double Enter minted two live SCIM tokens with one label, and only
+  // the second secret was ever shown.
+  {
+    file: "src/routes/_authenticated/admin.iam.tsx",
+    fn: "mint",
+    key: /if \(e\.key === "Enter"\) void mint\(\);/,
+  },
 ];
 
 describe("every surveyed keyboard path", () => {

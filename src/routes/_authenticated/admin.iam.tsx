@@ -97,6 +97,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useTokenRef } from "@/hooks/use-token-ref";
 import { invalidateIamState, useIsSuperadmin } from "@/hooks/use-iam";
 import { clickable } from "@/lib/clickable";
+import { useSingleFlight } from "@/lib/singleFlight";
 import { PROVIDER_LABELS, type ProviderId } from "@/utils/providers/types";
 import {
   iamAddGroupMember,
@@ -2617,7 +2618,11 @@ function ScimCard({ token }: { token: string }) {
     void load();
   }, [load]);
 
-  const mint = async () => {
+  // R212: the button was disabled={busy}, but Enter in the label field
+  // called mint() with no check, and the label is cleared only after the
+  // await. A double Enter minted two live tokens with one label, and only the
+  // second secret was shown. One guard now covers the button and the key.
+  const mint = useSingleFlight(async () => {
     const name = label.trim();
     if (!name) return toast.error("Give the token a label — the IdP application it is for");
     setBusy(true);
@@ -2630,7 +2635,7 @@ function ScimCard({ token }: { token: string }) {
     } finally {
       setBusy(false);
     }
-  };
+  });
 
   const revoke = async (t: IamScimToken) => {
     const res = await revokeToken({ data: { access_token: token, token_id: t.id } });
