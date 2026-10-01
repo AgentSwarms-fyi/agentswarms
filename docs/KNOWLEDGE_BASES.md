@@ -74,7 +74,9 @@ OAuth consent flow ships, because that requires operator-registered apps per
 provider; the wizard states exactly which credential form supports unattended
 scheduled syncs. Save-time validation runs against the real connector, so a
 misconfigured source fails at save with instructions — not at 3am on its
-first scheduled run.
+first scheduled run. Editing a source fills the wizard once, when it opens:
+what you change, credentials included, stays until you save or close it,
+through a session refresh too (R219).
 
 Per-source caps: **500 items**, **400k characters per item**, folders to
 depth 5. Every item the connector saw but did not ingest is recorded on the

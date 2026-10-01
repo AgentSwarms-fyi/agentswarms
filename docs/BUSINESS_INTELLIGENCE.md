@@ -163,7 +163,9 @@ month`, since the rows underneath have no `month` column to filter on.
     entirely client-side.
   - **PowerPoint** builds a branded deck. Choose which visuals to include
     (grouped by dashboard page), pick the model that writes the prose, and add
-    your own instructions for tone, audience or emphasis.
+    your own instructions for tone, audience or emphasis. The dialog ticks every
+    visual that can be exported each time it opens; what you untick then stays
+    unticked until you export or close it, through a session refresh too (R218).
 
   **Every figure in the deck is the dashboard's own figure.** Slides are filled
   from each widget's saved snapshot — the same rows the card on screen renders

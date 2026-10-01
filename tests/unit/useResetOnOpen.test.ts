@@ -99,11 +99,29 @@ describe("useResetOnOpen", () => {
   });
 });
 
-describe("the Add metric to dashboard dialog", () => {
-  const src = readFileSync("src/components/bi/AddMetricToDashboardDialog.tsx", "utf8");
+/** Dialogs that fill their form from a prop the parent rebuilds each render. */
+const FILLED_ON_OPEN: { file: string; prop: string; why: string }[] = [
+  {
+    file: "src/components/bi/AddMetricToDashboardDialog.tsx",
+    prop: "payload",
+    why: "R215: a click in the dialog reverted the typed title and the project picked",
+  },
+  {
+    file: "src/components/bi/BiDeckDialog.tsx",
+    prop: "exportable",
+    why: "R218: a session refresh re-ticked a widget unticked for the deck",
+  },
+  {
+    file: "src/components/knowledge/ConnectSourceDialog.tsx",
+    prop: "editing",
+    why: "R219: a session refresh put a connector's saved label back over an edit",
+  },
+];
 
-  it("fills its form through useResetOnOpen, and no effect watches the payload", () => {
-    expect(src).toContain("useResetOnOpen(open, () => {");
-    expect(src).not.toMatch(/\[[^\]]*\bpayload\b[^\]]*\]\);/);
+describe("dialogs filled when they open", () => {
+  it.each(FILLED_ON_OPEN)("$file: no effect refills from $prop ($why)", ({ file, prop }) => {
+    const src = readFileSync(file, "utf8");
+    expect(src).toContain("useResetOnOpen(open, () =>");
+    expect(src).not.toMatch(new RegExp(`\\[[^\\]]*\\b${prop}\\b[^\\]]*\\]\\);`));
   });
 });

@@ -109,6 +109,49 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-02 — A session refresh, a deck's choices and a connector's edit undone
+
+Tests: `tests/unit/useResetOnOpen.test.ts` (6 tests; its list of dialogs filled on open gains
+both). The mutation runs caught 1 of 1 each, and their controls survived.
+
+#### R218 · S3 · Export to PowerPoint re-ticked a widget the user had unticked
+
+**Found** in R217's survey. The deck dialog ticks every exportable visual in an effect keyed on
+`[open, exportable]`. `exportable` is a memo over the `pages` prop, and the dashboard passes
+`pages={pages.map(…)}`, a new array on every render. In the UI, on the Salesforce dashboard (image
+`51931edc73b7`):
+- untick **Win Rate**, click into Instructions and type, and wait 40 s: it stays unticked. Clicks
+  and typing in the dialog do not re-render the dashboard.
+- force a session refresh: **Win Rate is ticked again**. The Instructions text, which that
+  effect does not set, survives.
+
+A refresh comes about hourly, and when a tab regains focus near expiry. A deck exported after
+one includes visuals the user had taken out.
+
+#### R219 · S2 · Editing a knowledge-base connector: a session refresh undid the edit
+
+**Found** in the same survey. The connector wizard fills its form in an effect keyed on
+`[open, editing]`, and the knowledge page passes `editing={{ id, kind, label, … }}` inline. No
+connector existed, so one was made for the round: a **Website** connector `r219 web` on
+`https://example.com`, at most 1 page, saved without syncing ("Source connected"). Then **Edit
+connection**, the label changed to `r219 web edited`, and a forced session refresh: the label
+read **`r219 web`** again. The same refill sets the settings, schedule and access scope back,
+and empties the credential fields, so a token being pasted into a Notion or Drive connector
+would vanish.
+
+**The fix.** Both dialogs fill their form through R215's `useResetOnOpen`, once, when they
+open, from that render's props.
+
+**Driven after** (hot deploy of R218 and R219):
+- **Deck:** untick Win Rate, refresh: **still unticked**. Reopening starts from every visual
+  again, as designed.
+- **Connector:** `r219 web edited`, refresh: **held**. Save → "Source updated", and the Sources
+  list reads `r219 web edited`.
+
+**Sweep 6's list is done.** Every `}, [open, …]);` effect was read with its call site. Six take
+props that hold still (state, a memo, a Map entry) or load a list once. R217, R218 and R219
+fixed the three that refilled a form from something that changes while the dialog is open.
+
 ### 2026-10-02 — A session refresh, and the groups being shared untick themselves
 
 Tests: `tests/unit/tokenReloadSweep.test.ts` (32 tests: two dialogs join R125's fixed list, its

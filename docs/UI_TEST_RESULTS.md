@@ -15,6 +15,22 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-02 — A deck's choices and a connector's edit through a session refresh, ADVERSARIAL_LOG R218 and R219
+
+**Why this round exists.** Sweep 6, after R217: the two dialogs that refilled their form on a
+parent render. The refresh was forced as in R217.
+
+Fixtures, **kept**: Website connector `r219 web edited` (`https://example.com`, max 1 page,
+manual) in knowledge base "R192 add-source", never synced.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before (image `51931edc73b7`, recorded in R217) | Salesforce → Export to PowerPoint: untick Win Rate; session refresh | Win Rate **ticked again** |
+| Before (hot deploy of R217) | R192 add-source → Connect → Website: `r219 web`, `https://example.com`, max pages 1, Save | "Source connected" |
+| Before | Sources → Edit connection: label `r219 web edited` (unsaved); session refresh | Label **`r219 web`** again |
+| After (hot deploy of R218 and R219) | Export to PowerPoint: untick Win Rate; session refresh | Win Rate **still unticked**; reopened: every visual ticked again (by design) |
+| After | Edit connection: `r219 web edited`; session refresh | Label **held**; Save → "Source updated"; the list reads `r219 web edited` |
+
 ## 2026-10-02 — Share groups through a session refresh, ADVERSARIAL_LOG R217
 
 **Why this round exists.** The first round of sweep 6, "a form that resets under the user".

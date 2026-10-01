@@ -305,13 +305,12 @@ least twice, not a hypothetical.
      `ModelRegistryPicker.tsx` (loads once).
    - **R217: the BI dashboard's and the AI analyst's share dialogs.** Keyed on `accessToken`, a
      spelling R125's net did not match. A session refresh unticked the groups being shared.
-   - **Next:**
-     - `BiDeckDialog.tsx` `[open, exportable]`: `pages={pages.map(…)}` is new on every
-       dashboard render, and a session refresh re-ticked a widget the user had unticked for the
-       PowerPoint deck (driven before R217).
-     - `ConnectSourceDialog.tsx` `[open, editing]`: editing a knowledge-base connector passes
-       `editing={{…}}` inline, so a re-render of the knowledge page refills the label, settings,
-       schedule and scope, and empties the credentials being typed. Not yet driven.
+   - **R218: Export to PowerPoint.** A session refresh re-ticked a widget unticked for the deck.
+   - **R219: editing a knowledge-base connector.** A session refresh put the saved label back
+     over an edit, and would have emptied credentials being typed.
+   - The list is done: no `}, [open, …]);` effect left refills a form from a value that changes
+     while its dialog is open. `tests/unit/useResetOnOpen.test.ts` lists the three fixed; R217's
+     ratchet covers the token half.
 
 ### Sheets (new, 2026-09-25)
 

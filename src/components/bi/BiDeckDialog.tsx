@@ -6,7 +6,7 @@
 // and the wrong one: someone exporting a twelve-widget dashboard and receiving
 // nine slides needs to know which three are missing and why, at the moment they
 // choose, not by counting slides afterwards.
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { FileType2, Loader2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 
@@ -26,6 +26,7 @@ import { Textarea } from "@/components/ui/textarea";
 import type { BiPage, BiWidget } from "@/lib/biDashboards";
 import { buildDeckPlan, deckCandidates, type DeckCandidate } from "@/lib/biDeck";
 import { generateDeckNarrative } from "@/lib/biDeckNarrative";
+import { useResetOnOpen } from "@/hooks/use-reset-on-open";
 
 type PageGroup = { page: BiPage; candidates: DeckCandidate[] };
 
@@ -61,10 +62,11 @@ export function BiDeckDialog({
 
   // Default to everything that CAN be exported, re-evaluated whenever the
   // dialog opens — the dashboard may have been refreshed since last time, which
-  // changes which widgets have data.
-  useEffect(() => {
-    if (open) setSelected(new Set(exportable.map((c) => c.widget.id)));
-  }, [open, exportable]);
+  // changes which widgets have data. R218: only when it opens. Keyed on
+  // `exportable`, this ran on every render of the dashboard, which passes
+  // `pages={pages.map(…)}`, so a session refresh re-ticked a widget the user
+  // had unticked, and the deck would have included it.
+  useResetOnOpen(open, () => setSelected(new Set(exportable.map((c) => c.widget.id))));
 
   const toggle = (id: string) =>
     setSelected((prev) => {

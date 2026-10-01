@@ -1024,7 +1024,8 @@ GROUP BY region`}</Code>
       <P>
         <strong>Export → Export to PowerPoint</strong> builds a branded deck. You choose which
         visuals to include (grouped by page), a model to write the prose, and optionally an
-        instruction for tone, audience or emphasis.
+        instruction for tone, audience or emphasis. Every exportable visual starts ticked when the
+        dialog opens, and what you untick stays unticked until you export or close it.
       </P>
       <P>
         <strong>The figures are the dashboard&apos;s figures.</strong> Every slide is filled from

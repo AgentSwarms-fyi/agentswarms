@@ -121,7 +121,7 @@ function KnowledgePage() {
         (the platform's BYOK pattern — no OAuth consent screens to register), validated against the
         provider at save time, <strong>encrypted at rest</strong>, and never sent back to the
         browser: editing a source shows empty credential fields, and leaving them empty keeps what
-        is stored.
+        is stored. What you change while editing stays until you save or close the wizard.
       </P>
       <Table
         headers={["Provider", "Credentials", "What syncs", "Mirrors sharing?"]}
