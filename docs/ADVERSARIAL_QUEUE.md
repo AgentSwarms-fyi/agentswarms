@@ -283,16 +283,18 @@ least twice, not a hypothetical.
      twice. A double Shift+Enter ran a notebook cell twice on the kernel. A run during the kernel
      start failed with "Server runtime not connected". And every Shift+Enter also added a blank
      line to the cell.
+   - **R214: nine creates.** A double Enter in a name field made two workbooks, BI projects, BI
+     folders, MCP servers, workspaces, reports, or projects from Add to dashboard. ETL pipelines
+     and eval datasets have unique names, so there it made one and showed a raw "duplicate key"
+     error. The MCP builder's busy flag also stayed set when its create threw.
    - **Next, in order of consequence:**
-     - Nine creates, each a duplicate row from a double Enter:
-       - `sheets.tsx` (workbook), `bi.tsx` (dashboard), `etl.tsx` (pipeline),
-         `mcp-builder.tsx` (MCP app; its `creating` also never clears on a throw),
-         `evaluations.tsx` (dataset);
-       - `ReportsTab.tsx` (report), `BiWorkspaceManager.tsx` (workspace);
-       - `AddToDashboardDialog.tsx` and `AddMetricToDashboardDialog.tsx` (a new dashboard each).
+     - The Semantic Layer's **Add metric to dashboard** dialog resets its form on every click
+       inside it. The page passes `payload` as a new object each render, and the dialog's reset
+       effect depends on it, so a typed title reverts and the BI project pick snaps back. Its
+       Enter guard (`AddMetricToDashboardDialog.tsx` `submit`) moves to that round: its "before"
+       cannot be driven until the form holds still.
      - AI Analyst's `askQuestion`: `busy` is set only after `await resolveScope()`, so either
        path can start two analyst runs.
-     - BI's folder Add (`bi.tsx` `addFolder`): no guard on either path.
 
 ### Sheets (new, 2026-09-25)
 

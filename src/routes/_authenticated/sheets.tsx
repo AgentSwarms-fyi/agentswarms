@@ -68,6 +68,7 @@ import { relTime } from "@/components/ml/mlUi";
 import { listClaim } from "@/lib/listClaim";
 import { matchSpans, searchWorkbooks, type GallerySort } from "@/lib/sheets/preview";
 import { cn } from "@/lib/utils";
+import { useSingleFlight } from "@/lib/singleFlight";
 import {
   sheetsBackfillPreviews,
   sheetsCreate,
@@ -247,7 +248,8 @@ function SheetsPage() {
   const sharedCount = (workbooks ?? []).filter((w) => w.role !== "owner").length;
   const total = workbooks?.length ?? 0;
 
-  async function create() {
+  // R214: Enter in the name field skipped the button's in-flight guard.
+  const create = useSingleFlight(async () => {
     if (!token || !newName.trim()) return;
     setCreating(true);
     try {
@@ -268,7 +270,7 @@ function SheetsPage() {
     } finally {
       setCreating(false);
     }
-  }
+  });
 
   async function rename(wb: WorkbookSummary) {
     if (!token) return;

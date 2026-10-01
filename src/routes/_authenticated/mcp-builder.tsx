@@ -45,6 +45,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MCP_TEMPLATES } from "@/lib/mcpTemplates";
 import { cn } from "@/lib/utils";
+import { useSingleFlight } from "@/lib/singleFlight";
 import {
   mcpAppCreate,
   mcpAppDelete,
@@ -90,19 +91,26 @@ function McpBuilderPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const create = async () => {
+  // R214: Enter in the name field skipped the button's in-flight guard, and a
+  // call that threw left `creating` set, so the button stayed disabled.
+  const create = useSingleFlight(async () => {
     if (!name.trim()) return;
     setCreating(true);
-    const res = await createFn({ data: { name: name.trim(), template } });
-    setCreating(false);
-    if (!res.ok) {
-      toast.error(res.error);
-      return;
+    try {
+      const res = await createFn({ data: { name: name.trim(), template } });
+      if (!res.ok) {
+        toast.error(res.error);
+        return;
+      }
+      setNewOpen(false);
+      setName("");
+      void navigate({ to: "/mcp-builder/$appId", params: { appId: res.id } });
+    } catch (e) {
+      toast.error(`Could not create the app: ${(e as Error).message}`);
+    } finally {
+      setCreating(false);
     }
-    setNewOpen(false);
-    setName("");
-    void navigate({ to: "/mcp-builder/$appId", params: { appId: res.id } });
-  };
+  });
 
   const remove = async (app: McpAppSummary) => {
     const res = await deleteFn({ data: { id: app.id } });

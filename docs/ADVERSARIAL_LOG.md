@@ -109,6 +109,51 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-01 — A double Enter in a name field, two of everything
+
+Tests: `tests/unit/singleFlight.test.ts` (22 tests; the guarded list gains nine handlers, and one
+test pins the MCP builder's `finally`). The mutation run caught 11 of 11, and the control
+survived.
+
+#### R214 · S2 · Nine create dialogs made two of what they name for a double Enter
+
+**Found** fourth in sweep 5's queue. Each dialog's create button is disabled while it saves.
+Enter in the name field called the same handler with no check, and the name clears only after
+the save. Driven on the real image `0ed734402123` (R213), name `r214 before` and Enter twice:
+
+| Surface | What came back |
+| --- | --- |
+| Sheets → New workbook | **Two** workbooks (`c5a31d30…`, `89258bfb…`) |
+| BI → New BI project | **Two** "Empty dashboard" cards |
+| BI → New folder (no guard on Add either) | **Two** folder rows |
+| BI → Manage workspaces | **Two** workspaces, "Workspace created" twice |
+| BI → Reports → New report | **Two** reports |
+| MCP Builder → New server | **Two** servers (`02a6d942…`, `9890ce5c…`) |
+| Workbench → BI agent answer → Add to dashboard → New BI project | **Two** projects `r214 widget before`, "Added to …" twice |
+| ETL → New pipeline (`r214_before_toast`) | One pipeline, and the toast **duplicate key value violates unique constraint "etl_pipelines_user_id_name_key"** |
+| Evaluations → New dataset (`r214 before toast`) | One dataset, and the toast **duplicate key value violates unique constraint "eval_datasets_user_id_name_key"** |
+
+The MCP builder's create also set `creating`, awaited, and cleared it after, with no `try`: a call
+that threw left the button disabled until a reload.
+
+**The fix.** Every one of the nine handlers is wrapped in R211's `useSingleFlight`, so the
+button and the key share one guard. The MCP builder's create clears `creating` in a `finally`
+and toasts a thrown error.
+
+**Driven after** (hot deploy of R214), name `r214 after` and Enter twice:
+- **One** workbook, BI project, folder, workspace ("Workspace created" once), report and MCP
+  server.
+- **One** `r214 widget after` project ("Added to …" once).
+- ETL and Evaluations: one each, and **no** toast.
+
+**Moved out.** The Semantic Layer's Add metric to dashboard has the same Enter path, but its
+form resets on every click inside the dialog (the queue's next item), so its "before" could not
+be driven. Its guard ships with that fix.
+
+**Cost.** The BI agent answers came from Gemini Flash models on the configured Google provider:
+two answers, after the free OpenRouter models were rate-limited and Gemini 3.1 Flash Lite
+returned 503.
+
 ### 2026-10-01 — A double Shift+Enter, a cell run twice
 
 Tests: `tests/unit/singleFlight.test.ts` (12 tests: `sharedFlight`, and the guarded list gains the

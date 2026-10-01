@@ -146,6 +146,7 @@ import { ETL_TEMPLATES } from "@/lib/etlTemplates";
 import { listWarehouseConnections } from "@/utils/warehouse.functions";
 import { listSaasConnections } from "@/utils/saas.functions";
 import { SAAS_TARGETS, isWritableVendor, type SaasTargetVendor } from "@/lib/saasTargets";
+import { useSingleFlight } from "@/lib/singleFlight";
 import type { WarehouseConnectionSummary } from "@/utils/warehouse/types";
 import {
   cancelEtlRunFn,
@@ -710,7 +711,8 @@ function NewPipelineDialog({
   const [templateId, setTemplateId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const create = async () => {
+  // R214: Enter in the name field skipped the button's in-flight guard.
+  const create = useSingleFlight(async () => {
     if (!name.trim()) return;
     setBusy(true);
     try {
@@ -741,7 +743,7 @@ function NewPipelineDialog({
     } finally {
       setBusy(false);
     }
-  };
+  });
 
   // Dismissing resets the form. Radix unmounts the content but not this
   // component, so without it a template stays selected across openings — and
@@ -835,7 +837,7 @@ function NewPipelineDialog({
           <Button variant="outline" onClick={dismiss}>
             Cancel
           </Button>
-          <Button onClick={create} disabled={busy || !name.trim()}>
+          <Button onClick={() => void create()} disabled={busy || !name.trim()}>
             {busy && <Loader2 className="mr-1 h-4 w-4 animate-spin" />} Create
           </Button>
         </DialogFooter>

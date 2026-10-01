@@ -159,6 +159,11 @@ function EtlDocsPage() {
         own deployment — the runs fetch them from your instance&apos;s origin, so they work
         offline). Pick your destination bucket under Settings and run.
       </P>
+      <P>
+        Enter in the dialog&apos;s name field creates the pipeline, like Create. A second Enter
+        while the first is saving is ignored, so a quick double press makes one pipeline and no
+        &ldquo;duplicate key&rdquo; error. Pipeline names are unique per user.
+      </P>
       <Table
         headers={["Sample", "The hard part it solves"]}
         rows={[

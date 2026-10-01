@@ -57,6 +57,7 @@ import {
   type EvalEvaluator,
   type EvalResultLite,
 } from "@/lib/evalScoring";
+import { useSingleFlight } from "@/lib/singleFlight";
 import {
   addEvalCases,
   cancelEvalRun,
@@ -198,7 +199,8 @@ function EvaluationsPage() {
   const [newName, setNewName] = useState("");
   const [newDesc, setNewDesc] = useState("");
   const [creating, setCreating] = useState(false);
-  const newDataset = async () => {
+  // R214: Enter in the name field skipped the button's in-flight guard.
+  const newDataset = useSingleFlight(async () => {
     if (!newName.trim()) return toast.error("Give the dataset a name.");
     setCreating(true);
     try {
@@ -215,7 +217,7 @@ function EvaluationsPage() {
     } finally {
       setCreating(false);
     }
-  };
+  });
 
   return (
     <main className="mx-auto w-full max-w-[1500px] px-4 py-6 md:px-8">

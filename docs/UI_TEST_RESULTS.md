@@ -15,6 +15,34 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-01 — A double Enter in nine create dialogs, ADVERSARIAL_LOG R214
+
+**Why this round exists.** The fourth round of sweep 5, "a guard only the button honours".
+"Before" was driven on the real image `0ed734402123`; "after" on a hot deploy of R214 onto it.
+
+Fixtures, **kept**:
+- Workbooks `r214 before` (×2) and `r214 after`.
+- BI projects `r214 before` (×2), `r214 after`, `r214 widget before` (×2) and
+  `r214 widget after`.
+- BI folders `r214 before` (×2) and `r214 after`.
+- BI workspaces `r214 before` (×2) and `r214 after`.
+- Reports `r214 before` (×2) and `r214 after`.
+- MCP servers `r214 before` (×2) and `r214 after`.
+- ETL pipelines `r214_before`, `r214_before_toast` and `r214_after`.
+- Eval datasets `r214 before`, `r214 before toast` and `r214 after`.
+
+| Surface | Before: Enter twice | After: Enter twice |
+| --- | --- | --- |
+| Sheets → New workbook | **2** workbooks | **1** (`e9b96895…`) |
+| BI → New BI project | **2** cards | **1** (`f4dc24fc…`) |
+| BI → New folder | **2** rows | **1** |
+| BI → Manage workspaces | **2**, "Workspace created" ×2 | **1**, ×1 |
+| BI → Reports → New report | **2** | **1** (`83538a80…`) |
+| MCP Builder → New server | **2** | **1** (`a5fef52c…`) |
+| Workbench BI agent → Add to dashboard → New BI project | **2**, "Added to" ×2 | **1**, ×1 |
+| ETL → New pipeline | 1, and "duplicate key value violates unique constraint "etl_pipelines_user_id_name_key"" | 1, no toast |
+| Evaluations → New dataset | 1, and "duplicate key value violates unique constraint "eval_datasets_user_id_name_key"" | 1, no toast |
+
 ## 2026-10-01 — Smoke of the real image after R211 to R213
 
 **Why this round exists.** Three rounds had been hot-deployed onto the R209 image. This round

@@ -27,6 +27,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { useAuth } from "@/hooks/use-auth";
 import { PAGE_SIZES } from "@/lib/biReports";
+import { useSingleFlight } from "@/lib/singleFlight";
 import {
   biReportCreate,
   biReportDelete,
@@ -60,7 +61,8 @@ export function ReportsTab() {
     void reload();
   }, [reload]);
 
-  async function create() {
+  // R214: Enter in the name field skipped the button's in-flight guard.
+  const create = useSingleFlight(async () => {
     if (!name.trim()) return toast.error("Give the report a name");
     setBusy(true);
     try {
@@ -72,7 +74,7 @@ export function ReportsTab() {
     } finally {
       setBusy(false);
     }
-  }
+  });
 
   async function remove(r: BiReportRow) {
     const ok = await confirmAsk({

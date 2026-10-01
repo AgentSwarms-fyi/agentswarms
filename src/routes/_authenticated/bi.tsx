@@ -75,6 +75,7 @@ import {
   type BiFolder,
   type BiWorkspace,
 } from "@/lib/biWorkspaces";
+import { useSingleFlight } from "@/lib/singleFlight";
 
 export const Route = createFileRoute("/_authenticated/bi")({
   head: () => ({
@@ -138,7 +139,8 @@ function BiWorkspacePage() {
     reloadOrg();
   }, [reload, reloadOrg]);
 
-  const submitCreate = async () => {
+  // R214: Enter in the name field skipped the button's in-flight guard.
+  const submitCreate = useSingleFlight(async () => {
     if (!user?.id) return;
     if (!name.trim()) return toast.error("Give the project a name");
     setBusy(true);
@@ -154,7 +156,7 @@ function BiWorkspacePage() {
     } finally {
       setBusy(false);
     }
-  };
+  });
 
   const remove = async (d: BiDashboardRow) => {
     if (!(await confirmAsk({ title: `Delete BI project "${d.name}"? This cannot be undone.` })))
@@ -181,7 +183,9 @@ function BiWorkspacePage() {
     setAddingFolder(false);
   };
 
-  async function addFolder() {
+  // R214: neither Add nor Enter had a guard, and the name clears only after
+  // the insert, so a double press made two folders.
+  const addFolder = useSingleFlight(async () => {
     if (!user?.id || !folderName.trim()) return;
     try {
       await createFolder({ userId: user.id, name: folderName, workspaceId: scopeWs });
@@ -191,7 +195,7 @@ function BiWorkspacePage() {
     } catch (e) {
       toast.error((e as Error).message);
     }
-  }
+  });
 
   async function removeFolder(f: BiFolder) {
     if (

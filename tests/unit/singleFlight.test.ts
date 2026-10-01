@@ -137,6 +137,53 @@ const GUARDED: { file: string; fn: string; key: RegExp }[] = [
     fn: "runCell",
     key: /cellRunKey\(\(\) => void runCell\(cell\)\)/,
   },
+  // R214: a double Enter in a name field made two of the thing named — or,
+  // where the table has a unique name, one and a raw "duplicate key" error.
+  {
+    file: "src/routes/_authenticated/sheets.tsx",
+    fn: "create",
+    key: /if \(e\.key === "Enter"\) void create\(\);/,
+  },
+  {
+    file: "src/routes/_authenticated/bi.tsx",
+    fn: "submitCreate",
+    key: /e\.key === "Enter" && void submitCreate\(\)/,
+  },
+  {
+    file: "src/routes/_authenticated/bi.tsx",
+    fn: "addFolder",
+    key: /if \(e\.key === "Enter"\) void addFolder\(\);/,
+  },
+  {
+    file: "src/routes/_authenticated/etl.tsx",
+    fn: "create",
+    key: /e\.key === "Enter" && void create\(\)/,
+  },
+  {
+    file: "src/routes/_authenticated/mcp-builder.tsx",
+    fn: "create",
+    key: /if \(e\.key === "Enter"\) void create\(\);/,
+  },
+  {
+    file: "src/routes/_authenticated/evaluations.tsx",
+    fn: "newDataset",
+    key: /e\.key === "Enter" && void newDataset\(\)/,
+  },
+  {
+    file: "src/components/bi/ReportsTab.tsx",
+    fn: "create",
+    key: /e\.key === "Enter" && void create\(\)/,
+  },
+  {
+    file: "src/components/bi/BiWorkspaceManager.tsx",
+    fn: "create",
+    key: /e\.key === "Enter" && void create\(\)/,
+  },
+  {
+    file: "src/components/bi/AddToDashboardDialog.tsx",
+    fn: "submit",
+    key: /e\.key === "Enter" && void submit\(\)/,
+  },
 ];
 
 describe("every surveyed keyboard path", () => {
@@ -155,5 +202,15 @@ describe("every surveyed keyboard path", () => {
     // The old wrapper, which saw Shift+Enter only after the editor had
     // inserted its newline, is gone.
     expect(src).not.toMatch(/e\.key === "Enter" && e\.shiftKey/);
+  });
+
+  it("clears the MCP builder's busy flag however its create ends", () => {
+    // R214: the create set `creating`, awaited, then cleared it; a call that
+    // threw left the button disabled until the page was reloaded.
+    const src = readFileSync("src/routes/_authenticated/mcp-builder.tsx", "utf8");
+    const body = src.slice(src.indexOf("const create = useSingleFlight("));
+    expect(body.slice(0, body.indexOf("\n  });"))).toMatch(
+      /\} finally \{\s*setCreating\(false\);\s*\}/,
+    );
   });
 });

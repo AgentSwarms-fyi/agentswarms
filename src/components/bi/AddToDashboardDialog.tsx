@@ -33,6 +33,7 @@ import {
   type BiDashboardRow,
   type BiWidgetSource,
 } from "@/lib/biDashboards";
+import { useSingleFlight } from "@/lib/singleFlight";
 
 const NEW_PROJECT = "__new__";
 
@@ -71,7 +72,9 @@ export function AddToDashboardDialog({
     setNewName("");
   }, [open, userId]);
 
-  async function submit() {
+  // R214: Enter in the new project's name skipped the button's in-flight
+  // guard: two projects, or the widget added twice to one.
+  const submit = useSingleFlight(async () => {
     if (!turn || !userId) return;
     const widget = widgetFromBiTurn(turn, source);
     if (!widget) return toast.error("This answer has no result to insert");
@@ -100,7 +103,7 @@ export function AddToDashboardDialog({
     } finally {
       setBusy(false);
     }
-  }
+  });
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

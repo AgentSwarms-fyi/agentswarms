@@ -36,6 +36,7 @@ import {
   type BiWorkspace,
   type BiWorkspaceMember,
 } from "@/lib/biWorkspaces";
+import { useSingleFlight } from "@/lib/singleFlight";
 
 export function BiWorkspaceManager({
   open,
@@ -96,7 +97,8 @@ export function BiWorkspaceManager({
   const emailById = useMemo(() => new Map(users.map((u) => [u.user_id, u.email])), [users]);
   const groupNameById = useMemo(() => new Map(groups.map((g) => [g.id, g.name])), [groups]);
 
-  async function create() {
+  // R214: Enter in the name field skipped the button's in-flight guard.
+  const create = useSingleFlight(async () => {
     if (!user?.id || !newName.trim()) return;
     setCreating(true);
     try {
@@ -110,7 +112,7 @@ export function BiWorkspaceManager({
     } finally {
       setCreating(false);
     }
-  }
+  });
 
   async function removeWorkspace(w: BiWorkspace) {
     if (
