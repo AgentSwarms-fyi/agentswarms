@@ -109,6 +109,46 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-01 — count(*) 6000 beside "9,994 rows"
+
+Tests: `tests/unit/queryGate.test.ts` (5 tests: a table filled in batches and read mid-load, a
+failed load, the engine's wiring). The mutation run caught 6 of 6, and the control survived.
+
+#### R210 · S2 · A browser query read a table half filled, or called a loading table missing
+
+**Found** smoking the real image `5330adc25b2f` (R209). The Workbench's first
+`SELECT count(*) FROM saas_sales` answered **6000**, while the explorer beside it said
+**9,994 rows**, and the same query a minute later 9994.
+- **The cause.** `materialise` fills a table 500 rows at a time with an await between batches, so
+  6000 is 12 of the 20. Nothing kept a query from running in between, and it read the rows
+  inserted so far without a word.
+- **Earlier still.** On a fresh load, run at once, the same query said **"Catalog Error: Table
+  with name saas_sales does not exist!"** while the rows were being fetched.
+- **Who was exposed.** Every browser query: the Workbench, local BI charts, data prep, the BI
+  agent, document generation.
+
+The race is the old engine's as much as the new one's; the smoke happened to land in it.
+
+**The fix.**
+- **`src/lib/queryGate.ts`.** A load holds queries until it settles, failed or not, and a query
+  waits for every load held when it starts.
+- **`browserDuckdb.ts`.** `registerBrowserTables` holds its load, and `runBrowserSql` waits
+  before it queries.
+- **`sqlEngine.ts`.** `hydrateFromSupabase` holds the whole hydration, the row fetches before any
+  table exists included.
+
+**Driven after** (hot deploy of R210): on two fresh loads, the same query run at once showed
+"Starting the SQL engine…" and answered **9994** after 6.4 s and 6.9 s. It did not say the table
+was missing, and it did not answer part of it.
+
+**Seen in the same smoke, not this code.** The real image's first Publish to Iceberg failed:
+"Failed to commit Iceberg transaction: Request returned HTTP 500". The catalog's log said
+`SQLITE_BUSY: database is locked`, and a retry under a new name failed the same way. The catalog
+(`aswarm-iceberg-rest`, a JDBC catalog on SQLite) held a lock in its own process since some time
+after the 11:48 publish; no journal was left on disk. A restart of that container released it, and
+the next publish committed. The toast surfaced the 500 but not the lock, which the catalog's
+response does not carry.
+
 ### 2026-10-01 — One query, DATE in the browser and TIMESTAMP on the server
 
 Tests: `tests/unit/duckdbEnginesParity.test.ts` (12 tests: the browser's wasm build, run under

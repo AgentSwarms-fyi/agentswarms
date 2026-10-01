@@ -15,6 +15,22 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-01 — A query against a table still loading, ADVERSARIAL_LOG R210
+
+**Why this round exists.** Found smoking the real image after R209.
+
+Fixtures, **kept**: Iceberg table `r181.smoke_5330adc2_c`. The two attempts before it committed
+nothing.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Smoke, real image `5330adc25b2f` (R209) | Workbench, Local: `version()`, `typeof(date_trunc(…))`, `current_setting('TimeZone')`, `(SELECT count(*) FROM saas_sales)` | v1.5.4 · TIMESTAMP · UTC · **6000**; the explorer beside it "9,994 rows"; a minute later `count(*)` **9994** |
+| Smoke | Publish to Iceberg `r181` / `smoke_5330adc2` | **"Failed to commit Iceberg transaction: … HTTP 500"**; the catalog's log `SQLITE_BUSY: database is locked` |
+| Smoke | the same as `smoke_5330adc2_b` | the same failure |
+| Smoke | `aswarm-iceberg-rest` restarted; the same as `smoke_5330adc2_c` | "Published 4 row(s)"; committed in 2123 ms, then 1925 ms |
+| Before (same image) | fresh load, the Workbench, `SELECT count(*) FROM saas_sales` at once | **"Catalog Error: Table with name saas_sales does not exist!"** |
+| After (hot deploy of R210) | the same, twice | "Starting the SQL engine…", then **9994** (6437 ms, then 6940 ms) |
+
 ## 2026-10-01 — The Workbench's two engines on one query, ADVERSARIAL_LOG R209
 
 **Why this round exists.** R197's leftover: the browser's DuckDB was an older version than the

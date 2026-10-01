@@ -262,6 +262,11 @@ least twice, not a hypothetical.
    - **Still open, grid.** `UPPER("ß")` is "SS" in the grid and "ẞ" in the table; check Excel
      first.
    - **Inherent.** IFERROR mixing numbers and text makes a table column text.
+   - **R210: a browser query against a table still loading.** It waits for loads now.
+   - **Open, operations.** The Iceberg REST catalog (`aswarm-iceberg-rest`, JDBC on SQLite) once
+     held its database lock in-process until restarted, and every commit failed with
+     SQLite's "database is locked" (2026-10-01). The publish toast shows the HTTP 500 but not the lock. A catalog
+     on Postgres would not share one file lock between requests.
 
 ### Sheets (new, 2026-09-25)
 

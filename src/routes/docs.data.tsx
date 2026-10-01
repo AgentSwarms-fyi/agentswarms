@@ -903,6 +903,11 @@ ORDER  BY 1;`}</Code>
           usually finishes while you are still choosing a table.
         </li>
         <li>
+          Your datasets are loaded into it the same way. A query run before they are all in waits
+          for them, so it answers over every row rather than the ones loaded so far, and never says
+          a table that is on its way does not exist. Its time includes that wait.
+        </li>
+        <li>
           It downloads <strong>once per browser</strong>, not per query, per dataset or per tab.
         </li>
         <li>

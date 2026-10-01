@@ -43,6 +43,7 @@
 import type * as duckdb from "@duckdb/duckdb-wasm";
 
 import { arrowTemporalKind, ENGINE_TIME_ZONE, formatTemporal, toJsValue } from "@/lib/duckdbValues";
+import { holdQueriesUntil, waitForLoads } from "@/lib/queryGate";
 import { assertLocalReadOnlySql } from "@/lib/sqlSafety";
 import type { ColumnDef } from "@/lib/datasetParse";
 
@@ -269,12 +270,17 @@ async function materialise(conn: duckdb.AsyncDuckDBConnection, table: BrowserDuc
  * Called by the hydration path in lib/sqlEngine. Replacing a table drops and
  * recreates it, so a re-hydration after an upload cannot leave stale rows.
  */
-export async function registerBrowserTables(tables: BrowserDuckTable[]): Promise<void> {
-  const { conn } = await init();
-  for (const t of tables) {
-    await materialise(conn, t);
-    registered.add(t.name);
-  }
+export function registerBrowserTables(tables: BrowserDuckTable[]): Promise<void> {
+  const load = (async () => {
+    const { conn } = await init();
+    for (const t of tables) {
+      await materialise(conn, t);
+      registered.add(t.name);
+    }
+  })();
+  // A query waits for this, so it never reads a table half filled (R210).
+  holdQueriesUntil(load);
+  return load;
 }
 
 export function isBrowserTableRegistered(name: string): boolean {
@@ -304,6 +310,10 @@ export type BrowserQueryResult = {
  */
 export async function runBrowserSql(sql: string): Promise<BrowserQueryResult> {
   const safe = assertLocalReadOnlySql(sql);
+  // FOUND IN R210: a query that came in while a table was being filled read
+  // the rows inserted so far (count(*) 6000 of 9,994), and one that came in
+  // before it was created said it did not exist. Loads in flight go first.
+  await waitForLoads();
   const { conn } = await init();
   const table = await conn.query(safe);
   const fields = table.schema.fields;

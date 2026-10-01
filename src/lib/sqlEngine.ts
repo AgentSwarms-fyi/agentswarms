@@ -32,6 +32,7 @@ import {
   STAGING_PREFIX,
   type ColumnDef,
 } from "@/lib/datasetParse";
+import { holdQueriesUntil } from "@/lib/queryGate";
 import { isLocalReadOnlySql } from "@/lib/sqlSafety";
 import {
   dropBrowserTable,
@@ -169,6 +170,9 @@ export async function hydrateFromSupabase(): Promise<DatasetMeta[]> {
   hydrationInFlight = hydrateFromSupabaseUncoordinated().finally(() => {
     hydrationInFlight = null;
   });
+  // The whole hydration, the row fetches before any table exists included,
+  // holds queries: one run meanwhile waits rather than finding no table (R210).
+  holdQueriesUntil(hydrationInFlight);
   return hydrationInFlight;
 }
 
