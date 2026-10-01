@@ -56,7 +56,9 @@ function PlaygroundDoc() {
         provider, model, system prompt, knowledge bases, skills, tools, guardrails, and memory.
         Conversations are persisted, so you can leave and pick a thread back up later. If your
         agents cannot be read, the page says so and offers <em>Try again</em>, rather than asking
-        you to pick from an empty selector.
+        you to pick from an empty selector. The same goes for a conversation that cannot be started:
+        the message box needs one, so the empty chat gives the reason and a <em>Try again</em>{" "}
+        instead of inviting a message it cannot take.
       </P>
       <UL>
         <li>

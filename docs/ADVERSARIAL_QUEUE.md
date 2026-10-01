@@ -1151,7 +1151,7 @@ over the lakehouse). Open from that round, the rest of Row Zero's connected tabl
   begin" at an empty selector. Left there: the tour's approvals poll (a
   failed read only delays a checkpoint), three title updates (a failed one
   leaves "New Chat"), and the first conversation's auto-insert, whose
-  error is dropped (worth a round: does the page stay usable?). The last of swarms are
+  error was dropped: it did not stay usable, R206 (and New Chat's, the same). The last of swarms are
   R189: the canvas's published-snapshot re-read switched "Draft ahead" off
   after a Publish while the canvas went on changing (now "Live not
   checked"), and the components (palette and library) and the version

@@ -217,6 +217,9 @@ function PlaygroundPage() {
   // path returns after its toast. A read that comes back for a selection no
   // longer on screen is dropped.
   const [convosLoaded, setConvosLoaded] = useState(false);
+  // Why no conversation could be started for this agent (R206). Without one the
+  // message box is disabled, so the page says so and offers to try again.
+  const [convoError, setConvoError] = useState<string | null>(null);
   const [messagesLoaded, setMessagesLoaded] = useState(false);
   const convoReq = useRef(0);
   const messageReq = useRef(0);
@@ -484,17 +487,24 @@ function PlaygroundPage() {
       if (data.length > 0) {
         if (!activeConvo) setActiveConvo(data[0].id);
       } else if (user && selectedAgent) {
-        // Auto-create a first conversation so the input is usable
-        const { data: newConvo } = await supabase
+        // Auto-create a first conversation so the input is usable.
+        // FOUND IN R206: a failed insert was dropped, and the page stood with
+        // its message box disabled under "Ask a question, share a task".
+        const { data: newConvo, error: insertError } = await supabase
           .from("conversations")
           .insert({ user_id: user.id, agent_id: selectedAgent, title: "New Chat" })
           .select()
           .single();
-        if (newConvo) {
-          setConversations([newConvo as Conversation]);
-          setActiveConvo(newConvo.id);
-          setMessages([]);
+        if (insertError || !newConvo) {
+          const why = insertError?.message ?? "no conversation came back";
+          setConvoError(why);
+          toast.error("Could not start a conversation", { description: why });
+          return;
         }
+        setConvoError(null);
+        setConversations([newConvo as Conversation]);
+        setActiveConvo(newConvo.id);
+        setMessages([]);
       }
     }
   }
@@ -529,11 +539,18 @@ function PlaygroundPage() {
       })
       .select()
       .single();
-    if (data) {
-      setActiveConvo(data.id);
-      setMessages([]);
-      loadConversations();
+    // FOUND IN R206: New Chat read `error` and never looked at it, so a failed
+    // insert did nothing at all.
+    if (error || !data) {
+      const why = error?.message ?? "no conversation came back";
+      setConvoError(why);
+      toast.error("Could not start a new chat", { description: why });
+      return;
     }
+    setConvoError(null);
+    setActiveConvo(data.id);
+    setMessages([]);
+    loadConversations();
   }
 
   async function renameConversation(id: string, title: string) {
@@ -1687,11 +1704,13 @@ function PlaygroundPage() {
                         : "Select an agent to start"}
                   </h2>
                   <p className="mt-1.5 max-w-sm text-sm text-muted-foreground">
-                    {currentAgent
-                      ? "Ask a question, share a task, or try a starter below."
-                      : agentsError
-                        ? `So there is nothing to pick yet: ${agentsError.replace(/[.!?]?\s*$/, ".")}`
-                        : "Choose an agent from the top bar, then send your first message."}
+                    {currentAgent && !activeConvo && convoError
+                      ? `A conversation could not be started, so there is nowhere to write yet: ${convoError.replace(/[.!?]?\s*$/, ".")}`
+                      : currentAgent
+                        ? "Ask a question, share a task, or try a starter below."
+                        : agentsError
+                          ? `So there is nothing to pick yet: ${agentsError.replace(/[.!?]?\s*$/, ".")}`
+                          : "Choose an agent from the top bar, then send your first message."}
                   </p>
                   {!currentAgent && agentsError && (
                     <Button
@@ -1699,6 +1718,16 @@ function PlaygroundPage() {
                       size="sm"
                       className="mt-4"
                       onClick={() => setAgentsAttempt((n) => n + 1)}
+                    >
+                      Try again
+                    </Button>
+                  )}
+                  {currentAgent && !activeConvo && convoError && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="mt-4"
+                      onClick={() => void createConversation()}
                     >
                       Try again
                     </Button>

@@ -15,6 +15,27 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-01 — Agent Chat when no conversation can be started, ADVERSARIAL_LOG R206
+
+**Why this round exists.** Queued from the client write survey. Before it, R201 to R205 went into
+a real image, smoked below.
+
+Fixtures, **kept**: Iceberg table `r181.smoke_a4f99b7a`; one empty "New Chat" conversation for
+"Sample · Graph RAG Explorer (Acme Corp)", made by Try again.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Smoke, real image `a4f99b7a55be` (R201–R205) | "R201 big numbers" | 1, 6, 1.4, 12345678902, 1500000000000000000000, 12,345,678,901,234,600, 12345678901, 24691357802 |
+| Smoke | "R205 1900 dates" | 1900, 1, 0, 1900-01-01, 1900-01-01, 1, 1900-01-02, 2, 1900-02-29, 2, 1 |
+| Smoke | Traces, cost column | $0.00016, $0.000005, $0.00015, $0.000005, $0.00 (free), $0.00083 |
+| Smoke | BI builder, empty pane; Data Prep *Save as* | "Write a query or pick tables, then Run it."; enabled, the usual title |
+| Smoke | Publish to Iceberg `local_rest` / `r181` / `smoke_a4f99b7a` | "Published 4 row(s)"; committed in 1426 ms, then 1665 ms |
+| Before (same image) | Agent Chat reached client-side, the conversations read `[]`, the insert 500 | no toast; no conversation; message box **disabled** under "Ask a question, share a task, or try a starter below." |
+| Before | + New Chat | a second failing insert; **no toast**, nothing changed |
+| After (hot deploy of R206) | the same | toast "Could not start a conversation · conversations insert refused (injected)"; centre "A conversation could not be started, so there is nowhere to write yet: …" and **Try again** |
+| After | + New Chat | toast "Could not start a new chat · …" |
+| After | injector cleared, Try again | one "New Chat" made and active; message box **enabled**; starters shown |
+
 ## 2026-10-01 — Excel's 1900 dates in a grid, ADVERSARIAL_LOG R205
 
 **Why this round exists.** The last grid items from R198's probe.

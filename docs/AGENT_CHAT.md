@@ -12,6 +12,10 @@ grounded in your own data.
 1. Pick an agent from the selector (create one first in **Agent Builder**).
    If your agents cannot be read, the page says so, with the error and
    **Try again**, instead of asking for a pick from an empty selector.
+   An agent you have not chatted with gets a first conversation made for it.
+   If that, or **New Chat**, cannot be saved, a toast and the empty chat say
+   so, with the reason and **Try again**: without a conversation there is
+   nowhere to write, and the message box stays off.
 2. Type a message. The agent runs with its configured system prompt, tools,
    knowledge base and model.
 3. The right-hand **inspector** shows the live thinking, tool calls, and the

@@ -109,6 +109,37 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-01 — Agent Chat with no conversation and no word why
+
+Tests: `tests/unit/chatConversationStart.test.ts` (4 tests, by source as R191's). The mutation run
+caught 6 of 6, and the control survived.
+
+#### R206 · S2 · A first conversation that could not be saved left the page unusable and silent
+
+**Found** from the queue ("the first conversation's auto-insert, whose error is dropped (worth a
+round: does the page stay usable?)"). It does not.
+- **Agent Chat makes a conversation** for an agent you have not chatted with. It read the
+  insert's data and dropped its error.
+- **New Chat** read `error` and never looked at it.
+- **Without a conversation** the message box and Send are disabled (`!activeConvo`).
+
+Driven on the real image `a4f99b7a55be` with the browser's fault injector (the agent's
+conversations read as `[]`, the insert answering 500):
+- no toast and no conversation;
+- the message box disabled under **"Ask a question, share a task, or try a starter below."**;
+- New Chat made a second failing insert and changed nothing.
+
+**The fix** (`playground.tsx`): both inserts look at their error. A failure keeps its reason, toasts
+"Could not start a conversation" or "Could not start a new chat", and the empty chat says "A
+conversation could not be started, so there is nowhere to write yet: <reason>." with **Try
+again**, which runs New Chat. A success clears it.
+
+**Driven after** (hot deploy of R206):
+- **The same injection.** The toast and the centre gave the reason, with Try again; New Chat
+  toasted its own.
+- **With the injector cleared,** Try again made one "New Chat" conversation (kept), made it active,
+  enabled the message box, and the starters came back.
+
 ### 2026-10-01 — The year of an empty cell was 1899
 
 Tests: `tests/unit/sheets1900Dates.test.ts` (5 tests: the serials both ways, the grid's formulas,
