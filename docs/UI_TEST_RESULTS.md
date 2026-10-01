@@ -15,6 +15,23 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-01 — Smoke of the real image after R211 to R213
+
+**Why this round exists.** Three rounds had been hot-deployed onto the R209 image. This round
+built a real image from the R213 commit (`docker compose up -d --build agentswarms`, image
+`0ed734402123`) and drove each round's fix, and an Iceberg publish, on it.
+
+| Check | What was driven | What came back |
+| --- | --- | --- |
+| R213, Workbench | `SELECT sum(i % 7) AS smoke_0ed734402123 FROM range(200000000) t(i)`, Ctrl+Enter twice | **One** Recent queries row, 3275 ms |
+| R211, Lakehouse editor | `INSERT INTO analytics.r211_double VALUES (3, 'smoke 0ed734402123')`, Ctrl+Enter twice; then `SELECT n, count(*) … GROUP BY n` | n 1 → 2 (R211's before), 2 → 1, **3 → 1** |
+| Iceberg publish | Lakehouse → `analytics.fct_region_revenue` → Write this table into an Iceberg catalog: `local_rest`, namespace `r181`, table `smoke_0ed734402123`, Publish | The catalog logged "Successfully committed to table r181.smoke_0ed734402123 in 4242 ms" |
+| R213, notebook | `r213 double run`, fresh page, cell 6, Shift+Enter twice | Running through a 43 s cold kernel start with no "Server runtime not connected"; then **one** run, output **1**; source still 2 lines |
+
+R212 (the SCIM mint) was not repeated: its fix is the same guard as R211's, and a repeat would
+mint more live tokens. Fixtures, **kept**: the Iceberg table `r181.smoke_0ed734402123`, the
+`analytics.r211_double` row for n = 3, and the Recent queries row.
+
 ## 2026-10-01 — A double Shift+Enter in a notebook, a double Ctrl+Enter in the Workbench, ADVERSARIAL_LOG R213
 
 **Why this round exists.** The third round of sweep 5, "a guard only the button honours".
