@@ -268,6 +268,32 @@ least twice, not a hypothetical.
      SQLite's "database is locked" (2026-10-01). The publish toast shows the HTTP 500 but not the lock. A catalog
      on Postgres would not share one file lock between requests.
 
+5. **A guard only the button honours** (sweep 5, Phase F, from 2026-10-01). A button
+   is `disabled={saving}`, and a keyboard path (Enter, Ctrl+Enter, Shift+Enter) calls the same
+   function with no such check, so a quick second key repeats the write. R207 (swarm versions)
+   was the first. A survey of every keyboard path into a write or a costly action found fourteen
+   more, and no case where Enter submits a state the button refuses. The fix is one shared
+   `useSingleFlight` (`src/lib/singleFlight.ts`) that the button and the key both call; each
+   round adds its handlers to `tests/unit/singleFlight.test.ts`'s list.
+   - **R211: the Lakehouse editor.** Ctrl+Enter ran a statement twice (one INSERT, two rows) and
+     Enter drafted SQL twice.
+   - **Next, in order of consequence:**
+     - The IAM SCIM token mint (`admin.iam.tsx`): two live tokens, only the second's secret ever
+       shown.
+     - The Workbench's Ctrl+Enter (`data-sql.tsx` `handleRun`): a duplicate warehouse query,
+       audit row and history row.
+     - The Python notebook's Shift+Enter (`notebooks.py.$pyNotebookId.tsx` `runCell`): a cell run
+       twice, the second maybe on a kernel not yet started.
+     - Nine creates, each a duplicate row from a double Enter:
+       - `sheets.tsx` (workbook), `bi.tsx` (dashboard), `etl.tsx` (pipeline),
+         `mcp-builder.tsx` (MCP app; its `creating` also never clears on a throw),
+         `evaluations.tsx` (dataset);
+       - `ReportsTab.tsx` (report), `BiWorkspaceManager.tsx` (workspace);
+       - `AddToDashboardDialog.tsx` and `AddMetricToDashboardDialog.tsx` (a new dashboard each).
+     - AI Analyst's `askQuestion`: `busy` is set only after `await resolveScope()`, so either
+       path can start two analyst runs.
+     - BI's folder Add (`bi.tsx` `addFolder`): no guard on either path.
+
 ### Sheets (new, 2026-09-25)
 
 Closed while building it: R112 (a `;` inside a string refused as a second

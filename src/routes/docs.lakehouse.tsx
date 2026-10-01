@@ -83,7 +83,7 @@ function LakehouseDocsPage() {
           },
           {
             title: "Query",
-            body: "Type SQL (Ctrl+Enter runs) or ask in plain language. Results are a virtualized grid with CSV export.",
+            body: "Type SQL (Ctrl+Enter runs) or ask in plain language. One statement runs at a time: a second Ctrl+Enter or click while one is running is ignored, so an INSERT never lands twice. Results are a virtualized grid with CSV export.",
           },
           {
             title: "Inspect and time-travel",

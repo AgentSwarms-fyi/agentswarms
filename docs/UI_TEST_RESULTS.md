@@ -15,6 +15,20 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-01 — A double Ctrl+Enter in the Lakehouse editor, ADVERSARIAL_LOG R211
+
+**Why this round exists.** The first round of sweep 5, "a guard only the button honours".
+
+Fixtures, **kept**: lakehouse table `analytics.r211_double` (n INTEGER, note VARCHAR): 2 rows for
+n = 1 (before), 1 row for n = 2 (after).
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before (hot deploy of R210) | Lakehouse editor: `CREATE TABLE analytics.r211_double (n INTEGER, note VARCHAR)`, Run | 0 rows |
+| Before | `INSERT INTO analytics.r211_double VALUES (1, …)`, Ctrl+Enter twice; then `SELECT count(*)` | **2** |
+| After (hot deploy of R211) | `INSERT … VALUES (2, …)`, Ctrl+Enter twice | Count **1** |
+| After | `SELECT n, count(*) … GROUP BY n ORDER BY n` | n 1 → **2**, n 2 → **1** |
+
 ## 2026-10-01 — A query against a table still loading, ADVERSARIAL_LOG R210
 
 **Why this round exists.** Found smoking the real image after R209.

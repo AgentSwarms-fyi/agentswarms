@@ -109,6 +109,39 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-01 — One INSERT, Ctrl+Enter twice, two rows
+
+Tests: `tests/unit/singleFlight.test.ts` (5 tests: the guard, and the list of surveyed keyboard
+paths it now covers). The mutation run caught 5 of 5, and the control survived.
+
+#### R211 · S1 · The Lakehouse editor ran a statement twice for a double Ctrl+Enter
+
+**Found** opening sweep 5, "a guard only the button honours". R207's double Enter in the swarm
+Versions dialog was a class, so a survey read every keyboard path into a write or a costly action
+(`tests/unit/singleFlight.test.ts` names the queue's list). It found fourteen where the key
+skipped the button's in-flight guard, and none that submitted a state the button refuses. This is
+the worst.
+
+The Lakehouse editor's Run is `disabled={running}`, and Ctrl+Enter in the editor called the same
+`run()` with no check. `run()` runs any statement, so a double key writes twice. In the UI, with a
+fixture table `analytics.r211_double` (kept):
+- `INSERT INTO analytics.r211_double VALUES (1, …)`, then Ctrl+Enter twice;
+- `SELECT count(*)` read **2**.
+
+The ask bar's Enter called `generate()` the same way past `disabled={generating}`: an LLM call
+twice.
+
+**The fix.** `src/lib/singleFlight.ts`:
+- **`singleFlight(fn)`** runs `fn` once at a time. Its flag is set at the call, not in React state,
+  so two key events in one tick cannot both pass it. It is released when the run settles, failed
+  or not.
+- **`useSingleFlight`** wraps a component's handler and always calls the latest one.
+
+The editor's `run` and `generate` are both wrapped, so the button and the key share one guard.
+
+**Driven after** (hot deploy of R211): the same INSERT for n = 2 with Ctrl+Enter twice answered
+Count 1, and `SELECT n, count(*) … GROUP BY n` read **1 → 2 rows (before), 2 → 1 row (after)**.
+
 ### 2026-10-01 — count(*) 6000 beside "9,994 rows"
 
 Tests: `tests/unit/queryGate.test.ts` (5 tests: a table filled in batches and read mid-load, a

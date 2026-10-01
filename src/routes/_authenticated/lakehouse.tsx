@@ -66,6 +66,7 @@ import {
   PublishToIcebergDialog,
 } from "@/components/lakehouse/IcebergDialog";
 import { downloadCsv } from "@/lib/exportData";
+import { useSingleFlight } from "@/lib/singleFlight";
 import { matviewBadge } from "@/lib/matviewBadge";
 import { useAuth } from "@/hooks/use-auth";
 import { useTokenRef } from "@/hooks/use-token-ref";
@@ -589,7 +590,10 @@ function QueryTab({
     }
   };
 
-  const run = async (statement?: string) => {
+  // One run at a time, from the button or from Ctrl+Enter (R211): the
+  // button's disabled={running} never reached the keyboard, and one INSERT
+  // with two quick Ctrl+Enters wrote two rows.
+  const run = useSingleFlight(async (statement?: string) => {
     const s = (statement ?? sql).trim();
     if (!s) return;
     setRunning(true);
@@ -607,9 +611,10 @@ function QueryTab({
     } finally {
       setRunning(false);
     }
-  };
+  });
 
-  const generate = async () => {
+  // One draft at a time, from the button or from Enter (R211).
+  const generate = useSingleFlight(async () => {
     if (!nl.trim()) return;
     setGenerating(true);
     setExplanation("");
@@ -634,7 +639,7 @@ function QueryTab({
     } finally {
       setGenerating(false);
     }
-  };
+  });
 
   const exportCsv = () => {
     if (!result) return;
