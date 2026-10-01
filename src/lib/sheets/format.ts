@@ -309,7 +309,7 @@ function formatNumberSection(n: number, code: string): string {
   const minDec = decPat.replace(/[^0]/g, "").length;
   const minInt = intPat.replace(/[^0]/g, "").length;
 
-  const fixed = Math.abs(v).toFixed(decPlaces);
+  const fixed = excelFixed(Math.abs(v), decPlaces);
   let [ip, dp = ""] = fixed.split(".");
   // Drop optional trailing decimals (#) down to the required ones (0).
   while (dp.length > minDec && dp.endsWith("0")) dp = dp.slice(0, -1);
@@ -319,6 +319,24 @@ function formatNumberSection(n: number, code: string): string {
   // A pattern with a decimal point always shows it, as Excel does ("0.##" on 5 is "5.").
   const body = pattern.includes(".") ? `${ip}.${dp}` : ip;
   return restore(prefix + body + suffix);
+}
+
+/**
+ * `toFixed`, rounding the number Excel shows rather than the one stored.
+ *
+ * FOUND IN R199: 2.675 is stored as 2.67499999999999982…, so `toFixed(2)`
+ * gave "2.67" for TEXT(2.675, "0.00") and for a cell formatted 0.00, while
+ * ROUND(2.675, 2) on the same sheet, and Excel, said 2.68. Excel rounds the
+ * 15 significant digits it keeps, so this does too: the decimal text of the
+ * 15-digit value is scaled by a power of ten as text, which is exact.
+ */
+export function excelFixed(v: number, places: number): string {
+  if (!Number.isFinite(v) || places > 15) return v.toFixed(places);
+  const shown = String(Number(v.toPrecision(15)));
+  // An exponent (1e-7, 1.5e+21) cannot take another one as text.
+  if (/e/i.test(shown)) return Number(shown).toFixed(places);
+  const scaled = Math.round(Number(`${shown}e${places}`));
+  return (scaled / 10 ** places).toFixed(places);
 }
 
 /**

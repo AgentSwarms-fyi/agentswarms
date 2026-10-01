@@ -244,10 +244,16 @@ least twice, not a hypothetical.
    - **R198: grid vs table sheet.** A probe ran 75 formulas through both engines over the same rows.
      The table read a blank number as "0" in text and counted a blank reference in
      MIN/MAX/AVERAGE. `sheetsGridTableParity.test.ts` now holds the agreeing list.
-   - **Next, R199: the grid's own differences from Excel.**
-     - `PROPER("ÉCOLE ß")` gives "éCole ß", because an accented capital is not a letter to it.
-     - `TEXT(2.675, "0.00")` gives "2.67", where Excel gives 2.68.
-     - `TEXT(blank, "0.00")` gives "", where Excel gives 0.00.
+   - **R199: the grid's own differences from Excel.** TEXT and number formats round the 15 digits
+     Excel keeps (2.675 is 2.68, as ROUND says), PROPER knows accented letters, and TEXT of a
+     blank is TEXT of 0. `sheetsGridExcelText.test.ts`.
+   - **Next, R200: the table sheet on R199's cases.** A second probe added the rows 0.01+0.075,
+     1.005, "o'neil 2-way" and "ÉCOLE normale". The parity patch is kept in the session scratchpad.
+     - A number in text is written from DuckDB's 17 digits (`0.08499999999999999`, LEN 19), not 15.
+     - ROUND and TEXT use DuckDB's `round`, so `ROUND(1.005,2)` is 1 and `TEXT(1.005,"0.00")` is
+       1.00, where the grid and Excel give 1.01.
+     - PROPER splits on spaces only.
+   - **Still open, grid.**
      - `YEAR`/`MONTH`/`DAY` of a blank give 1899/12/30, where Excel gives 1900/1/0.
      - DATEDIF from 1900-03-01 is one day long.
      - `UPPER("ß")` is "SS" in the grid and "ẞ" in the table; check Excel first.

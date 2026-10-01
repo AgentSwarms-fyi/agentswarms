@@ -105,6 +105,12 @@ The same rules as Excel apply:
   as Excel writes it: 123456789012 stays whole (`LEN` 12), `=1/3&""` is `0.333333333333333`, and
   `=0.1+0.2&""` is `0.3`. From 1E+15 up, and under 1E-9, it is written in scientific notation. The
   cell itself still shows a long number the way a narrow cell does (`1.23457E+11`).
+- A number format and TEXT() round the 15 digits Excel keeps, as ROUND does. 2.675 is stored a
+  hair under 2.675, but `=TEXT(2.675,"0.00")` and a cell formatted `0.00` both show 2.68, and
+  `=TEXT(0.01+0.075,"0.00")` is 0.09. TEXT of a blank cell is TEXT of 0 (`0.00`).
+- PROPER capitalises the first letter of each word in any alphabet: `=PROPER("ÉCOLE normale")` is
+  `École Normale`. As in Excel, anything that is not a letter starts a word, so `o'neil 2-way`
+  becomes `O'Neil 2-Way`. A letter whose capital is two letters, such as `ß`, stays as it is.
 - Criteria are strings such as `">100"`, `"<>West"` and `"ap*"`.
 - References can be relative or absolute (`$A$1`), whole columns (`A:A`), or cross-sheet (`'Sales Data'!D2`).
   - A whole column is all 1,048,576 rows, as in Excel, and a whole row all 16,384 columns.

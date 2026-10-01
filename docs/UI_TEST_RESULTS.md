@@ -15,6 +15,21 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-01 — TEXT, number formats and PROPER in a grid, ADVERSARIAL_LOG R199
+
+**Why this round exists.** R198's probe found the grid's own differences from Excel. ROUND and TEXT
+of the same cell gave different answers.
+
+Fixtures, **kept**: workbook "R199 grid text" (Sheet1, row 1 and H3).
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before (hot deploy of R198) | A1 2.675; B1 `=TEXT(A1,"0.00")`; C1 `=ROUND(A1,2)`; D1 `=PROPER("ÉCOLE normale")`; E1 `=TEXT(A5,"0.00")` over a blank | B1 **2.67**, C1 2.68, D1 **éCole Normale**, E1 **(empty)** |
+| After (hot deploy of R199) | the workbook, reopened | B1 **2.68**, D1 **École Normale**, E1 **0.00** |
+| After | F1 `=0.01+0.075`, G1 `=TEXT(F1,"0.00")` | F1 0.085, G1 **0.09** |
+| After | A1 → format **Number** (`#,##0.00`) from the toolbar | A1 shows **2.68**; "All changes saved" |
+| After (second deploy) | H3 `=PROPER("ß straße ÑANDÚ")` | **ß Straße Ñandú** (the ß kept, not "SS") |
+
 ## 2026-10-01 — A blank in a table sheet against a grid, ADVERSARIAL_LOG R198
 
 **Why this round exists.** Sweep 4's grid-vs-table item. One workbook holds the same two rows in

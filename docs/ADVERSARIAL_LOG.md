@@ -109,6 +109,53 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-01 — 2.67 from TEXT, 2.68 from ROUND, in the same row
+
+Tests: `tests/unit/sheetsGridExcelText.test.ts` (5 tests). The mutation run caught 7 of 7, and the
+control survived.
+
+#### R199 · S2 · The grid's number formats rounded the binary, not the number Excel shows
+
+**Found** by R198's probe, among the grid's own differences from Excel. In the UI, workbook
+"R199 grid text" (kept), row 1:
+
+| Cell | Formula | Grid | Excel |
+| --- | --- | --- | --- |
+| A1 | 2.675 | 2.675 | 2.675 |
+| B1 | `=TEXT(A1,"0.00")` | **2.67** | 2.68 |
+| C1 | `=ROUND(A1,2)` | 2.68 | 2.68 |
+| D1 | `=PROPER("ÉCOLE normale")` | **éCole Normale** | École Normale |
+| E1 | `=TEXT(A5,"0.00")`, A5 blank | **(empty)** | 0.00 |
+
+The grid disagreed with itself in B1 and C1.
+- **Rounding.** 2.675 is stored as 2.67499999999999982…. ROUND already guarded against float noise,
+  but the number formatter, which TEXT and every formatted cell use, called `toFixed` on the
+  stored binary.
+- **PROPER.** A letter was `[a-z]`, so "É" counted as a word break.
+- **TEXT of a blank.** The blank went to the formatter as nothing, not as 0.
+
+**The fix:**
+- **`excelFixed`** (`lib/sheets/format.ts`) rounds the 15 significant digits Excel keeps. It scales
+  their decimal text by a power of ten, which is exact, so `0.01+0.075` (0.08499999999999999 in
+  binary, 0.085 to Excel) formats as 0.09. Every number format with decimals goes through it.
+- **PROPER** treats any letter, in any script (`\p{L}`), as a letter. As before, a letter whose
+  capital is two letters (`ß`, `ﬁ`) stays as it is. The first cut turned a word-initial "ß" into
+  "SS", which the old `[a-z]` never did, so that was kept.
+- **TEXT** reads a blank as 0.
+
+**Driven after** (hot deploy of R199): B1 2.68, D1 École Normale, E1 0.00. A1 formatted
+**Number** (`#,##0.00`) shows 2.68. F1 `=0.01+0.075` shows 0.085, and `=TEXT(F1,"0.00")` 0.09.
+`=PROPER("ß straße ÑANDÚ")` is "ß Straße Ñandú".
+
+**What a second probe found, for R200.** It was run with new parity rows (0.01+0.075, 1.005,
+"o'neil 2-way", "ÉCOLE normale"). The table sheet's compiled SQL differs from the grid and from
+Excel on four formulas:
+- A number in text is `0.08499999999999999` (LEN 19), where the grid and Excel give 0.085.
+- `ROUND(1.005,2)` is 1, where the grid and Excel give 1.01.
+- `TEXT(1.005,"0.00")` is 1.00, where the grid and Excel give 1.01.
+- PROPER splits on spaces only, so `o'neil 2-way` is `O'neil 2-way`, where the grid and Excel give
+  `O'Neil 2-Way`.
+
 ### 2026-10-01 — "bob: 0" in a table sheet, "bob: " in the grid beside it
 
 Tests: `tests/unit/sheetsGridTableParity.test.ts` (42 tests, grid engine against the compiled SQL on

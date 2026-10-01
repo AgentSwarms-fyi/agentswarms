@@ -953,8 +953,15 @@ const textFn =
 F.LEN = textFn((s) => s.length);
 F.UPPER = textFn((s) => s.toUpperCase());
 F.LOWER = textFn((s) => s.toLowerCase());
+// FOUND IN R199: a letter was [a-z], so "É" counted as a word break and
+// PROPER("ÉCOLE normale") gave "éCole Normale"; Excel gives "École Normale".
+// Any letter, in any script, is a letter. A letter whose capital is two
+// ("ß" to "SS", "ﬁ" to "FI") stays as it is, as it did before.
 F.PROPER = textFn((s) =>
-  s.toLowerCase().replace(/(^|[^a-z])([a-z])/g, (_m, a, b) => a + b.toUpperCase()),
+  s.toLowerCase().replace(/(^|[^\p{L}])(\p{L})/gu, (_m, a: string, b: string) => {
+    const up = b.toUpperCase();
+    return a + (up.length === 1 ? up : b);
+  }),
 );
 F.TRIM = textFn((s) => s.trim().replace(/ {2,}/g, " "));
 F.LEFT = textFn((s, args) => {
@@ -1049,7 +1056,8 @@ F.TEXT = (args) => {
   const f = text(args[1]);
   if (isError(v)) return v;
   if (isError(f)) return f;
-  const n = typeof v === "string" ? (parseNumberText(v) ?? v) : v;
+  // A blank is 0 to TEXT, as in Excel: TEXT(A5, "0.00") is "0.00" (R199).
+  const n = v === null ? 0 : typeof v === "string" ? (parseNumberText(v) ?? v) : v;
   return formatValue(n, f);
 };
 F.VALUE = (args) => {

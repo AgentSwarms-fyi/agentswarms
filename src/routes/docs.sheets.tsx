@@ -97,8 +97,11 @@ function SheetsDocsPage() {
         Statistics skip blank cells and text in a range, as Excel&apos;s do, and working days count
         backwards as Excel counts them, as do DAYS360 and WEEKDAY&apos;s return types 11 to 17. A
         cell with an error explains it on hover. A number joined into text keeps 15 significant
-        digits, and FLOOR and CEILING land on a decimal step (<C>=FLOOR(4.35,0.05)</C> is 4.35).
-        Loan sheets have CUMIPMT and CUMPRINC, as in Excel.
+        digits, and a number format or TEXT() rounds those digits as ROUND does (
+        <C>=TEXT(2.675,&quot;0.00&quot;)</C> is 2.68, and TEXT of a blank is TEXT of 0). PROPER
+        capitalises words in any alphabet (<C>=PROPER(&quot;ÉCOLE&quot;)</C> is École). FLOOR and
+        CEILING land on a decimal step (<C>=FLOOR(4.35,0.05)</C> is 4.35). Loan sheets have CUMIPMT
+        and CUMPRINC, as in Excel.
       </P>
       <UL>
         <li>
