@@ -292,7 +292,9 @@ month`, since the rows underneath have no `month` column to filter on.
   (owner-controlled, or superadmin via Admin → IAM) makes the dashboard
   appear read-only in members' BI Workspace. Viewers always see the stored
   snapshots — your warehouse credentials are never used on their behalf and
-  never leave the server.
+  never leave the server. The groups you tick stay ticked until you press
+  **Save group access** or close the dialog, through a session refresh too
+  (R217).
 - **Workspaces, folders & promotion** — group dashboards into **workspaces**
   (with user- or IAM-group members, read-only for members) and nest them in
   **folders**; a `null` workspace stays your private _Personal_ space, so this
@@ -722,7 +724,8 @@ advances its schedule, so it recovers on the next tick instead of re-running a
 broken query forever. **Run now** goes through the identical code path.
 
 **Sharing an analyst shares the analyst, not your data access.** An analyst
-can be granted to IAM groups; recipients open it and ask their own questions,
+can be granted to IAM groups (the groups you tick hold until you save, through
+a session refresh too); recipients open it and ask their own questions,
 and every query they run is authorised as **them** — their dataset grants,
 their warehouse credentials, their row filters and column masks. Which means
 a shared analyst can legitimately return **different numbers to different

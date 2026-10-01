@@ -294,20 +294,24 @@ least twice, not a hypothetical.
      This closes the sweep's survey list.
 
 6. **A form that resets under the user** (sweep 6, found in R215). A dialog fills its form in
-   an effect keyed on `open` and on props. When a prop is an object or function the parent
-   builds inline, every parent render re-runs the effect, and the form is refilled while the user
-   types. R215's `useResetOnOpen` (`src/hooks/use-reset-on-open.ts`) is the fix shape. A survey
-   of `}, [open, …]);` effects found these to read, each by what its extra dependency is at the
-   call site:
-   - `DataPrepTab.tsx` `[open, flow]`;
-   - `GenerateDashboardDialog.tsx` `[open, ctx, metricModels]`;
-   - `SemanticLayerEditor.tsx` `[open, semantic]`;
-   - `ConnectSourceDialog.tsx` `[open, editing]`;
-   - `SkillEditorDialog.tsx` `[open, editing, initial]`;
-   - `bi_.$dashboardId.tsx` `[open, initial]`;
-   - `BiDeckDialog.tsx` `[open, exportable]`;
-   - `ModelRegistryPicker.tsx` `[open, models.length, accessToken]`, and the loaders keyed on
-     a `load` callback, which refetch rather than refill.
+   an effect keyed on `open` and on something else that changes while it is open: an object the
+   parent builds inline, or the session token, which changes on every refresh (about hourly, and
+   when a tab regains focus near expiry). The form is refilled while the user edits it. R215's
+   `useResetOnOpen` (`src/hooks/use-reset-on-open.ts`) and R125's `useTokenRef` are the fix
+   shapes. Reading every `}, [open, …]);` effect and its call site:
+   - Stable, nothing to do: `DataPrepTab.tsx` `[open, flow]` (a memo),
+     `GenerateDashboardDialog.tsx` (loads a list once), `SemanticLayerEditor.tsx` (a Map entry),
+     `SkillEditorDialog.tsx` (state), `bi_.$dashboardId.tsx` text and image widgets (state),
+     `ModelRegistryPicker.tsx` (loads once).
+   - **R217: the BI dashboard's and the AI analyst's share dialogs.** Keyed on `accessToken`, a
+     spelling R125's net did not match. A session refresh unticked the groups being shared.
+   - **Next:**
+     - `BiDeckDialog.tsx` `[open, exportable]`: `pages={pages.map(…)}` is new on every
+       dashboard render, and a session refresh re-ticked a widget the user had unticked for the
+       PowerPoint deck (driven before R217).
+     - `ConnectSourceDialog.tsx` `[open, editing]`: editing a knowledge-base connector passes
+       `editing={{…}}` inline, so a re-render of the knowledge page refills the label, settings,
+       schedule and scope, and empties the credentials being typed. Not yet driven.
 
 ### Sheets (new, 2026-09-25)
 

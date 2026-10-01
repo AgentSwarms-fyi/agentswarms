@@ -12,6 +12,11 @@
 // on signed-in state. The last test is the guard for the next one: every
 // other hook keyed on the token was read and found to only re-fetch read-only
 // data; a new one fails here until someone has done the same.
+//
+// R217: the net matched `token` and `access_token` but not `accessToken`, so
+// two share dialogs (a BI dashboard's and an AI analyst's) slipped through:
+// a session refresh put the saved groups back over the ones being ticked, and
+// Save then wrote the old set. The name is matched in both spellings now.
 
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -22,7 +27,7 @@ const read = (p: string) => readFileSync(p, "utf8");
 
 /** A dependency list: from a closing "}," through "[...]" to its ")". */
 const DEPS = /\}\s*,\s*(?:\/\/[^\n]*\n\s*)*\[([^\]]*)\]\s*,?\s*\)/g;
-const TOKEN_DEP = /(^|[.?])(token|access_token)$/;
+const TOKEN_DEP = /(^|[.?])(token|access_token|accessToken)$/;
 
 function items(list: string): string[] {
   return list
@@ -169,6 +174,16 @@ const FIXED: { file: string; marker: string; what: string; callsLoad?: true }[] 
     marker: "const run = useCallback(",
     what: "the explore dialog's query (its re-run drops the sort and page)",
   },
+  {
+    file: "src/components/bi/PublishDialog.tsx",
+    marker: "const token = tokenRef.current;\n    setGroups(null);",
+    what: "a dashboard's share groups (R217: the reload unticked the groups being shared)",
+  },
+  {
+    file: "src/components/bi/ShareAnalystDialog.tsx",
+    marker: "const load = useCallback(",
+    what: "an analyst's share groups (R217: the reload unticked the groups being shared)",
+  },
 ];
 
 describe("loads that replace what the user edits do not follow the token", () => {
@@ -227,6 +242,8 @@ describe("loads that replace what the user edits do not follow the token", () =>
 const REVIEWED: Record<string, number> = {
   "src/components/admin/GroupBudgetsTab.tsx": 1,
   "src/components/admin/VectorStorePanel.tsx": 1,
+  // R217: loads the model list once (`models.length > 0` stops a re-run).
+  "src/components/agents/ModelRegistryPicker.tsx": 1,
   "src/components/bi/BiBuilderPane.tsx": 1,
   "src/components/bi/BiModelSelect.tsx": 1,
   "src/components/bi/BiWorkspaceManager.tsx": 1,
@@ -317,6 +334,13 @@ describe("every hook keyed on the token has been read", () => {
       );
       expect(hits).toHaveLength(1);
     }
+    // R217: the camelCase spelling, as a prop named for the token.
+    const camel = "useEffect(() => {\n  load();\n}, [open, accessToken, id]);";
+    expect(
+      [...camel.matchAll(new RegExp(DEPS.source, "g"))].filter((m) =>
+        items(m[1]).some((x) => TOKEN_DEP.test(x)),
+      ),
+    ).toHaveLength(1);
     const ref = "useCallback(() => x, [tokenRef, signedIn]);";
     expect(
       [...ref.matchAll(new RegExp(DEPS.source, "g"))].filter((m) =>

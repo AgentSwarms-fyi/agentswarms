@@ -16,6 +16,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useTokenRef } from "@/hooks/use-token-ref";
 import { rankCaveats, shareCaveats } from "@/lib/analystSharing";
 import { analystGetShares, analystSetShares } from "@/utils/analyst.functions";
 import { biListShareTargets } from "@/utils/bi.functions";
@@ -35,21 +36,26 @@ export function ShareAnalystDialog({
   const listTargetsFn = useServerFn(biListShareTargets);
   const getSharesFn = useServerFn(analystGetShares);
   const setSharesFn = useServerFn(analystSetShares);
+  const { tokenRef, signedIn } = useTokenRef(accessToken);
 
   const [groups, setGroups] = useState<{ id: string; name: string }[] | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
 
+  // R217: keyed on the token, this load ran again on every session refresh
+  // and put the saved groups back over the ones being ticked. It reads the
+  // token through a ref and follows signing in or out only.
   const load = useCallback(async () => {
-    if (!accessToken || !analyst) return;
+    if (!signedIn || !analyst) return;
+    const token = tokenRef.current;
     setGroups(null);
     const [targets, shares] = await Promise.all([
-      listTargetsFn({ data: { access_token: accessToken } }),
-      getSharesFn({ data: { access_token: accessToken, analyst_id: analyst.id } }),
+      listTargetsFn({ data: { access_token: token } }),
+      getSharesFn({ data: { access_token: token, analyst_id: analyst.id } }),
     ]);
     setGroups(targets.ok ? targets.groups : []);
     setSelected(new Set(shares.ok ? shares.group_ids : []));
-  }, [accessToken, analyst, listTargetsFn, getSharesFn]);
+  }, [signedIn, tokenRef, analyst, listTargetsFn, getSharesFn]);
 
   useEffect(() => {
     if (open) void load();

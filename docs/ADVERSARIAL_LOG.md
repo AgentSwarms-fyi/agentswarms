@@ -109,6 +109,47 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-02 — A session refresh, and the groups being shared untick themselves
+
+Tests: `tests/unit/tokenReloadSweep.test.ts` (32 tests: two dialogs join R125's fixed list, its
+matcher now knows `accessToken`, and one more hook is reviewed). The mutation run caught 4 of 4,
+and the control survived.
+
+#### R217 · S2 · A session refresh put the saved share groups back over the ones being ticked
+
+**Found** opening sweep 6, "a form that resets under the user". R125 swept every hook keyed on
+the session token, which changes on each refresh (about hourly, and when a tab regains focus
+near expiry). Its matcher took `token` and `access_token`. Listing every dependency with a token
+in its name found three spelled `accessToken`, which it never saw:
+- the BI dashboard's **Publish & share** load;
+- the AI Analyst's **Share this analyst** load;
+- the model registry picker's (it loads once, so it is only reviewed).
+
+Both share dialogs reload the groups and the saved shares when the token changes, and put the
+saved set over the ticks, which are kept until **Save**. In the UI, the session refresh was
+forced as in R120: `expires_at` five seconds out, then `visibilitychange`.
+- **Salesforce dashboard → Publish & share:** tick `sheets-share-test`, unsaved, then the refresh.
+  The box was **unticked** again, and "Save group access" would have written the old set.
+- **AI Analyst → Lakehouse analyst → Share this analyst:** the same, **unticked**.
+
+So a group being given access is quietly left out; and one being removed keeps access, because its
+tick comes back.
+
+**The fix.** Both loads read the token through `useTokenRef` and are keyed on `signedIn`, as R125
+did for twenty-two others. `tests/unit/tokenReloadSweep.test.ts` matches `accessToken` too, so
+its ratchet now counts that spelling.
+
+**Driven after** (hot deploy of R217):
+- **Analyst:** tick, refresh: **still ticked**; closed without saving.
+- **Dashboard:** tick, refresh, still ticked; **Save group access** → "Group access updated";
+  reopened → ticked.
+- **Restore:** then unticked, saved ("Group access updated"), reopened → unticked. The dashboard's
+  sharing is as it was.
+
+**Also driven, not yet fixed:** the dashboard's **Export to PowerPoint** dialog re-ticked an
+unticked widget ("Win Rate") after the same refresh, because it takes `pages={pages.map(…)}`. It
+is the queue's next item.
+
 ### 2026-10-02 — A double Enter to the analyst, two analyses, two threads
 
 Tests: `tests/unit/singleFlight.test.ts` (the guarded list gains the analyst's ask). The mutation

@@ -15,6 +15,25 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-02 — Share groups through a session refresh, ADVERSARIAL_LOG R217
+
+**Why this round exists.** The first round of sweep 6, "a form that resets under the user".
+The refresh was forced in the page: `expires_at` five seconds out, then `visibilitychange`,
+polling until the token changed (compared as a boolean, never printed).
+
+Fixtures: none new. The Salesforce dashboard's group sharing was changed for the after-round
+and **restored** (group `sheets-share-test` unticked and saved).
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before (image `51931edc73b7`) | Salesforce → Export to PowerPoint: untick "Win Rate"; click and type in Instructions; wait 40 s | "Win Rate" stays unticked |
+| Before | The same dialog, then a session refresh | "Win Rate" **ticked again**; Instructions text kept (the next round's item) |
+| Before | Salesforce → Publish & share: tick `sheets-share-test` (unsaved), session refresh | **Unticked** |
+| Before | AI Analyst → Lakehouse analyst → Share this analyst: tick the group, session refresh | **Unticked** |
+| After (hot deploy of R217) | Share this analyst: tick, refresh | **Ticked**; closed without saving |
+| After | Publish & share: tick, refresh | **Ticked**; Save group access → "Group access updated"; reopened → ticked |
+| After | Untick, Save group access, reopen | "Group access updated"; **unticked** (restored) |
+
 ## 2026-10-02 — Smoke of the real image after R214 to R216
 
 **Why this round exists.** R214 to R216 had been hot-deployed onto the R213 image. This round

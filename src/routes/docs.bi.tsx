@@ -235,12 +235,13 @@ function BiPage() {
         IAM groups and recipients can open it and ask their own questions — but every query they run
         is authorised as <em>them</em>, with their dataset grants, their warehouse credentials and
         their row filters. A shared analyst can therefore return different numbers to different
-        people, which the share dialog states before you grant, blocking problems first. An analyst
-        scoped to <em>all local datasets</em> resolves per reader, so shared it points at the
-        recipient&apos;s data rather than yours. <strong>Your saved analyses stay yours</strong> —
-        they hold rows fetched under your access — and renaming, editing and deleting remain
-        owner-only. A grant is refused outright if the recipients&apos; IAM model rules do not allow
-        the analyst&apos;s model.
+        people, which the share dialog states before you grant, blocking problems first. The groups
+        you tick hold until you save, even across a session refresh. An analyst scoped to{" "}
+        <em>all local datasets</em> resolves per reader, so shared it points at the recipient&apos;s
+        data rather than yours. <strong>Your saved analyses stay yours</strong> — they hold rows
+        fetched under your access — and renaming, editing and deleting remain owner-only. A grant is
+        refused outright if the recipients&apos; IAM model rules do not allow the analyst&apos;s
+        model.
       </P>
       <H3 id="analyst-provenance">Provenance and export</H3>
       <P>

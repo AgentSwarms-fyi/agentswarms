@@ -19,6 +19,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { BiModelSelect } from "@/components/bi/BiModelSelect";
+import { useTokenRef } from "@/hooks/use-token-ref";
 import {
   makePublicSlug,
   publicDashboardUrl,
@@ -49,6 +50,7 @@ export function PublishDialog({
   const getSharesFn = useServerFn(biGetShares);
   const setSharesFn = useServerFn(biSetShares);
   const setModelFn = useServerFn(biSetReaderModel);
+  const { tokenRef, signedIn } = useTokenRef(accessToken);
 
   const [groups, setGroups] = useState<{ id: string; name: string }[] | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -73,12 +75,18 @@ export function PublishDialog({
     }
   }
 
+  // R217: keyed on the token, this load ran again on every session refresh
+  // and put the saved shares back over the groups being ticked, so "Save
+  // group access" then wrote the old set. It reads the token through a ref
+  // and follows signing in or out only (R125's rule, missed then because the
+  // dependency is spelled `accessToken`).
   useEffect(() => {
-    if (!open || !accessToken) return;
+    if (!open || !signedIn) return;
+    const token = tokenRef.current;
     setGroups(null);
     Promise.all([
-      listTargetsFn({ data: { access_token: accessToken } }),
-      getSharesFn({ data: { access_token: accessToken, dashboard_id: dashboard.id } }),
+      listTargetsFn({ data: { access_token: token } }),
+      getSharesFn({ data: { access_token: token, dashboard_id: dashboard.id } }),
     ]).then(([targets, shares]) => {
       setGroups(targets.ok ? targets.groups : []);
       if (!targets.ok) toast.error(targets.error);
@@ -89,7 +97,7 @@ export function PublishDialog({
         toast.error(shares.error);
       }
     });
-  }, [open, accessToken, dashboard.id, listTargetsFn, getSharesFn]);
+  }, [open, signedIn, tokenRef, dashboard.id, listTargetsFn, getSharesFn]);
 
   async function togglePublish(next: boolean) {
     setBusyPublish(true);
