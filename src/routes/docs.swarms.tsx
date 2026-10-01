@@ -723,7 +723,9 @@ input ──▶ split ┼──▶ legal analysis ─────┼──▶ me
           that cannot be read says so rather than <em>No versions yet</em>. Restore first saves the
           current graph as a <em>Before restore</em> version, so it can be undone; if that version
           cannot be saved, nothing is restored and the canvas stays as it was. A version you capture
-          by name that does not land says so, and keeps its name for another try.
+          by name that does not land says so, and keeps its name for another try; pressing Enter
+          twice captures it once. Deleting a version asks first, because a deleted snapshot cannot
+          be restored.
         </li>
       </UL>
 

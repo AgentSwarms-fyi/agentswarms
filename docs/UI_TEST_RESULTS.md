@@ -15,6 +15,21 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-01 — The swarm Versions dialog's double Enter and trash, ADVERSARIAL_LOG R207
+
+**Why this round exists.** Queued from R190, read in the source and not yet driven.
+
+Fixtures: none. The version insert and delete were answered in the browser, so nothing was
+written or removed; "R109 chat echo"'s one version is as it was.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before (hot deploy of R206) | Version history; "R207 double enter", Enter twice | **two inserts**, 16 ms apart; "Version saved" |
+| Before | the trash on "Autosave 1:00:42 AM" | **DELETE sent at once**, no confirm; the list "No versions yet" |
+| After (hot deploy of R207) | "R207 double enter", Enter twice | **one insert** |
+| After | the trash | confirm "Delete “Autosave 1:00:42 AM”? This snapshot (2 nodes) is removed for good …", no request |
+| After | Cancel; then the trash and Delete | Cancel: nothing sent, the row stays; Delete: one DELETE, the row gone |
+
 ## 2026-10-01 — Agent Chat when no conversation can be started, ADVERSARIAL_LOG R206
 
 **Why this round exists.** Queued from the client write survey. Before it, R201 to R205 went into

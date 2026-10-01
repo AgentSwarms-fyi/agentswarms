@@ -1160,11 +1160,9 @@ over the lakehouse). Open from that round, the rest of Row Zero's connected tabl
   and *Restore*, promised as undoable by its own confirm, replaced the
   canvas when its safety snapshot had failed. A helper that swallows an
   error "because it is best-effort" is best-effort only for the caller
-  that said so. Still open in that dialog, both small: the trash icon
-  deletes a version at once, with no confirm (the component library asks
-  first), and Enter in the name field calls *Save version* past the
-  button's `disabled={saving}`, so two quick Enters can capture it twice
-  (read in the source, not yet driven). The
+  that said so. The dialog's last two, driven in R207: the trash deleted
+  a version at once, with no confirm, and two quick Enters in the name
+  field captured it twice; it asks first and saves once now. The
   deploy dialog's three are R188: a
   failed schedules read said "No schedules yet." with Add on, the one
   invitation in this survey that turns into a duplicate write (the swarm

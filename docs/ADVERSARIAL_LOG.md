@@ -109,6 +109,35 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-01 — One name, two versions; one click, no version
+
+Tests: `tests/unit/swarmVersionGuards.test.ts` (4 tests, by source as R190's). The mutation run
+caught 5 of 5, and the control survived.
+
+#### R207 · S2 · The swarm Versions dialog saved twice on a double Enter and deleted without asking
+
+**Found** in R190's survey and queued as read in the source, not yet driven. Driven on the canvas
+of "R109 chat echo" with the browser's fault injector answering the version insert and delete
+itself, so nothing was written or removed:
+- **"R207 double enter" and two Enters** sent **two inserts, 16 ms apart**. Enter called *Save
+  version* past the button's `disabled={saving}`, and the second key lands before React
+  re-renders.
+- **The trash icon** sent its DELETE on the first click, with no confirm, and the list read "No
+  versions yet". Beside it, Restore asks first, and so does the component library's delete. A
+  deleted snapshot cannot be got back.
+- **A failed delete** said "Could not delete version" without the reason.
+
+**The fix** (`SwarmVersionsDialog.tsx`):
+- A ref, set before the first await and cleared after it, lets one save through at a time.
+- The trash opens "Delete “<label>”? This snapshot (n nodes) is removed for good and cannot be
+  restored afterwards. The canvas is not changed.", with Cancel and Delete.
+- A failed delete gives its reason.
+
+**Driven after** (hot deploy of R207, the same injector): two Enters sent **one** insert. The
+trash opened the confirm with no request sent; Cancel left the version; Delete sent one DELETE.
+The real "Autosave 1:00:42 AM" version is still in the database, since every delete was answered
+in the browser.
+
 ### 2026-10-01 — Agent Chat with no conversation and no word why
 
 Tests: `tests/unit/chatConversationStart.test.ts` (4 tests, by source as R191's). The mutation run
