@@ -113,10 +113,12 @@ describe("text", () => {
       "alice-1",
       "carol-1",
     ]);
+    // The blank amount is "" in text, as in Excel ("a"&A1 is "a" when A1 is
+    // empty); it read "0" until R198.
     expect(await column('=0.5&"|"&3&"|"&[@amount]')).toEqual([
       "0.5|3|10.5",
       "0.5|3|20",
-      "0.5|3|0",
+      "0.5|3|",
       "0.5|3|-4",
     ]);
   });

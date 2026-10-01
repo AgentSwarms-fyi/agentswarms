@@ -241,7 +241,17 @@ least twice, not a hypothetical.
        the versions, or pass column types to the charts instead of reading them from text.
      - The chart builder's *Add to dashboard* is disabled until the chart has a title, and nothing
        says why.
-   - **Then.** Grid vs table sheet.
+   - **R198: grid vs table sheet.** A probe ran 75 formulas through both engines over the same rows.
+     The table read a blank number as "0" in text and counted a blank reference in
+     MIN/MAX/AVERAGE. `sheetsGridTableParity.test.ts` now holds the agreeing list.
+   - **Next, R199: the grid's own differences from Excel.**
+     - `PROPER("ÉCOLE ß")` gives "éCole ß", because an accented capital is not a letter to it.
+     - `TEXT(2.675, "0.00")` gives "2.67", where Excel gives 2.68.
+     - `TEXT(blank, "0.00")` gives "", where Excel gives 0.00.
+     - `YEAR`/`MONTH`/`DAY` of a blank give 1899/12/30, where Excel gives 1900/1/0.
+     - DATEDIF from 1900-03-01 is one day long.
+     - `UPPER("ß")` is "SS" in the grid and "ẞ" in the table; check Excel first.
+   - **Inherent.** IFERROR mixing numbers and text makes a table column text.
 
 ### Sheets (new, 2026-09-25)
 

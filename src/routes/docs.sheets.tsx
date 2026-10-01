@@ -270,11 +270,14 @@ function SheetsDocsPage() {
 =XLOOKUP([@customer_id], Customers[id], Customers[name], "unknown")
 =TEXT([@order_date], "yyyy-mm")`}</Code>
       <P>
-        Excel&apos;s meaning is kept where SQL&apos;s differs: blanks count as 0 in arithmetic, text
+        Excel&apos;s meaning is kept where SQL&apos;s differs: blanks count as 0 in arithmetic and
+        as &quot;&quot; in text, MIN, MAX and AVERAGE of a row&apos;s values skip a blank, text
         compares without case, MOD follows the divisor&apos;s sign, and VLOOKUP defaults to an
-        approximate match. A table column has no error values: a division by zero or a failed
-        conversion leaves that row blank, and IFERROR fills it. A formula that fails on some row is
-        shown empty with the engine&apos;s reason while the rest of the table still shows.
+        approximate match, so a calculated column answers as the same formula in a grid sheet does.
+        A number with no value (a negative to a fractional power) shows #NUM!. Otherwise a table
+        column has no error values: a division by zero or a failed conversion leaves that row blank,
+        and IFERROR fills it. A formula that fails on some row is shown empty with the engine&apos;s
+        reason while the rest of the table still shows.
       </P>
 
       <H2 id="formulas-over-tables">Formulas over tables in grid sheets</H2>

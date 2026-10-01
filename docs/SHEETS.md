@@ -669,7 +669,14 @@ the query the lakehouse runs, so a calculated column costs the same on ten milli
 
 It follows Excel where SQL would differ:
 
-- A blank counts as 0 in arithmetic and as "" in text.
+- A blank counts as 0 in arithmetic and as "" in text: `[@name] & ": " & [@amount]` ends in ": "
+  on a row with no amount, as a grid does.
+- MIN, MAX and AVERAGE of this row's values (`AVERAGE([@a], [@b])`) skip a blank, text or
+  TRUE/FALSE reference, as Excel skips such a cell.
+- A number with no value, a negative to a fractional power or MROUND with signs that differ, shows
+  `#NUM!`.
+- `tests/unit/sheetsGridTableParity.test.ts` runs a list of formulas through the grid engine and
+  through the compiled SQL on DuckDB, row by row, and they must agree.
 - Text compares without case.
 - MOD takes the divisor's sign.
 - `DATE(2024, 13, 1)` rolls over to 2025-01-01.

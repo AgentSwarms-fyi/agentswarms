@@ -144,6 +144,23 @@ function toNum(t: T): string {
   }
 }
 
+/**
+ * A value as MIN, MAX and AVERAGE read it: a reference to a blank, text or
+ * TRUE/FALSE is NULL (Excel ignores it), anything else is its number.
+ */
+function referencedNumber(t: T): string {
+  if (!t.col) return toNum(t);
+  switch (t.kind) {
+    case "number":
+      return `CAST(${t.sql} AS DOUBLE)`;
+    case "date":
+    case "datetime":
+      return `(CASE WHEN ${t.sql} IS NULL THEN NULL ELSE ${toNum(t)} END)`;
+    default:
+      return "CAST(NULL AS DOUBLE)";
+  }
+}
+
 function toText(t: T): string {
   switch (t.kind) {
     case "text":
@@ -151,7 +168,12 @@ function toText(t: T): string {
     case "number": {
       // 3, not 3.0; 0.5 stays 0.5.
       const x = toNum(t);
-      return `(CASE WHEN ${x} = trunc(${x}) AND abs(${x}) < 1e15 THEN CAST(CAST(${x} AS BIGINT) AS VARCHAR) ELSE CAST(${x} AS VARCHAR) END)`;
+      const shown = `(CASE WHEN ${x} = trunc(${x}) AND abs(${x}) < 1e15 THEN CAST(CAST(${x} AS BIGINT) AS VARCHAR) ELSE CAST(${x} AS VARCHAR) END)`;
+      // FOUND IN R198: a blank number cell is "" in text, as Excel reads it
+      // (A1&"" is "", LEN(A1) is 0, CONCAT of two blanks is ""). Reading it
+      // as 0 is for arithmetic only; here it printed "0" where the grid,
+      // given the same row, printed nothing.
+      return t.col ? `(CASE WHEN ${t.sql} IS NULL THEN '' ELSE ${shown} END)` : shown;
     }
     case "bool":
       return `(CASE WHEN ${t.sql} THEN 'TRUE' WHEN NOT ${t.sql} THEN 'FALSE' ELSE '' END)`;
@@ -750,8 +772,11 @@ class Compiler {
         const x = S(0);
         const m = S(1);
         const ms = `nullif(${toNum(m)}, 0)`;
+        // FOUND IN R198: signs that differ are #NUM! in Excel, and a value
+        // here (MROUND(-2.5, 0.5) was -2.5). NaN is what a table cell shows
+        // as #NUM!, as it does for a negative to a fractional power.
         return {
-          sql: `(round(${toNum(x)} / ${ms}) * ${ms})`,
+          sql: `(CASE WHEN ${toNum(x)} * ${toNum(m)} < 0 THEN CAST('NaN' AS DOUBLE) ELSE round(${toNum(x)} / ${ms}) * ${ms} END)`,
           kind: "number",
           dbl: true,
           sub: sub(x, m),
@@ -1127,7 +1152,12 @@ class Compiler {
       }
       const ts = args.map((a) => this.scalar(a));
       if (!ts.length) throw new CompileError(`${fn} needs at least one value`);
-      return { sql: spec.scalar(ts.map(toNum)), kind: "number", dbl: true, sub: sub(...ts) };
+      return {
+        sql: spec.scalar(ts.map(toNum), ts.map(referencedNumber)),
+        kind: "number",
+        dbl: true,
+        sub: sub(...ts),
+      };
     }
     if (args.length !== 1 && fn !== "SUMPRODUCT") {
       throw new CompileError(
@@ -1403,24 +1433,35 @@ class Compiler {
 type AggSpec = {
   /** Over a whole column: the aggregate expression. */
   whole: (col: string, numeric: string, kind: ColKind) => string;
-  /** Over this row's values: plain arithmetic (SUM([@a], [@b])). */
-  scalar?: (xs: string[]) => string;
+  /**
+   * Over this row's values: plain arithmetic (SUM([@a], [@b])). `xs` reads a
+   * blank as 0; `refs` is NULL for what Excel ignores in a reference (a
+   * blank, text or TRUE/FALSE), for the functions that skip it.
+   */
+  scalar?: (xs: string[], refs: string[]) => string;
   ifs?: boolean;
 };
 
 const AGGREGATES: Record<string, AggSpec> = {
   SUM: { whole: (_c, n) => `coalesce(sum(${n}), 0)`, scalar: (xs) => `(${xs.join(" + ")})` },
+  // FOUND IN R198: these read a blank reference as 0, so AVERAGE([@a], 1)
+  // was 0.5 and MIN([@a], 1) was 0 on a row where [@a] is empty; Excel, and
+  // the grid on the same row, ignore the empty reference and give 1 and 1.
+  // An AVERAGE of nothing is #DIV/0! in Excel, which is a blank here.
   AVERAGE: {
     whole: (_c, n) => `avg(${n})`,
-    scalar: (xs) => `((${xs.join(" + ")}) / ${xs.length})`,
+    scalar: (_xs, refs) =>
+      `((${refs.map((r) => `coalesce(${r}, 0)`).join(" + ")}) / nullif(${refs
+        .map((r) => `CAST(${r} IS NOT NULL AS INTEGER)`)
+        .join(" + ")}, 0))`,
   },
   MIN: {
     whole: (c, n, k) => (k === "date" || k === "datetime" ? `min(${c})` : `coalesce(min(${n}), 0)`),
-    scalar: (xs) => `least(${xs.join(", ")})`,
+    scalar: (_xs, refs) => `coalesce(least(${refs.join(", ")}), 0)`,
   },
   MAX: {
     whole: (c, n, k) => (k === "date" || k === "datetime" ? `max(${c})` : `coalesce(max(${n}), 0)`),
-    scalar: (xs) => `greatest(${xs.join(", ")})`,
+    scalar: (_xs, refs) => `coalesce(greatest(${refs.join(", ")}), 0)`,
   },
   COUNT: { whole: (_c, n) => `count(${n})` },
   COUNTA: { whole: (c) => `count(CASE WHEN CAST(${c} AS VARCHAR) <> '' THEN 1 END)` },

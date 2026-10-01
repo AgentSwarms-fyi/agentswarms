@@ -109,6 +109,51 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-01 — "bob: 0" in a table sheet, "bob: " in the grid beside it
+
+Tests: `tests/unit/sheetsGridTableParity.test.ts` (42 tests, grid engine against the compiled SQL on
+DuckDB), with `sheetsSqlCompile.test.ts`. The mutation run caught 8 of 8, and the control
+survived.
+
+#### R198 · S2 · A table sheet's calculated column read a blank as 0 outside arithmetic
+
+**Found** as sweep 4's grid-vs-table item. A grid sheet evaluates a formula in the browser's
+engine; a table sheet compiles the same Excel to DuckDB SQL (`lib/sheets/sql/compile.ts`). A
+probe ran 75 formulas over the same seven rows both ways. Most of what differs is documented (a
+table column has no error values; text in a database is never blank), but these were not:
+- **A blank number was "0" in text.** `CONCAT(blank, blank)` gave "0", `[@n]&""` gave "0", and
+  `LEN(blank)` gave 1. The docs already promised a blank "counts as 0 in arithmetic and as "" in
+  text".
+- **MIN, MAX and AVERAGE counted a blank reference as 0.** `AVERAGE([@n], 1)` was 0.5 and
+  `MIN([@n], 1)` was 0, where Excel and the grid ignore the empty reference and give 1 and 1.
+- **`MROUND(-2.5, 0.5)` gave −2.5,** where Excel gives #NUM! for signs that differ.
+
+**In the UI,** workbook "R198 blanks" (kept): a table sheet over a lakehouse query with bob's
+amount blank, and a grid sheet holding the same values and formulas. The table read
+`bob: 0 | 0.5`; the grid read `bob:  | 1`.
+
+**The fix** (`lib/sheets/sql/compile.ts`):
+- **Text.** A bare number column that is NULL reads as "" in `toText`.
+- **MIN, MAX, AVERAGE.** Over a row's values they take `referencedNumber`: a reference to a blank,
+  text or TRUE/FALSE is NULL and skipped. MIN and MAX of nothing are 0. An AVERAGE of nothing is
+  blank, which stands in for #DIV/0! under the table rule.
+- **MROUND** with differing signs gives NaN, which a table cell shows as `#NUM!` through the shared
+  formatter, as it already did for a negative to a fractional power.
+
+**A first cut turned NaN into a blank as well.** In the UI, the table sheet already showed NaN as
+`#NUM!`, which is right, so that part was reverted. One existing expectation that pinned the blank
+as "0" changed, with a comment.
+
+**Driven after** (hot deploy of R198): the table read `bob:  | 1 | #NUM!`, the same as the grid. A
+new column `=MROUND(-[@amount],0.5)` read `#NUM!` for alice and 0 for bob. All 57 Sheets test files
+(775 tests) pass.
+
+**Grid-side differences the probe found, for R199:**
+- `PROPER("ÉCOLE")` gives "éCole".
+- `TEXT(2.675, "0.00")` gives "2.67" where Excel gives 2.68.
+- `TEXT(blank, "0.00")` gives "" where Excel gives 0.00.
+- `YEAR(blank)` gives 1899 where Excel gives 1900.
+
 ### 2026-10-01 — `1640995200000` in the Workbench, text on the server
 
 Tests: `tests/unit/engineTemporalText.test.ts` (8 tests). The mutation run caught 11 of 11, and

@@ -15,6 +15,22 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-01 — A blank in a table sheet against a grid, ADVERSARIAL_LOG R198
+
+**Why this round exists.** Sweep 4's grid-vs-table item. One workbook holds the same two rows in
+a table sheet (a lakehouse query) and in a grid sheet, with the same formulas.
+
+Fixtures, **kept**: workbook "R198 blanks" (Sheet1 grid; Query table sheet over
+`SELECT * FROM (VALUES (1,'alice',10.5::DOUBLE),(2,'bob',NULL::DOUBLE)) v(id, customer, amount)`,
+with calculated columns label, avg1, root, mround).
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before (hot deploy of R197) | Query sheet, + Column: label `=[@customer]&": "&[@amount]`, avg1 `=AVERAGE([@amount],1)`, root `=([@amount]-20)^0.5` | alice: `alice: 10.5`, 5.75, #NUM!; bob: **`bob: 0`**, **0.5**, #NUM! |
+| Before | Sheet1: alice / 10.5 / `=A1&": "&B1` / `=AVERAGE(B1,1)` / `=(B1-20)^0.5`; bob / blank / the same | alice: `alice: 10.5`, 5.75, #NUM!; bob: **`bob: `**, **1**, #NUM! |
+| After (hot deploy of R198) | the Query sheet, reopened | bob: **`bob: `**, **1**, #NUM!, as the grid |
+| After | + Column mround `=MROUND(-[@amount],0.5)` | alice #NUM! (signs differ), bob 0 |
+
 ## 2026-10-01 — Dates from the browser engine, as text, ADVERSARIAL_LOG R197
 
 **Why this round exists.** R196's queued item. Before it, R194 to R196 went into a real image,
