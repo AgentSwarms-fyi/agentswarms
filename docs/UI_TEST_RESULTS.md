@@ -15,6 +15,21 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-02 — Smoke of the real image after R217 to R219
+
+**Why this round exists.** R217 to R219 had been hot-deployed onto the R216 image. This round
+built a real image from the R219 commit (`docker compose up -d --build agentswarms`, image
+`6a12aae557e9`) and drove a fix and an Iceberg publish on it.
+
+| Check | What was driven | What came back |
+| --- | --- | --- |
+| R217, Publish & share | Salesforce dashboard: tick `sheets-share-test` (unsaved), forced session refresh | **Still ticked**; closed without saving |
+| Iceberg publish | Lakehouse → `analytics.fct_region_revenue` → Write this table into an Iceberg catalog: `local_rest`, namespace `r181`, table `smoke_6a12aae557e9`, Publish | Two commits (1742 ms, then 1435 ms): create, then append |
+
+R218 and R219 use R215's `useResetOnOpen`, which the R216 image smoke already drove; they were
+not repeated. Fixtures, **kept**: the Iceberg table `r181.smoke_6a12aae557e9`. The dashboard's
+sharing is unchanged.
+
 ## 2026-10-02 — A deck's choices and a connector's edit through a session refresh, ADVERSARIAL_LOG R218 and R219
 
 **Why this round exists.** Sweep 6, after R217: the two dialogs that refilled their form on a
