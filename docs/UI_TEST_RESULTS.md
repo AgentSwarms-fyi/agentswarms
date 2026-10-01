@@ -15,6 +15,20 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-01 — Data Prep's Save as while the lakehouse loads or fails, ADVERSARIAL_LOG R204
+
+**Why this round exists.** Queued from Phase D's survey.
+
+Fixtures: none. The lakehouse-tables call was held or failed in the browser only.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before (hot deploy of R203) | BI → Data preparation, the lakehouse call held 20 s | lakehouse list a skeleton; *Save as* disabled, title **"The lakehouse is not configured on this deployment"** |
+| Before | the call answering 500 | palette **"Could not list lakehouse tables."**, no reason, no retry; title still **"not configured"** |
+| After (hot deploy of R204) | the call held 15 s | title **"Checking the lakehouse…"**; when it returned, enabled, the usual title |
+| After | the request failing (`Failed to fetch`) | palette **"Could not list lakehouse tables: Failed to fetch"** and **Try again**; title "The lakehouse tables could not be read: Failed to fetch. A local dataset can still be saved." |
+| After | Try again, injector cleared | **58** lakehouse tables listed; *Save as* enabled |
+
 ## 2026-10-01 — Why "Add to dashboard" is disabled, ADVERSARIAL_LOG R203
 
 **Why this round exists.** Queued since R196.

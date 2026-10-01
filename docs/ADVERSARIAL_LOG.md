@@ -109,6 +109,41 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-01 — "Not configured" on a lakehouse that works
+
+Tests: `tests/unit/prepSaveAs.test.ts` (4 tests). The mutation run caught 8 of 8, and the control
+survived.
+
+#### R204 · S1 · Data Prep's Save as said "not configured" while loading and after a failed read
+
+**Found** in Phase D's survey ("a cause named that the evidence cannot support") and queued for a
+BI round. Driven in BI → Data preparation with the browser's fault injector on the
+lakehouse-tables server call (`_serverFn/0d66356b…`):
+- **Held 20 s.** The palette's lakehouse list was a skeleton. The *Save as* select was disabled
+  and titled **"The lakehouse is not configured on this deployment"**, on a deployment whose
+  lakehouse lists 58 tables.
+- **Failed.** The palette said **"Could not list lakehouse tables."**: the `.catch(() =>
+  setLake("error"))` dropped the reason, and nothing could read the list again (the reload button
+  reloaded local datasets only). *Save as* still said "not configured".
+
+**The fix.** `src/lib/prepSaveAs.ts saveAsHint` titles the select by what is known:
+- loading: "Checking the lakehouse…";
+- a failed read: "The lakehouse tables could not be read: <reason>. A local dataset can still be
+  saved.";
+- "not configured" only when the server says so.
+
+The tab keeps the error's message and shows it in the palette with **Try again**, and the reload
+button reads the lakehouse list again too.
+
+**Driven after** (hot deploy of R204):
+- **Held 15 s.** "Checking the lakehouse…", then enabled with its usual title when the call
+  returned.
+- **Failed.** A first injection answered 500 with a hand-made body, which is not the server
+  function's wire format, so the client failed reading `schemas` and that is what the palette
+  quoted. The realistic failure, the request itself failing, read "Could not list lakehouse
+  tables: Failed to fetch" with Try again, and the same reason in the title.
+- **Try again**, with the injector cleared, listed the 58 tables and enabled *Save as*.
+
 ### 2026-10-01 — A finished chart that would not add, and nothing saying why
 
 Tests: `tests/unit/biBuilderReady.test.ts` (6 tests), and `tests/journey/semanticToDashboard.test.ts`,

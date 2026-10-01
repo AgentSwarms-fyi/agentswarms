@@ -383,6 +383,12 @@ date_trunc('month', ordered_at)`}</Code>
         wrangle a training set — dedupe, fill, derive, filter, aggregate — before a model learns
         from it.
       </P>
+      <P>
+        Until the list of lakehouse tables has been read, <strong>Save as</strong> offers a local
+        dataset only, and its hover text says why: still checking, the read failed (with the reason,
+        and <strong>Try again</strong> in the palette), or the lakehouse is not configured on this
+        deployment. The reload button above the palette reads the lakehouse list again too.
+      </P>
 
       <H2 id="when-not">When not to use prep</H2>
       <UL>

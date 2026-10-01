@@ -209,11 +209,9 @@ least twice, not a hypothetical.
    Qdrant is not configured on this deployment" were checked against their
    conditions: three are the config flag (`listLakehouseTablesForUser`'s
    `enabled`, the store brief's `externalAvailable`). The fourth, BI Data
-   Prep's *Save as* select, says it in its hover title while the lakehouse
-   list is loading or after its read failed. The panel beside it does say
-   "Could not list lakehouse tables.", though without the reason, which its
-   `.catch(() => setLake("error"))` drops. Small; take it with the next BI
-   round.
+   Prep's *Save as* select, said it while the lakehouse list was loading or
+   after its read failed. R204: its title now says which, the palette keeps
+   the reason, and Try again reads the list again.
 4. **Two surfaces, two answers.** The same figure computed twice by different
    code — the browser engine and the server refresh disagreeing on a row cap is
    the recorded instance. R194 (2026-10-01) is the second:

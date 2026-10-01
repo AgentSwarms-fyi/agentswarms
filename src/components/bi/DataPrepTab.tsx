@@ -160,6 +160,7 @@ import {
 } from "@/utils/dataPrep.functions";
 import { DeleteDatasetDialog } from "@/components/bi/DeleteDatasetDialog";
 import { clickable } from "@/lib/clickable";
+import { lakeStateOf, saveAsHint } from "@/lib/prepSaveAs";
 import {
   WAREHOUSE_LABELS,
   type WarehouseConnectionSummary,
@@ -303,6 +304,9 @@ export function DataPrepTab() {
   const [lakeOpen, setLakeOpen] = useState(true);
   // Lakehouse tables the user may read, and the schemas they may write into.
   const [lake, setLake] = useState<Awaited<ReturnType<typeof lakeTablesFn>> | null | "error">(null);
+  // Why the lakehouse list could not be read, and a way to read it again (R204).
+  const [lakeError, setLakeError] = useState<string | null>(null);
+  const [lakeAttempt, setLakeAttempt] = useState(0);
   // Where "Run & save" writes: a local dataset, or a lakehouse table you own.
   const [outputKind, setOutputKind] = useState<"dataset" | "lakehouse">("dataset");
   const [outputSchema, setOutputSchema] = useState("");
@@ -322,14 +326,19 @@ export function DataPrepTab() {
   const runLakeFn = useServerFn(prepRunToLakehouse);
   useEffect(() => {
     if (!token) return;
+    setLake(null);
+    setLakeError(null);
     lakeTablesFn({ data: { accessToken: token } })
       .then((r) => {
         setLake(r);
         const first = r.schemas.find((sch) => sch.writable);
         if (first) setOutputSchema((prev) => prev || first.name);
       })
-      .catch(() => setLake("error"));
-  }, [token, lakeTablesFn]);
+      .catch((e: unknown) => {
+        setLakeError(e instanceof Error ? e.message : String(e));
+        setLake("error");
+      });
+  }, [token, lakeTablesFn, lakeAttempt]);
   const lakeFilteredTables = useMemo(
     () =>
       lake && lake !== "error"
@@ -983,7 +992,10 @@ export function DataPrepTab() {
                 variant="ghost"
                 className="h-6 w-6 p-0"
                 title="Reload tables"
-                onClick={() => void reloadDatasets()}
+                onClick={() => {
+                  void reloadDatasets();
+                  setLakeAttempt((n) => n + 1);
+                }}
               >
                 <RefreshCw className="h-3 w-3" />
               </Button>
@@ -1133,9 +1145,19 @@ export function DataPrepTab() {
             {!lakeOpen ? null : lake === null ? (
               <Skeleton className="h-9 w-full" />
             ) : lake === "error" ? (
-              <p className="py-2 text-center text-[11px] text-destructive">
-                Could not list lakehouse tables.
-              </p>
+              <div className="space-y-1 py-2 text-center text-[11px]">
+                <p className="text-destructive">
+                  Could not list lakehouse tables{lakeError ? `: ${lakeError}` : "."}
+                </p>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-6 text-[11px]"
+                  onClick={() => setLakeAttempt((n) => n + 1)}
+                >
+                  Try again
+                </Button>
+              </div>
             ) : !lake.enabled ? (
               <p className="py-2 text-center text-[11px] text-muted-foreground">
                 The lakehouse isn&apos;t configured on this deployment.
@@ -1331,11 +1353,7 @@ export function DataPrepTab() {
                 value={outputKind}
                 onChange={(e) => setOutputKind(e.target.value as "dataset" | "lakehouse")}
                 disabled={!lake || lake === "error" || !lake.enabled}
-                title={
-                  !lake || lake === "error" || !lake.enabled
-                    ? "The lakehouse is not configured on this deployment"
-                    : "A dataset lives in the workspace; a lakehouse table is queryable by SQL, agents and the ML wizard"
-                }
+                title={saveAsHint(lakeStateOf(lake), lakeError)}
               >
                 <option value="dataset">local dataset</option>
                 <option value="lakehouse">lakehouse table</option>
