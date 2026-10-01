@@ -15,6 +15,20 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-01 — Smoke of the real image after R206 to R208
+
+**Why this round exists.** The rounds since the last image went into a real image, `2ff4e7c03179`.
+
+Fixtures, **kept**: Iceberg table `r181.smoke_2ff4e7c0`. Nothing else new; the version confirm was cancelled.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Smoke, real image `2ff4e7c03179` (R206–R208) | "R192 add-source", Documents and Sources | `r208-three.txt` File, indexed; `r208-two.txt` File, pending embedding; Sources "FILE · Uploaded file" |
+| Smoke | "R109 chat echo", Version history, the trash, Cancel | "Delete “Autosave 1:00:42 AM”?"; Cancel left the version |
+| Smoke | Agent Chat | message box enabled; "Ask a question, share a task, or try a starter below." |
+| Smoke | "R205 1900 dates" | 1900, 1, 0, 1900-01-01, 1900-01-01, 1, 1900-01-02, 2, 1900-02-29, 2, 1 |
+| Smoke | Publish to Iceberg `local_rest` / `r181` / `smoke_2ff4e7c0` | "Published 4 row(s)"; committed in 2034 ms, then 2271 ms |
+
 ## 2026-10-01 — An uploaded file's name and its index in a knowledge base, ADVERSARIAL_LOG R208
 
 **Why this round exists.** R192's leftovers.
