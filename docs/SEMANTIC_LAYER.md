@@ -478,6 +478,11 @@ BI project. Unlike a raw-SQL widget, its source is the metric query — so on
 every scheduled refresh it **re-runs against the current metric definition**.
 Change what "revenue" means once, and every metric-backed widget updates.
 
+The dialog fills its title, chart and BI project once, when it opens. What you
+type or pick then stays until you insert or close it (R215). Enter in a new
+project's name inserts, like the button, and a second Enter while that runs is
+ignored, so a double press makes one project.
+
 The lead metric's **display format rides onto the widget**: a metric declared
 `format: currency` with a `currency` code (ISO 4217) charts as `€1.2M`, not a
 bare number, on KPI, pie, bar, line and area tiles alike. Scheduled refreshes

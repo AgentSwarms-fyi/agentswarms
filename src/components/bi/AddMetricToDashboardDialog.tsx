@@ -1,7 +1,7 @@
 // "Add to dashboard" for a governed semantic-metric query result. Builds a
 // metric-backed widget (which refresh re-runs against the current metric
 // definition) and inserts it into an existing BI project or a new one.
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { LayoutDashboard, Loader2 } from "lucide-react";
@@ -34,6 +34,8 @@ import {
   type SemanticChartType,
 } from "@/lib/biDashboards";
 import type { ComparePeriod, SemanticFilter, TimeGrain } from "@/lib/semanticLayer";
+import { useSingleFlight } from "@/lib/singleFlight";
+import { useResetOnOpen } from "@/hooks/use-reset-on-open";
 
 const NEW_PROJECT = "__new__";
 const CHART_TYPES: SemanticChartType[] = ["bar", "line", "area", "pie", "kpi", "table"];
@@ -75,8 +77,9 @@ export function AddMetricToDashboardDialog({
   const [chartType, setChartType] = useState<SemanticChartType>("bar");
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    if (!open) return;
+  // R215: filled when the dialog opens, not on every render that hands it a
+  // new `payload` object (the Semantic Layer builds it inline).
+  useResetOnOpen(open, () => {
     setTitle(payload?.defaultTitle ?? "");
     setChartType(payload && payload.dimensions.length === 0 ? "kpi" : "bar");
     setDashboards(null);
@@ -91,9 +94,11 @@ export function AddMetricToDashboardDialog({
         setDashboards([]);
       });
     setNewName("");
-  }, [open, userId, payload]);
+  });
 
-  async function submit() {
+  // R214/R215: Enter in the new project's name skipped the button's in-flight
+  // guard: two projects, or the widget added twice to one.
+  const submit = useSingleFlight(async () => {
     if (!payload || !userId) return;
     if (!title.trim()) return toast.error("Give the widget a title");
     if (target === NEW_PROJECT && !newName.trim()) return toast.error("Name the new BI project");
@@ -135,7 +140,7 @@ export function AddMetricToDashboardDialog({
     } finally {
       setBusy(false);
     }
-  }
+  });
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

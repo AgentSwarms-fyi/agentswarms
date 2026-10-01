@@ -15,6 +15,20 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-01 — Add metric to dashboard holds its form, ADVERSARIAL_LOG R215
+
+**Why this round exists.** Found while driving R214: the dialog refilled its form on every click.
+
+Fixtures, **kept**: BI project `r215 metric after` (1 widget, `r215 metric`).
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before (real image `0ed734402123`) | Semantic Layer → SaaS Sales model → Query: total_sales by order_date, Run, Add to dashboard; title `r214 metric`; click the description text | Title back to **"SaaS Sales model"**; a dashboards refetch per click |
+| Before | Click the BI project select | The form refilled; the select's options went stale before they could be clicked, and the pick stayed on the first project |
+| After (hot deploy of R215) | The same; title `r215 metric`; click the description twice | Title **held**; dashboards fetched **once** since opening |
+| After | Pick a project, then End + Enter in the select | Both picks held; ＋ New BI project… shows the name field |
+| After | `r215 metric after`, Enter twice | **One** "Added to "r215 metric after"" toast; one project with 1 widget titled **r215 metric** |
+
 ## 2026-10-01 — A double Enter in nine create dialogs, ADVERSARIAL_LOG R214
 
 **Why this round exists.** The fourth round of sweep 5, "a guard only the button honours".

@@ -555,7 +555,7 @@ metric  order_count
             <DocLink key="bi" to="/docs/bi">
               Dashboards
             </DocLink>,
-            "Two doors to the same tile. From the runner here, Add to dashboard. Or from the builder's Data source picker, choose Governed metrics (Semantic Layer): pick a model, tick metrics and group-bys (time dimensions take a grain), preview — a rollup-answered preview says so, and a restricted share marks the numbers as your scoped view — and insert, no SQL involved. Either way the tile inherits the definition and updates if it changes, including its display format, so a currency metric charts as currency, not a bare number.",
+            "Two doors to the same tile. From the runner here, Add to dashboard. Or from the builder's Data source picker, choose Governed metrics (Semantic Layer): pick a model, tick metrics and group-bys (time dimensions take a grain), preview — a rollup-answered preview says so, and a restricted share marks the numbers as your scoped view — and insert, no SQL involved. Either way the tile inherits the definition and updates if it changes, including its display format, so a currency metric charts as currency, not a bare number. The Add to dashboard dialog fills its title, chart and project when it opens, and keeps what you type or pick from then on.",
           ],
           [
             "Agents",

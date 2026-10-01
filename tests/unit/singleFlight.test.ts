@@ -184,6 +184,13 @@ const GUARDED: { file: string; fn: string; key: RegExp }[] = [
     fn: "submit",
     key: /e\.key === "Enter" && void submit\(\)/,
   },
+  // R215: the same path in the Semantic Layer's Add metric to dashboard,
+  // whose "before" could only be driven once its form stopped resetting.
+  {
+    file: "src/components/bi/AddMetricToDashboardDialog.tsx",
+    fn: "submit",
+    key: /e\.key === "Enter" && void submit\(\)/,
+  },
 ];
 
 describe("every surveyed keyboard path", () => {

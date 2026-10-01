@@ -287,14 +287,27 @@ least twice, not a hypothetical.
      folders, MCP servers, workspaces, reports, or projects from Add to dashboard. ETL pipelines
      and eval datasets have unique names, so there it made one and showed a raw "duplicate key"
      error. The MCP builder's busy flag also stayed set when its create threw.
+   - **R215: the Semantic Layer's Add metric to dashboard.** Its form reset on every click
+     inside it, and its Enter had R214's gap; both fixed.
    - **Next, in order of consequence:**
-     - The Semantic Layer's **Add metric to dashboard** dialog resets its form on every click
-       inside it. The page passes `payload` as a new object each render, and the dialog's reset
-       effect depends on it, so a typed title reverts and the BI project pick snaps back. Its
-       Enter guard (`AddMetricToDashboardDialog.tsx` `submit`) moves to that round: its "before"
-       cannot be driven until the form holds still.
      - AI Analyst's `askQuestion`: `busy` is set only after `await resolveScope()`, so either
        path can start two analyst runs.
+
+6. **A form that resets under the user** (sweep 6, found in R215). A dialog fills its form in
+   an effect keyed on `open` and on props. When a prop is an object or function the parent
+   builds inline, every parent render re-runs the effect, and the form is refilled while the user
+   types. R215's `useResetOnOpen` (`src/hooks/use-reset-on-open.ts`) is the fix shape. A survey
+   of `}, [open, …]);` effects found these to read, each by what its extra dependency is at the
+   call site:
+   - `DataPrepTab.tsx` `[open, flow]`;
+   - `GenerateDashboardDialog.tsx` `[open, ctx, metricModels]`;
+   - `SemanticLayerEditor.tsx` `[open, semantic]`;
+   - `ConnectSourceDialog.tsx` `[open, editing]`;
+   - `SkillEditorDialog.tsx` `[open, editing, initial]`;
+   - `bi_.$dashboardId.tsx` `[open, initial]`;
+   - `BiDeckDialog.tsx` `[open, exportable]`;
+   - `ModelRegistryPicker.tsx` `[open, models.length, accessToken]`, and the loaders keyed on
+     a `load` callback, which refetch rather than refill.
 
 ### Sheets (new, 2026-09-25)
 

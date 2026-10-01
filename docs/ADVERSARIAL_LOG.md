@@ -109,6 +109,49 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-01 — A click in a dialog, and the form fills itself again
+
+Tests: `tests/unit/useResetOnOpen.test.ts` (4 tests: the hook under a minimal stand-in for
+React's effect dependencies, and the dialog's use of it). The singleFlight list gains the
+dialog's Enter path. The mutation run caught 5 of 5, and the control survived.
+
+#### R215 · S2 · Add metric to dashboard refilled its form on every click inside it
+
+**Found** while driving R214. On **Semantic Layer → SaaS Sales model → Query**, run a query and
+press **Add to dashboard**. On the real image `0ed734402123`:
+- Type `r214 metric` as the title, then click the dialog's description text. The title read
+  **"SaaS Sales model"** again, and the BI project list was fetched again: one refetch per click.
+- Click the BI project select to choose **＋ New BI project…**. The form refilled under the
+  click, and the select's elements were replaced as the browser tool reached them ("ref is
+  stale"). The project snapped back to the first in the list.
+
+So a custom title, a chart type or a new project could not be set reliably, and the Enter path
+R214 guards elsewhere could not even be reached here.
+
+**Why.** The dialog filled its form in an effect keyed on `[open, userId, payload]`. The
+Semantic Layer builds `payload={…}` inline, so every render of the page handed the dialog a new
+object, and the effect ran again. A click inside the dialog re-rendered the page; what in the
+page re-renders on such a click was not traced, because the dialog has to hold its form whatever
+its parent does.
+
+**The fix.**
+- **`useResetOnOpen(open, reset)`** (`src/hooks/use-reset-on-open.ts`) runs `reset` when `open`
+  turns true and at no other time. It reads the `reset` of that render, so the form is filled
+  from the props the dialog opened with.
+- The dialog fills its form through it.
+- Its `submit` is wrapped in `useSingleFlight`, which closes R214's Enter gap for this dialog.
+
+**Driven after** (hot deploy of R215):
+- Typed `r215 metric`, then clicked the description twice: the title held, and the dashboards
+  were fetched **once** since opening.
+- A wrong project pick ("Reconciled titles") held too. Then End + Enter picked ＋ New BI
+  project…, which held.
+- `r215 metric after` and Enter twice: **one** toast, and one project `r215 metric after` with
+  1 widget, titled **r215 metric** (`d385a565…`).
+
+**The class.** Many dialogs fill their form in an effect keyed on `open` and on props. The
+queue's sweep 6 lists the ones whose extra dependency could be an inline object.
+
 ### 2026-10-01 — A double Enter in a name field, two of everything
 
 Tests: `tests/unit/singleFlight.test.ts` (22 tests; the guarded list gains nine handlers, and one
