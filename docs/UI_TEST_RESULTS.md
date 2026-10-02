@@ -15,6 +15,22 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-02 — Smoke of the real image after R220 to R224
+
+**Why this round exists.** R220 to R224 had been hot-deployed onto the R219 image. This round
+built a real image from the R224 commit (`docker compose up -d --build agentswarms`, image
+`392980ec12ed`) and drove the lakehouse fixes and an Iceberg publish on it.
+
+| Check | What was driven | What came back |
+| --- | --- | --- |
+| R224, lakehouse engine | `SUMMARIZE analytics.r211_double` | 2 row(s) |
+| R224, Spark cluster | The same | "SUMMARIZE is the lakehouse engine's; Spark SQL has no such statement — run it here." |
+| R222, Spark cluster | `SELECT n, count(*) AS c FROM analytics.r211_double GROUP BY n ORDER BY n`, polls 2 and 3 rejected in flight | Polling went on; **3 row(s) · 25087 ms** |
+| Iceberg publish | `analytics.fct_region_revenue` → `local_rest`, `r181`, `smoke_392980ec12ed` | "Published 4 row(s) to r181.smoke_392980ec12ed" |
+
+The engine picker was set back to Lakehouse engine. Fixtures, **kept**: the Iceberg table
+`r181.smoke_392980ec12ed`.
+
 ## 2026-10-02 — SUMMARIZE on a lakehouse table, ADVERSARIAL_LOG R224
 
 **Why this round exists.** Sweep 7, the lakehouse policy survey. The grantee side needs a
