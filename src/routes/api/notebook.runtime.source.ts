@@ -61,6 +61,92 @@ async function mcpAppBundle(appId: string, userId: string): Promise<Response> {
   });
 }
 
+type LakeBody = { id?: unknown; parts?: unknown; loads?: unknown; cursors?: unknown };
+
+const LAKE_PARTS = new Set(["lake_read", "lake_stage", "lake_commit", "lake_cursors"]);
+
+/**
+ * Pin what this session may do in the lake, when its environment is resolved:
+ * the reads and loads its run declared (sandboxLake.server). Every lake_*
+ * call is then served from the pin, never from what the sandbox sends. A
+ * session whose pin cannot be stored gets no environment.
+ */
+async function pinLake(
+  sessionId: string,
+  inputs: unknown,
+  lake: unknown,
+): Promise<Response | null> {
+  if (!lake) return null;
+  const base = inputs && typeof inputs === "object" ? (inputs as Record<string, unknown>) : {};
+  const { error } = await supabaseAdmin
+    .from("notebook_runtime_sessions")
+    .update({ inputs: { ...base, __lake: lake } as never })
+    .eq("id", sessionId);
+  return error
+    ? json(503, { error: `Could not record this session's lakehouse access: ${error.message}` })
+    : null;
+}
+
+/** One lake_* call, as the session's owner, from the session's pinned manifest. */
+async function lakePart(
+  part: string,
+  body: LakeBody,
+  s: { sessionId: string; userId: string; inputs: unknown; readOnly: boolean; via: string },
+): Promise<Response> {
+  const lake = await import("@/utils/lakehouse/sandboxLake.server");
+  const manifest = lake.lakeManifestOf(s.inputs);
+  if (!manifest) {
+    return json(409, {
+      error: "This session has no lakehouse access recorded; fetch its environment first",
+    });
+  }
+  const id = typeof body.id === "string" ? body.id : "";
+  try {
+    if (part === "lake_read") {
+      return json(
+        200,
+        await lake.lakeRead({ userId: s.userId, sessionId: s.sessionId, manifest, id, via: s.via }),
+      );
+    }
+    if (s.readOnly)
+      return json(403, { error: "A preview reads the lakehouse; it never writes it" });
+    if (part === "lake_stage") {
+      const parts = typeof body.parts === "number" ? body.parts : 1;
+      return json(200, lake.lakeStage({ sessionId: s.sessionId, manifest, id, parts }));
+    }
+    if (part === "lake_commit") {
+      const loads = (Array.isArray(body.loads) ? body.loads : []).map((l) => {
+        const o = (l ?? {}) as { id?: unknown; batch?: unknown; parts?: unknown };
+        return {
+          id: typeof o.id === "string" ? o.id : "",
+          batch: typeof o.batch === "string" ? o.batch : "",
+          parts: typeof o.parts === "number" ? o.parts : 0,
+        };
+      });
+      const cursors: Record<string, string> = {};
+      if (body.cursors && typeof body.cursors === "object") {
+        for (const [k, v] of Object.entries(body.cursors as Record<string, unknown>)) {
+          if (typeof v === "string") cursors[k] = v;
+        }
+      }
+      return json(
+        200,
+        await lake.lakeCommit({
+          userId: s.userId,
+          sessionId: s.sessionId,
+          manifest,
+          loads,
+          cursors,
+          via: s.via,
+        }),
+      );
+    }
+    return json(200, { cursors: await lake.lakeCursors(manifest) });
+  } catch (e) {
+    return json(400, { error: (e as Error).message });
+  }
+}
+
 async function handle(request: Request): Promise<Response> {
   const auth = request.headers.get("authorization");
   const token = auth?.startsWith("Bearer ") ? auth.slice(7) : undefined;
@@ -83,19 +169,30 @@ async function handle(request: Request): Promise<Response> {
     let tableId = "";
     let cursor: string | null = null;
     let consume = false;
+    let lakeBody: LakeBody = {};
     try {
       const body = (await request.json()) as {
         part?: string;
         table_id?: string;
         cursor?: string | null;
         consume?: boolean;
-      };
+      } & LakeBody;
       part = body?.part ?? "";
       tableId = typeof body?.table_id === "string" ? body.table_id : "";
       cursor = typeof body?.cursor === "string" ? body.cursor : null;
       consume = body?.consume === true;
+      lakeBody = body ?? {};
     } catch {
       /* empty body = default part */
+    }
+    if (LAKE_PARTS.has(part)) {
+      return lakePart(part, lakeBody, {
+        sessionId: claims.sid,
+        userId: claims.sub,
+        inputs: session.inputs,
+        readOnly: false,
+        via: `etl_run:${session.etl_run_id}`,
+      });
     }
     const etl = await import("@/utils/etl/service.server");
     if (part === "etl_ingest") {
@@ -109,12 +206,16 @@ async function handle(request: Request): Promise<Response> {
         : { error: "ETL run not found for this session" };
       return "error" in out ? json(404, out) : json(200, out);
     }
+    if (part === "etl_env") {
+      const out = await etl.etlEnvFor(session.etl_run_id, claims.sub);
+      if ("error" in out) return json(404, out);
+      const { lake, ...rest } = out;
+      return (await pinLake(claims.sid, session.inputs, lake)) ?? json(200, rest);
+    }
     const out =
       part === "etl_dataset"
         ? await etl.etlDatasetFor(tableId, claims.sub)
-        : part === "etl_env"
-          ? await etl.etlEnvFor(session.etl_run_id, claims.sub)
-          : await etl.etlBundleFor(session.etl_run_id, claims.sub);
+        : await etl.etlBundleFor(session.etl_run_id, claims.sub);
     return "error" in out ? json(404, out) : json(200, out);
   }
 
@@ -139,12 +240,29 @@ async function handle(request: Request): Promise<Response> {
     if (stash) {
       let part = "";
       let tableId = "";
+      let lakeBody: LakeBody = {};
       try {
-        const body = (await request.json()) as { part?: string; table_id?: string };
+        const body = (await request.json()) as { part?: string; table_id?: string } & LakeBody;
         part = body?.part ?? "";
         tableId = typeof body?.table_id === "string" ? body.table_id : "";
+        lakeBody = body ?? {};
       } catch {
         /* empty body = default part */
+      }
+      if (LAKE_PARTS.has(part)) {
+        return lakePart(part, lakeBody, {
+          sessionId: claims.sid,
+          userId: claims.sub,
+          inputs: session?.inputs,
+          readOnly: true,
+          via: `etl_preview:${stash.pipeline_id}`,
+        });
+      }
+      if (part === "etl_env") {
+        const out = await etl.etlPreviewEnvFor(stash, claims.sub);
+        if ("error" in out) return json(404, out);
+        const { lake, ...rest } = out;
+        return (await pinLake(claims.sid, session?.inputs, lake)) ?? json(200, rest);
       }
       const out =
         part === "etl_ingest"
@@ -152,9 +270,7 @@ async function handle(request: Request): Promise<Response> {
             await etl.etlIngestFor(stash.pipeline_id, claims.sub, { consume: false })
           : part === "etl_dataset"
             ? await etl.etlDatasetFor(tableId, claims.sub)
-            : part === "etl_env"
-              ? await etl.etlPreviewEnvFor(stash, claims.sub)
-              : await etl.etlPreviewBundleFor(stash, claims.sub);
+            : await etl.etlPreviewBundleFor(stash, claims.sub);
       return "error" in out ? json(404, out) : json(200, out);
     }
   }

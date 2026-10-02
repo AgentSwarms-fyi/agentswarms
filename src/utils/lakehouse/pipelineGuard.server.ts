@@ -1,8 +1,9 @@
 // What an ETL pipeline's lakehouse nodes may read and write (R225).
 //
-// A pipeline's lakehouse nodes run in a sandbox that holds engine-level
-// catalog and storage credentials, so whatever the server allows here is all
-// that stands between a graph and every table in the lake.
+// Checked before a run or a preview starts, so a graph that cannot run fails
+// with its node's name before any container does. The app checks again on
+// every read and commit (sandboxLake.server): the sandbox holds no lakehouse
+// credential, and reads run through the owners' policies there.
 import type { DuckDBConnection } from "@duckdb/node-api";
 
 import {
@@ -36,6 +37,10 @@ export type LakehouseNodeRef = {
  * query is now governed as the SQL editor governs one (every schema it reads
  * must be the author's or shared with them; no table functions, no
  * unqualified tables), and a table under another owner's policy is refused.
+ *
+ * Since the sandbox gateway, a READ of a policed table is no longer refused:
+ * the app runs it through the owner's policy, as the SQL editor does, and the
+ * pipeline gets the rows and values its owner may see. Writing one still is.
  */
 export async function lakehouseNodesRefusal(
   userId: string,
@@ -72,22 +77,20 @@ export async function lakehouseNodesRefusal(
     c?.closeSync();
   }
 
-  // Owners read and write their own tables whole; everyone else meets the
-  // owner's policy, which nothing in the sandbox can apply.
+  // Owners write their own tables; a table under another owner's policy is
+  // read-only for everyone else. Reads of one are served through the policy.
   const foreign = allowed.filter((s) => s.user_id !== userId);
-  const foreignTables = touched.filter((t) =>
-    foreign.some((f) => f.name.toLowerCase() === t.schema.toLowerCase()),
+  const foreignWrites = touched.filter(
+    (t) => t.write && foreign.some((f) => f.name.toLowerCase() === t.schema.toLowerCase()),
   );
-  if (!foreignTables.length) return null;
+  if (!foreignWrites.length) return null;
   const policies = await loadPolicies(
     [...new Set(foreign.map((f) => f.user_id))],
-    foreignTables.map((t) => ({ schema: t.schema.toLowerCase(), table: t.table.toLowerCase() })),
+    foreignWrites.map((t) => ({ schema: t.schema.toLowerCase(), table: t.table.toLowerCase() })),
   );
-  for (const t of foreignTables) {
+  for (const t of foreignWrites) {
     if (!policies.has(`${t.schema}.${t.table}`.toLowerCase())) continue;
-    return t.write
-      ? `Node "${t.label}": ${t.schema}.${t.table} has a security policy set by its owner, so it is read-only for anyone else — a pipeline cannot write it.`
-      : `Node "${t.label}": ${t.schema}.${t.table} has a security policy set by its owner, which a pipeline cannot apply — query it in the Lakehouse, where the policy holds.`;
+    return `Node "${t.label}": ${t.schema}.${t.table} has a security policy set by its owner, so it is read-only for anyone else — a pipeline cannot write it.`;
   }
   return null;
 }

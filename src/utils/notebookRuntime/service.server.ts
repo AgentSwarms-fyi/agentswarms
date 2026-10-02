@@ -359,6 +359,15 @@ export async function stopSession(row: SessionRow): Promise<void> {
       );
     }
   }
+  // A session that reached the lake through the app leaves its staging behind
+  // when it is stopped mid-run. Best effort: the reaper's sweep catches what
+  // this misses.
+  if ((row.inputs as { __lake?: unknown } | null)?.__lake) {
+    const { dropSessionStaging } = await import("@/utils/lakehouse/sandboxLake.server");
+    await dropSessionStaging(row.id).catch((e) =>
+      console.warn(`[runtime] session ${row.id}: staging not deleted: ${(e as Error).message}`),
+    );
+  }
   const { error: stopErr } = await supabaseAdmin
     .from("notebook_runtime_sessions")
     .update({ status: "stopped", stopped_at: new Date().toISOString() })
@@ -479,7 +488,34 @@ export async function reapSessions(): Promise<number> {
     }
     reaped++;
   }
+  await sweepLakeStaging();
   return reaped;
+}
+
+/**
+ * Staging a sandbox left beside the lake (sandboxLake.server): a crashed
+ * run's reads and loads. Only prefixes no live session owns, untouched for an
+ * hour. A failed read of the live sessions skips the sweep: deleting on a
+ * guess could take a running pipeline's staged rows.
+ */
+async function sweepLakeStaging(): Promise<void> {
+  try {
+    const { data: live, error } = await supabaseAdmin
+      .from("notebook_runtime_sessions")
+      .select("id")
+      .in("status", [...LIVE]);
+    if (error) {
+      console.warn(`[runtime] lake staging not swept: live sessions unreadable: ${error.message}`);
+      return;
+    }
+    const { sweepSandboxStaging } = await import("@/utils/lakehouse/sandboxLake.server");
+    const n = await sweepSandboxStaging(
+      new Set((live ?? []).map((r) => String(r.id).toLowerCase())),
+    );
+    if (n) console.log(`[runtime] lake staging: deleted ${n} file(s) no live session owns`);
+  } catch (e) {
+    console.warn(`[runtime] lake staging not swept: ${(e as Error).message}`);
+  }
 }
 
 /**

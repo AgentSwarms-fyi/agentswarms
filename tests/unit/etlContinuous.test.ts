@@ -148,28 +148,38 @@ describe("exactly-once into the lakehouse", () => {
   });
 
   it("the tick's loads and its positions commit in ONE transaction, or roll back together", () => {
-    // Order is the property: BEGIN before the tick, cursors written after it
-    // on the same connection, COMMIT last; an exception rolls everything back.
-    const begin = w.indexOf("_tick_con.execute('BEGIN TRANSACTION')");
+    // Order is the property: the tick gathers its loads, then ONE commit
+    // carries them and the tick's positions; the app runs it as a single
+    // transaction (sandboxLake.server's lakeCommit, tested in
+    // sandboxLake.test.ts). An exception before it commits nothing.
+    const gather = w.indexOf("_tick_loads = []");
     const tick = w.indexOf("m = _tick(inputs) or {}");
-    const cursors = w.indexOf("_commit_cursors(_tick_con, m.get('watermarks') or {})");
-    const commit = w.indexOf("_tick_con.execute('COMMIT')");
-    const rollback = w.indexOf("_tick_con.execute('ROLLBACK')");
-    expect(begin).toBeGreaterThan(-1);
-    expect(begin).toBeLessThan(tick);
-    expect(tick).toBeLessThan(cursors);
-    expect(cursors).toBeLessThan(commit);
-    expect(commit).toBeLessThan(rollback);
-    expect(w).toContain("if _EXACTLY_ONCE:\n                _commit_cursors(");
+    const commit = w.indexOf("_lake_commit(_tick_loads, _c)");
+    const reset = w.indexOf("_tick_loads = None", commit);
+    expect(gather).toBeGreaterThan(-1);
+    expect(gather).toBeLessThan(tick);
+    expect(tick).toBeLessThan(commit);
+    expect(commit).toBeLessThan(reset);
+    expect(w).toContain(
+      "if _EXACTLY_ONCE:\n                _c = _tick_cursors(m.get('watermarks') or {})",
+    );
+    // A quiet tick (no rows, no position moved) does not call the app at
+    // all: a continuous run polls every few seconds, and each call would be
+    // a transaction and an audit event for nothing.
+    expect(w).toContain(
+      "if _tick_loads or _c != committed:\n                    _lake_commit(_tick_loads, _c)\n                    committed = _c",
+    );
     // The next run starts from what committed with the rows, before its first tick.
     const resume = w.indexOf("_load_committed_cursors()");
     const loop = w.indexOf("while _time.monotonic() - started < budget:");
     expect(resume).toBeGreaterThan(-1);
     expect(resume).toBeLessThan(loop);
-    expect(w).toContain('"_agentswarms"."etl_cursors"');
+    expect(w).toContain("_lake_call('lake_cursors', {})");
     // Off unless the platform says so; nothing changes for at-least-once pipelines.
     expect(w).toContain("_EXACTLY_ONCE = os.environ.get('ETL_EXACTLY_ONCE') == '1'");
-    expect(w).toContain("_tick_con = None");
+    expect(w).toContain("_tick_loads = None");
+    // The sandbox never touches the catalog itself any more.
+    expect(w).not.toMatch(/_lakehouse_con|_tick_con|etl_cursors" \(/);
   });
 
   it("a commit conflict retries the tick instead of failing the run", () => {
@@ -191,9 +201,8 @@ describe("exactly-once into the lakehouse", () => {
     expect(w).toContain("else:\n                raise");
   });
 
-  it("a lakehouse target loads through the tick's connection and never commits on its own inside it", () => {
-    // Checked on the generated program, for a merge target — the one mode
-    // that used to open a transaction of its own.
+  it("a lakehouse target joins the tick's commit and never commits on its own inside it", () => {
+    // Checked on the generated program, for a merge target.
     const g = kafkaGraph();
     g.nodes[1].config = {
       type: "lakehouse",
@@ -207,18 +216,15 @@ describe("exactly-once into the lakehouse", () => {
       program.indexOf("# target n2: lakehouse"),
       program.indexOf("_loads.append({'node': 'n2'"),
     );
-    expect(block).toContain("_own = globals().get('_tick_con') is None");
-    expect(block).toContain("con = _lakehouse_con() if _own else _tick_con");
-    expect(block).toContain("if _own:\n                con.execute('BEGIN TRANSACTION')");
-    expect(block).toContain("if _own:\n                con.execute('COMMIT')");
-    expect(block).toContain("if _own:\n            con.close()");
-    // The mutation this guards: a target that commits inside the shared
-    // transaction would commit the rows without the positions. Every COMMIT
-    // in the block must sit under the _own guard.
-    const commits = (block.match(/con\.execute\('COMMIT'\)/g) ?? []).length;
-    const guarded = (block.match(/if _own:\n\s+con\.execute\('COMMIT'\)/g) ?? []).length;
-    expect(commits).toBeGreaterThan(0);
-    expect(guarded).toBe(commits);
+    expect(block).toContain("_ld = _lake_stage('n2', _src)");
+    // The mutation this guards: a target that commits inside a tick would
+    // commit the rows without the positions. Its only commit sits under the
+    // "no tick open" branch.
+    expect(block).toContain(
+      "if globals().get('_tick_loads') is not None:\n            _tick_loads.append(_ld)\n        else:\n            _lake_commit([_ld])",
+    );
+    expect((block.match(/_lake_commit\(/g) ?? []).length).toBe(1);
+    expect(block).not.toMatch(/_lakehouse_con|BEGIN|COMMIT/);
   });
 
   it("the platform switches it on only for qualifying graphs, and the page says so", () => {

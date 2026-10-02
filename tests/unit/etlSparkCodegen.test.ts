@@ -728,11 +728,12 @@ describe("compileSparkGraph — the lakehouse is written by the cluster", () => 
 
   it("loads by streaming the files, not by reading them into the driver", () => {
     const code = compileSparkGraph(linear(CSV_SRC, lakeTarget("replace")));
-    expect(code).toContain("con = _lakehouse_con()");
-    expect(code).toContain(
+    const block = code.slice(code.indexOf("# target t1: lakehouse"));
+    expect(block).toContain("con = _lakehouse_con()");
+    expect(block).toContain(
       'CREATE OR REPLACE TABLE "analytics"."orders" AS SELECT * FROM read_parquet(',
     );
-    expect(code).not.toContain("register('_src'");
+    expect(block).not.toContain("register('_src'");
   });
 
   it("appends without letting an empty batch shape the table", () => {

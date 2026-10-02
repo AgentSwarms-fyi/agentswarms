@@ -24,7 +24,10 @@ import {
   normalizeGraph,
   type EtlNode,
   lineageSourceOf,
+  PREVIEW_SAMPLE_ROWS,
 } from "@/utils/etl/codegen";
+import type { LakeManifest } from "@/utils/lakehouse/sandboxLake.server";
+import { etlLakeManifest } from "@/utils/etl/lakeManifest";
 import { etlErrorMessage } from "@/utils/etl/explainError";
 import { compilePipeline, engineOf, pipelineRequirements } from "@/utils/etl/compile";
 import { chainTargetsOf, hasChainTargets } from "@/lib/etlChain";
@@ -180,9 +183,10 @@ export async function resolveRunEnv(
      */
     runId?: string | null;
   },
-): Promise<{ env: Record<string, string>; secretValues: string[] }> {
+): Promise<{ env: Record<string, string>; secretValues: string[]; lake?: LakeManifest }> {
   const env: Record<string, string> = {};
   const secretValues: string[] = [];
+  let lake: LakeManifest | undefined;
   if (opts?.runId) env.ETL_RUN_ID = opts.runId;
 
   const storageEnv = async (catalogSourceId: string, stem: string, shape: "source" | "target") => {
@@ -438,10 +442,10 @@ export async function resolveRunEnv(
     if (exactlyOnceEligible(graph)) env.ETL_EXACTLY_ONCE = "1";
   }
 
-  // Lakehouse nodes: the sandbox attaches the SAME DuckLake catalog the app
-  // uses. Access is checked HERE, as the pipeline's owner — the sandbox holds
-  // engine-level credentials, so a schema the owner cannot reach must never
-  // become reachable by writing its name into a graph.
+  // Lakehouse nodes: the app reads and loads them for the sandbox, which holds
+  // no lakehouse credential (sandboxLake.server). Access is checked HERE first,
+  // as the pipeline's owner, so a graph that cannot run fails before a
+  // container starts; the app checks again on every read and commit.
   // A catalog asset that resolved to a lakehouse table is a lakehouse node
   // for the access check: the schema it names must be one the owner reaches.
   const effective = (n: { kind: string; config: unknown }) => {
@@ -508,16 +512,22 @@ export async function resolveRunEnv(
       }),
     );
     if (refusal) throw new Error(refusal);
-    env.ETL_LAKEHOUSE_CATALOG = catalogUrlToLibpq(cfg.catalog);
-    env.ETL_LAKEHOUSE_DATA_URL = cfg.dataUrl;
-    env.ETL_LAKEHOUSE_S3_KEY_ID = cfg.s3.keyId;
-    env.ETL_LAKEHOUSE_S3_SECRET = cfg.s3.secret;
-    env.ETL_LAKEHOUSE_S3_URL_STYLE = cfg.s3.urlStyle;
-    env.ETL_LAKEHOUSE_S3_USE_SSL = cfg.s3.useSsl ? "true" : "false";
-    if (cfg.s3.endpoint) env.ETL_LAKEHOUSE_S3_ENDPOINT = cfg.s3.endpoint;
-    // The catalog string carries the catalog Postgres password; the log
-    // scrubber must erase it wherever a stack trace prints it.
-    secretValues.push(env.ETL_LAKEHOUSE_CATALOG, cfg.s3.secret);
+    // What this run may do in the lake, and nothing else (lakeManifest.ts).
+    lake = etlLakeManifest(pipeline, graph, { skipTargets: opts?.skipTargets }) ?? undefined;
+    // The Spark engine's lakehouse target is written by the cluster, which
+    // still needs the store's credentials to stage it.
+    if (engineOf(pipeline.engine) === "spark" && lake && Object.keys(lake.writes).length) {
+      env.ETL_LAKEHOUSE_CATALOG = catalogUrlToLibpq(cfg.catalog);
+      env.ETL_LAKEHOUSE_DATA_URL = cfg.dataUrl;
+      env.ETL_LAKEHOUSE_S3_KEY_ID = cfg.s3.keyId;
+      env.ETL_LAKEHOUSE_S3_SECRET = cfg.s3.secret;
+      env.ETL_LAKEHOUSE_S3_URL_STYLE = cfg.s3.urlStyle;
+      env.ETL_LAKEHOUSE_S3_USE_SSL = cfg.s3.useSsl ? "true" : "false";
+      if (cfg.s3.endpoint) env.ETL_LAKEHOUSE_S3_ENDPOINT = cfg.s3.endpoint;
+      // The catalog string carries the catalog Postgres password; the log
+      // scrubber must erase it wherever a stack trace prints it.
+      secretValues.push(env.ETL_LAKEHOUSE_CATALOG, cfg.s3.secret);
+    }
   }
 
   // CDC slots are named server-side so two pipelines can never collide on one
@@ -591,7 +601,7 @@ export async function resolveRunEnv(
       if (opts?.requireSparkEndpoint) {
         throw new Error("This run's Spark cluster is not ready yet.");
       }
-      return { env, secretValues };
+      return { env, secretValues, lake };
     }
     env.ETL_SPARK_CONNECT_URL = sparkConnectUrl;
     let host = "";
@@ -607,7 +617,7 @@ export async function resolveRunEnv(
     const token = /[;?&]token=([^;&\s]+)/i.exec(sparkConnectUrl);
     if (token) secretValues.push(decodeURIComponent(token[1]));
   }
-  return { env, secretValues };
+  return { env, secretValues, lake };
 }
 
 /** Replace every secret value with *** before logs are persisted or shown. */
@@ -775,7 +785,9 @@ export async function etlPreviewBundleFor(
 export async function etlPreviewEnvFor(
   stash: EtlPreviewStash,
   userId: string,
-): Promise<{ env: Record<string, string>; requirements: string[] } | { error: string }> {
+): Promise<
+  { env: Record<string, string>; requirements: string[]; lake?: LakeManifest } | { error: string }
+> {
   const { data: pipeline } = await supabaseAdmin
     .from("etl_pipelines")
     .select("*")
@@ -785,13 +797,15 @@ export async function etlPreviewEnvFor(
   if (!pipeline) return { error: "Pipeline not found for this session" };
   const graph = normalizeGraph(pipeline.graph);
   if (!graph) return { error: "This pipeline has no visual graph to preview" };
-  const { env } = await resolveRunEnv(pipeline, { skipTargets: true });
+  const { env, lake } = await resolveRunEnv(pipeline, { skipTargets: true });
   env.AGENTSWARMS_ETL_PREVIEW = "1";
+  // A preview samples: the app reads no more than the preview shows.
+  if (lake) lake.rowLimit = PREVIEW_SAMPLE_ROWS;
   const requirements = previewRequirementsFor(graph)
     .split("\n")
     .map((l) => l.trim())
     .filter(Boolean);
-  return { env, requirements };
+  return { env, requirements, lake };
 }
 
 /** Streamed-rows drain ceiling per run. */
@@ -912,7 +926,9 @@ export async function etlDatasetFor(
 export async function etlEnvFor(
   etlRunId: string,
   userId: string,
-): Promise<{ env: Record<string, string>; requirements: string[] } | { error: string }> {
+): Promise<
+  { env: Record<string, string>; requirements: string[]; lake?: LakeManifest } | { error: string }
+> {
   const { data: run } = await supabaseAdmin
     .from("etl_runs")
     .select("id, pipeline_id, user_id, spark_connect_url")
@@ -926,7 +942,7 @@ export async function etlEnvFor(
     .eq("id", run.pipeline_id)
     .maybeSingle();
   if (!pipeline) return { error: "Pipeline no longer exists" };
-  const { env } = await resolveRunEnv(pipeline, {
+  const { env, lake } = await resolveRunEnv(pipeline, {
     sparkConnectUrl: run.spark_connect_url,
     requireSparkEndpoint: true,
     // This is the one call that is about to become a running sandbox, so it
@@ -949,7 +965,7 @@ export async function etlEnvFor(
     .split("\n")
     .map((l) => l.trim())
     .filter((l) => l && !l.startsWith("#"));
-  return { env, requirements };
+  return { env, requirements, lake };
 }
 
 // ── Run lifecycle ───────────────────────────────────────────────────────────

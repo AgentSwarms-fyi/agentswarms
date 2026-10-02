@@ -429,6 +429,8 @@ reaches the engine, at one chokepoint (`runLakehouseStatement`):
    …) are refused because the engine-level S3 secret would otherwise let any
    user read any path the deployment can (pure generators like `range` pass).
 3. **Writes must be schema-qualified** and target an accessible schema.
+   Pipelines and other sandboxes reach the lake through the same rules, run by
+   the app for them: see [Sandbox lakehouse access](./SANDBOX_LAKEHOUSE_ACCESS.md).
    A write may not call a table function anywhere in it (R226). DuckDB
    will not parse a write into an AST, so every name the statement calls is
    compared with every table function the engine lists in

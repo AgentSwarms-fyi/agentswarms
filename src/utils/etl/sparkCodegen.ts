@@ -39,6 +39,7 @@ import {
   dbFamily,
   envKey,
   indent,
+  lakeGatewayFn,
   lakehouseAttachFn,
   lineageSourcesOf,
   pyIdent,
@@ -937,7 +938,9 @@ export function compileSparkGraph(graph: EtlGraph): string {
         effective(n).type === "lakehouse" || (n.config as { type?: string }).type === "lakehouse",
     )
   ) {
-    lines.push(``, lakehouseAttachFn());
+    // Sources and cursors go through the app (lakeGatewayFn); the
+    // cluster-written lakehouse target still attaches the catalog here.
+    lines.push(``, lakeGatewayFn(), ``, lakehouseAttachFn());
   }
   const gates = order.filter(
     (n) => n.kind === "transform" && (n.config as { type?: string }).type === "quality_gate",

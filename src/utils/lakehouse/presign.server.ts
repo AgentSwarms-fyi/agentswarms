@@ -66,8 +66,27 @@ export function presignS3Get(args: {
   expiresSeconds: number;
   now?: Date;
 }): string {
+  return presignS3({ ...args, method: "GET", which: "public" });
+}
+
+/**
+ * A URL that performs one request on one object for `expiresSeconds`, and
+ * nothing else: the method and the key are inside the signature, so a URL
+ * signed to PUT one staging file cannot read it, write another, or list.
+ *
+ * `which` picks the host the signature covers. A share's recipient fetches
+ * from the public endpoint; a sandbox reaches the store as the app does.
+ */
+export function presignS3(args: {
+  target: S3Target;
+  key: string;
+  method: "GET" | "PUT" | "DELETE";
+  expiresSeconds: number;
+  which: "app" | "public";
+  now?: Date;
+}): string {
   const { target } = args;
-  const loc = s3Location(target, "public");
+  const loc = s3Location(target, args.which);
   const now = args.now ?? new Date();
   const amzDate = now
     .toISOString()
@@ -89,7 +108,7 @@ export function presignS3Get(args: {
     .map((k) => `${awsUriEncode(k, true)}=${awsUriEncode(query[k], true)}`)
     .join("&");
   const canonicalRequest = [
-    "GET",
+    args.method,
     canonicalUri,
     canonicalQuery,
     `host:${loc.host}\n`,
@@ -109,9 +128,10 @@ const EMPTY_SHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b78
 
 async function signedCall(
   t: S3Target,
-  method: "HEAD" | "DELETE" | "PUT",
+  method: "GET" | "HEAD" | "DELETE" | "PUT",
   key: string,
   body?: Buffer,
+  query: Record<string, string> = {},
 ): Promise<Response> {
   const loc = s3Location(t, "app");
   const canonicalUri = awsUriEncode(`${loc.basePath}/${key}`.replace(/\/+/g, "/"), false);
@@ -127,10 +147,10 @@ async function signedCall(
     "x-amz-date": amzDate,
     ...(t.sessionToken ? { "x-amz-security-token": t.sessionToken } : {}),
   };
-  const { authorization } = signS3Request({
+  const { authorization, canonicalQuery } = signS3Request({
     method,
     canonicalUri,
-    query: {},
+    query,
     headers,
     region: t.region,
     accessKeyId: t.accessKeyId,
@@ -138,7 +158,7 @@ async function signedCall(
   });
   const { host: _host, ...sendHeaders } = headers;
   void _host;
-  return fetch(`${loc.origin}${canonicalUri}`, {
+  return fetch(`${loc.origin}${canonicalUri}${canonicalQuery ? `?${canonicalQuery}` : ""}`, {
     method,
     headers: {
       ...sendHeaders,
@@ -177,4 +197,49 @@ export async function s3ObjectSize(t: S3Target, key: string): Promise<number | n
 export async function s3DeleteObject(t: S3Target, key: string): Promise<void> {
   const res = await signedCall(t, "DELETE", key);
   if (!res.ok && res.status !== 404) throw new Error(`DELETE ${key} failed (${res.status})`);
+}
+
+const xmlUnescape = (s: string) =>
+  s
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, "&");
+
+/** Every key under `prefix`, with its last-modified time, a page at a time. */
+export async function s3ListKeys(
+  t: S3Target,
+  prefix: string,
+): Promise<{ key: string; lastModified: Date }[]> {
+  const out: { key: string; lastModified: Date }[] = [];
+  let token: string | null = null;
+  do {
+    const query: Record<string, string> = { "list-type": "2", prefix };
+    if (token) query["continuation-token"] = token;
+    // The bucket itself: in path style the key part is empty, so the
+    // canonical URI is `/bucket/`; in vhost style it is `/`.
+    const res = await signedCall(t, "GET", "", undefined, query);
+    if (!res.ok) throw new Error(`LIST ${prefix} failed (${res.status})`);
+    const xml = await res.text();
+    for (const m of xml.matchAll(/<Contents>([\s\S]*?)<\/Contents>/g)) {
+      const key = /<Key>([\s\S]*?)<\/Key>/.exec(m[1])?.[1];
+      const when = /<LastModified>([\s\S]*?)<\/LastModified>/.exec(m[1])?.[1];
+      if (key) out.push({ key: xmlUnescape(key), lastModified: new Date(when ?? 0) });
+    }
+    token = /<IsTruncated>true<\/IsTruncated>/.test(xml)
+      ? (/<NextContinuationToken>([\s\S]*?)<\/NextContinuationToken>/.exec(xml)?.[1] ?? null)
+      : null;
+    if (token) token = xmlUnescape(token);
+  } while (token);
+  return out;
+}
+
+/** Delete every object under `prefix`. Returns how many were deleted. */
+export async function s3DeletePrefix(t: S3Target, prefix: string): Promise<number> {
+  // An empty or root prefix would be the whole bucket: never what is meant.
+  if (!prefix || !prefix.replace(/\/+/g, "")) throw new Error("Refusing to delete an empty prefix");
+  const keys = await s3ListKeys(t, prefix);
+  for (const k of keys) await s3DeleteObject(t, k.key);
+  return keys.length;
 }

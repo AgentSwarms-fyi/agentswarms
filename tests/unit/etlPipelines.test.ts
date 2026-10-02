@@ -20,6 +20,7 @@ import {
   codeTemplate,
   dbFamily,
   envKey,
+  lakehouseAttachFn,
   pyIdent,
   pyStr,
   requirementsFor,
@@ -512,36 +513,35 @@ describe("lakehouse pipeline nodes", () => {
     edges: [{ from: "s", to: "t" }],
   });
 
-  it("attaches the shared catalog from env and makes lake the current catalog", () => {
+  it("reads and loads through the app, and the sandbox holds no lakehouse credential", () => {
+    // The app runs the read as the owner and loads the staged rows
+    // (sandboxLake.server, tested in sandboxLake.test.ts). Nothing in the
+    // program attaches the catalog or names a credential.
     const code = compileGraph(g());
     assertParsesAsPython(code);
-    expect(code).toContain("ATTACH 'ducklake:postgres:");
-    expect(code).toContain('con.execute("USE lake")');
-    // No credential literal — everything arrives as env, like every connector.
-    expect(code).toContain("os.environ['ETL_LAKEHOUSE_CATALOG']");
-    expect(code).not.toMatch(/password=\w+/);
+    expect(code).toContain("return _lake_read('s')");
+    expect(code).toContain("_ld = _lake_stage('t', _src)");
+    expect(code).not.toMatch(/ATTACH|ducklake:|_lakehouse_con|ETL_LAKEHOUSE_|password=/);
   });
 
-  it("the extension directory dodges the sandbox's read-only HOME and noexec /tmp", () => {
+  it("the Spark target's attach still dodges the sandbox's read-only HOME and noexec /tmp", () => {
     // Both were real failures: ~/.duckdb is read-only, and a .so downloaded
     // into /tmp cannot be mapped. ~/.local is writable AND executable.
-    const code = compileGraph(g());
+    const code = lakehouseAttachFn();
     expect(code).toContain("'.local', 'duckdb'");
     expect(code).not.toContain("tempfile.mkdtemp(prefix='duckdb-ext");
   });
 
-  it("write modes compile to the right statements", () => {
-    expect(compileGraph(g())).toContain("CREATE OR REPLACE TABLE");
+  it("an empty batch is sent only by a replace, which empties the table as it always did", () => {
+    expect(compileGraph(g())).toContain("    if True:\n        _ld = _lake_stage('t', _src)");
     const append = compileGraph(g({ write_mode: "append" }));
-    expect(append).toContain("CREATE TABLE IF NOT EXISTS");
-    expect(append).toContain("INSERT INTO");
+    expect(append).toContain("    if len(_src):\n        _ld = _lake_stage('t', _src)");
     const merge = compileGraph(g({ write_mode: "merge", primary_key: ["id"] }));
-    // Upsert is delete-then-insert inside ONE transaction — a reader never
-    // sees the gap.
-    expect(merge).toContain("BEGIN TRANSACTION");
-    expect(merge).toContain("DELETE FROM");
-    expect(merge.indexOf("BEGIN TRANSACTION")).toBeLessThan(merge.indexOf("COMMIT"));
+    expect(merge).toContain("    if len(_src):\n        _ld = _lake_stage('t', _src)");
     expect(() => compileGraph(g({ write_mode: "merge" }))).toThrow(/primary key/);
+    expect(() =>
+      compileGraph(g({ write_mode: "merge", primary_key: ["id; DROP TABLE x"] })),
+    ).toThrow(/Primary key column/);
   });
 
   it("needs duckdb and NOT dlt — a lakehouse pipeline never imports it", () => {
@@ -949,9 +949,9 @@ describe("compilePreview", () => {
     };
     const code = compilePreview(lake, "agg");
     assertParsesAsPython(code);
-    expect(code).toContain("def _lakehouse_con()");
+    expect(code).toContain("def _lake_read(node_id)");
     // Defined before the source function that calls it.
-    expect(code.indexOf("def _lakehouse_con()")).toBeLessThan(code.indexOf("def _src_s"));
+    expect(code.indexOf("def _lake_read(node_id)")).toBeLessThan(code.indexOf("def _src_s"));
   });
 
   it("reports every ancestor's columns, not just the previewed node's", () => {

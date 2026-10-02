@@ -214,9 +214,12 @@ describe("the code a run executes", () => {
     // A quiet stream yields an empty frame with only the _stream_* columns;
     // the second live run failed with "table has 9 columns but 5 values were
     // supplied" until the lakehouse target skipped empty batches and
-    // inserted by name.
-    expect(code).toContain("if len(_src):");
-    expect(code).toContain("BY NAME SELECT * FROM _src");
+    // inserted by name. The batch is skipped here; the app inserts by name
+    // (sandboxLake.server's loadStatements).
+    expect(code).toContain("if len(_src):\n        _ld = _lake_stage(");
+    expect(readFileSync("src/utils/lakehouse/sandboxLake.server.ts", "utf8")).toContain(
+      "BY NAME SELECT * FROM ${src}",
+    );
     // A node that cannot run refuses at compile time, with the reason.
     expect(() =>
       compileGraph({

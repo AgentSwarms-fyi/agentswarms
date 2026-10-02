@@ -249,17 +249,25 @@ function EtlDocsPage() {
         A pipeline runs as its owner. Every schema a lakehouse source&apos;s query reads must be the
         owner&apos;s or shared with them, whatever schema the node itself names; table functions
         such as <C>read_parquet()</C> are refused. A shared table under its owner&apos;s row filter
-        or column masks cannot be read or written by a pipeline, because nothing in the sandbox can
-        apply the policy: query it in the Lakehouse, where the policy holds.
+        or column masks is read through the policy, as the SQL editor reads it, and cannot be
+        written by anyone but its owner.
       </Callout>
-      <Callout kind="warn" title="Lakehouse targets need the catalog on the kernel's network">
-        Because the run happens in a kernel, a pipeline whose target is a lakehouse table attaches
-        the catalog from <em>there</em> — and kernels sit on an <C>internal</C> network whose only
-        way out is the HTTP egress proxy. Parquet is HTTP and travels through it; the catalog is a
-        raw Postgres connection and cannot. Name the catalog by service (
-        <C>lakehouse-catalog:5432</C>), not by a host IP or published port. The symptom otherwise is{" "}
-        <C>Network is unreachable</C> in the run log, and it shows up only once the app runs in a
-        container — under <C>npm run dev</C> kernels get a routable network instead. See{" "}
+      <Callout kind="info" title="The sandbox holds no lakehouse credential">
+        The app reads a pipeline&apos;s lakehouse sources and loads its lakehouse targets for it:
+        rows travel as Parquet behind short-lived presigned URLs under the run&apos;s own staging
+        prefix, and the app serves only the sources and targets the run declared. Code in the
+        sandbox, a Custom Python node included, has no catalog connection and no storage key. The
+        Spark engine&apos;s lakehouse target is the exception for now: the cluster writes its own
+        Parquet.
+      </Callout>
+      <Callout kind="warn" title="Spark lakehouse targets need the catalog on the kernel's network">
+        On the Spark engine, a pipeline whose target is a lakehouse table attaches the catalog from
+        the kernel — and kernels sit on an <C>internal</C> network whose only way out is the HTTP
+        egress proxy. Parquet is HTTP and travels through it; the catalog is a raw Postgres
+        connection and cannot. Name the catalog by service (<C>lakehouse-catalog:5432</C>), not by a
+        host IP or published port. The symptom otherwise is <C>Network is unreachable</C> in the run
+        log, and it shows up only once the app runs in a container — under <C>npm run dev</C>{" "}
+        kernels get a routable network instead. See{" "}
         <DocLink to="/docs/lakehouse">Lakehouse</DocLink>.
       </Callout>
 

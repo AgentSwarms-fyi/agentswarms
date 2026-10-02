@@ -111,12 +111,15 @@ describe("a lakehouse source's query", () => {
 });
 
 describe("a shared table under its owner's policy", () => {
-  it("is refused to a source, in table mode and in a query", async () => {
+  // Since the sandbox gateway the app runs a source's read through the
+  // owner's policy (sandboxLake.server → governSelect), so a source may name
+  // a policed table and gets the rows and values its owner allows.
+  it("may be a source, in table mode and in a query: the read is served through the policy", async () => {
     db.policies = [POLICY];
     const table = await refuse([
       { label: "Orders", kind: "source", schema: "shared", mode: "table", table: "orders" },
     ]);
-    expect(table).toMatch(/shared\.orders has a security policy .* a pipeline cannot apply/);
+    expect(table).toBeNull();
     const query = await refuse([
       {
         label: "Q",
@@ -126,7 +129,7 @@ describe("a shared table under its owner's policy", () => {
         query: "SELECT email FROM shared.orders",
       },
     ]);
-    expect(query).toMatch(/shared\.orders has a security policy/);
+    expect(query).toBeNull();
   });
 
   it("is refused to a target, since only its owner may write it", async () => {
@@ -154,12 +157,12 @@ describe("a shared table under its owner's policy", () => {
 });
 
 describe("the pipeline's run and preview environment", () => {
-  it("asks the guard before handing the sandbox the catalog's credentials", () => {
+  it("asks the guard before declaring the run's lakehouse access", () => {
     const src = readFileSync("src/utils/etl/service.server.ts", "utf8");
     const ask = src.indexOf("await lakehouseNodesRefusal(");
-    const creds = src.indexOf("env.ETL_LAKEHOUSE_CATALOG = ");
+    const declare = src.indexOf("lake = etlLakeManifest(", ask);
     expect(ask).toBeGreaterThan(-1);
-    expect(creds).toBeGreaterThan(ask);
-    expect(src.slice(ask, creds)).toContain("if (refusal) throw new Error(refusal);");
+    expect(declare).toBeGreaterThan(ask);
+    expect(src.slice(ask, declare)).toContain("if (refusal) throw new Error(refusal);");
   });
 });

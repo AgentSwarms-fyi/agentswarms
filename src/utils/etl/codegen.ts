@@ -592,20 +592,13 @@ export function sourceFn(node: EtlNode): string {
     return streamSourcePython(node.id, key, c);
   }
   if (c.type === "lakehouse") {
-    const schema = pyIdent(c.schema, "Lakehouse schema");
-    const sql =
-      c.mode === "table"
-        ? `SELECT * FROM "${schema}"."${pyIdent(c.table ?? "", "Lakehouse table")}"`
-        : (c.query ?? "");
-    if (!sql.trim()) throw new Error(`Lakehouse source "${node.label || node.id}" has no query`);
+    // Compiled for its refusals; the app holds the SQL itself (the run's
+    // lakehouse manifest) and runs it as the owner.
+    lakehouseSourceSql(node.label || node.id, c);
     return [
       head,
-      `    # Built-in lakehouse: columnar read straight into a frame.`,
-      `    con = _lakehouse_con()`,
-      `    try:`,
-      `        return con.execute(${pyStr(sql)}).df()`,
-      `    finally:`,
-      `        con.close()`,
+      `    # Built-in lakehouse: read by the app, as the pipeline's owner.`,
+      `    return _lake_read(${pyStr(node.id)})`,
     ].join("\n");
   }
   if (c.type === "ingest") {
@@ -1003,11 +996,106 @@ export function emptyGuardFn(): string {
   ].join("\n");
 }
 
+/** The SELECT a lakehouse source reads: its table, or its query. */
+export function lakehouseSourceSql(
+  label: string,
+  c: { schema?: string; table?: string; mode?: string; query?: string },
+): string {
+  const schema = pyIdent(c.schema ?? "", "Lakehouse schema");
+  const sql =
+    c.mode === "table"
+      ? `SELECT * FROM "${schema}"."${pyIdent(c.table ?? "", "Lakehouse table")}"`
+      : (c.query ?? "");
+  if (!sql.trim()) throw new Error(`Lakehouse source "${label}" has no query`);
+  return sql;
+}
+
 /**
- * The sandbox-side lakehouse attach. Credentials arrive as env (resolved
- * server-side, never in code text) exactly like every other connector; the
- * engine here is the SAME DuckLake catalog the app uses, so a pipeline's
- * writes are ordinary ACID commits other readers see immediately.
+ * The sandbox side of the lakehouse: no credential, three calls.
+ *
+ * The sandbox asks the app, over its own session channel, for what its run
+ * declared (src/utils/lakehouse/sandboxLake.server.ts). A read comes back as
+ * one staged Parquet file behind a presigned GET, read here with DuckDB so a
+ * frame has the types a direct read gave it. A target's frame goes up as
+ * Parquet to a presigned PUT, and the app loads it, with the tick's cursors
+ * when the run is exactly-once, in one transaction.
+ */
+export function lakeGatewayFn(): string {
+  return [
+    `def _lake_call(part, body):`,
+    `    import requests`,
+    `    resp = requests.post(`,
+    `        os.environ['AGENTSWARMS_ORIGIN'].rstrip('/') + '/api/notebook/runtime/source',`,
+    `        json=dict(body, part=part),`,
+    `        headers={'Authorization': 'Bearer ' + os.environ.get('AGENTSWARMS_TOKEN', '')},`,
+    `        timeout=3600,`,
+    `    )`,
+    `    if resp.status_code != 200:`,
+    `        try:`,
+    `            why = resp.json().get('error') or resp.text`,
+    `        except Exception:`,
+    `            why = resp.text`,
+    `        raise RuntimeError('lakehouse: ' + str(why)[:2000])`,
+    `    return resp.json()`,
+    ``,
+    `def _lake_sql_list(paths):`,
+    `    return '[' + ', '.join("'" + p.replace("'", "''") + "'" for p in paths) + ']'`,
+    ``,
+    `def _lake_read(node_id):`,
+    `    import duckdb, requests, shutil, tempfile`,
+    `    out = _lake_call('lake_read', {'id': node_id})`,
+    `    tmp = tempfile.mkdtemp()`,
+    `    try:`,
+    `        paths = []`,
+    `        for i, f in enumerate(out['files']):`,
+    `            p = os.path.join(tmp, str(i) + '.parquet')`,
+    `            with requests.get(f['get'], stream=True, timeout=3600) as g:`,
+    `                g.raise_for_status()`,
+    `                with open(p, 'wb') as fh:`,
+    `                    shutil.copyfileobj(g.raw, fh)`,
+    `            paths.append(p)`,
+    `            try:`,
+    `                requests.delete(f['delete'], timeout=60)`,
+    `            except Exception:`,
+    `                pass`,
+    `        con = duckdb.connect()`,
+    `        try:`,
+    `            return con.execute('SELECT * FROM read_parquet(' + _lake_sql_list(paths) + ')').df()`,
+    `        finally:`,
+    `            con.close()`,
+    `    finally:`,
+    `        shutil.rmtree(tmp, ignore_errors=True)`,
+    ``,
+    `def _lake_stage(node_id, df):`,
+    `    import duckdb, requests, shutil, tempfile`,
+    `    tmp = tempfile.mkdtemp()`,
+    `    try:`,
+    `        p = os.path.join(tmp, 'part.parquet')`,
+    `        con = duckdb.connect()`,
+    `        try:`,
+    `            con.register('_src', df)`,
+    `            con.execute("COPY (SELECT * FROM _src) TO '" + p.replace("'", "''") + "' (FORMAT parquet)")`,
+    `        finally:`,
+    `            con.close()`,
+    `        st = _lake_call('lake_stage', {'id': node_id, 'parts': 1})`,
+    `        with open(p, 'rb') as fh:`,
+    `            r = requests.put(st['puts'][0], data=fh, timeout=3600)`,
+    `        r.raise_for_status()`,
+    `        return {'id': node_id, 'batch': st['batch'], 'parts': 1}`,
+    `    finally:`,
+    `        shutil.rmtree(tmp, ignore_errors=True)`,
+    ``,
+    `def _lake_commit(loads, cursors=None):`,
+    `    return _lake_call('lake_commit', {'loads': loads, 'cursors': cursors or {}})`,
+    ``,
+  ].join("\n");
+}
+
+/**
+ * The sandbox-side lakehouse attach, with engine credentials from env. ETL's
+ * sandbox engine no longer uses it (lakeGatewayFn); the Spark engine's
+ * lakehouse target and the ML programs still do, until they move to the
+ * gateway too.
  */
 export function lakehouseAttachFn(): string {
   return [
@@ -1218,56 +1306,24 @@ export function targetBlock(node: EtlNode, input: string, cdcInput = false): str
   if (c.type === "lakehouse") {
     const schema = pyIdent(c.schema, "Lakehouse schema");
     const table = pyIdent(c.table, "Lakehouse table");
-    const fq = `"${schema}"."${table}"`;
     if (c.write_mode === "merge" && !c.primary_key?.length) {
       throw new Error(`Merge into "${node.label || node.id}" needs primary key columns`);
     }
-    const load =
-      c.write_mode === "replace"
-        ? [`        con.execute('CREATE OR REPLACE TABLE ${fq} AS SELECT * FROM _src')`]
-        : c.write_mode === "append"
-          ? [
-              // An empty batch (a stream with nothing new, a filter that kept
-              // nothing) loads nothing and must not shape the table: an empty
-              // frame carries only the columns the source could name. BY NAME
-              // keeps a batch honest when its columns arrive in another order.
-              `        if len(_src):`,
-              `            con.execute('CREATE TABLE IF NOT EXISTS ${fq} AS SELECT * FROM _src WHERE false')`,
-              `            con.execute('INSERT INTO ${fq} BY NAME SELECT * FROM _src')`,
-            ]
-          : [
-              // Upsert: delete the incoming keys, then insert — one transaction,
-              // so a reader never sees the gap between the two. Inside an
-              // exactly-once tick the shared transaction already covers both.
-              `        if len(_src):`,
-              `            con.execute('CREATE TABLE IF NOT EXISTS ${fq} AS SELECT * FROM _src WHERE false')`,
-              `            if _own:`,
-              `                con.execute('BEGIN TRANSACTION')`,
-              `            con.execute(${pyStr(
-                `DELETE FROM ${fq} WHERE (${(c.primary_key ?? [])
-                  .map((k) => `"${pyIdent(k, "Primary key column")}"`)
-                  .join(", ")}) IN (SELECT ${(c.primary_key ?? [])
-                  .map((k) => `"${pyIdent(k, "Primary key column")}"`)
-                  .join(", ")} FROM _src)`,
-              )})`,
-              `            con.execute('INSERT INTO ${fq} BY NAME SELECT * FROM _src')`,
-              `            if _own:`,
-              `                con.execute('COMMIT')`,
-            ];
+    for (const k of c.primary_key ?? []) pyIdent(k, "Primary key column");
     return [
-      `    # target ${node.id}: lakehouse → ${schema}.${table} (${c.write_mode})`,
+      `    # target ${node.id}: lakehouse → ${schema}.${table} (${c.write_mode}), loaded by the app`,
       `    _src = ${input}`,
-      // An exactly-once tick holds one open transaction on `_tick_con` and
-      // every lakehouse target loads through it; otherwise the target opens
-      // and closes a connection of its own, as it always did.
-      `    _own = globals().get('_tick_con') is None`,
-      `    con = _lakehouse_con() if _own else _tick_con`,
-      `    try:`,
-      `        con.register('_src', _src)`,
-      ...load,
-      `    finally:`,
-      `        if _own:`,
-      `            con.close()`,
+      // An empty batch (a stream with nothing new, a filter that kept nothing)
+      // loads nothing and must not shape the table, so append and merge send
+      // nothing; a replace with no rows still empties the table, as it did.
+      ...(c.write_mode === "replace" ? [`    if True:`] : [`    if len(_src):`]),
+      `        _ld = _lake_stage(${pyStr(node.id)}, _src)`,
+      // An exactly-once tick gathers every target's load and commits them
+      // with its cursors at the end; otherwise the load commits now, alone.
+      `        if globals().get('_tick_loads') is not None:`,
+      `            _tick_loads.append(_ld)`,
+      `        else:`,
+      `            _lake_commit([_ld])`,
       `    _loads.append({'node': '${node.id}', 'target': '${schema}.${table}', 'fqn': '${schema}.${table}', 'rows': int(len(${input})), 'load_id': None})`,
     ].join("\n");
   }
@@ -1606,7 +1662,7 @@ export function compileGraph(graph: EtlGraph): string {
     lines.push(``, `def _fn_${n.id}(df):`, indent(c.code, "    "), `    return df`, ``);
   }
   if (order.some((n) => effectiveType(n) === "lakehouse")) {
-    lines.push(``, lakehouseAttachFn());
+    lines.push(``, lakeGatewayFn());
   }
   const gates = order.filter(
     (n) => n.kind === "transform" && (n.config as { type?: string }).type === "quality_gate",
@@ -1794,7 +1850,7 @@ export function compileGraph(graph: EtlGraph): string {
 // ── Node preview ────────────────────────────────────────────────────────────
 
 /** Source-row cap for previews: enough to make transforms meaningful. */
-const PREVIEW_SAMPLE_ROWS = 500;
+export const PREVIEW_SAMPLE_ROWS = 500;
 /** Rows actually returned to the panel. */
 const PREVIEW_RESULT_ROWS = 50;
 
@@ -1864,13 +1920,13 @@ export function compilePreview(graph: EtlGraph, nodeId: string): string {
     const c = n.config as Extract<EtlTransformConfig, { type: "python" }>;
     lines.push(``, `def _fn_${n.id}(df):`, indent(c.code, "    "), `    return df`, ``);
   }
-  // A lakehouse source's reader calls _lakehouse_con(), so the preview must
+  // A lakehouse source's reader calls _lake_read(), so the preview must
   // emit that helper too. Without it the preview died with a NameError while
   // the same graph ran fine as a pipeline — the preview is a SECOND compiler
   // over the same nodes, and anything the source functions depend on has to be
   // emitted by both.
   if (slice.some((n) => effectiveType(n) === "lakehouse")) {
-    lines.push(``, lakehouseAttachFn());
+    lines.push(``, lakeGatewayFn());
   }
   if (gates.length) {
     lines.push(``, `_quality = []`);

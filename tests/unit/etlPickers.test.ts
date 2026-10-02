@@ -238,7 +238,7 @@ describe("the compiler reads a catalog asset as what it resolved to", () => {
         resolved: { type: "lakehouse", schema: "analytics", mode: "table", table: "revenue_facts" },
       }),
     );
-    expect(compileGraph(lake)).toContain("_lakehouse_con()");
+    expect(compileGraph(lake)).toContain("return _lake_read('n1')");
     expect(requirementsFor(lake)).toContain("duckdb");
     const files = graphOf(
       node("n1", "source", {

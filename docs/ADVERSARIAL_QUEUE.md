@@ -354,9 +354,15 @@ least twice, not a hypothetical.
    - **R226: table functions in a write.** The SQL editor refused a table function in a SELECT
      and ran the same read inside CREATE TABLE … AS. Found while designing the sandbox gateway,
      which runs its commits through the engine.
-   - **Scoped sandbox credentials** (the owner's decision): ETL and ML sandboxes are to get
-     lakehouse credentials scoped to the run instead of the engine's. Until then the server-side
-     checks above are the boundary.
+   - **Scoped sandbox credentials** (the owner's decision). R227: an ETL sandbox now holds no
+     lakehouse credential; the app reads and loads for it (docs/SANDBOX_LAKEHOUSE_ACCESS.md).
+     Still to move: the Spark engine's lakehouse target and Spark lakehouse queries (the cluster
+     needs storage access: short-lived STS credentials scoped to the run's files, which this
+     deployment's MinIO issues), and ML training, prediction and warm scoring.
+   - **Minor, seen on the ETL list:** a pipeline whose only runs were cancelled reads "last run: —
+     never ran".
+   - **R228: a merge that lost its key emptied the table.** Fixed for the sandbox engine by the
+     gateway; the Spark engine's lakehouse target still runs the bare DELETE until it moves.
    - **Next, from the triage, in order of consequence (each to be read and proved before fixing):**
      - **Agent chat** (`routes/api/chat.ts` ~1218): a failed read of the agent enables every
        tool, drops the MCP, SQL and model allow-lists, and turns guardrails to their defaults

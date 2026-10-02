@@ -15,6 +15,27 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-02 — An ETL sandbox with no lakehouse credential, ADVERSARIAL_LOG R227
+
+**Why this round exists.** The owner chose scoped sandbox credentials. ETL is the first path moved.
+
+Fixtures kept: pipelines `r227_gateway` and `r227_stream`, tables `analytics.r227_out` and
+`analytics.r227_stream`.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| After (hot deploy) | `r227_gateway` → Code | the program calls `_lake_read` / `_lake_stage` through `_lake_call`; no catalog string |
+| After | source node → Preview data | 50 of 108 sampled rows; month str, t int64, region str, plan str, revenue float64, units int64, margin_pct float64 |
+| After | Run now, Replace | Succeeded, 8 s, 108 rows → 1 target; `r227_out` 108 rows, EXCEPT both ways 0 / 0 |
+| After | Append, then Merge on month, region | 216 rows over 108 keys; then 108 rows, 108 keys, 0 missing from the source |
+| After | Custom Python probe between source and target | "lake-related env names: none"; undeclared read, stage and commit each refused by name; 108 rows loaded |
+| After | MinIO, the lake bucket | no `_sandbox_staging/` prefix left |
+| After | `r227_stream`, continuous, push 3 then 2 rows | 5 rows over 13 ticks; cancelled |
+| After | push 1 row, start again | log: "exactly-once: resumed 1 cursor(s) committed with the last load"; 1 row; table 6 rows, ids 1–6 once each |
+| Before (same deploy) | the sweep restarted `r227_stream` after Cancel; 69 quiet ticks | Audit Log: a blank `lakehouse.sandbox_commit` every poll |
+| After (gated build) | Run now on `r227_gateway` | Succeeded, 108 rows; Audit Log `lakehouse.sandbox_read` "108 rows", `lakehouse.sandbox_commit` analytics.r227_out |
+| After | `r227_stream` continuous, 1 row pushed, 14 ticks, then Manual and Cancel | 1 row; exactly one `lakehouse.sandbox_commit` analytics.r227_stream in the Audit Log; Running now 0 |
+
 ## 2026-10-02 — A table function inside a write, ADVERSARIAL_LOG R226
 
 **Why this round exists.** Found while designing the sandbox gateway. The SQL editor, owner's

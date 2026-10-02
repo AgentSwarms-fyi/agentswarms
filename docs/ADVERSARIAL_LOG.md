@@ -109,6 +109,89 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-02 — An ETL sandbox with no lakehouse credential
+
+Tests: `tests/unit/sandboxLake.test.ts` (15 tests, real DuckDB: a governed read staged as Parquet
+and read back, a grantee's read through the owner's policy, the preview cap, stage URLs, append,
+merge and replace commits with cursors, all-or-nothing rollback, a keyless merge refused, the
+staging sweep, the session channel's pins), `tests/unit/etlLakeManifest.test.ts` (4 tests), and
+the ETL compiler tests updated to the new program. The mutation run caught 13 of 13, and the
+control survived.
+
+#### R227 · S1 · An ETL sandbox held the engine's catalog and storage credentials
+
+**Found** as the owner's decision after R225: every check the server makes before a run bounds
+what the generated code asks for, but the sandbox received `ETL_LAKEHOUSE_CATALOG` and the
+object store's key and secret, and code in the sandbox (a Custom Python node, any library) runs
+with the same environment. With them it could read every table's metadata and files.
+
+**The fix.** The app does the lakehouse work (`src/utils/lakehouse/sandboxLake.server.ts`, design
+in `docs/SANDBOX_LAKEHOUSE_ACCESS.md`). The sandbox asks over its session channel for a declared
+read (run as the owner through `governSelect`, the SQL editor's checks and policies, staged as
+Parquet behind a presigned GET), a stage (presigned PUTs under its own prefix) and a commit (the
+app loads the staged rows, and the run's cursors, in one transaction). What a run may ask for is
+pinned on its session when it fetches its environment (`src/utils/etl/lakeManifest.ts`), and every
+call is served from the pin. Reads of a shared table under a policy now work through the policy;
+R225's refusal of them is lifted, and writing one stays refused.
+
+Before writing a design, the object store was probed: this deployment's MinIO issues short-lived
+credentials limited to one prefix (HEAD inside the prefix 200, outside 403, the engine key 200 on
+both). The catalog cannot be scoped the same way, which is why the sandbox gets no catalog access
+at all rather than a narrower one.
+
+**Driven** (hot deploy), on a new pipeline `r227_gateway`, `analytics.bi_demo_sales` → Lakehouse
+table `analytics.r227_out`:
+- **Code** shows `_lake_call`, `_lake_read('…')` and `_lake_stage(…)`, and no catalog string;
+- node **Preview data**: 50 of 108 sampled rows, with the column types as before;
+- **Run now**, Replace: Succeeded, 108 rows; `r227_out` has 108 rows and an EXCEPT both ways
+  against the source is 0 and 0;
+- Append: 216 rows over 108 keys; Merge on `month, region`: 108 rows over 108 keys, 0 missing;
+- a Custom Python node between them printed, from inside the sandbox, **"lake-related env names:
+  none"**, and its calls for an undeclared read, an undeclared stage and an undeclared target's
+  commit were each refused by name; the run still loaded its 108 rows;
+- the lake bucket held no `_sandbox_staging/` prefix after the runs.
+
+A second pipeline `r227_stream`, Streamed rows (push) → `analytics.r227_stream` (append),
+continuous, exactly-once:
+- batch 1 (3 rows) and batch 2 (2 rows) loaded over 13 ticks, then the run was cancelled;
+- batch 3 (1 row) was pushed and the pipeline started again: its log read **"exactly-once:
+  resumed 1 cursor(s) committed with the last load"**, and it loaded 1 row;
+- `r227_stream`: 6 rows, 6 distinct ids 1–6, notes `batch-1,batch-2,batch-3`.
+
+**Not driven:** the grantee side of a policed read, which needs a second account; the tests hold
+it with real DuckDB (a reader's staged rows are filtered and masked).
+
+**Found driving it: a commit every poll.** Cancelling a continuous run does not stop the
+pipeline, so the schedule sweep restarted `r227_stream` and it ran 69 quiet ticks. Each tick
+called the commit with nothing in it, and the Audit Log filled with blank
+`lakehouse.sandbox_commit` events, one every five seconds. A tick now commits only when it loaded
+rows or moved a position, and the app answers an empty commit without opening the engine or
+writing an event. After the fix, a continuous run of 14 ticks with one pushed row wrote exactly one
+`lakehouse.sandbox_commit → analytics.r227_stream`. The reads and commits also show in the Audit
+Log as `lakehouse.sandbox_read` (with the row count) and `lakehouse.sandbox_commit` (with the
+tables), attributed to the pipeline's owner.
+
+Docker Desktop stopped during the round (the engine's VM went down under the gate and a running
+sandbox); it was restarted with `docker desktop restart`, and the run queued across the restart
+failed with "The run never acquired a sandbox session" until the stale continuous run was
+cancelled. Neither was the gateway.
+
+#### R228 · S1 · A merge whose rows had lost their key column emptied the target table
+
+**Found** writing the gateway's commit test. A lakehouse merge deleted the incoming keys and then
+inserted: `DELETE FROM t WHERE (id) IN (SELECT id FROM _src)`. When the frame no longer had the key
+column (a Select columns or Rename step upstream), `id` inside the subquery bound to the target's
+own column, the subquery became correlated, and the DELETE matched every row. The table was
+emptied and the keyless rows inserted, and the run reported success.
+
+**Proof.** Real DuckDB in the test: the statement as the sandbox ran it, against a source with no
+`id` column, leaves 0 of 2 rows.
+
+**The fix.** The gateway's merge qualifies the incoming keys (`_in."id"`), so a missing key fails
+to bind, and checks the staged rows' columns first: "Target "…": the rows to merge have no "id"
+column, which its primary key needs — nothing was loaded". The Spark engine's lakehouse target
+still runs the bare statement until it moves to the gateway.
+
 ### 2026-10-02 — A table function inside a write statement
 
 Tests: `tests/unit/lakehouseWriteTableFunctions.test.ts` (4 tests: the table-function list read

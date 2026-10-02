@@ -665,28 +665,53 @@ starts.
 ## What a lakehouse node may read and write
 
 A pipeline runs as its owner, and its lakehouse nodes get the same checks as
-the owner's queries in the Lakehouse SQL editor. The server makes these checks
-before a run or a node preview starts:
+the owner's queries in the Lakehouse SQL editor:
 
 - **Every schema a source query reads** must be the owner's own or shared with
   them. The node's own schema field is only where the query starts. Table
   functions such as `read_parquet()` and unqualified table names are refused,
   as they are in the editor.
-- **A shared table under its owner's row filter or column masks** cannot be
-  read by a pipeline. The policy is applied by the lakehouse engine's query
-  rewrite, and nothing in the sandbox can apply it. Query the table in the
-  Lakehouse, where the policy holds, or ask its owner to publish what you need.
+- **A shared table under its owner's row filter or column masks** is read
+  through the policy: the pipeline gets the rows and values its owner may
+  see, exactly as the SQL editor shows them.
 - **A shared table under a policy is read-only** for everyone but its owner,
-  so a pipeline cannot target it either.
+  so a pipeline cannot target it.
 
-Before R225 only each node's schema field was checked. A query-mode source
-naming the owner's schema could read any schema in the lake, and a shared
-table was read whole, past its owner's policy.
+These are checked before a run or a preview starts, so a graph that cannot run
+fails with its node's name, and again by the app on every read and load.
 
-## Lakehouse targets need the catalog on the kernel network
+## The sandbox holds no lakehouse credential
 
-A pipeline whose target is a lakehouse table attaches DuckLake **from inside the
-notebook kernel**, not from the app. Kernels run on an `internal` Docker network
+A pipeline's code runs in a sandbox, and since October 2026 that sandbox is
+given **no lakehouse credential at all**: no catalog connection string, no
+object-store key. The app does the lakehouse work for it, over the session
+channel the sandbox already uses for its code and secrets:
+
+- **A source** is read by the app, as the pipeline's owner, through the SQL
+  editor's checks and the owners' policies. The rows come back as one Parquet
+  file behind a short-lived presigned URL, which the sandbox deletes once read.
+- **A target's** rows go up as Parquet to a presigned URL under the run's own
+  staging prefix, and the app loads them into the table. A merge refuses rows
+  that lack its primary key instead of matching the whole table.
+- **Exactly-once** continuous runs gather every target's rows for a tick and
+  hand them to the app with the tick's positions; the app commits both in one
+  transaction, and a restarted run resumes from the positions that committed.
+
+The app serves only what the run declared when it started: its own lakehouse
+sources, by node, and its own targets. A Custom Python node can call the
+helpers, and it can read nothing else and write nowhere else. Staging lives
+beside the lake (`_sandbox_staging/<session>/`), is deleted when a load
+commits, and the runtime reaper deletes whatever a dead session leaves.
+
+The Spark engine's lakehouse target is the exception for now: the cluster
+writes its Parquet itself, so that target still runs with the store's
+credentials. See [Sandbox lakehouse access](./SANDBOX_LAKEHOUSE_ACCESS.md).
+
+## Spark lakehouse targets need the catalog on the kernel network
+
+A pipeline on the **Spark engine** whose target is a lakehouse table attaches
+DuckLake **from inside the notebook kernel**, not from the app (sandbox-engine
+pipelines no longer do: the app loads their targets). Kernels run on an `internal` Docker network
 with no route off it except the HTTP egress proxy — Parquet is HTTP and goes
 through it, the catalog is a raw Postgres connection and cannot. So the catalog
 has to be on the kernel's network and named by service (`lakehouse-catalog:5432`),
