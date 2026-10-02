@@ -35,6 +35,8 @@ const ALL_SQL = readdirSync(DIR)
   .join("\n");
 const DASHBOARD = readFileSync("src/utils/dashboard.functions.ts", "utf8");
 const GROUP_BUDGETS = readFileSync("src/components/admin/GroupBudgetsTab.tsx", "utf8");
+const GROUP_SPEND = readFileSync("src/utils/budgetAdmin.functions.ts", "utf8");
+const SPEND = readFileSync("src/utils/budgetSpend.server.ts", "utf8");
 const TYPES = readFileSync("src/integrations/supabase/types.ts", "utf8");
 
 describe("every owner column reaches auth.users", () => {
@@ -119,6 +121,16 @@ describe("the code copes with a trace that has no owner", () => {
   it("the group budgets panel does not bucket them under one phantom user", () => {
     // Keying a Map on null would have attributed every detached trace to a
     // single non-existent person and shown that as a team's spend.
-    expect(GROUP_BUDGETS).toMatch(/if \(!t\.user_id\) continue;/);
+    //
+    // R39 moved this property rather than removing it. The panel no longer
+    // reads traces at all — it asks the server for a per-group total, and the
+    // server scopes the sum to the group's explicit member ids. A row whose
+    // owner was deleted has user_id NULL, matches no id in that list, and is
+    // excluded by the database rather than by a guard someone has to remember
+    // to write. So the assertion follows the property to where it now lives:
+    // the panel must not bucket traces, and the sum must be scoped by ids.
+    expect(GROUP_BUDGETS).not.toMatch(/costByUser/);
+    expect(GROUP_SPEND).toContain("userIds");
+    expect(SPEND).toMatch(/q\.in\("user_id", args\.userIds\)/);
   });
 });

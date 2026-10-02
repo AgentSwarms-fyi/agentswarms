@@ -117,9 +117,10 @@ function ModelsPage() {
 
       <H3 id="cloud-config">Configuring the cloud providers</H3>
       <P>
-        Eight of the fourteen need nothing but an API key. These six ask for more, and the exact
-        fields are worth having in front of you — most failed connections are one of these values in
-        the wrong box.
+        Most of the fourteen need nothing but an API key. Four ask for real cloud credentials, and
+        two more take an optional endpoint override; the exact fields are worth having in front of
+        you, because most failed connections are one of these values in the wrong box. The two
+        self-hosted providers are covered separately below — they take a base URL instead of a key.
       </P>
       <Table
         headers={["Provider", "Fields", "Notes"]}

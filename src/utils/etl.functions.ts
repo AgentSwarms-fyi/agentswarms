@@ -1,0 +1,1101 @@
+// RPC surface for ETL pipelines (the /etl page).
+//
+// Reads run under the caller's own JWT so RLS decides visibility; writes that
+// must not be forgeable (runs, trigger tokens) go through the service role
+// after the caller has been resolved. Compilation of visual graphs happens
+// here on save — `source_code` is always the executable truth, so the
+// executor, the Runs tab and the AI refine prompt never care which mode
+// authored the pipeline.
+import { createHash, randomBytes } from "node:crypto";
+
+import { createServerFn } from "@tanstack/react-start";
+import { z } from "zod";
+
+import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { auditEvent } from "@/utils/audit.server";
+import {
+  compilePreview,
+  compileGraph,
+  normalizeGraph,
+  requirementsFor,
+  type EtlGraph,
+} from "@/utils/etl/codegen";
+import { compilePipeline, engineOf, pipelineRequirements } from "@/utils/etl/compile";
+import { changedSinceRun } from "@/utils/etl/runDrift";
+import { chainTargetsOf, validateChainTargets } from "@/lib/etlChain";
+import { CONTINUOUS_SCHEDULE, canRunContinuously } from "@/utils/etl/continuous";
+import {
+  cancelEtlRun,
+  startEtlRun,
+  type EtlPipelineRow,
+  type EtlRunRow,
+} from "@/utils/etl/service.server";
+import { etlErrorMessage } from "@/utils/etl/explainError";
+import { loadWarehouseConnectionForUser } from "@/utils/warehouse/connections.server";
+import { listWarehouseTables } from "@/utils/warehouse/drivers.server";
+import type { WarehouseTable } from "@/utils/warehouse/types";
+import { nextEtlRunAt } from "@/utils/etl/schedule.server";
+import { validateCron } from "@/lib/cron";
+import { computeEtlOverview, type OverviewRun } from "@/lib/etlOverview";
+
+// ── Caller resolution (house pattern) ───────────────────────────────────────
+
+async function resolveCaller(accessToken: string): Promise<string> {
+  const { data, error } = await supabaseAdmin.auth.getUser(accessToken);
+  if (error || !data.user) throw new Error("Unauthorized");
+  return data.user.id;
+}
+
+// ── Schemas ─────────────────────────────────────────────────────────────────
+
+const GraphSchema = z
+  .object({
+    nodes: z.array(
+      z
+        .object({
+          id: z.string().min(1).max(16),
+          kind: z.enum(["source", "transform", "target"]),
+          label: z.string().max(80).optional(),
+          config: z.record(z.string(), z.unknown()),
+          position: z.object({ x: z.number(), y: z.number() }).optional(),
+        })
+        .passthrough(),
+    ),
+    edges: z.array(z.object({ id: z.string(), from: z.string(), to: z.string() }).passthrough()),
+  })
+  .passthrough();
+
+const UpsertSchema = z.object({
+  access_token: z.string().min(1),
+  id: z.string().uuid().optional(),
+  name: z.string().min(1).max(120),
+  description: z.string().max(2000).optional(),
+  mode: z.enum(["visual", "code"]),
+  /** Which engine runs it. Absent = pandas, which is what every pipeline was. */
+  engine: z.enum(["pandas", "spark"]).optional(),
+  source_code: z.string().max(200_000).optional(),
+  graph: GraphSchema.optional(),
+  requirements: z.string().max(10_000).optional(),
+  secret_refs: z.string().max(10_000).optional(),
+  dest_catalog_source_id: z.string().uuid().nullable().optional(),
+  schedule: z.enum(["manual", "hourly", "daily", "weekly", "cron", "continuous"]).optional(),
+  /** Continuous only: seconds to wait after an empty tick before draining again. */
+  poll_seconds: z.number().int().min(1).max(3600).optional(),
+  cron_expr: z.string().max(120).nullable().optional(),
+  timezone: z.string().max(60).nullable().optional(),
+  retry_count: z.number().int().min(0).max(5).optional(),
+  alerts: z
+    .object({
+      on_failure: z.boolean(),
+      on_success: z.boolean(),
+      on_recovery: z.boolean(),
+    })
+    .optional(),
+  allow_concurrent: z.boolean().optional(),
+  default_params: z.record(z.string(), z.unknown()).nullable().optional(),
+  run_after: z.string().uuid().nullable().optional(),
+  /** SQL models to build when a run succeeds: null none, [] every active model, else these. */
+  chain_sql_models: z.array(z.string().trim().min(1).max(63)).max(200).nullable().optional(),
+  /** ML schedules to run when a run succeeds. */
+  chain_ml_schedules: z.array(z.string().uuid()).max(50).optional(),
+  is_active: z.boolean().optional(),
+  timeout_minutes: z.number().int().min(1).max(240).optional(),
+});
+
+export type EtlPipelineSummary = Pick<
+  EtlPipelineRow,
+  | "id"
+  | "name"
+  | "description"
+  | "mode"
+  | "schedule"
+  | "is_active"
+  | "next_run_at"
+  | "last_run_at"
+  | "last_run_status"
+  | "dest_catalog_source_id"
+  | "created_at"
+  | "updated_at"
+> & { has_trigger_token: boolean };
+
+/**
+ * Per pipeline, whether the run behind its `last_run_status` ran something
+ * other than what the next run would (R183); null when there is no such run,
+ * or its program could not be read. That run is the latest one that
+ * finished, which is the one that wrote the status.
+ */
+async function lastRunDrift(
+  pipelines: {
+    id: string;
+    last_run_status: string | null;
+    mode: string;
+    graph: unknown;
+    engine: string | null;
+    source_code: string;
+  }[],
+): Promise<Map<string, boolean | null>> {
+  const drift = new Map<string, boolean | null>();
+  await Promise.all(
+    pipelines.map(async (p) => {
+      if (!p.last_run_status) return drift.set(p.id, null);
+      const { data: run, error } = await supabaseAdmin
+        .from("etl_runs")
+        .select("source_code")
+        .eq("pipeline_id", p.id)
+        .in("status", ["succeeded", "failed"])
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      drift.set(p.id, error ? null : changedSinceRun(p, run?.source_code));
+    }),
+  );
+  return drift;
+}
+
+// ── List / read ─────────────────────────────────────────────────────────────
+
+/**
+ * The schemas, tables and columns behind one of the caller's warehouse
+ * connections (own or IAM-granted), for the editor's pickers: read through
+ * the connection as the caller, the moment the picker opens.
+ */
+export const etlListWarehouseTables = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z.object({ access_token: z.string().min(1), connection_id: z.string().uuid() }).parse(input),
+  )
+  .handler(
+    async ({
+      data,
+    }): Promise<{ ok: true; tables: WarehouseTable[] } | { ok: false; error: string }> => {
+      try {
+        const userId = await resolveCaller(data.access_token);
+        const conn = await loadWarehouseConnectionForUser(
+          supabaseAdmin,
+          { connectionId: data.connection_id },
+          userId,
+        );
+        return { ok: true, tables: await listWarehouseTables(conn.config) };
+      } catch (e) {
+        return { ok: false, error: e instanceof Error ? e.message : "Could not list tables" };
+      }
+    },
+  );
+
+/**
+ * The lakehouse schemas the caller can reach, which of them they may write
+ * to, and the tables with their columns - from information_schema alone, so
+ * the picker answers at once even on a cold engine (the Lakehouse overview
+ * counts rows in every table, which is what a picker must not wait for).
+ */
+export const etlListLakehouseTables = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .handler(
+    async ({
+      data,
+    }): Promise<
+      | {
+          ok: true;
+          enabled: boolean;
+          schemas: { name: string; writable: boolean }[];
+          tables: { schema: string; table: string; columns: { name: string; type: string }[] }[];
+        }
+      | { ok: false; error: string }
+    > => {
+      try {
+        const userId = await resolveCaller(data.access_token);
+        const { listLakehouseTablesForUser } = await import("@/utils/lakehouse/tables.server");
+        const listing = await listLakehouseTablesForUser(userId);
+        return { ok: true, ...listing };
+      } catch (e) {
+        return { ok: false, error: e instanceof Error ? e.message : "Could not list tables" };
+      }
+    },
+  );
+
+export const listEtlPipelines = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .handler(async ({ data }): Promise<{ pipelines: EtlPipelineSummary[] }> => {
+    const userId = await resolveCaller(data.access_token);
+    const { data: rows, error } = await supabaseAdmin
+      .from("etl_pipelines")
+      .select(
+        "id, name, description, mode, schedule, is_active, next_run_at, last_run_at, last_run_status, dest_catalog_source_id, created_at, updated_at, trigger_token_hash",
+      )
+      .eq("user_id", userId)
+      .order("updated_at", { ascending: false });
+    if (error) throw new Error(error.message);
+    return {
+      pipelines: (rows ?? []).map((r) => ({
+        ...r,
+        has_trigger_token: Boolean(r.trigger_token_hash),
+        trigger_token_hash: undefined,
+      })) as unknown as EtlPipelineSummary[],
+    };
+  });
+
+export const getEtlPipeline = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z.object({ access_token: z.string().min(1), id: z.string().uuid() }).parse(input),
+  )
+  .handler(async ({ data }): Promise<{ pipeline: Omit<EtlPipelineRow, "trigger_token_hash"> }> => {
+    const userId = await resolveCaller(data.access_token);
+    const { data: row, error } = await supabaseAdmin
+      .from("etl_pipelines")
+      .select("*")
+      .eq("id", data.id)
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!row) throw new Error("Pipeline not found");
+    const { trigger_token_hash: _drop, ...safe } = row;
+    return { pipeline: safe };
+  });
+
+/** What a continuous pipeline's card shows while its run is live. */
+export type EtlLiveRun = {
+  id: string;
+  status: string;
+  started_at: string | null;
+  rows_loaded: number;
+  ticks: number;
+  last_tick_at: string | null;
+  last_tick_rows: number;
+};
+
+export type EtlRecentRun = {
+  id: string;
+  pipeline_id: string;
+  pipeline_name: string;
+  status: string;
+  trigger: string;
+  attempt: number | null;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  rows_loaded: number;
+};
+
+/**
+ * Everything the ETL home dashboard shows, in one round trip: the pipelines,
+ * a week of aggregate health, per-pipeline run pulses, and the most recent
+ * runs across all pipelines. Aggregation is the pure computeEtlOverview so
+ * the numbers are unit-tested, not component folklore.
+ */
+export const getEtlOverview = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .handler(async ({ data }) => {
+    const userId = await resolveCaller(data.access_token);
+
+    const [{ data: pipelines, error: pErr }, { data: runs, error: rErr }] = await Promise.all([
+      supabaseAdmin
+        .from("etl_pipelines")
+        .select(
+          "id, name, description, mode, schedule, poll_seconds, cron_expr, timezone, is_active, next_run_at, last_run_at, last_run_status, dest_catalog_source_id, retry_count, run_after, chain_sql_models, chain_ml_schedules, created_at, updated_at, graph, source_code, engine",
+        )
+        .eq("user_id", userId)
+        .order("updated_at", { ascending: false }),
+      supabaseAdmin
+        .from("etl_runs")
+        .select(
+          "id, pipeline_id, status, trigger, attempt, created_at, started_at, finished_at, metrics",
+        )
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false })
+        .limit(300),
+    ]);
+    if (pErr) throw new Error(pErr.message);
+    if (rErr) throw new Error(rErr.message);
+
+    const overview = computeEtlOverview((runs ?? []) as OverviewRun[]);
+    const nameOf = new Map((pipelines ?? []).map((p) => [p.id, p.name]));
+    const { rowsLoadedOf } = await import("@/lib/etlOverview");
+    const recent_runs: EtlRecentRun[] = (runs ?? []).slice(0, 8).map((r) => ({
+      id: r.id,
+      pipeline_id: r.pipeline_id,
+      pipeline_name: nameOf.get(r.pipeline_id) ?? "(deleted)",
+      status: r.status,
+      trigger: r.trigger,
+      attempt: r.attempt,
+      created_at: r.created_at,
+      started_at: r.started_at,
+      finished_at: r.finished_at,
+      rows_loaded: rowsLoadedOf(r.metrics),
+    }));
+
+    // A continuous pipeline's live run, with the counters its ticks report,
+    // so the card can say what the stream is doing right now.
+    const liveRun = new Map<string, EtlLiveRun>();
+    for (const r of runs ?? []) {
+      if (!["queued", "running"].includes(r.status) || liveRun.has(r.pipeline_id)) continue;
+      const m = (r.metrics ?? {}) as {
+        rows_loaded?: number;
+        ticks?: number;
+        last_tick_at?: string;
+        last_tick_rows?: number;
+      };
+      liveRun.set(r.pipeline_id, {
+        id: r.id,
+        status: r.status,
+        started_at: r.started_at,
+        rows_loaded: typeof m.rows_loaded === "number" ? m.rows_loaded : 0,
+        ticks: typeof m.ticks === "number" ? m.ticks : 0,
+        last_tick_at: typeof m.last_tick_at === "string" ? m.last_tick_at : null,
+        last_tick_rows: typeof m.last_tick_rows === "number" ? m.last_tick_rows : 0,
+      });
+    }
+
+    // Which continuous pipelines are exactly-once — every target a lakehouse
+    // table. Their graphs are read for this alone, so the list stays light.
+    const { exactlyOnceEligible } = await import("@/utils/etl/continuous");
+    const continuousIds = (pipelines ?? [])
+      .filter((p) => p.schedule === "continuous")
+      .map((p) => p.id);
+    const exactlyOnce = new Set<string>();
+    if (continuousIds.length) {
+      const { data: graphs } = await supabaseAdmin
+        .from("etl_pipelines")
+        .select("id, graph")
+        .in("id", continuousIds);
+      for (const g of graphs ?? []) {
+        if (
+          exactlyOnceEligible(g.graph as { nodes?: { kind?: string; config?: unknown }[] } | null)
+        ) {
+          exactlyOnce.add(g.id);
+        }
+      }
+    }
+
+    // FOUND IN R183: a card's status chip outlived the definition it vouched
+    // for. The definition is read for this and left out of the answer.
+    const drift = await lastRunDrift(pipelines ?? []);
+    return {
+      pipelines: (pipelines ?? []).map(({ graph: _g, source_code: _s, engine: _e, ...p }) => ({
+        ...p,
+        live_run: liveRun.get(p.id) ?? null,
+        exactly_once: exactlyOnce.has(p.id),
+        changed_since_last_run: drift.get(p.id) ?? null,
+      })),
+      stats: overview.stats,
+      per_pipeline: overview.per_pipeline,
+      recent_runs,
+    };
+  });
+
+// ── Create / update ─────────────────────────────────────────────────────────
+
+/**
+ * Snapshot a pipeline's editable content into the version history. Skips
+ * writing when nothing meaningful changed since the newest version, so a
+ * settings-only save (schedule, retries) does not spam the history.
+ */
+async function snapshotEtlVersion(
+  pipelineId: string,
+  userId: string,
+  content: {
+    name: string;
+    mode: string;
+    graph: unknown;
+    source_code: string;
+    requirements: string;
+  },
+): Promise<void> {
+  const { data: last } = await supabaseAdmin
+    .from("etl_pipeline_versions")
+    .select("version_no, graph, source_code, requirements, name, mode")
+    .eq("pipeline_id", pipelineId)
+    .order("version_no", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const same =
+    last &&
+    last.source_code === content.source_code &&
+    last.requirements === content.requirements &&
+    last.mode === content.mode &&
+    JSON.stringify(last.graph ?? null) === JSON.stringify(content.graph ?? null);
+  if (same) return;
+  await supabaseAdmin.from("etl_pipeline_versions").insert({
+    pipeline_id: pipelineId,
+    user_id: userId,
+    version_no: (last?.version_no ?? 0) + 1,
+    name: content.name,
+    mode: content.mode,
+    graph: content.graph as never,
+    source_code: content.source_code,
+    requirements: content.requirements,
+  });
+  // History is a safety net, not an archive: keep the newest 50.
+  const { data: old } = await supabaseAdmin
+    .from("etl_pipeline_versions")
+    .select("id")
+    .eq("pipeline_id", pipelineId)
+    .order("version_no", { ascending: false })
+    .range(50, 1000);
+  if (old?.length) {
+    await supabaseAdmin
+      .from("etl_pipeline_versions")
+      .delete()
+      .in(
+        "id",
+        old.map((r) => r.id),
+      );
+  }
+}
+
+export const saveEtlPipeline = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) => UpsertSchema.parse(input))
+  .handler(
+    async ({
+      data,
+    }): Promise<{ id: string; source_code: string; compile_error: string | null }> => {
+      const userId = await resolveCaller(data.access_token);
+
+      // Visual pipelines compile on every save. A half-built canvas must still
+      // be saveable — losing work to "join needs two inputs" would be hostile —
+      // so a compile failure saves the graph with empty source_code (which the
+      // run path refuses) and reports the error for the UI to show.
+      const engine = engineOf(data.engine);
+      let sourceCode = data.source_code ?? "";
+      let requirements = data.requirements;
+      let compileError: string | null = null;
+      if (data.mode === "visual") {
+        if (!data.graph) throw new Error("Visual pipeline needs a graph");
+        const graph: EtlGraph = normalizeGraph(data.graph) ?? (data.graph as unknown as EtlGraph);
+        try {
+          sourceCode = compilePipeline(graph, engine);
+        } catch (e) {
+          sourceCode = "";
+          compileError = (e as Error).message;
+        }
+        if (requirements === undefined) requirements = pipelineRequirements(graph, engine);
+      }
+
+      // Cron expressions and timezones are validated at save, not at sweep
+      // time — a typo should bounce off the Settings form, not silently stop
+      // the schedule.
+      if ((data.schedule ?? "manual") === "cron") {
+        if (!data.cron_expr) throw new Error("A cron schedule needs an expression");
+        validateCron(data.cron_expr, data.timezone ?? null);
+      }
+      // Continuous needs a source that can be drained again and again, and a
+      // visual graph for the loop to wrap; both are checked here so the form
+      // bounces, not the first sweep.
+      if (data.schedule === CONTINUOUS_SCHEDULE) {
+        const why = canRunContinuously(data.mode, data.graph ?? null);
+        if (why) throw new Error(why);
+      }
+
+      // Chaining: run_after must be the caller's own pipeline, not this one,
+      // and must not close a cycle — a loop of "after each other" would
+      // ping-pong forever at runtime, so it is refused here where the message
+      // can name the offending link.
+      if (data.run_after) {
+        if (data.id && data.run_after === data.id) {
+          throw new Error("A pipeline cannot run after itself");
+        }
+        let cursor: string | null = data.run_after;
+        for (let hops = 0; cursor && hops < 20; hops++) {
+          const { data: up } = (await supabaseAdmin
+            .from("etl_pipelines")
+            .select("id, run_after, user_id")
+            .eq("id", cursor)
+            .maybeSingle()) as {
+            data: { id: string; run_after: string | null; user_id: string } | null;
+          };
+          if (!up) throw new Error("The pipeline to run after was not found");
+          if (up.user_id !== userId) throw new Error("The pipeline to run after was not found");
+          if (data.id && up.run_after === data.id) {
+            throw new Error("That chain would loop back to this pipeline");
+          }
+          cursor = up.run_after;
+        }
+      }
+
+      // What the run starts beyond other pipelines must be the caller's own
+      // models and schedules, refused here by name rather than failing on a
+      // build nobody is watching.
+      const chain = chainTargetsOf({
+        chain_sql_models: data.chain_sql_models ?? null,
+        chain_ml_schedules: data.chain_ml_schedules ?? [],
+      });
+      if (chain.sqlModels !== null || chain.mlSchedules.length) {
+        const [{ data: models }, { data: schedules }] = await Promise.all([
+          supabaseAdmin.from("sql_models").select("name").eq("user_id", userId),
+          supabaseAdmin.from("ml_schedules").select("id").eq("user_id", userId),
+        ]);
+        const bad = validateChainTargets(chain, {
+          modelNames: (models ?? []).map((m) => m.name),
+          scheduleIds: (schedules ?? []).map((s) => s.id),
+        });
+        if (bad) throw new Error(bad);
+      }
+
+      const payload = {
+        user_id: userId,
+        name: data.name,
+        description: data.description ?? null,
+        mode: data.mode,
+        engine,
+        source_code: sourceCode,
+        graph: (data.mode === "visual" ? (data.graph ?? null) : null) as never,
+        requirements: requirements ?? "",
+        secret_refs: data.secret_refs ?? "",
+        dest_catalog_source_id: data.dest_catalog_source_id ?? null,
+        schedule: data.schedule ?? "manual",
+        cron_expr: data.cron_expr ?? null,
+        timezone: data.timezone ?? null,
+        retry_count: data.retry_count ?? 0,
+        ...(data.alerts ? { alerts: data.alerts as never } : {}),
+        // Two live runs of one continuous pipeline would drain the same stream twice.
+        allow_concurrent:
+          data.schedule === CONTINUOUS_SCHEDULE ? false : (data.allow_concurrent ?? false),
+        poll_seconds: data.poll_seconds ?? 5,
+        default_params: (data.default_params ?? null) as never,
+        run_after: data.run_after ?? null,
+        chain_sql_models: chain.sqlModels,
+        chain_ml_schedules: chain.mlSchedules,
+        is_active: data.is_active ?? true,
+        timeout_minutes: data.timeout_minutes ?? 30,
+      };
+
+      if (data.id) {
+        const { data: existing } = await supabaseAdmin
+          .from("etl_pipelines")
+          .select("id, schedule, cron_expr, timezone")
+          .eq("id", data.id)
+          .eq("user_id", userId)
+          .maybeSingle();
+        if (!existing) throw new Error("Pipeline not found");
+        const clockChanged =
+          payload.schedule !== existing.schedule ||
+          payload.cron_expr !== existing.cron_expr ||
+          payload.timezone !== existing.timezone;
+        const { error } = await supabaseAdmin
+          .from("etl_pipelines")
+          .update({
+            ...payload,
+            // Re-arm the clock only when the schedule itself changed, so an
+            // unrelated edit does not push a due run into the future.
+            ...(clockChanged
+              ? {
+                  next_run_at: nextEtlRunAt(
+                    payload.schedule,
+                    new Date(),
+                    payload.cron_expr,
+                    payload.timezone,
+                  ),
+                }
+              : {}),
+          })
+          .eq("id", data.id)
+          .eq("user_id", userId);
+        if (error) throw new Error(error.message);
+        auditEvent({
+          userId,
+          action: "etl.pipeline.update",
+          resourceType: "etl_pipeline",
+          resourceId: data.id,
+          resourceName: data.name,
+        });
+        await snapshotEtlVersion(data.id, userId, {
+          name: payload.name,
+          mode: payload.mode,
+          graph: payload.graph,
+          source_code: payload.source_code,
+          requirements: payload.requirements,
+        });
+        return { id: data.id, source_code: sourceCode, compile_error: compileError };
+      }
+
+      const { data: created, error } = await supabaseAdmin
+        .from("etl_pipelines")
+        .insert({
+          ...payload,
+          next_run_at: nextEtlRunAt(
+            payload.schedule,
+            new Date(),
+            payload.cron_expr,
+            payload.timezone,
+          ),
+        })
+        .select("id")
+        .single();
+      if (error || !created) throw new Error(error?.message ?? "Failed to create pipeline");
+      auditEvent({
+        userId,
+        action: "etl.pipeline.create",
+        resourceType: "etl_pipeline",
+        resourceId: created.id,
+        resourceName: data.name,
+      });
+      await snapshotEtlVersion(created.id, userId, {
+        name: payload.name,
+        mode: payload.mode,
+        graph: payload.graph,
+        source_code: payload.source_code,
+        requirements: payload.requirements,
+      });
+      return { id: created.id, source_code: sourceCode, compile_error: compileError };
+    },
+  );
+
+export const deleteEtlPipeline = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z.object({ access_token: z.string().min(1), id: z.string().uuid() }).parse(input),
+  )
+  .handler(async ({ data }): Promise<{ ok: boolean }> => {
+    const userId = await resolveCaller(data.access_token);
+    const { data: row } = await supabaseAdmin
+      .from("etl_pipelines")
+      .select("id, name")
+      .eq("id", data.id)
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (!row) return { ok: false };
+    // CDC slots die with the pipeline (best-effort — see dropCdcSlots).
+    {
+      const { data: full } = await supabaseAdmin
+        .from("etl_pipelines")
+        .select("*")
+        .eq("id", data.id)
+        .maybeSingle();
+      if (full) {
+        const { dropCdcSlots } = await import("@/utils/etl/service.server");
+        await dropCdcSlots(full);
+      }
+    }
+    const { error } = await supabaseAdmin.from("etl_pipelines").delete().eq("id", data.id);
+    if (error) throw new Error(error.message);
+    auditEvent({
+      userId,
+      action: "etl.pipeline.delete",
+      resourceType: "etl_pipeline",
+      resourceId: data.id,
+      resourceName: row.name,
+    });
+    return { ok: true };
+  });
+
+// ── Runs ────────────────────────────────────────────────────────────────────
+
+export const runEtlPipeline = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z
+      .object({
+        access_token: z.string().min(1),
+        id: z.string().uuid(),
+        params: z.record(z.string(), z.unknown()).optional(),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data }): Promise<{ ok: boolean; runId?: string; error?: string }> => {
+    const userId = await resolveCaller(data.access_token);
+    const { data: pipeline } = await supabaseAdmin
+      .from("etl_pipelines")
+      .select("*")
+      .eq("id", data.id)
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (!pipeline) return { ok: false, error: "Pipeline not found" };
+    const res = await startEtlRun(pipeline, "manual", data.params);
+    return res.ok ? { ok: true, runId: res.runId } : { ok: false, error: res.error };
+  });
+
+export const cancelEtlRunFn = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z.object({ access_token: z.string().min(1), run_id: z.string().uuid() }).parse(input),
+  )
+  .handler(async ({ data }): Promise<{ ok: boolean; error?: string }> => {
+    const userId = await resolveCaller(data.access_token);
+    // What cancel could not write is what the page will go on showing (R78).
+    return cancelEtlRun(data.run_id, userId);
+  });
+
+export type EtlRunSummary = Pick<
+  EtlRunRow,
+  | "id"
+  | "status"
+  | "trigger"
+  | "started_at"
+  | "finished_at"
+  | "created_at"
+  | "error"
+  | "metrics"
+  | "attempt"
+  | "retries_remaining"
+  | "retry_at"
+  | "params"
+>;
+
+export const listEtlRuns = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z
+      .object({
+        access_token: z.string().min(1),
+        pipeline_id: z.string().uuid(),
+        limit: z.number().int().min(1).max(100).optional(),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data }): Promise<{ runs: EtlRunSummary[] }> => {
+    const userId = await resolveCaller(data.access_token);
+    const { data: rows, error } = await supabaseAdmin
+      .from("etl_runs")
+      .select(
+        "id, status, trigger, started_at, finished_at, created_at, error, metrics, attempt, retries_remaining, retry_at, params",
+      )
+      .eq("pipeline_id", data.pipeline_id)
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false })
+      .limit(data.limit ?? 30);
+    if (error) throw new Error(error.message);
+    return { runs: rows ?? [] };
+  });
+
+export const getEtlRunLogs = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z.object({ access_token: z.string().min(1), run_id: z.string().uuid() }).parse(input),
+  )
+  .handler(async ({ data }): Promise<{ logs: string; error: string | null; status: string }> => {
+    const userId = await resolveCaller(data.access_token);
+    const { data: run } = await supabaseAdmin
+      .from("etl_runs")
+      .select("logs, error, status")
+      .eq("id", data.run_id)
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (!run) throw new Error("Run not found");
+    return { logs: run.logs ?? "", error: run.error, status: run.status };
+  });
+
+// ── External trigger token ──────────────────────────────────────────────────
+
+/**
+ * Mint (or rotate) the webhook trigger token. Shown once; only the SHA-256
+ * lands in the row — the notebook API key rule, for the same reason.
+ */
+export const rotateEtlTriggerToken = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z.object({ access_token: z.string().min(1), id: z.string().uuid() }).parse(input),
+  )
+  .handler(async ({ data }): Promise<{ token: string }> => {
+    const userId = await resolveCaller(data.access_token);
+    const token = `etl_${randomBytes(24).toString("base64url")}`;
+    const hash = createHash("sha256").update(token).digest("hex");
+    const { data: updated, error } = await supabaseAdmin
+      .from("etl_pipelines")
+      .update({ trigger_token_hash: hash })
+      .eq("id", data.id)
+      .eq("user_id", userId)
+      .select("id, name")
+      .maybeSingle();
+    if (error || !updated) throw new Error(error?.message ?? "Pipeline not found");
+    auditEvent({
+      userId,
+      action: "etl.trigger_token.rotate",
+      resourceType: "etl_pipeline",
+      resourceId: data.id,
+      resourceName: updated.name,
+    });
+    return { token };
+  });
+
+export type EtlVersionSummary = {
+  version_no: number;
+  name: string;
+  mode: string;
+  created_at: string;
+};
+
+export const listEtlVersions = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z.object({ access_token: z.string().min(1), pipeline_id: z.string().uuid() }).parse(input),
+  )
+  .handler(async ({ data }): Promise<{ versions: EtlVersionSummary[] }> => {
+    const userId = await resolveCaller(data.access_token);
+    const { data: rows, error } = await supabaseAdmin
+      .from("etl_pipeline_versions")
+      .select("version_no, name, mode, created_at")
+      .eq("pipeline_id", data.pipeline_id)
+      .eq("user_id", userId)
+      .order("version_no", { ascending: false })
+      .limit(50);
+    if (error) throw new Error(error.message);
+    return { versions: rows ?? [] };
+  });
+
+export const restoreEtlVersion = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z
+      .object({
+        access_token: z.string().min(1),
+        pipeline_id: z.string().uuid(),
+        version_no: z.number().int().positive(),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data }): Promise<{ ok: boolean }> => {
+    const userId = await resolveCaller(data.access_token);
+    const { data: v } = await supabaseAdmin
+      .from("etl_pipeline_versions")
+      .select("name, mode, graph, source_code, requirements")
+      .eq("pipeline_id", data.pipeline_id)
+      .eq("user_id", userId)
+      .eq("version_no", data.version_no)
+      .maybeSingle();
+    if (!v) throw new Error("Version not found");
+    const { error } = await supabaseAdmin
+      .from("etl_pipelines")
+      .update({
+        name: v.name,
+        mode: v.mode,
+        graph: v.graph as never,
+        source_code: v.source_code,
+        requirements: v.requirements,
+      })
+      .eq("id", data.pipeline_id)
+      .eq("user_id", userId);
+    if (error) throw new Error(error.message);
+    // The restore itself becomes the newest version — history moves only
+    // forward, and "restore then regret" has its own undo.
+    await snapshotEtlVersion(data.pipeline_id, userId, {
+      name: v.name,
+      mode: v.mode,
+      graph: v.graph,
+      source_code: v.source_code,
+      requirements: v.requirements,
+    });
+    auditEvent({
+      userId,
+      action: "etl.pipeline.restore_version",
+      resourceType: "etl_pipeline",
+      resourceId: data.pipeline_id,
+      resourceName: `${v.name} v${data.version_no}`,
+    });
+    return { ok: true };
+  });
+
+export type EtlPreviewCell = string | number | boolean | null;
+
+export type EtlPreviewResult = {
+  status: string;
+  preview: {
+    columns: { name: string; type: string }[];
+    rows: Record<string, EtlPreviewCell>[];
+    total_sampled: number;
+    /** Columns of every ancestor frame, so one preview fills the pickers. */
+    columns_by_node?: Record<string, string[]>;
+  } | null;
+  error: string | null;
+};
+
+/** Flatten preview cells to primitives — nested values render as JSON text. */
+function previewCell(v: unknown): EtlPreviewCell {
+  if (v === null || ["string", "number", "boolean"].includes(typeof v)) {
+    return v as EtlPreviewCell;
+  }
+  return JSON.stringify(v);
+}
+
+export const previewEtlNode = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z
+      .object({
+        access_token: z.string().min(1),
+        pipeline_id: z.string().uuid(),
+        node_id: z.string().min(1).max(64),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data }): Promise<{ session_id: string }> => {
+    const userId = await resolveCaller(data.access_token);
+    const { data: pipeline } = await supabaseAdmin
+      .from("etl_pipelines")
+      .select("*")
+      .eq("id", data.pipeline_id)
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (!pipeline) throw new Error("Pipeline not found");
+    const graph = normalizeGraph(pipeline.graph);
+    if (!graph) throw new Error("This pipeline has no visual graph to preview");
+    // Compile now so a broken graph fails HERE with a message, not inside a
+    // container that spins up just to die.
+    compilePreview(graph, data.node_id);
+    // And resolve the environment now, for exactly the same reason. A bucket
+    // that was never picked, a secret that is not set, a host the sandbox may
+    // not reach: this code knows all three and can say them in a sentence. The
+    // sandbox learns them by asking for its source bundle, which then answers
+    // 500 — and the reader gets a Python traceback about an HTTP status where
+    // a sentence about an allow-list was available all along.
+    const { resolveRunEnv } = await import("@/utils/etl/service.server");
+    await resolveRunEnv(pipeline, { skipTargets: true });
+    const { startSession } = await import("@/utils/notebookRuntime/service.server");
+    const { session } = await startSession({
+      userId,
+      kind: "batch",
+      entrypoint: "entrypoint",
+      inputs: { __etl_preview: { pipeline_id: data.pipeline_id, node_id: data.node_id } },
+    });
+    return { session_id: session.id };
+  });
+
+export const getEtlPreview = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z.object({ access_token: z.string().min(1), session_id: z.string().uuid() }).parse(input),
+  )
+  .handler(async ({ data }): Promise<EtlPreviewResult> => {
+    const userId = await resolveCaller(data.access_token);
+    const { getSession, refreshSession } = await import("@/utils/notebookRuntime/service.server");
+    let session = await getSession(userId, data.session_id);
+    if (!session) throw new Error("Preview session not found");
+    if (["queued", "starting", "ready", "running"].includes(session.status)) {
+      session = await refreshSession(session);
+    }
+    const result = session.result as {
+      preview?: {
+        columns: { name: string; type: string }[];
+        rows: Record<string, unknown>[];
+        total_sampled: number;
+        columns_by_node?: Record<string, string[]>;
+      };
+    } | null;
+    const raw = result?.preview;
+    return {
+      status: session.status,
+      preview: raw
+        ? {
+            columns: raw.columns,
+            total_sampled: raw.total_sampled,
+            columns_by_node: raw.columns_by_node,
+            rows: raw.rows.map((r) =>
+              Object.fromEntries(Object.entries(r).map(([k, v]) => [k, previewCell(v)])),
+            ),
+          }
+        : null,
+      // Explain before showing. The runtime is pandas/boto/fsspec, so a failure
+      // arrives as forty frames of library internals ending in something like
+      // "PermissionError: Forbidden" — true, and nearly useless. The whole log
+      // is searched rather than just its last line: the line that names the
+      // cause (ListObjectsV2, NoSuchBucket, the missing module) sits mid-trace,
+      // while the last line is the generic re-raise.
+      error:
+        session.status === "error"
+          ? etlErrorMessage(
+              [session.error, session.logs].filter(Boolean).join("\n") || "Preview failed",
+            )
+          : null,
+    };
+  });
+
+export const duplicateEtlPipeline = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z.object({ access_token: z.string().min(1), id: z.string().uuid() }).parse(input),
+  )
+  .handler(async ({ data }): Promise<{ id: string; name: string }> => {
+    const userId = await resolveCaller(data.access_token);
+    const { data: src } = await supabaseAdmin
+      .from("etl_pipelines")
+      .select("*")
+      .eq("id", data.id)
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (!src) throw new Error("Pipeline not found");
+    // The copy is a STAGING artifact: manual schedule, inactive clock state,
+    // its own trigger token, no run history. Connections and destination are
+    // carried over so the user re-points only what should differ.
+    const name = `${src.name} (copy)`.slice(0, 120);
+    const token_hash = createHash("sha256").update(randomBytes(24).toString("hex")).digest("hex");
+    const { data: created, error } = await supabaseAdmin
+      .from("etl_pipelines")
+      .insert({
+        user_id: userId,
+        name,
+        description: src.description,
+        mode: src.mode,
+        engine: engineOf(src.engine),
+        graph: src.graph as never,
+        source_code: src.source_code,
+        requirements: src.requirements,
+        secret_refs: src.secret_refs,
+        dest_catalog_source_id: src.dest_catalog_source_id,
+        schedule: "manual",
+        retry_count: src.retry_count,
+        allow_concurrent: src.allow_concurrent,
+        default_params: src.default_params as never,
+        timeout_minutes: src.timeout_minutes,
+        alerts: src.alerts as never,
+        trigger_token_hash: token_hash,
+      })
+      .select("id")
+      .single();
+    if (error || !created) throw new Error(error?.message ?? "Failed to duplicate");
+    auditEvent({
+      userId,
+      action: "etl.pipeline.duplicate",
+      resourceType: "etl_pipeline",
+      resourceId: created.id,
+      resourceName: name,
+      detail: { source_pipeline_id: data.id },
+    });
+    return { id: created.id, name };
+  });
+
+/**
+ * Whether the Spark engine can be chosen on this instance, for the picker.
+ * Only whether an endpoint exists and its host — never the URL itself, which
+ * may carry a token.
+ */
+export const etlEngineStatus = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .handler(
+    async ({
+      data,
+    }): Promise<{
+      spark: { configured: boolean; provider: "static" | "k8s"; host: string | null };
+    }> => {
+      await resolveCaller(data.access_token);
+      const { sparkEngineAvailability } = await import("@/utils/etl/sparkCluster.server");
+      return { spark: await sparkEngineAvailability() };
+    },
+  );
+
+/**
+ * What a pipeline may chain to besides other pipelines: the caller's SQL
+ * models and ML schedules, for the editor's pickers.
+ */
+export const etlChainCandidates = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .handler(
+    async ({
+      data,
+    }): Promise<{
+      sqlModels: { name: string; schema_name: string; is_active: boolean }[];
+      mlSchedules: { id: string; name: string; kind: string; model_name: string }[];
+    }> => {
+      const userId = await resolveCaller(data.access_token);
+      const [{ data: models }, { data: schedules }] = await Promise.all([
+        supabaseAdmin
+          .from("sql_models")
+          .select("name, schema_name, is_active")
+          .eq("user_id", userId)
+          .order("name"),
+        supabaseAdmin
+          .from("ml_schedules")
+          .select("id, name, kind, ml_models(name)")
+          .eq("user_id", userId)
+          .order("name"),
+      ]);
+      return {
+        sqlModels: (models ?? []).map((m) => ({
+          name: m.name,
+          schema_name: m.schema_name,
+          is_active: m.is_active,
+        })),
+        mlSchedules: (schedules ?? []).map((s) => ({
+          id: s.id,
+          name: s.name,
+          kind: s.kind,
+          model_name: (s.ml_models as unknown as { name?: string } | null)?.name ?? "",
+        })),
+      };
+    },
+  );

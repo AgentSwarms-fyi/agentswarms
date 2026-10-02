@@ -27,6 +27,8 @@ export type ExecutionTraceRow = {
   tool_calls?: any;
   error_message: string | null;
   created_at: string;
+  /** The decision this turn belongs to (its own id, or the swarm run's). */
+  decision_id?: string | null;
   /** 'true' when the model had no known price at record time (cost_usd is 0
    *  because nothing knew the rate, not because the call was free). Projected
    *  from request_payload by the list query; the reprice sweep clears it. */
@@ -38,7 +40,7 @@ export type ExecutionTraceRow = {
 // prompt/response previews. A $0.0000 with this flag set is money nothing knew
 // how to price — the UI must not render it as if the call were free.
 const TRACE_LIST_COLUMNS =
-  "id, agent_name, llm_provider, llm_model, latency_ms, tokens_in, tokens_out, cost_usd, status, prompt, error_message, created_at, parent_trace_id, pricing_missing:request_payload->>pricing_missing";
+  "id, agent_name, llm_provider, llm_model, latency_ms, tokens_in, tokens_out, cost_usd, status, prompt, error_message, created_at, parent_trace_id, decision_id, pricing_missing:request_payload->>pricing_missing";
 
 export const getExecutionTraces = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => TraceLogInput.parse(input))
@@ -80,7 +82,7 @@ export const getExecutionTraces = createServerFn({ method: "POST" })
 
       if (error) return { ok: false, error: error.message };
       if (countError) return { ok: false, error: countError.message };
-      const traces = (rows ?? []) as ExecutionTraceRow[];
+      const traces = (rows ?? []) as unknown as ExecutionTraceRow[];
       return { ok: true, traces, total: count ?? traces.length };
     },
   );

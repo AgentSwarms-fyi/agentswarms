@@ -151,3 +151,28 @@ describe("graph semantics come from one module", () => {
     );
   });
 });
+
+describe("a step records the tools it called, on both paths", () => {
+  // Measured live (ADVERSARIAL_LOG R3): the same node run from the canvas
+  // carried its tool_call/tool_result events; run from a schedule it carried
+  // `tool_calls: []` with the same output. The server read the stream for
+  // text and cost and dropped every `tool` event; its tracer had no field.
+  const tracer = readFileSync("src/utils/observability/serverTracer.server.ts", "utf8");
+
+  it("the server reads the stream through the shared reader, with a tool handler", () => {
+    expect(server).toContain(
+      "readChatStream(res.body, { usage: args.onUsage, tool: args.onToolEvent })",
+    );
+    expect(server).toContain("onToolEvent: (e) => recordToolEvents(a.node.id, [e]),");
+  });
+
+  it("a tool node and a retrieve node record their own call and result", () => {
+    expect(server.match(/toolNodeEvents\(\{/g) ?? []).toHaveLength(2);
+  });
+
+  it("the step is finished with them, and the server tracer writes them where the canvas tracer does", () => {
+    expect(server).toContain("toolCalls: nodeToolCalls.get(node.id) ?? [],");
+    expect(tracer).toContain("tool_calls: args.toolCalls ?? [],");
+    expect(canvas).toContain("toolCalls: toolCallsByNode.get(e.nodeId) ?? [],");
+  });
+});

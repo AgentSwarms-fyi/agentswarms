@@ -12,7 +12,13 @@
 // limits, activeDeadlineSeconds, optional gVisor RuntimeClass. Egress is closed
 // by a NetworkPolicy + the HTTP(S)_PROXY env injected by the caller.
 import { readFileSync } from "node:fs";
-import type { KernelKind, KernelSpec, KernelStatus, NotebookOrchestrator } from "./orchestrator";
+import type {
+  KernelKind,
+  KernelSpec,
+  KernelStatus,
+  NotebookOrchestrator,
+  TeardownResult,
+} from "./orchestrator";
 import { sandboxName, sandboxServing } from "./orchestrator";
 
 const SA_DIR = "/var/run/secrets/kubernetes.io/serviceaccount";
@@ -46,7 +52,12 @@ function apiBase(): string {
   return `https://${host}:${port}`;
 }
 
-async function k8sFetch(path: string, init?: RequestInit): Promise<Response> {
+/**
+ * One definition of how this app talks to the API server: the in-pod
+ * ServiceAccount token and the in-cluster address. The Spark provider
+ * (src/utils/etl/sparkCluster.server.ts) creates its own objects through it.
+ */
+export async function k8sFetch(path: string, init?: RequestInit): Promise<Response> {
   return fetch(`${apiBase()}${path}`, {
     ...init,
     headers: {
@@ -67,7 +78,11 @@ function containerSpec(spec: KernelSpec) {
     env: Object.entries(spec.env).map(([name, value]) => ({ name, value })),
     resources: {
       requests: { cpu: "250m", memory: `${Math.min(512, spec.memLimitMb)}Mi` },
-      limits: { cpu: spec.cpuLimit, memory: `${spec.memLimitMb}Mi` },
+      limits: {
+        cpu: spec.cpuLimit,
+        memory: `${spec.memLimitMb}Mi`,
+        ...(spec.gpus ? { "nvidia.com/gpu": String(spec.gpus) } : {}),
+      },
     },
     securityContext: {
       allowPrivilegeEscalation: false,
@@ -84,9 +99,45 @@ function containerSpec(spec: KernelSpec) {
   };
 }
 
+/** A JSON env var's value, or undefined when unset or unparseable (logged). */
+function jsonEnv<T>(name: string, raw: string | undefined): T | undefined {
+  raw = raw?.trim();
+  if (!raw) return undefined;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    console.warn(`[notebook-k8s] ${name} is not valid JSON; ignoring it`);
+    return undefined;
+  }
+}
+
+/**
+ * Where a GPU sandbox may run. A GPU request alone only schedules onto a node
+ * that advertises nvidia.com/gpu; clusters that also taint or label their GPU
+ * pool need the selector and tolerations set to match, e.g.
+ *   NOTEBOOK_K8S_GPU_NODE_SELECTOR='{"cloud.google.com/gke-accelerator":"nvidia-l4"}'
+ *   NOTEBOOK_K8S_GPU_TOLERATIONS='[{"key":"nvidia.com/gpu","operator":"Exists","effect":"NoSchedule"}]'
+ */
+function gpuPlacement(spec: KernelSpec) {
+  if (!spec.gpus) return {};
+  const nodeSelector = jsonEnv<Record<string, string>>(
+    "NOTEBOOK_K8S_GPU_NODE_SELECTOR",
+    process.env.NOTEBOOK_K8S_GPU_NODE_SELECTOR,
+  );
+  const tolerations = jsonEnv<unknown[]>(
+    "NOTEBOOK_K8S_GPU_TOLERATIONS",
+    process.env.NOTEBOOK_K8S_GPU_TOLERATIONS,
+  );
+  return {
+    ...(nodeSelector ? { nodeSelector } : {}),
+    ...(Array.isArray(tolerations) ? { tolerations } : {}),
+  };
+}
+
 function podSpec(spec: KernelSpec) {
   const runtimeClass = process.env.NOTEBOOK_K8S_RUNTIME_CLASS; // e.g. "gvisor"
   return {
+    ...gpuPlacement(spec),
     ...(runtimeClass ? { runtimeClassName: runtimeClass } : {}),
     // A service is meant to keep listening: let the kubelet restart it if the
     // user's process dies, and never impose a wall-clock deadline on it.
@@ -176,12 +227,37 @@ export class K8sOrchestrator implements NotebookOrchestrator {
       status?: {
         phase?: string;
         podIP?: string;
+        conditions?: { type?: string; status?: string; reason?: string; message?: string }[];
         containerStatuses?: { state?: Record<string, unknown> }[];
       };
     };
     const phase = pod.status?.phase;
     if (phase === "Succeeded") return { state: "succeeded" };
     if (phase === "Failed") return { state: "error" };
+
+    // A POD THE CLUSTER CANNOT PLACE IS NOT "STARTING". Pending is how both
+    // "the image is still pulling" and "no node has room for this" look from
+    // the outside, and treating them alike means a full cluster is reported by
+    // a readiness timeout — "the scorer did not become ready", which sends an
+    // operator to look at the scorer. Kubernetes already knows the answer and
+    // puts it in a condition; this repeats what it said.
+    //
+    // Reported as `starting` rather than `error`, deliberately: an
+    // unschedulable pod becomes schedulable the moment the cluster autoscaler
+    // adds a node, and failing the deployment would throw away a copy that was
+    // about to start. The caller's own timeout still bounds the wait — what
+    // changes is that it can say why.
+    const scheduled = pod.status?.conditions?.find((c) => c.type === "PodScheduled");
+    if (scheduled?.status === "False" && scheduled.reason === "Unschedulable") {
+      return {
+        state: "starting",
+        message:
+          `Waiting for room in the cluster: ${scheduled.message ?? "no node can take this pod"}. ` +
+          `A cluster autoscaler adds a node for a pending pod; without one, free capacity or ` +
+          `lower the sandbox's memory (Admin → Developer runtime).`,
+      };
+    }
+
     if (phase === "Running" && pod.status?.podIP) {
       const endpoint = `http://${pod.status.podIP}:8888`;
       // Pod Running != process serving; wait for it to answer on its own path.
@@ -191,14 +267,27 @@ export class K8sOrchestrator implements NotebookOrchestrator {
     return { state: "starting" };
   }
 
-  async stop(ref: string): Promise<void> {
+  async stop(ref: string): Promise<TeardownResult> {
     const ns = namespace();
     const [kind, name] = ref.split("/");
     const path =
       kind === "job"
         ? `/apis/batch/v1/namespaces/${ns}/jobs/${name}?propagationPolicy=Background`
         : `/api/v1/namespaces/${ns}/pods/${name}?gracePeriodSeconds=5`;
-    await k8sFetch(path, { method: "DELETE" }).catch(() => {});
+    // The same answer the docker backend now gives (R93): k8sFetch resolves
+    // with the Response, so a 403 from a namespace this service account may
+    // not delete in used to look exactly like a successful teardown.
+    try {
+      const res = await k8sFetch(path, { method: "DELETE" });
+      if (res.ok || res.status === 404) return { removed: true };
+      const body = await res.text().catch(() => "");
+      return {
+        removed: false,
+        error: `kubernetes DELETE answered ${res.status}${body ? `: ${body.slice(0, 200)}` : ""}`,
+      };
+    } catch (e) {
+      return { removed: false, error: (e as Error).message };
+    }
   }
 
   async logs(ref: string): Promise<string> {

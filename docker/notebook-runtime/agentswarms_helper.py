@@ -38,7 +38,7 @@ async def _post(path, payload):
         data = resp.json()
     except Exception:
         data = {}
-    if resp.status_code != 200:
+    if resp.status_code // 100 != 2:
         raise RuntimeError(data.get("message") or data.get("error") or f"HTTP {resp.status_code}")
     return data
 
@@ -267,7 +267,7 @@ def chat_model(model="openai/gpt-4o-mini", provider="openrouter", temperature=0.
                     headers={"Authorization": "Bearer " + _TOKEN},
                 )
             data = resp.json() if resp.content else {}
-            if resp.status_code != 200:
+            if resp.status_code // 100 != 2:
                 raise RuntimeError(data.get("message") or data.get("error") or f"HTTP {resp.status_code}")
             return self._result(data.get("content"), data.get("tool_calls"))
 
@@ -312,7 +312,7 @@ def llama_llm(model="openai/gpt-4o-mini", provider="openrouter", temperature=0.7
                     headers={"Authorization": "Bearer " + _TOKEN},
                 )
             data = resp.json() if resp.content else {}
-            if resp.status_code != 200:
+            if resp.status_code // 100 != 2:
                 raise RuntimeError(data.get("message") or data.get("error") or f"HTTP {resp.status_code}")
             return data["content"]
 
@@ -371,3 +371,264 @@ def _run_sync(coro):
 
 
 __all__ += ["chat_model", "llama_llm", "kb_retriever"]
+
+
+# --- Experiment tracking ---------------------------------------------------
+#
+# A training loop is the least patient caller in the platform: it is in the
+# middle of something, it is running unattended, and it will not tolerate a
+# logging call that raises three hours in. So the rules here are deliberate:
+#
+#   start_run RAISES if it cannot start, because a run you think is recording
+#   and is not is worse than one that never began. Every later call WARNS and
+#   continues — losing an epoch's metrics is not worth losing the epoch.
+#
+# Synchronous on purpose. The async helpers above exist because chat calls sit
+# in async notebooks; a loop logging once an epoch should not have to reach
+# through an event loop to do it.
+
+_RUN_TIMEOUT = 30
+# An artifact is megabytes over a local hop, not a chat turn: its own budget.
+_ARTIFACT_TIMEOUT = 300
+
+
+def _post_sync(path, payload):
+    if not _ORIGIN or not _TOKEN:
+        raise RuntimeError(
+            "AgentSwarms runtime is not configured (AGENTSWARMS_ORIGIN / AGENTSWARMS_TOKEN)."
+        )
+    with httpx.Client(timeout=_RUN_TIMEOUT, trust_env=True) as client:
+        resp = client.post(
+            _ORIGIN + path, json=payload, headers={"Authorization": "Bearer " + _TOKEN}
+        )
+    try:
+        data = resp.json() if resp.content else {}
+    except Exception:
+        data = {}
+    # Any 2xx, not only 200: registering a version answers 201 Created, which
+    # is the right status for it and was never a failure.
+    if resp.status_code // 100 != 2:
+        raise RuntimeError(data.get("message") or data.get("error") or f"HTTP {resp.status_code}")
+    return data
+
+
+def _scalar(value):
+    """Flatten a value to something two runs can be compared on."""
+    if value is None or isinstance(value, (str, bool, int, float)):
+        # numpy scalars are not bool/int/float but do have .item()
+        return value
+    item = getattr(value, "item", None)
+    if callable(item):
+        try:
+            return item()
+        except Exception:
+            pass
+    return str(value)
+
+
+class Run:
+    """One attempt at an experiment: its parameters, its metrics, its outcome.
+
+    Usable as a context manager, which is the form worth reaching for — it
+    finishes the run whichever way the cell ends, including the traceback when
+    training raises:
+
+        with agentswarms.start_run("churn-v2", params={"lr": 0.01}) as run:
+            for epoch in range(10):
+                run.log_metric("loss", loss, step=epoch)
+            run.log_metric("auc", 0.91)
+    """
+
+    def __init__(self, run_id, experiment_id, experiment):
+        self.run_id = run_id
+        self.experiment_id = experiment_id
+        self.experiment = experiment
+        self.artifact_uri = None
+        self.artifact_sha256 = None
+        self._finished = False
+
+    def __repr__(self):
+        return f"<Run {self.run_id} of {self.experiment!r}>"
+
+    def _send(self, payload, what):
+        try:
+            _post_sync("/api/ml/experiments", dict(payload, run_id=self.run_id))
+            return True
+        except Exception as exc:  # noqa: BLE001 - logging must not end a run
+            print(f"[agentswarms] could not {what}: {exc}")
+            return False
+
+    def log_param(self, key, value):
+        """Record one setting this run used."""
+        return self.log_params({key: value})
+
+    def log_params(self, params):
+        return self._send({"op": "log", "params": {k: _scalar(v) for k, v in dict(params).items()}},
+                          "log params")
+
+    def log_metric(self, key, value, step=None):
+        """Record one measurement.
+
+        With a `step` the point is kept as `key@step` AND the bare `key` is
+        updated to the latest value — so the curve survives and "what did this
+        run score" still has a single answer.
+        """
+        if step is None:
+            return self.log_metrics({key: value})
+        return self.log_metrics({key: value, f"{key}@{int(step)}": value})
+
+    def log_metrics(self, metrics, step=None):
+        m = {k: _scalar(v) for k, v in dict(metrics).items()}
+        if step is not None:
+            m.update({f"{k}@{int(step)}": v for k, v in list(m.items())})
+        return self._send({"op": "log", "metrics": m}, "log metrics")
+
+    def finish(self, status="finished", metrics=None, notes=None, error=None,
+               artifact_uri=None, artifact_sha256=None):
+        """Close the run. Recording an artifact here is what makes it promotable
+        into the model registry later — both the URI and its sha256, because a
+        version whose artifact nobody can verify is not a version."""
+        if self._finished:
+            return True
+        payload = {"op": "finish", "status": status}
+        if metrics:
+            payload["metrics"] = {k: _scalar(v) for k, v in dict(metrics).items()}
+        if notes:
+            payload["notes"] = str(notes)[:4000]
+        if error:
+            payload["error"] = str(error)[:4000]
+        if artifact_uri:
+            payload["artifact_uri"] = str(artifact_uri)
+        if artifact_sha256:
+            payload["artifact_sha256"] = str(artifact_sha256)
+        ok = self._send(payload, "finish the run")
+        self._finished = True
+        return ok
+
+    def save_model(self, model, features, task="classification", classes=None,
+                   name="model.joblib"):
+        """Save a fitted pipeline as this run's artifact, and return its digest.
+
+        The kernel holds no bucket credentials, so the bytes go to the platform
+        and it writes them beside the models its own trainer produces. The
+        digest recorded is the one the app computes from what arrived — the one
+        inference verifies before ever loading the file.
+
+        `features` is the input columns IN ORDER, because that is what a
+        pipeline is handed at serving time and a list that drifts from the
+        training order fails quietly rather than loudly.
+
+        This one RAISES on failure, unlike the logging calls: a save you
+        believe happened and did not is the same lie as a run that never
+        started, and the caller still has the fitted model in memory to retry
+        with.
+        """
+        import hashlib
+        import io
+        import joblib
+
+        payload = {"task": str(task), "pipeline": model,
+                   "features": [str(c) for c in features], "external": True}
+        if classes is not None:
+            payload["classes"] = [str(c) for c in classes]
+        buf = io.BytesIO()
+        joblib.dump(payload, buf, compress=3)
+        blob = buf.getvalue()
+        digest = hashlib.sha256(blob).hexdigest()
+        if not _ORIGIN or not _TOKEN:
+            raise RuntimeError(
+                "AgentSwarms runtime is not configured (AGENTSWARMS_ORIGIN / AGENTSWARMS_TOKEN)."
+            )
+        params = {"run_id": self.run_id, "name": str(name), "sha256": digest}
+        with httpx.Client(timeout=_ARTIFACT_TIMEOUT, trust_env=True) as client:
+            resp = client.post(
+                _ORIGIN + "/api/ml/experiments/artifact",
+                params=params,
+                content=blob,
+                headers={"Authorization": "Bearer " + _TOKEN,
+                         "Content-Type": "application/octet-stream"},
+            )
+        try:
+            data = resp.json() if resp.content else {}
+        except Exception:
+            data = {}
+        if resp.status_code // 100 != 2:
+            raise RuntimeError(data.get("error") or f"HTTP {resp.status_code}")
+        self.artifact_uri = data.get("artifact_uri")
+        self.artifact_sha256 = data.get("artifact_sha256")
+        print(f"[agentswarms] saved {data.get('bytes', len(blob))} bytes to {self.artifact_uri}")
+        return self.artifact_uri, self.artifact_sha256
+
+    def register(self, model, task=None, source=None, target_column=None,
+                 features=None, classes=None, algorithm=None, metrics=None,
+                 promote=False, description=None):
+        """Register this run's artifact as a version of `model`.
+
+        `model` is a name or a model id. A name nothing owns yet creates the
+        model, which needs `task` and `source={"schema": …, "table": …}` — the
+        lakehouse table the training data came from, checked as you.
+
+        The version arrives as a CANDIDATE. Promoting it is a separate,
+        deliberate step, on purpose: that is the moment something starts
+        serving, and a person should cross it knowing they did.
+        """
+        body = {"run_id": self.run_id, "model": str(model)}
+        if task:
+            body["task"] = str(task)
+        if source:
+            body["source"] = {"schema": str(source["schema"]), "table": str(source["table"])}
+        if target_column:
+            body["target_column"] = str(target_column)
+        if description:
+            body["description"] = str(description)[:2000]
+        if algorithm:
+            body["algorithm"] = str(algorithm)
+        if features:
+            body["feature_schema"] = [
+                {"name": str(c), "dtype": "numeric", "role": "feature"} for c in features
+            ] if not isinstance(features[0], dict) else list(features)
+        if classes is not None:
+            body["classes"] = [str(c) for c in classes]
+        if metrics:
+            body["metrics"] = {k: (None if v is None else float(v)) for k, v in dict(metrics).items()}
+        if promote:
+            body["promote"] = True
+        data = _post_sync("/api/ml/experiments/register", body)
+        self._finished = True
+        print(
+            f"[agentswarms] registered as {data['model_name']} v{data['version']}"
+            + (" (new model)" if data.get("created_model") else "")
+        )
+        return data
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        if exc_type is not None:
+            self.finish(status="failed", error=f"{exc_type.__name__}: {exc}")
+        else:
+            self.finish()
+        return False  # never swallow the traceback
+
+
+def start_run(experiment, name=None, params=None, tags=None, model_id=None):
+    """Begin a run under `experiment`, creating the experiment on first use.
+
+    Raises if the run cannot be started — a run you believe is recording and is
+    not is the one failure mode worth interrupting for.
+    """
+    payload = {"op": "start", "experiment": str(experiment)}
+    if name:
+        payload["name"] = str(name)
+    if params:
+        payload["params"] = {k: _scalar(v) for k, v in dict(params).items()}
+    if tags:
+        payload["tags"] = [str(t) for t in tags]
+    if model_id:
+        payload["model_id"] = str(model_id)
+    data = _post_sync("/api/ml/experiments", payload)
+    return Run(data["run_id"], data["experiment_id"], str(experiment))
+
+
+__all__ += ["start_run", "Run"]

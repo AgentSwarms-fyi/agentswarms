@@ -1,0 +1,13 @@
+# TEMPLATE — copied to `allowed_ips` on first setup, then owned by the app.
+#
+# The live file is NOT tracked in git. This one is the more important of the
+# pair to keep out: raw-IP entries are by definition somebody's specific
+# infrastructure — a LAN MinIO, an internal warehouse — and committing them
+# publishes a small map of the operator's network.
+#
+# Allowlisted egress IPs for notebook kernels (squid dst). dstdomain cannot
+# match raw-IP URLs, so IP entries from
+# notebook_runtime_settings.egress_allowlist are written here instead.
+#
+# Deliberately empty: a fresh install allows no raw IPs. Add them under
+# Admin → Developer runtime, e.g. a LAN object store on 192.168.1.10:19000.

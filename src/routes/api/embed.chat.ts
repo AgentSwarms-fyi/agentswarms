@@ -23,6 +23,7 @@ import { recordGatewayCall } from "@/utils/observability/recordGatewayUsage.serv
 import { resolveOpenAICompatTransport } from "@/utils/providers/credentials.server";
 import type { ProviderId } from "@/utils/providers/types";
 import {
+  autoRagMinSimilarity,
   buildGroundingPrompt,
   retrieveCitationsServer,
   type Citation,
@@ -350,6 +351,7 @@ export const Route = createFileRoute("/api/embed/chat")({
               topK: 5,
               userId: keyRow.user_id,
               reranker: cfg.reranker,
+              minSimilarity: autoRagMinSimilarity(),
               // userId above is the KEY OWNER (it resolves embedding
               // credentials); the person asking is an anonymous visitor.
               // Without this flag, connector documents scoped 'private' or

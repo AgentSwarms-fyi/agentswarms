@@ -80,13 +80,24 @@ describe("notebook_runtime_sessions.kind", () => {
   });
 
   it("permits every kind the code actually writes", () => {
-    // Every `kind: "…"` literal in a file that also touches this table.
+    // Every `kind: "…"` literal written into THIS table.
+    //
+    // The window matters. This used to take every `kind:` literal out of any
+    // file that so much as mentioned `startSession`, which was fine until one
+    // file started several kinds of work: the workflow adapters call
+    // `startSession` for a notebook step AND `notifyUser({ kind: "approval" })`
+    // for an approval step, and a notification's kind has nothing to do with
+    // this constraint. Anchoring on the call that actually inserts keeps the
+    // guard pointed at the real writes.
     const written = new Map<string, string>();
     for (const file of walk(resolve("src"))) {
       const src = readFileSync(file, "utf8");
-      if (!src.includes("notebook_runtime_sessions") && !/startSession\(/.test(src)) continue;
-      for (const m of src.matchAll(/\bkind:\s*["']([a-z_]+)["']/g)) {
-        written.set(m[1], file.replace(/\\/g, "/").split("/src/")[1]);
+      const anchors = [...src.matchAll(/startSession\(|from\("notebook_runtime_sessions"\)/g)];
+      for (const anchor of anchors) {
+        const window = src.slice(anchor.index ?? 0, (anchor.index ?? 0) + 400);
+        for (const m of window.matchAll(/\bkind:\s*["']([a-z_]+)["']/g)) {
+          written.set(m[1], file.replace(/\\/g, "/").split("/src/")[1]);
+        }
       }
     }
 

@@ -27,6 +27,13 @@ export type { ChunkOptions, ChunkStrategy };
 import { chunkParentChild, isChunkMode, type ChunkMode, DEFAULT_PARENT_TOKENS } from "@/lib/kbRag";
 import { generateQaPairs } from "./kbQa.server";
 import { getOpenRouterApiKey } from "@/utils/providers/openrouterDefault.server";
+import {
+  externalStoreConfigured,
+  storeFor,
+  storeKindByKnowledgeBase,
+  vectorStoreIsExternal,
+} from "@/utils/vector/store.server";
+import type { VectorPoint, VectorStoreKind } from "@/utils/vector/types";
 
 export const DEFAULT_EMBED_MODEL = "text-embedding-3-small";
 export const SUPPORTED_EMBED_MODELS = new Set<string>([
@@ -36,6 +43,35 @@ export const SUPPORTED_EMBED_MODELS = new Set<string>([
 const EMBED_DIMS = 1536; // must match kb_chunks.embedding vector(1536)
 const EMBED_BATCH = 96;
 const INSERT_BATCH = 64;
+
+/**
+ * Bring a vector to the store width.
+ *
+ * FOUND WHILE SIZING A SELF-HOSTED GAP. The embed target resolver already knew
+ * Ollama and vLLM, yet an air-gapped install could not embed at all: local
+ * models ignore the `dimensions` hint and return their native width (768 for
+ * nomic-embed-text, 1024 for bge-m3 / mxbai-embed-large), and every one of
+ * them was refused with an instruction to migrate the column.
+ *
+ * Zero-padding a SHORTER vector is exact for cosine similarity -- appended
+ * zeros change neither any dot product nor any norm -- and retrieval already
+ * pins a knowledge base to the provider and model its chunks were written
+ * with, so padded vectors only ever meet vectors padded the same way. A
+ * LONGER vector is still refused: truncation is only exact for Matryoshka
+ * models, and those honour `dimensions` and never arrive too long.
+ */
+export function padToStoreWidth(v: number[]): number[] {
+  if (v.length === EMBED_DIMS) return v;
+  if (v.length > EMBED_DIMS) {
+    throw new Error(
+      `embedding is ${v.length}-dimensional, wider than the store (${EMBED_DIMS}); ` +
+        `pick a model that outputs at most ${EMBED_DIMS} dimensions or honours the "dimensions" parameter.`,
+    );
+  }
+  const out = new Array<number>(EMBED_DIMS).fill(0);
+  for (let i = 0; i < v.length; i++) out[i] = v[i];
+  return out;
+}
 
 export async function embedTexts(
   texts: string[],
@@ -52,7 +88,14 @@ export async function embedTexts(
 ): Promise<number[][]> {
   if (texts.length === 0) return [];
   const endpoint = opts?.endpoint ?? "https://api.openai.com/v1/embeddings";
-  if (!openaiKey && !opts?.endpoint) throw new Error("OPENAI_API_KEY is not configured");
+  // Every embedding comes from a connected provider now, so a missing key means
+  // nothing is connected -- not that an operator forgot an environment
+  // variable. Say the thing the reader can act on.
+  if (!openaiKey && !opts?.endpoint)
+    throw new Error(
+      "No embedding provider is connected. Connect one with an embeddings API " +
+        "(OpenRouter, OpenAI, Gemini, Ollama, vLLM, NVIDIA or Qwen) under Integrations.",
+    );
   const useModel = opts?.allowCustomModel
     ? model
     : SUPPORTED_EMBED_MODELS.has(model)
@@ -120,16 +163,20 @@ export async function embedTexts(
       // gateway paths ignore the `dimensions` hint and return the model's
       // native size (e.g. 768 for Gemini, 3072 for text-embedding-3-large),
       // which would crash the vector(1536) insert or corrupt the index.
-      if (!Array.isArray(d.embedding) || d.embedding.length !== EMBED_DIMS) {
+      // A narrower vector (a local model that ignores `dimensions`) is padded --
+      // exactly, see padToStoreWidth. A wider one is refused: it cannot be
+      // truncated without changing what it means.
+      if (!Array.isArray(d.embedding) || d.embedding.length === 0) {
+        throw new Error(`"${useModel}" returned no embedding vector`);
+      }
+      if (d.embedding.length > EMBED_DIMS) {
         throw new Error(
-          `"${useModel}" returned ${d.embedding?.length ?? "no"}-dimensional vectors, but the ` +
-            `store is fixed at ${EMBED_DIMS}. Either the model ignores the "dimensions" ` +
-            `parameter or it has no ${EMBED_DIMS}-d output — pick a model that does ` +
-            `(the OpenAI text-embedding-3-* models truncate to any size), or the ` +
-            `kb_chunks.embedding column has to be migrated to this model's width.`,
+          `"${useModel}" returned ${d.embedding.length}-dimensional vectors, wider than the ` +
+            `store (${EMBED_DIMS}). Pick a model that outputs at most ${EMBED_DIMS} dimensions ` +
+            `or honours the "dimensions" parameter (the OpenAI text-embedding-3-* models do).`,
         );
       }
-      out.push(d.embedding);
+      out.push(padToStoreWidth(d.embedding));
     }
   }
   return out;
@@ -330,6 +377,22 @@ export async function embedAndStoreDocuments(opts: {
   }
 
   if (docIdsToReplace.length > 0) {
+    // The external index first, while the rows that authorise it still exist.
+    // pgvector's store does nothing here: its vector leaves with the row.
+    //
+    // Asked of the deployment, not of the collection. A collection can have
+    // chosen the external index while the instance defaults to Postgres, and
+    // one switched away from it may still have vectors there. Deleting an id
+    // the store does not hold is a no-op, so clearing whenever a store exists
+    // is both cheaper than resolving each collection and the only version that
+    // cannot leave a stale vector answering as if it were current.
+    if (externalStoreConfigured()) {
+      try {
+        await storeFor("qdrant", sb).deleteByDocuments(docIdsToReplace);
+      } catch (e) {
+        console.warn("[embedding] stale vectors may remain in the external store:", e);
+      }
+    }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (sb.from("kb_chunks" as any) as any).delete().in("document_id", docIdsToReplace);
     // Parents second. Doing it first would cascade-delete the chunks we are
@@ -421,6 +484,8 @@ export async function embedAndStoreDocuments(opts: {
     if (error) throw new Error(error.message);
   }
 
+  await mirrorToExternalStore(sb, rows, embeddings);
+
   // Stamp what was actually used, per document. Retrieval reads this to embed
   // the query in the same space; previously it was only written by the upload
   // UI, so anything embedded by another path (auto-embed, back-fill, re-sync)
@@ -448,4 +513,79 @@ export async function embedAndStoreDocuments(opts: {
   }
 
   return { documentsProcessed: docs.length, chunksInserted: rows.length, warnings };
+}
+
+/**
+ * Copy the vectors just written into an external store, if there is one.
+ *
+ * AFTER the rows are committed, never before: the store is an index over rows
+ * that exist, and a point whose row was never written is a hit that hydrates
+ * to nothing.
+ *
+ * The chunk ids come back from a read rather than from the upsert, because the
+ * upsert conflicts on `(document_id, chunk_index)` and returns no rows — and
+ * that pair is exactly what matches a stored row back to the vector held here.
+ * A failure is logged, not thrown: the chunks ARE stored, retrieval still has
+ * keyword search, and re-indexing repairs it. Losing an ingest that succeeded
+ * would be the worse outcome.
+ */
+async function mirrorToExternalStore(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  sb: any,
+  rows: { document_id: string; knowledge_base_id: string; chunk_index: number }[],
+  embeddings: number[][],
+): Promise<void> {
+  if (rows.length === 0) return;
+  try {
+    // Which index each collection chose. This used to be one instance-wide
+    // question asked before anything else; since a collection can choose its
+    // own index, one collection wanting Qdrant on a Postgres-default instance
+    // has to be enough to run this, and the rest still cost nothing.
+    const kinds = await storeKindByKnowledgeBase(
+      sb,
+      Array.from(new Set(rows.map((r) => r.knowledge_base_id))),
+    );
+    if (![...kinds.values()].some(vectorStoreIsExternal)) return;
+    const docIds = Array.from(new Set(rows.map((r) => r.document_id)));
+    const { data, error } = await sb
+      .from("kb_chunks")
+      .select("id, document_id, chunk_index, knowledge_base_id")
+      .in("document_id", docIds);
+    if (error) throw new Error(error.message);
+    const idBySlot = new Map<string, string>();
+    for (const r of (data ?? []) as {
+      id: string;
+      document_id: string;
+      chunk_index: number;
+    }[]) {
+      idBySlot.set(`${r.document_id}#${r.chunk_index}`, r.id);
+    }
+    const points: VectorPoint[] = [];
+    rows.forEach((r, i) => {
+      const id = idBySlot.get(`${r.document_id}#${r.chunk_index}`);
+      const embedding = embeddings[i];
+      if (!id || !embedding) return;
+      points.push({
+        id,
+        embedding,
+        knowledgeBaseId: r.knowledge_base_id,
+        documentId: r.document_id,
+      });
+    });
+    // Each collection's vectors go to the index that collection chose. Only
+    // the external ones: pgvector's copy is the row that was just written.
+    const byKind = new Map<VectorStoreKind, VectorPoint[]>();
+    for (const p of points) {
+      const kind = kinds.get(p.knowledgeBaseId) ?? "pgvector";
+      if (!vectorStoreIsExternal(kind)) continue;
+      byKind.set(kind, [...(byKind.get(kind) ?? []), p]);
+    }
+    for (const [kind, group] of byKind) await storeFor(kind, sb).upsert(group);
+  } catch (e) {
+    console.warn(
+      "[embedding] chunks stored but the external vector store was not updated; " +
+        "re-index to repair:",
+      e instanceof Error ? e.message : e,
+    );
+  }
 }

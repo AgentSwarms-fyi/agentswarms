@@ -8,7 +8,13 @@
 // to an egress-restricted network, with HTTP(S)_PROXY pointed at the filtering
 // egress proxy.
 import { existsSync } from "node:fs";
-import type { KernelKind, KernelSpec, KernelStatus, NotebookOrchestrator } from "./orchestrator";
+import type {
+  KernelKind,
+  KernelSpec,
+  KernelStatus,
+  NotebookOrchestrator,
+  TeardownResult,
+} from "./orchestrator";
 import { sandboxName, sandboxServing } from "./orchestrator";
 
 // The socket-proxy is reachable by different names depending on how the app is
@@ -17,6 +23,17 @@ import { sandboxName, sandboxServing } from "./orchestrator";
 //   - app on the host (npm run dev) → the published loopback port
 // The first candidate that answers /_ping wins and is cached.
 let resolvedBase: string | null = null;
+
+// How long one /_ping may take. A name that does not resolve fails at once,
+// so this budget is spent only on a proxy that accepted the connection and
+// is waiting on the Docker daemon — and a daemon busy with a build or a pull
+// answers slowly. Seen live: a ping took 13 s while an image was being built
+// on the same host, and the old 2.5 s budget turned that into "start the
+// runtime services" for services that were running. The answer is cached,
+// so only the first call after an app start pays the wait.
+export function dockerPingTimeoutMs(): number {
+  return Number(process.env.DOCKER_PROXY_PING_TIMEOUT_MS ?? "") || 10_000;
+}
 
 function candidates(): string[] {
   return [
@@ -29,22 +46,39 @@ function candidates(): string[] {
 export async function dockerBase(): Promise<string> {
   if (resolvedBase) return resolvedBase;
   const tried: string[] = [];
+  const timeoutMs = dockerPingTimeoutMs();
+  let stalled = false;
   for (const candidate of candidates()) {
     const base = candidate.replace(/\/$/, "");
     try {
-      const res = await fetch(`${base}/_ping`, { signal: AbortSignal.timeout(2500) });
+      const res = await fetch(`${base}/_ping`, { signal: AbortSignal.timeout(timeoutMs) });
       if (res.ok) {
         resolvedBase = base;
         return base;
       }
       tried.push(`${base} → HTTP ${res.status}`);
     } catch (e) {
-      tried.push(`${base} → ${e instanceof Error ? e.message : String(e)}`);
+      if (e instanceof Error && e.name === "TimeoutError") {
+        stalled = true;
+        tried.push(`${base} → no answer within ${timeoutMs / 1000} s`);
+      } else {
+        tried.push(`${base} → ${e instanceof Error ? e.message : String(e)}`);
+      }
     }
   }
+  // Two different failures, two different fixes. A stall is a proxy that
+  // accepted the connection and never answered: the daemon behind it is busy
+  // (a build or pull on the same host) or its HAProxy has wedged. Telling the
+  // operator to start services that are running sends them the wrong way.
+  const advice = stalled
+    ? "The proxy accepted the connection but did not answer: the Docker daemon is busy " +
+      "(a build or pull in progress?) or the proxy has wedged. Try again in a minute; if it " +
+      "persists:  docker compose restart notebook-docker-proxy  "
+    : "Start the runtime services with:  docker compose up -d --build  ";
   throw new Error(
-    "Cannot reach the Docker socket-proxy, so no kernel can be started. Start the runtime " +
-      "services with:  docker compose --profile notebooks up -d --build  (tried " +
+    "Cannot reach the Docker socket-proxy, so no kernel can be started. " +
+      advice +
+      "(tried " +
       tried.join("; ") +
       ")",
   );
@@ -102,6 +136,7 @@ export class DockerOrchestrator implements NotebookOrchestrator {
     const memBytes = spec.memLimitMb * 1024 * 1024;
     // Docker wants CPU as NanoCPUs (1 CPU = 1e9).
     const nanoCpus = Math.round(parseFloat(spec.cpuLimit || "1") * 1e9);
+    const tmpfsMb = Math.max(64, Math.trunc(spec.tmpfsMb ?? 512));
 
     const body = {
       Image: spec.image,
@@ -120,6 +155,10 @@ export class DockerOrchestrator implements NotebookOrchestrator {
         MemorySwap: memBytes, // no swap
         NanoCpus: nanoCpus,
         PidsLimit: 256,
+        // A GPU sandbox: the same request `docker run --gpus N` makes.
+        ...(spec.gpus
+          ? { DeviceRequests: [{ Driver: "nvidia", Count: spec.gpus, Capabilities: [["gpu"]] }] }
+          : {}),
         ReadonlyRootfs: true,
         CapDrop: ["ALL"],
         SecurityOpt: ["no-new-privileges"],
@@ -135,8 +174,13 @@ export class DockerOrchestrator implements NotebookOrchestrator {
         // "Permission denied" (and runtime pip install breaks). Sticky world-write
         // is safe here — each container is a single-tenant, ephemeral sandbox.
         Tmpfs: {
-          "/home/runner/work": "rw,exec,size=512m,mode=1777",
-          "/home/runner/.local": "rw,exec,size=512m,mode=1777",
+          // Sized from Admin -> Developer runtime. 512 MB was hardcoded, and a
+          // pipeline that uses both the SQL transform and a lakehouse node
+          // installs ~447 MB of wheels plus DuckDB extensions into ~/.local —
+          // close enough to the ceiling to fail intermittently, reported as a
+          // bare pip exit code.
+          "/home/runner/work": `rw,exec,size=${tmpfsMb}m,mode=1777`,
+          "/home/runner/.local": `rw,exec,size=${tmpfsMb}m,mode=1777`,
           "/tmp": "rw,size=256m,mode=1777",
         },
         // When the app runs on the HOST (dev), Docker Desktop cannot route to
@@ -172,8 +216,31 @@ export class DockerOrchestrator implements NotebookOrchestrator {
     const created = (await res.json()) as { Id: string };
     const start = await dockerFetch(`/containers/${created.Id}/start`, { method: "POST" });
     if (!start.ok && start.status !== 304) {
-      await this.stop(created.Id).catch(() => {});
-      throw new Error(`docker start failed (${start.status}): ${await start.text()}`);
+      // Read the start's own explanation BEFORE the teardown, so it is in hand
+      // whatever the teardown then does.
+      const detail = await start.text().catch(() => "");
+      // FOUND FROM THE SURVEY (R94). The container exists and has never run,
+      // and this is the only thing that takes it off the host: nothing else
+      // will, because no session row will ever carry its ref. The teardown's
+      // answer used to be thrown away, so a cleanup that failed too left a
+      // sandbox stuck in `created` and told only the start's half of the
+      // story. MEASURED alongside R93's 139: one container in `created`, five
+      // days old, `StartedAt` still 0001-01-01, and one left `dead` by a
+      // removal that half-worked.
+      //
+      // The catch is not decoration: stop() is contractually non-throwing, and
+      // if it ever does, the start's error - the cause - must still be the one
+      // that reaches the caller.
+      const teardown = await this.stop(created.Id).catch((e) => ({
+        removed: false,
+        error: (e as Error).message,
+      }));
+      throw new Error(
+        `docker start failed (${start.status}): ${detail}` +
+          (teardown.removed
+            ? ""
+            : `; its container ${name} could not be removed either (${teardown.error}), so it is still on this host and has to be taken away by hand`),
+      );
     }
     // Use the stable name as the ref so the gateway can reach it by DNS on the
     // shared network (http://nb-<id>:8888) without tracking the container id.
@@ -223,14 +290,30 @@ export class DockerOrchestrator implements NotebookOrchestrator {
     };
   }
 
-  async stop(ref: string): Promise<void> {
-    // Stop then remove; ignore 404 (already gone).
+  async stop(ref: string): Promise<TeardownResult> {
+    // Stop first; a container that is already stopped answers 304, which is
+    // fine, and the DELETE below forces it anyway.
     await dockerFetch(`/containers/${encodeURIComponent(ref)}/stop?t=5`, { method: "POST" }).catch(
       () => {},
     );
-    await dockerFetch(`/containers/${encodeURIComponent(ref)}?force=true`, {
-      method: "DELETE",
-    }).catch(() => {});
+    // FOUND FROM THE SURVEY (R93). This DELETE is the only thing that takes a
+    // sandbox off the host, and its answer went in the bin: dockerFetch
+    // RESOLVES with the Response, so a 409 or a 500 never reached that catch
+    // and the container stayed, with nobody the wiser. 404 is the goal, not a
+    // failure - it means somebody got there first.
+    try {
+      const res = await dockerFetch(`/containers/${encodeURIComponent(ref)}?force=true`, {
+        method: "DELETE",
+      });
+      if (res.ok || res.status === 404) return { removed: true };
+      const body = await res.text().catch(() => "");
+      return {
+        removed: false,
+        error: `docker DELETE answered ${res.status}${body ? `: ${body.slice(0, 200)}` : ""}`,
+      };
+    } catch (e) {
+      return { removed: false, error: (e as Error).message };
+    }
   }
 
   async logs(ref: string): Promise<string> {

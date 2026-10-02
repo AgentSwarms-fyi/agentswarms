@@ -46,7 +46,7 @@ export const Route = createFileRoute("/api/docgen/status")({
           return json({
             available: false,
             reason:
-              "No doc-gen service found. Start it with `docker compose --profile docgen up -d`, or set DOCGEN_SERVICE_URL if it runs elsewhere.",
+              "No doc-gen service found. Start it with `docker compose up -d`, or set DOCGEN_SERVICE_URL if it runs elsewhere.",
           } satisfies DocgenStatus);
         }
         const ctrl = new AbortController();

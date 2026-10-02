@@ -8,12 +8,21 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  applyGroundingBudget,
+  assembleCitationTexts,
   chunkParentChild,
+  CHUNKS_PER_DOCUMENT,
+  CITATION_CHARS_PER_CHUNK,
+  DEFAULT_MIN_SIMILARITY,
   fuseHybrid,
+  groundingPasses,
+  GROUNDING_MAX_CHARS,
   parseQaPairs,
   resolveRetrievalSettings,
   DEFAULT_RETRIEVAL,
   isChunkMode,
+  overlapLength,
+  type CitationPiece,
 } from "@/lib/kbRag";
 
 // A document with real paragraph structure — chunkers behave differently on
@@ -152,10 +161,23 @@ describe("parseQaPairs", () => {
 });
 
 describe("resolveRetrievalSettings", () => {
-  it("defaults to pure semantic, so upgrading changes no answers", () => {
+  it("defaults to hybrid leaning semantic — measured, not inherited (R12)", () => {
     expect(resolveRetrievalSettings(null)).toEqual(DEFAULT_RETRIEVAL);
-    expect(resolveRetrievalSettings(undefined).mode).toBe("semantic");
-    expect(resolveRetrievalSettings({}).mode).toBe("semantic");
+    expect(DEFAULT_RETRIEVAL).toEqual({
+      mode: "hybrid",
+      semanticWeight: 0.7,
+      // A collection follows the instance until someone picks an index for it.
+      vectorStore: "default",
+    });
+    expect(resolveRetrievalSettings(undefined).mode).toBe("hybrid");
+    expect(resolveRetrievalSettings({}).mode).toBe("hybrid");
+    expect(resolveRetrievalSettings({}).semanticWeight).toBe(0.7);
+    // A collection that chose semantic keeps it — the default is for the undecided.
+    expect(resolveRetrievalSettings({ mode: "semantic" })).toEqual({
+      mode: "semantic",
+      semanticWeight: 1,
+      vectorStore: "default",
+    });
   });
 
   it("forces the weight to match the mode", () => {
@@ -183,7 +205,7 @@ describe("resolveRetrievalSettings", () => {
   });
 
   it("ignores an unknown mode rather than trusting it", () => {
-    expect(resolveRetrievalSettings({ mode: "magic" }).mode).toBe("semantic");
+    expect(resolveRetrievalSettings({ mode: "magic" }).mode).toBe("hybrid");
   });
 });
 
@@ -343,13 +365,23 @@ describe("retrieval wiring", () => {
     );
   });
 
-  it("runs keyword search whenever the mode is not semantic", () => {
-    expect(KB).toMatch(/if \(retrieval\.mode !== "semantic"\) \{/);
+  it("runs keyword search whenever the mode is not semantic — or the vectors failed", () => {
+    // `effective`, not `retrieval`: the collection's own mode decides
+    // normally, and a vector search that could not answer forces the keyword
+    // pass on so an unreachable store degrades retrieval rather than emptying
+    // it. See the fallback tests in vectorStore.test.ts.
+    expect(KB).toMatch(/if \(effective\.mode !== "semantic"\) \{/);
+    expect(KB).toMatch(/vectorSearchFailed\s*\n?\s*\?/);
     expect(KB).toMatch(/rpc\("keyword_kb_chunks"/);
   });
 
-  it("uses the parent-aware vector RPC", () => {
-    expect(KB).toMatch(/rpc\("match_kb_chunks_v2"/);
+  it("searches for ids and fetches the parent-aware rows separately", () => {
+    // These were one RPC, `match_kb_chunks_v2`, until the vectors were allowed
+    // to live outside this database — at which point the search and the fetch
+    // happen in two different systems and no single function can do both. The
+    // parent join did not go anywhere; it moved into kb_chunks_by_ids.
+    expect(KB).toMatch(/storeFor\(kind, sb\)\.search\(/);
+    expect(KB).toMatch(/rpc\("kb_chunks_by_ids"/);
   });
 
   it("applies the knowledge base's own retrieval settings", () => {
@@ -407,7 +439,17 @@ describe("embedding provider catalogue", () => {
     // resolving embeddings through OpenRouter — and then warned that the
     // provider it had just defaulted to was "not connected".
     expect(KNOWLEDGE).toMatch(/id === "openrouter" && openrouterAvailable === true/);
-    expect(KNOWLEDGE).toMatch(/id === "openai_builtin" && builtinConfigured !== false/);
+  });
+
+  it("offers no operator-OpenAI-key option at all", () => {
+    // Embeddings come from a connected model provider, the same place the chat
+    // models do. A self-hosted install should not need an OpenAI account to
+    // search its own documents, so the "Built-in (operator OpenAI key)" entry
+    // is gone rather than merely deprioritised — and nothing in the dialog
+    // still branches on whether that key is configured.
+    expect(KNOWLEDGE).not.toContain("openai_builtin");
+    expect(KNOWLEDGE).not.toContain("builtinConfigured");
+    expect(KNOWLEDGE).not.toContain("OPENAI_API_KEY");
   });
 
   it("asks 'is this provider usable' in exactly one place", () => {
@@ -455,5 +497,261 @@ describe("isChunkMode", () => {
     expect(isChunkMode("qa")).toBe(true);
     expect(isChunkMode("parent-child")).toBe(false);
     expect(isChunkMode(null)).toBe(false);
+  });
+});
+
+// ── What the model reads ─────────────────────────────────────────────────────
+//
+// R12: one chunk per document, cut to 560 characters, is why "what is the Gold
+// Severity 1 response time" was answered "the excerpt does not include the
+// table" against a document whose chunk 0 IS the table. These pin the
+// replacement: several chunks per document in reading order, whole, budgeted.
+
+describe("assembleCitationTexts — one citation carries a document's best chunks", () => {
+  const piece = (
+    id: string,
+    doc: string,
+    idx: number,
+    text: string,
+    extra: Partial<CitationPiece> = {},
+  ) =>
+    [id, { key: id, documentId: doc, chunkIndex: idx, text, ...extra } as CitationPiece] as const;
+  const pieces = new Map<string, CitationPiece>([
+    piece("p4", "sla", 4, "prose about response times"),
+    piece("p0", "sla", 0, "| Severity 1 | 30 minutes |"),
+    piece("p2", "sla", 2, "exclusions"),
+    piece("p7", "sla", 7, "more prose"),
+    piece("f1", "faq", 1, "partners resell"),
+    piece("g0", "glossary", 0, "MDR — Meridian Drain Request"),
+  ]);
+  const of = (id: string) => pieces.get(id);
+  const ranked = ["p4", "f1", "p0", "p2", "p7", "g0"].map((id) => ({ id }));
+
+  it("keeps the best few chunks of a document, in reading order, joined by adjacency", () => {
+    const out = assembleCitationTexts(ranked, of, { chunksPerDocument: 3 });
+    // Documents in the order their best chunk ranked; the table (chunk 0)
+    // ranked third overall but is inside the SLA citation and comes first
+    // in it, because reading order is the author's order.
+    expect(out.map((c) => c.documentId)).toEqual(["sla", "faq", "glossary"]);
+    expect(out[0].pieceKeys).toEqual(["p0", "p2", "p4"]);
+    expect(out[0].text).toBe(
+      "| Severity 1 | 30 minutes | … exclusions … prose about response times",
+    );
+    // Chunk 7 was the fourth of the document and is left out.
+    expect(out[0].text).not.toContain("more prose");
+  });
+
+  it("drops the chunker's overlap when adjacent chunks are read back to back", () => {
+    // Chunks are cut with ~160 characters of overlap so no sentence is lost at
+    // a boundary. Joined, that is the same sentence twice — seen live as
+    // "## Do not affic forwarding across the whole fabric … ## Do not Never".
+    const tail = "Recovery point objective: not applicable, the fabric carries no state. ";
+    const adj = new Map<string, CitationPiece>([
+      piece("a", "d", 0, "RTO: 20 minutes. " + tail),
+      piece("b", "d", 1, tail + "Never restart the controller during a partition."),
+    ]);
+    const out = assembleCitationTexts([{ id: "a" }, { id: "b" }], (id) => adj.get(id));
+    expect(out[0].text).toBe(
+      "RTO: 20 minutes. Recovery point objective: not applicable, the fabric carries no state. Never restart the controller during a partition.",
+    );
+    // A shared short word is not an overlap — through the assembly, where a
+    // wrong trim would eat the second chunk's first word.
+    const word = new Map<string, CitationPiece>([
+      piece("a", "d", 0, "A restart drops the drain state of every node"),
+      piece("b", "d", 1, "node re-admission takes sixty seconds"),
+    ]);
+    expect(assembleCitationTexts([{ id: "a" }, { id: "b" }], (id) => word.get(id))[0].text).toBe(
+      "A restart drops the drain state of every node node re-admission takes sixty seconds",
+    );
+    expect(overlapLength("ends with the", "the start")).toBe(0);
+    expect(
+      overlapLength(
+        "x".repeat(50) + "SHARED SENTENCE OF SOME LENGTH",
+        "SHARED SENTENCE OF SOME LENGTH" + "y".repeat(50),
+      ),
+    ).toBe(30);
+  });
+
+  it("joins adjacent chunks with a space and non-adjacent ones with an ellipsis", () => {
+    const adj = new Map<string, CitationPiece>([
+      piece("a", "d", 3, "three"),
+      piece("b", "d", 4, "four"),
+      piece("c", "d", 9, "nine"),
+    ]);
+    const out = assembleCitationTexts([{ id: "c" }, { id: "a" }, { id: "b" }], (id) => adj.get(id));
+    expect(out[0].text).toBe("three four … nine");
+  });
+
+  it("one chunk per document is the old behaviour, and still available", () => {
+    const out = assembleCitationTexts(ranked, of, { chunksPerDocument: 1 });
+    expect(out[0].pieceKeys).toEqual(["p4"]);
+  });
+
+  it("caps each piece at charsPerChunk unless the piece carries its own cap", () => {
+    const long = new Map<string, CitationPiece>([
+      piece("x", "d", 0, "x".repeat(5000)),
+      piece("y", "e", 0, "y".repeat(5000), { charsCap: 4000 }),
+    ]);
+    const out = assembleCitationTexts([{ id: "x" }, { id: "y" }], (id) => long.get(id), {
+      charsPerChunk: 1600,
+    });
+    expect(out[0].text).toHaveLength(1600);
+    expect(out[1].text).toHaveLength(4000);
+  });
+
+  it("does not repeat a parent two children matched", () => {
+    const shared = new Map<string, CitationPiece>([
+      ["c1", { key: "parent-1", documentId: "d", chunkIndex: 0, text: "the parent" }],
+      ["c2", { key: "parent-1", documentId: "d", chunkIndex: 1, text: "the parent" }],
+    ]);
+    const out = assembleCitationTexts([{ id: "c1" }, { id: "c2" }], (id) => shared.get(id));
+    expect(out).toHaveLength(1);
+    expect(out[0].text).toBe("the parent");
+    expect(out[0].pieceKeys).toEqual(["parent-1"]);
+  });
+
+  it("cites at most maxDocuments, but still collects later chunks of the documents it kept", () => {
+    const out = assembleCitationTexts(ranked, of, { maxDocuments: 1 });
+    expect(out.map((c) => c.documentId)).toEqual(["sla"]);
+    expect(out[0].pieceKeys).toEqual(["p0", "p2", "p4"]);
+  });
+
+  it("skips ids the resolver does not know and squashes whitespace", () => {
+    const out = assembleCitationTexts([{ id: "nope" }, { id: "g0" }], (id) =>
+      id === "g0"
+        ? { key: "g0", documentId: "g", chunkIndex: 0, text: "  MDR\n\n  drain  " }
+        : undefined,
+    );
+    expect(out).toEqual([{ documentId: "g", text: "MDR drain", pieceKeys: ["g0"] }]);
+  });
+
+  it("the defaults are the documented ones", () => {
+    expect(CHUNKS_PER_DOCUMENT).toBe(3);
+    expect(CITATION_CHARS_PER_CHUNK).toBe(1600);
+    expect(GROUNDING_MAX_CHARS).toBe(12_000);
+  });
+});
+
+describe("applyGroundingBudget — the turn's ceiling, applied in rank order", () => {
+  const cit = (i: number, n: number) => ({ index: i, snippet: String(i).repeat(n) });
+
+  it("leaves citations that fit alone, the same objects", () => {
+    const cs = [cit(1, 100), cit(2, 100)];
+    const out = applyGroundingBudget(cs, 1000);
+    expect(out[0]).toBe(cs[0]);
+    expect(out[1]).toBe(cs[1]);
+  });
+
+  it("shortens the citation that crosses the budget and drops the ones after it", () => {
+    const out = applyGroundingBudget([cit(1, 600), cit(2, 600), cit(3, 600)], 1000);
+    expect(out.map((c) => c.snippet.length)).toEqual([600, 400]);
+  });
+
+  it("never shows a stub: less than a paragraph of room ends the list", () => {
+    const out = applyGroundingBudget([cit(1, 900), cit(2, 600)], 1000);
+    expect(out).toHaveLength(1);
+  });
+
+  it("never trims an earlier citation to make room for a later one", () => {
+    const out = applyGroundingBudget([cit(1, 3000), cit(2, 10)], 1000);
+    expect(out.map((c) => c.snippet.length)).toEqual([1000]);
+  });
+
+  it("uses the documented default and a floor that keeps at least one citation", () => {
+    expect(applyGroundingBudget([cit(1, 20_000)])[0].snippet).toHaveLength(GROUNDING_MAX_CHARS);
+    expect(applyGroundingBudget([cit(1, 20_000)], 5)[0].snippet).toHaveLength(500);
+  });
+});
+
+describe("retrieval wiring — what the model reads", () => {
+  const KB = readFileSync(resolve("src/utils/tools/kb.server.ts"), "utf8");
+
+  it("builds citations with assembleCitationTexts, not a one-chunk collapse", () => {
+    expect(KB).toContain("assembleCitationTexts(");
+    expect(KB).not.toMatch(/seenDocs/);
+    // The fused list is what is assembled, and a parent keeps its own cap.
+    expect(KB).toMatch(/assembleCitationTexts\(\s*fused,/);
+    expect(KB).toContain("charsCap: row.parent_content ? PARENT_SNIPPET_MAX : undefined");
+  });
+
+  it("a flat chunk reaches the prompt whole — the 560-character cap is gone", () => {
+    expect(KB).not.toMatch(/SNIPPET_MAX = 560/);
+    expect(KB).toMatch(/slice\(0, citationCharsPerChunk\(\)\)/);
+  });
+
+  it("applies the turn budget on both return paths, after reranking", () => {
+    // R58: both paths answer { citations, degraded } now; the budget is still
+    // applied to what the model will read, on both.
+    expect(KB).toContain(
+      "if (ranked) return { citations: applyGroundingBudget(ranked, groundingMaxChars()), degraded };",
+    );
+    expect(KB).toMatch(/citations: applyGroundingBudget\(\s*merged\.slice\(0, topK\)/);
+  });
+
+  it("the three settings are environment knobs with the library defaults", () => {
+    for (const [name, fallback] of [
+      ["KB_CHUNKS_PER_DOCUMENT", "CHUNKS_PER_DOCUMENT"],
+      ["KB_CITATION_CHARS_PER_CHUNK", "CITATION_CHARS_PER_CHUNK"],
+      ["KB_GROUNDING_MAX_CHARS", "GROUNDING_MAX_CHARS"],
+    ]) {
+      expect(KB).toMatch(new RegExp(`envInt\\("${name}", ${fallback},`));
+      expect(readFileSync(resolve(".env.example"), "utf8")).toContain(name);
+    }
+  });
+});
+
+describe("groundingPasses — a turn is grounded only on something that resembles it", () => {
+  // R12: document questions' best chunk 0.38–0.75, off-topic 0.10–0.32, no
+  // keyword hit on any off-topic question. The floor sits under the lowest
+  // document question with room for a different embedding model.
+  it("passes at or above the floor and fails below it", () => {
+    expect(groundingPasses(0.383, 0)).toBe(true);
+    expect(groundingPasses(0.3, 0)).toBe(true);
+    expect(groundingPasses(0.299, 0)).toBe(false);
+    expect(groundingPasses(0.104, 0)).toBe(false);
+  });
+
+  it("a keyword hit always passes — an exact term is evidence whatever the vector says", () => {
+    expect(groundingPasses(0.1, 1)).toBe(true);
+  });
+
+  it("no vector score is unknown, not unrelated", () => {
+    expect(groundingPasses(null, 0)).toBe(true);
+    expect(groundingPasses(Number.NaN, 0)).toBe(true);
+  });
+
+  it("a floor of 0 (or below) disables the rule", () => {
+    expect(groundingPasses(0.01, 0, 0)).toBe(true);
+    expect(groundingPasses(0.01, 0, -1)).toBe(true);
+    // Cosine similarity can be negative; off means off for those too.
+    expect(groundingPasses(-0.2, 0, 0)).toBe(true);
+  });
+
+  it("the default is the documented one", () => {
+    expect(DEFAULT_MIN_SIMILARITY).toBe(0.3);
+  });
+});
+
+describe("the floor applies to auto-RAG and never to the kb_search tool", () => {
+  const KB = readFileSync(resolve("src/utils/tools/kb.server.ts"), "utf8");
+  const CHAT = readFileSync(resolve("src/routes/api/chat.ts"), "utf8");
+  const EMBED = readFileSync(resolve("src/routes/api/embed.chat.ts"), "utf8");
+  const REG = readFileSync(resolve("src/utils/tools/registry.server.ts"), "utf8");
+
+  it("the retrieval gates the fused citations by groundingPasses with the caller's floor", () => {
+    expect(KB).toMatch(
+      /groundingPasses\(\s*bestSimilarity,\s*keywordRows\.length,\s*opts\.minSimilarity \?\? 0,?\s*\)/,
+    );
+    expect(KB).toContain("fusedCits = (grounded ? assembled : []).map(");
+    expect(KB).toContain("process.env.KB_MIN_SIMILARITY");
+  });
+
+  it("both chat routes pass the operator's floor; the tool passes none", () => {
+    expect(CHAT).toContain("minSimilarity: autoRagMinSimilarity(),");
+    expect(EMBED).toContain("minSimilarity: autoRagMinSimilarity(),");
+    const at = REG.indexOf("const cits = await retrieveCitationsServer({");
+    const toolCall = REG.slice(at, REG.indexOf("});", at));
+    expect(toolCall).not.toContain("minSimilarity");
+    expect(readFileSync(resolve(".env.example"), "utf8")).toContain("KB_MIN_SIMILARITY");
   });
 });

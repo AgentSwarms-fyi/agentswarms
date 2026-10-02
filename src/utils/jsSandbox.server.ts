@@ -75,7 +75,7 @@ export async function jsSandboxConfigured(): Promise<boolean> {
  */
 export const JS_SANDBOX_UNAVAILABLE =
   "Custom code (Function and component nodes) needs the JS sandbox service for headless runs. " +
-  "Start it with `docker compose --profile sandbox up -d --build` (no further configuration inside Compose), " +
+  "Start it with `docker compose up -d --build` (no further configuration inside Compose), " +
   "or run this swarm from the canvas.";
 
 export async function runSandboxedServer(

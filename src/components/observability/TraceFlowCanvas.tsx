@@ -1,6 +1,7 @@
 // Visual ReactFlow canvas for a single swarm run.
 // Mirrors the original swarm topology but colors each node by run status
 // and shows quick metrics inline. Click a node/edge to inspect.
+import { formatUsd } from "@/lib/usd";
 import { useMemo } from "react";
 import {
   ReactFlow,
@@ -112,8 +113,8 @@ export function TraceFlowCanvas({
               </div>
               {step && (
                 <div className="text-[10px] font-mono text-muted-foreground mt-1">
-                  {step.latency_ms}ms · {step.tokens_in}/{step.tokens_out}t · $
-                  {Number(step.cost_usd).toFixed(4)}
+                  {step.latency_ms}ms · {step.tokens_in}/{step.tokens_out}t ·{" "}
+                  {formatUsd(step.cost_usd)}
                 </div>
               )}
             </div>

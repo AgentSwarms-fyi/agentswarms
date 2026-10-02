@@ -6,6 +6,28 @@ Connect your own databases, warehouses and lakehouses so agents and the BI
 Workspace can query them directly. Connectors live under **Integrations →
 Data Sources**.
 
+## Three different things are called a catalog
+
+The word does a lot of work in this business, and two of the three are ours, so
+it is worth being explicit once:
+
+| What you read                                   | What it is                                                                                                                  |
+| ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| **Data Catalog** (`/data-sql`)                  | The inventory of every dataset you can reach — columns, tags, PII flags, profile. Describes data **for people and agents**. |
+| **External table catalog**                      | Somebody else's metadata service — Iceberg REST, Unity, Polaris, Nessie. Connected here as a source.                        |
+| **lakehouse catalog** (`LAKEHOUSE_CATALOG_URL`) | The Postgres the built-in lakehouse keeps its table manifests and snapshots in. **Machinery, not an inventory.**            |
+
+They sit in a stack rather than side by side: the lakehouse catalog is what
+makes the Parquet in your bucket queryable at all, and the Data Catalog then
+describes those tables — along with everything else — so a person can find
+them. Losing annotations in the first costs you documentation; losing the third
+leaves you with files nobody can name.
+
+They are also connected in one direction that matters: a **tag written in the
+Data Catalog drives lakehouse masking and row policies**, so the thing that
+describes the data is also what governs it. See
+[LAKEHOUSE.md](./LAKEHOUSE.md#policies-by-tag) for that path.
+
 ## How connecting works
 
 1. Open **Integrations → Data Sources** and pick a provider.
@@ -114,13 +136,25 @@ what is in there, choose what to sync. Each stream becomes its own dataset and
 is then indistinguishable from an uploaded CSV — same type inference, same
 version history, same use in BI, prep flows and the semantic layer.
 
-| App               | Auth                                           | Streams                                                                                                                |
-| ----------------- | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| **Google Sheets** | Service-account JSON (share the sheet with it) | One per worksheet                                                                                                      |
-| **Stripe**        | Secret or restricted key                       | Charges, customers, invoices, subscriptions, payment intents, products, prices, refunds, payouts, balance transactions |
-| **Shopify**       | Admin API access token                         | Orders, customers, products, draft orders, price rules                                                                 |
-| **HubSpot**       | Private app token                              | Contacts, companies, deals, tickets, line items, products                                                              |
-| **Salesforce**    | Connected app (client credentials)             | Accounts, contacts, leads, opportunities, cases, campaigns, users                                                      |
+| App                    | Auth                                             | Streams                                                                                                                |
+| ---------------------- | ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
+| **Google Sheets**      | Service-account JSON (share the sheet with it)   | One per worksheet                                                                                                      |
+| **Stripe**             | Secret or restricted key                         | Charges, customers, invoices, subscriptions, payment intents, products, prices, refunds, payouts, balance transactions |
+| **Shopify**            | Admin API access token                           | Orders, customers, products, draft orders, price rules                                                                 |
+| **HubSpot**            | Private app token                                | Contacts, companies, deals, tickets, line items, products                                                              |
+| **Jira**               | Email + API token (Jira Cloud)                   | Issues, one dataset per project — summary, status, type, priority, assignee, reporter, dates, labels                   |
+| **Zendesk**            | Email + API token (sent as `email/token`)        | Tickets, users, organizations                                                                                          |
+| **Salesforce**         | Connected app (client credentials)               | Accounts, contacts, leads, opportunities, cases, campaigns, users                                                      |
+| **ServiceNow**         | Basic auth (integration user)                    | Incidents, change requests, problems, catalog requests, requested items, tasks, users, CMDB                            |
+| **Intercom**           | Access token (app in your own workspace)         | Contacts, conversations, admins                                                                                        |
+| **GitHub**             | Personal access token                            | Issues and pull requests, one dataset per repository                                                                   |
+| **Linear**             | Personal API key (sent bare, no `Bearer`)        | Issues, projects, teams, users, cycles                                                                                 |
+| **Asana**              | Personal access token                            | Tasks, one dataset per project                                                                                         |
+| **Freshdesk**          | API key (used as the basic-auth username)        | Tickets, contacts, companies, agents                                                                                   |
+| **Klaviyo**            | Private API key (`Klaviyo-API-Key`)              | Profiles, events, lists, metrics, email campaigns                                                                      |
+| **Notion**             | Internal integration secret, shared per database | One dataset per database                                                                                               |
+| **Airtable**           | Personal access token, scoped per base           | One dataset per table                                                                                                  |
+| **Google Analytics 4** | Service-account JSON + property id               | One dataset per report — traffic, pages, events, countries, devices, key events                                        |
 
 **Auth is a pasted credential, never OAuth.** A redirect flow needs a public
 callback URL that a self-hosted deployment behind a firewall may not have, so
@@ -128,11 +162,165 @@ every connector uses the vendor's server-to-server credential instead. That is
 a deliberate constraint, and it is why sources offering no such credential are
 not here yet.
 
-A sync **replaces** its dataset — the correct semantic for a source where rows
-are edited and deleted in place. The previous contents are snapshotted as a
-restorable version first. Syncs run on demand or hourly / daily / weekly, and
-the owner is notified if one fails or comes back partial. Nested API objects
-are flattened into columns; arrays are stored as JSON with a count alongside.
+Syncs run on demand or hourly / daily / weekly, and the owner is notified if
+one fails or comes back partial. Nested API objects are flattened into
+columns; arrays are stored as JSON with a count alongside.
+
+### Following a source instead of re-reading it
+
+A sync does one of two things, and the **Streams** button on a connection says
+which for every stream it syncs.
+
+**Full refresh** re-reads the source and replaces the dataset. It is the right
+semantic where rows are edited and deleted in place with nothing to filter on
+— a spreadsheet, a small reference list — and it is what every source did
+until now. The previous contents are snapshotted as a restorable version
+first, so a sync that pulls a truncated source is recoverable.
+
+**Incremental** asks the API for records changed since the last sync and folds
+them into the dataset by key. Re-reading a Salesforce org or a Stripe account
+every hour burns the customer's rate limit for no new information and
+eventually takes longer than the interval it runs on.
+
+| Source                 | Follows                                                                    | On                                 | Keyed by                        |
+| ---------------------- | -------------------------------------------------------------------------- | ---------------------------------- | ------------------------------- |
+| **Salesforce**         | every object                                                               | `SystemModstamp`                   | `Id`                            |
+| **Stripe**             | charges, invoices, payment intents, refunds, payouts, balance transactions | `created`                          | `id`                            |
+| **Shopify**            | every resource                                                             | `updated_at`                       | `id`                            |
+| **HubSpot**            | every object                                                               | `hs_lastmodifieddate`              | `id`                            |
+| **Jira**               | every project                                                              | `updated`                          | `id`                            |
+| **Zendesk**            | tickets, users                                                             | `updated_at`                       | `id`                            |
+| **ServiceNow**         | every table                                                                | `sys_updated_on`                   | `sys_id`                        |
+| **Intercom**           | contacts, conversations                                                    | `updated_at` (Unix seconds)        | `id`                            |
+| **GitHub**             | every repository                                                           | `updated_at`                       | `id`                            |
+| **Linear**             | every stream                                                               | `updatedAt`                        | `id`                            |
+| **Asana**              | every project                                                              | `modified_at`                      | `gid`                           |
+| **Freshdesk**          | tickets, contacts                                                          | `updated_at`                       | `id`                            |
+| **Klaviyo**            | every stream                                                               | `updated`, or `datetime` on events | `id`                            |
+| **Notion**             | every database                                                             | `last_edited_time`                 | `id`                            |
+| **Google Analytics 4** | every report                                                               | `date`, with a 14-day re-read      | `row_key` (the dimension tuple) |
+
+Everything else is a full refresh, and each of those is a decision rather than
+something pending. Stripe's `customers`, `subscriptions`, `products` and
+`prices` are edited in place while their `created` never moves, so following it
+would miss every edit; they are few enough that re-reading costs little.
+Zendesk offers no incremental export for **organizations**, Intercom has
+no search endpoint for **admins**, and Freshdesk offers no changed-since filter
+for **companies** or **agents**. **Airtable** is the third source with nothing
+to follow at all: it exposes no universal modified timestamp, and a base only
+has one if somebody added a Last Modified Time field to that table. Guessing at
+a likely field name would follow the wrong column on some bases and miss edits
+silently, which is worse than re-reading — and Airtable bases are small by
+design, so a full read is cheap — a workspace has tens of them, so a full
+read is one request. Google Sheets has
+nothing to follow at all — a worksheet's rows are edited and deleted in place
+with no timestamp — which is the case full refresh exists for.
+
+Each API is asked in its own dialect, and three of them have a trap worth
+naming:
+
+- **Jira pages by OFFSET**, so it is now ordered `updated ASC`. Under the old
+  `updated DESC` a record edited while the sync was running was prepended and
+  shifted every later page down one, skipping a row per edit on a busy project.
+  JQL also compares a bare timestamp against the **site's** timezone, which the
+  connector cannot know without another call, so the window is widened by 24
+  hours — wider than any UTC offset can be. Guessing the offset wrong in the
+  wrong direction skips edits silently.
+- **HubSpot's list endpoint cannot filter by date at all**, so following means
+  searching. Search stops returning a cursor past **10,000 results**, so the
+  query is reissued from the last timestamp seen rather than paged further —
+  otherwise a large object silently stops at ten thousand records.
+- **ServiceNow pages by OFFSET** and promises no stable order without one, so
+  every query carries `ORDERBYsys_updated_on`. It is also asked for RAW values
+  rather than display values: `sysparm_display_value=true` renders dates in the
+  instance's own format and timezone, which would make the cursor unparseable
+  and shift the window by the instance's offset. The key is `sys_id`, a GUID,
+  rather than the `number` an admin can reformat.
+- **Intercom's cursor is Unix seconds**, so it compares numerically. Compared
+  as text, "9…" beats "10…" and the mark walks backwards at every digit
+  boundary.
+- **GitHub returns pull requests from the issues endpoint** — they are issues
+  underneath. Dropping them would lose data somebody asked for, and hiding the
+  difference would make "how many issues" wrong, so `is_pull_request` is a
+  column of its own. Issues are asked for with `state=all`: the default is
+  open-only, which is a minority of any real repository's history.
+- **Freshdesk's two filters are spelt differently**: tickets take
+  `updated_since` and contacts take `_updated_since`, with a leading
+  underscore. Getting it wrong is silent — Freshdesk ignores an unknown
+  parameter and returns everything, so the sync appears to work and simply
+  never follows. It also stops paginating a list at 300 pages, so a window
+  holding more than 30,000 records raises rather than returning a dataset
+  quietly short.
+- **Linear has no REST API**, so it is the one connector that posts a GraphQL
+  query. Its personal API key goes in as a bare `Authorization` header with no
+  `Bearer` prefix, and GraphQL answers a failed query with HTTP 200 and an
+  `errors` array — so the status alone would report a failure as a success.
+- **Asana's `modified_since` is exclusive**, unlike most of the APIs here. That
+  is safe rather than lossy: the task that set the mark has already been
+  synced. Its task endpoint also returns only a gid and a name unless
+  `opt_fields` names everything wanted, which would otherwise produce a
+  two-column dataset that looks like it worked.
+- **Klaviyo has its own filter grammar** — `greater-or-equal(field,value)`
+  rather than a parameter per field — and requires a `revision` header naming
+  an API date on every request. Its `next` link carries the cursor AND the
+  filters, so it is followed rather than rebuilt: rebuilding is how a filter
+  gets dropped on page two and a sync quietly returns everything. Campaigns
+  additionally refuse to answer without a channel filter.
+- **A Notion integration sees nothing until each database is SHARED with it**
+  from Notion's own UI, and Notion answers that with an empty list rather than
+  an error — so an empty stream list says which step is missing. Every property
+  is wrapped in its type (`{type:"date",date:{start,end}}`), so each is
+  unwrapped to the value a person expects; a date range keeps its end, because
+  collapsing one to its start is a silently wrong answer to "how long did this
+  take".
+- **GA4 is not a record source at all**, and it is the only one here that is
+  not. Its Data API answers a question — these dimensions, these metrics, this
+  date range — and returns aggregated rows that exist only because you asked
+  for them. So a stream is a report definition, the cursor is a date, and the
+  key is composed from the dimension tuple because an aggregate has no id.
+  Two consequences worth knowing: GA4 **restates recent days** as late hits and
+  modelled conversions arrive, so every incremental run re-reads the previous
+  fortnight and the merge replaces those days by key — following the mark
+  naively would write each day's first, incomplete figure and never look at it
+  again, leaving a dashboard permanently understated with nothing to indicate
+  it. And every metric arrives as a **string**, so each is converted to a
+  number: left alone, a column of sessions is text and cannot be summed.
+- **Zendesk's incremental export walks a time-ordered log**, where an empty
+  page is a quiet hour rather than the end. Only `end_of_stream` terminates it;
+  stopping on an empty page would truncate the sync at the first quiet hour.
+
+Salesforce follows `SystemModstamp` rather than `LastModifiedDate` on purpose.
+LastModifiedDate reflects user edits only, while SystemModstamp also moves when
+the platform touches a record — a merge, a cascade from a parent, a bulk
+update. Following the wrong one silently misses those, and "the row changed but
+we never saw it" is the failure that takes a quarter to notice.
+
+Four properties the implementation guarantees, each because getting it wrong
+fails quietly:
+
+- **The first pass reads everything and REPLACES.** With no high-water mark
+  the connector returns the whole source, and merging that into a stale dataset
+  would leave rows the source has since deleted, for ever.
+- **The mark is written only after the rows are committed.** Advanced first and
+  then lost to a failed ingest, the next run would skip the whole window and
+  nothing would say so.
+- **It never moves backwards, and never on a tie.** A record sharing the exact
+  timestamp of the last one seen is re-read and folded away by its key, rather
+  than dropped.
+- **A record without the cursor field does not reset the mark.** It is ignored,
+  not treated as "start again".
+
+### Starting a stream over
+
+**Streams → Start over** forgets the high-water mark, so the next sync reads
+that stream in full. It is the escape hatch for what a cursor cannot see:
+records the API changed without moving their cursor field, or a backfill that
+predates the connection.
+
+It is **owner-only**, unlike triggering a sync, and it is audited as
+`saas_connection.cursor_reset`. A full re-read is charged to the owner's API
+quota and can take hours on a large account, so a grantee who may ask for a
+refresh cannot spend that on their behalf.
 
 ## Providers
 
@@ -209,7 +397,8 @@ the exact code the app runs, just with credentials only you hold.
 ## Cataloging a source
 
 The **Data Catalog** (`/data-sql`) can crawl a connected warehouse — or an
-S3-compatible bucket (AWS S3, GCS, Cloudflare R2, MinIO, Spaces, B2) or an
+S3-compatible bucket (AWS S3, GCS, Cloudflare R2, MinIO, Spaces, B2), an
+**Azure Blob Storage / ADLS Gen2** container (account key or SAS token), or an
 **Iceberg REST catalog** — to list every table/object, infer schemas by
 sampling, profile columns (null %, distinct counts, ranges), estimate row
 counts, flag likely-PII columns, and trace which dashboards/prep flows/metrics
@@ -247,6 +436,45 @@ from 30.7ms to 2.9ms per query. Reproduce it on your own database with
 If your network has no direct egress, set `HTTPS_PROXY` / `NO_PROXY` and every
 connector follows them — without it, reaching a cloud warehouse fails as a
 connection timeout rather than anything that names the cause.
+
+## Use cases
+
+### Connect the production warehouse and hand it to the team
+
+1. **Integrations → Data Sources.** Name the connection, choose the provider,
+   enter host, database and a read-only login, and test it. The credential is
+   encrypted at rest under `PROVIDER_CREDS_SECRET`; what you typed is never
+   shown again.
+2. Share it with a group from **Admin → IAM → Access**. Grantees' agents and
+   workbench sessions query it, but the connection runs as its owner — see
+   [Sharing a connection with your team](#sharing-a-connection-with-your-team).
+   Rows returned to an agent are capped, so a runaway `SELECT *` cannot flood a
+   context window.
+
+### Catalog an Azure container
+
+Finance drops monthly Parquet extracts into an ADLS Gen2 container.
+
+1. **Data catalog → add a source.** Choose _Azure Blob Storage / ADLS Gen2_.
+   The wizard asks for the **Container**, the **Storage account name** and an
+   **Account key or SAS token**.
+2. Files are read in place with DuckDB over `az://`; mount the container into
+   the lakehouse as a read-only source when agents should query it with SQL.
+
+### Ask an agent about Jira, or about Zendesk
+
+1. **Integrations → Apps → Jira.** Enter the site URL, the account email and
+   an API token, and optionally the project keys to include. Each project
+   becomes a stream (`issues:<KEY>`); each stream syncs into a local table
+   under a schedule. **Zendesk** works the same way with a subdomain, email
+   and token, and exposes tickets, users and organizations.
+2. Give an agent the synced tables as a source and ask _which open bugs in
+   PROJ are older than thirty days?_ — the answer comes from your copy of the
+   data, on your schedule, with the same provenance as any other read.
+
+Each connector checks the credential when you connect it — by listing the
+projects, or calling the account endpoint — so a wrong token is reported at
+the form rather than at the first sync.
 
 ## Security notes
 

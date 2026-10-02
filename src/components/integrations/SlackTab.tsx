@@ -60,6 +60,7 @@ import {
 } from "@/components/ui/table";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/integrations/supabase/client";
+import { SlackRoutingCard } from "@/components/integrations/SlackRoutingCard";
 import {
   deleteSlackWorkspace,
   listSlackWorkspaces,
@@ -74,6 +75,12 @@ type AnalystOption = { id: string; name: string };
 function commandUrl(): string {
   if (typeof window === "undefined") return "/api/slack/command";
   return `${window.location.origin}/api/slack/command`;
+}
+
+/** The Events API's own URL: mentions and DMs arrive here, not at the command. */
+function eventsUrl(): string {
+  if (typeof window === "undefined") return "/api/slack/events";
+  return `${window.location.origin}/api/slack/events`;
 }
 
 export function SlackTab() {
@@ -196,7 +203,8 @@ export function SlackTab() {
             <MessageSquare className="h-4 w-4" /> Ask from Slack
           </CardTitle>
           <CardDescription>
-            A slash command runs one of your AI Analysts and posts the answer in the channel. The
+            A slash command runs an agent or one of your AI Analysts and posts the answer in the
+            channel; an @mention or a direct message is answered in the thread. An analyst&apos;s
             answer is a summary — the rows, the SQL and the lineage stay here, and every message
             links back.
           </CardDescription>
@@ -229,6 +237,27 @@ export function SlackTab() {
               )}
           </div>
 
+          <div className="space-y-1">
+            <Label className="text-xs">Event Subscriptions URL (only for @mentions and DMs)</Label>
+            <div className="flex items-center gap-2">
+              <code className="min-w-0 flex-1 truncate rounded-md border border-border/60 bg-muted/50 px-2 py-1.5 font-mono text-[11px]">
+                {eventsUrl()}
+              </code>
+              <Button
+                size="sm"
+                variant="outline"
+                className="shrink-0 gap-1.5"
+                onClick={() => {
+                  void navigator.clipboard.writeText(eventsUrl());
+                  toast.success("Events URL copied");
+                }}
+              >
+                <Copy className="h-3.5 w-3.5" />
+                Copy
+              </Button>
+            </div>
+          </div>
+
           <ol className="list-decimal space-y-1 pl-4 text-[11px] leading-relaxed text-muted-foreground">
             <li>
               Create an app at <span className="font-mono">api.slack.com/apps</span> → From scratch,
@@ -244,6 +273,14 @@ export function SlackTab() {
               app's URL or <span className="font-mono">/apps</span> page.
             </li>
             <li>Add them below with the analyst that should answer, then install the app.</li>
+            <li>
+              For @mentions and DMs: <strong>Event Subscriptions</strong> → on, Request URL as above
+              (save the workspace here first — Slack verifies the URL the moment you paste it),
+              subscribe to <span className="font-mono">app_mention</span> and{" "}
+              <span className="font-mono">message.im</span>, add the{" "}
+              <span className="font-mono">chat:write</span> scope, reinstall, and paste the{" "}
+              <strong>Bot User OAuth Token</strong> below.
+            </li>
           </ol>
         </CardContent>
       </Card>
@@ -346,6 +383,8 @@ export function SlackTab() {
           )}
         </CardContent>
       </Card>
+
+      <SlackRoutingCard workspaces={rows ?? []} token={token} onChanged={refresh} />
 
       <Dialog open={!!editing} onOpenChange={(o) => !o && setEditing(null)}>
         <DialogContent className="max-w-lg">

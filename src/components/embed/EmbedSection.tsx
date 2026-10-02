@@ -3,6 +3,7 @@
 // dashboards. Each embed is authorized by a generated key (a capability
 // token scoped to one resource) plus a domain allow-list enforced
 // server-side in /api/embed* — see src/utils/embed.server.ts for the model.
+import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -235,7 +236,12 @@ export function EmbedSection() {
   }
 
   async function remove(k: EmbedKey) {
-    if (!window.confirm(`Delete embed "${k.name}"? Existing iframes will stop working.`)) return;
+    if (
+      !(await confirmAsk({
+        title: `Delete embed "${k.name}"? Existing iframes will stop working.`,
+      }))
+    )
+      return;
     const { error } = await supabase.from("embed_keys").delete().eq("id", k.id);
     if (error) return toast.error(error.message);
     setKeys((prev) => prev.filter((x) => x.id !== k.id));

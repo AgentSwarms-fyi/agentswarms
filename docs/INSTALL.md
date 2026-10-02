@@ -8,20 +8,19 @@ storage), configuring environment variables, and running the app.
 
 ## 1. Prerequisites
 
-| Requirement                                   | Version              | Why                                                                                                               |
-| --------------------------------------------- | -------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| **Node.js**                                   | `20.19+` or `22.12+` | Required by Vite 7. Older Node 18 will fail to start the dev server.                                              |
-| **npm** (bundled with Node) or **Bun** `1.1+` | —                    | Either works — both `package-lock.json` and `bun.lock` are committed. Use one consistently.                       |
-| **Git**                                       | any recent           | to clone the repo                                                                                                 |
-| **A Supabase account**                        | free tier is enough  | [supabase.com](https://supabase.com) — this is your database, auth, and file storage                              |
-| **Supabase CLI**                              | `2.x`                | _(recommended, not strictly required)_ — the fastest way to apply the project's ~60 SQL migrations in one command |
+| Requirement                                   | Version              | Why                                                                                                                              |
+| --------------------------------------------- | -------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| **Node.js**                                   | `20.19+` or `22.12+` | Required by Vite 7. Older Node 18 will fail to start the dev server.                                                             |
+| **npm** (bundled with Node) or **Bun** `1.1+` | —                    | Either works — both `package-lock.json` and `bun.lock` are committed. Use one consistently.                                      |
+| **Git**                                       | any recent           | to clone the repo                                                                                                                |
+| **A Supabase account**                        | free tier is enough  | [supabase.com](https://supabase.com) — this is your database, auth, and file storage                                             |
+| **Supabase CLI**                              | `2.x`                | _(recommended, not strictly required)_ — the fastest way to apply the project's SQL migrations (over two hundred) in one command |
 
 Optional, but needed for a fully working app:
 
-| Optional                                                                  | Why                                                                                                                                                       |
-| ------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **OpenRouter API key** ([openrouter.ai/keys](https://openrouter.ai/keys)) | Without it, nobody can chat with an agent until they add their own provider key under `/integrations`. With it, the app works zero-config for every user. |
-| **OpenAI API key** ([platform.openai.com](https://platform.openai.com))   | Powers Knowledge Base embeddings (RAG / vector search). Without it, KB search silently falls back to keyword search.                                      |
+| Optional                                                                  | Why                                                                                                                                                                                                         |
+| ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **OpenRouter API key** ([openrouter.ai/keys](https://openrouter.ai/keys)) | Without it, nobody can chat with an agent or embed a document until they connect their own provider under `/integrations`. With it, chat **and** Knowledge Base embeddings work zero-config for every user. |
 
 #### macOS
 
@@ -72,14 +71,11 @@ curl -fsSL https://bun.sh/install | bash
 
 #### Windows
 
-**Use WSL2 (Windows Subsystem for Linux) — strongly recommended.** The
-project's `build`/`build:dev` npm scripts set an env var inline
-(`NODE_OPTIONS=--max-old-space-size=6144 vite build ...`), which is POSIX
-shell syntax that **plain `cmd.exe` and native PowerShell cannot run
-as-is**. `npm run dev` (the command you'll use day-to-day) doesn't have this
-problem, but you'll hit it the first time you try `npm run build`. WSL2
-sidesteps this entirely by giving you a real Linux shell, and it's also
-generally the smoother path for Node tooling on Windows.
+**Use WSL2 (Windows Subsystem for Linux) — recommended.** Everything works
+on native Windows: the build scripts go through `cross-env`, so
+`npm run build` runs the same in `cmd.exe`, PowerShell and Git Bash. WSL2 is
+still the smoother path for Node tooling generally — file watching, native
+modules and shell scripts all behave the way the rest of the project assumes.
 
 ```powershell
 # In an elevated PowerShell:
@@ -93,17 +89,13 @@ dev`, etc.) from within WSL, not from Windows PowerShell.
 
 **If you'd rather stay on native Windows** (no WSL): install Node from
 [nodejs.org](https://nodejs.org) (LTS ≥20.19) and Git from
-[git-scm.com](https://git-scm.com), use **Git Bash** as your terminal (it
-understands the POSIX env-var syntax above), and install the Supabase CLI
-via `scoop install supabase` ([scoop.sh](https://scoop.sh)) or by
-downloading the Windows binary from the
-[Supabase CLI releases page](https://github.com/supabase/cli/releases). If
-you use plain PowerShell instead of Git Bash, `npm run build` will fail
-until you run it as:
-
-```powershell
-$env:NODE_OPTIONS="--max-old-space-size=6144"; npx vite build --sourcemap false
-```
+[git-scm.com](https://git-scm.com), and install the Supabase CLI via
+`scoop install supabase` ([scoop.sh](https://scoop.sh)) or by downloading
+the Windows binary from the
+[Supabase CLI releases page](https://github.com/supabase/cli/releases). Any
+terminal will do — `cmd.exe`, PowerShell or Git Bash — because the npm
+scripts set their environment through `cross-env` rather than POSIX shell
+syntax.
 
 ## 2. Clone and install
 
@@ -124,6 +116,12 @@ walks through. **Option B** runs Supabase on your own machine with Docker —
 no account, nothing leaves your infrastructure, and a script does every step
 for you.
 
+> **Deploying to Kubernetes instead?** There is a third path that skips this
+> whole section: `bash scripts/setup-k8s.sh` installs Supabase into your
+> cluster from the community Helm chart, applies the schema, creates your admin
+> user and starts the app and every service alongside it. See
+> [DEPLOYMENT.md § D1](./DEPLOYMENT.md#d1-fully-self-hosted-one-command).
+
 ### Option B — self-hosted Supabase (Docker, no account needed)
 
 One command deploys the **entire solution**: it downloads and starts the
@@ -135,13 +133,13 @@ automatically, and then installs and starts the app itself:
 ```bash
 git clone https://github.com/AgentSwarms-fyi/agentswarms.git
 cd agentswarms
-bash scripts/setup-selfhosted.sh --all     # → app on :8080, Supabase on :8000
+bash scripts/setup-selfhosted.sh     # → app on :8080, Supabase on :8000
 ```
 
 Prompts for your admin email and password (or pass them non-interactively):
 
 ```bash
-ADMIN_EMAIL=you@corp.com ADMIN_PASSWORD='a-strong-one' bash scripts/setup-selfhosted.sh --all
+ADMIN_EMAIL=you@corp.com ADMIN_PASSWORD='a-strong-one' bash scripts/setup-selfhosted.sh
 ```
 
 What the script does, in order — each step is the automated version of the
@@ -217,7 +215,7 @@ continue at [§5](#5-run-the-app).
 
 #### 3.2 Apply the database schema (migrations)
 
-The repo ships ~60 SQL migrations under `supabase/migrations/` that create
+The repo ships over two hundred SQL migrations under `supabase/migrations/` that create
 every table, RLS policy, Postgres function/trigger, index, and the
 `avatars` storage bucket. They also enable the Postgres extensions the app
 needs: `vector` (pgvector, for Knowledge Base embeddings), `pg_cron`,
@@ -238,8 +236,8 @@ won't know where to push. The `project_id` in `supabase/config.toml` is
 just a local name for the CLI; it ships pre-filled (`"agentswarms"`) and
 you don't need to change it.
 
-**Alternative: manual, via the SQL Editor** (works but tedious for ~60
-files) — in the Supabase Dashboard, open **SQL Editor**, and run each file
+**Alternative: manual, via the SQL Editor** (works, but there are over two
+hundred files) — in the Supabase Dashboard, open **SQL Editor**, and run each file
 under `supabase/migrations/` **in filename order** (the leading timestamp
 is the sort key — oldest first). Paste each file's contents and run it
 before moving to the next.
@@ -293,7 +291,7 @@ is documented inline in the file. In short:
 
   > The **Project ID** from step 3.1 is not an environment variable. It is
   > passed straight to the CLI as `supabase link --project-ref <id>` in step
-  > 3.3, which records it under `supabase/.temp/`. Nothing at runtime reads
+  > 3.2, which records it under `supabase/.temp/`. Nothing at runtime reads
   > it.
 
 - `OPENROUTER_API_KEY` — optional but recommended; makes the app usable
@@ -301,8 +299,9 @@ is documented inline in the file. In short:
   [openrouter.ai/keys](https://openrouter.ai/keys).
 - `OPENROUTER_DEFAULT_MODEL`, `OPENROUTER_BASE_URL` — optional overrides,
   sensible defaults are pre-filled.
-- `OPENAI_API_KEY` — optional; only needed if you want Knowledge Base (RAG)
-  document search to use real vector embeddings instead of keyword search.
+- No separate embeddings key. Knowledge Base vector search runs on whichever
+  model provider is connected — see
+  [Which provider embeds](KNOWLEDGE_BASES.md#which-provider-embeds).
 - `FIRECRAWL_API_KEY` — optional; powers the agent `web_search` / `web_browse`
   tools workspace-wide. See [Web search & browsing](#web-search--browsing-optional)
   below for exactly what works with and without it.
@@ -314,16 +313,43 @@ is documented inline in the file. In short:
 
 **Outbound transactional email (optional).** Welcome emails, budget alerts,
 BI alerts, scheduled reports, approval requests and the contact form send
-through whichever transport you configure: `RESEND_API_KEY`
-([resend.com](https://resend.com)), or
-`SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASS` (any SMTP provider). Set
-`EMAIL_FROM` and `SITE_URL` alongside either. **With neither configured, sends
+through whichever transport you configure. **With neither configured, sends
 are skipped and logged** (see the `email_send_log` table) — the app works fine
 without email, so it's safe to skip this entirely for local dev. Auth emails
 (confirmation, password reset) are unaffected — Supabase sends those itself
 (step 3.3).
 
-#### Setting up Resend with your own domain
+**No third-party account is required.** SMTP is built in — `nodemailer` is a
+dependency of the app, not something to install — so any relay you already
+have works with nothing else signed up for. Resend exists for deployments
+that have no relay to point at.
+
+#### Option A — your own SMTP relay
+
+Four variables, no account anywhere:
+
+```bash
+SMTP_HOST="smtp.your-company.com"
+SMTP_PORT="587"
+SMTP_USER="apikey-or-username"
+SMTP_PASS="..."
+EMAIL_FROM="AgentSwarms <noreply@your-company.com>"
+SITE_URL="https://your-domain.com"
+```
+
+Port **587** with STARTTLS is the usual choice and the default. Port **465**
+turns on implicit TLS automatically; set `SMTP_SECURE="true"` to force it on
+any other port. Leave `SMTP_USER` empty for a relay that authenticates by IP
+rather than by credential, which is common for an internal Postfix or an SES
+endpoint restricted to your VPC.
+
+Anything that speaks SMTP works: a corporate Exchange or Google Workspace
+relay, Amazon SES, a provider's free tier, or a mail server you run. Whatever
+you pick, the sending domain still needs SPF and DKIM records or large
+providers will treat the mail as spam — that requirement belongs to email,
+not to any particular vendor.
+
+#### Option B — Resend, when there is no relay to point at
 
 `RESEND_API_KEY` on its own is **not enough**. Resend will only send from an
 address on a domain you have verified, so both halves matter:
@@ -365,8 +391,8 @@ pointing at their own machine.
 
 ### Web search & browsing (optional)
 
-Agents can be given two web tools in the agent editor (**Build → Agents → edit
-→ Tools**): `web_search` (search the web) and `web_browse` (fetch one page as
+Agents can be given two web tools in the agent editor (**Build → Agent Builder
+→ edit → Tools**): `web_search` (search the web) and `web_browse` (fetch one page as
 clean markdown). How well they work depends on whether a key is configured —
 **no key is required to start**, but the free fallback is limited:
 
@@ -439,40 +465,46 @@ browser.
    agents), then open it in **Build → Agent Chat** and send a message. If
    `OPENROUTER_API_KEY` is set, this should work immediately with no further
    configuration.
-3. Open **Knowledge Base**, create one, and upload a document. If
-   `OPENAI_API_KEY` is set, it gets embedded for vector search; otherwise it
-   still works via keyword search.
+3. Open **Knowledge Base**, create one, and upload a document. If any
+   embedding-capable provider is connected (or `OPENROUTER_API_KEY` is set), it
+   gets embedded for vector search; otherwise it still works via keyword
+   search.
 4. Open **Swarms** and load one of the built-in templates to confirm the
    visual canvas and multi-agent execution work end-to-end.
 
 Product documentation for every feature ships inside the app at `/docs`.
 
-## 7. Optional services (and how to start all of them)
+## 7. The services (all of them, on every install)
 
-The core stack is one container: the app. Three more services are optional
-profiles, off unless you ask for them — and until now this guide only mentioned
-one of the three.
+Every install starts all nine services — there are no profiles and nothing to
+opt into. The table says what each one does, so you know what a stopped
+container costs you.
 
-| Service                     | Profile     | What you lose without it                                                                           |
-| --------------------------- | ----------- | -------------------------------------------------------------------------------------------------- |
-| Document renderer           | `docgen`    | Deep-mode exports fall back to the in-browser builder (no native charts/tables)                    |
-| JS sandbox                  | `sandbox`   | Function and custom-component nodes work on the canvas but fail in deployed / scheduled swarm runs |
-| Developer-workspace runtime | `notebooks` | Notebooks run in the browser (Lite) only — no real CPython, no `pip install`                       |
+| Service                     | Container           | What you lose without it                                                                                                                                    |
+| --------------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Document renderer           | `docgen`            | Deep-mode exports fall back to the in-browser builder (no native charts/tables)                                                                             |
+| JS sandbox                  | `js-sandbox`        | Function and custom-component nodes work on the canvas but fail in deployed / scheduled swarm runs                                                          |
+| Developer-workspace runtime | `notebook-*`        | **Notebooks cannot run at all** — the editor shows a panel asking an admin to enable the runtime. ETL runs, ML training and MCP servers need it too         |
+| Lakehouse catalog           | `lakehouse-catalog` | A Postgres for the lakehouse's catalog; without one (this, or your own in `LAKEHOUSE_CATALOG_URL`) the lakehouse, SQL models and ML stay off                |
+| Object store (MinIO)        | `minio`             | Where lakehouse Parquet files live; without one (this, or your own in `LAKEHOUSE_S3_*`) a table has nowhere to write                                        |
+| Spark cluster               | `spark-connect`     | A Spark Connect endpoint for the ETL Spark engine and lakehouse queries on Spark; idle until `SPARK_CONNECT_URL` names it, ~1 GB image, jars on first use   |
+| Vector store (Qdrant)       | `qdrant`            | Somewhere other than Postgres to search knowledge-base embeddings; idle until `VECTOR_STORE=qdrant` names it, and retrieval stays on pgvector until it does |
+| Online feature store        | `valkey`            | Millisecond feature lookups for serving; idle until `FEATURE_STORE_URL` names it, and every lookup reads the lakehouse until it does — correct, ~60x slower |
 
-**Start everything:**
+**Start it:**
 
 ```bash
-bash scripts/setup.sh --all
+bash scripts/setup.sh
 ```
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -All
+powershell -ExecutionPolicy Bypass -File scripts\setup.ps1
 ```
 
 Or with Compose directly:
 
 ```bash
-docker compose --profile all up -d --build
+docker compose up -d --build
 ```
 
 Why they are opt-in rather than always on: the renderer image carries
@@ -494,15 +526,16 @@ short "runtime required" panel until an admin turns it on. To enable it:
 
 1. Start the runtime services (one command, no env editing):
    ```bash
-   docker compose --profile notebooks up -d --build
+   docker compose up -d --build
    ```
 2. Sign in as the admin and open **Admin → Developer runtime** (in the sidebar).
    Flip **Enable server runtime** on — that's it. The app generates its own
    signing secret and defaults every internal URL to the compose service names.
    Optionally tune limits/egress or restrict access to specific users/groups,
    and hit **Run preflight** to confirm everything is reachable.
-3. Open a notebook — a **Lite / Server** switch appears in the header. Switch to
-   **Server** and run `import langchain`.
+3. Open a notebook and run `import langchain`. Cells execute on a sandboxed
+   server kernel; there is no in-browser fallback, so until step 2 is done the
+   editor shows a panel asking an admin to turn the runtime on.
 
 The first `--build` is slow (it installs the frameworks into the kernel image).
 Everything is optional and off by default: instances that never run that command
@@ -530,13 +563,12 @@ skipped).
 
 ## Troubleshooting first-run errors
 
-**`npm run build` fails on Windows with `'NODE_OPTIONS' is not recognized as an
-internal or external command`.** The build script sets a memory limit using the
-POSIX `VAR=value command` form, which `cmd.exe` doesn't understand. Run it from
-Git Bash or WSL, or set the variable first in your shell:
+**`npm run build` runs out of memory.** The script already raises Node's heap
+to 6 GB through `cross-env`, so this means the machine itself is short. Close
+what you can, or raise it further:
 
 ```bash
-set NODE_OPTIONS=--max-old-space-size=6144 && npx vite build --sourcemap false
+npx cross-env NODE_OPTIONS=--max-old-space-size=8192 vite build --sourcemap false
 ```
 
 Docker builds are unaffected — the image builds on Linux.

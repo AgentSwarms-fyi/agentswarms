@@ -3,6 +3,7 @@
 // could never import real LangChain/LlamaIndex), plus read-only framework
 // samples you can run and fork. Each new notebook starts from a template with
 // notes on calling models through the user's connected providers.
+import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { createFileRoute, Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
@@ -96,7 +97,7 @@ function usePyNotebooks(pathname: string) {
   };
 
   const deleteNotebook = async (id: string) => {
-    if (!window.confirm("Delete this notebook? This cannot be undone.")) return;
+    if (!(await confirmAsk({ title: "Delete this notebook? This cannot be undone." }))) return;
     const { error } = await supabase.from("user_python_notebooks").delete().eq("id", id);
     if (error) return toast.error(error.message);
     setPyNotebooks((prev) => prev.filter((n) => n.id !== id));
@@ -116,7 +117,7 @@ function NotebooksLayout() {
   const claim = listClaim({ loaded, error, count: pyNotebooks.length });
 
   return (
-    <div className="flex h-[calc(100vh-3rem)] w-full min-w-0">
+    <div className="flex h-canvas w-full min-w-0">
       <aside className="w-72 min-w-[16rem] max-w-[20rem] shrink-0 border-r border-border bg-card/30 flex flex-col">
         <div className="px-3 py-3 border-b border-border">
           <div className="flex items-center justify-between gap-2">

@@ -9,6 +9,7 @@
 // every categorical mark (bars, slices, cells, countries, points, stages)
 // is clickable for dashboard cross-filtering, and bar/hbar/pie/treemap
 // support drill hierarchies.
+import { forecastPeriods } from "@/lib/mlForecast";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   Area,
@@ -54,10 +55,13 @@ import {
 } from "@/components/bi/BiChartParts";
 import { BiGeoMap } from "@/components/bi/BiGeoMap";
 import { OntologyGraph } from "@/components/bi/OntologyGraph";
+import { unshownRows } from "@/lib/biChartFields";
 import { isOntologySpec } from "@/lib/biOntology";
 import type { BiNumberFormat, BiRefLine, ChartSpec } from "@/lib/biAgent";
 import {
+  autoDateGrain,
   bucketRowsX,
+  labelRowsX,
   cumulative,
   drillRows,
   forecastRows,
@@ -526,6 +530,9 @@ function BiChartRenderInner({
 
   if (chart.type === "kpi") {
     const v = rows[0]?.[chart.valueField];
+    // A KPI draws row zero. When the query returned more, the card is showing
+    // one slice of a breakdown in the type size reserved for a headline.
+    const ofRows = unshownRows(rows, chart.valueField);
     const target = chart.targetField ? Number(rows[0]?.[chart.targetField]) : undefined;
     const num = Number(v);
     const deltaPct =
@@ -564,6 +571,20 @@ function BiChartRenderInner({
             {deltaPct >= 0 ? "▲" : "▼"} {Math.abs(deltaPct).toFixed(1)}% vs target ({fmt(target)})
           </span>
         )}
+        {ofRows !== null && (
+          <span
+            className={`mt-1 cursor-help text-muted-foreground ${
+              large ? "text-xs" : "text-[10px]"
+            }`}
+            title={
+              `This query returned ${ofRows} rows and a single-value chart draws the first. ` +
+              "The other rows are not on this card — edit the widget and pick a bar chart " +
+              "to see the whole breakdown."
+            }
+          >
+            1 of {ofRows} rows
+          </span>
+        )}
       </div>
     );
   }
@@ -571,6 +592,8 @@ function BiChartRenderInner({
   if (chart.type === "gauge") {
     const v = Number(rows[0]?.[chart.valueField]);
     const target = chart.targetField ? Number(rows[0]?.[chart.targetField]) : undefined;
+    // Same reading as the KPI above: a gauge is a single-value chart too.
+    const gaugeOf = unshownRows(rows, chart.valueField);
     return (
       <GaugeChart
         value={Number.isFinite(v) ? v : 0}
@@ -578,6 +601,7 @@ function BiChartRenderInner({
         max={chart.max}
         label={chart.label || chart.valueField}
         format={chart}
+        caveat={gaugeOf !== null ? `1 of ${gaugeOf} rows` : undefined}
       />
     );
   }
@@ -847,8 +871,8 @@ function BiChartRenderInner({
         const fit = linearFit(data.map((d) => Number(d[chart.yField])));
         if (fit) data = data.map((d, i) => ({ ...d, __trend: fit.slope * i + fit.intercept }));
       }
-      if (chart.forecast && chart.forecast > 0) {
-        const fc = forecastRows(data, chart.xField, chart.yField, chart.forecast);
+      if (forecastPeriods(chart.forecast) > 0) {
+        const fc = forecastRows(data, chart.xField, chart.yField, chart.forecast ?? 0);
         if (fc) {
           data = [...data, ...fc.rows];
           hasForecast = true;
@@ -870,7 +894,7 @@ function BiChartRenderInner({
         style={onElementClick ? { cursor: "pointer" } : undefined}
       >
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart
+          <ComposedChart
             data={data}
             margin={{ top: 12, right: 12, left: 0, bottom: 4 }}
             onClick={lineClick}
@@ -936,6 +960,17 @@ function BiChartRenderInner({
             {/* Arrays, not fragments: recharts ignores fragment children. */}
             {!pivoted &&
               hasForecast && [
+                <Area
+                  key="__band"
+                  type="monotone"
+                  dataKey="__band"
+                  stroke="none"
+                  fill={primaryStroke}
+                  fillOpacity={0.12}
+                  legendType="none"
+                  tooltipType="none"
+                  isAnimationActive={false}
+                />,
                 <Line
                   key="__forecast"
                   type="monotone"
@@ -997,7 +1032,7 @@ function BiChartRenderInner({
                 activeDot={{ r: 4, strokeWidth: 0 }}
               />
             )}
-          </LineChart>
+          </ComposedChart>
         </ResponsiveContainer>
       </div>
     );
@@ -1662,6 +1697,7 @@ function BiChartRenderInner({
         timeField={chart.timeField}
         format={chart}
         onElementClick={onElementClick}
+        topN={chart.topN}
       />
     );
   }
@@ -1950,6 +1986,12 @@ export function BiChartRender({
     }
     if (isTime && xKey && showGrainToggle && grain !== "auto") {
       r = bucketRowsX(r, xKey, grain as DateGrain);
+    } else if (xKey && grain === "auto") {
+      // Auto: make the axis readable without changing what it reports. This
+      // runs for every chart type, not just the two that offer the toggle —
+      // a column chart over a timestamp has no toggle to rescue it.
+      const auto = autoDateGrain(r, xKey);
+      if (auto) r = labelRowsX(r, xKey, auto);
     }
     return { effChart: c, effRows: r };
     // eslint-disable-next-line react-hooks/exhaustive-deps

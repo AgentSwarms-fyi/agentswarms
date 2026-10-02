@@ -177,7 +177,7 @@ function IamPage() {
       <H2 id="sharing">Resource sharing</H2>
       <P>
         Grant a user or group <strong>read-only</strong> access to a resource owned by someone else,
-        under <strong>Admin → IAM → Access</strong>. Eleven resource types are grantable, enforced
+        under <strong>Admin → IAM → Access</strong>. Thirteen resource types are grantable, enforced
         by a database constraint:
       </P>
       <Table
@@ -193,6 +193,11 @@ function IamPage() {
           ["🏢 Database / warehouse connection", "Queryable — see below"],
           ["🔌 App source", "Syncable — see below"],
           ["🧠 AI analyst", "Usable — but as the grantee, not the owner; see below"],
+          ["🗄️ Lakehouse schema", "Its tables are queryable from the workbench and agents"],
+          [
+            "🧪 ML model",
+            "Their agents and dashboards can predict with it; training, promotion and deletion stay with the owner",
+          ],
         ]}
       />
       <P>
@@ -206,10 +211,10 @@ function IamPage() {
 
       <H3 id="row-column-security">Narrowing a grant: row filters and column masks</H3>
       <P>
-        Sharing a dataset or dashboard does not have to mean sharing all of it. Two optional
-        restrictions can be attached to a grant on a <strong>SQL data table</strong> or a{" "}
-        <strong>BI dashboard</strong> — the two types that serve rows. Neither applies to the other
-        eight, and the platform refuses to save them there.
+        Sharing a dataset, dashboard or model does not have to mean sharing all of it. Two optional
+        restrictions can be attached to a grant on a <strong>SQL data table</strong>, a{" "}
+        <strong>BI dashboard</strong> or a <strong>semantic model</strong> — the three types that
+        serve rows. Neither applies to the other ten, and the platform refuses to save them there.
       </P>
       <Table
         headers={["Restriction", "Shape", "Effect on the grantee"]}
@@ -411,6 +416,128 @@ function IamPage() {
           <em>what</em>, budgets decide <em>how much</em>.
         </li>
       </UL>
+
+      <H2 id="use-cases">Use cases</H2>
+      <P>
+        Four things teams set up on day one, each done entirely with the tabs above: Users, Groups,
+        Access, Attributes, Budgets, SSO and Settings.
+      </P>
+      <H3 id="use-case-contractors">Contractors may only use one inexpensive model</H3>
+      <Steps
+        items={[
+          {
+            title: "Settings → Default model access → Deny by default",
+            body: "A user with no rules can now call no models. Nobody who already has rules changes, and superadmins bypass deny mode, so the people who administer the allow-lists cannot lock themselves out.",
+          },
+          {
+            title: "Groups → create Contractors and add the accounts",
+          },
+          {
+            title: "Access → add one model rule on the group",
+            body: (
+              <>
+                A rule is a pattern: <C>*</C>, a provider prefix such as <C>openai/*</C>, or one
+                exact model id. Grant the single model you are willing to pay for. It is enforced on
+                the server for every call — playground, saved agents, swarm nodes, the API, and a
+                public embed of the agent, which runs the stored model of its owner and is
+                re-checked against the rules of that owner on every anonymous request.
+              </>
+            ),
+          },
+        ]}
+      />
+      <H3 id="use-case-shared-connection">A warehouse for the team, no password shared</H3>
+      <Steps
+        items={[
+          {
+            title: "The owner creates and tests the connection under Integrations → Data Sources",
+          },
+          {
+            title: "Access → share the connection with the Analytics group, read-only",
+            body: "A shared connection runs as its owner: the stored secret is decrypted server-side and the queries of the grantee run against the warehouse of the owner. Revoking the share ends the access; nothing has to be rotated because nothing was handed out.",
+          },
+        ]}
+      />
+      <H3 id="use-case-row-security">Regional analysts see only their own rows</H3>
+      <Steps
+        items={[
+          {
+            title: "Share the dataset with a row filter and a column mask",
+            body: (
+              <>
+                Filter on <C>region</C>; mask <C>margin</C>. Both are enforced inside the database
+                by a security-definer function, so the result is identical through the SQL
+                workbench, an agent tool or the REST API — a grantee cannot read the raw table at
+                all.
+              </>
+            ),
+          },
+          {
+            title: "Attributes → set each viewer's region and reference it in the filter",
+            body: "One grant, per-viewer rows. When someone holds two grants, rows combine and masks intersect: a second grant never reduces access.",
+          },
+        ]}
+      />
+      <H3 id="use-case-sso">Work accounts only</H3>
+      <Steps
+        items={[
+          {
+            title: "Enable SAML on the Supabase project",
+            body: "Hosted: Authentication → Sign In / Up → SSO (SAML 2.0). Self-hosted GoTrue: GOTRUE_SAML_ENABLED with a private key. The SSO tab says so if this is still missing.",
+          },
+          {
+            title: "SSO → exchange metadata with the IdP and list the email domains",
+            body: "Copy the ACS URL and Entity ID into the SAML app of the IdP; paste its metadata URL or XML. The login page gains Continue with single sign-on.",
+          },
+          {
+            title: "After one successful superadmin login, turn on Require SSO",
+            body: (
+              <>
+                Email/password and social login disappear; <C>/login?native=1</C> stays as the
+                superadmin escape hatch. SSO-provisioned users still get in when the instance is
+                invite-only, so public signup can be closed at the same time.
+              </>
+            ),
+          },
+        ]}
+      />
+      <H3 id="use-case-scim">Joiners and leavers from the directory (SCIM)</H3>
+      <P>
+        SSO lets people sign in; it does not create them before they do or deactivate them when they
+        leave. SCIM 2.0 provisioning does: the identity provider pushes users and groups to{" "}
+        <C>/api/scim/v2</C> as the directory changes, and an offboarded person is deactivated here
+        the same minute.
+      </P>
+      <Steps
+        items={[
+          {
+            title: "SSO → Provisioning (SCIM) → mint a token",
+            body: "One per IdP application, labelled. It is shown once; only its hash is kept, and the tab shows when the IdP last used it. Mint token and Enter in the label field share one guard, so a double Enter mints one token, not two with the same label.",
+          },
+          {
+            title: "Give the IdP the base URL and the token",
+            body: (
+              <>
+                Okta: Provisioning → Integration → SCIM connector base URL, unique identifier{" "}
+                <C>userName</C>, authentication HTTP Header. Entra ID: Provisioning → Tenant URL +
+                Secret token. Both test the connection at once.
+              </>
+            ),
+          },
+          {
+            title: "Assign users and groups to the application",
+            body: (
+              <>
+                A pushed user is created and confirmed and passes the invite-only gate;{" "}
+                <C>active: false</C> bans the account the way the IAM page does; a pushed group is
+                an IAM group, so grants and model rules on it apply to whoever the IdP adds. A
+                superadmin can never be deactivated or deleted over SCIM — the request is refused
+                with a 403 — and every write is audited under the token&apos;s label.
+              </>
+            ),
+          },
+        ]}
+      />
 
       <NextPrev current="/docs/iam" />
     </>

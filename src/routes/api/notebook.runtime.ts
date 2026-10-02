@@ -10,7 +10,8 @@
 // Interactive kernels are driven over a websocket to the runtime gateway (the
 // app does not proxy the socket); this route only manages lifecycle. Model/KB
 // calls from inside a kernel come back to /api/python-chat|kb with the session
-// token, so IAM rules, budgets, and Traces apply exactly as in the Lite runtime.
+// token, so IAM rules, budgets, and Traces apply exactly as they do when the
+// app itself calls a model on the user's behalf.
 import { createFileRoute } from "@tanstack/react-router";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import {

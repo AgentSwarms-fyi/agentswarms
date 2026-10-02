@@ -195,6 +195,12 @@ const PROVIDER_META: Record<
   WarehouseProvider,
   { description: string; fields: Field[]; note?: string }
 > = {
+  lakehouse: {
+    description:
+      "The built-in lakehouse — no credentials needed. Queries run under your schema grants, and sharing this connection lets dashboards and agents read what YOU can read.",
+    fields: [],
+    note: "Configure the engine itself via LAKEHOUSE_* in the deployment env (see docs/LAKEHOUSE.md).",
+  },
   // ── PostgreSQL wire protocol ──────────────────────────────────────────
   cockroachdb: {
     description:
@@ -588,6 +594,10 @@ export function WarehousesTab() {
       if (test.ok) toast.success("Connection verified — SELECT 1 succeeded");
       else toast.error(`Connection saved but the test failed: ${test.error}`);
       reload();
+    } catch (e) {
+      // A thrown server error (validation, transport) must surface, not
+      // vanish into an unhandled rejection with the dialog stuck open.
+      toast.error((e as Error).message);
     } finally {
       setBusy(false);
     }

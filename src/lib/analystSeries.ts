@@ -1,3 +1,4 @@
+import { forecastCaveat, forecastValues, type ForecastMethod } from "./mlForecast";
 // Time-series reading for the AI Analyst: what happened, what stands out,
 // and — labelled as such — what the trend implies next.
 //
@@ -44,7 +45,7 @@ export type SeriesReading = {
 
 export type Forecast = {
   points: SeriesPoint[];
-  method: "linear trend";
+  method: ForecastMethod;
   /** Mean absolute error of the fit ON THE HISTORY it was fitted to. */
   fitError: number;
   /** What this forecast assumes, in words, for the write-up to repeat. */
@@ -215,22 +216,16 @@ export function forecastSeries(points: SeriesPoint[], periods = 3): Forecast | n
   if (points.length < MIN_FORECAST_POINTS) return null;
   const n = Math.max(1, Math.min(periods, MAX_FORECAST_PERIODS));
   const values = points.map((p) => p.value);
-  const { slope, intercept } = fitLine(values);
-  const fitted = values.map((_, i) => intercept + slope * i);
-  const fitError = values.reduce((a, v, i) => a + Math.abs(v - fitted[i]), 0) / values.length;
-
+  // The same forecaster the BI chart overlay draws, so the write-up and the
+  // chart it sits beside cannot disagree. The label hint lets monthly or
+  // quarterly buckets declare their season.
+  const fc = forecastValues(values, n, { labelHint: points[points.length - 1]?.label });
+  if (!fc) return null;
   return {
-    points: Array.from({ length: n }, (_, k) => ({
-      label: `+${k + 1}`,
-      value: intercept + slope * (values.length + k),
-    })),
-    method: "linear trend",
-    fitError,
-    caveat:
-      `Projected by fitting a straight line to ${points.length} periods and extending it — ` +
-      `it assumes the recent trend simply continues, and knows nothing about seasonality, ` +
-      `pipeline, or anything that has not already happened. Mean fit error on the history: ` +
-      `${Number(fitError.toFixed(2)).toLocaleString("en-US")}.`,
+    points: fc.points.map((p) => ({ label: `+${p.step}`, value: p.value })),
+    method: fc.fit.method,
+    fitError: fc.fit.fitError,
+    caveat: forecastCaveat(fc.fit, points.length),
   };
 }
 

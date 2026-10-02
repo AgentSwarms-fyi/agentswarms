@@ -242,9 +242,13 @@ export function evaluateQualityTest(
           return {
             ...base,
             status: "error",
-            detail: ctx.rows.length
-              ? `No parseable dates in "${col}" — freshness cannot be measured.`
-              : `The dataset is empty, so "${col}" has no timestamp to check.`,
+            detail: !ctx.rows.length
+              ? `The dataset is empty, so "${col}" has no timestamp to check.`
+              : ctx.capped
+                ? `No parseable dates in "${col}" among the first ` +
+                  `${ctx.rows.length.toLocaleString()} of ${total.toLocaleString()} rows — ` +
+                  `freshness cannot be measured from a prefix that contains none.`
+                : `No parseable dates in "${col}" — freshness cannot be measured.`,
           };
         }
         stampMs = newest;
@@ -260,12 +264,35 @@ export function evaluateQualityTest(
       // future; treat that as age zero rather than reporting a negative age.
       const age = Math.max(0, now - (stampMs ?? 0));
       const ok = age <= maxAgeMs;
+      // A capped read holds a PREFIX, and the newest row may lie past it. The
+      // two verdicts are not symmetric under that:
+      //
+      //   pass — the true newest is at least as new as the newest seen, so if
+      //          the prefix is inside the limit the dataset is too. Sound.
+      //   fail — says "this data is stale" on evidence that cannot support it.
+      //          The row that would refute it is exactly the row not read.
+      //
+      // So a failing freshness check over a prefix reports that it could not
+      // run, which is what this module does with any assertion it cannot
+      // evaluate, rather than blaming the data for the reader's limit.
+      if (!ok && ctx.capped && col) {
+        return {
+          ...base,
+          status: "error",
+          detail:
+            `Checked the first ${ctx.rows.length.toLocaleString()} of ` +
+            `${total.toLocaleString()} rows; the newest "${col}" among them is ` +
+            `${fmtAge(age)} old. A newer row may lie beyond that cap, so staleness ` +
+            `cannot be concluded — raise DATA_QUALITY_ROW_CAP, or order the source ` +
+            `so the newest rows are read first.`,
+        };
+      }
       return {
         ...base,
         status: ok ? "pass" : "fail",
         failingRows: ok ? 0 : 1,
         detail: ok
-          ? `${fmtAge(age)} old (${label}); limit ${test.config.max_age_hours}h`
+          ? withCapNote(`${fmtAge(age)} old (${label}); limit ${test.config.max_age_hours}h`, ctx)
           : `Stale: ${fmtAge(age)} old (${label}), which is past the ${test.config.max_age_hours}h limit.`,
       };
     }

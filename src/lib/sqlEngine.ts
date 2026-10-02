@@ -22,6 +22,7 @@
 
 import Papa from "papaparse";
 import { supabase } from "@/integrations/supabase/client";
+import { selectAllWindows } from "@/lib/pagedSelect";
 // Type inference and coercion are shared with the streaming server upload —
 // two implementations would eventually disagree about what a date is.
 import {
@@ -31,6 +32,7 @@ import {
   STAGING_PREFIX,
   type ColumnDef,
 } from "@/lib/datasetParse";
+import { holdQueriesUntil } from "@/lib/queryGate";
 import { isLocalReadOnlySql } from "@/lib/sqlSafety";
 import {
   dropBrowserTable,
@@ -168,6 +170,9 @@ export async function hydrateFromSupabase(): Promise<DatasetMeta[]> {
   hydrationInFlight = hydrateFromSupabaseUncoordinated().finally(() => {
     hydrationInFlight = null;
   });
+  // The whole hydration, the row fetches before any table exists included,
+  // holds queries: one run meanwhile waits rather than finding no table (R210).
+  holdQueriesUntil(hydrationInFlight);
   return hydrationInFlight;
 }
 
@@ -186,7 +191,12 @@ async function hydrateFromSupabaseUncoordinated(): Promise<DatasetMeta[]> {
     // it would put a half-written table in the picker.
     .not("name", "like", `${STAGING_PREFIX}%`)
     .order("created_at", { ascending: false });
-  if (error || !tables) return [];
+  // MEASURED by driving the workbench with every user_data_tables read
+  // rejected: this returned [], the caller took [] for an empty account, the
+  // sidebar replaced thirty real tables with "No tables yet", and the mount
+  // path went on to seed the samples. A failed list is not an empty list.
+  if (error) throw new Error(`could not list datasets: ${error.message}`);
+  if (!tables) throw new Error("dataset list returned no rows array");
 
   // Who we are decides HOW rows are read: own/sample tables come straight
   // from user_data_rows, while a dataset SHARED with us goes through the
@@ -205,7 +215,12 @@ async function hydrateFromSupabaseUncoordinated(): Promise<DatasetMeta[]> {
     const { data, error: rpcErr } = await supabase.rpc("shared_dataset_rows", {
       _table_id: tableId,
     });
-    if (rpcErr || !Array.isArray(data)) return [];
+    // A failed read is not an empty dataset. Returning [] here registered the
+    // table with no rows, so a query against it answered "no results" — which
+    // is also exactly what an empty dataset answers, and nothing on screen
+    // separated the two.
+    if (rpcErr) throw new Error(`could not read shared dataset: ${rpcErr.message}`);
+    if (!Array.isArray(data)) throw new Error("shared dataset returned no row array");
     return data as Record<string, unknown>[];
   }
 
@@ -239,33 +254,35 @@ async function hydrateFromSupabaseUncoordinated(): Promise<DatasetMeta[]> {
         parquet_bytes: t.parquet_bytes,
       };
     }
-    const allRows: Record<string, unknown>[] = [];
-    let pageIndex = 0;
-    for (;;) {
-      const ranges = Array.from({ length: PARALLEL_PAGES }, (_, i) => {
-        const start = (pageIndex + i) * PAGE;
-        return { start, end: start + PAGE - 1 };
-      });
-      const results = await Promise.all(
-        ranges.map((r) =>
-          supabase.from("user_data_rows").select("row").eq("table_id", t.id).range(r.start, r.end),
-        ),
-      );
-      let stop = false;
-      for (const { data: chunk, error: rowErr } of results) {
-        if (rowErr || !chunk || chunk.length === 0) {
-          stop = true;
-          break;
-        }
-        allRows.push(...chunk.map((c) => c.row as Record<string, unknown>));
-        if (chunk.length < PAGE) {
-          stop = true;
-          break;
-        }
-      }
-      if (stop) break;
-      pageIndex += PARALLEL_PAGES;
-    }
+    // Windows in parallel, sized to what the server gives, checked at the end.
+    // The loop this replaces is described in selectAllWindows' header; the
+    // short version is that it read the rows a SQL query answers from, and a
+    // single failed request out of five registered the table anyway.
+    const allRows = await selectAllWindows<Record<string, unknown>>({
+      label: t.name,
+      concurrency: PARALLEL_PAGES,
+      pageSize: PAGE,
+      count: async () => {
+        const { count, error } = await supabase
+          .from("user_data_rows")
+          .select("id", { count: "exact", head: true })
+          .eq("table_id", t.id);
+        if (error) throw new Error(`could not count rows of "${t.name}": ${error.message}`);
+        return count ?? 0;
+      },
+      fetchWindow: async (from, size) => {
+        const { data, error } = await supabase
+          .from("user_data_rows")
+          .select("row")
+          .eq("table_id", t.id)
+          // Concurrent offset windows are a partition of nothing without a
+          // unique order: two of them can return the same row and miss another.
+          .order("id", { ascending: true })
+          .range(from, from + size - 1);
+        if (error) throw new Error(`could not read "${t.name}": ${error.message}`);
+        return (data ?? []).map((c) => c.row as Record<string, unknown>);
+      },
+    });
     await registerTable(t.name, allRows, cols);
     return {
       id: t.id,
@@ -328,12 +345,17 @@ export async function saveDataset(args: {
   const safeName = safeTableName(args.tableName);
 
   // Upsert by (user_id, name) for THIS user only — never touches shared samples.
-  const { data: existing } = await supabase
+  // An unreadable answer is not "no such dataset": treating it as one would
+  // create a second dataset of the same name beside the first.
+  const { data: existing, error: lookupErr } = await supabase
     .from("user_data_tables")
     .select("id")
     .eq("name", safeName)
     .eq("user_id", args.userId)
     .maybeSingle();
+  if (lookupErr) {
+    throw new Error(`Could not check whether "${safeName}" already exists: ${lookupErr.message}`);
+  }
 
   let tableId: string;
   if (existing) {
@@ -343,8 +365,21 @@ export async function saveDataset(args: {
     // otherwise unrecoverable. Best-effort by design: a versioning problem
     // must not block the save the user asked for.
     await snapshotBeforeOverwrite(tableId, args.versionReason ?? "overwrite", args.sourceFilename);
-    await supabase.from("user_data_rows").delete().eq("table_id", tableId);
-    await supabase
+    // FOUND IN R106 — R87's bug, in the browser's copy of the same write. A
+    // replace is a delete and an insert, and this delete's error was dropped:
+    // the old rows stayed, the new ones were appended below them, and the
+    // dataset came out doubled under a success toast. The insert must not run
+    // unless the delete did.
+    const { error: clearErr } = await supabase
+      .from("user_data_rows")
+      .delete()
+      .eq("table_id", tableId);
+    if (clearErr) {
+      throw new Error(
+        `The previous rows of "${safeName}" could not be cleared: ${clearErr.message}. Nothing was written, so it still holds the rows it had.`,
+      );
+    }
+    const { error: metaErr } = await supabase
       .from("user_data_tables")
       .update({
         source_filename: args.sourceFilename,
@@ -354,6 +389,9 @@ export async function saveDataset(args: {
         data_loaded_at: new Date().toISOString(),
       })
       .eq("id", tableId);
+    if (metaErr) {
+      throw new Error(`"${safeName}" could not be updated: ${metaErr.message}`);
+    }
   } else {
     const { data: created, error } = await supabase
       .from("user_data_tables")
@@ -398,8 +436,27 @@ export async function saveDataset(args: {
   };
 }
 
+/**
+ * Delete a dataset, and say so only when it is gone.
+ *
+ * FOUND IN R106. The delete's answer was not read: a failed delete dropped the
+ * table from the page's engine anyway, and both callers then toasted
+ * `Deleted "<name>"` over a dataset the refreshed list still showed. A delete
+ * that row-level security filters out is not an error either, just nothing
+ * removed, so the deleted row is asked for back and counted.
+ */
 export async function deleteDataset(tableId: string, tableName: string): Promise<void> {
-  await supabase.from("user_data_tables").delete().eq("id", tableId);
+  const { data: gone, error } = await supabase
+    .from("user_data_tables")
+    .delete()
+    .eq("id", tableId)
+    .select("id");
+  if (error) throw new Error(`"${tableName}" was not deleted: ${error.message}`);
+  if (!gone?.length) {
+    throw new Error(
+      `"${tableName}" was not deleted: it is not yours to delete, or it was already gone. Reload to see the current list.`,
+    );
+  }
   await dropBrowserTable(tableName);
 }
 

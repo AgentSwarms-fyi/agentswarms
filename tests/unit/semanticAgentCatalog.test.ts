@@ -326,7 +326,11 @@ describe("wiring (source guards)", () => {
     // Found from the UI: the builder saved builtInTools.metric_query, but the
     // chat route's toggle→tool mapping omitted it, so a fully configured
     // agent silently never received the tool and improvised raw SQL instead.
+    // The mapping now lives in one shared module (the AI gateway uses it too);
+    // the chat route must delegate to it rather than keep a copy that drifts.
     const chat = readFileSync("src/routes/api/chat.ts", "utf8");
-    expect(chat).toMatch(/if \(t\.metric_query\) out\.push\("metric_query"\);/);
+    expect(chat).toContain("return enabledToolsFromToggles(agentBuiltInToggles);");
+    const toggles = readFileSync("src/utils/tools/agentToggles.ts", "utf8");
+    expect(toggles).toMatch(/if \(t\.metric_query\) out\.push\("metric_query"\);/);
   });
 });

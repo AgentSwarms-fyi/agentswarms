@@ -1,3 +1,5 @@
+import { auditEvent } from "@/utils/audit.server";
+import { beginDecision } from "@/utils/provenance/decision.server";
 import { createFileRoute } from "@tanstack/react-router";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
@@ -9,6 +11,7 @@ import {
 import type { ProviderId } from "@/utils/providers/types";
 import { notifyN8nWebhook } from "@/utils/integrations.functions";
 import { resolveAgentTools, TOOLABLE_IDS, type ToolableId } from "@/utils/tools/registry.server";
+import { enabledToolsFromToggles } from "@/utils/tools/agentToggles";
 import { streamChatWithTools, type ToolEvent } from "@/utils/tools/loop.server";
 import { buildSources, type RawSource, type Source } from "@/utils/tools/sources";
 import { mergeExtraTools } from "@/lib/adhocTools";
@@ -43,6 +46,22 @@ const corsHeaders = {
   // can deep-link the user to the real execution_traces row.
   "Access-Control-Expose-Headers": "X-Trace-Id",
 };
+
+/**
+ * Providers whose adapter sends the OpenAI-shaped request through unchanged,
+ * so a multi-part user message (text + image_url) reaches a vision-capable
+ * model. Anthropic, Bedrock, Vertex, OCI and Azure rebuild the request from
+ * plain text and are deliberately absent.
+ */
+const VISION_PASSTHROUGH_PROVIDERS = new Set<ProviderId>([
+  "openrouter",
+  "openai",
+  "gemini",
+  "grok",
+  "ollama",
+  "groq",
+  "nvidia",
+]);
 
 type ChatMessage = {
   role: "system" | "user" | "assistant";
@@ -417,6 +436,8 @@ function withPostTurnMemory(
 // just demo seeded rows).
 type TraceContext = {
   traceId: string;
+  /** The decision this turn belongs to: its own trace id, or the swarm run's. */
+  decisionId: string;
   userId: string | null;
   authToken?: string;
   /**
@@ -426,6 +447,8 @@ type TraceContext = {
    * trace has to be written with the service role or RLS refuses it.
    */
   internalRun?: boolean;
+  /** The gateway key this turn is billed to (internal runs only). */
+  costScope?: { type: "gateway_key"; id: string };
   agentId?: string;
   agentName: string;
   provider: string;
@@ -456,6 +479,8 @@ import {
 import { approxTokens, estimateImageCost, isImageModel } from "@/utils/observability/pricing";
 import { priceCall } from "@/utils/observability/priceResolver";
 import { providerReportedCost } from "@/utils/observability/providerCost";
+
+const DECISION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function estimateCost(
   provider: string,
@@ -633,9 +658,12 @@ async function recordTrace(opts: {
   try {
     const insertRow = {
       id: trace.traceId,
+      decision_id: trace.decisionId,
       user_id: userId,
       agent_id: trace.agentId ?? null,
       agent_name: trace.agentName,
+      cost_scope_type: trace.costScope?.type ?? null,
+      cost_scope_id: trace.costScope?.id ?? null,
       llm_provider: trace.provider,
       llm_model: trace.model,
       prompt: bodyText(trace.promptText.slice(0, 4000)),
@@ -681,6 +709,7 @@ async function recordTrace(opts: {
           resourceType: "agent",
           resourceName: trace.agentName,
           resourceId: trace.agentId,
+          decisionId: trace.decisionId,
           detail: { model: `${trace.provider}/${trace.model}`, status },
         });
       }
@@ -1001,6 +1030,10 @@ export const Route = createFileRoute("/api/chat")({
             // service secret and name the owner here (see the internal-auth
             // block below). Ignored for normal browser requests.
             internalUserId?: string;
+            // A swarm run passes its run id so every node turn is correlated
+            // to the same decision. A standalone chat turn omits it and
+            // becomes a decision of its own (see provenance/decision.server).
+            decisionId?: string;
             // Per-call tool allow-list (used by the swarm runtime to pick
             // which tools each node exposes). When omitted, the registry
             // returns every capability the user is configured for.
@@ -1022,6 +1055,7 @@ export const Route = createFileRoute("/api/chat")({
               mcp_server_names?: string[];
               sql_table_names?: string[];
               metric_model_names?: string[];
+              ml_model_names?: string[];
             };
             // Per-call guardrail override (used by swarm nodes that want
             // their own policy independent of the linked agent). Server
@@ -1053,6 +1087,15 @@ export const Route = createFileRoute("/api/chat")({
             // agent's saved skill list. When omitted, the agent's saved
             // tools.skillIds are used.
             skillIds?: string[];
+            // AI gateway (inbound API) only, honoured on internal runs: the
+            // key that pays for this turn, so its budget is measured from the
+            // trace, and the agent's name for the trace and audit row - the
+            // internal channel does not load the agent itself.
+            costScope?: { type: "gateway_key"; id: string };
+            agentName?: string;
+            // Internal channel only: keep image_url parts for a vision-capable
+            // model (document OCR). Everything else flattens them to text.
+            vision?: boolean;
           };
 
           if (!Array.isArray(body.messages) || body.messages.length === 0) {
@@ -1151,6 +1194,9 @@ export const Route = createFileRoute("/api/chat")({
           // saved built-in tool toggles, AND saved tool-configs (per-tool
           // alt-provider keys, n8n workflow allow-list, MCP server allow-list).
           let agentName = "Playground";
+          if (isInternalRun && typeof body.agentName === "string" && body.agentName.trim()) {
+            agentName = body.agentName.trim().slice(0, 120);
+          }
           let agentRouteThroughGateway = false;
           let agentN8nWebhookUrl: string | null = null;
           const agentBuiltInToggles: Record<string, boolean> = {};
@@ -1161,6 +1207,7 @@ export const Route = createFileRoute("/api/chat")({
             mcp_server_names?: string[];
             sql_table_names?: string[];
             metric_model_names?: string[];
+            ml_model_names?: string[];
           } = {};
           let agentSkillIds: string[] = [];
           let agentGuardrails: Guardrails = parseGuardrails(undefined);
@@ -1258,6 +1305,18 @@ export const Route = createFileRoute("/api/chat")({
                     );
                   }
                 }
+                // ML models. An ABSENT list means every model (the pre-list
+                // behaviour every existing agent relies on); a present one,
+                // even empty, means exactly what it says.
+                const mlCfg = tools.toolConfigs?.ml_predict;
+                if (mlCfg && typeof mlCfg === "object") {
+                  const raw = (mlCfg as { model_names?: unknown }).model_names;
+                  if (Array.isArray(raw)) {
+                    agentToolConfigs.ml_model_names = raw.filter(
+                      (s): s is string => typeof s === "string" && s.trim().length > 0,
+                    );
+                  }
+                }
               }
             } catch {
               /* ignore — trace label is non-critical */
@@ -1267,29 +1326,12 @@ export const Route = createFileRoute("/api/chat")({
           // Map the agent's saved web_search/web_browse switches into the
           // curated TOOLABLE_IDS. Used when the request didn't pass an
           // explicit `enabledTools` allow-list (the swarm runtime always does).
+          // The toggle-to-tool mapping is shared with the AI gateway (and any
+          // other surface that runs a saved agent headlessly) in
+          // utils/tools/agentToggles: it twice omitted a toggle while it lived
+          // here, and a second copy would drift the same way.
           function deriveEnabledToolsFromAgent(): ToolableId[] | undefined {
-            const t = agentBuiltInToggles;
-            if (!t || Object.keys(t).length === 0) return undefined;
-            const out: ToolableId[] = [];
-            if (t.web_search) out.push("web_search");
-            if (t.web_browse || t.web_browser) out.push("web_browse");
-            if (t.kb_search || t.knowledge_base) out.push("kb_search");
-            if (t.kb_graph_search || t.knowledge_graph) out.push("kb_graph_search");
-            if (t.calculator) out.push("calculator");
-            if (t.datetime) out.push("datetime");
-            if (t.weather) out.push("weather");
-            if (t.sql_query) out.push("sql_query");
-            // FOUND FROM THE UI: this mapping omitted metric_query entirely,
-            // so an agent with Semantic Metrics toggled on (and models
-            // selected) still never received the tool in agent chat — it fell
-            // back to raw sql_query and told the user "there's no semantic
-            // layer definition". Every toggle the builder can save must map
-            // here, or saving it is theater.
-            if (t.metric_query) out.push("metric_query");
-            if (t.n8n || t.n8n_run_workflow) out.push("n8n_run_workflow");
-            if (t.mcp || t.mcp_call_tool) out.push("mcp_call_tool");
-            if (t.send_notification || t.notifications) out.push("send_notification");
-            return out.length > 0 ? out : undefined;
+            return enabledToolsFromToggles(agentBuiltInToggles);
           }
 
           // Merge per-call toolConfigs (from swarm) over the agent's saved
@@ -1312,6 +1354,11 @@ export const Route = createFileRoute("/api/chat")({
               }
               if (Array.isArray(c.metric_model_names) && c.metric_model_names.length > 0) {
                 merged.metric_model_names = c.metric_model_names;
+              }
+              // Copied when PRESENT, including empty: for this list an empty
+              // array is a decision ("none"), not an absence.
+              if (Array.isArray(c.ml_model_names)) {
+                merged.ml_model_names = c.ml_model_names;
               }
             }
             return merged;
@@ -1381,11 +1428,27 @@ export const Route = createFileRoute("/api/chat")({
 
           const lastUserForTrace = [...body.messages].reverse().find((m) => m.role === "user");
           const promptText = lastUserForTrace ? messageText(lastUserForTrace.content).trim() : "";
+          const traceId = crypto.randomUUID();
+          // A swarm node turn adopts the run's decision id; the run began the
+          // decision. A standalone turn IS a decision, keyed by its trace id.
+          const decisionId =
+            body.decisionId && DECISION_ID_RE.test(body.decisionId)
+              ? body.decisionId
+              : userId
+                ? beginDecision({ userId, kind: "chat_turn", id: traceId, rootRef: traceId })
+                : traceId;
           const trace: TraceContext = {
-            traceId: crypto.randomUUID(),
+            traceId,
+            decisionId,
             userId,
             authToken,
             internalRun: isInternalRun,
+            costScope:
+              isInternalRun &&
+              body.costScope?.type === "gateway_key" &&
+              typeof body.costScope.id === "string"
+                ? { type: "gateway_key", id: body.costScope.id }
+                : undefined,
             agentId: body.agentId,
             agentName,
             provider,
@@ -1602,7 +1665,7 @@ export const Route = createFileRoute("/api/chat")({
               try {
                 const sbAuto = getServerSupabase(authToken);
                 if (sbAuto) {
-                  const { retrieveCitationsServer, buildGroundingPrompt } =
+                  const { retrieveCitationsReport, buildGroundingPrompt, autoRagMinSimilarity } =
                     await import("@/utils/tools/kb.server");
                   // The asker's email, for matching provider-mirrored ACLs on
                   // connector documents (source_acl scope). Absent claim →
@@ -1615,7 +1678,7 @@ export const Route = createFileRoute("/api/chat")({
                   } catch {
                     principalEmail = null;
                   }
-                  citations = await retrieveCitationsServer({
+                  const report = await retrieveCitationsReport({
                     sb: sbAuto,
                     agentId: body.agentId,
                     extraKbIds,
@@ -1624,17 +1687,54 @@ export const Route = createFileRoute("/api/chat")({
                     userId,
                     reranker: bodyReranker,
                     principal: { email: principalEmail },
+                    minSimilarity: autoRagMinSimilarity(),
                   });
+                  citations = report.citations;
+                  // Audited for the same reason it is called unconditionally:
+                  // the search happened, and a provenance record that omits it
+                  // would say the answer consulted nothing. This is the path a
+                  // grounded agent actually takes -- retrieval here is
+                  // automatic, so the kb_search TOOL (and its audit) never runs.
+                  // userId is nullable on this branch; an audit row with no
+                  // actor is not worth writing, and RLS would refuse it anyway.
+                  if (userId)
+                    auditEvent({
+                      userId,
+                      action: "kb.search",
+                      resourceType: "knowledge_base",
+                      resourceName:
+                        [...new Set(citations.map((c) => c.knowledgeBaseName))]
+                          .join(", ")
+                          .slice(0, 200) || undefined,
+                      decisionId: trace.decisionId,
+                      detail: {
+                        via: "auto_rag",
+                        agent_id: body.agentId ?? null,
+                        query: query.slice(0, 500),
+                        results: citations.length,
+                        documents: [...new Set(citations.map((c) => c.documentName))].slice(0, 20),
+                      },
+                    });
                   // Called even when nothing came back: an empty result is a
                   // fact about the knowledge base, and the model has to be told
                   // it searched rather than left to answer from memory.
                   effectiveSystemPrompt = buildGroundingPrompt(citations, body.systemPrompt, {
                     searched: true,
+                    degraded: report.degraded,
                   });
                 }
               } catch (err) {
                 console.error("RAG retrieval failed:", err);
-                // Don't block the chat — just continue without grounding.
+                // Don't block the chat — but do not continue as if nothing was
+                // searched either: the model answered from memory over a failed
+                // retrieval, with no word that it had. Tell it.
+                const { buildGroundingPrompt } = await import("@/utils/tools/kb.server");
+                effectiveSystemPrompt = buildGroundingPrompt([], body.systemPrompt, {
+                  searched: true,
+                  degraded: [
+                    `retrieval failed: ${err instanceof Error ? err.message : String(err)}`,
+                  ],
+                });
               }
             }
           }
@@ -1723,6 +1823,18 @@ export const Route = createFileRoute("/api/chat")({
               role: m.role,
               content: messageText(m.content),
             }));
+            // A vision run on the internal channel (document OCR) keeps its
+            // image parts for the providers whose adapter forwards the
+            // request as it is; every other adapter rebuilds the request from
+            // text and never sees a part. Never on the tool loop, which
+            // speaks text only.
+            const keepImageParts =
+              isInternalRun &&
+              body.vision === true &&
+              VISION_PASSTHROUGH_PROVIDERS.has(provider as ProviderId);
+            const providerMessages = keepImageParts
+              ? (body.messages as unknown as typeof flatMessages)
+              : flatMessages;
 
             // If the agent asked for tools (web_search/web_browse/kb_search/
             // n8n/mcp) AND the provider speaks OpenAI Chat Completions, run
@@ -1749,6 +1861,15 @@ export const Route = createFileRoute("/api/chat")({
               // the swarm owner's own + shared models. Its per-agent allow-list
               // narrows it further and is deny-by-default.
               "metric_query",
+              // Data health reads the owner's own monitors and incidents by
+              // scopeUserId; nothing else, so it is safe headless.
+              "data_health",
+              // Safe for the same reason again: the ML tools re-derive grants
+              // from scopeUserId (the run's owner) and every prediction is
+              // audited with the run's decision id. Without this entry a
+              // deployed swarm or a schedule silently lost the tool the agent
+              // was given in the builder.
+              "ml_predict",
             ]);
             const sbForTools = authToken
               ? getServerSupabase(authToken)
@@ -2047,6 +2168,7 @@ export const Route = createFileRoute("/api/chat")({
                   authToken,
                   sb: sbForTools,
                   scopeUserId: toolScopeUserId,
+                  decisionId: trace.decisionId,
                 },
                 {
                   enabledTools: allowList ?? [],
@@ -2078,6 +2200,7 @@ export const Route = createFileRoute("/api/chat")({
                     conversationId: body.conversationId ?? null,
                     reranker: bodyReranker,
                     scopeUserId: toolScopeUserId,
+                    decisionId: trace.decisionId,
                   },
                   temperature: body.temperature,
                   maxTokens: body.maxTokens,
@@ -2159,7 +2282,7 @@ export const Route = createFileRoute("/api/chat")({
               provider,
               modelId: model,
               systemPrompt: effectiveSystemPrompt,
-              messages: flatMessages,
+              messages: providerMessages,
               temperature: body.temperature,
               maxTokens: body.maxTokens,
               gateway: gatewayOverride,

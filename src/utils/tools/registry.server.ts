@@ -14,10 +14,29 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
-import { listDataTablesTool, runListDataTables, runSqlQuery, sqlQueryTool } from "./sql.server";
+import {
+  listDataTablesTool,
+  runListDataTables,
+  runSqlQuery,
+  scopeToVisibleTables,
+  sqlQueryTool,
+} from "./sql.server";
+import { SQL_SCHEMA_SUMMARY_MAX_CHARS, summarizeTablesForPrompt } from "@/lib/sqlSchemaSummary";
 import { metricQueryTool, runMetricQuery, semanticCatalogForCtx } from "./metric.server";
+import { auditEvent } from "@/utils/audit.server";
+import { resultDigest } from "@/utils/provenance/canonical";
+
+/**
+ * Rows the warehouse tool retrieves per query. Named because the result digest
+ * recorded for provenance is taken over exactly this many rows, and replay
+ * must re-run under the same cap to compare like with like.
+ */
+const WAREHOUSE_TOOL_ROW_CAP = 200;
 import { assertPublicUrl, safeFetch } from "@/utils/ssrfGuard.server";
 import { resolveMcpAuthToken } from "@/lib/mcp/auth.server";
+import { MCP_CONNECT_BUDGET_MS } from "@/utils/mcpApps/budgets";
+import { requestInSession, type McpSend } from "@/utils/mcpApps/session";
+import { parseJsonOrSse } from "@/utils/mcpApps/sse";
 import { resolveIntegrationConfig } from "@/utils/providers/integrationConfig.server";
 import { loadWarehouseConnectionForUser } from "@/utils/warehouse/connections.server";
 import { executeWarehouseQuery, listWarehouseTables } from "@/utils/warehouse/drivers.server";
@@ -60,7 +79,41 @@ export type AgentToolContext = {
   // restrict results to this owner's rows + public samples — the sole tenant
   // guard in the absence of a user JWT. Never set on the normal RLS path.
   scopeUserId?: string;
+  /**
+   * The decision this tool call serves (see provenance/decision.server.ts).
+   * Stamped on every audit row a tool writes, so the data an answer read can be
+   * assembled from the answer's id rather than guessed at from timestamps.
+   */
+  decisionId?: string;
 };
+
+/**
+ * Restrict a read of a user-owned table to the run's owner.
+ *
+ * THE HOLE THIS CLOSES. On the normal path `ctx.sb` is an anon-key client
+ * carrying the user's JWT, so RLS (`auth.uid() = user_id`) does the scoping and
+ * these queries need no filter of their own. On a HEADLESS run — deployed
+ * swarms, schedules, API-key calls — there is no JWT, so `ctx.sb` is the
+ * service-role client and RLS is OFF. Every such read then saw every tenant.
+ *
+ * That was not theoretical for MCP. `mcp_call_tool` is in HEADLESS_SAFE_TOOLS,
+ * and the server lookup matched on name alone — so a swarm owned by one tenant
+ * could resolve another tenant's MCP server, and the row carries that server's
+ * auth_token, meaning it could then call it as them. A server name is a weak
+ * secret: "github" or "jira" is a guess, not a search.
+ *
+ * kb_search and sql_query already threaded scopeUserId through for exactly this
+ * reason. This gives the rest one guard in one place.
+ *
+ * ONLY for tables whose sole visibility rule is ownership. Tables with sharing
+ * (user_data_tables: own + public samples + IAM-granted) must use their own
+ * loader instead — narrowing those to user_id would hide rows the agent is
+ * entitled to read, turning a security fix into a silent feature regression.
+ */
+function ownedBy<T>(ctx: AgentToolContext, q: T): T {
+  if (!ctx.scopeUserId) return q;
+  return (q as unknown as { eq: (c: string, v: string) => T }).eq("user_id", ctx.scopeUserId);
+}
 
 // ============================================================================
 // kb_search
@@ -92,8 +145,8 @@ export async function runKbSearch(
   if (!hasAnyKb)
     return JSON.stringify({ error: "No knowledge base wired — kb_search unavailable" });
   // Reuse the same retrieval the chat route uses for auto-RAG.
-  const { retrieveCitationsServer } = await import("./kb.server");
-  const cits = await retrieveCitationsServer({
+  const { retrieveCitationsReport } = await import("./kb.server");
+  const { citations: cits, degraded } = await retrieveCitationsReport({
     sb: ctx.sb,
     agentId: ctx.agentId,
     extraKbIds,
@@ -103,13 +156,37 @@ export async function runKbSearch(
     reranker: ctx.reranker,
     scopeUserId: ctx.scopeUserId,
   });
+  // A knowledge-base retrieval is a data read, and until now the only one of
+  // the agent's data tools that left no audit row at all. Without this an
+  // answer grounded in documents showed "no data reads recorded" -- exactly
+  // the silent hole a provenance record must not have.
+  auditEvent({
+    userId: ctx.userId,
+    action: "kb.search",
+    resourceType: "knowledge_base",
+    resourceName: [...new Set(cits.map((c) => c.knowledgeBaseName))].join(", ").slice(0, 200),
+    decisionId: ctx.decisionId,
+    detail: {
+      via: "agent_tool",
+      agent_id: ctx.agentId ?? null,
+      query: String(args.query ?? "").slice(0, 500),
+      results: cits.length,
+      documents: [...new Set(cits.map((c) => c.documentName))].slice(0, 20),
+    },
+  });
   if (cits.length === 0) {
     return JSON.stringify({
       results: [],
-      note: "No matching documents in any connected knowledge base.",
+      // An empty result with a reason is not "no documents": the model was
+      // told the latter over a search that could not be completed.
+      note: degraded.length
+        ? `The search could not be completed — ${degraded.join("; ")}. Documents may exist that this search could not reach.`
+        : "No matching documents in any connected knowledge base.",
+      degraded,
     });
   }
   return JSON.stringify({
+    degraded,
     results: cits.map((c) => ({
       document: c.documentName,
       knowledge_base: c.knowledgeBaseName,
@@ -319,7 +396,236 @@ export type ToolConfigs = {
   // system prompt on every call, so an agent that was given no models should
   // cost nothing rather than advertise the whole account's metrics.
   metric_model_names?: string[];
+  // Allow-list of ML model NAMES the ml_predict tool may score with.
+  //
+  // ABSENT MEANS EVERY MODEL THE CALLER CAN USE, the opposite of the metric
+  // list above, and deliberately: ML predictions were allow-all before this
+  // list existed, so an agent saved without one must keep working exactly as
+  // it did. PRESENT means exactly those names — and an empty array, written
+  // once somebody has touched the picker, means none. Two representations on
+  // purpose: "never configured" and "configured to nothing" are different
+  // facts, and the first is the compatibility case. See ADVERSARIAL_LOG on
+  // sql_table_names for what happens when an empty list quietly means all.
+  ml_model_names?: string[];
 };
+
+/** The models an agent may predict with, given its allow-list. */
+export function mlModelsAllowed<T extends { name: string }>(
+  models: T[],
+  allow: string[] | undefined,
+): T[] {
+  if (!Array.isArray(allow)) return models;
+  const names = new Set(allow.map((n) => n.trim()).filter((n) => n.length > 0));
+  return models.filter((m) => names.has(m.name));
+}
+
+/**
+ * Score with a registry model — the one implementation behind the agent tool
+ * AND the canvas's deterministic "Score with model" node. `allow` is the
+ * caller's model allow-list (absent = every model the owner can use); `via`
+ * names the caller in the audit trail and on the prediction row.
+ */
+export async function runMlPredict(
+  ctx: AgentToolContext,
+  a: Record<string, unknown>,
+  allow: string[] | undefined,
+  via: "agent_tool" | "swarm_tool_node" | "ai_analyst" = "agent_tool",
+): Promise<string> {
+  const who =
+    via === "agent_tool" ? "this agent" : via === "ai_analyst" ? "this analyst" : "this node";
+  try {
+    const owner = ctx.scopeUserId ?? ctx.userId;
+    const { listModelsForUser } = await import("@/utils/ml/access.server");
+    const models = await listModelsForUser(owner);
+    const name = String(a.model ?? "").trim();
+    const model =
+      models.find((m) => m.name === name) ??
+      models.find((m) => m.name.toLowerCase() === name.toLowerCase());
+    if (!model) return JSON.stringify({ error: `No model named "${name}". Call ml_list_models.` });
+    // Enforced HERE, not only in what was advertised: a model can be
+    // named from memory, or from a previous turn before the list was
+    // narrowed, and the list is the owner's decision.
+    if (mlModelsAllowed([model], allow).length === 0)
+      return JSON.stringify({
+        error: `"${model.name}" is not enabled for ${who}. Call ml_list_models for the models it may use.`,
+      });
+    if (!model.production_version_id)
+      return JSON.stringify({ error: `"${model.name}" has no production version yet.` });
+    const { data: version, error: versionErr } = await ctx.sb
+      .from("ml_model_versions")
+      .select("*")
+      .eq("id", model.production_version_id)
+      .maybeSingle();
+    // A failed read is not a missing version: the model was told the
+    // production version did not exist, and answered on that.
+    if (versionErr)
+      return JSON.stringify({
+        error: `Could not read the production version: ${versionErr.message}`,
+      });
+    if (!version) return JSON.stringify({ error: "Production version not found" });
+    // A prediction never arrives without the model's health beside it: the
+    // latest drift reading and evaluation, as the owner already heard them.
+    const { modelHealthFor } = await import("@/utils/ml/health.server");
+    const { healthLine } = await import("@/lib/mlHealth");
+    const healthNote = healthLine((await modelHealthFor([model])).get(model.id));
+    const healthNotes = healthNote ? [healthNote] : [];
+    if (model.task === "forecast") {
+      const f = version.forecast as { points?: unknown[] } | null;
+      auditEvent({
+        userId: ctx.userId,
+        action: "ml.predict_query",
+        resourceType: "ml_model",
+        resourceId: model.id,
+        resourceName: model.name,
+        decisionId: ctx.decisionId,
+        detail: {
+          via,
+          agent_id: ctx.agentId ?? null,
+          kind: "forecast",
+          version: version.version,
+          row_count: f?.points?.length ?? 0,
+          result_digest: resultDigest(
+            ["period", "yhat", "lo", "hi"],
+            ((f?.points ?? []) as { period: string; yhat: number; lo: number; hi: number }[]).map(
+              (p) => [p.period, p.yhat, p.lo, p.hi],
+            ) as never[],
+          ),
+        },
+      });
+      const meta =
+        (version.forecast as { meta?: Record<string, unknown> | null } | null)?.meta ?? null;
+      return JSON.stringify({
+        model: model.name,
+        version: version.version,
+        task: "forecast",
+        algorithm: version.algorithm,
+        period: meta?.period ?? null,
+        aggregation: meta?.aggregation ?? null,
+        last_observed_period: meta?.last_period ?? null,
+        forecast: f?.points ?? [],
+        notes: [
+          ...forecastNotes(version.algorithm, meta),
+          ...versionCaveats(version.warnings),
+          ...healthNotes,
+        ],
+      });
+    }
+    // Two ways in, the same two the REST route has. `rows` means the
+    // agent computed the features and owns being right about them.
+    // `keys` means it did not: the platform reads them from the model's
+    // feature view — the table training read — so there is nothing left
+    // for the agent to compute differently, which is the whole point.
+    const wantsKeys = a.keys !== undefined;
+    let rows = Array.isArray(a.rows) ? (a.rows as Record<string, unknown>[]).slice(0, 50) : [];
+    let resolved: {
+      viewName: string;
+      keyColumns: string[];
+      missing: string[];
+      servedFrom: string;
+    } | null = null;
+    if (wantsKeys) {
+      if (rows.length) return JSON.stringify({ error: "Send rows or keys, not both." });
+      if (!model.feature_view_id)
+        return JSON.stringify({
+          error: `"${model.name}" has no feature view, so it cannot be scored by key. Send rows with its feature values (see ml_list_models), or attach a feature view to the model.`,
+        });
+      const keys = Array.isArray(a.keys) ? (a.keys as Record<string, unknown>[]) : [];
+      // Refused rather than trimmed: a key silently dropped is an entity
+      // silently unscored, and the agent would report it as done.
+      if (keys.length > 50)
+        return JSON.stringify({ error: `At most 50 keys per call (got ${keys.length}).` });
+      const { loadFeatureView, lookupFeatures } =
+        await import("@/utils/featureViews/lookup.server");
+      // The view belongs to the model's OWNER, as does the table it
+      // reads — so it is loaded and read as the owner, exactly as the
+      // REST route does for an API-key caller of a shared model.
+      const view = await loadFeatureView(model.feature_view_id, model.user_id);
+      if (!view) return JSON.stringify({ error: "The model's feature view is missing." });
+      const looked = await lookupFeatures({
+        view,
+        keys: keys as never,
+        userId: model.user_id,
+        via,
+      });
+      // A key set that matches NOTHING is refused here by the lookup itself
+      // ("No features found for … in <view>"): an all-miss is an error, for
+      // the agent and for the canvas node alike. A partial miss is not — the
+      // rows that matched are scored and the rest are named in keys_not_found.
+      // (A first version carried its own all-miss answer after this line; the
+      // canvas round showed it could never run.)
+      if (!looked.ok) return JSON.stringify({ error: looked.error });
+      rows = looked.resolution.rows;
+      resolved = {
+        viewName: view.name,
+        keyColumns: view.key_columns,
+        missing: looked.resolution.missing,
+        servedFrom: looked.servedFrom,
+      };
+    }
+    if (!rows.length)
+      return JSON.stringify({
+        error:
+          "Pass rows to score (objects keyed by feature column), or keys for a model with a feature view.",
+      });
+    const { predictRowsSync } = await import("@/utils/ml/predict.server");
+    const r = await predictRowsSync({
+      model,
+      version,
+      userId: ctx.userId,
+      rows,
+      via,
+      decisionId: ctx.decisionId ?? null,
+      waitMs: 120_000,
+    });
+    if (!r.ok) return JSON.stringify({ error: r.error, prediction_id: r.predictionId ?? null });
+    // Everything the trainer wrote that a person would ask about — not
+    // just the label. Dropping anomaly_score once left an agent saying
+    // "not an anomaly" with nothing to back it.
+    const keep = [
+      // Scored by key: each prediction carries its key column(s), so the
+      // agent can say WHICH entity got which answer without trusting
+      // the order it asked in.
+      ...(resolved ? resolved.keyColumns : []),
+      "prediction",
+      "probability",
+      "anomaly_score",
+      "distance",
+      "scores",
+      "cold_start",
+      ...r.columns.filter((col) => col.startsWith("proba_")),
+    ];
+    const idx = r.columns.map((col, i) => [col, i] as const).filter(([col]) => keep.includes(col));
+    const predictions = r.rows.map((row) =>
+      Object.fromEntries(idx.map(([col, i]) => [col, row[i]])),
+    );
+    return JSON.stringify({
+      model: model.name,
+      version: version.version,
+      task: model.task,
+      algorithm: r.algorithm,
+      predictions,
+      row_count: r.rows.length,
+      // Named whenever keys were used, EVEN WHEN EMPTY: an agent that
+      // asked for three keys and got two predictions must see the third
+      // as "not found", never as a row that scored quietly.
+      ...(resolved
+        ? {
+            feature_view: resolved.viewName,
+            keys_not_found: resolved.missing,
+            features_served_from: resolved.servedFrom,
+          }
+        : {}),
+      warnings: r.warnings,
+      notes: [
+        ...mlPredictionNotes(model.task, version.metrics, predictions),
+        ...versionCaveats(version.warnings),
+        ...healthNotes,
+      ],
+    });
+  } catch (e) {
+    return JSON.stringify({ error: e instanceof Error ? e.message : "Prediction failed" });
+  }
+}
 
 async function braveSearch(query: string, limit: number, key: string): Promise<string> {
   try {
@@ -419,12 +725,14 @@ async function serpapiSearch(query: string, limit: number, key: string): Promise
  */
 async function loadFirecrawlIntegrationKey(ctx: AgentToolContext): Promise<string | null> {
   try {
-    const { data } = await ctx.sb
-      .from("integrations")
-      .select("config, is_active")
-      .eq("type", "firecrawl")
-      .eq("is_active", true)
-      .maybeSingle();
+    const { data } = await ownedBy(
+      ctx,
+      ctx.sb
+        .from("integrations")
+        .select("config, is_active")
+        .eq("type", "firecrawl")
+        .eq("is_active", true),
+    ).maybeSingle();
     if (!data?.is_active) return null;
     const cfg = (await resolveIntegrationConfig(
       ctx.userId,
@@ -945,12 +1253,10 @@ export async function runSendNotification(
 }
 
 async function loadN8nIntegration(ctx: AgentToolContext) {
-  const { data } = await ctx.sb
-    .from("integrations")
-    .select("config, is_active")
-    .eq("type", "n8n")
-    .eq("is_active", true)
-    .maybeSingle();
+  const { data } = await ownedBy(
+    ctx,
+    ctx.sb.from("integrations").select("config, is_active").eq("type", "n8n").eq("is_active", true),
+  ).maybeSingle();
   if (!data?.is_active) return null;
   // Decrypt webhook_token (webhook_token_enc) + resolve {{secret:}} refs.
   const cfg = (await resolveIntegrationConfig(
@@ -1096,18 +1402,21 @@ export const mcpListToolsTool: ToolDef = {
 };
 
 async function loadMcpServer(ctx: AgentToolContext, name: string) {
-  const { data } = await ctx.sb
-    .from("mcp_servers")
-    .select("name, endpoint, auth_type, auth_token, auth_token_enc, status")
-    .eq("name", name)
-    .maybeSingle();
+  const { data } = await ownedBy(
+    ctx,
+    ctx.sb
+      .from("mcp_servers")
+      .select("name, endpoint, auth_type, auth_token, auth_token_enc, status")
+      .eq("name", name),
+  ).maybeSingle();
   if (!data) return null;
   return data;
 }
 
-// Single MCP request over Streamable HTTP. The MCP spec requires the client
-// to accept BOTH application/json and text/event-stream — without it many
-// servers return 406. We always send JSON-RPC POST.
+// One MCP request over Streamable HTTP, in a session of its own (R99: it used
+// to go out cold, and a stateful server refused it — see mcpApps/session.ts).
+// The MCP spec requires the client to accept BOTH application/json and
+// text/event-stream — without it many servers return 406.
 async function mcpRequest(
   endpoint: string,
   authType: string,
@@ -1119,33 +1428,27 @@ async function mcpRequest(
     Accept: "application/json, text/event-stream",
   };
   if (authType === "token" && authToken) headers.Authorization = `Bearer ${authToken}`;
-  try {
-    // The endpoint is user-registered but fetched from inside the server's
-    // network, so it goes through the SSRF guard with a bounded timeout.
-    const r = await safeFetch(endpoint, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(15_000),
+  // The endpoint is user-registered but fetched from inside the server's
+  // network, so every request goes through the SSRF guard with a bounded
+  // timeout. initialize is the request that finds a scaled-to-zero server
+  // asleep, so it waits as long as a cold start may take (R100); the rest keep
+  // the ordinary budget.
+  const timeoutFor = (method: "POST" | "DELETE", payload?: Record<string, unknown>) =>
+    method === "DELETE" ? 5_000 : payload?.method === "initialize" ? MCP_CONNECT_BUDGET_MS : 15_000;
+  const send: McpSend = (method, extra, payload) =>
+    safeFetch(endpoint, {
+      method,
+      headers: { ...headers, ...extra },
+      body: payload ? JSON.stringify(payload) : undefined,
+      signal: AbortSignal.timeout(timeoutFor(method, payload)),
     });
-    const text = await r.text();
-    if (!r.ok) return { ok: false, error: `${r.status}: ${text.slice(0, 300)}` };
-    // Some servers return SSE for tool call results; pull the last data: event.
-    if (text.startsWith("event:") || text.includes("\ndata:")) {
-      const lines = text.split("\n");
-      let last = "";
-      for (const l of lines) if (l.startsWith("data:")) last = l.slice(5).trim();
-      try {
-        return { ok: true, result: JSON.parse(last) };
-      } catch {
-        return { ok: true, result: last };
-      }
-    }
-    try {
-      return { ok: true, result: JSON.parse(text) };
-    } catch {
-      return { ok: true, result: text };
-    }
+  try {
+    const { res: r, read } = await requestInSession(send, body);
+    if (!r.ok) return { ok: false, error: `${r.status}: ${read.text.slice(0, 300)}` };
+    // A stream sent under the wrong content type still gets read as one, as
+    // the sniffing this replaced did.
+    const message = read.message ?? parseJsonOrSse(read.text, "text/event-stream");
+    return { ok: true, result: message ?? read.text };
   } catch (e) {
     return { ok: false, error: (e as Error).message };
   }
@@ -1156,7 +1459,10 @@ export async function runListMcpServers(
   _args: Record<string, never>,
   allowList?: string[],
 ): Promise<string> {
-  const { data } = await ctx.sb.from("mcp_servers").select("name, endpoint, status, tools_count");
+  const { data } = await ownedBy(
+    ctx,
+    ctx.sb.from("mcp_servers").select("name, endpoint, status, tools_count"),
+  );
   let servers = data ?? [];
   if (allowList && allowList.length > 0) {
     const allow = new Set(allowList.map((s) => s.trim()).filter(Boolean));
@@ -1248,6 +1554,7 @@ export type ResolvedTools = {
     weather: boolean;
     sql: boolean;
     notify: boolean;
+    ml: boolean;
   };
   /**
    * Source-routing guidance built from what is ACTUALLY enabled, appended to
@@ -1275,6 +1582,8 @@ export const TOOLABLE_IDS = [
   "weather",
   "sql_query",
   "metric_query",
+  "data_health",
+  "ml_predict",
   "memory_remember",
   "memory_recall",
   "memory_forget",
@@ -1282,6 +1591,116 @@ export const TOOLABLE_IDS = [
   "memory_get",
 ] as const;
 export type ToolableId = (typeof TOOLABLE_IDS)[number];
+
+/**
+ * How to read a prediction, in words a model will repeat: what the columns
+ * mean for this task and, for a clustering, what the predicted groups look
+ * like. A bare label ("Group 0", "0") is a number without a meaning.
+ */
+/** What a forecast's numbers are, in words: the period, the totals, the method. */
+export function forecastNotes(
+  algorithm: string | null,
+  meta: Record<string, unknown> | null,
+): string[] {
+  const period = typeof meta?.period === "string" ? meta.period : "period";
+  const agg = meta?.aggregation === "mean" ? "average" : "total";
+  const notes = [
+    `Each period is one ${period}; yhat is the projected ${agg} of the target for that ${period}, lo and hi the band it is expected to stay within. The history ended with ${typeof meta?.last_period === "string" ? meta.last_period : "the last observed period"}${typeof meta?.periods === "number" ? ` after ${meta.periods} ${period}s` : ""}.`,
+  ];
+  const how: Record<string, string> = {
+    naive_last_value:
+      "naive last value: every projected period repeats the last observed one, so the line is flat at that value - it won the holdout, which means nothing else beat 'tomorrow looks like today' on this series.",
+    moving_average:
+      "moving average: every projected period is the mean of the most recent periods, so the line is flat at a typical recent level.",
+    seasonal_naive: "seasonal naive: each projected period repeats the value one season earlier.",
+    holt_winters:
+      "Holt-Winters exponential smoothing with a damped trend (and a season when one was detected).",
+    gradient_boosting_lags:
+      "gradient boosting on lagged values, stepping forward one period at a time.",
+  };
+  if (algorithm && how[algorithm]) notes.push(`Method - ${how[algorithm]}`);
+  return notes;
+}
+
+// The trainer's warnings that change how a prediction should be read - a
+// leaked feature, a lopsided target, a rate that is a setting - as opposed
+// to the mechanical ones (dropped columns, time budget), so an agent
+// caveats its answer the way the model page does.
+const ML_CAVEAT_MARKERS = [
+  "Possible leakage",
+  "do-nothing baseline",
+  "predicting the mean would do about as well",
+  "The anomaly rate is the setting",
+  "is used as interaction strength",
+  "will tend to fall into the same group",
+  "will tend to group together",
+  "left out as incomplete",
+  "count as 0",
+  "floored at 0",
+];
+
+export function versionCaveats(warnings: unknown): string[] {
+  if (!Array.isArray(warnings)) return [];
+  return warnings
+    .filter(
+      (w): w is string => typeof w === "string" && ML_CAVEAT_MARKERS.some((m) => w.includes(m)),
+    )
+    .map((w) => `The trainer warned: ${w}`);
+}
+
+export function mlPredictionNotes(
+  task: string,
+  metrics: unknown,
+  predictions: Record<string, unknown>[],
+): string[] {
+  const notes: string[] = [];
+  if (task === "classification") {
+    notes.push(
+      "prediction is the predicted class; probability is the model's confidence in it; proba_<class> are the probabilities of every class.",
+    );
+  } else if (task === "regression") {
+    notes.push("prediction is the predicted value of the target column.");
+  } else if (task === "anomaly") {
+    notes.push(
+      "prediction 1 means the row is an anomaly, 0 means normal. anomaly_score is the isolation score: above 0 is flagged, and the larger it is the more unusual the row; a negative score is an ordinary row.",
+    );
+  } else if (task === "clustering") {
+    notes.push(
+      "prediction is the group number; distance is how far the row sits from that group's centre (smaller = more typical).",
+    );
+    const clusters = (
+      metrics as {
+        clusters?: {
+          cluster: number;
+          size: number;
+          share: number;
+          profile: Record<string, unknown>;
+        }[];
+      } | null
+    )?.clusters;
+    if (Array.isArray(clusters)) {
+      const used = new Set(predictions.map((p) => Number(p.prediction)));
+      for (const c of clusters) {
+        if (!used.has(Number(c.cluster))) continue;
+        const profile = Object.entries(c.profile ?? {})
+          .slice(0, 6)
+          .map(
+            ([k, v]) =>
+              `${k} ${typeof v === "number" ? (Number.isInteger(v) ? v : v.toFixed(2)) : String(v)}`,
+          )
+          .join(", ");
+        notes.push(
+          `Group ${c.cluster}: ${c.size} training rows (${(c.share * 100).toFixed(1)}%); typical row: ${profile}.`,
+        );
+      }
+    }
+  } else if (task === "recommendation") {
+    notes.push(
+      "prediction is the ranked list of recommended items, scores their similarity weights; cold_start true means the user had no history and received the most popular items.",
+    );
+  }
+  return notes;
+}
 
 // `overrides.enabledTools` — when provided, only the listed tool ids are
 // considered for inclusion (subject to the underlying capability being
@@ -1370,6 +1789,7 @@ export async function resolveAgentTools(
     weather: false,
     sql: false,
     notify: false,
+    ml: false,
   };
 
   const allow = overrides?.enabledTools;
@@ -1491,12 +1911,10 @@ export async function resolveAgentTools(
   // the model can call AND is reflected in the tool description so the model
   // picks from a known set.
   if (allows("n8n_run_workflow")) {
-    const { data: n8n } = await ctx.sb
-      .from("integrations")
-      .select("id")
-      .eq("type", "n8n")
-      .eq("is_active", true)
-      .maybeSingle();
+    const { data: n8n } = await ownedBy(
+      ctx,
+      ctx.sb.from("integrations").select("id").eq("type", "n8n").eq("is_active", true),
+    ).maybeSingle();
     if (n8n) {
       const allowList = cfg.n8n_workflow_ids?.filter((s) => s && s.trim()) ?? [];
       const runDesc =
@@ -1536,10 +1954,14 @@ export async function resolveAgentTools(
   // MCP — only if user has at least one MCP server with an http(s) endpoint.
   // Allow-list applies the same way.
   if (allows("mcp_call_tool")) {
-    const { data: mcps } = await ctx.sb
-      .from("mcp_servers")
-      .select("endpoint, name")
-      .eq("status", "connected");
+    // The enumeration half of the MCP problem: this names connected servers and
+    // their endpoints into the tool description, and mcp_call_tool then resolves
+    // them by name. Unscoped, a headless run learned another tenant's server
+    // names right here and could then call them.
+    const { data: mcps } = await ownedBy(
+      ctx,
+      ctx.sb.from("mcp_servers").select("endpoint, name").eq("status", "connected"),
+    );
     const httpMcps = (mcps ?? []).filter((m) => /^https?:\/\//i.test(m.endpoint));
     if (httpMcps.length > 0) {
       const allowList = cfg.mcp_server_names?.filter((s) => s && s.trim()) ?? [];
@@ -1564,9 +1986,16 @@ export async function resolveAgentTools(
   // schema summary to the tool description so the LLM can write correct SQL
   // without first calling list_data_tables.
   if (allows("sql_query")) {
-    // No explicit ownership filter: the client runs under the user's JWT, so
-    // RLS returns their own tables, public samples, and IAM-shared tables.
-    const { data: dt } = await ctx.sb.from("user_data_tables").select("name, columns");
+    // The SAME visibility rule the sql_query loader uses, not a fresh one. With
+    // no filter at all this listed every tenant's tables and columns into the
+    // tool description on a headless run — the data path refused to read them,
+    // but the schemas were already in the prompt.
+    const dtBase = ctx.sb
+      .from("user_data_tables")
+      .select("name, columns")
+      .not("name", "like", "__upload_%");
+    const dtQuery = await scopeToVisibleTables(ctx, dtBase);
+    const dt = dtQuery ? (await dtQuery).data : null;
     // Per-call allow-list — when set, restrict to those table names only.
     const allowedTableNames = (cfg.sql_table_names ?? []).map((s) => s.trim()).filter(Boolean);
     const visible =
@@ -1574,19 +2003,23 @@ export async function resolveAgentTools(
         ? (dt ?? []).filter((t) => allowedTableNames.includes(t.name))
         : (dt ?? []);
     if (visible.length > 0) {
-      const summary = visible
-        .map((t) => {
-          const cols = Array.isArray(t.columns)
+      // Budgeted (R12): fifteen tables of forty columns were 4,300 prompt
+      // tokens on every turn. Columns while the budget lasts, names after,
+      // list_data_tables for the rest — sqlSchemaSummary.ts says why.
+      const summary = summarizeTablesForPrompt(
+        visible.map((t) => ({
+          name: t.name,
+          columns: Array.isArray(t.columns)
             ? (t.columns as Array<{ name: string; type: string }>)
-            : [];
-          return `${t.name}(${cols.map((c) => `${c.name}:${c.type}`).join(", ")})`;
-        })
-        .join("; ");
+            : [],
+        })),
+        intFrom(process.env.SQL_TOOL_SCHEMA_MAX_CHARS, SQL_SCHEMA_SUMMARY_MAX_CHARS),
+      );
       const sqlTool: ToolDef = {
         ...sqlQueryTool,
         function: {
           ...sqlQueryTool.function,
-          description: `${sqlQueryTool.function.description}\n\nAvailable tables: ${summary}`,
+          description: `${sqlQueryTool.function.description}\n\nAvailable tables: ${summary.text}`,
         },
       };
       const allowSet = allowedTableNames.length > 0 ? new Set(allowedTableNames) : null;
@@ -1624,15 +2057,271 @@ export async function resolveAgentTools(
     }
   }
 
+  // ML models — score rows with a trained version from the registry. Offered
+  // only when the caller can use at least one model with a production
+  // version, so the LLM never sees a tool that has nothing to predict with.
+  // On headless runs the caller is scopeUserId; grants are re-derived there.
+  if (allows("data_health")) {
+    // Data monitors and their incidents, for "is the revenue table fresh?".
+    // Owner-scoped: on a headless run scopeUserId is the owner, and the
+    // loaders below read that user's monitors only.
+    const monitorOwner = ctx.scopeUserId ?? ctx.userId;
+    tools.push({
+      type: "function",
+      function: {
+        name: "data_health",
+        description:
+          "Report the health of the user's data tables from their data monitors: every monitor " +
+          "(freshness, volume, schema, null rate, uniqueness, custom SQL) with its table, last " +
+          "status, last value and message, plus the open incidents. Call it before answering " +
+          "whether a table is fresh, complete or trustworthy. Optionally filter by table name.",
+        parameters: {
+          type: "object",
+          properties: {
+            table: {
+              type: "string",
+              description: "Optional: only monitors whose schema.table contains this text",
+            },
+          },
+        },
+      },
+    });
+    handlers.set("data_health", async (c, a) => {
+      // The caller's client: RLS-scoped for a person, the run owner's scope on a headless run.
+      const sb = c.sb;
+      const filter = typeof a?.table === "string" ? a.table.trim().toLowerCase() : "";
+      const [{ data: monitors }, { data: incidents }] = await Promise.all([
+        sb
+          .from("data_monitors")
+          .select(
+            "id, name, source_kind, schema_name, table_name, kind, schedule, is_active, last_run_at, last_status, last_value, last_message",
+          )
+          .eq("user_id", monitorOwner)
+          .order("last_run_at", { ascending: false }),
+        sb
+          .from("data_incidents")
+          .select("monitor_id, status, severity, title, opened_at, last_seen_at, occurrences")
+          .eq("user_id", monitorOwner)
+          .neq("status", "resolved")
+          .order("opened_at", { ascending: false }),
+      ]);
+      const rows = (monitors ?? []).filter(
+        (m) => !filter || `${m.schema_name}.${m.table_name}`.toLowerCase().includes(filter),
+      );
+      const ids = new Set(rows.map((m) => m.id));
+      return JSON.stringify({
+        monitors: rows.map((m) => ({
+          name: m.name,
+          table: `${m.schema_name}.${m.table_name}`,
+          source: m.source_kind,
+          check: m.kind,
+          schedule: m.schedule,
+          active: m.is_active,
+          last_run_at: m.last_run_at,
+          last_status: m.last_status,
+          last_value: m.last_value,
+          last_message: m.last_message,
+        })),
+        open_incidents: (incidents ?? [])
+          .filter((i) => ids.has(i.monitor_id))
+          .map((i) => ({
+            status: i.status,
+            severity: i.severity,
+            title: i.title,
+            opened_at: i.opened_at,
+            last_seen_at: i.last_seen_at,
+            occurrences: i.occurrences,
+          })),
+        notes: [
+          "last_status ok means the last check passed; alert means it failed and an incident is open unless resolved; error means the check could not run.",
+          rows.length === 0
+            ? "No monitors match; the user can create one under Data & BI -> Data monitors."
+            : "A table with no monitor has no health record; say so rather than assuming it is fine.",
+        ],
+      });
+    });
+  }
+  if (allows("ml_predict")) {
+    const mlOwner = ctx.scopeUserId ?? ctx.userId;
+    const { listModelsForUser } = await import("@/utils/ml/access.server");
+    const mlModels = mlModelsAllowed(
+      (await listModelsForUser(mlOwner).catch(() => [])).filter((m) => m.production_version_id),
+      cfg.ml_model_names,
+    );
+    if (mlModels.length > 0) {
+      enabled.ml = true;
+      // Which models can be scored by KEY: those bound to a feature view. Read
+      // as the platform, not the caller — a shared model's view belongs to the
+      // model's owner, and the REST route resolves it the same way.
+      const { keyedModelViews } = await import("@/utils/featureViews/keyed.server");
+      const keyed = await keyedModelViews(mlModels);
+      const mlList = mlModels
+        .map((m) => {
+          const view = keyed.get(m.id);
+          const byKey = view ? `, by key: ${view.key_columns.join(" + ")}` : "";
+          return `"${m.name}" (${m.task} → ${m.target_column}${byKey})`;
+        })
+        .join(", ");
+      const keysHint =
+        keyed.size > 0
+          ? `Models marked "by key" are bound to a feature view: pass keys (objects with the ` +
+            `named key column(s)) instead of rows and the platform reads the features from the ` +
+            `same table training read — prefer keys for those models, and never send both. `
+          : "";
+      tools.push(
+        {
+          type: "function",
+          function: {
+            name: "ml_list_models",
+            description:
+              `List the trained ML models available to predict with, with their task ` +
+              `(classification, regression, forecast, clustering, anomaly, recommendation), ` +
+              `target or user/item columns, feature columns (and the categories each accepts), ` +
+              `headline metric and, for clusterings, the profile of every group. ` +
+              `Call this before ml_predict. Models: ${mlList}.`,
+            parameters: { type: "object", properties: {} },
+          },
+        },
+        {
+          type: "function",
+          function: {
+            name: "ml_predict",
+            description:
+              `Score rows with a trained ML model from the registry (its production version). ` +
+              `Pass real feature values from ml_list_models — never guessed ones. ${keysHint}` +
+              `Returns a prediction per row (and class probabilities for classifiers); forecast ` +
+              `models return their projected periods; clusterings return the group and its ` +
+              `distance; anomaly detectors return 1/0 with an anomaly_score; recommenders take ` +
+              `rows with the user column and return each user's top items. Models: ${mlList}.`,
+            parameters: {
+              type: "object",
+              properties: {
+                model: { type: "string", description: "Model name (exact) from ml_list_models" },
+                rows: {
+                  type: "array",
+                  description: "Rows to score: objects keyed by feature column name (max 50)",
+                  items: { type: "object" },
+                },
+                keys: {
+                  type: "array",
+                  description:
+                    "For a model with a feature view: the rows to score named by their key " +
+                    'column(s), e.g. [{"customer_id": "c-1"}] (max 50). The features are read ' +
+                    "from the view; do not send rows as well.",
+                  items: { type: "object" },
+                },
+              },
+              required: ["model"],
+            },
+          },
+        },
+      );
+      handlers.set("ml_list_models", async (c) => {
+        try {
+          const { listModelsForUser } = await import("@/utils/ml/access.server");
+          const models = mlModelsAllowed(
+            (await listModelsForUser(c.scopeUserId ?? c.userId)).filter(
+              (m) => m.production_version_id,
+            ),
+            cfg.ml_model_names,
+          );
+          const ids = models.map((m) => m.production_version_id as string);
+          const { data: versions } = await c.sb
+            .from("ml_model_versions")
+            .select("id, version, algorithm, metrics, feature_schema")
+            .in("id", ids);
+          const byId = new Map((versions ?? []).map((v) => [v.id, v]));
+          const { keyedModelViews } = await import("@/utils/featureViews/keyed.server");
+          const keyed = await keyedModelViews(models);
+          // The latest drift reading and evaluation per model, as the one
+          // sentence the agent should repeat beside any prediction it reports.
+          const { modelHealthFor } = await import("@/utils/ml/health.server");
+          const { healthLine } = await import("@/lib/mlHealth");
+          const health = await modelHealthFor(models);
+          return JSON.stringify({
+            models: models.map((m) => {
+              const v = byId.get(m.production_version_id as string);
+              const view = keyed.get(m.id) ?? null;
+              const h = health.get(m.id) ?? null;
+              const healthNote = h ? healthLine(h) : null;
+              const schema = (v?.feature_schema ?? []) as {
+                name: string;
+                dtype: string;
+                role: string;
+                categories?: string[];
+              }[];
+              return {
+                name: m.name,
+                task: m.task,
+                target: m.target_column,
+                user_column: m.user_column,
+                item_column: m.item_column,
+                returns:
+                  m.task === "clustering"
+                    ? "prediction (group number) and distance to its centre"
+                    : m.task === "anomaly"
+                      ? "prediction (1 = anomaly, 0 = normal) and anomaly_score"
+                      : m.task === "recommendation"
+                        ? `prediction (top ${m.item_column} for the ${m.user_column} in each row) with scores`
+                        : m.task === "forecast"
+                          ? "the projected periods"
+                          : "prediction per row",
+                version: v?.version ?? null,
+                algorithm: v?.algorithm ?? null,
+                metrics: v?.metrics ?? null,
+                features: schema
+                  .filter((e) => e.role === "feature")
+                  .map((e) => ({
+                    name: e.name,
+                    type: e.dtype,
+                    // A sample, not the vocabulary: a model that saw twenty of
+                    // sixty customers must not replace the sixty-first with
+                    // "unknown". Rare and unseen values are handled by the
+                    // trained encoder.
+                    categories: e.categories?.slice(0, 20),
+                    category_count: e.categories?.length,
+                  })),
+                // A model bound to a feature view can be scored by KEY: the
+                // platform reads the features from the table training read,
+                // so the agent has nothing to compute — and nothing to get
+                // subtly wrong. Named here so the agent knows which column(s)
+                // identify a row.
+                feature_view: view ? { name: view.name, key_columns: view.key_columns } : null,
+                // The model's latest drift reading and evaluation, as the
+                // owner already heard them — so an answer resting on this
+                // model can say what its owner was told.
+                health: h ? { alerts: h.alerts, summary: h.summary } : null,
+                notes: [
+                  "categories lists a sample of the values seen in training (category_count is the total); pass the real value for any categorical feature, including one not listed - unseen values are handled.",
+                  ...(view
+                    ? [
+                        `Prefer scoring by key: call ml_predict with keys=[{${view.key_columns.map((k) => `"${k}": …`).join(", ")}}] and the features are read from the feature view "${view.name}"; send rows only when a row is not in that table.`,
+                      ]
+                    : []),
+                  ...(h && h.alerts.length && healthNote
+                    ? [`${healthNote} Say so beside any prediction you report from this model.`]
+                    : []),
+                ],
+              };
+            }),
+          });
+        } catch (e) {
+          return JSON.stringify({ error: e instanceof Error ? e.message : "Failed" });
+        }
+      });
+      handlers.set("ml_predict", (c, a) => runMlPredict(c, a, cfg.ml_model_names));
+    }
+  }
+
   // External warehouse tools — same toggle as sql_query, available when the
   // user has connected at least one warehouse under /integrations. Queries
   // run server-side against the vendor API with decrypted credentials; the
   // model only ever sees result rows.
   if (allows("sql_query")) {
-    const { data: whConns } = await ctx.sb
-      .from("data_warehouse_connections")
-      .select("name, provider")
-      .eq("is_active", true);
+    const { data: whConns } = await ownedBy(
+      ctx,
+      ctx.sb.from("data_warehouse_connections").select("name, provider").eq("is_active", true),
+    );
     if (whConns && whConns.length > 0) {
       const connList = whConns.map((c) => `"${c.name}" (${c.provider})`).join(", ");
       tools.push(
@@ -1698,7 +2387,46 @@ export async function resolveAgentTools(
             { name: String(a.connection ?? "") },
             c.userId,
           );
-          const result = await executeWarehouseQuery(conn.config, String(a.sql ?? ""), 200);
+          const sqlText = String(a.sql ?? "");
+          // `userId` is the tenant this query is billed to. Without it the
+          // per-user concurrency gate does not apply at all (see governor:
+          // `userId ? gateFor(userId) : null`), so an agent — including a
+          // scheduled swarm looping over rows — could consume the whole global
+          // budget while every interactive user waited.
+          const result = await executeWarehouseQuery(conn.config, sqlText, WAREHOUSE_TOOL_ROW_CAP, {
+            userId: c.userId,
+          });
+          // The UI path records every warehouse query. This one did not, which
+          // left the automated queries — the ones nobody is watching as they
+          // happen — as the only reads with no trail.
+          auditEvent({
+            userId: c.userId,
+            action: "warehouse.query",
+            resourceType: "warehouse",
+            resourceName: conn.name,
+            decisionId: c.decisionId,
+            detail: {
+              provider: conn.provider,
+              via: "agent_tool",
+              agent_id: c.agentId ?? null,
+              row_count: result.row_count,
+              truncated: result.truncated,
+              // Recorded so the read can be REPLAYED: the query text, and a
+              // fingerprint of what it returned. Re-running a query later only
+              // proves the query runs; comparing today's result against the
+              // digest taken at the time is what shows whether the answer's
+              // data was what the record says it was.
+              sql: sqlText.slice(0, 4000),
+              result_digest: resultDigest(
+                result.columns.map((col) => col.name),
+                result.rows,
+              ),
+              // The cap the digest was taken under. A replay that re-ran with a
+              // different cap would report a mismatch caused by truncation
+              // rather than by the data.
+              row_cap: WAREHOUSE_TOOL_ROW_CAP,
+            },
+          });
           const LLM_ROW_CAP = 50;
           return JSON.stringify({
             connection: conn.name,
@@ -1722,6 +2450,12 @@ export async function resolveAgentTools(
  * WHEN-to-use rules for the enabled sources. Kept short (a few lines) so it
  * steers routing without crowding out the agent's own system prompt.
  */
+/** An integer operator setting, or the fallback when unset or unparsable. */
+function intFrom(raw: string | undefined, fallback: number): number {
+  const n = raw === undefined || raw === "" ? NaN : Number(raw);
+  return Number.isFinite(n) ? Math.floor(n) : fallback;
+}
+
 function buildRoutingGuidance(enabled: ResolvedTools["enabled"], tools: ToolDef[]): string {
   const has = (name: string) => tools.some((t) => t.function.name === name);
   const lines: string[] = [];
@@ -1752,6 +2486,17 @@ function buildRoutingGuidance(enabled: ResolvedTools["enabled"], tools: ToolDef[
     lines.push(
       "- metric_query answers governed business-metric questions from the semantic catalog — prefer " +
         "it over raw SQL when a listed metric matches.",
+    );
+  }
+  if (has("ml_predict")) {
+    lines.push(
+      "- ml_predict scores rows with a trained model from the registry; call ml_list_models first " +
+        "for each model's feature columns and accepted categories, and pass real values, never guessed ones.",
+    );
+  }
+  if (has("data_health")) {
+    lines.push(
+      "- data_health reports the tables' monitors and open incidents; call it before saying a table is fresh, complete or trustworthy, and say when a table has no monitor.",
     );
   }
   if (has("list_warehouse_tables")) {

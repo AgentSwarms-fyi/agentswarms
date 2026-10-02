@@ -31,16 +31,25 @@ async function requireUser(accessToken: string) {
   return { sb, userId: data.user.id };
 }
 
-/** Emails for a set of user ids (service role; self-hosted scale). */
-async function emailMap(): Promise<Map<string, string>> {
+/**
+ * Emails for a set of user ids (service role; self-hosted scale).
+ *
+ * A failed page is reported, not skipped: this used to `break` on error and
+ * hand back a SHORT map, and the audit list then showed an 8-character id
+ * where it should show a person — for every trace and swarm row after the
+ * failure — under an ok: true answer. A short page really is the end; a
+ * failed one is not.
+ */
+async function emailMap(): Promise<{ map: Map<string, string>; error: string | null }> {
   const map = new Map<string, string>();
   for (let page = 1; page <= 5; page++) {
     const { data, error } = await supabaseAdmin.auth.admin.listUsers({ page, perPage: 1000 });
-    if (error || !data.users.length) break;
+    if (error) return { map, error: `could not list users for attribution: ${error.message}` };
+    if (!data.users.length) break;
     for (const u of data.users) if (u.email) map.set(u.id, u.email);
     if (data.users.length < 1000) break;
   }
-  return map;
+  return { map, error: null };
 }
 
 export type AuditRow = {
@@ -160,7 +169,12 @@ export const auditListEvents = createServerFn({ method: "POST" })
         if (tracesRes.error) return { ok: false, error: tracesRes.error.message };
         if (swarmsRes.error) return { ok: false, error: swarmsRes.error.message };
 
-        const emails = admin ? await emailMap() : null;
+        let emails: Map<string, string> | null = null;
+        if (admin) {
+          const people = await emailMap();
+          if (people.error) return { ok: false, error: people.error };
+          emails = people.map;
+        }
         const emailFor = (uid: string | null) => (uid ? (emails?.get(uid) ?? null) : null);
 
         const rows: AuditRow[] = [
@@ -308,11 +322,17 @@ export const adminSpendBreakdown = createServerFn({ method: "POST" })
           supabaseAdmin.from("iam_group_members").select("group_id, user_id"),
         ]);
         if (error) return { ok: false, error: error.message };
+        // Three more reads feed this answer. Each used to be folded — a failed
+        // user list attributed spend to ids, a failed groups or members read
+        // answered ok: true with an empty group breakdown.
+        if (emails.error) return { ok: false, error: emails.error };
+        if (groupsRes.error) return { ok: false, error: groupsRes.error.message };
+        if (membersRes.error) return { ok: false, error: membersRes.error.message };
 
         const users: UserSpendRow[] = (spend ?? [])
           .map((s) => ({
             user_id: s.user_id,
-            email: emails.get(s.user_id) ?? null,
+            email: emails.map.get(s.user_id) ?? null,
             calls: Number(s.calls),
             tokens: Number(s.tokens),
             cost: Number(s.cost),
@@ -362,7 +382,14 @@ export const auditChainVerify = createServerFn({ method: "POST" })
     async ({
       data,
     }): Promise<
-      { ok: true; checked: number; firstBrokenSeq: number | null } | { ok: false; error: string }
+      | {
+          ok: true;
+          checked: number;
+          firstBrokenSeq: number | null;
+          /** A benign explanation for the break, when the broken row shows one. */
+          likelyCause: string | null;
+        }
+      | { ok: false; error: string }
     > => {
       const guard = await requireSuperadmin(data.access_token);
       if (!guard.ok) return { ok: false, error: "Superadmin only" };
@@ -380,6 +407,29 @@ export const auditChainVerify = createServerFn({ method: "POST" })
       if (error) return { ok: false, error: error.message };
       const row = rows?.[0];
       if (!row) return { ok: false, error: "No result from verification" };
-      return { ok: true, checked: Number(row.checked), firstBrokenSeq: row.first_broken_seq };
+      const firstBrokenSeq = row.first_broken_seq;
+
+      // "An event was altered or removed" is a serious accusation, and there is
+      // one benign cause we know of: until migration 20260850000000, deleting a
+      // user set audit_events.user_id to NULL, and user_id is hashed into the
+      // chain. Deleting one account therefore rewrote a hashed field on every
+      // row it had produced. Naming that possibility where the evidence fits is
+      // the difference between a useful check and one an operator learns to
+      // ignore -- it is offered as a lead to check, never as a verdict.
+      let likelyCause: string | null = null;
+      if (firstBrokenSeq !== null) {
+        /* eslint-disable @typescript-eslint/no-explicit-any */
+        const { data: broken } = await (sb as any)
+          .from("audit_events")
+          .select("user_id, actor_email")
+          .eq("chain_seq", Number(firstBrokenSeq))
+          .maybeSingle();
+        /* eslint-enable @typescript-eslint/no-explicit-any */
+        if (broken && broken.user_id === null) {
+          likelyCause =
+            "This row has no user_id. Until the audit_events foreign key was dropped, deleting an account set that field to NULL on every row it had produced — and user_id is hashed into the chain, so the deletion rewrote it. That is the most likely explanation here, and it cannot be repaired: the value that would verify the row no longer exists. New deletions can no longer do this.";
+        }
+      }
+      return { ok: true, checked: Number(row.checked), firstBrokenSeq, likelyCause };
     },
   );

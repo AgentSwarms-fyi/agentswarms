@@ -6,6 +6,10 @@
 //           insert any answer as a widget.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { useServerFn } from "@tanstack/react-start";
+import { useAuth } from "@/hooks/use-auth";
+import { mlListForecastVersions, type MlForecastVersionOption } from "@/utils/ml.functions";
+import { forecastPeriods, forecastVersionId } from "@/lib/mlForecast";
 import {
   AreaChart,
   BarChart2,
@@ -96,6 +100,9 @@ import {
   type BiWidget,
   type SemanticChartType,
 } from "@/lib/biDashboards";
+import { chartBlocker, metricBlocker } from "@/lib/biBuilderReady";
+import { restateWidgetNote } from "@/lib/biTitleClaims";
+import { restateWidgetNarrative } from "@/lib/biNumericClaims";
 import type { SemanticQuery, TimeGrain } from "@/lib/semanticLayer";
 import { isAggregatableChart } from "@/lib/biAggregate";
 import { buildOntology, type OntologyBuildStage, type OntologySpec } from "@/lib/biOntology";
@@ -207,6 +214,19 @@ export function BiBuilderPane({
   const [runningB, setRunningB] = useState(false);
   const [trendB, setTrendB] = useState(false);
   const [forecastN, setForecastN] = useState("");
+  // "auto" = the built-in forecaster; else the id of a registry forecast
+  // version, whose projected points are embedded in the spec when it is saved.
+  const [forecastSource, setForecastSource] = useState("auto");
+  const [forecastVersions, setForecastVersions] = useState<MlForecastVersionOption[]>([]);
+  const { session: mlSession } = useAuth();
+  const listForecastFn = useServerFn(mlListForecastVersions);
+  useEffect(() => {
+    const t = mlSession?.access_token;
+    if (!t) return;
+    void listForecastFn({ data: { access_token: t } })
+      .then((r) => setForecastVersions(r.versions))
+      .catch(() => {});
+  }, [mlSession?.access_token, listForecastFn]);
   const [refMode, setRefMode] = useState("none");
   const [matFmtMode, setMatFmtMode] = useState("none");
   const [matScaleColor, setMatScaleColor] = useState("blue");
@@ -351,7 +371,8 @@ export function BiBuilderPane({
       setCompareSel(c.compare ?? "none");
       setRunningB(Boolean(c.running));
       setTrendB(Boolean(c.trend));
-      setForecastN(c.forecast ? String(c.forecast) : "");
+      setForecastN(forecastPeriods(c.forecast) ? String(forecastPeriods(c.forecast)) : "");
+      setForecastSource(forecastVersionId(c.forecast) ?? "auto");
       setRefMode(c.refLine?.mode ?? "none");
       const cf = c.type === "matrix" ? c.condFormat : undefined;
       setMatFmtMode(cf?.mode ?? "none");
@@ -403,6 +424,7 @@ export function BiBuilderPane({
       setRunningB(false);
       setTrendB(false);
       setForecastN("");
+      setForecastSource("auto");
       setRefMode("none");
       setRefValue("");
       setRefLabel("");
@@ -861,7 +883,20 @@ export function BiBuilderPane({
           if (trendB) analytics.trend = true;
           const f = Number(forecastN);
           if (forecastN.trim() && Number.isFinite(f) && f > 0) {
-            analytics.forecast = Math.min(24, Math.round(f));
+            const periods = Math.min(24, Math.round(f));
+            const v =
+              forecastSource !== "auto"
+                ? forecastVersions.find((x) => x.id === forecastSource)
+                : undefined;
+            analytics.forecast = v
+              ? {
+                  periods,
+                  versionId: v.id,
+                  model: v.label,
+                  trainedAt: v.trained_at ?? undefined,
+                  points: v.points,
+                }
+              : periods;
           }
         }
       }
@@ -917,6 +952,8 @@ export function BiBuilderPane({
     runningB,
     trendB,
     forecastN,
+    forecastSource,
+    forecastVersions,
     refMode,
     refValue,
     refLabel,
@@ -941,10 +978,15 @@ export function BiBuilderPane({
     });
   }, [preview]);
 
-  const canSubmit =
-    chartType === "ontology"
-      ? Boolean(title.trim() && chartSpec)
-      : Boolean(title.trim() && sql.trim() && preview && chartSpec);
+  // What is still missing, said under the button while it is disabled (R203).
+  const blocker = chartBlocker({
+    ontology: chartType === "ontology",
+    sql,
+    ran: Boolean(preview),
+    chart: Boolean(chartSpec),
+    title,
+  });
+  const canSubmit = blocker === null;
 
   function submit() {
     if (!canSubmit || !chartSpec) return;
@@ -964,7 +1006,7 @@ export function BiBuilderPane({
       return;
     }
     if (!preview) return;
-    onSubmit({
+    const edited: BiWidget = {
       id: initial?.id ?? crypto.randomUUID(),
       kind: "chart",
       title: title.trim(),
@@ -979,6 +1021,8 @@ export function BiBuilderPane({
       // `truncated: false` and the card's "Partial" badge could never fire.
       // A chart missing rows with nothing saying so is the worst outcome here.
       truncated: preview.capped || preview.rows.length > snapshotRows(preview.rows).length,
+      // Carried, then checked below: the owner may have just pointed this
+      // widget at different data, and the prose was written about the old.
       narrative: initial?.narrative,
       // New widgets aggregate in SQL by default so their totals are complete
       // regardless of table size. An EXISTING widget keeps whatever it had:
@@ -991,7 +1035,28 @@ export function BiBuilderPane({
           ? { column: incColumn, days: Number(incDays) }
           : undefined,
       refreshed_at: new Date().toISOString(),
+      // Carried, not rebuilt. This pane constructs the widget field by field,
+      // so anything not named here is dropped — and dropping THIS one leaves
+      // the note's sentence in the title with nothing able to restate it ever
+      // again. Found by editing a widget and watching a refresh fail to
+      // withdraw a note it should have withdrawn.
+      reconcile_note: initial?.reconcile_note,
+    };
+    // The owner may have just changed the SQL, so the note is re-checked here
+    // for the same reason a refresh re-checks it: the result underneath it has
+    // changed. A title they retyped is left alone by the suffix test.
+    const restated = restateWidgetNote({
+      title: edited.title,
+      sql: edited.sql,
+      chart: edited.chart,
+      reconcile_note: edited.reconcile_note,
+      rows: edited.rows,
+      truncated: edited.truncated,
     });
+    const withNote = restated
+      ? { ...edited, title: restated.title, reconcile_note: restated.reconcile_note }
+      : edited;
+    onSubmit(restateWidgetNarrative(withNote) ? { ...withNote, narrative: undefined } : withNote);
     toast.success(initial ? "Widget updated" : "Widget added to the dashboard");
   }
 
@@ -1026,7 +1091,13 @@ export function BiBuilderPane({
 
   const mmChart: SemanticChartType = coerceSemanticChart(chartType);
 
-  const canSubmitMetric = Boolean(title.trim() && mmName && mmMetrics.length > 0 && mmPreview);
+  const metricBlocked = metricBlocker({
+    model: mmName,
+    metrics: mmMetrics.length,
+    ran: Boolean(mmPreview),
+    title,
+  });
+  const canSubmitMetric = metricBlocked === null;
 
   function submitMetric() {
     if (!canSubmitMetric || !mmPreview) return;
@@ -1701,6 +1772,12 @@ export function BiBuilderPane({
                               setTrendB={setTrendB}
                               forecastN={forecastN}
                               setForecastN={setForecastN}
+                              forecastSource={forecastSource}
+                              setForecastSource={setForecastSource}
+                              forecastVersions={forecastVersions.map((v) => ({
+                                id: v.id,
+                                label: v.label,
+                              }))}
                             />
                           )}
 
@@ -1812,7 +1889,7 @@ export function BiBuilderPane({
                           <Input
                             value={title}
                             onChange={(e) => setTitle(e.target.value)}
-                            placeholder="Revenue by month"
+                            placeholder="e.g. Revenue by month"
                             className="h-8 text-xs"
                           />
                         </div>
@@ -1884,6 +1961,15 @@ export function BiBuilderPane({
                 {initial ? "Save widget" : "Add to dashboard"}
               </Button>
             )}
+            {(() => {
+              const why =
+                sourceKey === "semantic" && chartType !== "ontology" ? metricBlocked : blocker;
+              return why ? (
+                <p className="mt-1.5 text-center text-[11px] text-muted-foreground" role="status">
+                  {why}
+                </p>
+              ) : null;
+            })()}
           </div>
         </>
       ) : (

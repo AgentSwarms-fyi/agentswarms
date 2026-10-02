@@ -24,12 +24,11 @@ export async function grantedDatasetIds(
   sb: SupabaseClient<Database>,
   viewerId: string,
 ): Promise<Set<string>> {
-  try {
-    const { resolveGrantedResourceIds } = await import("@/utils/iam.server");
-    return await resolveGrantedResourceIds(sb, viewerId, "data_table");
-  } catch {
-    return new Set();
-  }
+  // Deliberately not caught: a failed grants read answered as "none" dropped
+  // every shared dataset from a prep flow's or a refresh's source list, and
+  // the job then ran over a short list instead of failing with the reason.
+  const { resolveGrantedResourceIds } = await import("@/utils/iam.server");
+  return await resolveGrantedResourceIds(sb, viewerId, "data_table");
 }
 
 /**

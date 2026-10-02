@@ -1,7 +1,7 @@
 // /monitoring — service health and hardware utilisation.
 //
 // Superadmin-only, and deliberately honest about what it does and does not
-// know: an optional service that was never started reads "Not running", not a
+// know: every service ships with the install, so "down" is an outage and reads as
 // red "Down", and memory says whether the total is the container's limit or
 // the host's RAM. A monitoring page that cries wolf is a page people stop
 // opening.
@@ -35,6 +35,7 @@ import {
   type ServiceProbe,
   type SystemMetrics,
   servicesSummary,
+  stalenessNotice,
 } from "@/lib/serviceHealth";
 import { serviceHealth, systemMetrics } from "@/utils/monitoring.functions";
 
@@ -119,11 +120,6 @@ function ServiceRow({ s }: { s: ServiceProbe }) {
           <Badge className={cn("border-0 text-[10px] font-medium", TONE_CLASSES[tone])}>
             {label}
           </Badge>
-          {s.optional && s.profile && (
-            <span className="font-mono text-[10px] text-muted-foreground">
-              --profile {s.profile}
-            </span>
-          )}
         </div>
         <p className="mt-0.5 text-xs text-muted-foreground">{s.purpose}</p>
         {s.message && (
@@ -216,9 +212,12 @@ function MonitoringPage() {
   const memPct = metrics ? pct(metrics.memory.usedBytes, metrics.memory.totalBytes) : null;
   const diskPct = metrics?.disk ? pct(metrics.disk.usedBytes, metrics.disk.totalBytes) : null;
   const cpuPct = metrics?.cpu.usage === null || !metrics ? null : metrics.cpu.usage * 100;
-  const unhealthy = services.filter(
-    (s) => s.status === "degraded" || (s.status === "down" && !s.optional),
-  );
+  const unhealthy = services.filter((s) => s.status === "degraded" || s.status === "down");
+  const staleNote = stalenessNotice({
+    errored: error !== null,
+    hasServices: services.length > 0,
+    hasMetrics: metrics !== null,
+  });
 
   return (
     <main className="mx-auto w-full max-w-[1400px] px-4 py-6 md:px-8">
@@ -261,6 +260,28 @@ function MonitoringPage() {
         >
           {error}
         </div>
+      )}
+
+      {/* The refresh failed and the previous values are still on screen. Saying
+          so once, here, is cheaper and harder to miss than qualifying every
+          figure below it. */}
+      {staleNote && <p className="mb-4 text-xs text-muted-foreground">{staleNote}</p>}
+
+      {/* WHOSE numbers these are.
+          Behind a load balancer or a Kubernetes Service, each refresh can be
+          answered by a different replica, and the figures below belong to that
+          one alone. Without naming it, CPU appears to jump about when it is
+          really several machines taking turns — the sort of thing that costs an
+          hour before anyone suspects it. On Kubernetes the hostname IS the pod
+          name, so this doubles as "which pod am I looking at". */}
+      {metrics && (
+        <p className="mb-3 text-[11px] text-muted-foreground">
+          Reporting from <span className="font-mono text-foreground">{metrics.hostname}</span> ·{" "}
+          {metrics.role} node · {metrics.workers} worker
+          {metrics.workers === 1 ? "" : "s"}
+          {metrics.workers > 1 && " sharing this instance's memory"}. Behind a load balancer these
+          figures describe the replica that answered, not the fleet.
+        </p>
       )}
 
       {/* Hardware */}
@@ -321,12 +342,14 @@ function MonitoringPage() {
         />
       </div>
 
-      {/* Capacity: what is held in columnar form, and the choice per dataset.
-          Sits here because this is the page about what the system is using. */}
-      <CapacityPanel userId={user?.id} />
-
-      {/* Services */}
-      <Card className="overflow-hidden">
+      {/* Services.
+          ABOVE capacity, not below it. This page is opened when something looks
+          wrong, and the first question is "what is down". Capacity used to come
+          first and listed every dataset in the workspace — a dozen rows, most of
+          them holding nothing — which pushed the health list a screen and a half
+          below the resource cards. Ordering here is triage order: the machine,
+          then what is broken, then what is stored. */}
+      <Card className="mb-5 overflow-hidden">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-muted/40 px-4 py-2">
           <p className="text-sm font-semibold">Services</p>
           <p className="text-[11px] text-muted-foreground">
@@ -336,13 +359,21 @@ function MonitoringPage() {
         </div>
         <div className="divide-y">
           {services.length === 0 && !loading && (
-            <p className="p-4 text-sm text-muted-foreground">No probe results yet.</p>
+            <p className="p-4 text-sm text-muted-foreground">
+              {/* "yet" belongs to a load still in flight, not to one that came
+                  back an error — an empty list that failed to read is absence of
+                  an answer, not an answer of none. */}
+              {error ? "The probes could not be read." : "No probe results yet."}
+            </p>
           )}
           {services.map((s) => (
             <ServiceRow key={s.id} s={s} />
           ))}
         </div>
       </Card>
+
+      {/* Capacity: what is held in columnar form, and the choice per dataset. */}
+      <CapacityPanel userId={user?.id} />
 
       {metrics && (
         <p className="mt-3 text-[11px] text-muted-foreground">

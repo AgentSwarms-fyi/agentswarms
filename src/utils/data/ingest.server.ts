@@ -62,6 +62,14 @@ export type IngestResult = {
   format: DatasetFormat;
   /** Rows skipped because they had no usable content. */
   skipped: number;
+  /**
+   * How a merge landed, when one happened.
+   *
+   * A merge of 100 rows can be 60 edits and 40 new records, and the two
+   * numbers answer different questions: "is this source still producing?" and
+   * "is this source churning?". A replace reports neither.
+   */
+  merged?: { updated: number; inserted: number };
 };
 
 class IngestError extends Error {}
@@ -450,6 +458,17 @@ export async function ingestRows(args: {
    */
   saas?: { connectionId: string; stream: string };
   rows: AsyncIterable<Record<string, unknown>>;
+  /**
+   * Fold these rows INTO the dataset, keyed on this field, instead of
+   * replacing it.
+   *
+   * Set only by an incremental sync, which holds just the records that
+   * changed — replacing with those would delete every record that did not.
+   * Absent means the historical behaviour: snapshot the old contents and swap
+   * the whole dataset, which stays correct for an upload and for any source
+   * without a cursor.
+   */
+  mergeKey?: string;
 }): Promise<IngestResult> {
   const maxRows = uploadMaxRows();
   const stagingName = `${STAGING_PREFIX}${crypto.randomUUID().replace(/-/g, "").slice(0, 24)}`;
@@ -488,6 +507,7 @@ export async function ingestRows(args: {
       sourceFilename: args.sourceLabel,
       columns: sink.columns,
       saas: args.saas,
+      mergeKey: args.mergeKey,
     });
     return {
       ...result,
@@ -533,7 +553,13 @@ async function promoteStaging(args: {
    * and then lost on every subsequent sync, which is the common case.
    */
   saas?: { connectionId: string; stream: string };
-}): Promise<{ tableId: string; tableName: string }> {
+  /** Upsert on this JSON field rather than replacing the dataset. */
+  mergeKey?: string;
+}): Promise<{
+  tableId: string;
+  tableName: string;
+  merged?: { updated: number; inserted: number };
+}> {
   const { data: existing } = await supabaseAdmin
     .from("user_data_tables")
     .select("id")
@@ -564,20 +590,42 @@ async function promoteStaging(args: {
     userId: args.userId,
     tableId: existing.id,
     reason: "upload",
-    note: `Replaced by ${args.sourceFilename}`.slice(0, 300),
+    note: (args.mergeKey
+      ? `Merged from ${args.sourceFilename}`
+      : `Replaced by ${args.sourceFilename}`
+    ).slice(0, 300),
   });
 
-  const { error: delErr } = await supabaseAdmin
-    .from("user_data_rows")
-    .delete()
-    .eq("table_id", existing.id);
-  if (delErr) throw new Error(delErr.message);
+  let merged: { updated: number; inserted: number } | undefined;
+  if (args.mergeKey) {
+    // One statement in the database rather than a read-compare-write here:
+    // the key set can be tens of thousands of ids, and shipping them to the
+    // app to build an `in (...)` filter would be slower and would race a
+    // concurrent sync of the same stream.
+    const { data, error } = await supabaseAdmin.rpc("merge_dataset_rows", {
+      p_target: existing.id,
+      p_staging: args.stagingId,
+      p_key: args.mergeKey,
+    });
+    if (error) throw new Error(error.message);
+    const row = (Array.isArray(data) ? data[0] : data) as {
+      updated?: number;
+      inserted?: number;
+    } | null;
+    merged = { updated: Number(row?.updated ?? 0), inserted: Number(row?.inserted ?? 0) };
+  } else {
+    const { error: delErr } = await supabaseAdmin
+      .from("user_data_rows")
+      .delete()
+      .eq("table_id", existing.id);
+    if (delErr) throw new Error(delErr.message);
 
-  const { error: moveErr } = await supabaseAdmin
-    .from("user_data_rows")
-    .update({ table_id: existing.id })
-    .eq("table_id", args.stagingId);
-  if (moveErr) throw new Error(moveErr.message);
+    const { error: moveErr } = await supabaseAdmin
+      .from("user_data_rows")
+      .update({ table_id: existing.id })
+      .eq("table_id", args.stagingId);
+    if (moveErr) throw new Error(moveErr.message);
+  }
 
   const { error: metaErr } = await supabaseAdmin
     .from("user_data_tables")
@@ -595,7 +643,7 @@ async function promoteStaging(args: {
 
   await supabaseAdmin.from("user_data_tables").delete().eq("id", args.stagingId);
   await refreshMirror(args.userId, existing.id);
-  return { tableId: existing.id, tableName: args.tableName };
+  return { tableId: existing.id, tableName: args.tableName, merged };
 }
 
 /**

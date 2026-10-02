@@ -3,7 +3,10 @@
 // Merges live runs from the in-browser run manager (which keeps executing
 // across navigation) with the durable swarm_runs history in the DB. Running
 // or paused ("waiting") runs can be cancelled from here — directly if this tab
-// owns the run, or via a DB flag the owning tab's cancel-watch picks up.
+// owns the run, or via a DB flag the owning tab's cancel-watch picks up. A run
+// parked on the server at an approval ("suspended") opens the approvals inbox
+// (R108), and its Cancel ends it on the server and closes that approval (R179).
+import { formatUsd } from "@/lib/usd";
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
@@ -24,6 +27,8 @@ import {
   Ban,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useServerFn } from "@tanstack/react-start";
+import { cancelParkedSwarmRun } from "@/utils/swarmResume.functions";
 import {
   subscribe as subscribeRuns,
   getSnapshot as getRunsSnapshot,
@@ -31,6 +36,16 @@ import {
   cancelByDbRunId,
   type ManagedRunView,
 } from "@/lib/swarmRunManager";
+import {
+  formatRunDuration,
+  parkedApproval,
+  parkedRunView,
+  runStatusView,
+  showsDuration,
+  type RunStatusView,
+  type RunTone,
+} from "@/lib/swarmRunStatus";
+import { openApprovalsInbox } from "@/lib/approvalsInbox";
 
 type DbRun = {
   id: string;
@@ -60,8 +75,6 @@ type RunItem = {
   live: boolean;
 };
 
-const ACTIVE = new Set(["running", "waiting"]);
-
 function useManagedRuns(): ManagedRunView[] {
   return useSyncExternalStore(subscribeRuns, getRunsSnapshot, getRunsSnapshot);
 }
@@ -78,71 +91,85 @@ function relTime(ms: number): string {
 }
 
 function duration(startedAt: number, finishedAt: number | null): string {
-  const end = finishedAt ?? Date.now();
-  const s = Math.max(0, Math.round((end - startedAt) / 1000));
-  if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60);
-  const rem = s % 60;
-  return `${m}m ${rem}s`;
+  return formatRunDuration((finishedAt ?? Date.now()) - startedAt);
 }
 
-function StatusBadge({ status }: { status: string }) {
-  const map: Record<string, { cls: string; Icon: typeof Play; label: string }> = {
-    running: {
-      cls: "bg-amber-500/10 text-amber-400 border-amber-500/30",
-      Icon: Loader2,
-      label: "Running",
-    },
-    waiting: {
-      cls: "bg-amber-500/10 text-amber-300 border-amber-500/30",
-      Icon: Hourglass,
-      label: "Awaiting approval",
-    },
-    success: {
-      cls: "bg-emerald-500/10 text-emerald-400 border-emerald-500/30",
-      Icon: CheckCircle2,
-      label: "Success",
-    },
-    error: {
-      cls: "bg-destructive/10 text-destructive border-destructive/30",
-      Icon: XCircle,
-      label: "Error",
-    },
-    cancelled: {
-      cls: "bg-muted text-muted-foreground border-border",
-      Icon: Ban,
-      label: "Cancelled",
-    },
-  };
-  const m = map[status] ?? map.running;
-  const Icon = m.Icon;
+const TONE: Record<RunTone, { cls: string; Icon: typeof Play }> = {
+  active: { cls: "bg-amber-500/10 text-amber-400 border-amber-500/30", Icon: Loader2 },
+  waiting: { cls: "bg-amber-500/10 text-amber-300 border-amber-500/30", Icon: Hourglass },
+  success: {
+    cls: "bg-emerald-500/10 text-emerald-400 border-emerald-500/30",
+    Icon: CheckCircle2,
+  },
+  error: { cls: "bg-destructive/10 text-destructive border-destructive/30", Icon: XCircle },
+  muted: { cls: "bg-muted text-muted-foreground border-border", Icon: Ban },
+};
+
+function StatusBadge({ view, spinning }: { view: RunStatusView; spinning: boolean }) {
+  const { cls, Icon } = TONE[view.tone];
   return (
-    <Badge variant="outline" className={`gap-1 text-[10px] ${m.cls}`}>
-      <Icon className={`h-3 w-3 ${status === "running" ? "animate-spin" : ""}`} />
-      {m.label}
+    <Badge variant="outline" className={`gap-1 text-[10px] ${cls}`}>
+      <Icon className={`h-3 w-3 ${spinning ? "animate-spin" : ""}`} />
+      {view.label}
     </Badge>
   );
 }
+
+/** The approval requests of the parked runs on screen, by run id. */
+type ParkedRequests = { byRun: Map<string, string[]>; failed: boolean };
 
 export function RecentRunsPanel() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const liveRuns = useManagedRuns();
   const [dbRuns, setDbRuns] = useState<DbRun[]>([]);
+  const [requests, setRequests] = useState<ParkedRequests>({ byRun: new Map(), failed: false });
   const [loading, setLoading] = useState(true);
+  // FOUND IN R179 (the R63 shape): a failed read of the runs read as "No runs
+  // yet", over runs that were parked and waiting for someone.
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const cancelParkedFn = useServerFn(cancelParkedSwarmRun);
 
   const load = useCallback(async () => {
     if (!user) return;
-    const { data } = await supabase
+    const { data, error: readErr } = await supabase
       .from("swarm_runs")
       .select(
         "id, swarm_id, swarm_name, status, started_at, finished_at, step_count, total_cost_usd, total_tokens_in, total_tokens_out, cancel_requested",
       )
       .order("started_at", { ascending: false })
       .limit(50);
-    setDbRuns((data ?? []) as DbRun[]);
+    if (readErr) {
+      setLoadError(readErr.message);
+      setLoading(false);
+      return;
+    }
+    setLoadError(null);
+    const rows = (data ?? []) as DbRun[];
+    // A parked run is only waiting for someone if its request is still
+    // pending; the request says so, the run row cannot (R108).
+    const parked = rows.filter((r) => r.status === "suspended").map((r) => r.id);
+    const next: ParkedRequests = { byRun: new Map(), failed: false };
+    if (parked.length) {
+      const { data: asks, error } = await supabase
+        .from("approvals")
+        .select("swarm_run_id, status")
+        .in("swarm_run_id", parked);
+      if (error) next.failed = true;
+      for (const a of asks ?? []) {
+        if (!a.swarm_run_id) continue;
+        next.byRun.set(a.swarm_run_id, [...(next.byRun.get(a.swarm_run_id) ?? []), a.status]);
+      }
+    }
+    setDbRuns(rows);
+    setRequests(next);
     setLoading(false);
   }, [user]);
+
+  const viewOf = (item: RunItem): RunStatusView =>
+    item.status === "suspended" && item.dbRunId
+      ? parkedRunView(parkedApproval(requests.byRun.get(item.dbRunId), requests.failed))
+      : runStatusView(item.status);
 
   useEffect(() => {
     void load();
@@ -151,7 +178,8 @@ export function RecentRunsPanel() {
   // Poll while any run is active (or briefly after) so the list stays fresh
   // without realtime. Live in-memory runs already update instantly.
   const hasActive =
-    liveRuns.some((r) => ACTIVE.has(r.status)) || dbRuns.some((r) => ACTIVE.has(r.status));
+    liveRuns.some((r) => runStatusView(r.status).live) ||
+    dbRuns.some((r) => runStatusView(r.status).live);
   useEffect(() => {
     if (!hasActive) return;
     const t = setInterval(() => void load(), 4000);
@@ -167,7 +195,7 @@ export function RecentRunsPanel() {
         localRunId: null,
         swarmId: r.swarm_id,
         swarmName: r.swarm_name || "Untitled swarm",
-        status: r.cancel_requested && ACTIVE.has(r.status) ? "cancelled" : r.status,
+        status: r.cancel_requested && runStatusView(r.status).live ? "cancelled" : r.status,
         startedAt: new Date(r.started_at).getTime(),
         finishedAt: r.finished_at ? new Date(r.finished_at).getTime() : null,
         steps: r.step_count,
@@ -197,6 +225,30 @@ export function RecentRunsPanel() {
   }, [dbRuns, liveRuns]);
 
   const cancel = async (item: RunItem) => {
+    // A run parked on the server is ended there, with its approval (R179).
+    if (item.status === "suspended" && item.dbRunId) {
+      const { data: sess } = await supabase.auth.getSession();
+      const token = sess.session?.access_token;
+      if (!token) {
+        toast.error("Sign in again to cancel this run");
+        return;
+      }
+      const res = await cancelParkedFn({ data: { access_token: token, run_id: item.dbRunId } });
+      if (!res.ok) {
+        toast.error("The run was not cancelled", { description: res.error });
+      } else if (res.note) {
+        toast.warning("Run cancelled", { description: res.note });
+      } else {
+        toast.success("Run cancelled", {
+          description:
+            res.closedApprovals > 0
+              ? "Its approval request is closed; nobody will be asked to decide it."
+              : "It had no approval request still open.",
+        });
+      }
+      void load();
+      return;
+    }
     if (item.localRunId && item.live) {
       cancelManagedRun(item.localRunId);
     } else if (item.dbRunId) {
@@ -210,7 +262,7 @@ export function RecentRunsPanel() {
     setTimeout(() => void load(), 1200);
   };
 
-  const activeCount = items.filter((i) => ACTIVE.has(i.status)).length;
+  const activeCount = items.filter((i) => runStatusView(i.status).live).length;
 
   return (
     <section className="space-y-4">
@@ -228,7 +280,8 @@ export function RecentRunsPanel() {
             )}
           </h2>
           <p className="text-xs text-muted-foreground mt-1">
-            Runs keep executing even if you leave the canvas. Cancel a running or paused run here.
+            Runs keep executing even if you leave the canvas. Cancel a running run here, or one
+            parked at an approval: that also closes its approval request.
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={() => void load()} className="h-8">
@@ -240,6 +293,19 @@ export function RecentRunsPanel() {
         <div className="flex items-center gap-2 text-sm text-muted-foreground py-8">
           <Loader2 className="h-4 w-4 animate-spin" /> Loading runs…
         </div>
+      ) : loadError ? (
+        <Card className="border-destructive/40">
+          <CardContent className="flex flex-col items-center justify-center py-10 gap-2">
+            <XCircle className="h-8 w-8 text-destructive" />
+            <p className="text-sm text-center max-w-md">
+              The runs could not be loaded, so this list says nothing about them:{" "}
+              <span className="text-muted-foreground">{loadError}</span>
+            </p>
+            <Button variant="outline" size="sm" onClick={() => void load()} className="h-8">
+              <RefreshCw className="h-3.5 w-3.5 mr-1.5" /> Try again
+            </Button>
+          </CardContent>
+        </Card>
       ) : items.length === 0 ? (
         <Card className="border-dashed border-2 border-border/50">
           <CardContent className="flex flex-col items-center justify-center py-12">
@@ -253,19 +319,23 @@ export function RecentRunsPanel() {
       ) : (
         <div className="space-y-2">
           {items.map((item) => {
-            const active = ACTIVE.has(item.status);
+            const view = viewOf(item);
             return (
               <Card key={item.key} className="border-border/60">
                 <CardContent className="flex flex-wrap items-center gap-3 p-3">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <p className="text-sm font-semibold truncate">{item.swarmName}</p>
-                      <StatusBadge status={item.status} />
+                      <StatusBadge view={view} spinning={item.status === "running"} />
                     </div>
                     <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
                       <span>started {relTime(item.startedAt)}</span>
-                      <span>·</span>
-                      <span>{duration(item.startedAt, item.finishedAt)}</span>
+                      {showsDuration(view, item.finishedAt) && (
+                        <>
+                          <span>·</span>
+                          <span>{duration(item.startedAt, item.finishedAt)}</span>
+                        </>
+                      )}
                       {item.steps > 0 && (
                         <>
                           <span>·</span>
@@ -275,7 +345,7 @@ export function RecentRunsPanel() {
                       {item.costUsd > 0 && (
                         <>
                           <span>·</span>
-                          <span>${item.costUsd.toFixed(4)}</span>
+                          <span>{formatUsd(item.costUsd)}</span>
                         </>
                       )}
                     </div>
@@ -308,7 +378,17 @@ export function RecentRunsPanel() {
                         </Link>
                       </Button>
                     )}
-                    {active && (
+                    {view.awaitingDecision && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8"
+                        onClick={() => openApprovalsInbox()}
+                      >
+                        <Hourglass className="h-3.5 w-3.5 mr-1.5" /> Review approval
+                      </Button>
+                    )}
+                    {(view.cancellable || view.parked) && (
                       <Button
                         variant="outline"
                         size="sm"

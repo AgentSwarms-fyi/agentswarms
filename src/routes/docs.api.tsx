@@ -42,7 +42,7 @@ function ApiPage() {
       <DocsHeader
         eyebrow="Integrate & ship"
         title="API & webhooks"
-        description="One endpoint runs a swarm from your own code: POST /api/swarm/run. Scoped keys, idempotent retries, and signed callbacks for anything slower than a request."
+        description="Run a swarm, a notebook or an ML model from your own code. POST /api/swarm/run in full: scoped keys, idempotent retries, and signed callbacks for anything slower than a request; the notebook and ML endpoints are summarised at the end."
       />
 
       {/* ── KEYS ── */}
@@ -442,6 +442,27 @@ function verify(rawBody, headers, secret) {
         long runs hand back a <C>runId</C> to poll at <C>/api/notebook/run/status</C>. Use it when
         the logic is Python that already works in a notebook and does not need to become a swarm
         first.
+      </P>
+
+      <H2 id="ml">Calling an ML model</H2>
+      <P>
+        Models in the <DocLink to="/docs/ml">registry</DocLink> publish the same way: click{" "}
+        <strong>Publish as API</strong> on a model to mint an <C>mlk_…</C> key scoped to that model,
+        then <C>POST /api/ml/predict</C> with rows, <C>POST /api/ml/predict/batch</C> with a
+        lakehouse table, or <C>POST /api/ml/train</C> to start a version; a model trained elsewhere
+        is registered with <C>POST /api/ml/models/register</C>. Every endpoint, body and status code
+        is in <DocLink to="/docs/ml/predictions#api">the ML guide&apos;s API section</DocLink>.
+      </P>
+
+      <H2 id="scim">Provisioning users from the identity provider</H2>
+      <P>
+        <C>/api/scim/v2</C> is a SCIM 2.0 server for Okta, Microsoft Entra ID and any IdP that
+        speaks it: <C>Users</C> and <C>Groups</C> with GET, POST, PUT, PATCH and DELETE, lookup
+        filters (<C>userName eq</C>, <C>externalId eq</C>, <C>displayName eq</C>), paging, and the
+        discovery endpoints. It is not called with an API key: a superadmin mints a provisioning
+        token on the IAM page&apos;s SSO tab and the IdP sends it as a bearer token. A superadmin
+        can never be deactivated or deleted over SCIM. The setup and the mapping are in{" "}
+        <DocLink to="/docs/iam#use-case-scim">access control</DocLink>.
       </P>
 
       <NextPrev current="/docs/api" />

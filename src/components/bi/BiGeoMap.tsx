@@ -2,71 +2,28 @@
 // maps. Entirely offline — d3-geo projects a bundled Natural Earth 110m
 // topology (world-atlas), so no tile servers or external requests.
 //
-// Location values are matched to countries by name (case/diacritic
-// insensitive, with common aliases like "USA" or "UK"). Unmatched rows are
-// counted and surfaced instead of silently dropped.
+// Location values are matched to countries by NAME (case/diacritic
+// insensitive, with common aliases like "USA" or "UK") and by ISO 3166-1
+// CODE: alpha-2 ("DE") and the three-digit numeric form ("276"). That rule
+// lives in src/lib/countryMatch.ts, atlas-free and directly testable; this
+// file supplies the shapes it chooses between. Unmatched rows are counted
+// and surfaced, never silently dropped.
 import { useMemo, useRef, useState } from "react";
 import { geoNaturalEarth1, geoPath } from "d3-geo";
 import { feature } from "topojson-client";
 import type { Feature, FeatureCollection, Geometry } from "geojson";
 import worldData from "world-atlas/countries-110m.json";
 import { fmtBiNumber } from "@/components/bi/BiChartRender";
+import { normalizeName, resolveCountry } from "@/lib/countryMatch";
 
 const VIEW_W = 960;
 const VIEW_H = 500;
 
-function normalizeName(raw: string): string {
-  return raw
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "")
-    .replace(/[^a-z0-9 ]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-/** Common shorthand → Natural Earth country name. */
-const ALIASES: Record<string, string> = {
-  usa: "united states of america",
-  us: "united states of america",
-  "united states": "united states of america",
-  america: "united states of america",
-  uk: "united kingdom",
-  "great britain": "united kingdom",
-  britain: "united kingdom",
-  england: "united kingdom",
-  uae: "united arab emirates",
-  "czech republic": "czechia",
-  "ivory coast": "cote divoire",
-  "democratic republic of the congo": "dem rep congo",
-  drc: "dem rep congo",
-  "republic of the congo": "congo",
-  "south korea": "south korea",
-  korea: "south korea",
-  "north korea": "north korea",
-  russia: "russia",
-  "russian federation": "russia",
-  vietnam: "vietnam",
-  "viet nam": "vietnam",
-  laos: "laos",
-  syria: "syria",
-  iran: "iran",
-  bolivia: "bolivia",
-  venezuela: "venezuela",
-  tanzania: "tanzania",
-  myanmar: "myanmar",
-  burma: "myanmar",
-  netherlands: "netherlands",
-  holland: "netherlands",
-  "bosnia and herzegovina": "bosnia and herz",
-  macedonia: "north macedonia",
-  swaziland: "eswatini",
-  "cape verde": "cabo verde",
-};
-
 type CountryShape = {
   name: string;
   key: string;
+  /** ISO 3166-1 numeric, from the atlas's own feature id; null for the few without one. */
+  num: string | null;
   d: string;
   centroid: [number, number];
 };
@@ -95,6 +52,9 @@ const COUNTRY_SHAPES: CountryShape[] = (() => {
       return {
         name,
         key: normalizeName(name),
+        // Natural Earth's feature id is the ISO 3166-1 NUMERIC code, so a
+        // column of numeric codes needs no lookup table at all.
+        num: f.id == null ? null : String(f.id).padStart(3, "0"),
         d,
         centroid: path.centroid(f) as [number, number],
       };
@@ -103,13 +63,19 @@ const COUNTRY_SHAPES: CountryShape[] = (() => {
 })();
 
 const SHAPE_BY_KEY = new Map(COUNTRY_SHAPES.map((s) => [s.key, s]));
+const SHAPE_BY_NUM = new Map(COUNTRY_SHAPES.filter((s) => s.num).map((s) => [s.num as string, s]));
+
+/**
+ * The atlas indexed the two ways a location value can arrive.
+ *
+ * Exported so the matcher's test can run the shipped rule against the shipped
+ * shapes — the indexing and the rule are both defects waiting to happen, and
+ * a test that rebuilt either would miss half of them.
+ */
+export const COUNTRY_INDEX = { byKey: SHAPE_BY_KEY, byNum: SHAPE_BY_NUM };
 
 function lookupCountry(raw: unknown): CountryShape | null {
-  if (raw === null || raw === undefined) return null;
-  const norm = normalizeName(String(raw));
-  if (!norm) return null;
-  const aliased = ALIASES[norm];
-  return SHAPE_BY_KEY.get(aliased ?? norm) ?? null;
+  return resolveCountry(raw, COUNTRY_INDEX);
 }
 
 export function BiGeoMap({

@@ -323,10 +323,11 @@ def get_customer(customer_id: str) -> dict:
 
       <H3 id="build-lifecycle">Cold starts and keep-warm</H3>
       <P>
-        By default a server scales to zero: no container exists until the first call, which pays a
-        few seconds of start-up, and it stops again after its idle timeout. Turn on{" "}
-        <strong>Keep warm</strong> for latency-sensitive servers — it holds a container permanently,
-        which is why it is off by default.
+        By default a server scales to zero: no container exists until the first call, which waits
+        around half a minute for it to start (the endpoint allows up to 90 seconds before it answers
+        503), and it stops again after its idle timeout. Turn on <strong>Keep warm</strong> for
+        latency-sensitive servers — it holds a container permanently, which is why it is off by
+        default.
       </P>
 
       <H3 id="build-access">Who can call it</H3>

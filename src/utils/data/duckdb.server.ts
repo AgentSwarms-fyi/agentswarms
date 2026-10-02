@@ -24,7 +24,7 @@
 //     JSON.stringify throws or renders "[object Object]". See toJsValue.
 
 import { assertLocalReadOnlySql } from "@/lib/sqlSafety";
-import { toJsValue } from "@/lib/duckdbValues";
+import { ENGINE_TIME_ZONE, toJsValue } from "@/lib/duckdbValues";
 import type { ColumnDef } from "@/lib/datasetParse";
 
 export type DuckRow = Record<string, unknown>;
@@ -144,6 +144,10 @@ async function configureSandbox(
     const dir = cacheDir().split("\\").join("/").replace(/'/g, "''");
     await conn.run(`SET allowed_directories=['${dir}']`);
     await conn.run("SET enable_external_access=false");
+    // Before the lock, like the rest. The same zone as the browser engine, so
+    // a day computed here is the day the Workbench shows (R195). Not fatal:
+    // an engine without ICU has no TimeZone setting and is already UTC.
+    await conn.run(`SET GLOBAL TimeZone='${ENGINE_TIME_ZONE}'`).catch(() => undefined);
     await conn.run("SET lock_configuration=true");
   } finally {
     conn.closeSync();
@@ -293,7 +297,16 @@ function coerceValue(raw: unknown, type: ColumnDef["type"]): Coerced {
 export async function runLocalSqlDuckDB(
   sql: string,
   tables: DuckTable[],
-  opts: { rowCap?: number } = {},
+  opts: {
+    rowCap?: number;
+    /**
+     * The user the statement runs as, when it may call ai_* functions: the
+     * answers are cached per user and every model call is governed as that
+     * user. Without it the functions are not registered and a statement that
+     * names one fails as an unknown function.
+     */
+    aiUserId?: string;
+  } = {},
 ): Promise<DuckResult> {
   // Same guard as every other local engine — DuckDB would happily run DDL.
   const safeSql = assertLocalReadOnlySql(sql);
@@ -312,16 +325,29 @@ export async function runLocalSqlDuckDB(
       coercionFailures += await loadTable(connection, table);
     }
 
-    timer = setTimeout(() => {
-      timedOut = true;
-      try {
-        connection.interrupt();
-      } catch {
-        /* the query may already have finished */
-      }
-    }, queryTimeoutMs());
+    const { usesAiSqlFunctions } = await import("@/utils/aiSql/core");
+    const withAi = Boolean(opts.aiUserId) && usesAiSqlFunctions(safeSql).length > 0;
+    timer = setTimeout(
+      () => {
+        timedOut = true;
+        try {
+          connection.interrupt();
+        } catch {
+          /* the query may already have finished */
+        }
+      },
+      // A statement with AI calls waits on the model between its passes.
+      queryTimeoutMs() + (withAi ? 10 * 60_000 : 0),
+    );
 
-    const result = await connection.run(safeSql);
+    const execute = () => connection.run(safeSql);
+    const result = withAi
+      ? (
+          await (
+            await import("@/utils/aiSql/run.server")
+          ).runWithAiSql(connection, opts.aiUserId!, safeSql, execute, { auditVia: "local_engine" })
+        ).result
+      : await execute();
     const columns = result.columnNames();
     const raw = await result.getRowObjects();
     const cap = opts.rowCap;

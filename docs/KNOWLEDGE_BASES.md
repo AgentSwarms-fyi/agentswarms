@@ -5,7 +5,7 @@
 A knowledge base is a named collection of documents that agents search by
 meaning and quote with citations. Documents arrive four ways: file upload,
 web-page ingestion, GitHub repository ingestion, and **connected services** —
-Google Drive, Notion, SharePoint and Dropbox — which are synced on a schedule
+Google Drive, Notion, SharePoint, Dropbox, Confluence and a public **website** — which are synced on a schedule
 and kept deduplicated. All four land in the same tables and the same
 retrieval pipeline: pgvector embeddings, optional Postgres full-text search
 fused alongside them, and a keyword scan that still covers any document not yet
@@ -15,14 +15,59 @@ The in-app page (`/docs/knowledge`) covers day-to-day usage; this document is
 the operator's view — what the connectors need, what the sync engine
 guarantees, and where the security boundaries sit.
 
+## Scanned documents and images
+
+A PDF with a text layer is extracted in the browser and stored as text. A
+PDF whose pages are pictures — fewer than forty characters of text layer per
+page — and any image file (`.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`) is
+**read with a vision model**: the browser draws each page to a JPEG at
+reading size, sends a few pages at a time to the server, and the server asks
+the instance's vision model to transcribe each page as the uploading user,
+through the same internal channel every other model call uses. So the model
+rules in IAM apply (a model the role may not use refuses the upload with the
+model named), the budget applies, each page leaves an execution trace under
+the agent name **Document OCR**, and each batch leaves a `kb.document.ocr`
+audit event with the page range, the model, the characters read and the
+cost. The stored document carries a `[page N]` marker per page and records
+`{ ocr: { pages, model, cost_usd } }` in its metadata.
+
+Two instance settings govern it, under **Admin → Developer runtime →
+Document intelligence** with env fallbacks: the **vision model**
+(`DOCUMENT_VISION_MODEL`, default `openrouter/google/gemini-3-flash-preview`;
+it must accept images) and **pages per document**
+(`DOCUMENT_VISION_MAX_PAGES`, default 200). A document over the limit is
+refused before its first page is read. A page the model reads as empty is
+dropped; if every page is, the upload reports it rather than adding an empty
+document. The transcription prompt forbids description, commentary and
+translation, and asks for tables as rows with `|` between cells.
+
+An upload writes a `kb_sources` row and then its `knowledge_documents` row.
+When the document does not land, the source is deleted again. If that delete
+fails too, the source is set to `status = 'error'` with the reason. A source
+never reads `ok` with no document behind it. The dialog counts what landed
+("1 of 2 files added"), names each file that did not with its reason, and
+keeps those files listed to try again.
+
+A file that landed but was not indexed is announced as such ("1 file added, not
+fully indexed"), with the reason: the embed call failed, or no embedding key
+is set. Until it is indexed, by **Re-index** or the next embed, it is found by
+keyword only, and the Documents list shows it as pending.
+
+An uploaded text file (`.txt`, `.md`, `.json`, `.docx` …) is stored as kind
+`manual`, the kind the table allows for text, with its filename in the
+source's config. The Sources list and its documents show it as a **File** and
+an "Uploaded file", not as a manual paste.
+
 ## Connected services
 
-| Provider     | Credentials                                                                                       | What syncs                                                                            | ACL mirroring                   |
-| ------------ | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- | ------------------------------- |
-| Google Drive | Access token, or refresh token + OAuth client id/secret for unattended syncs                      | A folder (subfolders to depth 5); Docs/Sheets/Slides exported as text/CSV; text files | Yes — per-file permissions      |
-| Notion       | Internal-integration secret (share the pages with the integration)                                | Listed page ids and every page of listed databases                                    | No — API exposes none           |
-| SharePoint   | Entra app registration: tenant id + client id + client secret (`Files.Read.All`, admin-consented) | A document library (or folder path); text-format files                                | Yes — per-item permissions      |
-| Dropbox      | Access token, or refresh token + app key/secret                                                   | A folder path or the whole Dropbox; native content hashes                             | Yes — file members, best-effort |
+| Provider     | Credentials                                                                                       | What syncs                                                                                                                                      | ACL mirroring                   |
+| ------------ | ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| Google Drive | Access token, or refresh token + OAuth client id/secret for unattended syncs                      | A folder (subfolders to depth 5); Docs/Sheets/Slides exported as text/CSV; text files                                                           | Yes — per-file permissions      |
+| Notion       | Internal-integration secret (share the pages with the integration)                                | Listed page ids and every page of listed databases                                                                                              | No — API exposes none           |
+| SharePoint   | Entra app registration: tenant id + client id + client secret (`Files.Read.All`, admin-consented) | A document library (or folder path); text-format files                                                                                          | Yes — per-item permissions      |
+| Dropbox      | Access token, or refresh token + app key/secret                                                   | A folder path or the whole Dropbox; native content hashes                                                                                       | Yes — file members, best-effort |
+| Website      | None — a public site                                                                              | Pages from the sitemap (`lastmod` is the change marker), else same-site links followed from the start URL; robots.txt honoured; up to 500 pages | No — public content             |
+| Confluence   | Cloud: email + API token. Data Center: personal access token. The host decides which.             | Every page in the listed spaces; `version.number` is the change marker; storage-format macros flattened to text                                 | No — not read                   |
 
 Credentials are **token-based by design** (the platform's BYOK pattern). No
 OAuth consent flow ships, because that requires operator-registered apps per
@@ -102,8 +147,11 @@ and rebuilds its rows. Documents added after the change use it already.
 ### Retrieval mode — per knowledge base
 
 `knowledge_bases.retrieval_settings` holds `{"mode": "...", "semantic_weight":
-0..1}`. `NULL` means semantic-only, which is what every collection did before
-this existed — upgrading changes no answers until someone opts in.
+0..1}`. `NULL` means **hybrid, weighted 0.7 toward meaning**. It meant
+semantic-only until the R12 evaluation (ADVERSARIAL_LOG) showed semantic-only
+losing exact-term questions — "Severity 1", "RTO", "HIPAA" — to paragraphs
+that merely resembled them, and the keyword pass rescuing each one it was
+allowed to run on. A collection that saved `semantic` keeps it.
 
 | Mode       | Runs                                                      |
 | ---------- | --------------------------------------------------------- |
@@ -136,22 +184,191 @@ index is queried, not how it was built.
   GIN index. Generated so it cannot drift from the text it indexes. The question
   is included because a Q&A answer often does not contain the words someone
   would search for.
-- RPCs `match_kb_chunks_v2` (parent-aware vector match) and `keyword_kb_chunks`
-  (FTS). The original `match_kb_chunks` is left in place for compatibility.
+- RPCs `match_kb_chunk_ids` (pgvector nearest neighbours: ids and similarities),
+  `kb_chunks_by_ids` (the rows, parent-aware) and `keyword_kb_chunks` (FTS).
+  Search and fetch are separate calls because the search may happen outside this
+  database — see below. `match_kb_chunks_v2`, which did both, and the original
+  `match_kb_chunks` are left in place for compatibility.
 
-Parent citations get a 4,000-character budget rather than the 560 used for
-ordinary snippets — reusing the smaller cap would trim a parent down to about
-14% of itself and quietly deliver flat chunking under a different name.
+Parent citations get a 4,000-character budget of their own — reusing the
+per-chunk cap would trim a parent down to a fragment and quietly deliver flat
+chunking under a different name.
+
+### What the model reads
+
+Retrieval ranks chunks; the prompt cites documents. Each cited document
+carries its **best few chunks in reading order** — three by default, each
+whole (up to 1,600 characters; a default chunk is about 1,024), adjacent
+chunks joined directly and gaps marked with an ellipsis — and the turn as a
+whole is capped at **12,000 characters** of grounding, applied in rank order
+(a later citation is shortened, then dropped; an earlier one is never trimmed
+to make room). Before this a citation was one chunk cut to 560 characters,
+which is how a question about a policy's table was answered "the excerpt does
+not include the table" against a document whose first chunk is the table: the
+prose about the table outranked it, and the collapse kept one chunk.
+
+| Setting                       | Default | Range           |
+| ----------------------------- | ------- | --------------- |
+| `KB_CHUNKS_PER_DOCUMENT`      | 3       | 1 – 10          |
+| `KB_CITATION_CHARS_PER_CHUNK` | 1600    | 100 – 20,000    |
+| `KB_GROUNDING_MAX_CHARS`      | 12000   | 500 – 1,000,000 |
+| `KB_MIN_SIMILARITY`           | 0.3     | 0 – 1 (0 = off) |
+
+Retrieval runs on every turn of an agent with a collection attached, the
+off-topic ones included. Below `KB_MIN_SIMILARITY` on the best chunk, with no
+keyword hit, the turn is not grounded and the model is told the search found
+nothing, instead of being handed five documents to ignore. Measured with
+`text-embedding-3-small` on the R12 collection: every document question's
+best chunk scored 0.38–0.75, every off-topic question's 0.10–0.32. A keyword
+hit always grounds. The `kb_search` tool is never floored — a model that
+asked to search gets what matched.
+
+### Where the vectors are searched
+
+By default, in your Postgres: `kb_chunks.embedding` is a `vector(1536)` with an
+HNSW cosine index, and the permission check is the row-level security already
+protecting those rows. For most deployments that is the right answer — one thing
+to run, one thing to back up, and a knowledge base that cannot half-exist
+because two systems disagree.
+
+Set `VECTOR_STORE=qdrant` and `QDRANT_URL` to search them in Qdrant instead.
+That setting is the **default for every collection**, not a decision for the
+whole deployment: a single knowledge base can be pointed at either index from
+**RAG Settings → Retrieval → Vector index**, which is usually how this should
+be adopted — the one collection that outgrew Postgres moves, and nothing else
+changes.
+
+The reason to move one is **capacity, not availability**: an HNSW index wants
+RAM, and by default it wants it from the same instance serving your traces,
+audit, BI results and every OLTP query. Past a few million chunks it is the
+largest thing in there, and the only way to feed it is to resize the whole
+database. Qdrant is a place to put the index that scales — and replicates — on
+its own.
+
+It is **not** a way to survive losing Postgres. Every hit is hydrated from
+`kb_chunks`, so a database outage takes retrieval with it wherever the vectors
+live. The availability that is real runs the other way: losing **Qdrant**
+degrades retrieval to keyword search rather than breaking it, because the text
+never left Postgres.
+
+**Qdrant holds vectors and two ids. That is all.** The chunk text, the document
+it came from, the parent passage and who may read it stay in Postgres. Three
+things follow, and they are the reason the split is drawn here:
+
+- **Hybrid retrieval is unaffected.** The keyword half is Postgres full-text
+  search over the same chunks, and it does not know or care where the vectors
+  went.
+- **The index is disposable.** A Qdrant that loses its volume costs a re-index,
+  not a restore. There is no backup guidance for it because it is not a system
+  of record.
+- **An external store cannot leak a document.** A search returns ids, which are
+  then fetched through the caller's own database client — so row-level security
+  applies to the answer, not just to the question. A store that returned an id
+  from somebody else's knowledge base gets nothing back.
+
+| Setting              | Default                 | What it does                                           |
+| -------------------- | ----------------------- | ------------------------------------------------------ |
+| `VECTOR_STORE`       | `pgvector`              | Default index for collections that have not chosen one |
+| `QDRANT_URL`         | —                       | e.g. `http://qdrant:6333`                              |
+| `QDRANT_API_KEY`     | —                       | Sent as `api-key`; omit if the server has none         |
+| `QDRANT_COLLECTION`  | `agentswarms_kb_chunks` | Created on first use, 1536-dim cosine                  |
+| `QDRANT_REPLICATION` | `1`                     | Copies per shard. **2+ for HA**, cluster only          |
+| `QDRANT_SHARDS`      | `1`                     | Shards per collection                                  |
+
+**One Qdrant node is not high availability.** A single node is the right shape
+for a laptop or a small install, and losing it degrades retrieval to keyword
+search rather than breaking it — but surviving the loss of a node means a Qdrant
+cluster with `QDRANT_REPLICATION` at 2 or more. Admin → Developer runtime → AI services
+reports the replication the collection **actually** has, so the difference
+between what was asked for and what was placed is visible.
+
+Selecting `qdrant` without `QDRANT_URL` logs an error and uses pgvector. It does
+not fail to start: the vectors are still in `kb_chunks` and retrieval still
+works. A collection asked for Qdrant on a deployment that has none falls back
+the same way, and the picker says so before it is saved.
+
+#### Moving one collection
+
+Changing **RAG Settings → Retrieval → Vector index** copies that collection's
+existing vectors into the index it chose, saves the setting, then clears the
+one it left. Nothing is re-embedded — the embeddings are a column on
+`kb_chunks` and are read back from there — so a move costs no model calls, only
+the time to read every chunk.
+
+The order matters, and it is the order above: a save that changed the setting
+first and then failed to copy would leave a collection searching an index it
+was never written to, which returns nothing and raises nothing. Failing the
+other way leaves a copy of the vectors in two stores — disk, not wrong answers
+— and saving again finishes the job.
+
+Deleting documents or a whole collection clears the external store whenever one
+is configured, whatever the collection chose, so a store it used to be in
+cannot keep vectors whose rows are gone.
+
+### Re-indexing an external store
+
+Admin → Developer runtime → AI services → **Re-index** drops every vector in the store and
+writes them back from `kb_chunks`. It is idempotent, and it is the answer to
+every way an external index can drift: a restored-from-empty volume, a store
+switched on after documents were already embedded, a delete that happened while
+it was unreachable. The same page shows chunks-in-Postgres beside
+vectors-in-the-store, which is how you notice you need it.
+
+Re-indexing does **not** re-embed. It moves vectors that already exist; a
+document with no embedding stays keyword-only until it is indexed.
 
 ### Which provider embeds
 
-`DEFAULT_EMBED_PROVIDER` is **OpenRouter**, resolved in this order:
+Embeddings come from a **connected model provider** — the same place the chat
+models come from. There is no separate embeddings key, and in particular no
+dependency on an OpenAI account: an install whose models come from Gemini,
+Ollama or vLLM embeds through that provider too.
+
+`DEFAULT_EMBED_PROVIDER` is **OpenRouter**, which is the suggested default
+rather than a requirement. Resolution order:
 
 1. the user's own OpenRouter integration,
 2. the operator's `OPENROUTER_API_KEY` (no per-user setup — the same key that
    makes chat work out of the box),
-3. the operator's `OPENAI_API_KEY`,
-4. any other connected provider with an OpenAI-compatible `/embeddings` endpoint.
+3. any other connected provider with an OpenAI-compatible `/embeddings`
+   endpoint.
+
+Documents embedded before this change carry an `openai_builtin` stamp, which
+named the operator's OpenAI key. That key is no longer read; the stamp now
+resolves to a connected provider serving the **same vector space**
+(`text-embedding-3-small`, via your OpenAI integration or OpenRouter), so
+existing collections stay searchable without a re-index. If neither is
+connected, those collections need a re-embed under a provider you do have —
+answering them from a different vector space would return confident nonsense
+rather than an error.
+
+### The real constraint is at most 1536 dimensions
+
+`kb_chunks.embedding` is `vector(1536)`, and ingest hard-validates the width, so
+a provider is usable here only if it returns **1536 dimensions or fewer** —
+natively, or by honouring the OpenAI `dimensions` parameter. A narrower vector
+is zero-padded to the store's width; a wider one is refused, because it cannot
+be truncated without changing what it means. That is a stronger condition than
+"has an embeddings API", and it is measured rather than assumed: every model
+below was probed against the live endpoint.
+
+Native widths vary a lot, and the parameter is what makes them fit:
+
+| Model                           | Native | With `dimensions: 1536` |
+| ------------------------------- | ------ | ----------------------- |
+| `openai/text-embedding-3-small` | 1536   | 1536                    |
+| `openai/text-embedding-3-large` | 3072   | 1536                    |
+| `google/gemini-embedding-001`   | 3072   | 1536                    |
+| `qwen/qwen3-embedding-8b`       | 4096   | 1536                    |
+| `qwen/qwen3-embedding-4b`       | 2560   | 1536                    |
+
+A model that _ignores_ the parameter returns its native width. If that width
+is over 1536 it fails at ingest — after the documents are saved, leaving the
+collection answering from keyword search alone. Since that cannot be predicted from a model id, don't:
+**RAG settings → Test embedding** calls the provider once and reports the width
+it actually returned. Use it before committing a collection to a model,
+especially for a self-hosted Ollama or vLLM where the served model is your
+choice rather than ours.
 
 Step 2 is the one that was invisible: the settings dialog only ever offered a
 provider the _user_ had connected, so an instance with `OPENROUTER_API_KEY` set
@@ -213,11 +430,66 @@ text. The rules err toward deny:
   browser**: the management route returns explicit columns, the UI selects
   explicit columns, and editing a source with empty credential fields keeps
   what is stored.
-- All connector traffic goes to fixed provider hosts over HTTPS with a 30s
-  timeout; the only variable URLs are provider-returned download redirects.
+- Token-based connector traffic goes to fixed provider hosts over HTTPS with a
+  30s timeout; the only variable URLs there are provider-returned download
+  redirects. Two connectors are different by design and take a host you supply:
+  Confluence (your own site URL, Cloud or Data Center) and the website
+  connector, which fetches your start URLs and same-site links on a 20s
+  timeout.
 - Deleting a source deletes its documents by default (their visibility may
   have depended on the source's scope). Keeping them is an explicit choice
   that converts them to plain collection documents.
 - Embedding failures, sync failures and scheduled-sync errors surface as
   source status + owner notifications — the failure mode is loud, not an
   empty collection.
+
+## Use cases
+
+### Index your own documentation site
+
+Support agents should answer from the public docs, and the docs change weekly.
+
+1. Open **Knowledge**, create a knowledge base, and click **Add Source →
+   Website**. Give one or more start URLs; optionally a sitemap URL, path
+   prefixes to stay inside (for example `/docs`), and a page cap (100 by
+   default, 500 at most). No credential is needed.
+2. Run the sync. The crawler reads `robots.txt` and skips what it forbids,
+   stays on the same site, prefers the sitemap when there is one and otherwise
+   follows links breadth-first. Each page's version is the sitemap `lastmod`,
+   else the ETag, else a content hash.
+3. Put the source on a schedule. A later sync re-fetches only pages whose
+   version changed and removes pages that disappeared — the dedup contract
+   above applies to crawled pages exactly as to files.
+
+A sync result such as _5 documents indexed, 12 skipped by robots.txt_ is
+normal for a marketing site whose robots rules exclude most of it; narrow the
+path prefixes to the documentation tree.
+
+### A Confluence space, with the code blocks intact
+
+Engineering keeps runbooks in Confluence; the on-call agent needs them.
+
+1. **Add Source → Confluence.** Enter the site URL, the space keys to sync,
+   and an API token — plus the account email for Confluence Cloud. Cloud and
+   Data Center are told apart from the URL and authenticated accordingly.
+2. Pages arrive as text converted from Confluence's storage format; code
+   macros keep their bodies, which is what makes a runbook useful to an
+   agent.
+3. Restrict who can retrieve from it by sharing the knowledge base read-only
+   with the on-call group — see [Access control](#access-control).
+
+### Share it, and delete it safely
+
+1. Share a knowledge base with a user or group from **Admin → IAM → Access**.
+   Recipients' agents can search it; nobody but the owner can change it.
+2. Deleting a knowledge base asks first — the dialog names what goes with it:
+   every document, chunk and connected source, and the agents wired to it lose
+   their knowledge. There is no undo, which is why there is a dialog.
+
+### Embed on your own hardware
+
+Air-gapped deployments can embed with Ollama or vLLM instead of a hosted
+model. The only hard constraint is width: the store is 1536-dimensional, so a
+model that emits narrower vectors is zero-padded (exact for cosine similarity)
+and a wider one is refused with a clear error — see
+[The real constraint is at most 1536 dimensions](#the-real-constraint-is-at-most-1536-dimensions).

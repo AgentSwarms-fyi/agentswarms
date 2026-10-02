@@ -27,9 +27,59 @@ export type NbRuntimeSettings = {
   mem_limit_mb: number;
   batch_cpu_limit: string;
   batch_mem_limit_mb: number;
+  lakehouse_memory_limit: string;
+  lakehouse_threads: number;
+  etl_max_concurrent_runs_per_user: number;
+  etl_pipelines_per_sweep: number;
+  ml_train_max_rows: number;
+  ml_train_time_budget_minutes: number;
+  ml_train_mem_limit_mb: number;
+  ml_serve_mem_limit_mb: number;
+  ml_max_concurrent_trainings_per_user: number;
+  ml_predict_max_rows: number;
+  ml_train_gpus: number;
+  ml_train_workers: number;
+  ml_drift_alert_psi: number;
+  ml_decay_alert_ratio: number;
+  ml_cv_min_holdout_rows: number;
+  ml_parallel_min_rows: number;
+  ml_fairness_min_ratio: number;
+  ml_artifact_max_mb: number;
+  gateway_rate_limit_per_min: number;
+  gateway_fallback_models: string[];
+  gateway_metrics_max_rows: number;
+  gateway_cache_similarity: number;
+  gateway_cache_ttl_hours: number;
+  gateway_cache_max_temperature: number;
+  data_monitors_per_sweep: number;
+  data_monitor_anomaly_sigma: number;
+  sheets_max_cells: number;
+  sheets_page_rows: number;
+  sheets_upload_max_mb: number;
+  sheets_import_max_sheets: number;
+  sheets_export_max_rows: number;
+  sheets_version_interval_minutes: number;
+  sheets_versions_max: number;
+  sheets_assist_model: string;
+  sheets_assist_per_minute: number;
+  sheets_ai_fill_max_rows: number;
+  ai_sql_max_calls_per_statement: number;
+  ai_sql_default_model: string;
+  ai_sql_cache_ttl_days: number;
+  document_vision_model: string;
+  document_vision_max_pages: number;
+  sandbox_tmpfs_mb: number;
   batch_max_minutes: number;
   egress_allowlist: string[];
   pip_allowed: boolean;
+  spark_connect_url: string;
+  /** Where a Spark-engine run's cluster comes from: shared, or one per run. */
+  spark_provider: "static" | "k8s";
+  spark_image: string;
+  spark_executors: number;
+  spark_executor_cores: number;
+  spark_executor_mem_mb: number;
+  spark_driver_mem_mb: number;
 };
 
 export type NbRuntimeGrant = {
@@ -47,7 +97,36 @@ export type NbRuntimeState = {
   grants: NbRuntimeGrant[];
   users: { id: string; email: string | null }[];
   groups: { id: string; name: string }[];
+  /**
+   * What THIS host reports. Shown beside the sizing fields so an operator sizes
+   * against the machine they actually have — the point of removing the caps was
+   * to let a big box be used, not to make the numbers meaningless.
+   *
+   * `workers` is how many app processes are running. Per-process settings (the
+   * lakehouse engine especially) are charged once per worker, so without it the
+   * page shows a per-machine budget for a per-process number.
+   */
+  host: { cpus: number; totalMemMb: number; workers: number };
 };
+
+/**
+ * A CPU allowance like "2", "0.5" or "12". The previous rule was
+ * `z.string().min(1).max(16)` — a STRING LENGTH check, which accepted "banana"
+ * and rejected nothing an operator would plausibly type. It never bounded the
+ * value at all.
+ */
+/** LAKEHOUSE_THREADS as a usable number, or undefined when unset/garbage. */
+function envThreads(): number | undefined {
+  const n = Number(process.env.LAKEHOUSE_THREADS?.trim());
+  return Number.isFinite(n) && n > 0 ? Math.trunc(n) : undefined;
+}
+
+const positiveNumericString = z
+  .string()
+  .trim()
+  .regex(/^\d+(\.\d+)?$/, "Enter a number of cores, e.g. 4 or 0.5")
+  .refine((v) => Number(v) > 0, "Must be greater than zero")
+  .optional();
 
 const DEFAULTS: NbRuntimeSettings = {
   server_runtime_enabled: false,
@@ -63,9 +142,58 @@ const DEFAULTS: NbRuntimeSettings = {
   mem_limit_mb: 2048,
   batch_cpu_limit: "2",
   batch_mem_limit_mb: 4096,
+  lakehouse_memory_limit: "2GB",
+  lakehouse_threads: 4,
+  etl_max_concurrent_runs_per_user: 3,
+  etl_pipelines_per_sweep: 3,
+  ml_train_max_rows: 2000000,
+  ml_train_time_budget_minutes: 30,
+  ml_train_mem_limit_mb: 8192,
+  ml_serve_mem_limit_mb: 2048,
+  ml_max_concurrent_trainings_per_user: 2,
+  ml_predict_max_rows: 5000000,
+  ml_train_gpus: 0,
+  ml_train_workers: 1,
+  ml_drift_alert_psi: 0.25,
+  ml_decay_alert_ratio: 0.1,
+  ml_cv_min_holdout_rows: 2000,
+  ml_parallel_min_rows: 25000,
+  ml_fairness_min_ratio: 0.8,
+  ml_artifact_max_mb: 512,
+  gateway_rate_limit_per_min: 60,
+  gateway_fallback_models: [],
+  gateway_metrics_max_rows: 10000,
+  gateway_cache_similarity: 0.97,
+  gateway_cache_ttl_hours: 24,
+  gateway_cache_max_temperature: 0.3,
+  data_monitors_per_sweep: 20,
+  data_monitor_anomaly_sigma: 3,
+  sheets_max_cells: 200_000,
+  sheets_page_rows: 500,
+  sheets_upload_max_mb: 50,
+  sheets_import_max_sheets: 100,
+  sheets_export_max_rows: 100_000,
+  sheets_version_interval_minutes: 30,
+  sheets_versions_max: 50,
+  sheets_assist_model: "openrouter/google/gemini-3-flash-preview",
+  sheets_assist_per_minute: 30,
+  sheets_ai_fill_max_rows: 2000,
+  ai_sql_max_calls_per_statement: 200,
+  ai_sql_default_model: "openrouter/google/gemini-3-flash-preview",
+  ai_sql_cache_ttl_days: 30,
+  document_vision_model: "openrouter/google/gemini-3-flash-preview",
+  document_vision_max_pages: 200,
+  sandbox_tmpfs_mb: 512,
   batch_max_minutes: 120,
   egress_allowlist: ["pypi.org", "files.pythonhosted.org", "openrouter.ai", "api.openai.com"],
   pip_allowed: true,
+  spark_connect_url: "",
+  spark_provider: "static",
+  spark_image: "",
+  spark_executors: 2,
+  spark_executor_cores: 1,
+  spark_executor_mem_mb: 2048,
+  spark_driver_mem_mb: 2048,
 };
 
 export const nbRuntimeGetState = createServerFn({ method: "POST" })
@@ -74,6 +202,7 @@ export const nbRuntimeGetState = createServerFn({ method: "POST" })
     const guard = await requireSuperadmin(data.access_token);
     if (!guard.ok) return guard;
 
+    const { hostResources } = await import("@/utils/notebookRuntime/config.server");
     const [settingsRes, grantsRes, groupsRes, usersRes] = await Promise.all([
       supabaseAdmin.from("notebook_runtime_settings").select("*").eq("id", true).maybeSingle(),
       supabaseAdmin.from("notebook_runtime_grants").select("id, principal_type, principal_id"),
@@ -97,9 +226,64 @@ export const nbRuntimeGetState = createServerFn({ method: "POST" })
           mem_limit_mb: row.mem_limit_mb,
           batch_cpu_limit: row.batch_cpu_limit,
           batch_mem_limit_mb: row.batch_mem_limit_mb,
+          // NULL means "not overridden" — show the value actually in force so
+          // the field is never blank and never lies about what is running.
+          lakehouse_memory_limit:
+            row.lakehouse_memory_limit ?? process.env.LAKEHOUSE_MEMORY_LIMIT?.trim() ?? "2GB",
+          lakehouse_threads: row.lakehouse_threads ?? envThreads() ?? 4,
+          etl_max_concurrent_runs_per_user: row.etl_max_concurrent_runs_per_user ?? 3,
+          etl_pipelines_per_sweep: row.etl_pipelines_per_sweep ?? 3,
+          ml_train_max_rows: row.ml_train_max_rows ?? 2000000,
+          ml_train_time_budget_minutes: row.ml_train_time_budget_minutes ?? 30,
+          ml_train_mem_limit_mb: row.ml_train_mem_limit_mb ?? 8192,
+          ml_serve_mem_limit_mb: row.ml_serve_mem_limit_mb ?? 2048,
+          ml_max_concurrent_trainings_per_user: row.ml_max_concurrent_trainings_per_user ?? 2,
+          ml_predict_max_rows: row.ml_predict_max_rows ?? 5000000,
+          ml_train_gpus: row.ml_train_gpus ?? 0,
+          ml_train_workers: row.ml_train_workers ?? 1,
+          ml_drift_alert_psi: row.ml_drift_alert_psi ?? 0.25,
+          ml_decay_alert_ratio: row.ml_decay_alert_ratio ?? 0.1,
+          ml_cv_min_holdout_rows: row.ml_cv_min_holdout_rows ?? 2000,
+          ml_parallel_min_rows: row.ml_parallel_min_rows ?? 25000,
+          ml_fairness_min_ratio: row.ml_fairness_min_ratio ?? 0.8,
+          ml_artifact_max_mb: row.ml_artifact_max_mb ?? 512,
+          gateway_rate_limit_per_min: row.gateway_rate_limit_per_min ?? 60,
+          gateway_fallback_models: row.gateway_fallback_models ?? [],
+          gateway_metrics_max_rows: row.gateway_metrics_max_rows ?? 10000,
+          gateway_cache_similarity: row.gateway_cache_similarity ?? 0.97,
+          gateway_cache_ttl_hours: row.gateway_cache_ttl_hours ?? 24,
+          gateway_cache_max_temperature: row.gateway_cache_max_temperature ?? 0.3,
+          data_monitors_per_sweep: row.data_monitors_per_sweep ?? 20,
+          data_monitor_anomaly_sigma: row.data_monitor_anomaly_sigma ?? 3,
+          sheets_max_cells: row.sheets_max_cells ?? 200_000,
+          sheets_page_rows: row.sheets_page_rows ?? 500,
+          sheets_upload_max_mb: row.sheets_upload_max_mb ?? 50,
+          sheets_import_max_sheets: row.sheets_import_max_sheets ?? 100,
+          sheets_export_max_rows: row.sheets_export_max_rows ?? 100_000,
+          sheets_version_interval_minutes: row.sheets_version_interval_minutes ?? 30,
+          sheets_versions_max: row.sheets_versions_max ?? 50,
+          sheets_assist_model:
+            row.sheets_assist_model ?? "openrouter/google/gemini-3-flash-preview",
+          sheets_assist_per_minute: row.sheets_assist_per_minute ?? 30,
+          sheets_ai_fill_max_rows: row.sheets_ai_fill_max_rows ?? 2000,
+          ai_sql_max_calls_per_statement: row.ai_sql_max_calls_per_statement ?? 200,
+          ai_sql_default_model:
+            row.ai_sql_default_model ?? "openrouter/google/gemini-3-flash-preview",
+          ai_sql_cache_ttl_days: row.ai_sql_cache_ttl_days ?? 30,
+          document_vision_model:
+            row.document_vision_model ?? "openrouter/google/gemini-3-flash-preview",
+          document_vision_max_pages: row.document_vision_max_pages ?? 200,
+          sandbox_tmpfs_mb: row.sandbox_tmpfs_mb ?? 512,
           batch_max_minutes: row.batch_max_minutes,
           egress_allowlist: row.egress_allowlist,
           pip_allowed: row.pip_allowed,
+          spark_connect_url: row.spark_connect_url ?? "",
+          spark_provider: row.spark_provider === "k8s" ? "k8s" : "static",
+          spark_image: row.spark_image ?? "",
+          spark_executors: row.spark_executors ?? 2,
+          spark_executor_cores: row.spark_executor_cores ?? 1,
+          spark_executor_mem_mb: row.spark_executor_mem_mb ?? 2048,
+          spark_driver_mem_mb: row.spark_driver_mem_mb ?? 2048,
         }
       : DEFAULTS;
 
@@ -124,6 +308,7 @@ export const nbRuntimeGetState = createServerFn({ method: "POST" })
       grants,
       users,
       groups,
+      host: hostResources(),
     };
   });
 
@@ -136,18 +321,84 @@ export const nbRuntimeUpdateSettings = createServerFn({ method: "POST" })
         require_grant: z.boolean().optional(),
         backend: z.enum(["docker", "k8s", "e2b"]).optional(),
         default_image: z.string().min(1).max(300).optional(),
-        max_sessions_per_user: z.number().int().min(1).max(50).optional(),
-        max_sessions_total: z.number().int().min(1).max(1000).optional(),
-        idle_ttl_minutes: z.number().int().min(1).max(1440).optional(),
-        session_max_minutes: z.number().int().min(1).max(1440).optional(),
-        cell_timeout_seconds: z.number().int().min(5).max(3600).optional(),
-        cpu_limit: z.string().min(1).max(16).optional(),
-        mem_limit_mb: z.number().int().min(256).max(65536).optional(),
-        batch_cpu_limit: z.string().min(1).max(16).optional(),
-        batch_mem_limit_mb: z.number().int().min(256).max(131072).optional(),
-        batch_max_minutes: z.number().int().min(1).max(1440).optional(),
+        // These are SIZING knobs, so the only real rule is "a usable positive
+        // number". The former ceilings (64 GB interactive, 128 GB batch, 8
+        // lakehouse threads) were invented, not derived from anything — and on
+        // a large host they capped the machine below what its owner had paid
+        // for, with no way to raise them short of a release. The admin UI shows
+        // the host's actual CPU and memory and warns when a value exceeds it,
+        // which informs the operator instead of overruling them.
+        max_sessions_per_user: z.number().int().min(1).optional(),
+        max_sessions_total: z.number().int().min(1).optional(),
+        idle_ttl_minutes: z.number().int().min(1).max(10080).optional(),
+        session_max_minutes: z.number().int().min(1).max(10080).optional(),
+        cell_timeout_seconds: z.number().int().min(5).max(86400).optional(),
+        cpu_limit: positiveNumericString,
+        mem_limit_mb: z.number().int().min(256).optional(),
+        batch_cpu_limit: positiveNumericString,
+        batch_mem_limit_mb: z.number().int().min(256).optional(),
+        batch_max_minutes: z.number().int().min(1).max(10080).optional(),
+        // Lakehouse engine (in this process, not a sandbox).
+        lakehouse_memory_limit: z
+          .string()
+          .trim()
+          .regex(/^\d+(\.\d+)?\s*(B|KB|MB|GB|TB|KiB|MiB|GiB|TiB)$/i, "Use a size like 48GB")
+          .max(32)
+          .optional(),
+        lakehouse_threads: z.number().int().min(1).optional(),
+        // ETL throughput.
+        etl_max_concurrent_runs_per_user: z.number().int().min(1).optional(),
+        etl_pipelines_per_sweep: z.number().int().min(1).optional(),
+        ml_train_max_rows: z.number().int().min(1).optional(),
+        ml_train_time_budget_minutes: z.number().int().min(1).optional(),
+        ml_train_mem_limit_mb: z.number().int().min(1).optional(),
+        ml_serve_mem_limit_mb: z.number().int().min(1).optional(),
+        ml_max_concurrent_trainings_per_user: z.number().int().min(1).optional(),
+        ml_predict_max_rows: z.number().int().min(1).optional(),
+        ml_train_gpus: z.number().int().min(0).max(64).optional(),
+        ml_train_workers: z.number().int().min(1).max(64).optional(),
+        ml_drift_alert_psi: z.number().min(0.01).max(5).optional(),
+        ml_decay_alert_ratio: z.number().min(0.01).max(10).optional(),
+        ml_cv_min_holdout_rows: z.number().int().min(50).max(10_000_000).optional(),
+        ml_parallel_min_rows: z.number().int().min(50).max(100_000_000).optional(),
+        ml_fairness_min_ratio: z.number().min(0.01).max(1).optional(),
+        ml_artifact_max_mb: z.number().int().min(1).optional(),
+        gateway_rate_limit_per_min: z.number().int().min(1).max(100000).optional(),
+        gateway_fallback_models: z.array(z.string().min(1).max(160)).max(10).optional(),
+        gateway_metrics_max_rows: z.number().int().min(1).max(100_000_000).optional(),
+        // A floor below 0.8 stops being a cache and starts being a coin toss;
+        // 1 is an exact-meaning match, which is the strictest setting that is
+        // still a semantic cache rather than a disabled one.
+        gateway_cache_similarity: z.number().min(0.8).max(1).optional(),
+        gateway_cache_ttl_hours: z.number().int().min(1).max(8760).optional(),
+        gateway_cache_max_temperature: z.number().min(0).max(2).optional(),
+        data_monitors_per_sweep: z.number().int().min(1).max(10000).optional(),
+        data_monitor_anomaly_sigma: z.number().min(0.5).max(20).optional(),
+        sheets_max_cells: z.number().int().min(1000).max(100_000_000).optional(),
+        sheets_page_rows: z.number().int().min(50).max(100_000).optional(),
+        sheets_upload_max_mb: z.number().int().min(1).max(10_000).optional(),
+        sheets_import_max_sheets: z.number().int().min(1).max(10_000).optional(),
+        sheets_export_max_rows: z.number().int().min(100).max(100_000_000).optional(),
+        sheets_version_interval_minutes: z.number().int().min(1).max(10_080).optional(),
+        sheets_versions_max: z.number().int().min(1).max(100_000).optional(),
+        sheets_assist_model: z.string().trim().min(3).max(160).optional(),
+        sheets_assist_per_minute: z.number().int().min(1).max(100_000).optional(),
+        sheets_ai_fill_max_rows: z.number().int().min(1).max(10_000_000).optional(),
+        ai_sql_max_calls_per_statement: z.number().int().min(1).max(1000000).optional(),
+        ai_sql_default_model: z.string().trim().min(3).max(160).optional(),
+        ai_sql_cache_ttl_days: z.number().int().min(1).max(3650).optional(),
+        document_vision_model: z.string().trim().min(3).max(160).optional(),
+        document_vision_max_pages: z.number().int().min(1).max(100000).optional(),
+        sandbox_tmpfs_mb: z.number().int().min(64).optional(),
         egress_allowlist: z.array(z.string().min(1).max(255)).max(200).optional(),
         pip_allowed: z.boolean().optional(),
+        spark_connect_url: z.string().trim().max(500).optional(),
+        spark_provider: z.enum(["static", "k8s"]).optional(),
+        spark_image: z.string().trim().max(300).optional(),
+        spark_executors: z.number().int().min(1).max(1000).optional(),
+        spark_executor_cores: z.number().int().min(1).max(256).optional(),
+        spark_executor_mem_mb: z.number().int().min(512).max(2_000_000).optional(),
+        spark_driver_mem_mb: z.number().int().min(512).max(2_000_000).optional(),
       })
       .parse(input),
   )
@@ -262,7 +513,7 @@ export const nbRuntimePreflight = createServerFn({ method: "POST" })
               status: img.ok ? "pass" : "fail",
               detail: img.ok
                 ? `${image} present`
-                : `${image} not found — build it: docker compose --profile notebooks up -d --build`,
+                : `${image} not found — build it: docker compose up -d --build`,
             });
           } catch {
             checks.push({

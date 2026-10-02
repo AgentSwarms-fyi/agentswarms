@@ -2,6 +2,7 @@
 // superadmins by the caller (and by RLS: only the workspace creator or a
 // superadmin can edit membership). The user/group pickers reuse the IAM admin
 // listing server functions, which themselves require superadmin.
+import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
@@ -112,7 +113,11 @@ export function BiWorkspaceManager({
   }
 
   async function removeWorkspace(w: BiWorkspace) {
-    if (!window.confirm(`Delete workspace "${w.name}"? Dashboards inside become personal again.`))
+    if (
+      !(await confirmAsk({
+        title: `Delete workspace "${w.name}"? Dashboards inside become personal again.`,
+      }))
+    )
       return;
     try {
       await deleteWorkspace(w.id);

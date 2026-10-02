@@ -9,6 +9,13 @@
 # The app is configured with NOTEBOOK_RUNTIME_BACKEND=k8s and runs with the
 # `notebook-orchestrator` ServiceAccount (or a SA bound to the Role below).
 # See docs/DEVELOPER_WORKSPACE_RUNTIME.md §5.2/§9.2.
+#
+# NOTHING HERE CORRESPONDS TO COMPOSE'S `notebook-docker-proxy`, and that is
+# deliberate rather than missing. That proxy is how the `docker` backend starts
+# kernel CONTAINERS without handing the app a Docker socket. On Kubernetes the
+# backend is `k8s`, kernels are PODS, and they are created through the API with
+# the ServiceAccount and Role below — there is no socket to proxy, and adding
+# one would be a second way in for no benefit.
 ---
 apiVersion: v1
 kind: Namespace
@@ -17,7 +24,11 @@ metadata:
   labels:
     app.kubernetes.io/part-of: agentswarms
 ---
-# Caps total resource consumption by all kernels at once.
+# Caps total resource consumption by all kernels at once. ML training and
+# prediction runs are batch Jobs in this namespace too, so this quota is the
+# cluster-wide ceiling on concurrent trainings (each takes batch_cpu_limit CPU
+# and ML_TRAIN_MEM_LIMIT_MB memory, 8 GiB by default); raise it, or add nodes,
+# to run more at once. Per-user concurrency is ML_MAX_CONCURRENT_TRAININGS_PER_USER.
 apiVersion: v1
 kind: ResourceQuota
 metadata:
@@ -45,6 +56,10 @@ spec:
       defaultRequest:
         cpu: 250m
         memory: 512Mi
+      # max.memory must be at least ML_TRAIN_MEM_LIMIT_MB (8192 MB by default),
+      # or a training Job is refused at admission with a LimitRange error.
+      # Raise both together for large tables; ML_TRAIN_MAX_ROWS samples the
+      # rest. A CPU-only node pool is enough for the built-in trainers.
       max:
         cpu: "4"
         memory: 8Gi
@@ -105,25 +120,57 @@ metadata:
   name: notebook-egress
   namespace: agentswarms-notebooks
 data:
+  # Keep at parity with deploy/notebooks/egress/squid.conf and
+  # allowed_domains.default. This copy had drifted: no .duckdb.org, no dst ACL
+  # and no object-store ports, so the same notebook that worked under Compose
+  # failed here — and failed misleadingly, since DuckDB reports a squid 403 on
+  # an S3 read as "Authentication Failure ... credentials did not work".
   squid.conf: |
     http_port 3128
     acl allowed_domains dstdomain "/etc/squid/allowed_domains"
+    # dstdomain never matches a raw-IP URL, so IP entries need their own dst
+    # ACL — a self-hosted MinIO on a LAN address is the common case.
+    acl allowed_ips dst "/etc/squid/allowed_ips"
     acl SSL_ports port 443
     acl Safe_ports port 80
     acl Safe_ports port 443
+    # S3-compatible object stores: MinIO's conventional port and the
+    # local-dev port the docs use.
+    acl Safe_ports port 9000
+    acl Safe_ports port 19000
     acl CONNECT method CONNECT
     http_access deny CONNECT !SSL_ports
     http_access deny !Safe_ports
     http_access allow allowed_domains
+    http_access allow allowed_ips
     http_access deny all
     forwarded_for delete
     via off
+    httpd_suppress_version_string on
     cache deny all
   allowed_domains: |
     .pypi.org
     .pythonhosted.org
+    # YOUR OBJECT STORE (the host of LAKEHOUSE_S3_ENDPOINT, e.g. minio.storage.svc
+    # or s3.eu-west-1.amazonaws.com). ML training and prediction read Parquet
+    # and write model artifacts through this proxy, and lakehouse ETL nodes read
+    # through it too. Under Compose the app appends this host automatically;
+    # here it is a ConfigMap, so add it (a raw IP goes in allowed_ips) and
+    # restart the proxy. A missing entry shows up as DuckDB "Authentication
+    # Failure" on the first training job, and the app logs the host to add.
+    # DuckDB extension registry. The runtime image ships the ducklake,
+    # postgres and httpfs extensions baked in, so a lakehouse ETL node no
+    # longer downloads anything; this entry is only needed for an image built
+    # without them, where the symptom is "Failed to download extension
+    # (HTTP 403)": squid refused it, not DuckDB.
+    .duckdb.org
     .openrouter.ai
     .openai.com
+  # Deliberately empty: a fresh install allows no raw IPs. Unlike the Compose
+  # deployment there is no admin-save path that rewrites this — edit the
+  # ConfigMap and restart the proxy.
+  allowed_ips: |
+    # Raw-IP destinations (squid dst); domains live in allowed_domains.
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -131,13 +178,25 @@ metadata:
   name: notebook-egress
   namespace: agentswarms-notebooks
 spec:
-  replicas: 1
+  # Two, because this is every sandbox's only way out: while a single replica
+  # restarts, every `pip install` at run start and every HTTP fetch in every
+  # pipeline fails. It is stateless (the allow-list is the ConfigMap), so a
+  # second replica costs a few MB and removes the outage.
+  replicas: 2
   selector:
     matchLabels: { app: notebook-egress }
   template:
     metadata:
       labels: { app: notebook-egress }
     spec:
+      # Spread across nodes when there is more than one, so a node loss is not
+      # both replicas at once.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels: { app: notebook-egress }
       containers:
         - name: squid
           image: ubuntu/squid:latest # pin a digest in production
@@ -145,6 +204,7 @@ spec:
           volumeMounts:
             - { name: cfg, mountPath: /etc/squid/squid.conf, subPath: squid.conf }
             - { name: cfg, mountPath: /etc/squid/allowed_domains, subPath: allowed_domains }
+            - { name: cfg, mountPath: /etc/squid/allowed_ips, subPath: allowed_ips }
       volumes:
         - name: cfg
           configMap: { name: notebook-egress }
@@ -172,6 +232,14 @@ spec:
     metadata:
       labels: { app: notebook-gateway }
     spec:
+      # Two replicas on one node survive exactly as much as one. ScheduleAnyway
+      # so a single-node cluster still schedules both.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels: { app: notebook-gateway }
       containers:
         - name: gateway
           image: agentswarms/notebook-gateway:latest
@@ -198,6 +266,29 @@ spec:
 # Expose the gateway to browsers via your Ingress (websocket-capable). Point
 # NOTEBOOK_GATEWAY_URL at the public wss:// URL.
 ---
+# Budgets for both notebook tiers. Without them a node drain can evict every
+# replica at once: the gateway takes every open notebook with it, and while
+# the egress proxy is gone every `pip install` inside a kernel fails.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: notebook-gateway
+  namespace: agentswarms-notebooks
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: { app: notebook-gateway }
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: notebook-egress
+  namespace: agentswarms-notebooks
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: { app: notebook-egress }
+---
 # ── Egress control: default-deny, then narrow allows ─────────────────────────
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -222,6 +313,14 @@ spec:
     - to:
         - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: agentswarms } }
       ports: [{ protocol: TCP, port: 8080 }]
+    # ETL pipelines on the Spark engine: the sandbox drives its run's own
+    # driver over Spark Connect. gRPC cannot go through the egress proxy, so
+    # this is a direct route — to one port, in one namespace. Only needed when
+    # the Spark provider is `k8s` (deploy/k8s/spark/spark-runtime.yaml).
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: agentswarms-spark }
+      ports: [{ protocol: TCP, port: 15002 }]
   ingress:
     # Only the gateway may connect to kernels (Jupyter websocket).
     - from:
@@ -234,3 +333,14 @@ spec:
 # kind: RuntimeClass
 # metadata: { name: gvisor }
 # handler: runsc
+---
+# Optional: GPU training. Set ML_TRAIN_GPUS (or Admin -> Developer runtime) to
+# the GPUs each training sandbox should request; the Job then carries an
+# nvidia.com/gpu limit. Your cluster needs the NVIDIA device plugin, a node
+# pool that advertises the resource, and - because the built-in runtime image
+# is CPU-only - NOTEBOOK_RUNTIME_IMAGE pointed at a CUDA build of it. If the
+# pool is labelled or tainted, tell the orchestrator where to place GPU pods:
+#   NOTEBOOK_K8S_GPU_NODE_SELECTOR='{"cloud.google.com/gke-accelerator":"nvidia-l4"}'
+#   NOTEBOOK_K8S_GPU_TOLERATIONS='[{"key":"nvidia.com/gpu","operator":"Exists","effect":"NoSchedule"}]'
+# Raise the LimitRange above as well: it has no GPU entry, so it does not cap
+# them, but a GPU trainer usually wants more than 8 GiB of memory.

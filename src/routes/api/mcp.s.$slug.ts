@@ -31,6 +31,7 @@ import {
   FORWARDED_METHODS,
   MCP_PROTOCOL_VERSION,
   parseJsonOrSse,
+  readRpcBody,
   rpcError,
   toolsFromListResult,
 } from "@/utils/mcpApps/protocol";
@@ -451,14 +452,18 @@ async function forward(
       body: bodyText,
       signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
     });
-    const text = await res.text();
-    if (text.length > MAX_RESPONSE_BYTES) {
+    // Up to the answer, not to the end of the stream (R98). A server may keep
+    // it open after replying, and every call through here then took the full
+    // 60s and came back 502 with the answer already in hand. The size cap is
+    // enforced while reading, so an endless stream cannot pile up either.
+    const read = await readRpcBody(res, MAX_RESPONSE_BYTES);
+    if (read.oversized) {
       return { ok: false, message: "The MCP server returned an oversized response." };
     }
     return {
       ok: true,
       status: res.status,
-      text,
+      text: read.text,
       contentType: res.headers.get("content-type") ?? "application/json",
       sessionId: res.headers.get("mcp-session-id"),
     };

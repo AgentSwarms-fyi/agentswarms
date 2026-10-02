@@ -212,3 +212,88 @@ describe("roll-up severity", () => {
     );
   });
 });
+
+describe("freshness over a capped read, where the newest row may be past the cap", () => {
+  // The evaluator reads at most DATA_QUALITY_ROW_CAP rows (200,000 by default)
+  // and a column-based freshness test takes the newest value it can SEE. On a
+  // table larger than the cap that prefix need not contain the newest row at
+  // all — and if the source is ordered oldest-first it certainly does not.
+  const DAY = 86_400_000;
+  const now = Date.UTC(2026, 0, 30);
+  const test = { kind: "freshness" as const, column_name: "day", config: { max_age_hours: 24 } };
+
+  const rows = (isoDays: string[]) => isoDays.map((day) => ({ day }));
+
+  it("still passes on a prefix, because the true newest can only be newer", () => {
+    // The whole table's maximum is >= the maximum of any prefix of it. So a
+    // prefix that is inside the limit proves the dataset is inside it too —
+    // this verdict survives capping and is not downgraded.
+    const out = evaluateQualityTest(test, {
+      rows: rows(["2026-01-30"]),
+      totalRows: 1_000_000,
+      capped: true,
+      now,
+    });
+    expect(out.status).toBe("pass");
+    expect(out.detail).toContain("checked the first 1 rows");
+  });
+
+  it("refuses to call the data stale on evidence that cannot support it", () => {
+    // The row that would refute "stale" is exactly the row the cap did not
+    // read. Reporting `fail` here names a cause the test cannot establish.
+    const out = evaluateQualityTest(test, {
+      rows: rows(["2020-01-01"]),
+      totalRows: 1_000_000,
+      capped: true,
+      now,
+    });
+    expect(out.status).toBe("error");
+    expect(out.status).not.toBe("fail");
+    // Node here resolves en-IN and writes "10,00,000" — assert what the code
+    // actually promises (the same formatter) rather than a literal.
+    expect(out.detail).toContain(`Checked the first 1 of ${(1_000_000).toLocaleString()} rows`);
+    expect(out.detail).toContain("may lie beyond that cap");
+    // And it names the way out rather than leaving the reader stuck.
+    expect(out.detail).toContain("DATA_QUALITY_ROW_CAP");
+  });
+
+  it("still calls stale data stale when the whole table was read", () => {
+    const out = evaluateQualityTest(test, {
+      rows: rows(["2020-01-01"]),
+      totalRows: 1,
+      capped: false,
+      now,
+    });
+    expect(out.status).toBe("fail");
+    expect(out.detail).toContain("Stale:");
+  });
+
+  it("does not blame the column when a prefix simply holds no dates", () => {
+    const out = evaluateQualityTest(test, {
+      rows: [{ day: "not a date" }],
+      totalRows: 1_000_000,
+      capped: true,
+      now,
+    });
+    expect(out.status).toBe("error");
+    expect(out.detail).toContain(`among the first 1 of ${(1_000_000).toLocaleString()} rows`);
+  });
+
+  it("leaves the load-time fallback alone, which no cap can affect", () => {
+    // With no watermark column the stamp comes from the dataset's recorded
+    // load time, not from the rows — so capping is irrelevant and a stale
+    // verdict is still sound.
+    const out = evaluateQualityTest(
+      { kind: "freshness", column_name: null, config: { max_age_hours: 1 } },
+      {
+        rows: [],
+        totalRows: 1_000_000,
+        capped: true,
+        lastLoadedAt: new Date(now - 5 * DAY).toISOString(),
+        now,
+      },
+    );
+    expect(out.status).toBe("fail");
+    expect(out.detail).toContain("Stale:");
+  });
+});

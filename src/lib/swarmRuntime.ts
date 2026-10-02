@@ -111,7 +111,8 @@ export type SwarmToolId =
   | "datetime"
   | "weather"
   | "sql_query"
-  | "metric_query";
+  | "metric_query"
+  | "ml_predict";
 
 // Per-node tool configuration. Mirrors the server's ToolConfigs shape.
 export type SwarmToolConfigs = {
@@ -127,6 +128,10 @@ export type SwarmToolConfigs = {
   // empty / undefined means NO models and the tool is not given to the node
   // at all, because the model catalogue costs prompt tokens on every call.
   metric_model_names?: string[];
+  // Allow-list of ML model names the ml_predict tool may score with. ABSENT
+  // means every model the owner can use (the pre-list behaviour); present
+  // means exactly those, and [] means none. Mirrors ToolConfigs on the server.
+  ml_model_names?: string[];
 };
 
 // Per-node guardrails — same shape the agent builder writes under
@@ -1598,6 +1603,7 @@ export async function runSwarm(
               sql_tables: node.data.toolConfigs?.sql_table_names,
               mcp_servers: node.data.toolConfigs?.mcp_server_names,
               web_config: node.data.toolConfigs?.web_search || node.data.toolConfigs?.web_browse,
+              ml_model_names: node.data.toolConfigs?.ml_model_names,
             },
           });
           if (!res.ok) throw new Error(`Tool node failed: ${res.error}`);

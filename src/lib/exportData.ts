@@ -44,6 +44,15 @@ function csvEscape(v: unknown): string {
 /** Exported for the tests that pin the injection guard. */
 export const __csvEscape = csvEscape;
 
+/**
+ * Rows as CSV text (CRLF between rows, no trailing newline), each field
+ * escaped and defused by the one rule above. Sheets writes its CSVs with
+ * this, so there is still one escaper in the app.
+ */
+export function csvText(rows: readonly (readonly unknown[])[]): string {
+  return rows.map((r) => r.map(csvEscape).join(",")).join("\r\n");
+}
+
 function triggerDownload(blob: Blob, filename: string): void {
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);

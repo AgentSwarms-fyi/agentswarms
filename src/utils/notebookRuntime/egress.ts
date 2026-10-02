@@ -4,8 +4,13 @@
 // rules can be unit-tested — `.server.ts` files are import-protected.
 
 /** Hosts always permitted, whatever the operator configures. Without PyPI a
- *  kernel cannot `pip install` anything, which defeats the runtime's purpose. */
-export const EGRESS_BASELINE = ["pypi.org", "files.pythonhosted.org"];
+ *  kernel cannot `pip install` anything, which defeats the runtime's purpose;
+ *  without the DuckDB extension registry an ETL lakehouse node cannot load
+ *  `ducklake` and dies before it reads a single row. Both are platform
+ *  requirements rather than operator preferences, which is why neither may be
+ *  hand-written into the generated ACL file — a settings save regenerates that
+ *  file and would silently drop them. */
+export const EGRESS_BASELINE = ["pypi.org", "files.pythonhosted.org", "duckdb.org"];
 
 /**
  * Normalise one operator-entered host into a squid `dstdomain` token.
@@ -65,6 +70,167 @@ export function normalizeEgressHost(raw: string): string | null {
  * The baseline is unioned in and the result de-duplicated, so an operator
  * cannot lock kernels out of PyPI by clearing the field.
  */
+/** Raw IPv4 (optionally with port already stripped by normalize). */
+/**
+ * Does `host` match one allow-list pattern, the way squid matches dstdomain?
+ *
+ * A leading dot is a SUFFIX: `.github.com` matches `github.com` and every
+ * subdomain of it. Anything else is exact.
+ *
+ * Deliberately NOT routed through `normalizeEgressHost`, which is for the ACL
+ * FILE and so requires a real two-label domain. The hosts a sandbox reaches
+ * without the proxy at all — `agentswarms`, `localhost`, a Kubernetes `.svc`
+ * — are single-label or bare suffixes, and a checker that drops them reports
+ * a reachable host as forbidden.
+ */
+export function hostMatchesPattern(pattern: string, host: string): boolean {
+  const clean = (raw: string, keepDot: boolean) => {
+    let h = (raw ?? "").trim().toLowerCase();
+    h = h.replace(/^[a-z][a-z0-9+.-]*:\/\//, "");
+    h = h.split("/")[0];
+    h = h.split("@").pop() ?? h;
+    h = h.replace(/:\d+$/, "");
+    h = h.replace(/\.+$/, "");
+    return keepDot ? h : h.replace(/^\.+/, "");
+  };
+  const p = clean(pattern, true);
+  const h = clean(host, false);
+  if (!p || !h) return false;
+  if (p.startsWith(".")) return h === p.slice(1) || h.endsWith(p);
+  return h === p;
+}
+
+/**
+ * Is `host` reachable from a sandbox, given the allow-list and what bypasses
+ * the proxy entirely?
+ *
+ * Both lists are consulted because both make a host reachable, and a refusal
+ * that ignores the second sends the reader to add something that would change
+ * nothing. Written after the exact-match version refused a subdomain of an
+ * allow-listed domain — squid would have let it through, so the sentence
+ * "not on the sandbox egress allow-list" was false.
+ */
+export function egressReaches(patterns: Iterable<string>, host: string): boolean {
+  for (const p of patterns) if (hostMatchesPattern(p, host)) return true;
+  return false;
+}
+
+/**
+ * The host a URL will dial, when that is knowable without running anything.
+ *
+ * Returns nothing for a URL carrying a run parameter (`https://{{params.host}}/v1`)
+ * or one that does not parse: those have no host until a run substitutes one,
+ * and refusing on a guess would block a pipeline that is fine. Everything else
+ * gives up its hostname, so a node pointing off this machine can be held to
+ * the egress allow-list BEFORE a container starts — rather than coming back as
+ * a urllib3 ProxyError that never mentions an allow-list.
+ */
+export function staticEgressHost(url: string | undefined | null): string[] {
+  const raw = (url ?? "").trim();
+  if (!raw || raw.includes("{{")) return [];
+  try {
+    return [new URL(raw).hostname];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * The ports the egress proxy admits — a MIRROR of `Safe_ports` and `SSL_ports`
+ * in deploy/notebooks/egress/squid.conf, kept in step by a test that parses
+ * that file.
+ *
+ * Kernels have no direct route out, so every request goes through squid, and
+ * squid denies a port outside this list before it ever looks at the domain.
+ * The symptom is a bare `403 Client Error: Forbidden` from inside the sandbox,
+ * naming the URL as though the endpoint had refused — found live, pointing a
+ * reverse-ETL target at a receiver on :8099 whose domain WAS allow-listed.
+ */
+export const EGRESS_SAFE_PORTS = [80, 443, 9000, 19000] as const;
+/** CONNECT (i.e. https) is allowed to this port only. */
+export const EGRESS_SSL_PORTS = [443] as const;
+
+/**
+ * Why the proxy will refuse this URL on its port, in words — or null when the
+ * port is fine (which says nothing about the domain; `egressReaches` answers
+ * that separately).
+ */
+export function egressPortRefusal(url: string | undefined | null): string | null {
+  const raw = (url ?? "").trim();
+  // A templated URL resolves at run time; there is nothing to judge yet.
+  if (!raw || raw.includes("{{")) return null;
+  let u: URL;
+  try {
+    u = new URL(raw);
+  } catch {
+    return null; // not a URL — a different check's problem
+  }
+  const https = u.protocol === "https:";
+  const port = Number(u.port || (https ? 443 : 80));
+  if (!Number.isFinite(port)) return null;
+  if (https && !(EGRESS_SSL_PORTS as readonly number[]).includes(port)) {
+    return (
+      `the sandbox's egress proxy only tunnels HTTPS to port ${EGRESS_SSL_PORTS.join(", ")}, ` +
+      `and this URL uses port ${port}. Use https on 443, or plain http on one of ` +
+      `${EGRESS_SAFE_PORTS.join(", ")}.`
+    );
+  }
+  if (!(EGRESS_SAFE_PORTS as readonly number[]).includes(port)) {
+    return (
+      `the sandbox's egress proxy only allows ports ${EGRESS_SAFE_PORTS.join(", ")}, ` +
+      `and this URL uses port ${port}. The allow-list under Admin → Developer runtime ` +
+      `covers hosts, not ports — a host on an unusual port is refused by the proxy with ` +
+      `a 403 that looks like it came from the endpoint.`
+    );
+  }
+  return null;
+}
+
+export function isEgressIp(token: string): boolean {
+  return /^\d{1,3}(\.\d{1,3}){3}$/.test(token.replace(/^\./, ""));
+}
+
+/**
+ * Normalise one entry into a squid `dst` token, or null if it is not an
+ * address.
+ *
+ * The counterpart to normalizeEgressHost, and the reason both exist: an entry
+ * is only genuinely discarded when BOTH return null. Callers that ask only one
+ * of them will conclude a valid LAN address is being ignored while the proxy is
+ * in fact honouring it.
+ */
+export function normalizeEgressIp(raw: string): string | null {
+  // normalizeEgressHost REJECTS addresses by design (they are inert as
+  // dstdomain entries), so strip scheme/port here and keep only clean IPv4.
+  let h = (raw ?? "").trim().toLowerCase();
+  if (!h || h.startsWith("#")) return null;
+  h = h.replace(/^[a-z][a-z0-9+.-]*:\/\//, "").split("/")[0];
+  h = h.split("@").pop() ?? h;
+  h = h.replace(/:\d+$/, "");
+  if (!isEgressIp(h)) return null;
+  return h.split(".").every((o) => Number(o) <= 255) ? h : null;
+}
+
+/**
+ * The squid `dst` file for raw-IP destinations. dstdomain never matches an
+ * IP-form URL, so entries like a LAN MinIO (192.168.1.10) silently did
+ * nothing in the domains file — the exact "field that looks like it works"
+ * failure this module exists to prevent.
+ */
+export function renderEgressIpAllowlist(hosts: string[]): string {
+  const ips = new Set<string>();
+  for (const raw of hosts ?? []) {
+    const ip = normalizeEgressIp(raw);
+    if (ip) ips.add(ip);
+  }
+  return (
+    "# Generated by AgentSwarms from notebook_runtime_settings.egress_allowlist.\n" +
+    "# Raw-IP destinations (squid dst); domains live in allowed_domains.\n" +
+    [...ips].join("\n") +
+    "\n"
+  );
+}
+
 export function renderEgressAllowlist(hosts: string[]): string {
   const seen = new Set<string>();
   const out: string[] = [];

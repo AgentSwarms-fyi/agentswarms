@@ -1,6 +1,6 @@
 {
   "name": "agentswarms",
-  "version": "1.2.2",
+  "version": "1.5.0",
   "description": "The hands-on playground for learning Agentic AI — build agents, run multi-agent swarms, and inspect traces in your browser.",
   "license": "Elastic-2.0",
   "repository": {
@@ -17,26 +17,36 @@
     "dev": "vite dev",
     "build": "cross-env NODE_OPTIONS=--max-old-space-size=6144 vite build --sourcemap false",
     "build:dev": "cross-env NODE_OPTIONS=--max-old-space-size=6144 vite build --mode development --sourcemap false",
+    "generate:routes": "node scripts/generate-routes.mjs",
+    "typecheck": "npm run generate:routes && tsc --noEmit -p tsconfig.json",
     "preview": "vite preview",
+    "start": "node server.mjs",
+    "backup": "node scripts/backup.mjs",
+    "restore": "node scripts/restore.mjs",
     "lint": "eslint .",
     "check:docs": "node scripts/check-docs.mjs",
     "check:md-docs": "node scripts/check-md-docs.mjs",
+    "check:doc-commands": "node scripts/check-doc-commands.mjs",
+    "check:infra": "node scripts/check-infra.mjs",
     "docs:index": "node scripts/build-docs-index.mjs",
     "format": "prettier --write .",
+    "check": "npm run typecheck && npm run lint && npm run check:docs && npm run check:md-docs && npm run check:doc-commands && npm run check:infra && npm run test && npm run build",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:differential": "tsx tests/differential/report.ts",
     "eval:nl2sql": "tsx evals/nl2sql/run.ts",
     "prices:refresh": "tsx scripts/refreshPrices.ts",
+    "sheets:samples": "tsx scripts/make-sheets-samples.ts",
     "check:semantics": "tsx scripts/checkSemantics.ts"
   },
   "dependencies": {
     "@codemirror/lang-javascript": "^6.2.5",
     "@codemirror/lang-markdown": "^6.5.0",
     "@codemirror/lang-python": "^6.2.1",
-    "@duckdb/duckdb-wasm": "1.32.0",
+    "@duckdb/duckdb-wasm": "1.33.1-dev57.0",
     "@duckdb/node-api": "^1.5.5-r.2",
+    "@formulajs/formulajs": "^4.6.1",
     "@hookform/resolvers": "^5.2.2",
     "@langchain/community": "^1.1.29",
     "@langchain/core": "^1.1.48",
@@ -76,6 +86,7 @@
     "@tanstack/react-query": "^5.83.0",
     "@tanstack/react-router": "^1.168.0",
     "@tanstack/react-start": "^1.167.14",
+    "@tanstack/react-virtual": "^3.14.13",
     "@tanstack/router-plugin": "^1.167.10",
     "@types/d3-force": "^3.0.10",
     "@types/js-yaml": "^4.0.9",
@@ -94,6 +105,8 @@
     "date-fns": "^4.1.0",
     "docx": "^9.7.1",
     "embla-carousel-react": "^8.6.0",
+    "exceljs": "^4.4.0",
+    "fflate": "^0.8.3",
     "framer-motion": "^12.38.0",
     "html2canvas-pro": "^2.2.4",
     "input-otp": "^1.4.2",
@@ -160,6 +173,9 @@
     "vitest": "^3.2.7"
   },
   "overrides": {
-    "entities": "4.5.0"
+    "entities": "4.5.0",
+    "exceljs": {
+      "uuid": "^11.1.1"
+    }
   }
 }

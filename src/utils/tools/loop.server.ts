@@ -13,6 +13,7 @@
 
 import type { ToolDef, ToolHandler, AgentToolContext } from "./registry.server";
 import { extractToolSources, type RawSource } from "./sources";
+import { mlToolData, type MlToolData } from "@/lib/mlToolResult";
 import { providerReportedCost, usageReportingBody } from "@/utils/observability/providerCost";
 
 type GatewayMessage = {
@@ -96,6 +97,79 @@ export function capToolResult(result: string): string {
 }
 
 /** True for responses worth one more attempt: rate limits and server faults. */
+/**
+ * The name a model used for a tool, mapped back to the name it was declared
+ * with. Some providers decorate names — a namespace prefix ("default_api:" or
+ * "revenue_team:", "functions."), a trailing space, a case change — and a
+ * decorated name that reaches the handler map unchanged fails as "Unknown
+ * tool", then poisons the next request with a name the provider itself
+ * rejects. Null when nothing declared matches.
+ */
+export function resolveToolName(raw: string, known: Iterable<string>): string | null {
+  const names = [...known];
+  const trimmed = (raw ?? "").trim();
+  if (!trimmed) return null;
+  if (names.includes(trimmed)) return trimmed;
+  const tail = trimmed.split(/[:./]/).pop()?.trim() ?? "";
+  if (tail && names.includes(tail)) return tail;
+  const lower = (trimmed || tail).toLowerCase();
+  const tailLower = tail.toLowerCase();
+  return names.find((n) => n.toLowerCase() === lower || n.toLowerCase() === tailLower) ?? null;
+}
+
+/**
+ * A streamed final answer must never carry a tool call: the client only
+ * renders text, so a call streamed here — some models emit one even with no
+ * tools declared — would leave the reply blank. Any tool_call delta becomes
+ * a visible sentence naming the tool instead.
+ */
+export function sanitizeGhostToolCalls(
+  body: ReadableStream<Uint8Array>,
+): ReadableStream<Uint8Array> {
+  const decoder = new TextDecoder();
+  const encoder = new TextEncoder();
+  let buffer = "";
+  let explained = false;
+  const rewrite = (line: string): string => {
+    if (!line.startsWith("data: ") || line.startsWith("data: [DONE]")) return line;
+    try {
+      const frame = JSON.parse(line.slice(6)) as {
+        choices?: {
+          delta?: { tool_calls?: { function?: { name?: string } }[]; content?: unknown };
+        }[];
+      };
+      const delta = frame.choices?.[0]?.delta;
+      if (!delta?.tool_calls?.length) return line;
+      const name = delta.tool_calls
+        .map((t) => t.function?.name?.trim())
+        .filter(Boolean)
+        .join(", ");
+      const note = explained
+        ? ""
+        : `(The model tried to call a tool${name ? ` "${name}"` : ""} that was not available for this reply. Ask again to let it use its tools.)`;
+      explained = true;
+      delete delta.tool_calls;
+      delta.content = note;
+      return `data: ${JSON.stringify(frame)}`;
+    } catch {
+      return line;
+    }
+  };
+  return body.pipeThrough(
+    new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        buffer += decoder.decode(chunk, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) controller.enqueue(encoder.encode(rewrite(line) + "\n"));
+      },
+      flush(controller) {
+        if (buffer) controller.enqueue(encoder.encode(rewrite(buffer)));
+      },
+    }),
+  );
+}
+
 export function isRetryable(status: number): boolean {
   return status === 429 || status >= 500;
 }
@@ -257,6 +331,13 @@ export type ToolEvent =
        * 400-char preview downstream.
        */
       sources?: RawSource[];
+      /**
+       * The ML tools' result as a person reads it — a prediction table, the
+       * model list, or the error — built here for the same reason sources
+       * are: a preview cut off mid-probability is not a result anyone can
+       * read. Absent for every other tool, and when the result is not JSON.
+       */
+      data?: MlToolData;
     };
 
 // Run the tool-call loop and return the FINAL response (a streaming Response
@@ -330,6 +411,7 @@ export async function streamChatWithTools(opts: {
   // the WHOLE turn consumed even though billing lives on the per-round child
   // traces (the parent's own columns stay zero for replayed finals).
   const loopUsage = { tokensIn: 0, tokensOut: 0 };
+  let retriedEmpty = false;
 
   // Tool-calling loop (non-streaming).
   for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
@@ -380,8 +462,25 @@ export async function streamChatWithTools(opts: {
       // Malformed — fall through to streaming with what we have.
       break;
     }
+    // An empty round (no text, no tool call) is usually transient — a provider
+    // that dropped a malformed call, a hiccup — and a second round is far
+    // cheaper than the blank reply the fallback below can produce.
+    if (
+      !msg.tool_calls?.length &&
+      !(typeof msg.content === "string" && msg.content.trim()) &&
+      !retriedEmpty
+    ) {
+      retriedEmpty = true;
+      continue;
+    }
 
     const toolCalls = msg.tool_calls ?? [];
+    // Map decorated names back to the declared ones BEFORE the transcript
+    // sees them, so the next request never carries a name the provider rejects.
+    for (const tc of toolCalls) {
+      tc.function.name =
+        resolveToolName(tc.function.name, opts.handlers.keys()) ?? tc.function.name.trim();
+    }
     if (toolCalls.length === 0) {
       // No tools requested — this message IS the final answer. Replay it as a
       // synthetic stream instead of re-requesting it: the old fresh streaming
@@ -391,16 +490,22 @@ export async function streamChatWithTools(opts: {
       // message here.
       const finalText = typeof msg.content === "string" ? msg.content : "";
       if (finalText.trim()) return replayAsSse(finalText, loopUsage);
+      const fallback = await callGateway({
+        apiKey: opts.apiKey,
+        model: opts.model,
+        messages: transcript,
+        temperature: opts.temperature,
+        maxTokens: opts.maxTokens,
+        stream: true,
+        signal: opts.signal,
+        ...transport,
+      });
+      if (!fallback.ok || !fallback.body) return withLoopUsageHeaders(fallback, loopUsage);
       return withLoopUsageHeaders(
-        await callGateway({
-          apiKey: opts.apiKey,
-          model: opts.model,
-          messages: transcript,
-          temperature: opts.temperature,
-          maxTokens: opts.maxTokens,
-          stream: true,
-          signal: opts.signal,
-          ...transport,
+        new Response(sanitizeGhostToolCalls(fallback.body), {
+          status: fallback.status,
+          statusText: fallback.statusText,
+          headers: fallback.headers,
         }),
         loopUsage,
       );
@@ -443,13 +548,18 @@ export async function streamChatWithTools(opts: {
             result = JSON.stringify({ error: e instanceof Error ? e.message : String(e) });
           }
         }
+        const data = mlToolData(tc.function.name, result) ?? undefined;
         opts.onToolEvent?.({
           type: "tool_result",
           name: tc.function.name,
           id: tc.id,
-          ok,
+          // An ML tool answers an error as JSON rather than throwing, so the
+          // call "succeeded" while its result says it did not. The badge a
+          // person reads says error.
+          ok: ok && data?.kind !== "error",
           preview: result.slice(0, 400),
           sources: ok ? extractToolSources(tc.function.name, tc.function.arguments, result) : [],
+          data,
         });
         return { tc, result: capToolResult(frameUntrustedResult(tc.function.name, result)) };
       }),

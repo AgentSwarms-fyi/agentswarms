@@ -2,6 +2,8 @@
 // instead of writing raw SQL. The model picks metric/dimension names from the
 // semantic catalog; the compiler turns that into consistent SQL (so "revenue"
 // always means the same thing). Owner-scoped exactly like sql_query.
+import { auditEvent } from "@/utils/audit.server";
+import { resultDigest } from "@/utils/provenance/canonical";
 import type { ToolDef, AgentToolContext } from "./registry.server";
 import { listSemanticModels, runSemanticQuery } from "@/utils/semantic/query.server";
 import {
@@ -275,6 +277,30 @@ export async function runMetricQuery(
       // reported `rows.length` — a 60-region result read as "50 row(s)" with
       // no marker, and the agent answered as if that were the whole list.
       maxRows: RESULT_ROW_CAP + 1,
+    });
+    // A metric query IS a data read -- of the semantic model, and through it
+    // the warehouse or lakehouse behind it. Recorded so it appears in the
+    // answer's provenance beside the raw sql_query and kb_search reads.
+    auditEvent({
+      userId: ctx.userId,
+      action: "metric.query",
+      resourceType: "semantic_model",
+      resourceName: model.slice(0, 200),
+      decisionId: ctx.decisionId,
+      detail: {
+        via: "agent_tool",
+        agent_id: ctx.agentId ?? null,
+        metrics,
+        dimensions,
+        row_count: res.rows.length,
+        // Recorded so the read can be REPLAYED: the query text, and a
+        // fingerprint of what it returned. Re-running a query later only
+        // proves the query runs; comparing today's result against the
+        // digest taken at the time is what shows whether the answer's
+        // data was what the record says it was.
+        sql: res.sql.slice(0, 4000),
+        result_digest: resultDigest(Object.keys(res.rows[0] ?? {}), res.rows),
+      },
     });
     return renderMetricResult(res, RESULT_ROW_CAP);
   } catch (e) {

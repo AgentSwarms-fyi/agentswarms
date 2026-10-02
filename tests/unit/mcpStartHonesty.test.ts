@@ -26,6 +26,7 @@ import { describe, expect, it } from "vitest";
 
 const SERVICE = readFileSync("src/utils/mcpApps/service.server.ts", "utf8");
 const PROXY = readFileSync("src/routes/api/mcp.s.$slug.ts", "utf8");
+const BUDGETS = readFileSync("src/utils/mcpApps/budgets.ts", "utf8");
 
 /** Body of a named function/const in the service module, up to the next top-level close. */
 function block(source: string, marker: string): string {
@@ -157,7 +158,11 @@ describe("the cold-start budget", () => {
     // Measured on an idle machine with the image present: container visible at
     // 3s, session ready at 23s. The old 45s budget left one healthy start of
     // slack, and pip-installing the app's declared packages happens inside it.
-    const m = /const COLD_START_MS = ([\d_]+);/.exec(SERVICE);
+    // Since R100 the figure lives in mcpApps/budgets.ts, because the clients
+    // of this endpoint must wait at least as long; the service takes it from
+    // there.
+    expect(SERVICE).toMatch(/const COLD_START_MS = MCP_COLD_START_MS;/);
+    const m = /export const MCP_COLD_START_MS = ([\d_]+);/.exec(BUDGETS);
     expect(m).not.toBeNull();
     expect(Number(m![1].replace(/_/g, ""))).toBeGreaterThanOrEqual(90_000);
   });

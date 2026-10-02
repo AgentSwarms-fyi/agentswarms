@@ -31,8 +31,8 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { toast } from "sonner";
+import { asSentence, openChat, saveChat, type ChatMsg } from "@/lib/swarmChatStore";
 
-type ChatMsg = { role: "user" | "assistant"; content: string; ts: number };
 type ChatRow = { id: string; title: string; updated_at: string };
 
 // Cap replayed history so very long conversations don't blow up token usage;
@@ -44,6 +44,17 @@ function deriveTitle(msgs: ChatMsg[]): string {
   if (!first) return "New chat";
   const t = first.content.trim().replace(/\s+/g, " ");
   return t.length > 48 ? t.slice(0, 48) + "…" : t || "New chat";
+}
+
+// Carry user-defined flow-state forward: drop the turn's input and the
+// per-node auto outputs (out_<id>), keep named variables.
+function carriedFrom(finalState: Record<string, string>): Record<string, string> {
+  const carry: Record<string, string> = {};
+  for (const [k, v] of Object.entries(finalState)) {
+    if (k === "input" || k.startsWith("out_")) continue;
+    carry[k] = v;
+  }
+  return carry;
 }
 
 export function SwarmChatDialog({
@@ -70,6 +81,9 @@ export function SwarmChatDialog({
   const [running, setRunning] = useState(false);
   const [liveText, setLiveText] = useState("");
   const [error, setError] = useState<string | null>(null);
+  // Why the conversation on screen is not the one stored, when it is not (R109).
+  const [unsaved, setUnsaved] = useState<string | null>(null);
+  const [chatsError, setChatsError] = useState<string | null>(null);
   const [runningNode, setRunningNode] = useState<string | null>(null);
   const [showState, setShowState] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
@@ -77,6 +91,18 @@ export function SwarmChatDialog({
   // Mirror of activeChatId updated synchronously so a fast second send can't
   // race a not-yet-committed insert and create a duplicate chat row.
   const chatIdRef = useRef<string | null>(null);
+  // FOUND IN R180. A turn saved into whichever conversation was on screen
+  // when it ended. Leaving mid-turn aborts it, and the aborted turn's save
+  // followed the new selection: after New chat, or a reopen, it inserted a
+  // copy of the old conversation and bound the empty screen to that copy;
+  // after a switch, a turn still inside a call that takes no abort signal (an
+  // HTTP, tool or retrieve node) saved its conversation over the one opened.
+  // This number goes up whenever the conversation on screen changes; a turn
+  // whose screen has gone saves into its own conversation and changes nothing
+  // here.
+  const screenRef = useRef(0);
+  // The swarm the running turn belongs to, so a reopen returns only to its own.
+  const turnSwarmRef = useRef<string | null>(null);
 
   const nodeLabel = useMemo(() => {
     const m = new Map<string, string>();
@@ -88,21 +114,27 @@ export function SwarmChatDialog({
 
   const loadChats = useCallback(async () => {
     if (!swarmId) return;
-    const { data } = await supabase
+    const { data, error: listErr } = await supabase
       .from("swarm_chats")
       .select("id, title, updated_at")
       .eq("swarm_id", swarmId)
       .order("updated_at", { ascending: false });
+    // A list that could not be read is not an empty one.
+    if (listErr) return setChatsError(listErr.message);
+    setChatsError(null);
     setChats((data ?? []) as ChatRow[]);
   }, [swarmId]);
 
   const newChat = useCallback(() => {
     abortRef.current?.abort();
+    abortRef.current = null;
+    screenRef.current += 1;
     chatIdRef.current = null;
     setActiveChatId(null);
     setMessages([]);
     setCarriedState({});
     setError(null);
+    setUnsaved(null);
     setLiveText("");
     setRunning(false);
   }, []);
@@ -110,7 +142,9 @@ export function SwarmChatDialog({
   useEffect(() => {
     if (open && swarmId) {
       void loadChats();
-      newChat();
+      // Reopened while this swarm's turn is still running: show that turn, as
+      // closing promises below, rather than abort it for an empty chat (R180).
+      if (!(abortRef.current && turnSwarmRef.current === swarmId)) newChat();
     }
     // CLOSING THE DIALOG NO LONGER KILLS THE TURN.
     //
@@ -127,8 +161,9 @@ export function SwarmChatDialog({
     // cause rather than the approval plumbing.
     //
     // A run in flight now survives the dialog being closed and persists its
-    // result when it finishes, so reopening shows the reply. Cancelling is
-    // still available and still explicit — that is what the Stop button is for.
+    // result when it finishes, so reopening shows the reply, or the turn still
+    // running (R180: the reopen used to abort it). Cancelling is still
+    // available and still explicit — that is what the Stop button is for.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, swarmId]);
 
@@ -145,19 +180,33 @@ export function SwarmChatDialog({
   }, [messages, liveText, running]);
 
   const selectChat = async (id: string) => {
+    const opened = await openChat(supabase, id);
+    // FOUND IN R109. A failed read used to select the conversation anyway,
+    // over an empty thread, and the next message saved over the stored
+    // transcript. A conversation is entered only once it has been read.
+    if (!opened.ok) {
+      toast.error(
+        opened.gone ? "That conversation no longer exists" : "Could not open that conversation",
+        {
+          description: opened.gone
+            ? "It was deleted elsewhere."
+            : `${asSentence(opened.error)} You are still in the conversation you had open.`,
+        },
+      );
+      if (opened.gone) void loadChats();
+      return;
+    }
+    // Leaving mid-turn ends the turn, once the conversation to go to has been
+    // read: a switch that failed leaves you, and your turn, where you were.
     abortRef.current?.abort();
-    const { data } = await supabase
-      .from("swarm_chats")
-      .select("messages, state")
-      .eq("id", id)
-      .maybeSingle();
+    abortRef.current = null;
+    screenRef.current += 1;
     chatIdRef.current = id;
     setActiveChatId(id);
-    setMessages(((data?.messages as ChatMsg[] | null) ?? []) as ChatMsg[]);
-    setCarriedState(
-      ((data?.state as Record<string, string> | null) ?? {}) as Record<string, string>,
-    );
+    setMessages(opened.messages);
+    setCarriedState(opened.state);
     setError(null);
+    setUnsaved(null);
     setLiveText("");
     setRunning(false);
   };
@@ -169,40 +218,63 @@ export function SwarmChatDialog({
     if (id === activeChatId) newChat();
   };
 
+  // Saves the whole transcript, and says so on screen when it could not (R109).
   const persist = useCallback(
-    async (msgs: ChatMsg[], state: Record<string, string>): Promise<string | null> => {
-      if (!user || !swarmId) return chatIdRef.current;
-      const title = deriveTitle(msgs);
-      const existing = chatIdRef.current;
-      if (existing) {
-        await supabase
-          .from("swarm_chats")
-          .update({ messages: msgs as never, state: state as never, title })
-          .eq("id", existing);
-        void loadChats();
-        return existing;
-      }
-      const { data } = await supabase
-        .from("swarm_chats")
-        .insert({
-          user_id: user.id,
-          swarm_id: swarmId,
-          messages: msgs as never,
-          state: state as never,
-          title,
-        })
-        .select("id")
-        .single();
-      const newId = data?.id ?? null;
-      if (newId) {
-        chatIdRef.current = newId; // set synchronously so the next send updates, not inserts
-        setActiveChatId(newId);
-      }
+    async (msgs: ChatMsg[], state: Record<string, string>): Promise<boolean> => {
+      if (!user || !swarmId) return false;
+      const saved = await saveChat(supabase, {
+        chatId: chatIdRef.current,
+        userId: user.id,
+        swarmId,
+        messages: msgs,
+        state,
+        title: deriveTitle(msgs),
+      });
       void loadChats();
-      return newId;
+      if (!saved.ok) {
+        if (saved.gone) {
+          // Deleted elsewhere: the next save keeps it as a new conversation.
+          chatIdRef.current = null;
+          setActiveChatId(null);
+        }
+        setUnsaved(
+          saved.gone ? `${saved.error} Save again to keep it as a new conversation.` : saved.error,
+        );
+        return false;
+      }
+      if (!chatIdRef.current) {
+        chatIdRef.current = saved.id; // set synchronously so the next send updates, not inserts
+        setActiveChatId(saved.id);
+      }
+      setUnsaved(null);
+      return true;
     },
     [user, swarmId, loadChats],
   );
+
+  // A turn whose conversation is no longer on screen: saved into its own
+  // conversation, with nothing on screen changed (R180).
+  const saveAway = async (
+    chatId: string | null,
+    msgs: ChatMsg[],
+    state: Record<string, string>,
+  ): Promise<void> => {
+    if (!user || !swarmId) return;
+    const saved = await saveChat(supabase, {
+      chatId,
+      userId: user.id,
+      swarmId,
+      messages: msgs,
+      state,
+      title: deriveTitle(msgs),
+    });
+    void loadChats();
+    if (!saved.ok) {
+      toast.error(`“${deriveTitle(msgs)}” was not saved`, {
+        description: asSentence(saved.error),
+      });
+    }
+  };
 
   const send = async () => {
     const text = input.trim();
@@ -222,6 +294,9 @@ export function SwarmChatDialog({
 
     const controller = new AbortController();
     abortRef.current = controller;
+    const screen = screenRef.current;
+    const turnChatId = chatIdRef.current;
+    turnSwarmRef.current = swarmId;
 
     let tokenNode = "";
     let live = "";
@@ -266,6 +341,20 @@ export function SwarmChatDialog({
       failure = err instanceof Error ? err.message : String(err);
     }
 
+    if (screenRef.current !== screen) {
+      const reply: ChatMsg = {
+        role: "assistant",
+        content: finalOut || "_(no output)_",
+        ts: Date.now(),
+      };
+      await saveAway(
+        turnChatId,
+        failure ? withUser : [...withUser, reply],
+        failure ? carriedState : carriedFrom(finalSt),
+      );
+      return;
+    }
+
     setRunning(false);
     setRunningNode(null);
     setLiveText("");
@@ -285,13 +374,7 @@ export function SwarmChatDialog({
     const committed = [...withUser, assistantMsg];
     setMessages(committed);
 
-    // Carry user-defined flow-state forward: drop the turn's input and the
-    // per-node auto outputs (out_<id>), keep named variables.
-    const carry: Record<string, string> = {};
-    for (const [k, v] of Object.entries(finalSt)) {
-      if (k === "input" || k.startsWith("out_")) continue;
-      carry[k] = v;
-    }
+    const carry = carriedFrom(finalSt);
     setCarriedState(carry);
     await persist(committed, carry);
   };
@@ -333,33 +416,40 @@ export function SwarmChatDialog({
               </div>
               <ScrollArea className="flex-1">
                 <div className="px-2 pb-2 space-y-1">
-                  {chats.length === 0 ? (
-                    <p className="text-[11px] text-muted-foreground px-1 py-2">
-                      No conversations yet.
+                  {chatsError && (
+                    <p className="text-[11px] text-destructive px-1 py-2">
+                      Could not load conversations: {chatsError}
                     </p>
-                  ) : (
-                    chats.map((c) => (
-                      <div
-                        key={c.id}
-                        className={`group flex items-center gap-1 rounded-md px-2 py-1.5 cursor-pointer text-xs ${
-                          c.id === activeChatId ? "bg-primary/15 text-foreground" : "hover:bg-muted"
-                        }`}
-                        onClick={() => selectChat(c.id)}
-                      >
-                        <span className="truncate flex-1">{c.title}</span>
-                        <button
-                          className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive"
-                          onClick={(ev) => {
-                            ev.stopPropagation();
-                            void deleteChat(c.id);
-                          }}
-                          title="Delete chat"
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </button>
-                      </div>
-                    ))
                   )}
+                  {chats.length === 0
+                    ? !chatsError && (
+                        <p className="text-[11px] text-muted-foreground px-1 py-2">
+                          No conversations yet.
+                        </p>
+                      )
+                    : chats.map((c) => (
+                        <div
+                          key={c.id}
+                          className={`group flex items-center gap-1 rounded-md px-2 py-1.5 cursor-pointer text-xs ${
+                            c.id === activeChatId
+                              ? "bg-primary/15 text-foreground"
+                              : "hover:bg-muted"
+                          }`}
+                          onClick={() => selectChat(c.id)}
+                        >
+                          <span className="truncate flex-1">{c.title}</span>
+                          <button
+                            className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive"
+                            onClick={(ev) => {
+                              ev.stopPropagation();
+                              void deleteChat(c.id);
+                            }}
+                            title="Delete chat"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </button>
+                        </div>
+                      ))}
                 </div>
               </ScrollArea>
             </div>
@@ -417,6 +507,24 @@ export function SwarmChatDialog({
                   <div className="flex justify-start">
                     <div className="max-w-[85%] rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
                       <span className="font-medium">Run failed:</span> {error}
+                    </div>
+                  </div>
+                )}
+
+                {unsaved && (
+                  <div className="flex justify-start">
+                    <div className="max-w-[85%] rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs">
+                      <span className="font-medium">Not saved:</span> {asSentence(unsaved)} What you
+                      see here since the last save is gone when you leave this conversation.
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="ml-2 h-6 text-[11px]"
+                        disabled={running}
+                        onClick={() => void persist(messages, carriedState)}
+                      >
+                        Save again
+                      </Button>
                     </div>
                   </div>
                 )}

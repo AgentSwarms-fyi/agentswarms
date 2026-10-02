@@ -21,6 +21,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 
+import { PAGE_TABS, navPathProblem, navSegments, readAppNav } from "./lib/navPaths.mjs";
+
 const ROUTES = "src/routes";
 const DOCS = fs.readdirSync(ROUTES).filter((f) => /^docs\./.test(f));
 const read = (p) => fs.readFileSync(p, "utf8");
@@ -39,19 +41,34 @@ const docRoutes = new Set(
         f
           .replace(/^docs\./, "")
           .replace(/\.tsx$/, "")
+          // docs.ml_.training.tsx is /docs/ml/training (the `_` escape).
+          .replace(/_\./g, ".")
           .replace(/\./g, "/"),
   ),
 );
 
 const idsOf = (route) => {
-  const file =
+  // A sub-page's file carries the `_` escape (docs.ml_.training.tsx); a
+  // top-level page's does not. Try the escaped spelling first.
+  const segments = route
+    .replace(/^\/docs\/?/, "")
+    .split("/")
+    .filter(Boolean);
+  const candidates =
     route === "/docs"
-      ? "docs.index.tsx"
-      : "docs." + route.replace(/^\/docs\//, "").replace(/\//g, ".") + ".tsx";
-  const p = path.join(ROUTES, file);
-  return fs.existsSync(p)
-    ? new Set([...read(p).matchAll(/<H[23]\s+id="([^"]+)"/g)].map((m) => m[1]))
-    : null;
+      ? ["docs.index.tsx"]
+      : segments.length > 1
+        ? [
+            "docs." + segments.slice(0, -1).join("_.") + "_." + segments.at(-1) + ".tsx",
+            "docs." + segments.join(".") + ".tsx",
+          ]
+        : ["docs." + segments.join(".") + ".tsx"];
+  for (const file of candidates) {
+    const p = path.join(ROUTES, file);
+    if (fs.existsSync(p))
+      return new Set([...read(p).matchAll(/<H[23]\s+id="([^"]+)"/g)].map((m) => m[1]));
+  }
+  return null;
 };
 
 /** Sidebar groups, read from the shell so the docs' own nav is the source. */
@@ -91,54 +108,9 @@ const publicRoutes = new Set(
     .map((f) => "/" + f.replace(/\.tsx$/, "").replace(/\./g, "/")),
 );
 
-/**
- * The signed-in app's sidebar, group by group, as the docs describe it when
- * they write "Open X → Y". Kept here rather than derived because the rail is
- * assembled across several components; if it is reorganised, this list and the
- * pages that cite it move together, which is the point.
- */
-const APP_NAV = {
-  Overview: ["Dashboard"],
-  Build: ["Agent Builder", "Knowledge Base", "Agent Chat", "Agent Swarms", "MCP Builder"],
-  "Data & BI": [
-    "AI Analyst",
-    "Data Catalog",
-    "Semantic Layer",
-    "Metrics",
-    "BI Workspace",
-    "Developer workspace",
-  ],
-  Library: ["Prompt Library", "Skill Library"],
-  Integrations: ["Integrations", "Web Embedding", "Secrets", "MCP Servers", "Model Registry"],
-  Observability: [
-    "Analytics",
-    "Swarm Traces",
-    "Traces & Logs",
-    "Audit Log",
-    "AI Budgets",
-    "Monitoring",
-  ],
-  Experiment: ["Prompt Compare", "Evaluations", "Image Playground"],
-  Admin: ["IAM", "Developer runtime"],
-};
+const APP_NAV = readAppNav();
 
 /** Tabs within a screen, for "Integrations → Apps" style page → tab paths. */
-const PAGE_TABS = {
-  Integrations: [
-    "LLM Providers",
-    "Data Sources",
-    "Apps",
-    "LLM Gateway",
-    "Web Search",
-    "Notifications",
-    "Slack",
-    "n8n Workflows",
-  ],
-  IAM: ["Users", "Groups", "Access", "Attributes", "Budgets", "SSO", "Settings"],
-  "Knowledge Base": ["Vector Store", "Embedding", "Chunking", "Retrieval", "Documents", "Sources"],
-  "RAG Settings": ["Vector Store", "Embedding", "Chunking", "Retrieval", "Documents", "Sources"],
-  "Agent Builder": ["General", "Model", "Knowledge", "Memory", "Guardrails", "Tools"],
-};
 
 const apiRoutes = new Set(
   fs
@@ -167,7 +139,10 @@ const envHaystack = (() => {
   };
   walk("src");
   walk("scripts");
-  for (const f of [".env.example", "docker-compose.yml", "Dockerfile"])
+  // server.mjs is the production entry — PORT, HOST and WEB_CONCURRENCY are
+  // read there and nowhere under src/, so without it a correctly documented
+  // variable would be reported as one the runtime never reads.
+  for (const f of ["server.mjs", ".env.example", "docker-compose.yml", "Dockerfile"])
     if (fs.existsSync(f)) parts.push(read(f));
   return parts.join("\n");
 })();
@@ -221,6 +196,7 @@ for (const f of DOCS) {
           f
             .replace(/^docs\./, "")
             .replace(/\.tsx$/, "")
+            .replace(/_\./g, ".")
             .replace(/\./g, "/");
     const eyebrow = src.match(/eyebrow="([^"]+)"/)?.[1];
     const group = groupOfRoute.get(route);
@@ -240,60 +216,8 @@ for (const f of DOCS) {
   // Matching bare prose instead made the capture run into the sentence and
   // could not tell a route from a turn of phrase.
   for (const m of src.matchAll(/<strong>([^<]*(?:→|&rarr;)[^<]*)<\/strong>/g)) {
-    const parts = m[1]
-      .replace(/&amp;/g, "&")
-      .split(/→|&rarr;/)
-      .map((t) => t.trim().replace(/\s+/g, " "))
-      .filter(Boolean);
-    if (parts.length < 2) continue;
-    const [first, second, third] = parts;
-    const eq = (a, b) => a.toLowerCase() === b.toLowerCase();
-    const has = (names, v) => names.some((i) => eq(i, v));
-    const path = parts.join(" → ");
-
-    // Screen names are matched case-insensitively: pages write "RAG settings"
-    // where the tab list says "RAG Settings", and that is not an error.
-    const tabsOf = (name) => Object.entries(PAGE_TABS).find(([k]) => eq(k, name))?.[1] ?? null;
-
-    // "Integrations" is both a sidebar group and a screen with tabs, so
-    // "Integrations → Apps" and "Integrations → Secrets" are both correct.
-    // Accept whichever reading holds rather than privileging one.
-    const asGroup = APP_NAV[first] ? has(APP_NAV[first], second) : false;
-    const asPage = tabsOf(first) ? has(tabsOf(first), second) : false;
-
-    // A screen can nest one level before its tabs — the Knowledge Base page
-    // reaches its tabs through a RAG Settings panel — so a middle segment that
-    // is itself a known tab set is followed rather than rejected.
-    const viaPanel = tabsOf(second) ? (third ? has(tabsOf(second), third) : true) : false;
-
-    if (asGroup || asPage || viaPanel) {
-      if (asGroup && !viaPanel && third && tabsOf(second) && !has(tabsOf(second), third))
-        fail("bad nav path", `${page}: "${path}" — "${second}" has no "${third}" tab`);
-    } else if (APP_NAV[first] || tabsOf(first)) {
-      const real = Object.entries(APP_NAV).find(([, items]) => has(items, second))?.[0];
-      fail(
-        "bad nav path",
-        `${page}: "${path}" — ${real ? `"${second}" is under "${real}"` : `no "${second}" under "${first}"`}`,
-      );
-    } else {
-      // Neither a sidebar group nor a screen with tabs. A nav path has to start
-      // at one of those, so this is a group that was renamed or never existed.
-      const real = Object.entries(APP_NAV).find(([, items]) => has(items, second))?.[0];
-      if (real)
-        fail(
-          "bad nav path",
-          `${page}: "${path}" — "${second}" is under "${real}", and there is no "${first}" group`,
-        );
-      else if (
-        Object.values(APP_NAV)
-          .flat()
-          .some((i) => i.toLowerCase().endsWith(second.toLowerCase()))
-      )
-        fail(
-          "bad nav path",
-          `${page}: "${path}" — no "${first}" group, and no item named exactly "${second}"`,
-        );
-    }
+    const problem = navPathProblem(navSegments(m[1]), APP_NAV, PAGE_TABS);
+    if (problem) fail("bad nav path", `${page}: ${problem}`);
   }
 
   // Every widget the BI picker offers should appear on the BI page. The two
@@ -333,6 +257,13 @@ for (const f of DOCS) {
     const ep = m[0].replace(/[.,)]+$/, "");
     if (apiRoutes.has(ep)) continue;
     if (ep.endsWith("/") && [...apiRoutes].some((r) => r.startsWith(ep))) continue;
+    // A BASE url, which is a real thing to document: SCIM is configured in an
+    // IdP by pasting /api/scim/v2, and the IdP appends /Users and /Groups
+    // itself. Accepted only when routes sit DIRECTLY under it, one segment
+    // down — so a genuine base passes and a truncated path like /api/scim,
+    // whose routes are two levels below, still fails.
+    if ([...apiRoutes].some((r) => r.startsWith(ep + "/") && !r.slice(ep.length + 1).includes("/")))
+      continue;
     const matches = [...apiRoutes].some((r) =>
       new RegExp("^" + r.replace(/\$[a-z]+/gi, "[^/]+") + "$", "i").test(ep),
     );

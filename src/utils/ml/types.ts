@@ -1,0 +1,337 @@
+// Shared shapes for the ML platform. Pure types and constants only — this file
+// is imported by the browser (registry pages, wizard) and the server alike.
+
+export const ML_TASKS = [
+  "classification",
+  "regression",
+  "forecast",
+  "clustering",
+  "anomaly",
+  "recommendation",
+] as const;
+export type MlTask = (typeof ML_TASKS)[number];
+
+export const ML_TASK_LABEL: Record<MlTask, string> = {
+  classification: "Classification",
+  regression: "Regression",
+  forecast: "Forecast",
+  clustering: "Clustering",
+  anomaly: "Anomaly detection",
+  recommendation: "Recommendation",
+};
+
+/** Where the training rows come from. Lakehouse tables first; other kinds later. */
+export type MlSource = { kind: "lakehouse"; schema: string; table: string };
+
+export const ML_VERSION_STAGES = ["candidate", "staging", "production", "archived"] as const;
+export type MlVersionStage = (typeof ML_VERSION_STAGES)[number];
+
+export const ML_VERSION_STATUSES = ["training", "ready", "failed", "cancelled"] as const;
+export type MlVersionStatus = (typeof ML_VERSION_STATUSES)[number];
+
+export const ML_JOB_STATUSES = ["queued", "running", "succeeded", "failed", "cancelled"] as const;
+export type MlJobStatus = (typeof ML_JOB_STATUSES)[number];
+export const ML_JOB_LIVE: readonly MlJobStatus[] = ["queued", "running"];
+
+export const ML_TUNINGS = ["none", "quick", "thorough"] as const;
+export type MlTuning = (typeof ML_TUNINGS)[number];
+export const ML_TUNING_LABEL: Record<MlTuning, string> = {
+  none: "No tuning",
+  quick: "Quick search",
+  thorough: "Thorough search",
+};
+
+/**
+ * Data preparation, declared rather than scripted, so the version can state
+ * what its training set was. `sql` replaces the table (any single SELECT the
+ * owner may run); `where` filters it. Everything else shapes the pipeline.
+ */
+export type MlPrepConfig = {
+  where?: string;
+  sql?: string;
+  impute?: {
+    numeric?: "median" | "mean" | "constant";
+    categorical?: "most_frequent" | "constant";
+  };
+  scale?: boolean;
+  encoding?: "onehot" | "ordinal";
+  class_weight?: "none" | "balanced";
+  target_clip?: [number, number] | null;
+  drop_columns?: string[];
+};
+
+/** Per-run knobs, pinned on the version so a retrain can reproduce them. */
+export type MlTrainConfig = {
+  time_budget_minutes: number;
+  max_rows: number;
+  /** Classification/regression holdout share; forecasting holds out `horizon`. */
+  validation_fraction: number;
+  tuning: MlTuning;
+  prep: MlPrepConfig;
+};
+
+/** One row of the leaderboard the trainer returns. */
+export type MlLeaderboardRow = {
+  algorithm: string;
+  metric: string;
+  value: number | null;
+  higher_is_better: boolean;
+  fit_seconds: number;
+  status: "ok" | "skipped" | "failed";
+  note?: string;
+};
+
+export type MlFeatureImportance = { feature: string; importance: number; std?: number };
+
+export type MlColumnDtype = "numeric" | "categorical" | "datetime" | "boolean" | "text";
+export type MlColumnRole = "feature" | "target" | "time" | "dropped";
+
+/** How the trainer read each input column, and why it kept or dropped it. */
+export type MlFeatureSchemaEntry = {
+  name: string;
+  dtype: MlColumnDtype;
+  role: MlColumnRole;
+  reason?: string;
+  /** Categorical features: the categories seen in training, for the try-it form. */
+  categories?: string[];
+  /** Numeric features: seen range, for the try-it form's defaults. */
+  min?: number | null;
+  max?: number | null;
+  median?: number | null;
+};
+
+export type MlForecastPoint = { period: string; yhat: number; lo: number; hi: number };
+export type MlHistoryPoint = { period: string; y: number };
+
+/** What the training program returns through the batch-result callback. */
+export type MlTrainResult = {
+  ok: true;
+  task: MlTask;
+  algorithm: string;
+  /** Flat metric name → value; nested structures (confusion matrix) beside it. */
+  metrics: Record<string, number | null> & {
+    confusion_matrix?: { labels: string[]; matrix: number[][] };
+  };
+  primary_metric: string;
+  leaderboard: MlLeaderboardRow[];
+  feature_importance: MlFeatureImportance[];
+  feature_schema: MlFeatureSchemaEntry[];
+  /** Per-feature training distribution, for drift monitoring. */
+  feature_stats?: Record<string, unknown> | null;
+  classes?: string[];
+  artifact_uri: string;
+  artifact_sha256: string;
+  artifact_bytes: number;
+  training_rows: number;
+  training_total_rows: number;
+  training_sampled: boolean;
+  holdout_rows: number;
+  elapsed_seconds: number;
+  warnings: string[];
+  forecast?: MlForecastPoint[];
+  history?: MlHistoryPoint[];
+  series_meta?: {
+    period?: string;
+    periods?: number;
+    freq: string;
+    season_length: number | null;
+    aggregation: string;
+    last_period: string;
+  };
+  tuning?: { mode: string; trials: number; best_params?: Record<string, unknown> };
+};
+
+/** The key a training session carries in its runtime session inputs. */
+export const ML_JOB_KEY = "__ml_job";
+export type MlJobStash = {
+  job_id: string;
+  kind: "train" | "predict";
+  /**
+   * Which worker of a distributed search this sandbox is, and how many there
+   * are. Absent on every job that runs in one container, which keeps the
+   * single-shard path byte-identical to what it was.
+   */
+  shard?: number;
+  shards?: number;
+  /**
+   * Which phase of the job this sandbox was started for.
+   *
+   * Absent means the search, which is what every job did before rows could be
+   * split. `parallel_fit` gives the worker one algorithm and its own slice of
+   * the rows; `assemble` gives it the workers' models to average rather than
+   * anything to fit. The stash says so rather than the sandbox inferring it,
+   * because a container that guesses its phase would read the wrong rows.
+   */
+  phase?: "parallel_fit" | "assemble";
+};
+
+/** Pull the job id out of a session's inputs, or null for any other session. */
+export function mlJobStashOf(inputs: unknown): MlJobStash | null {
+  const raw = (inputs as { [ML_JOB_KEY]?: unknown } | null)?.[ML_JOB_KEY];
+  if (!raw || typeof raw !== "object") return null;
+  const j = (raw as { job_id?: unknown }).job_id;
+  const k = (raw as { kind?: unknown }).kind;
+  if (typeof j !== "string" || j.length === 0) return null;
+  const shard = (raw as { shard?: unknown }).shard;
+  const shards = (raw as { shards?: unknown }).shards;
+  // THE PHASE HAS TO SURVIVE THIS. The stash is rebuilt field by field rather
+  // than spread, so anything not named here is silently dropped — and a phase
+  // that never arrives means every callback reports itself as "search". The
+  // recording then refuses it, correctly, and the job waits for workers that
+  // have already finished. Seen live: parallel_fit stuck at 0 of 2 with both
+  // containers long gone.
+  const phase = (raw as { phase?: unknown }).phase;
+  const known = phase === "parallel_fit" || phase === "assemble";
+  return {
+    job_id: j,
+    kind: k === "predict" ? "predict" : "train",
+    ...(typeof shard === "number" && Number.isInteger(shard) && shard >= 0 ? { shard } : {}),
+    // A phase past the search keeps its count even when it is 1: the assemble
+    // runs a single container and still has to report as that phase's worker.
+    // Without a phase the `> 1` rule stands, which keeps the ordinary
+    // single-container job byte-identical to what it was.
+    ...(typeof shards === "number" && (known ? shards >= 1 : shards > 1) ? { shards } : {}),
+    ...(known ? { phase } : {}),
+  };
+}
+
+/** Human label for a metric key, shared by the UI and documentation. */
+export const ML_METRIC_LABEL: Record<string, string> = {
+  accuracy: "Accuracy",
+  f1_macro: "F1 (macro)",
+  precision_macro: "Precision (macro)",
+  recall_macro: "Recall (macro)",
+  roc_auc: "ROC AUC",
+  log_loss: "Log loss",
+  rmse: "RMSE",
+  mae: "MAE",
+  median_ae: "Median abs. error",
+  r2: "R²",
+  mape: "MAPE",
+  smape: "sMAPE",
+  silhouette: "Silhouette",
+  n_clusters: "Clusters",
+  inertia: "Inertia",
+  anomaly_rate: "Anomaly rate",
+  score_threshold: "Score threshold",
+  flagged_rows: "Flagged rows",
+  hit_rate_10: "Hit rate @10",
+  coverage: "Catalogue coverage",
+  n_users: "Users",
+  n_items: "Items",
+  n_interactions: "Interactions",
+};
+
+/** Lower-is-better metrics, so the UI colours direction correctly. */
+export const ML_LOWER_IS_BETTER = new Set([
+  "log_loss",
+  "rmse",
+  "mae",
+  "median_ae",
+  "mape",
+  "smape",
+  "inertia",
+]);
+
+/**
+ * Metrics that DESCRIBE a fit rather than score it.
+ *
+ * `anomaly_rate` is the share of the training rows an unsupervised detector
+ * flagged — near enough the `contamination` it was handed. It is not a quality
+ * score in either direction: a detector that flags 40% of its rows is not
+ * better than one that flags 2%, and one that flags nothing is not better
+ * still. It sits in ML_PRIMARY_METRIC because a model page has to show
+ * something, and that is a different job from deciding a promotion.
+ *
+ * It was deciding promotions. `anomaly_rate` is not in ML_LOWER_IS_BETTER, so
+ * "is the candidate better" read as "does the candidate flag MORE rows", and a
+ * nightly retrain with promote-if-better installed whichever version was
+ * noisiest. The trainer had already said otherwise — its own leaderboard row
+ * carries `higher_is_better: False` — so the two halves disagreed in silence.
+ */
+export const ML_NOT_A_QUALITY_METRIC = new Set(["anomaly_rate"]);
+
+/** Tasks that predict a chosen column; the others describe or rank rows. */
+/** A forecast's granularity; auto infers it from the gaps between timestamps. */
+export const ML_PERIODS = ["auto", "hour", "day", "week", "month", "quarter"] as const;
+export type MlPeriod = (typeof ML_PERIODS)[number];
+export const ML_PERIOD_LABEL: Record<MlPeriod, string> = {
+  auto: "automatic (from the dates)",
+  hour: "hourly",
+  day: "daily",
+  week: "weekly",
+  month: "monthly",
+  quarter: "quarterly",
+};
+/** The trainer's period name for a forecast, as a plural noun. */
+export const ML_PERIOD_PLURAL: Record<string, string> = {
+  hour: "hours",
+  day: "days",
+  week: "weeks",
+  month: "months",
+  quarter: "quarters",
+  year: "years",
+};
+
+export const ML_TARGET_TASKS: readonly MlTask[] = ["classification", "regression", "forecast"];
+
+/** The primary metric per task, mirrored from the trainer. */
+export const ML_PRIMARY_METRIC: Record<MlTask, string> = {
+  classification: "f1_macro",
+  regression: "rmse",
+  forecast: "rmse",
+  clustering: "silhouette",
+  anomaly: "anomaly_rate",
+  recommendation: "hit_rate_10",
+};
+
+// ── Predictions ──────────────────────────────────────────────────────────────
+// Declared here, away from the files that start sandbox sessions, so the
+// session-kind constraint test never mistakes these kinds for session kinds.
+
+/** A scored cell as it travels back through JSON — what a server function may return. */
+export type MlCell = string | number | boolean | null;
+
+export type MlPredictInput =
+  | { kind: "lakehouse"; schema: string; table: string; where?: string }
+  | { kind: "rows"; rows: Record<string, unknown>[] };
+export type MlPredictOutput = { schema: string; table: string } | null;
+/** 'batch' scores a table into a table; 'rows' scores a payload and returns it. */
+export type MlPredictionKind = "batch" | "rows";
+
+/** One group found by a clustering version: its size and a typical row. */
+export type MlClusterProfile = {
+  cluster: number;
+  size: number;
+  share: number;
+  profile: Record<string, number | string | null>;
+};
+
+/**
+ * Why one row got the answer it did.
+ *
+ * NOT a Shapley value, and nothing in the UI calls it one. The feature's value
+ * was replaced with the one a typical training row carried and the model was
+ * asked again; `contribution` is how far the answer moved, in probability for
+ * a classification and in the target's own units for a regression. Positive
+ * means the actual value pushed the answer UP relative to typical.
+ *
+ * The local twin of the permutation importance reported for the whole model —
+ * that shuffles a column across rows, this replaces one cell.
+ */
+export type MlContribution = {
+  feature: string;
+  contribution: number;
+  value: MlCell;
+  baseline: MlCell;
+};
+
+/** Population stability of a scored batch against the training distribution. */
+export type MlDrift = {
+  /** The highest per-feature PSI. */
+  score: number;
+  /** PSI per feature, highest first. */
+  features: Record<string, number>;
+  rows: number;
+};
+export const ML_DRIFT_MODERATE = 0.1;

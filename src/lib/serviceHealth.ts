@@ -12,7 +12,13 @@ export type ServiceId =
   | "js-sandbox"
   | "notebook-gateway"
   | "notebook-egress"
-  | "notebook-docker-proxy";
+  | "notebook-docker-proxy"
+  | "lakehouse-catalog"
+  | "spark-connect"
+  | "qdrant"
+  | "valkey"
+  | "minio"
+  | "scheduler";
 
 export type ServiceStatus =
   /** Answered, and answered correctly. */
@@ -36,14 +42,94 @@ export type ServiceStatus =
    */
   | "unreachable";
 
+/** The last scheduler pass this process ran — see getLastCronPass in bi/refresh.server. */
+export type LastCronPass = {
+  at: string;
+  result: { ran: boolean; errors: string[]; processed: number; prep_flows: number };
+};
+
+/** A pass is expected every minute; five without one is a scheduler that stopped. */
+export const SCHEDULER_STALE_MS = 5 * 60_000;
+
+/**
+ * The scheduler as a service. Pure: the health handler hands it the last pass
+ * from process memory, the clock, when this process booted, and whether the
+ * in-process scheduler is disabled (an external cron then drives the passes
+ * and this instance may legitimately never record one).
+ *
+ * R57 made the pass record its failures; this is where they are seen.
+ */
+export function schedulerProbe(input: {
+  last: LastCronPass | null;
+  now: Date;
+  bootedAt: number;
+  inProcessDisabled: boolean;
+}): ServiceProbe {
+  const base = {
+    id: "scheduler" as const,
+    label: "Scheduler",
+    purpose:
+      "Runs every schedule the platform has — BI refreshes, prep flows, crawls, ETL, retention — once a minute, in this process.",
+    latencyMs: null,
+    endpoint: null,
+  };
+  const minutes = (ms: number) => Math.max(1, Math.round(ms / 60_000));
+  if (!input.last) {
+    if (input.inProcessDisabled) {
+      return {
+        ...base,
+        status: "up",
+        message:
+          "In-process scheduler disabled (DISABLE_INPROCESS_SCHEDULER) — passes come from the external cron, and this instance records none.",
+      };
+    }
+    const sinceBoot = input.now.getTime() - input.bootedAt;
+    if (sinceBoot < SCHEDULER_STALE_MS) {
+      return {
+        ...base,
+        status: "up",
+        message: "No pass recorded yet — the first runs a minute after start.",
+      };
+    }
+    return {
+      ...base,
+      status: "degraded",
+      message: `No pass in the ${minutes(sinceBoot)} minutes since this process started.`,
+    };
+  }
+  const age = input.now.getTime() - new Date(input.last.at).getTime();
+  const detail = {
+    last_pass: `${Math.round(age / 1000)} s ago`,
+    processed: input.last.result.processed,
+    prep_flows: input.last.result.prep_flows,
+    failures: input.last.result.errors.length,
+  };
+  if (age > SCHEDULER_STALE_MS) {
+    return {
+      ...base,
+      status: "degraded",
+      message: `Last pass ${minutes(age)} minutes ago — the scheduler has stopped.`,
+      detail,
+    };
+  }
+  if (input.last.result.errors.length > 0) {
+    const shown = input.last.result.errors.slice(0, 3).join("; ");
+    const more = input.last.result.errors.length - 3;
+    return {
+      ...base,
+      status: "degraded",
+      message: `Last pass had ${input.last.result.errors.length} failure(s): ${shown}${more > 0 ? `; and ${more} more` : ""}`,
+      detail,
+    };
+  }
+  return { ...base, status: "up", detail };
+}
+
 export type ServiceProbe = {
   id: ServiceId;
   label: string;
   /** What breaks if this is down, in the operator's terms. */
   purpose: string;
-  /** Compose profile that starts it, or null for always-on pieces. */
-  profile: string | null;
-  optional: boolean;
   status: ServiceStatus;
   latencyMs: number | null;
   /** Endpoint that answered (or the last one tried). */
@@ -63,8 +149,6 @@ export const SERVICE_CATALOGUE: {
   id: ServiceId;
   label: string;
   purpose: string;
-  profile: string | null;
-  optional: boolean;
   candidates: string[];
   /**
    * Whether compose publishes a host port. When false, only an app running
@@ -74,7 +158,7 @@ export const SERVICE_CATALOGUE: {
   /** Path appended to each candidate. */
   path: string;
   /** A 2xx that is not JSON is still fine for some of these. */
-  expect: "json-ok" | "any-2xx" | "docker-ping";
+  expect: "json-ok" | "any-2xx" | "docker-ping" | "tcp-open";
 }[] = [
   {
     id: "docgen",
@@ -82,8 +166,6 @@ export const SERVICE_CATALOGUE: {
     label: "Document renderer",
     purpose:
       "Deep-mode PowerPoint / Word / Excel exports. Without it, Agent Chat falls back to the in-browser builder.",
-    profile: "docgen",
-    optional: true,
     candidates: ["http://docgen:8099", "http://127.0.0.1:8099"],
     path: "/health",
     expect: "json-ok",
@@ -94,8 +176,6 @@ export const SERVICE_CATALOGUE: {
     label: "JS sandbox",
     purpose:
       "Function and custom-component nodes in deployed and scheduled swarm runs. Without it, those nodes are canvas-only.",
-    profile: "sandbox",
-    optional: true,
     candidates: ["http://js-sandbox:8091", "http://127.0.0.1:8091"],
     path: "/health",
     expect: "json-ok",
@@ -105,8 +185,6 @@ export const SERVICE_CATALOGUE: {
     hostPublished: true,
     label: "Notebook gateway",
     purpose: "Websocket bridge between the notebook editor and per-session Python kernels.",
-    profile: "notebooks",
-    optional: true,
     candidates: ["http://notebook-gateway:8090", "http://127.0.0.1:8090"],
     path: "/",
     expect: "any-2xx",
@@ -116,8 +194,6 @@ export const SERVICE_CATALOGUE: {
     hostPublished: false,
     label: "Notebook egress proxy",
     purpose: "The kernels' only route to the internet, default-deny with an allow-list.",
-    profile: "notebooks",
-    optional: true,
     // Squid answers HTTP on 3128; a request it refuses to proxy still proves
     // the process is alive, which is all this probe claims.
     // Both names: compose sets container_name for this one, and the service
@@ -131,15 +207,82 @@ export const SERVICE_CATALOGUE: {
     expect: "any-2xx",
   },
   {
+    id: "lakehouse-catalog",
+    hostPublished: true,
+    label: "Lakehouse catalog",
+    purpose:
+      "DuckLake's transactional catalog (schemas, snapshots, file manifests). Without it, the Lakehouse page says it is not configured.",
+    // Postgres speaks no HTTP — an open TCP socket is the whole claim.
+    // 55432 on the host: a developer's own Postgres usually holds 5432, and
+    // probing that would report somebody else's database as this one.
+    candidates: ["tcp://lakehouse-catalog:5432", "tcp://127.0.0.1:55432"],
+    path: "",
+    expect: "tcp-open",
+  },
+  {
+    id: "spark-connect",
+    hostPublished: true,
+    label: "Spark Connect",
+    purpose:
+      "The shared Spark cluster for ETL pipelines on the Spark engine. Without it those runs fail to connect; pipelines on the default engine are unaffected.",
+    // gRPC over HTTP/2 with no unauthenticated health path — an open socket is
+    // the whole claim, as for the catalog's Postgres.
+    candidates: ["tcp://spark-connect:15002", "tcp://127.0.0.1:15002"],
+    path: "",
+    expect: "tcp-open",
+  },
+  {
     id: "notebook-docker-proxy",
     hostPublished: true,
     label: "Docker API proxy",
     purpose: "Least-privilege container control used to start notebook kernels.",
-    profile: "notebooks",
-    optional: true,
     candidates: ["http://notebook-docker-proxy:2375", "http://127.0.0.1:2375"],
     path: "/_ping",
     expect: "docker-ping",
+  },
+  {
+    id: "valkey",
+    // Not published to the host, for the reason the vector store is not: a
+    // feature store reachable on a laptop's loopback is one anybody on that
+    // laptop can read, and it holds whatever the feature table holds.
+    hostPublished: true,
+    label: "Online feature store",
+    purpose:
+      "Where a feature view's latest row per key is served from. Without it, every lookup reads the lakehouse instead — correct, and about sixty times slower.",
+    // RESP is not HTTP, so an open socket is the whole claim — as for the
+    // catalog's Postgres and Spark's gRPC.
+    candidates: ["tcp://valkey:6379", "tcp://127.0.0.1:6379"],
+    path: "",
+    expect: "tcp-open",
+  },
+  {
+    id: "qdrant",
+    // Not published to the host: on the Compose network the app reaches it by
+    // service name, and a vector store on a laptop's loopback is a vector
+    // store anyone on that laptop can read.
+    hostPublished: true,
+    label: "Vector store (Qdrant)",
+    purpose:
+      "Where knowledge-base embeddings are searched when VECTOR_STORE=qdrant. Without it, retrieval falls back to keyword search over the same chunks — the text never leaves Postgres.",
+    candidates: ["http://qdrant:6333", "http://127.0.0.1:6333"],
+    // /readyz, not /livez: "the process is up" is not the same claim as "it
+    // can answer a search", and this page exists to tell them apart.
+    path: "/readyz",
+    expect: "any-2xx",
+  },
+  {
+    id: "minio",
+    // Published on loopback so a host-run app probes the same store the
+    // containerised one writes to.
+    hostPublished: true,
+    label: "Object store (MinIO)",
+    purpose:
+      "Where the lakehouse's Parquet files live. Without it the catalog has nowhere to write and every table operation fails.",
+    candidates: ["http://minio:9000", "http://127.0.0.1:9000"],
+    // /ready, not /live: this page exists to tell "the process is up" from
+    // "it can serve an object".
+    path: "/minio/health/ready",
+    expect: "any-2xx",
   },
 ];
 
@@ -157,7 +300,18 @@ export type MemoryUsage = {
 };
 
 export type SystemMetrics = {
+  /**
+   * Whichever instance answered this request. On Kubernetes this is the POD
+   * NAME, which is the point: behind a Service with N replicas, each refresh
+   * of this page can be answered by a different one, and the numbers below
+   * belong to that one only. Without saying so, the CPU figure looks like it
+   * is jumping around when it is really three different machines taking turns.
+   */
   hostname: string;
+  /** "web" or "analytics" — see APP_ROLE. */
+  role: string;
+  /** Worker processes in this instance. Per-process limits multiply by it. */
+  workers: number;
   platform: string;
   nodeVersion: string;
   uptimeSeconds: number;
@@ -214,11 +368,13 @@ export function utilisationTone(percent: number): "ok" | "warn" | "critical" {
 /**
  * How a service's state should read to an operator.
  *
- * An optional service that is simply not running is NOT an incident: it means
- * the profile was never started. Saying "down" there trains people to ignore
- * the page, so it gets its own wording and its own colour.
+ * Every service in the catalogue is installed by every install — there are no
+ * profiles and nothing to opt into — so "down" means down. It used to read
+ * "Not running" in grey for anything behind a profile, which was right when a
+ * service could legitimately have never been started and is now a way to make
+ * a real outage look deliberate.
  */
-export function statusTone(p: Pick<ServiceProbe, "status" | "optional">): {
+export function statusTone(p: Pick<ServiceProbe, "status">): {
   tone: "ok" | "warn" | "critical" | "muted";
   label: string;
 } {
@@ -226,7 +382,7 @@ export function statusTone(p: Pick<ServiceProbe, "status" | "optional">): {
   if (p.status === "degraded") return { tone: "warn", label: "Degraded" };
   if (p.status === "not-deployed") return { tone: "muted", label: "Not deployed" };
   if (p.status === "unreachable") return { tone: "muted", label: "Can't check from here" };
-  return p.optional ? { tone: "muted", label: "Not running" } : { tone: "critical", label: "Down" };
+  return { tone: "critical", label: "Down" };
 }
 
 // The one-line summary above the services table.
@@ -246,8 +402,42 @@ export function servicesSummary(args: {
   /** A load error is present — the probes on hand are stale or absent. */
   errored: boolean;
 }): string {
-  if (args.errored && args.services.length === 0) return "Health unknown — could not probe";
+  // A failed refresh leaves the PREVIOUS probes on screen — the page's catch
+  // sets the error and nothing else — and the page re-polls every 15s, so a
+  // network that stays down freezes this line on its last value for as long as
+  // the tab is open. The first pass let the verdict stand and left the banner to
+  // carry the failure; that is two surfaces for one claim, and a reader who
+  // takes the header at its word takes a reassurance the page can no longer
+  // support. The asymmetry is the familiar one: over a stale snapshot a
+  // needs-attention count is a floor still worth acting on, while "no problems"
+  // is sound in no direction at all — anything could have broken since. So the
+  // verdict moves into the past tense and names the check it came from, which is
+  // what the timestamp beside it has meant all along.
+  if (args.errored) {
+    if (args.services.length === 0) return "Health unknown — could not probe";
+    return args.unhealthy === 0
+      ? "No problems at the last successful check"
+      : `${args.unhealthy} needing attention at the last successful check`;
+  }
   if (args.services.length === 0) return "No services to probe";
   if (args.unhealthy === 0) return "No problems detected";
   return `${args.unhealthy} needing attention`;
+}
+
+// The banner says the refresh failed. It does not say that the gauges, the
+// service rows and the capacity figures beneath it all stopped moving at that
+// moment — while the page's own subtitle promises what the machine is doing
+// "right now". One line, once, above everything that is no longer live. A
+// monitoring board that quietly freezes on its last good reading is the exact
+// failure this page exists to catch.
+export function stalenessNotice(args: {
+  errored: boolean;
+  hasServices: boolean;
+  hasMetrics: boolean;
+}): string | null {
+  if (!args.errored) return null;
+  // Nothing was ever loaded: the banner and the unknown-health header already
+  // say so, and there is no stale figure to warn about.
+  if (!args.hasServices && !args.hasMetrics) return null;
+  return "Live updates have stopped — every figure below is from the last successful check, not from now.";
 }

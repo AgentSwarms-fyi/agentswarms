@@ -12,6 +12,9 @@
 //   node scripts/check-md-docs.mjs --quiet   summary only
 import fs from "node:fs";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
+
+import { PAGE_TABS, readAppNav } from "./lib/navPaths.mjs";
 
 const quiet = process.argv.includes("--quiet");
 const findings = [];
@@ -21,6 +24,21 @@ const read = (p) => fs.readFileSync(p, "utf8");
 const FILES = [
   "README.md",
   "sdk/react/README.md",
+  // The files someone opens BEFORE the docs: the contribution and reporting
+  // paths, the roadmap, the credits. They were the one part of the corpus
+  // nothing checked, and they are read by people with no way to tell a stale
+  // instruction from a current one. CONTRIBUTING alone names npm scripts and
+  // file paths in every other paragraph.
+  "CONTRIBUTING.md",
+  "SECURITY.md",
+  "CODE_OF_CONDUCT.md",
+  "ROADMAP.md",
+  "ACKNOWLEDGEMENTS.md",
+  // Service-local READMEs, for the same reason: they describe a directory
+  // whose contents move.
+  "docgen-service/README.md",
+  "docs/screenshots/README.md",
+  "src/assets/README.md",
   ...fs
     .readdirSync("docs")
     // The adversarial log is a historical record of an audit, quoting file
@@ -51,6 +69,79 @@ const FOREIGN_NAMES = [
 
 const pkg = JSON.parse(read("package.json"));
 const npmScripts = new Set(Object.keys(pkg.scripts ?? {}));
+
+const APP_NAV = readAppNav();
+
+/**
+ * What the REPOSITORY contains — not what this machine happens to have.
+ *
+ * This check used to ask `fs.existsSync`, and CI proved that was the wrong
+ * question: it passed here and failed on a fresh checkout. INSTALL.md names
+ * `supabase/.temp/`, a git-ignored directory the Supabase CLI creates, which
+ * exists on any machine that has run `db push` and nowhere else. A checker
+ * whose verdict depends on what the developer happened to run is worse than no
+ * checker — green locally, red in CI, which is exactly where people stop
+ * reading it.
+ *
+ * Git gives the same answer everywhere. A path is fine if git TRACKS it, or if
+ * git IGNORES it on purpose: an ignored path is a runtime artifact, and a
+ * document is entitled to name one — INSTALL.md calls it "the git-ignored
+ * `supabase/.temp/` directory" in the same sentence. Anything else is a path
+ * that is simply not there.
+ *
+ * Tracking, rather than presence, also closes a hole that was open the whole
+ * time: an uncommitted scratch file on my disk used to be enough to validate a
+ * documented path that no reader would ever have.
+ */
+const tracked = (() => {
+  const r = spawnSync("git", ["ls-files", "-z"], {
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  if (r.status !== 0) return null;
+  return new Set(r.stdout.split("\0").filter(Boolean));
+})();
+
+/** Every directory implied by a tracked file, so `src/utils/` resolves too. */
+const trackedDirs = (() => {
+  if (!tracked) return null;
+  const dirs = new Set();
+  for (const f of tracked) {
+    const parts = f.split("/");
+    for (let i = 1; i < parts.length; i++) dirs.add(parts.slice(0, i).join("/"));
+  }
+  return dirs;
+})();
+
+const ignoreCache = new Map();
+const gitIgnores = (p) => {
+  if (!ignoreCache.has(p)) {
+    ignoreCache.set(p, spawnSync("git", ["check-ignore", "-q", p]).status === 0);
+  }
+  return ignoreCache.get(p);
+};
+
+function repoHas(p) {
+  const clean = p.replace(/\/+$/, "");
+  // No git (a tarball, a vendored copy): fall back to the filesystem rather
+  // than failing every path claim in the corpus. Best effort beats a wall.
+  if (!tracked) return fs.existsSync(clean);
+  if (tracked.has(clean) || trackedDirs.has(clean)) return true;
+  return gitIgnores(p);
+}
+
+/**
+ * Every screen a nav path can start at, and what sits one level inside it.
+ *
+ * Merged, not layered: "Integrations" is BOTH a sidebar group (holding Web
+ * Embedding, Secrets, …) and a screen with tabs (Apps, Slack, …), and building
+ * this with a later entry overwriting an earlier one hid the group's items
+ * behind the tabs — which reported four correct paths as wrong.
+ */
+const NAV_PARENTS = new Map();
+for (const [k, v] of [...Object.entries(APP_NAV), ...Object.entries(PAGE_TABS)]) {
+  NAV_PARENTS.set(k, [...(NAV_PARENTS.get(k) ?? []), ...v]);
+}
 
 const apiRoutes = new Set(
   fs
@@ -153,7 +244,7 @@ for (const file of FILES) {
     // supabase/docker is the directory inside Supabase's own cloned repo —
     // both look exactly like paths in this tree and are not.
     if (/^supabase\/(postgres|docker)\b/.test(p)) continue;
-    if (!fs.existsSync(p)) fail("missing path", `${name}: ${p}`);
+    if (!repoHas(p)) fail("missing path", `${name}: ${p}`);
   }
 
   // 4. npm run <script> — every script named must exist.
@@ -199,6 +290,83 @@ for (const file of FILES) {
     if (isDesignDoc) continue;
     if (FOREIGN_NAMES.some((re) => re.test(v))) continue;
     if (!envHaystack.includes(v)) fail("unknown env var", `${name}: ${v}`);
+  }
+
+  // 7. Documented DEFAULTS, not just documented names. A table row saying a
+  //    variable defaults to 500000 is the number an operator plans capacity
+  //    against, and it is the half most likely to rot: the name survives a
+  //    change to the value, so the check above stays green while the table
+  //    starts lying. Checked by looking for the same number near a read of
+  //    that variable, which is where a default is written.
+  for (const m of src.matchAll(/\|\s*`([A-Z][A-Z0-9_]{3,})`\s*\|[^|]*?`([0-9][0-9_,]*)`/g)) {
+    const [, v, shown] = m;
+    if (FOREIGN_NAMES.some((re) => re.test(v))) continue;
+    if (isDesignDoc) continue;
+    const want = shown.replace(/[,_]/g, "");
+    let found = false;
+    for (const hit of envHaystack.matchAll(new RegExp(v, "g"))) {
+      const window = envHaystack.slice(Math.max(0, hit.index - 120), hit.index + 400);
+      // Sizes are written as arithmetic far more often than as a literal:
+      // 100 * 1024 * 1024 is how a 100 MB cap appears in code, and comparing
+      // digits alone called the one correct row in the corpus a lie.
+      const literals = [...window.matchAll(/\b[0-9][0-9_]*(?:\s*\*\s*[0-9][0-9_]*)*\b/g)].map((n) =>
+        String(
+          n[0]
+            .replace(/_/g, "")
+            .split("*")
+            .map((x) => Number(x.trim()))
+            .reduce((a, b) => a * b, 1),
+        ),
+      );
+      if (literals.includes(want)) {
+        found = true;
+        break;
+      }
+    }
+    if (!found) fail("documented default not in the code", `${name}: ${v} = ${shown}`);
+  }
+
+  // 8. "Open Admin → Developer runtime" is a claim about the sidebar, checked
+  //    against src/lib/appNav.ts. The in-app pages have had this check for a
+  //    while; these documents make the same claim — 19 times for that one item
+  //    — in running prose, and nothing read them. A rule enforced on one
+  //    corpus is a rule an author escapes by writing in the other.
+  //
+  //    Only the group → item hop is judged, and only by PREFIX. Prose has no
+  //    boundaries: a path runs into the sentence after it ("…under Admin →
+  //    Developer runtime and takes effect on the next job") and is wrapped
+  //    mid-path by the formatter, so demanding a clean segment produced four
+  //    findings that were all correct paths split across two lines. A prefix
+  //    match ignores the trailing sentence and still catches the thing this is
+  //    for: an item that was renamed and left behind in the docs.
+  const flowed = prose.replace(/[*_`]/g, " ").replace(/\s+/g, " ");
+  for (const m of flowed.matchAll(/([A-Za-z0-9&/ -]{1,60}?)\s*→\s*([A-Za-z0-9&/ -]{1,60})/g)) {
+    const words = m[1].trim().split(" ");
+    const parent = [4, 3, 2, 1]
+      .map((n) => words.slice(-n).join(" "))
+      .find((cand) => NAV_PARENTS.has(cand));
+    if (!parent) continue;
+    const after = m[2].trim().split(" ");
+    // A nav item is a proper noun. An arrow into lowercase prose is somebody
+    // describing a drill-down in words — "Agent Builder → the sql_query tool →
+    // tables" — and judging it would mean deciding what English may say.
+    if (!/^[A-Z0-9]/.test(after[0] ?? "")) continue;
+    const children = NAV_PARENTS.get(parent);
+    const named = [1, 2, 3, 4].some((n) => {
+      const cand = after.slice(0, n).join(" ").toLowerCase();
+      return children.some((c) => c.toLowerCase() === cand);
+    });
+    if (!named) {
+      const real = [...NAV_PARENTS].find(([, items]) =>
+        items.some((i) => i.toLowerCase() === after.slice(0, 2).join(" ").toLowerCase()),
+      )?.[0];
+      fail(
+        "bad nav path",
+        `${name}: "${parent} → ${after.slice(0, 3).join(" ")}…" — ${
+          real ? `that is under "${real}"` : `nothing under "${parent}" is called that`
+        }`,
+      );
+    }
   }
 }
 

@@ -39,7 +39,13 @@ describe("an unknown figure is never reported as zero", () => {
 
   it("returns a discriminated result rather than a bare number", () => {
     // The whole point: `0` and "the query failed" must not be the same value.
-    expect(src).toMatch(/ok: true; spend: number/);
+    // Matched on the discriminant rather than the whole one-line type — adding
+    // a field to the ok branch reformats it across lines, and that reformat is
+    // not the thing being pinned.
+    expect(src).toMatch(/ok: true;/);
+    // And a third state: a sum that counted unpriced calls at $0 is a FLOOR,
+    // so the ok branch has to be able to say so.
+    expect(src).toMatch(/unpriced: number \| null;/);
     expect(src).toMatch(/ok: false; error: string/);
   });
 
@@ -194,5 +200,66 @@ describe("the migration the aggregate needs", () => {
 
   it("indexes what it filters on", () => {
     expect(sql).toMatch(/idx_execution_traces_user_created/);
+  });
+});
+
+describe("a spend total that counted unpriced calls as free", () => {
+  // `spendCompleteness` exists because a call on a model with no known price is
+  // recorded at cost_usd 0 — honest on the row, and the Traces page labels it
+  // "unpriced". The comment beside that label says "budgets summed exactly
+  // that", and budgets did: no budget file mentioned pricing_missing at all.
+  //
+  // A gate is where this costs the most. A cap enforced against a total that
+  // silently omits part of the spend lets spending through, and the omission
+  // grows with exactly the models nobody has priced yet.
+  const spend = readFileSync("src/utils/budgetSpend.server.ts", "utf8");
+  const guard = readFileSync("src/utils/budgetGuard.server.ts", "utf8");
+
+  it("counts the unpriced calls while it is already reading the rows", () => {
+    // The fallback path pages through every row anyway, so the count is free
+    // there — no second query on a path that exists for un-migrated instances.
+    expect(spend).toContain("pricing_missing:request_payload->>pricing_missing");
+    expect(spend).toContain('if (row.pricing_missing === "true") unpriced += 1;');
+  });
+
+  it("asks for the count on the aggregate path, where the rows never arrive", () => {
+    // The database aggregate returns one number, so the flag cannot ride along
+    // with it. Behind the guard's 60s cache, and only when enforcement is on.
+    expect(spend).toContain('.eq("request_payload->>pricing_missing", "true")');
+    expect(spend).toContain("unpriced: await unpricedSince(args)");
+  });
+
+  it("keeps 'none' and 'could not tell' apart", () => {
+    // Collapsing them is the same mistake as reading a failed sum as $0: one
+    // means the total is exact, the other means its quality is unknown.
+    expect(spend).toContain("if (error) return null;");
+    expect(spend).toMatch(/unpriced: number \| null;/);
+  });
+
+  it("treats OVER on a floor as sound and UNDER as unproven", () => {
+    // The asymmetry is the whole fix. If the floor already exceeds the cap the
+    // true spend does too, whatever the unpriced calls cost. Under the cap is
+    // the verdict a floor cannot support — the call that would tip it over is
+    // exactly the one counted as free.
+    expect(guard).toContain("const partial = result.unpriced === null || result.unpriced > 0;");
+    expect(guard).toContain("const over = spend >= cap || (partial && budgetFailsClosed());");
+  });
+
+  it("changes nothing for an instance that has not asked for a cap that holds", () => {
+    // The extra strictness rides the EXISTING opt-in. Default is fail-open, and
+    // a governance feature must not become the reason a legitimate call breaks.
+    expect(guard).toContain("budgetFailsClosed()");
+    expect(guard).toMatch(/BUDGET_FAIL_CLOSED/);
+    // The floor is reported even when it does not change the decision, so an
+    // operator can see the cap is being enforced against an incomplete figure.
+    // The LOG LINE, not the phrase: "is a floor" also appears in the doc
+    // comment on BudgetStatus, so asserting it alone stayed green under a
+    // mutant that rewrote the message an operator would actually read.
+    expect(guard).toContain("[budget] spend for ${userId} is a floor");
+  });
+
+  it("carries the floor on the status, not just in a log line", () => {
+    expect(guard).toContain("partial?: boolean;");
+    expect(guard).toContain("const status: BudgetStatus = { over, spend, cap, partial };");
   });
 });

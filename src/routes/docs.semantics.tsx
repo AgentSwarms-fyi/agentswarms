@@ -161,6 +161,46 @@ function SemanticsPage() {
         surface, not a user input.
       </Callout>
 
+      <H2 id="source">Where a model&apos;s table comes from</H2>
+      <P>
+        A semantic model never creates data. It binds a table that already exists and says what its
+        columns mean, so the table has to come from somewhere first.
+      </P>
+      <Table
+        headers={["Source", "Pick it as", "Typically produced by"]}
+        rows={[
+          ["An uploaded or prepared dataset", "Local dataset", "An upload, or a Data Prep flow."],
+          [
+            "A table in your own lakehouse",
+            "Warehouse → your lakehouse connection",
+            "A SQL model, an ETL pipeline, or a materialized view.",
+          ],
+          [
+            "A table in an external warehouse",
+            "Warehouse → that connection",
+            "Whatever builds it over there, dbt included.",
+          ],
+        ]}
+      />
+      <P>
+        The lakehouse is a <strong>first-class warehouse provider</strong>, not a separate kind of
+        source, so a table a <DocLink to="/docs/sql-models">SQL model</DocLink> built is reached
+        exactly like a Snowflake table. It needs a connection row once, under{" "}
+        <strong>Integrations → Data Sources → AgentSwarms Lakehouse (built-in)</strong>, which asks
+        only for a name because the deployment already holds the credentials. Following{" "}
+        <strong>Define metrics on this</strong> from a built model or a lakehouse table offers to
+        create it for you and then opens the editor on that table.
+      </P>
+      <Callout title="Which layer does a given change belong in?">
+        <strong>SQL models decide which tables exist.</strong> They write rows, in dependency order,
+        on a schedule; joining, filtering, casting and deduplicating belong there, done once.{" "}
+        <strong>The semantic layer decides what the columns mean.</strong> It writes nothing and
+        compiles at query time; an aggregation, a ratio, a fiscal calendar or a per-role row filter
+        belongs here. If it changes the shape of the data it is a model, and if it changes what a
+        number means it is a semantic definition. Writing the same WHERE clause into five dashboards
+        is the signal you wanted a dimension.
+      </Callout>
+
       <H2 id="define">Defining a metric</H2>
       <P>
         Pick a source — a <strong>local dataset</strong> or a <strong>warehouse table</strong> (any
@@ -177,7 +217,11 @@ function SemanticsPage() {
         otherwise surfaces as an engine error much later, on a dashboard refresh. The{" "}
         <strong>query runner</strong> below the editor picks metrics and dimensions, adds filters
         (dimension filters become <C>WHERE</C>, metric filters <C>HAVING</C>) and time rollups, and
-        the result can be sent straight to a dashboard as a governed widget.
+        the result can be sent straight to a dashboard as a governed widget. Every governed query
+        fetches one row past its cap, so a result that stopped at the cap is known to be partial and
+        said to be: the preview says &ldquo;first 100 rows of a larger result&rdquo;, a widget wears
+        the Partial badge, and the AI Analyst notes it on the step &mdash; never presented as the
+        whole.
       </P>
       <Code lang="Compiled preview">{`SELECT date_trunc('month', o.created_at) AS month,
        o.region                          AS region,
@@ -518,6 +562,17 @@ metric  order_count
             <>
               Enable the <C key="m">metric_query</C> tool. The agent asks for a metric by name with
               dimensions and filters — it never re-derives the number.
+            </>,
+          ],
+          [
+            <DocLink key="gw" to="/docs/gateway">
+              Any application
+            </DocLink>,
+            <>
+              A gateway key with the <C key="s">metrics</C> scope lists models at{" "}
+              <C key="l">GET /api/v1/metrics</C> and queries them at{" "}
+              <C key="q">POST /api/v1/metrics/query</C> — the same definitions, share policies and
+              audit row, reached from a spreadsheet, a notebook or another product.
             </>,
           ],
           [

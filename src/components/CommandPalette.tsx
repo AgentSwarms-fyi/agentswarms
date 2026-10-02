@@ -15,7 +15,7 @@ import {
   CommandSeparator,
   CommandShortcut,
 } from "@/components/ui/command";
-import { NAV_GROUPS } from "@/lib/appNav";
+import { ADMIN_GROUP, NAV_GROUPS } from "@/lib/appNav";
 import { THEMES, useTheme, type ThemePreference } from "@/hooks/use-theme";
 import { useIsSuperadmin } from "@/hooks/use-iam";
 
@@ -48,19 +48,10 @@ export function CommandPalette({
   const { theme, setTheme } = useTheme();
   const isSuperadmin = useIsSuperadmin();
 
-  const groups = useMemo(() => {
-    if (!isSuperadmin) return NAV_GROUPS;
-    return [
-      ...NAV_GROUPS,
-      {
-        label: "Admin",
-        items: [
-          { title: "IAM", url: "/admin/iam", icon: undefined },
-          { title: "Developer runtime", url: "/admin/runtime", icon: undefined },
-        ],
-      },
-    ];
-  }, [isSuperadmin]);
+  const groups = useMemo(
+    () => (isSuperadmin ? [...NAV_GROUPS, ADMIN_GROUP] : NAV_GROUPS),
+    [isSuperadmin],
+  );
 
   const run = (fn: () => void) => {
     onOpenChange(false);
@@ -135,6 +126,9 @@ export function useCommandPalette() {
   const [open, setOpen] = useState(false);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // A control that gives Ctrl+K its own meaning (a spreadsheet's "insert
+      // link") claims it first; the palette does not open over it.
+      if (e.defaultPrevented) return;
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setOpen((v) => !v);

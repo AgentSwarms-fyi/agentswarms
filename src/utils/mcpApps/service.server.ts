@@ -24,12 +24,14 @@ import {
 import { getOrchestrator, MCP_SERVICE_PATH } from "@/utils/notebookRuntime/orchestrator";
 import {
   MCP_PROTOCOL_VERSION,
-  parseJsonOrSse,
+  readRpcBody,
+  rpcFailure,
   isLegacyFingerprint,
   toolsFingerprint,
   toolsFromListResult,
   type McpTool,
 } from "./protocol";
+import { MCP_COLD_START_MS } from "./budgets";
 
 export type McpAppRow = Database["public"]["Tables"]["mcp_apps"]["Row"];
 
@@ -44,9 +46,15 @@ export type McpAppRow = Database["public"]["Tables"]["mcp_apps"]["Row"];
  * window — pushed a working server over the line. The old failure path then
  * destroyed the container it had given up on, so the next attempt paid the
  * full cold start again instead of finding it seconds from ready.
+ *
+ * Shared, because every CLIENT of this endpoint has to wait at least this long
+ * for a first answer (R100): see mcpApps/budgets.ts.
  */
-const COLD_START_MS = 90_000;
+const COLD_START_MS = MCP_COLD_START_MS;
 const POLL_MS = 750;
+
+/** How long each handshake request may take, headers and answer together. */
+const HANDSHAKE_STEP_MS = 15_000;
 
 /**
  * Staleness window on the start lease.
@@ -104,10 +112,21 @@ async function setAppStatus(
   status: McpAppRow["status"],
   deployError?: string | null,
 ): Promise<void> {
-  await supabaseAdmin
+  // FOUND FROM THE SURVEY (R89). This column is what MCP Builder shows, and
+  // every path that ends a start writes it here. Dropped, the two failures
+  // are opposite and both bad: a server that DIED left the app on "ready",
+  // so the page said Running over nothing; a server that came up left it on
+  // the previous status, so the page said Error over a server answering
+  // requests.
+  const { error } = await supabaseAdmin
     .from("mcp_apps")
     .update({ status, deploy_error: deployError ?? null })
     .eq("id", appId);
+  if (error) {
+    console.warn(
+      `[mcp] app ${appId} is ${status} but its record could not be marked so: ${error.message}; MCP Builder will show what it showed before`,
+    );
+  }
 }
 
 /**
@@ -280,10 +299,17 @@ export async function ensureRunning(app: McpAppRow): Promise<EnsureResult> {
  * be torn down mid-traffic simply because nothing had refreshed its row.
  */
 async function touch(sessionId: string): Promise<void> {
-  await supabaseAdmin
+  const { error } = await supabaseAdmin
     .from("notebook_runtime_sessions")
     .update({ last_active_at: new Date().toISOString() })
     .eq("id", sessionId);
+  if (error) {
+    // The idle reaper reads what was recorded (R89, R80's shape): a server
+    // answering requests can be taken for one nobody is using.
+    console.warn(
+      `[mcp] session ${sessionId}: use could not be recorded: ${error.message}; the idle reaper reads what was recorded`,
+    );
+  }
 }
 
 /**
@@ -341,10 +367,17 @@ export async function logsOf(appId: string): Promise<string> {
  * with the container, which is the least useful moment to lose them.
  */
 async function persistLogs(sessionId: string, logs: string): Promise<void> {
-  await supabaseAdmin
+  const { error } = await supabaseAdmin
     .from("notebook_runtime_sessions")
     .update({ logs: logs.slice(-20_000) })
     .eq("id", sessionId);
+  if (error) {
+    // These are the logs the start-timeout message tells the owner to read,
+    // saved because the container is about to be destroyed (R89).
+    console.warn(
+      `[mcp] session ${sessionId}: its last logs could not be saved: ${error.message}; the Logs tab will be empty for this attempt`,
+    );
+  }
 }
 
 /** First Python error line in a log blob, for a one-line status message. */
@@ -381,9 +414,12 @@ export async function handshake(
       method: "POST",
       headers: sessionId ? { ...headers, "Mcp-Session-Id": sessionId } : headers,
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(15_000),
+      signal: AbortSignal.timeout(HANDSHAKE_STEP_MS),
     });
 
+  // Which request a failure belongs to. A bare "The operation was aborted due
+  // to timeout" names neither the request nor the wait.
+  let step = "initialize";
   try {
     const init = await post({
       jsonrpc: "2.0",
@@ -397,16 +433,20 @@ export async function handshake(
     });
     if (!init.ok) return { ok: false, message: `initialize → HTTP ${init.status}` };
     const sessionId = init.headers.get("Mcp-Session-Id");
-    await init.text().catch(() => "");
+    // Read to the answer, not to the end of the stream: a server may keep it
+    // open (R98). Waiting for the close here spent the whole step timer on
+    // every deploy and then carried on as if nothing had happened.
+    await readRpcBody(init).catch(() => null);
 
     await post(
       { jsonrpc: "2.0", method: "notifications/initialized", params: {} },
       sessionId,
     ).catch(() => null);
 
+    step = "tools/list";
     const list = await post({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} }, sessionId);
     if (!list.ok) return { ok: false, message: `tools/list → HTTP ${list.status}` };
-    const parsed = parseJsonOrSse(await list.text(), list.headers.get("content-type") ?? "");
+    const parsed = (await readRpcBody(list)).message;
     if (parsed?.error?.message)
       return { ok: false, message: `tools/list → ${parsed.error.message}` };
     // "I could not read the answer" is not "the answer was empty". Falling
@@ -422,7 +462,7 @@ export async function handshake(
     }
     return { ok: true, tools: toolsFromListResult(parsed) };
   } catch (e) {
-    return { ok: false, message: e instanceof Error ? e.message : "handshake failed" };
+    return { ok: false, message: rpcFailure(step, e, HANDSHAKE_STEP_MS) };
   }
 }
 
@@ -464,7 +504,12 @@ export async function deploy(app: McpAppRow): Promise<DeployResult> {
     Boolean(app.tools_hash) && !isLegacyFingerprint(app.tools_hash) && app.tools_hash !== hash;
   const now = new Date().toISOString();
 
-  await supabaseAdmin
+  // FOUND FROM THE SURVEY (R89). The server is up and its tools are known;
+  // this is the only place they are written down. Dropped, the deploy
+  // answered ok with the new tools while the app kept the PREVIOUS tool list
+  // — the one agents call — and its status, so a deploy that changed what
+  // the server exposes left every caller on the old contract.
+  const { error: recordErr } = await supabaseAdmin
     .from("mcp_apps")
     .update({
       tools: shook.tools as unknown as Database["public"]["Tables"]["mcp_apps"]["Update"]["tools"],
@@ -477,6 +522,11 @@ export async function deploy(app: McpAppRow): Promise<DeployResult> {
       ...(app.tools_hash ? {} : { tools_approved_at: now }),
     })
     .eq("id", app.id);
+  if (recordErr) {
+    const why = `The server is running, but its tools could not be recorded: ${recordErr.message}. Agents keep calling the previous tool list until they are — deploy again.`;
+    console.warn(`[mcp] app ${app.id}: ${why}`);
+    return { ok: false, error: why, logs: await logsOf(app.id).catch(() => "") };
+  }
 
   await snapshotVersion(app, shook.tools);
 
@@ -492,7 +542,7 @@ async function snapshotVersion(app: McpAppRow, tools: McpTool[]): Promise<void> 
     .order("version", { ascending: false })
     .limit(1);
   const next = (last?.[0]?.version ?? 0) + 1;
-  await supabaseAdmin.from("mcp_app_versions").insert({
+  const { error } = await supabaseAdmin.from("mcp_app_versions").insert({
     app_id: app.id,
     user_id: app.user_id,
     version: next,
@@ -500,4 +550,11 @@ async function snapshotVersion(app: McpAppRow, tools: McpTool[]): Promise<void> 
     requirements: app.requirements,
     tools: tools as unknown as Database["public"]["Tables"]["mcp_app_versions"]["Insert"]["tools"],
   });
+  if (error) {
+    // The version history is what a rollback reads; a deploy missing from it
+    // cannot be gone back to (R89). The deploy itself stands.
+    console.warn(
+      `[mcp] app ${app.id}: v${next} could not be added to the version history: ${error.message}; this deploy cannot be rolled back to`,
+    );
+  }
 }

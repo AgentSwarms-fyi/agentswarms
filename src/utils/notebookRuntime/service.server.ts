@@ -13,12 +13,22 @@ export type SessionRow = Database["public"]["Tables"]["notebook_runtime_sessions
 
 export const LIVE = ["queued", "starting", "ready", "running", "stopping"] as const;
 
+/**
+ * Which long-lived program a `service` session runs.
+ *
+ * "mcp" serves a user-authored FastMCP server; "score" holds one trained model
+ * version in memory and answers predictions over HTTP. Both are services to
+ * the orchestrator — no expiry, restart on failure — and differ only in the
+ * image entrypoint they land on.
+ */
+export type ServiceMode = "mcp" | "score";
+
 // Defaults adapt to how the app is deployed, so neither a compose install nor a
 // local `npm run dev` needs env wiring. Override any of them for custom setups.
 //
 // Kernel → app callback URL: inside compose the app is a service on the kernel's
 // network; on a dev host it is only reachable through the Docker host gateway.
-function internalAppUrl(): string {
+export function internalAppUrl(): string {
   if (process.env.NOTEBOOK_APP_INTERNAL_URL) return process.env.NOTEBOOK_APP_INTERNAL_URL;
   if (process.env.APP_URL) return process.env.APP_URL;
   const port = process.env.PORT || "8080";
@@ -39,29 +49,33 @@ function egressProxy(): string {
 }
 
 /** Internal hosts that must bypass the egress proxy (callbacks to the app). */
-function noProxyList(appUrl: string): string {
+export function noProxyList(appUrl: string, extraHosts: string[] = []): string {
   let host = "app";
   try {
     host = new URL(appUrl).hostname;
   } catch {
     /* keep default */
   }
-  return [host, "localhost", "127.0.0.1", ".svc", ".cluster.local"].join(",");
+  // `extraHosts`: a Spark Connect endpoint. gRPC cannot go through the HTTP
+  // egress proxy, so the sandbox must dial it directly.
+  return [host, "localhost", "127.0.0.1", ".svc", ".cluster.local", ...extraHosts].join(",");
 }
 
 function buildKernelEnv(opts: {
   sessionId: string;
   token: string;
   kind: KernelKind;
+  serviceMode?: ServiceMode;
   entrypoint?: string | null;
   inputs?: unknown;
 }): Record<string, string> {
   const appUrl = internalAppUrl();
   const env: Record<string, string> = {
-    // The image's entrypoint names the MCP mode "mcp"; the session kind is
-    // "service" because that is what it is to the orchestrator. Map here rather
-    // than renaming either side.
-    NB_MODE: opts.kind === "service" ? "mcp" : opts.kind,
+    // The image's entrypoint names the programs; the session kind is "service"
+    // because that is what it is to the orchestrator. Map here rather than
+    // renaming either side. Two programs are long-lived services: an MCP
+    // server and a warm model scorer.
+    NB_MODE: opts.kind === "service" ? (opts.serviceMode ?? "mcp") : opts.kind,
     NB_SESSION_ID: opts.sessionId,
     // The in-container `agentswarms` helper calls back here for model/KB access.
     AGENTSWARMS_ORIGIN: appUrl,
@@ -105,18 +119,37 @@ export async function startSession(opts: {
   userId: string;
   notebookId?: string | null;
   mcpAppId?: string | null;
+  /** Batch only: this session executes an ETL run (source route serves its bundle). */
+  etlRunId?: string | null;
   kind: KernelKind;
+  /** Services only: which program runs. Defaults to the MCP server. */
+  serviceMode?: ServiceMode;
   entrypoint?: string | null;
   inputs?: unknown;
   /** Services only: restart the sandbox if the user's process dies. */
   restartOnFailure?: boolean;
+  /**
+   * Override the default memory ceiling (MB), for a batch job or a service.
+   *
+   * A warm scorer holds a fitted sklearn pipeline and the ML stack resident,
+   * which is the training budget's problem rather than the 2 GB an MCP server
+   * gets — so a service may raise it too.
+   */
+  memLimitMb?: number;
+  /** Batch only: override the runtime's default wall-clock limit (minutes). */
+  maxMinutes?: number;
+  /** Batch only: GPUs to request for the sandbox. */
+  gpus?: number;
 }): Promise<{ session: SessionRow; token: string; gatewayUrl: string }> {
   const settings = await getRuntimeSettings();
   const batch = opts.kind === "batch";
   const service = opts.kind === "service";
   const cpu = batch ? settings.batchCpuLimit : settings.cpuLimit;
-  const mem = batch ? settings.batchMemLimitMb : settings.memLimitMb;
-  const maxMin = batch ? settings.batchMaxMinutes : settings.sessionMaxMinutes;
+  const mem =
+    ((batch || service) && opts.memLimitMb) ||
+    (batch ? settings.batchMemLimitMb : settings.memLimitMb);
+  const maxMin =
+    (batch && opts.maxMinutes) || (batch ? settings.batchMaxMinutes : settings.sessionMaxMinutes);
   const nowIso = new Date().toISOString();
   // A published MCP server is supposed to stay up: a hard expiry would take it
   // offline on a timer for no reason. Idleness (or an explicit stop) ends it
@@ -137,6 +170,7 @@ export async function startSession(opts: {
       user_id: opts.userId,
       notebook_id: notebookId,
       mcp_app_id: opts.mcpAppId ?? null,
+      etl_run_id: opts.etlRunId ?? null,
       kind: opts.kind,
       status: batch ? "running" : "starting",
       backend: settings.backend,
@@ -157,13 +191,18 @@ export async function startSession(opts: {
   const token = await signSessionToken({
     userId: opts.userId,
     sessionId: row.id,
-    ttlSeconds: Math.min(maxMin * 60, 3600),
+    ttlSeconds: maxMin * 60,
   });
   if (!token) {
-    await supabaseAdmin
+    const { error: markErr } = await supabaseAdmin
       .from("notebook_runtime_sessions")
       .update({ status: "error", error: "NOTEBOOK_RUNTIME_SECRET not configured" })
       .eq("id", row.id);
+    if (markErr) {
+      console.warn(
+        `[runtime] session ${row.id}: could not be marked error: ${markErr.message}; it will show as starting until it is`,
+      );
+    }
     throw new Error("NOTEBOOK_RUNTIME_SECRET is not configured on the server");
   }
 
@@ -171,6 +210,7 @@ export async function startSession(opts: {
     sessionId: row.id,
     token,
     kind: opts.kind,
+    serviceMode: opts.serviceMode,
     entrypoint: opts.entrypoint,
     inputs: opts.inputs,
   });
@@ -183,21 +223,46 @@ export async function startSession(opts: {
       image: settings.image,
       cpuLimit: cpu,
       memLimitMb: mem,
+      tmpfsMb: settings.sandboxTmpfsMb,
+      gpus: batch ? opts.gpus || 0 : 0,
       // 0 = no wall-clock ceiling, which is what a long-lived service needs.
       timeoutSeconds: service ? 0 : maxMin * 60,
       env,
       restartOnFailure: service ? Boolean(opts.restartOnFailure) : false,
     });
-    await supabaseAdmin
+    const { error: refErr } = await supabaseAdmin
       .from("notebook_runtime_sessions")
       .update({ container_ref: ref })
       .eq("id", row.id);
+    if (refErr) {
+      // FOUND FROM THE SURVEY (R80). The container is running and its row
+      // does not know it: stopSession stops by the ref, refreshSession
+      // returns early without one, and the reaper's stop is a no-op — a
+      // sandbox nothing can reach, under a row that stays live. Stopped
+      // now, while the ref is in hand, and the start fails as a start.
+      const orphan = await orch
+        .stop(ref)
+        .catch((e) => ({ removed: false, error: (e as Error).message }));
+      if (!orphan.removed) {
+        console.warn(
+          `[runtime] session ${row.id}: an unrecorded container could not be removed: ${orphan.error}; ${ref} is still on the host and no row points at it`,
+        );
+      }
+      throw new Error(
+        `The sandbox started but its session could not record it: ${refErr.message}; it was stopped again.`,
+      );
+    }
     return { session: { ...row, container_ref: ref }, token, gatewayUrl: gatewayUrl() };
   } catch (e) {
-    await supabaseAdmin
+    const { error: markErr } = await supabaseAdmin
       .from("notebook_runtime_sessions")
       .update({ status: "error", error: e instanceof Error ? e.message : String(e) })
       .eq("id", row.id);
+    if (markErr) {
+      console.warn(
+        `[runtime] session ${row.id}: could not be marked error: ${markErr.message}; it will show as starting until it is`,
+      );
+    }
     throw e;
   }
 }
@@ -218,8 +283,14 @@ export async function refreshSession(row: SessionRow): Promise<SessionRow> {
     patch.status = row.kind === "batch" ? "running" : "ready";
     if (st.endpoint) patch.endpoint = st.endpoint;
     if (!row.started_at) patch.started_at = new Date().toISOString();
+    // Whatever it was waiting for, it is not waiting any more.
+    patch.pending_reason = null;
   } else if (st.state === "starting") {
     patch.status = "starting";
+    // WHY it is still starting, when the runtime knows — an unschedulable pod
+    // says so in a condition, and without carrying it here the wait ends in a
+    // readiness timeout that blames the sandbox for the cluster being full.
+    patch.pending_reason = st.message ?? null;
   } else if (st.state === "succeeded") {
     // A batch job finishing is success. A *service* process exiting means the
     // server is no longer listening, whatever its exit code — record it as
@@ -235,8 +306,40 @@ export async function refreshSession(row: SessionRow): Promise<SessionRow> {
     patch.status = "error";
     patch.error = st.message ?? "kernel error";
     patch.stopped_at = new Date().toISOString();
+    // Take the evidence before the sandbox goes: once it is removed there is
+    // nowhere left to read why it failed.
+    patch.logs = await orch.logs(row.container_ref).catch(() => "");
   }
-  await supabaseAdmin.from("notebook_runtime_sessions").update(patch).eq("id", row.id);
+
+  // FOUND FROM THE SURVEY (R93). A kernel that ends ON ITS OWN only ever comes
+  // through here, and this function's whole job is to write the terminal
+  // status. stopSession - the one path that removes the sandbox - is reached
+  // from reapSessions, which reads rows that are still LIVE, so the moment
+  // this update lands the container is invisible to every cleanup there is.
+  // MEASURED on a two-week-old dev host: 139 leftover `nb-…` containers, 122
+  // of them exit 0, the oldest thirteen days old, while the reaper had been
+  // running every minute throughout.
+  if (terminal.includes(String(patch.status ?? ""))) {
+    const teardown = await orch
+      .stop(row.container_ref)
+      .catch((e) => ({ removed: false, error: (e as Error).message }));
+    if (!teardown.removed) {
+      console.warn(
+        `[runtime] session ${row.id} ended as ${patch.status} but its sandbox ${row.container_ref} was not removed: ${teardown.error}; it will stay on this host until somebody removes it by hand`,
+      );
+    }
+  }
+  const { error: patchErr } = await supabaseAdmin
+    .from("notebook_runtime_sessions")
+    .update(patch)
+    .eq("id", row.id);
+  if (patchErr) {
+    // The caller is handed the reconciled row; the table keeps the old one,
+    // and the caps and the reaper read the table (R80).
+    console.warn(
+      `[runtime] session ${row.id}: could not be reconciled to ${patch.status ?? row.status}: ${patchErr.message}; the table still says ${row.status}`,
+    );
+  }
   return { ...row, ...patch } as SessionRow;
 }
 
@@ -244,12 +347,29 @@ export async function stopSession(row: SessionRow): Promise<void> {
   if (row.container_ref) {
     const settings = await getRuntimeSettings();
     const orch = await getOrchestrator(settings);
-    await orch.stop(row.container_ref).catch(() => {});
+    // FOUND FROM THE SURVEY (R93). The row below is about to say "stopped".
+    // It must not say that over a sandbox still running and still holding the
+    // CPU and memory it reserved.
+    const teardown = await orch
+      .stop(row.container_ref)
+      .catch((e) => ({ removed: false, error: (e as Error).message }));
+    if (!teardown.removed) {
+      console.warn(
+        `[runtime] session ${row.id} is being recorded as stopped but its sandbox ${row.container_ref} was not removed: ${teardown.error}; it is still on the host, still holding its CPU and memory`,
+      );
+    }
   }
-  await supabaseAdmin
+  const { error: stopErr } = await supabaseAdmin
     .from("notebook_runtime_sessions")
     .update({ status: "stopped", stopped_at: new Date().toISOString() })
     .eq("id", row.id);
+  if (stopErr) {
+    // FOUND FROM THE SURVEY (R80). The container is gone; a row still live
+    // is counted against the caps, listed as running, and reaped again.
+    console.warn(
+      `[runtime] session ${row.id} is stopped but its record could not be marked so: ${stopErr.message}; it will show as ${row.status} until the next refresh marks it gone`,
+    );
+  }
 }
 
 /**
@@ -304,10 +424,17 @@ export async function listUserSessions(userId: string) {
 }
 
 export async function touchSession(sessionId: string): Promise<void> {
-  await supabaseAdmin
+  const { error } = await supabaseAdmin
     .from("notebook_runtime_sessions")
     .update({ last_active_at: new Date().toISOString() })
     .eq("id", sessionId);
+  if (error) {
+    // A touch that was not recorded is a kernel the idle reaper takes for
+    // idle (R80): it reads what was recorded.
+    console.warn(
+      `[runtime] session ${sessionId}: activity could not be recorded: ${error.message}; the idle reaper reads what was recorded`,
+    );
+  }
 }
 
 /** Reap idle interactive kernels, idle MCP servers, and anything past its hard expiry. */
@@ -340,7 +467,15 @@ export async function reapSessions(): Promise<number> {
     // server still reads "Running" in MCP Builder long after its container is
     // gone, which is exactly the sort of quiet lie that wastes an afternoon.
     if (row.kind === "service" && row.mcp_app_id) {
-      await supabaseAdmin.from("mcp_apps").update({ status: "stopped" }).eq("id", row.mcp_app_id);
+      const { error: appErr } = await supabaseAdmin
+        .from("mcp_apps")
+        .update({ status: "stopped" })
+        .eq("id", row.mcp_app_id);
+      if (appErr) {
+        console.warn(
+          `[runtime] app ${row.mcp_app_id}: could not be marked stopped after its session was reaped: ${appErr.message}; MCP Builder will show it running`,
+        );
+      }
     }
     reaped++;
   }

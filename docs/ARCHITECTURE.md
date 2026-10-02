@@ -13,18 +13,18 @@ and the conventions that keep all of it from drifting.
 
 ## Tech stack
 
-| Layer        | Tech                                                                                                                                                                                                |
-| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Framework    | [TanStack Start](https://tanstack.com/start) (React 19), file-based routing via TanStack Router                                                                                                     |
-| Backend      | [Supabase](https://supabase.com) — Postgres, Auth, Storage, pgvector                                                                                                                                |
-| Styling      | [Tailwind CSS](https://tailwindcss.com) + [shadcn/ui](https://ui.shadcn.com)                                                                                                                        |
-| Agents       | [LangChain](https://js.langchain.com) / LangGraph                                                                                                                                                   |
-| Swarm canvas | [XYFlow](https://xyflow.com)                                                                                                                                                                        |
-| BI & SQL     | Custom SVG chart renderers · in-browser SQL via [DuckDB-WASM](https://duckdb.org/docs/api/wasm/overview) (AlaSQL remains an opt-out escape hatch, `LOCAL_ENGINE=alasql`)                            |
-| Documents    | Client-side [pptxgenjs](https://gitbrent.github.io/PptxGenJS/) · [docx](https://docx.js.org) · [write-excel-file](https://gitlab.com/catamphetamine/write-excel-file)                               |
-| Notebooks    | Python on sandboxed server kernels (Docker or Kubernetes) — see [DEVELOPER_WORKSPACE_RUNTIME.md](./DEVELOPER_WORKSPACE_RUNTIME.md)                                                                  |
-| Custom code  | Function / component nodes: a browser Worker on the canvas, and an isolated container for deployed runs — see [DEPLOYMENT.md § JS sandbox](./DEPLOYMENT.md#js-sandbox-custom-code-in-deployed-runs) |
-| Deployment   | Docker (Node) · Kubernetes · installable PWA                                                                                                                                                        |
+| Layer        | Tech                                                                                                                                                                                                                                                                                                                                                                      |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Framework    | [TanStack Start](https://tanstack.com/start) (React 19), file-based routing via TanStack Router                                                                                                                                                                                                                                                                           |
+| Backend      | [Supabase](https://supabase.com) — Postgres, Auth, Storage, pgvector                                                                                                                                                                                                                                                                                                      |
+| Styling      | [Tailwind CSS](https://tailwindcss.com) + [shadcn/ui](https://ui.shadcn.com)                                                                                                                                                                                                                                                                                              |
+| Agents       | [LangChain](https://js.langchain.com) / LangGraph                                                                                                                                                                                                                                                                                                                         |
+| Swarm canvas | [XYFlow](https://xyflow.com)                                                                                                                                                                                                                                                                                                                                              |
+| BI & SQL     | Custom SVG chart renderers · in-browser SQL via [DuckDB-WASM](https://duckdb.org/docs/api/wasm/overview) · server-side local SQL on DuckDB, with AlaSQL as an opt-out escape hatch there (`LOCAL_ENGINE=alasql`; the browser has no such fallback). The two DuckDBs are one minor line (1.5); `tests/unit/duckdbEnginesParity.test.ts` runs both and fails when they part |
+| Documents    | Client-side [pptxgenjs](https://gitbrent.github.io/PptxGenJS/) · [docx](https://docx.js.org) · [write-excel-file](https://gitlab.com/catamphetamine/write-excel-file)                                                                                                                                                                                                     |
+| Notebooks    | Python on sandboxed server kernels (Docker or Kubernetes) — see [DEVELOPER_WORKSPACE_RUNTIME.md](./DEVELOPER_WORKSPACE_RUNTIME.md)                                                                                                                                                                                                                                        |
+| Custom code  | Function / component nodes: a browser Worker on the canvas, and an isolated container for deployed runs — see [DEPLOYMENT.md § JS sandbox](./DEPLOYMENT.md#js-sandbox-custom-code-in-deployed-runs)                                                                                                                                                                       |
+| Deployment   | Docker (Node) · Kubernetes · installable PWA                                                                                                                                                                                                                                                                                                                              |
 
 ## Project structure
 
@@ -49,6 +49,10 @@ agentswarms/
   `ConfigSchema` entry. See [Data sources & connectors](./DATA_SOURCES.md).
 - **Charts** — `ChartSpec` + the renderers under `src/components/bi/` drive
   every visual type.
+- **ETL pipelines** — `src/utils/etl/codegen.ts` compiles the visual step graph
+  to Python; a new step kind is one union member + one `stepLine` case + a line
+  in the builder palette. Execution rides the notebook runtime unchanged. See
+  [ETL pipelines](./ETL_PIPELINES.md).
 - **Document generation** — `src/lib/docGen/` (typed plans → client-side
   builders). See [Agent Chat & document generation](./AGENT_CHAT.md).
 - **Custom code** — user-authored JavaScript (Function nodes, custom

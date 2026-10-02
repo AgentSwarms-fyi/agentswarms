@@ -15,6 +15,9 @@
 // longer a deploy target, so the interpreter — and the three-engine split it
 // created — is gone.
 
+import { auditEvent } from "@/utils/audit.server";
+import { selectAllPages } from "@/lib/pagedSelect";
+import { resultDigest } from "@/utils/provenance/canonical";
 import { restrictSharedDataset } from "@/utils/data/sharedDatasets.server";
 import type { ToolDef, AgentToolContext } from "./registry.server";
 
@@ -63,7 +66,44 @@ export const listDataTablesTool: ToolDef = {
 
 // Only allow a well-formed UUID into a PostgREST `.or()` filter string, so a
 // scope id can never inject filter syntax.
+/** Rows one dataset may contribute to a tool-run query. Refused, not cut. */
+const SQL_TOOL_MAX_ROWS = Number(process.env.SQL_TOOL_MAX_ROWS) || 200_000;
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Apply the visibility rule for user_data_tables to a query.
+ *
+ * On the RLS path the user's JWT already restricts the read, so nothing is
+ * added. On the HEADLESS path (`scopeUserId` set, service-role client, RLS off)
+ * this is the only tenant boundary, and it mirrors the RLS policy exactly: the
+ * owner's own tables, public samples, and tables shared to them by an IAM
+ * grant. Narrowing it to `user_id` alone would be "secure" and would also hide
+ * datasets the agent is entitled to use.
+ *
+ * Takes the query rather than the column list so each caller keeps its own
+ * literal `.select(...)` — and with it, the inferred row type.
+ *
+ * Exported because the tool DESCRIPTION lists the same tables. That listing had
+ * no filter at all, so on a headless run it named every tenant's tables and
+ * their columns in the prompt. The data path still refused to read them, but
+ * the schemas were already out.
+ *
+ * Returns null when the scope is unusable, which callers treat as "no tables".
+ */
+export async function scopeToVisibleTables<Q extends { or: (filter: string) => Q }>(
+  ctx: AgentToolContext,
+  query: Q,
+): Promise<Q | null> {
+  if (!ctx.scopeUserId) return query;
+  if (!UUID_RE.test(ctx.scopeUserId)) return null;
+  const { resolveGrantedResourceIds } = await import("@/utils/iam.server");
+  const granted = await resolveGrantedResourceIds(ctx.sb, ctx.scopeUserId, "data_table");
+  const orParts = [`user_id.eq.${ctx.scopeUserId}`, `is_sample.eq.true`];
+  const grantedIds = [...granted].filter((id) => UUID_RE.test(id));
+  if (grantedIds.length) orParts.push(`id.in.(${grantedIds.join(",")})`);
+  return query.or(orParts.join(","));
+}
 
 async function loadUserTables(
   ctx: AgentToolContext,
@@ -77,19 +117,13 @@ async function loadUserTables(
   // public samples, and tables shared to them via an IAM grant (mirroring the
   // RLS policy). This is the only tenant boundary here.
   // `__upload_*` rows are staging areas for an in-flight upload, not datasets.
-  let query = ctx.sb
+  const base = ctx.sb
     .from("user_data_tables")
     .select("id, name, columns, user_id, is_sample")
+    // `__upload_*` rows are staging areas for an in-flight upload, not datasets.
     .not("name", "like", "__upload_%");
-  if (ctx.scopeUserId) {
-    if (!UUID_RE.test(ctx.scopeUserId)) return [];
-    const { resolveGrantedResourceIds } = await import("@/utils/iam.server");
-    const granted = await resolveGrantedResourceIds(ctx.sb, ctx.scopeUserId, "data_table");
-    const orParts = [`user_id.eq.${ctx.scopeUserId}`, `is_sample.eq.true`];
-    const grantedIds = [...granted].filter((id) => UUID_RE.test(id));
-    if (grantedIds.length) orParts.push(`id.in.(${grantedIds.join(",")})`);
-    query = query.or(orParts.join(","));
-  }
+  const query = await scopeToVisibleTables(ctx, base);
+  if (!query) return [];
   const { data: tables } = await query;
   if (!tables) return [];
   const filtered =
@@ -97,20 +131,32 @@ async function loadUserTables(
   const viewerId = ctx.scopeUserId ?? ctx.userId;
   const out: LoadedTable[] = [];
   for (const t of filtered) {
-    const allRows: Row[] = [];
-    let from = 0;
-    const PAGE = 1000;
-    for (;;) {
-      const { data: chunk, error } = await ctx.sb
-        .from("user_data_rows")
-        .select("row")
-        .eq("table_id", t.id)
-        .range(from, from + PAGE - 1);
-      if (error || !chunk || chunk.length === 0) break;
-      allRows.push(...chunk.map((c) => c.row as Row));
-      if (chunk.length < PAGE) break;
-      from += PAGE;
+    // Through selectAllPages, which advances by the rows it RECEIVED.
+    //
+    // This loop advanced by the page it asked for, so a server returning fewer
+    // rows than requested left a hole rather than a short tail: ask 0-999,
+    // receive 500 because db-max-rows says so, then ask 1000-1999 and rows
+    // 500-999 are never read at all. The agent then answers questions from a
+    // table that is quietly missing its middle — and unlike a truncated read,
+    // nothing about the result says a row is absent. It also folded the page's
+    // error into the exhaustion test, and ordered by nothing at all, which is
+    // its own way of reading the same row twice.
+    const scan = await selectAllPages<{ row: unknown }>(
+      () =>
+        ctx.sb
+          .from("user_data_rows")
+          .select("row")
+          .eq("table_id", t.id)
+          .order("id", { ascending: true }),
+      SQL_TOOL_MAX_ROWS,
+    );
+    if (scan.truncated) {
+      throw new Error(
+        `"${t.name}" has more than ${SQL_TOOL_MAX_ROWS.toLocaleString()} rows — refusing to answer ` +
+          `from a prefix of it; narrow the question or raise SQL_TOOL_MAX_ROWS`,
+      );
     }
+    const allRows: Row[] = scan.rows.map((c) => c.row as Row);
     let columns = (Array.isArray(t.columns) ? t.columns : []) as ColumnDef[];
     let rows = allRows;
     // A dataset SHARED with this caller carries the grant's row filter and
@@ -189,6 +235,51 @@ export async function runSqlQuery(
   const capped = total > ROW_CAP;
   const limited = capped ? result.slice(0, ROW_CAP) : result;
   const columns = limited.length > 0 ? Object.keys(limited[0]) : [];
+  // A dataset read is a data read. The UI path audits dataset.query; this tool
+  // -- the one an agent actually uses -- wrote nothing, so an answer built from
+  // a dataset showed "no data reads recorded". Names the tables the SQL
+  // referenced (not merely those visible), so the trail says what was read.
+  // Word-boundary match on a lowercased copy, no dynamic RegExp: table names
+  // can contain characters that are regex metacharacters, and building a
+  // pattern from them is how an injection or a crash sneaks in. A substring
+  // with boundary checks is enough to say "this table was referenced".
+  const haystack = sql.toLowerCase();
+  const isWordChar = (ch: string) => /[a-z0-9_]/.test(ch);
+  const referenced = tables
+    .map((t) => t.name)
+    .filter((name) => {
+      const needle = name.toLowerCase();
+      let from = haystack.indexOf(needle);
+      while (from !== -1) {
+        const before = from === 0 ? "" : haystack[from - 1];
+        const after = haystack[from + needle.length] ?? "";
+        if (!isWordChar(before) && !isWordChar(after)) return true;
+        from = haystack.indexOf(needle, from + 1);
+      }
+      return false;
+    });
+  auditEvent({
+    userId: ctx.userId,
+    action: "dataset.query",
+    resourceType: "dataset",
+    resourceName: referenced.join(", ").slice(0, 200) || undefined,
+    decisionId: ctx.decisionId,
+    detail: {
+      via: "agent_tool",
+      agent_id: ctx.agentId ?? null,
+      tables: referenced,
+      row_count: limited.length,
+      total_matched: total,
+      capped,
+      // Recorded so the read can be REPLAYED: the query text, and a
+      // fingerprint of what it returned. Re-running a query later only
+      // proves the query runs; comparing today's result against the
+      // digest taken at the time is what shows whether the answer's
+      // data was what the record says it was.
+      sql: sql.slice(0, 4000),
+      result_digest: resultDigest(columns, limited),
+    },
+  });
   return JSON.stringify({
     sql,
     columns,

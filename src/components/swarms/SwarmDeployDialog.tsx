@@ -196,6 +196,15 @@ export function SwarmDeployDialog({
   // comparing against the in-memory canvas instead would promise to roll out
   // edits that were never saved.
   const [row, setRow] = useState<PublishableSwarm | null>(null);
+  // FOUND IN R188: each read dropped its error. A failed schedules read said
+  // "No schedules yet.", which invites adding the same schedule again and
+  // running the swarm twice on every tick; a failed keys or row read made a
+  // live swarm read "Not deployed". Why each list could not be read.
+  const [readErrors, setReadErrors] = useState<{
+    keys?: string;
+    schedules?: string;
+    row?: string;
+  }>({});
   const [publishing, setPublishing] = useState(false);
 
   // New-key form
@@ -219,30 +228,32 @@ export function SwarmDeployDialog({
   const load = useCallback(async () => {
     if (!swarmId) return;
     setLoading(true);
-    const [{ data: k }, { data: s }, { data: sw }] = await Promise.all([
-      supabase
-        .from("swarm_api_keys")
-        .select(
-          "id, name, key_prefix, reject_approvals, is_active, last_used_at, created_at, expires_at, last_used_ip, scopes",
-        )
-        .eq("swarm_id", swarmId)
-        .order("created_at", { ascending: false }),
-      supabase
-        .from("swarm_schedules")
-        .select(
-          "id, name, input, interval_minutes, reject_approvals, is_active, last_run_at, last_run_status, last_run_error",
-        )
-        .eq("swarm_id", swarmId)
-        .order("created_at", { ascending: false }),
-      supabase
-        .from("swarms")
-        .select("nodes, edges, published_nodes, published_edges, published_at")
-        .eq("id", swarmId)
-        .maybeSingle(),
-    ]);
-    setKeys((k ?? []) as ApiKeyRow[]);
-    setSchedules((s ?? []) as ScheduleRow[]);
-    setRow((sw ?? null) as PublishableSwarm | null);
+    const [{ data: k, error: kErr }, { data: s, error: sErr }, { data: sw, error: swErr }] =
+      await Promise.all([
+        supabase
+          .from("swarm_api_keys")
+          .select(
+            "id, name, key_prefix, reject_approvals, is_active, last_used_at, created_at, expires_at, last_used_ip, scopes",
+          )
+          .eq("swarm_id", swarmId)
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("swarm_schedules")
+          .select(
+            "id, name, input, interval_minutes, reject_approvals, is_active, last_run_at, last_run_status, last_run_error",
+          )
+          .eq("swarm_id", swarmId)
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("swarms")
+          .select("nodes, edges, published_nodes, published_edges, published_at")
+          .eq("id", swarmId)
+          .maybeSingle(),
+      ]);
+    setReadErrors({ keys: kErr?.message, schedules: sErr?.message, row: swErr?.message });
+    setKeys(kErr ? [] : ((k ?? []) as ApiKeyRow[]));
+    setSchedules(sErr ? [] : ((s ?? []) as ScheduleRow[]));
+    setRow(swErr ? null : ((sw ?? null) as PublishableSwarm | null));
     setLoading(false);
   }, [swarmId]);
 
@@ -308,7 +319,12 @@ export function SwarmDeployDialog({
   };
 
   const deployed = keys.length > 0 || schedules.length > 0;
-  const state = row ? deployState(row, deployed) : "not-deployed";
+  const state =
+    readErrors.keys || readErrors.schedules || readErrors.row
+      ? "unknown"
+      : row
+        ? deployState(row, deployed)
+        : "not-deployed";
   const copy = deployStateCopy(state);
   // Publish pins what is SAVED. If the canvas has moved on since the last save,
   // say so instead of letting the button appear to promote what is on screen.
@@ -426,15 +442,11 @@ export function SwarmDeployDialog({
                   {sandbox?.configured ? (
                     <>
                       JS_SANDBOX_URL is set but the service did not respond — check that{" "}
-                      <code className="font-mono">docker compose --profile sandbox up -d</code> is
-                      running.
+                      <code className="font-mono">docker compose up -d</code> is running.
                     </>
                   ) : (
                     <>
-                      Enable it with{" "}
-                      <code className="font-mono">
-                        docker compose --profile sandbox up -d --build
-                      </code>
+                      Enable it with <code className="font-mono">docker compose up -d --build</code>
                       . Until then these nodes work on the canvas only.
                     </>
                   )}
@@ -518,11 +530,28 @@ export function SwarmDeployDialog({
                 This swarm has {approvalNodes.length} human-approval step
                 {approvalNodes.length > 1 ? "s" : ""}
               </div>
+              {/* FOUND FROM THE SURVEY (R91). This warning used to say that
+                  turning the switch OFF made the swarm auto-approve every
+                  approval step and bypass human oversight. It is the other way
+                  round, and has been since checkpointing landed: ON throws at
+                  the gate, so nobody is ever asked; OFF parks the run and asks
+                  a person. Told the old story, the operator who wants human
+                  sign-off leaves ON — the one setting under which no human
+                  ever sees the request. Keep this copy in step with
+                  swarmExecute.server.ts, which says the same thing in the
+                  error it throws. */}
               <p className="mt-1 text-muted-foreground">
-                Nobody is present to decide them on a headless run. Leave{" "}
-                <strong>Reject approvals</strong> ON (the default) and those runs stop safely at the
-                gate. Turning it OFF makes the swarm <strong>auto-approve</strong> every approval
-                step — your human oversight is bypassed.
+                Nobody is watching a headless run, so <strong>Reject approvals</strong> decides what
+                happens at the gate. Neither setting approves anything on its own. ON (the default)
+                stops the run at the step and ends it as an <strong>error</strong>: nothing past the
+                gate runs, and nobody is asked. OFF <strong>parks</strong> the run instead — it
+                waits at the gate, the request lands in your approvals bell, and it carries on from
+                that step once someone decides.
+              </p>
+              <p className="mt-1 text-muted-foreground">
+                A parked run answers its caller with{" "}
+                <code className="font-mono">status: suspended</code> and no output, so keep this ON
+                for an integration that needs its answer in one call.
               </p>
             </div>
           </div>
@@ -657,6 +686,11 @@ export function SwarmDeployDialog({
               <div className="space-y-1.5">
                 {loading ? (
                   <p className="text-xs text-muted-foreground py-2">Loading…</p>
+                ) : readErrors.keys ? (
+                  <p className="text-xs text-destructive py-2">
+                    The keys could not be read, so this list says nothing about them:{" "}
+                    {readErrors.keys}
+                  </p>
                 ) : keys.length === 0 ? (
                   <p className="text-xs text-muted-foreground py-2">No keys yet.</p>
                 ) : (
@@ -795,7 +829,12 @@ export function SwarmDeployDialog({
                     <Switch checked={schedReject} onCheckedChange={setSchedReject} /> Reject
                     approvals
                   </label>
-                  <Button size="sm" className="h-8" onClick={addSchedule} disabled={addingSched}>
+                  <Button
+                    size="sm"
+                    className="h-8"
+                    onClick={addSchedule}
+                    disabled={addingSched || !!readErrors.schedules}
+                  >
                     {addingSched ? (
                       <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
                     ) : (
@@ -809,6 +848,12 @@ export function SwarmDeployDialog({
               <div className="space-y-1.5">
                 {loading ? (
                   <p className="text-xs text-muted-foreground py-2">Loading…</p>
+                ) : readErrors.schedules ? (
+                  <p className="text-xs text-destructive py-2">
+                    The schedules could not be read, so this list says nothing about them:{" "}
+                    {readErrors.schedules}. Adding one is off until they can be: an existing
+                    schedule would run the swarm twice.
+                  </p>
                 ) : schedules.length === 0 ? (
                   <p className="text-xs text-muted-foreground py-2">No schedules yet.</p>
                 ) : (

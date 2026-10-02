@@ -1,0 +1,415 @@
+import { createFileRoute } from "@tanstack/react-router";
+import {
+  C,
+  Callout,
+  Code,
+  DocLink,
+  DocsHeader,
+  H2,
+  H3,
+  NextPrev,
+  P,
+  Table,
+  UL,
+} from "@/components/docs/DocsShell";
+
+export const Route = createFileRoute("/docs/sheets")({
+  head: () => ({
+    meta: [
+      { title: "Sheets — AgentSwarms Documentation" },
+      {
+        name: "description",
+        content:
+          "Spreadsheets with Excel formulas over lakehouse-scale data: grid sheets computed in the browser, table sheets computed by the lakehouse, calculated columns, pivots, formulas over tables, saving to the lakehouse and the data catalog, sharing, and an AI assistant.",
+      },
+      { property: "og:title", content: "Sheets — AgentSwarms Documentation" },
+      {
+        property: "og:description",
+        content: "The Excel you know, on tables the size of the lakehouse.",
+      },
+      { property: "og:url", content: "https://agentswarms.fyi/docs/sheets" },
+      { property: "og:type", content: "article" },
+      { name: "twitter:card", content: "summary_large_image" },
+    ],
+    links: [{ rel: "canonical", href: "https://agentswarms.fyi/docs/sheets" }],
+  }),
+  component: SheetsDocsPage,
+});
+
+function SheetsDocsPage() {
+  return (
+    <>
+      <DocsHeader
+        eyebrow="Data & analytics"
+        title="Sheets"
+        description="Spreadsheets with the Excel formulas people already know, over data far larger than a browser could hold: the lakehouse computes the big tables, the browser only shows the rows on screen."
+      />
+
+      <H2 id="what">Two kinds of sheet</H2>
+      <P>
+        Find workbooks under <strong>Data &amp; BI → Sheets</strong>. A workbook holds grid sheets
+        and table sheets side by side, and formulas reach across both.
+      </P>
+      <Table
+        headers={["Sheet", "Data lives in", "Size", "Computed by"]}
+        rows={[
+          [
+            "Grid sheet",
+            "The workbook (cells, formats, styles)",
+            <>
+              Up to <C>SHEETS_MAX_CELLS</C> non-empty cells (200,000)
+            </>,
+            "The browser",
+          ],
+          [
+            "Table sheet",
+            "A lakehouse table; the sheet keeps only its view",
+            "As large as the lakehouse holds",
+            "The lakehouse",
+          ],
+        ]}
+      />
+
+      <H2 id="page">The Sheets page</H2>
+      <P>
+        Your workbooks, most recently edited first (any change to a sheet counts). Each shows the
+        corner of its first grid sheet as it reads, its sheets and the charts on it. Press <C>/</C>{" "}
+        to search names, descriptions and sheet names; sort by last edited, name or date created;
+        switch between cards and a list.
+      </P>
+      <P>
+        <strong>Samples to explore</strong> opens a sample workbook as your own: Sales performance
+        2026 (XLOOKUP, SUMIFS by month, a self-sorting leaderboard, four charts), a Project tracker
+        (late tasks in red, dropdowns, pie and radar charts) and Budget and cash flow (a scenario
+        that drives a 12-month model, with combo, area and scatter charts). They are real .xlsx
+        files, so they open in Excel too.
+      </P>
+
+      <H2 id="grid">Grid sheets</H2>
+      <P>
+        Type <C>=</C> and a formula. About 240 functions follow Excel&apos;s rules: SUMIFS and
+        COUNTIFS criteria, XLOOKUP, VLOOKUP and LOOKUP, SUBTOTAL (which leaves out filtered rows),
+        LET, OFFSET and INDIRECT, dynamic arrays that spill (UNIQUE, FILTER, SORT, SEQUENCE, TAKE,
+        VSTACK, TEXTSPLIT, with <C>#SPILL!</C> when a cell is in the way, and <C>A2#</C> for the
+        whole of what A2 spills), array formulas such as{" "}
+        <C>SUMPRODUCT(--ISNUMBER(SEARCH(&quot;x&quot;,A2:A9)))</C>, TEXT and date arithmetic,
+        whole-column and cross-sheet references, and Excel&apos;s precedence (<C>-2^2</C> is 4).
+        Statistics skip blank cells and text in a range, as Excel&apos;s do, and working days count
+        backwards as Excel counts them, as do DAYS360 and WEEKDAY&apos;s return types 11 to 17.
+        Dates follow Excel&apos;s 1900 system, its 29 February 1900 included, so the year of a blank
+        cell is 1900, as in Excel. A cell with an error explains it on hover. A number joined into
+        text keeps 15 significant digits, and ROUND, TRUNC, a number format and TEXT() all round
+        those digits (<C>=TEXT(2.675,&quot;0.00&quot;)</C> is 2.68, and TEXT of a blank is TEXT of
+        0). PROPER capitalises words in any alphabet (<C>=PROPER(&quot;ÉCOLE&quot;)</C> is École).
+        FLOOR and CEILING read the quotient at 15 digits, so they land on a decimal step (
+        <C>=FLOOR(4.35,0.05)</C> is 4.35) and still see a tenth of a billionth (
+        <C>=CEILING(0.0000000001,1)</C> is 1). A format past 15 digits shows zeros after the 15th,
+        as Excel does. Loan sheets have CUMIPMT and CUMPRINC, as in Excel.
+      </P>
+      <UL>
+        <li>
+          <strong>Typing formulas.</strong> Function names and the workbook&apos;s names are
+          suggested as you type (Tab inserts one), a hint shows the arguments, and clicking cells
+          inserts their reference.
+        </li>
+        <li>
+          <strong>Freeze panes.</strong> View → Freeze keeps the rows above and the columns left of
+          the active cell in view (or just the top row or first column) while the rest scrolls; an
+          Excel file&apos;s frozen panes come in with it.
+        </li>
+        <li>
+          <strong>Find and replace.</strong> Ctrl+F finds and Ctrl+H replaces, in the sheet or the
+          whole workbook, in what cells show or what was typed, with Excel&apos;s <C>*</C> and{" "}
+          <C>?</C>. Find All lists every match; Replace All is one Ctrl+Z to take back, and leaves
+          alone a formula the change would break.
+        </li>
+        <li>
+          <strong>Sheet tabs.</strong> A tab&apos;s menu renames, duplicates, moves, hides and
+          deletes the sheet. A hidden sheet&apos;s cells still count in formulas, and Unhide shows
+          it again; one sheet always stays showing. An Excel file&apos;s hidden and very hidden
+          sheets come in hidden and go back out hidden. Hiding does not keep a sheet from anyone the
+          workbook is shared with.
+        </li>
+        <li>
+          <strong>Paste special.</strong> Ctrl+Alt+V pastes all, formulas, values, formats or notes
+          of cells copied in the workbook; adds, subtracts, multiplies or divides them into the
+          cells they land on; skips blanks; or transposes rows and columns.
+        </li>
+        <li>
+          <strong>Remove duplicates.</strong> Data → Remove duplicates… takes out the rows of a list
+          that repeat an earlier one in the columns you check, comparing cells as they are shown and
+          ignoring case, as Excel does. The rows below move up; nothing outside the list moves.
+        </li>
+        <li>
+          <strong>Notes.</strong> Shift+F2 (or New note… on a cell&apos;s menu) writes a note on the
+          cell. A red corner marks it, and it shows on hover. Notes move with their rows in a sort,
+          come with a paste, and can be searched with Find (Look in: Notes). An Excel file&apos;s
+          notes come in, and go back out in a download.
+        </li>
+        <li>
+          <strong>Named ranges.</strong> Select cells and type a new name in the Name box to name
+          them; type a name there to go to its cells. Data → Names lists, adds, edits, renames and
+          deletes names, each with what it comes to now. Formulas use them as in Excel (
+          <C>=SUM(Revenue)*TaxRate</C>). A renamed name is renamed in every formula that uses it,
+          and names move with inserted rows, shifted cells and renamed sheets.
+        </li>
+        <li>
+          <strong>Keyboard.</strong> Enter/Tab commit and move, and Enter after a run of Tabs
+          returns to the row&apos;s first column. Ctrl+arrows jump across data, Shift extends, F2
+          edits, Ctrl+D/R fill, and Ctrl+Z/Y undo and redo, including row and column inserts.
+        </li>
+        <li>
+          <strong>Fill and clipboard.</strong> The fill handle continues number series, dates (by
+          the day, or by the month when they fall on the same day), times (by the hour), months and
+          days of the week, quarters and &quot;Item 1&quot; runs, and shifts formulas. Typing a time
+          (<C>9:00 AM</C>) or a date with its month&apos;s name (<C>15-Mar-2023</C>) makes a number,
+          as in Excel. Pasting inside the workbook shifts formulas; pasting from Excel or Google
+          Sheets brings values, recognising percentages, currency and dates.
+        </li>
+        <li>
+          <strong>Insert and delete cells.</strong> A cell&apos;s menu shifts neighbouring cells
+          right or down (insert) or left or up (delete), as Excel does; formulas pointing at the
+          moved cells follow them, validation lists and conditional formats included.
+        </li>
+        <li>
+          <strong>Version history.</strong> File → Version history keeps the workbook as it stood
+          (automatically as you edit, and by name); open a version as a copy, or restore it (what is
+          there now is kept first, so a restore can be undone).
+        </li>
+        <li>
+          <strong>Rows and columns.</strong> Inserting or deleting them moves every formula that
+          pointed at them, workbook-wide, and merged cells and row heights with them. New rows are
+          formatted like the row above and new columns like the one to the left, as Excel&apos;s
+          are; renaming a sheet rewrites the formulas that name it, in cells and in rules. A
+          header&apos;s right-click menu hides and unhides, and sets a row height in points or a
+          column width in characters.
+        </li>
+        <li>
+          <strong>Formatting.</strong> The ribbon&apos;s Home tab sets fonts and sizes, bold,
+          italic, underline and strikethrough, font and fill colors, borders, alignment, indent,
+          wrapping, merged cells (Merge &amp; Center, Merge Across) and number formats, with a
+          format painter and Clear. Rows grow for wrapped text and larger fonts. A format code such
+          as <C>#,##0;[Red]-#,##0</C> paints negatives red. Excel&apos;s durations (<C>[h]:mm</C>),
+          currency tags (<C>[$€-2]</C>), fractions (<C># ?/?</C>), conditions (<C>[&lt;10]</C>),
+          spacing (<C>_)</C>) and date codes in capitals work as in Excel. A formula typed into an
+          unformatted cell takes the format of what it reads: <C>=A1+30</C> over a date is a date,{" "}
+          <C>=SUM()</C> over dollars is dollars.
+        </li>
+        <li>
+          <strong>Conditional formatting.</strong> Home → Conditional highlights by value, text,
+          date, top or bottom N, average or duplicates, draws data bars, color scales and icon sets,
+          or applies a formula rule such as <C>=$C2&lt;0</C>. Manage rules sets their order.
+        </li>
+        <li>
+          <strong>Data validation.</strong> Data → Data validation limits cells to a list (with a
+          dropdown), numbers, dates, times, text lengths or a formula, with an input message and a
+          Stop, Warning or Information alert for a value that fails.
+        </li>
+        <li>
+          <strong>Filter and sort.</strong> Data → Filter (Ctrl+Shift+L) adds header buttons that
+          sort, keep ticked values or keep rows meeting a condition; Sort A to Z sorts the data
+          around the active cell, formulas moving with their rows. Data → Sort… sorts by several
+          columns in turn, each A to Z or Z to A. Text sorts as Excel sorts it (A10 before A2), the
+          order <C>=SORT()</C> and an approximate lookup use. A range with merged cells is not
+          sorted. Data → Text to columns… splits one column&apos;s text at commas, spaces or any
+          character into the cells to its right, asking before it writes over anything.
+        </li>
+        <li>
+          <strong>Charts.</strong> Insert → Chart draws column, bar, line, area, pie, doughnut,
+          scatter, column-and-line and radar charts of a range, previewed as you choose, with
+          titles, legends, labels and stacking. A chart floats over the grid, redraws as its cells
+          change, and moves, resizes and undoes like everything else.
+        </li>
+        <li>
+          <strong>Links and zoom.</strong> Ctrl+K links a cell to a web address, an email or a place
+          in the workbook (<C>#Summary!B6</C>); Ctrl+click follows it. <C>javascript:</C> and other
+          schemes are refused. The zoom (Ctrl+wheel, or the status bar) is kept per sheet.
+        </li>
+        <li>
+          <strong>Saving.</strong> Automatic, per sheet and versioned. A save from an older copy is
+          refused rather than written over the newer one: <strong>Reload theirs</strong> or{" "}
+          <strong>Keep mine</strong>.
+        </li>
+      </UL>
+
+      <H2 id="tables">Table sheets</H2>
+      <P>
+        <strong>+</strong> beside the sheet tabs → <strong>Table sheet</strong> opens a lakehouse
+        table, a table from the <DocLink to="/docs/data">data catalog</DocLink>, a table or query
+        from a database connection, or an uploaded CSV. Anything not already in the{" "}
+        <DocLink to="/docs/lakehouse">lakehouse</DocLink> is copied into a new table there first, in
+        a schema you own. An import never replaces a table; one from a connection can later be{" "}
+        <strong>refreshed from source</strong>.
+      </P>
+      <UL>
+        <li>
+          <strong>Query sheets.</strong> A table sheet&apos;s rows can be a SELECT over the
+          lakehouse (<strong>Lakehouse query</strong>), as a connected table is in Row Zero. Nothing
+          is copied: the query runs whenever the sheet is read, as whoever reads it, with their own
+          grants and policies. <strong>Refresh</strong> runs it again; <strong>Edit query</strong>{" "}
+          changes it and keeps the sheet&apos;s calculated columns, sort and filters.{" "}
+          <C>{"{{Region}}"}</C> in the query is the value of the workbook name Region, bound as a
+          value (never SQL): change the cell and the sheet, and the formulas over it, follow.
+        </li>
+        <li>
+          <strong>Sort and filter.</strong> The engine sorts and filters every row. A column&apos;s
+          value list shows counts across the whole table.
+        </li>
+        <li>
+          <strong>Paging.</strong> Rows arrive <C>SHEETS_PAGE_ROWS</C> at a time (500) as they
+          scroll into view.
+        </li>
+        <li>
+          <strong>Pivots.</strong> Group by some columns and total others. The pivot is itself a
+          table sheet you can sort, filter, extend and save.
+        </li>
+      </UL>
+
+      <H3 id="calculated-columns">Calculated columns</H3>
+      <P>
+        <strong>+ Column</strong> adds a column computed by an Excel formula for each row, compiled
+        into the query the lakehouse runs:
+      </P>
+      <Code lang="text">{`=[@price] * [@qty]
+=[@amount] / SUM([amount])
+=SUMIFS([amount], [customer], [@customer])
+=XLOOKUP([@customer_id], Customers[id], Customers[name], "unknown")
+=TEXT([@order_date], "yyyy-mm")`}</Code>
+      <P>
+        Excel&apos;s meaning is kept where SQL&apos;s differs: blanks count as 0 in arithmetic and
+        as &quot;&quot; in text, MIN, MAX and AVERAGE of a row&apos;s values skip a blank, text
+        compares without case, MOD follows the divisor&apos;s sign, ROUND, TRUNC and TEXT round the
+        15 digits Excel keeps (<C>ROUND(1.005,2)</C> is 1.01), a number in text has 15 digits,
+        PROPER starts a word after anything that is not a letter, and VLOOKUP defaults to an
+        approximate match, so a calculated column answers as the same formula in a grid sheet does.
+        A number with no value (a negative to a fractional power) shows #NUM!. Otherwise a table
+        column has no error values: a division by zero or a failed conversion leaves that row blank,
+        and IFERROR fills it. A formula that fails on some row is shown empty with the engine&apos;s
+        reason while the rest of the table still shows.
+      </P>
+
+      <H2 id="formulas-over-tables">Formulas over tables in grid sheets</H2>
+      <P>
+        A grid cell can total or look up a table sheet of any size. The lakehouse computes the
+        answer with the same compiler, and the cell shows <C>#BUSY!</C> meanwhile:
+      </P>
+      <Code lang="text">{`=SUMIFS(Orders[amount], Orders[region], A2)
+=XLOOKUP("APAC", RevenueByRegion[region], RevenueByRegion[sum_revenue])`}</Code>
+      <P>
+        SUM, AVERAGE, COUNT(A), MIN, MAX, MEDIAN, SUMPRODUCT, the IF(S) family, XLOOKUP, VLOOKUP,
+        INDEX/MATCH, RANK and ROWS are computed this way. Like a structured reference in Excel,
+        these formulas see every row of the table, not the sheet&apos;s filtered view.
+      </P>
+
+      <H2 id="files">Excel and CSV files</H2>
+      <P>
+        <strong>Import Excel or CSV</strong> on the Sheets page starts a workbook from a file, and{" "}
+        <strong>File → Import sheets</strong> adds a file&apos;s sheets to an open one. An .xlsx
+        brings its formulas (array formulas and newer functions such as XLOOKUP included), number
+        formats, fonts, fills, borders, alignment, merged cells, links, notes, widths, heights and
+        hidden rows and columns, and its named ranges (the import names any it leaves out). A
+        formula using a function Sheets does not compute yet shows the value Excel last saved,
+        marked, and goes back to Excel as written. A formula from older Excel is read as Excel 365
+        reads it: where it expects one value and meets a range, it takes the one in its own row, and
+        shows the <C>@</C> Excel 365 shows. A file&apos;s text stays text, even one that reads like
+        a number (<C>£1,234.50</C>, <C>1e5</C>). A CSV&apos;s delimiter is detected, and text that
+        looks like a formula stays text.
+      </P>
+      <P>
+        <strong>File → Download as Excel</strong> writes every sheet: grid sheets with their
+        formulas and current values, table sheets as Excel tables named like the sheet (so{" "}
+        <C>Orders[amount]</C> keeps working), up to <C>SHEETS_EXPORT_MAX_ROWS</C> rows each and read
+        with your own grants, and the workbook&apos;s names. A formula that spills, or that works
+        over a range where older Excel took one value, goes out as Excel 365&apos;s dynamic array
+        formula, so Excel computes it as Sheets does. <strong>Download this sheet as CSV</strong>{" "}
+        writes what the sheet shows. Conditional formatting, data validation, the filter&apos;s
+        range and charts go both ways: a chart arrives in Excel as an Excel chart over the same
+        cells.
+      </P>
+
+      <H2 id="save">Saving to the lakehouse and the catalog</H2>
+      <P>
+        <strong>Save to lakehouse</strong> writes a new table: what a table sheet shows, or a grid
+        range whose first row names the columns (types detected, both editable). With{" "}
+        <strong>Add it to the data catalog</strong> the table is registered at once with its
+        columns, owner, description, tags, certification if you ask for it, and lineage to the
+        tables it came from. It is ready for others to find and query.
+      </P>
+
+      <H2 id="sharing">Sharing</H2>
+      <P>
+        <strong>Share</strong>, beside File, gives a workbook to a person (by the email they sign in
+        with) or an IAM group, to view or to edit. Only the owner can import files, share or delete.
+        A share to view can leave sheets out and keep only some rows of a sheet: what is left out
+        never reaches the viewer&apos;s browser, and everything built on it (totals, lookups,
+        pivots, downloads) is computed without it. Table sheets read the lakehouse as whoever opens
+        them, with their own grants. <strong>View as</strong> shows the owner exactly what a share
+        sees. Shares are audited as <C>sheet.share</C> and <C>sheet.unshare</C>.
+      </P>
+
+      <H2 id="ai">AI in a workbook</H2>
+      <P>
+        <strong>Ask AI</strong> opens an assistant beside the grid. Ask in plain words (&quot;total
+        units for West&quot;, &quot;a summary sheet by region with a chart&quot;, &quot;why is H2
+        #N/A?&quot;). It reads the workbook as you see it, computes every number it states with a
+        formula (each step is listed under the answer), and proposes changes: a formula filled down,
+        values, a number format, a highlight, a chart or a new sheet.{" "}
+        <strong>Nothing changes until you apply a proposal</strong>, and each one undoes with
+        Ctrl+Z. Before they are shown, proposals are checked against the workbook; one that cannot
+        be carried out, changes nothing, or holds a formula that would show an error by itself goes
+        back to the model once with the reason.
+      </P>
+      <P>
+        <strong>Fill with AI</strong> applies an instruction to every value of a selected column
+        (classify, extract, clean up, translate) and writes the answers into another column. Answers
+        already typed there are used as examples; <strong>Try on 5 rows</strong> shows the first
+        five, and <strong>Fill</strong> writes them as shown and asks for the rest.
+      </P>
+      <UL>
+        <li>
+          Viewers can ask; applying and Fill with AI need edit. Sheets and rows a share leaves out
+          are not there for the assistant either.
+        </li>
+        <li>
+          The panel&apos;s Model row picks the model from your connected providers (IAM model rules
+          applied), with <C>SHEETS_ASSIST_MODEL</C>, set by an admin, as the default. The pick is
+          remembered in the browser and used by Fill with AI too, and each answer names its model.
+          Calls go through the chat channel, so IAM model rules, budgets, traces and cost apply.{" "}
+          <C>SHEETS_ASSIST_PER_MINUTE</C> (30) and <C>SHEETS_AI_FILL_MAX_ROWS</C> (2,000) bound
+          them.
+        </li>
+      </UL>
+
+      <H2 id="governance">Governance</H2>
+      <UL>
+        <li>
+          <strong>Same rules as a query.</strong> A table sheet reads through the path the Query
+          editor uses, with the same schema grants, row and column policies, and audit. The SQL is
+          built on the server from the sheet&apos;s settings, with every name quoted and every value
+          a literal.
+        </li>
+        <li>
+          <strong>Audit.</strong> Imports and saves are audited as <C>lakehouse.import</C>;
+          workbooks and sheets as row changes.
+        </li>
+        <li>
+          <strong>Limits.</strong> <C>SHEETS_MAX_CELLS</C> (200,000), <C>SHEETS_PAGE_ROWS</C> (500),{" "}
+          <C>SHEETS_UPLOAD_MAX_MB</C> (50), <C>SHEETS_IMPORT_MAX_SHEETS</C> (100),{" "}
+          <C>SHEETS_EXPORT_MAX_ROWS</C> (100,000), <C>SHEETS_VERSION_INTERVAL_MINUTES</C> (30) and{" "}
+          <C>SHEETS_VERSIONS_MAX</C> (50) are editable under Admin → Developer runtime. A direct
+          import from a connection is also bounded by <C>WAREHOUSE_ABS_MAX_ROWS</C>; a larger result
+          is refused, never truncated.
+        </li>
+      </UL>
+
+      <Callout title="How this compares">
+        Row Zero (now part of Databricks) made this shape popular: spreadsheet formulas on
+        warehouse-sized tables. Here the tables are the platform&apos;s own governed lakehouse, a
+        saved result lands in the catalog with lineage, and the same formulas work in a grid and in
+        a table&apos;s columns.
+      </Callout>
+
+      <NextPrev current="/docs/sheets" />
+    </>
+  );
+}

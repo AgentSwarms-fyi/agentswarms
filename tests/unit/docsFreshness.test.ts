@@ -15,7 +15,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { SAAS_PROVIDERS } from "@/utils/saas/types";
-import { WAREHOUSE_PROVIDERS } from "@/utils/warehouse/types";
+import { EXTERNAL_WAREHOUSE_PROVIDERS } from "@/utils/warehouse/types";
 
 const SKIP = new Set(["node_modules", ".git", "dist", ".output", ".vinxi", "coverage"]);
 
@@ -130,6 +130,22 @@ const UNDOCUMENTED_ON_PURPOSE = new Map<string, string>([
     "how orcIsolated.server passes the statement to its child — env rather " +
       "than argv so nothing sensitive shows in the process list",
   ],
+  [
+    "AGENTSWARMS_WORKERS",
+    "server.mjs publishes its own worker count to the workers it forked, so " +
+      "the app can size per-process resources without re-deriving the number " +
+      "and disagreeing with it. Derived from WEB_CONCURRENCY / the CPU quota / " +
+      "APP_ROLE, all of which ARE documented. Setting it by hand would not " +
+      "change how many processes exist, only what the admin page believes",
+  ],
+  [
+    "AGENTSWARMS_BOOT_TOKEN",
+    "minted by server.mjs from 32 random bytes at every boot, before any " +
+      "worker forks, so each worker can start its own scheduler through " +
+      "/api/bi/cron in-process (R95). Not an operator setting: a value set by " +
+      "hand is overwritten at boot, and documenting it would invite someone " +
+      "to put a guessable one in an .env file",
+  ],
   // Developer tooling, documented in the script/file that reads them.
   ["BENCH_N", "scripts/bench-pool.ts, documented in its header"],
   ["BENCH_PG_HOST", "scripts/bench-pool.ts"],
@@ -165,7 +181,7 @@ describe("the docs do not promise settings that do nothing", () => {
   // every UPPER_SNAKE token drags in SQL identifiers, sample secret names and
   // doc filenames, and the noise makes the check useless.
   const OWNED =
-    /^(WAREHOUSE|CONNECTOR|CONNECTION|CREDENTIAL|PARQUET|LOCAL_ENGINE|SWARM_RUN|NOTEBOOK|PREP|BI_CRON|AUDIT|OTEL|TRACE|PROVIDER_CREDS|INTERNAL_RUN|INTEGRATION_HEALTH)_[A-Z0-9_]+$/;
+    /^(WAREHOUSE|CONNECTOR|CONNECTION|CREDENTIAL|PARQUET|LOCAL_ENGINE|SWARM_RUN|NOTEBOOK|PREP|BI_CRON|AUDIT|OTEL|TRACE|PROVIDER_CREDS|INTERNAL_RUN|INTEGRATION_HEALTH|VECTOR|QDRANT)_[A-Z0-9_]+$/;
 
   /**
    * Names a doc mentions in order to say they do NOT exist.
@@ -260,11 +276,18 @@ describe("connector counts in prose match the code", () => {
   });
 
   it("the numbers the docs do state are the real ones", () => {
-    expect(WAREHOUSE_PROVIDERS.length).toBe(22);
-    expect(SAAS_PROVIDERS.length).toBe(5);
+    expect(EXTERNAL_WAREHOUSE_PROVIDERS.length).toBe(22);
+    // Jira and Zendesk joined the five that covered finance, commerce and CRM;
+    // ServiceNow, Intercom and GitHub added the ITSM instance, the customer
+    // inbox and the repositories. Hardcoded ON PURPOSE: adding a connector
+    // should make somebody look at every number the docs quote, which is what
+    // this failing did.
+    expect(SAAS_PROVIDERS.length).toBe(17);
     const readme = readFileSync("README.md", "utf8");
-    expect(readme).toContain(`${WAREHOUSE_PROVIDERS.length} databases and warehouses`);
-    expect(readme).toContain(`${WAREHOUSE_PROVIDERS.length + SAAS_PROVIDERS.length} connectors`);
+    expect(readme).toContain(`${EXTERNAL_WAREHOUSE_PROVIDERS.length} databases and warehouses`);
+    expect(readme).toContain(
+      `${EXTERNAL_WAREHOUSE_PROVIDERS.length + SAAS_PROVIDERS.length} connectors`,
+    );
   });
 });
 

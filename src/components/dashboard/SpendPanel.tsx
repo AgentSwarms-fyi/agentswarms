@@ -9,6 +9,7 @@
 // Rendering "Whole organisation" to someone who will be refused is a worse
 // experience than not offering it, and quietly downgrading them to their own
 // numbers under an org label would be a lie.
+import { formatUsd } from "@/lib/usd";
 import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, Loader2, Users } from "lucide-react";
 import { useServerFn } from "@tanstack/react-start";
@@ -33,7 +34,7 @@ import {
   type DashboardScope,
 } from "@/utils/dashboard/scope";
 
-const usd = (n: number) => (n >= 1 ? `$${n.toFixed(2)}` : n > 0 ? `$${n.toFixed(4)}` : "$0.00");
+const usd = (n: number) => formatUsd(n);
 
 const compact = (n: number) =>
   n >= 1_000_000

@@ -1,4 +1,5 @@
 // Data Catalog browser: a sources rail, a searchable/filterable asset
+import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 // inventory, and a detail sheet with column-level metadata, PII flags
 // and user curation (description + tags, which survive re-crawls).
@@ -28,6 +29,7 @@ import {
   Play,
   Plug,
   Plus,
+  AlertTriangle,
   RefreshCw,
   Search,
   Server,
@@ -160,6 +162,28 @@ export function CatalogView({
   const [sources, setSources] = useState<CatalogSource[]>([]);
   const [assets, setAssets] = useState<CatalogAsset[]>([]);
   const [localAssets, setLocalAssets] = useState<UnifiedAsset[]>([]);
+  // MEASURED with every user_data_tables read rejected: the catalog answered
+  // "All assets 21 · Local tables 0 · 21 of 21 assets" over a warn nobody
+  // sees — 33 assets gone, and a search for any of them "no results". A
+  // failed local hydration is not an empty account: the last good list stays,
+  // and this says why it may not be current.
+  const [localError, setLocalError] = useState<string | null>(null);
+  /** The local half of the catalog is UNKNOWN, not merely empty. */
+  const localUnknown = localError !== null && localAssets.length === 0;
+  // The local half has not been READ yet — a different thing from empty or
+  // failed. MEASURED on a fresh load, sampled every two seconds: "Local tables
+  // 0" for the first ten seconds, then "33" for two more (a pass made before
+  // the session had resolved, with no token and so no connections), then 26.
+  // Zero and thirty-three were both painted as facts.
+  const [localLoaded, setLocalLoaded] = useState(false);
+  const localLoading = !localLoaded && localError === null;
+  // Where each synced dataset came from — the last answer that was READ, kept
+  // across a failed re-read so a connector's tables are not re-filed as
+  // uploads. Null until a read has landed.
+  const lastAttributionRef = useRef<SaasAttributionRow[] | null>(null);
+  const lastConnsRef = useRef<SaasConnectionSummary[] | null>(null);
+  const [attributionError, setAttributionError] = useState<string | null>(null);
+  const [attributionKnown, setAttributionKnown] = useState(false);
   const [quality, setQuality] = useState<Map<string, QualityRollup>>(new Map());
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -192,6 +216,11 @@ export function CatalogView({
    * refetched CRAWLED assets.
    */
   const reloadLocal = useCallback(async (): Promise<UnifiedAsset[]> => {
+    // No session yet means no connections can be asked for, and a pass made
+    // now files every synced dataset as an upload until the token-driven
+    // re-run lands two seconds later. Wait for it: this callback is rebuilt
+    // on the token, and the mount effect runs again with it.
+    if (!token) return [];
     try {
       const tables = await hydrateFromSupabase();
       // WHERE A SYNCED DATASET CAME FROM.
@@ -202,26 +231,44 @@ export function CatalogView({
       // under "Local tables", which is true about their storage and useless
       // about their origin. saas_connection_id (migration 20260832000000) is
       // the fact; source_filename was only ever a label to read.
-      const [{ data: attribution }, connections] = await Promise.all([
+      const [attributionRes, connectionsRes] = await Promise.all([
         // Cast through unknown: types.ts is generated from the DEPLOYED schema
         // and these columns ship in migration 20260832000000. Regenerating
         // types after applying it removes the need.
         supabase.from("user_data_tables").select("id, saas_connection_id") as unknown as Promise<{
           data: SaasAttributionRow[] | null;
+          error: { message: string } | null;
         }>,
         // The SAME server function the Integration Hub calls, not a direct
         // table read. Two pages that answer "when did this last sync?" from
         // two different queries eventually disagree — and the direct read
         // cannot see sources reached through an IAM grant at all.
         token
-          ? listConnectionsFn({ data: { access_token: token } }).catch(() => [])
-          : Promise.resolve([]),
+          ? listConnectionsFn({ data: { access_token: token } }).then(
+              (c) => ({ conns: c, error: null as string | null }),
+              (e: unknown) => ({ conns: null, error: (e as Error).message }),
+            )
+          : Promise.resolve({ conns: [] as SaasConnectionSummary[], error: null as string | null }),
       ]);
-      const conns = connections;
+      // MEASURED with the attribution read rejected: "Local tables 33" where 26,
+      // the connector's row gone from the Sources panel and its seven synced
+      // datasets filed as uploads — no toast, no banner. A failed read of WHERE
+      // a table came from is not "it came from here". The last known answer
+      // stands; until there is one, the tables sit under Local tables and the
+      // banner says so.
+      const failures = [attributionRes.error?.message, connectionsRes.error].filter(
+        (m): m is string => typeof m === "string",
+      );
+      if (!attributionRes.error) lastAttributionRef.current = attributionRes.data ?? [];
+      if (connectionsRes.conns) lastConnsRef.current = connectionsRes.conns;
+      const attribution = lastAttributionRef.current ?? [];
+      const conns = lastConnsRef.current ?? [];
+      setAttributionError(failures.length ? failures.join("; ") : null);
+      setAttributionKnown(lastAttributionRef.current !== null && lastConnsRef.current !== null);
       setSaasConnections(conns);
       const saasList = saasSourcesFrom(conns);
       setSaasSources(saasList);
-      const saasByTable = datasetSourceIds(attribution ?? [], conns);
+      const saasByTable = datasetSourceIds(attribution, conns);
       const providerBySource = new Map(saasList.map((s) => [s.id, s.provider]));
       const mapped: UnifiedAsset[] = tables.map((d) => {
         const columns = d.columns.map((c) => ({
@@ -271,6 +318,8 @@ export function CatalogView({
         };
       });
       setLocalAssets(mapped);
+      setLocalError(null);
+      setLocalLoaded(true);
       return mapped;
     } catch (e) {
       // Local tables disappearing from the catalog while the Workbench and
@@ -278,12 +327,19 @@ export function CatalogView({
       // not an empty account. Bare, this catch reported the two as the same
       // thing: an empty "Local tables" filter and no way to tell which.
       console.warn("[Catalog] local table hydration failed", e);
-      setLocalAssets([]);
+      setLocalError((e as Error).message);
+      setLocalLoaded(true);
       return [];
     }
   }, [myId, token, listConnectionsFn]);
 
   const reload = useCallback(async () => {
+    // Local hydration runs ALONGSIDE the crawled reads, not inside the same
+    // await: it spins up DuckDB-WASM, and a wedged worker (cold dev-server
+    // optimize, slow disk) used to hold the ENTIRE catalog at skeletons even
+    // though every crawled query had long since returned. It still refreshes
+    // on every reload and sets its own state when it lands.
+    void reloadLocal();
     try {
       const [src, ast, lin, terms, srcLin] = await Promise.all([
         listCatalogSources(),
@@ -291,9 +347,6 @@ export function CatalogView({
         loadLineageIndex(),
         listGlossaryTerms(),
         loadCatalogLineage(),
-        // Refresh has to cover local datasets too, or it silently refreshes
-        // only half the list the user is looking at.
-        reloadLocal(),
       ]);
       setSources(src);
       setAssets(ast);
@@ -421,7 +474,7 @@ export function CatalogView({
   async function removeSource(source: CatalogSource) {
     if (!ownsSource(source))
       return toast.error("This source is shared read-only — only its owner can remove it");
-    if (!window.confirm(`Remove "${source.name}" and its cataloged assets?`)) return;
+    if (!(await confirmAsk({ title: `Remove "${source.name}" and its cataloged assets?` }))) return;
     const res = await deleteFn({ data: { access_token: token, source_id: source.id } });
     if (!res.ok) return toast.error(res.error);
     toast.success("Source removed");
@@ -556,7 +609,12 @@ export function CatalogView({
    */
   // `.avro` is deliberately absent: the file is cataloged, but DuckDB has no
   // Avro build for this version, so the button would only ever error.
-  const QUERYABLE_OBJECT = /\.(parquet|csv|tsv|json|ndjson|jsonl|orc)$/i;
+  // The `(\.gz)?` is what makes the button appear on a compressed dataset: dlt
+  // gzips text output, so a folder of jsonl is globbed `*.jsonl.gz`, and an
+  // anchored extension test without it hides the button on exactly the assets
+  // this product writes most often. DuckDB decompresses by extension, so the
+  // query behind the button works.
+  const QUERYABLE_OBJECT = /\.(parquet|csv|tsv|json|ndjson|jsonl|orc)(\.gz)?$/i;
 
   const queryable = (a: UnifiedAsset) => {
     if (a.local) return true;
@@ -636,7 +694,19 @@ export function CatalogView({
               }`}
             >
               <Database className="h-3.5 w-3.5" /> All assets
-              <span className="ml-auto text-[10px] text-muted-foreground">{allAssets.length}</span>
+              <span
+                className="ml-auto text-[10px] text-muted-foreground"
+                title={
+                  localUnknown
+                    ? "Local tables could not be loaded — crawled assets only"
+                    : localLoading
+                      ? "Local tables are still loading — crawled assets only"
+                      : undefined
+                }
+              >
+                {allAssets.length}
+                {localUnknown || localLoading ? "+" : ""}
+              </span>
             </button>
             <button
               type="button"
@@ -649,7 +719,11 @@ export function CatalogView({
             >
               <HardDrive className="h-3.5 w-3.5" /> Local tables
               <span className="ml-auto text-[10px] text-muted-foreground">
-                {localAssets.filter((a) => a.source_id === LOCAL_SOURCE_ID).length}
+                {localUnknown
+                  ? "—"
+                  : localLoading
+                    ? "…"
+                    : localAssets.filter((a) => a.source_id === LOCAL_SOURCE_ID).length}
               </span>
             </button>
 
@@ -949,10 +1023,43 @@ export function CatalogView({
             <BookMarked className="h-3.5 w-3.5" /> Glossary
           </Button>
           <span className="ml-auto text-[11px] text-muted-foreground">
-            {filtered.length} of {allAssets.length} assets
+            {filtered.length} of {allAssets.length}
+            {localUnknown || localLoading ? "+" : ""} assets
           </span>
         </div>
 
+        {localError ? (
+          <div
+            className="flex items-center gap-2 border-b border-amber-300/60 bg-amber-50 px-3 py-1.5 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300"
+            data-testid="catalog-local-error"
+          >
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+            <span className="min-w-0 flex-1">
+              {localUnknown
+                ? `Local tables could not be loaded: ${localError}`
+                : `Local tables may be stale — the last reload failed: ${localError}`}
+            </span>
+            <button type="button" className="underline" onClick={() => void reloadLocal()}>
+              Retry
+            </button>
+          </div>
+        ) : null}
+        {attributionError ? (
+          <div
+            className="flex items-center gap-2 border-b border-amber-300/60 bg-amber-50 px-3 py-1.5 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300"
+            data-testid="catalog-attribution-error"
+          >
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+            <span className="min-w-0 flex-1">
+              {attributionKnown
+                ? `Where synced datasets came from could not be re-read — showing the last known attribution: ${attributionError}`
+                : `Where synced datasets came from could not be read — they are listed under Local tables until it can be: ${attributionError}`}
+            </span>
+            <button type="button" className="underline" onClick={() => void reloadLocal()}>
+              Retry
+            </button>
+          </div>
+        ) : null}
         <ScrollArea className="min-h-0 flex-1">
           {loading ? (
             <div className="space-y-0 p-3" aria-label="Loading catalog">
@@ -1217,6 +1324,8 @@ function AssetSheet({
   const [biModel] = useBiModelPref();
   const [description, setDescription] = useState("");
   const [tagsInput, setTagsInput] = useState("");
+  // Per-column tags, comma-separated as typed; a lakehouse tag policy keys on them.
+  const [columnTags, setColumnTags] = useState<Record<string, string>>({});
   const [owner, setOwner] = useState("");
   const [status, setStatus] = useState<CatalogAssetStatus>("draft");
   const [saving, setSaving] = useState(false);
@@ -1225,17 +1334,55 @@ function AssetSheet({
   useEffect(() => {
     setDescription(asset?.description ?? "");
     setTagsInput(asset?.tags.join(", ") ?? "");
+    setColumnTags(
+      Object.fromEntries((asset?.columns ?? []).map((c) => [c.name, (c.tags ?? []).join(", ")])),
+    );
     setOwner(asset?.owner ?? "");
     setStatus(asset?.status ?? "draft");
   }, [asset]);
 
   if (!asset) return null;
+  const parseTags = (raw: string) =>
+    raw
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean)
+      .slice(0, 12);
+  const columnTagsDirty = asset.columns.some(
+    (c) => parseTags(columnTags[c.name] ?? "").join(",") !== (c.tags ?? []).join(","),
+  );
   const dirty =
     description !== (asset.description ?? "") ||
     tagsInput !== asset.tags.join(", ") ||
+    columnTagsDirty ||
     owner !== (asset.owner ?? "") ||
     status !== asset.status;
   const hasStats = asset.columns.some((c) => c.null_pct !== undefined);
+  // Table-level edges make the chips; column-level edges make the per-column
+  // list, grouped by this asset's column.
+  const tableUp = sourceLineage.upstream.filter((e) => !e.downstream_column);
+  const tableDown = sourceLineage.downstream.filter((e) => !e.upstream_column);
+  const groupBy = (edges: CatalogLineageEdge[], key: (e: CatalogLineageEdge) => string | null) => {
+    const m = new Map<string, CatalogLineageEdge[]>();
+    for (const e of edges) {
+      const k = key(e);
+      if (k) m.set(k, [...(m.get(k) ?? []), e]);
+    }
+    return m;
+  };
+  const upByColumn = groupBy(
+    sourceLineage.upstream.filter((e) => e.downstream_column),
+    (e) => e.downstream_column,
+  );
+  const downByColumn = groupBy(
+    sourceLineage.downstream.filter((e) => e.upstream_column),
+    (e) => e.upstream_column,
+  );
+  const lineageColumns = [...new Set([...upByColumn.keys(), ...downByColumn.keys()])].sort();
+  // Last two segments — of the PATH for an object fqn, of the dotted name
+  // otherwise. `finance/recon_exceptions/*.jsonl.gz` is not three names.
+  const shortFqn = (fqn: string) =>
+    fqn.includes("/") ? fqn.split("/").slice(-2).join("/") : fqn.split(".").slice(-2).join(".");
 
   async function save() {
     if (!asset || asset.local) return;
@@ -1251,6 +1398,15 @@ function AssetSheet({
         tags,
         owner: owner.trim() || null,
         status,
+        ...(columnTagsDirty
+          ? {
+              columns: asset.columns.map((c) => {
+                const next = parseTags(columnTags[c.name] ?? "");
+                const { tags: _old, ...rest } = c;
+                return next.length ? { ...rest, tags: next } : rest;
+              }),
+            }
+          : {}),
       };
       await updateCatalogAsset(asset.id, patch);
       onSaved(patch);
@@ -1386,18 +1542,18 @@ function AssetSheet({
               </div>
             )}
 
-            {(sourceLineage.upstream.length > 0 || sourceLineage.downstream.length > 0) && (
+            {(tableUp.length > 0 || tableDown.length > 0) && (
               <div>
                 <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                   Data lineage <span className="font-normal normal-case">· from source</span>
                 </p>
-                {sourceLineage.upstream.length > 0 && (
+                {tableUp.length > 0 && (
                   <div className="mb-2">
                     <span className="text-[11px] text-muted-foreground">
-                      Upstream ({sourceLineage.upstream.length}):
+                      Upstream ({tableUp.length}):
                     </span>
                     <div className="mt-1 flex flex-wrap gap-1">
-                      {sourceLineage.upstream.slice(0, 40).map((e, i) => (
+                      {tableUp.slice(0, 40).map((e, i) => (
                         <span
                           key={i}
                           className="rounded-full border border-border bg-muted/40 px-2 py-0.5 font-mono text-[10px]"
@@ -1410,13 +1566,13 @@ function AssetSheet({
                     </div>
                   </div>
                 )}
-                {sourceLineage.downstream.length > 0 && (
+                {tableDown.length > 0 && (
                   <div>
                     <span className="text-[11px] text-muted-foreground">
-                      Downstream ({sourceLineage.downstream.length}):
+                      Downstream ({tableDown.length}):
                     </span>
                     <div className="mt-1 flex flex-wrap gap-1">
-                      {sourceLineage.downstream.slice(0, 40).map((e, i) => (
+                      {tableDown.slice(0, 40).map((e, i) => (
                         <span
                           key={i}
                           className="rounded-full border border-border bg-muted/40 px-2 py-0.5 font-mono text-[10px]"
@@ -1429,6 +1585,47 @@ function AssetSheet({
                     </div>
                   </div>
                 )}
+              </div>
+            )}
+
+            {lineageColumns.length > 0 && (
+              <div>
+                <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Column lineage{" "}
+                  <span className="font-normal normal-case">
+                    · traced through pipelines and models
+                  </span>
+                </p>
+                <div className="space-y-1">
+                  {lineageColumns.slice(0, 80).map((col) => (
+                    <div key={col} className="flex flex-wrap items-center gap-1 text-[10px]">
+                      <span className="font-mono font-medium">{col}</span>
+                      {(upByColumn.get(col) ?? []).slice(0, 12).map((e, i) => (
+                        <span
+                          key={`u${i}`}
+                          className="rounded-full border border-border bg-muted/40 px-2 py-0.5 font-mono"
+                          title={
+                            e.exact
+                              ? `from ${e.upstream_fqn}.${e.upstream_column}`
+                              : `through a Python or SQL step the tracer cannot read: one of every input column, including ${e.upstream_fqn}.${e.upstream_column}`
+                          }
+                        >
+                          ← {e.exact ? "" : "≈ "}
+                          {shortFqn(e.upstream_fqn)}.{e.upstream_column}
+                        </span>
+                      ))}
+                      {(downByColumn.get(col) ?? []).slice(0, 12).map((e, i) => (
+                        <span
+                          key={`d${i}`}
+                          className="rounded-full border border-border bg-muted/40 px-2 py-0.5 font-mono"
+                          title={`feeds ${e.downstream_fqn}.${e.downstream_column}`}
+                        >
+                          → {shortFqn(e.downstream_fqn)}.{e.downstream_column}
+                        </span>
+                      ))}
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 
@@ -1450,7 +1647,7 @@ function AssetSheet({
               </p>
               {asset.columns.length === 0 ? (
                 <p className="text-xs text-muted-foreground">
-                  No column metadata \u2014{" "}
+                  No column metadata —{" "}
                   {asset.format === "parquet" || asset.format === "compressed"
                     ? "binary formats aren't sampled."
                     : "this asset wasn't sampled during the crawl."}
@@ -1480,6 +1677,14 @@ function AssetSheet({
                           <th className="px-2 py-1 text-[10px] font-medium text-muted-foreground">
                             Sample
                           </th>
+                          {!asset.local && (
+                            <th
+                              className="px-2 py-1 text-[10px] font-medium text-muted-foreground"
+                              title="Comma-separated. A lakehouse tag policy masks every column carrying its tag."
+                            >
+                              Tags
+                            </th>
+                          )}
                         </tr>
                       </thead>
                       <tbody>
@@ -1508,7 +1713,7 @@ function AssetSheet({
                               {c.type}
                               {c.min !== undefined && c.max !== undefined && (
                                 <p className="text-[9px] text-muted-foreground/70">
-                                  {fmtCount(c.min)}\u2013{fmtCount(c.max)}
+                                  {fmtCount(c.min)}–{fmtCount(c.max)}
                                 </p>
                               )}
                             </td>
@@ -1530,6 +1735,19 @@ function AssetSheet({
                             >
                               {c.sample ?? ""}
                             </td>
+                            {!asset.local && (
+                              <td className="px-2 py-1">
+                                <Input
+                                  value={columnTags[c.name] ?? ""}
+                                  onChange={(e) =>
+                                    setColumnTags((prev) => ({ ...prev, [c.name]: e.target.value }))
+                                  }
+                                  placeholder="pii"
+                                  aria-label={`Tags for column ${c.name}`}
+                                  className="h-6 w-28 font-mono text-[10px]"
+                                />
+                              </td>
+                            )}
                           </tr>
                         ))}
                       </tbody>
@@ -1573,10 +1791,10 @@ function AssetSheet({
                           Draft
                         </SelectItem>
                         <SelectItem value="certified" className="text-xs">
-                          Certified \u2014 trusted for analysis
+                          Certified — trusted for analysis
                         </SelectItem>
                         <SelectItem value="deprecated" className="text-xs">
-                          Deprecated \u2014 avoid using
+                          Deprecated — avoid using
                         </SelectItem>
                       </SelectContent>
                     </Select>

@@ -11,6 +11,7 @@
 // can surface classification at a glance. Crawls are bounded (object,
 // sample and byte caps) so a huge bucket cannot wedge the server.
 import { createHash } from "node:crypto";
+import zlib from "node:zlib";
 
 import type { Database, Json } from "@/integrations/supabase/types";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
@@ -25,6 +26,7 @@ import {
   fileFormat,
   inferColumns,
   listObjects,
+  objectExt,
   sampleObject,
   type InferredColumn,
   type ObjectStoreConfig,
@@ -68,6 +70,8 @@ export type CatalogColumn = {
   pii?: boolean;
   /** Curation/AI documentation — preserved across re-crawls. */
   description?: string;
+  /** Owner-written tags, merged forward from the previous crawl. */
+  tags?: string[];
   /** Source-of-truth comment ingested from the external catalog (e.g. Unity
    *  Catalog column comment). Crawler-owned; refreshed each crawl. */
   comment?: string;
@@ -145,6 +149,40 @@ function classify(columns: { name: string; type: string; sample?: string }[]): {
 
 /** Best-effort row estimates from provider stats — one query, never COUNT(*). */
 async function rowEstimates(config: WarehouseConfig): Promise<Map<string, number>> {
+  if (config.provider === "lakehouse") {
+    // Counts through the same governed engine the queries use — the schema
+    // list is already access-filtered by the connection owner's grants.
+    if (!config.user_id) return new Map();
+    const { accessibleSchemas, lakehouseConnection } =
+      await import("@/utils/lakehouse/core.server");
+    const allowed = await accessibleSchemas(config.user_id);
+    if (!allowed.length) return new Map();
+    const c = await lakehouseConnection();
+    try {
+      const names = allowed.map((sch) => `'${sch.name}'`).join(", ");
+      const tables = await (
+        await c.run(
+          `SELECT table_schema, table_name FROM information_schema.tables
+           WHERE table_catalog = 'lake' AND table_schema IN (${names}) LIMIT 100`,
+        )
+      ).getRows();
+      if (!tables.length) return new Map();
+      const union = tables
+        .map(
+          (r) =>
+            `SELECT '${String(r[0])}' AS s, '${String(r[1])}' AS t, count(*)::BIGINT AS rc FROM "${String(r[0])}"."${String(r[1])}"`,
+        )
+        .join(" UNION ALL ");
+      const counts = await (await c.run(union)).getRows();
+      return new Map(
+        counts.map((r) => [`${String(r[0])}.${String(r[1])}`.toLowerCase(), Number(r[2])]),
+      );
+    } catch {
+      return new Map();
+    } finally {
+      c.closeSync();
+    }
+  }
   const sqlByProvider: Partial<Record<WarehouseConfig["provider"], string>> = {
     postgres: `SELECT n.nspname AS s, c.relname AS t, GREATEST(c.reltuples, 0)::bigint AS rc
       FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -360,9 +398,28 @@ type ObjectGroup = {
  * into one "dataset" asset (the Glue-crawler convention for partitioned
  * data lakes); lone files become individual assets.
  */
+/**
+ * Metadata paths by data-lake convention: any segment starting with "_" or "."
+ * is tool bookkeeping, not data — the same rule Spark, Hive and Athena apply.
+ * Concretely this hides dlt's _dlt_loads/_dlt_version/_dlt_pipeline_state
+ * folders and pipeline watermarks under _state/, which an ETL destination
+ * crawl would otherwise present as datasets beside the real tables.
+ */
+export function isMetadataPath(key: string): boolean {
+  const segs = key.split("/");
+  if (segs.some((seg) => seg.startsWith("_") || seg.startsWith("."))) return true;
+  // Iceberg table layout: <table>/metadata/*.metadata.json + manifest avros
+  // beside <table>/data/*.parquet. Delta hides itself (_delta_log), Iceberg
+  // does not — scope the rule to json/avro under a metadata/ segment so a
+  // real dataset named "metadata" full of csvs still catalogs.
+  const inMetadataDir = segs.slice(0, -1).includes("metadata");
+  return inMetadataDir && /\.(json|avro|txt)$/i.test(key);
+}
+
 export function groupObjects(objects: StoredObject[]): ObjectGroup[] {
   const groups = new Map<string, ObjectGroup>();
   for (const o of objects) {
+    if (isMetadataPath(o.key)) continue;
     const slash = o.key.lastIndexOf("/");
     const dir = slash === -1 ? "" : o.key.slice(0, slash);
     const format = fileFormat(o.key);
@@ -374,15 +431,91 @@ export function groupObjects(objects: StoredObject[]): ObjectGroup[] {
   return [...groups.values()];
 }
 
-/** Rough row estimate for a text file: bytes-per-line from the sample. */
-function estimateRows(sample: Buffer, totalBytes: number, format: string | null): number | null {
+/**
+ * A folder of same-format files is a dataset even when the folder holds a
+ * single file: table-per-folder layouts (dlt, Hive, Iceberg data dirs) write
+ * exactly one file per load, and the folder name IS the table name. Only a
+ * bare file at the bucket root stays a plain file asset.
+ */
+export function isDatasetGroup(g: ObjectGroup): boolean {
+  return g.format !== null && (g.objects.length > 1 || g.dir !== "");
+}
+
+/**
+ * The extension a dataset's glob must carry.
+ *
+ * `g.format` is the LOGICAL format, and for compressed text that is not the
+ * extension: a folder of `*.jsonl.gz` files has format "ndjson", and
+ * `*.ndjson` matches none of them. One writer per folder is the normal shape,
+ * so a single shared extension is the answer; when a folder somehow mixes
+ * spellings, fall back to the format rather than picking one and silently
+ * excluding the rest.
+ */
+function groupExt(g: ObjectGroup): string | null {
+  const exts = new Set(g.objects.map((o) => objectExt(o.key)).filter(Boolean));
+  return exts.size === 1 ? [...exts][0] : g.format;
+}
+
+/**
+ * The fqn a crawled group is stored under — a glob for a dataset, the key
+ * itself for a lone file.
+ *
+ * This string is the join key for the whole catalog: the Workbench reads the
+ * bucket through it, an ETL catalog-asset source resolves to it, and
+ * `catalog_lineage.downstream_fqn` (written from what a RUN reports) is
+ * matched against it. It has to name files that exist — `finance/x/*.ndjson`
+ * over a folder holding `<load>.jsonl.gz` is a catalog entry nothing can open.
+ */
+export function datasetFqn(g: ObjectGroup): string {
+  return isDatasetGroup(g) ? `${g.dir || "."}/*.${groupExt(g)}` : g.objects[0].key;
+}
+
+/**
+ * Rows in a text dataset, from a head-of-file sample.
+ *
+ * Two things this has to get right, one of which it used to get wrong.
+ *
+ * COMPRESSED TEXT. The sample arrives as raw bytes, and for a `.gz` object
+ * those bytes are gzip, not text. Counting newlines in them counts whatever
+ * 0x0A happens to fall out of the compressed stream — a plausible-looking,
+ * entirely invented number. A 52-row exception report written by dlt (2.2 KB
+ * gzipped) was cataloged as 10 rows that way. Decompress first, and measure
+ * density against the COMPRESSED bytes the sample consumed, because the
+ * object's size is compressed too.
+ *
+ * A FULLY SAMPLED FILE IS NOT AN ESTIMATE. When the sample covers the whole
+ * object — the usual case for anything dlt writes — the line count IS the row
+ * count, and rounding it through a bytes-per-line ratio can only make it worse.
+ */
+export function estimateRows(
+  sample: Buffer,
+  totalBytes: number,
+  format: string | null,
+  key: string,
+): number | null {
   if (format !== "csv" && format !== "ndjson") return null;
-  const text = sample.toString("utf8");
-  const lines = text.split("\n").filter((l) => l.trim() !== "").length;
-  if (lines < 2) return null;
-  const bytesPerLine = sample.length / lines;
-  const dataRows = Math.round(totalBytes / bytesPerLine) - (format === "csv" ? 1 : 0);
-  return Math.max(dataRows, 0);
+  let text: string;
+  if (key.toLowerCase().endsWith(".gz")) {
+    try {
+      // Z_SYNC_FLUSH: a ranged GET hands back a truncated gzip stream, and the
+      // prefix that decompressed cleanly is exactly what we want to measure.
+      text = zlib.gunzipSync(sample, { finishFlush: zlib.constants.Z_SYNC_FLUSH }).toString("utf8");
+    } catch {
+      return null;
+    }
+  } else {
+    text = sample.toString("utf8");
+  }
+  let lines = text.split("\n").filter((l) => l.trim() !== "").length;
+  if (lines === 0) return null;
+  const header = format === "csv" ? 1 : 0;
+  // The sample covered the whole object: this is a count, not an estimate.
+  if (sample.length >= totalBytes) return Math.max(lines - header, 0);
+  // A partial sample's last line is usually cut in half — it is a line in the
+  // file, but not one this sample measured.
+  lines = Math.max(lines - 1, 1);
+  const rows = Math.round((lines / Math.max(sample.length, 1)) * totalBytes);
+  return Math.max(rows - header, 0);
 }
 
 /** Prior crawl state for incremental sampling: fqn → reusable metadata. */
@@ -402,8 +535,6 @@ export async function crawlObjectStorage(
   );
   const sampleBudget = new Set(ranked.slice(0, MAX_SAMPLES).map((g) => g));
 
-  const groupFqn = (g: ObjectGroup) =>
-    g.objects.length > 1 && g.format !== null ? `${g.dir || "."}/*.${g.format}` : g.objects[0].key;
   const unchangedSince = (g: ObjectGroup) =>
     Boolean(since) && g.objects.every((o) => o.last_modified !== "" && o.last_modified <= since!);
 
@@ -411,7 +542,7 @@ export async function crawlObjectStorage(
   const assets: CrawledAsset[] = [];
   for (const g of groups) {
     const totalSize = g.objects.reduce((s, o) => s + o.size, 0);
-    const isDataset = g.objects.length > 1 && g.format !== null;
+    const isDataset = isDatasetGroup(g);
     // Sample the largest object of the group for schema inference —
     // unless the group is unchanged since the last crawl and we already
     // hold its inferred schema (incremental crawl: no GETs re-issued).
@@ -425,7 +556,7 @@ export async function crawlObjectStorage(
     // asset used to be cataloged as a filename with a size and no columns.
     const canDescribe = duckReadableFormat(g.format) !== null;
     const canInfer = canSample || canDescribe;
-    const reuse = canInfer && unchangedSince(g) ? prior?.get(groupFqn(g)) : undefined;
+    const reuse = canInfer && unchangedSince(g) ? prior?.get(datasetFqn(g)) : undefined;
     if (reuse && reuse.columns.length > 0) {
       inferred = reuse.columns;
       rowEstimate = reuse.row_count;
@@ -433,8 +564,8 @@ export async function crawlObjectStorage(
       const biggest = [...g.objects].sort((a, b) => b.size - a.size)[0];
       try {
         const buf = await sampleObject(cfg, biggest.key, SAMPLE_BYTES);
-        inferred = inferColumns(g.format, buf);
-        const perFile = estimateRows(buf, biggest.size, g.format);
+        inferred = inferColumns(g.format, buf, biggest.key);
+        const perFile = estimateRows(buf, biggest.size, g.format, biggest.key);
         if (perFile !== null) {
           // Scale the per-byte density across the whole group.
           rowEstimate = Math.round((perFile / Math.max(biggest.size, 1)) * totalSize);
@@ -479,7 +610,7 @@ export async function crawlObjectStorage(
         asset_type: "dataset",
         schema_name: g.dir || null,
         name,
-        fqn: `${g.dir || "."}/*.${g.format}`,
+        fqn: datasetFqn(g),
         columns,
         row_count: rowEstimate,
         size_bytes: totalSize,
@@ -560,9 +691,18 @@ export async function persistAssets(
       const prevDesc = new Map(
         prev.columns.filter((c) => c.description).map((c) => [c.name, c.description!]),
       );
+      // Column tags are curation too: a `pii` tag that a tag policy keys on
+      // must not vanish because the source was crawled again.
+      const prevTags = new Map(
+        (prev.columns as { name: string; tags?: string[] }[])
+          .filter((c) => c.tags?.length)
+          .map((c) => [c.name, c.tags!]),
+      );
       for (const col of a.columns) {
         const d = prevDesc.get(col.name);
         if (d && !col.description) col.description = d;
+        const t = prevTags.get(col.name);
+        if (t) col.tags = t;
       }
     }
     const hash = schemaHash(a.columns);
@@ -602,16 +742,25 @@ export async function persistAssets(
   // Reconcile deletions locally — a NOT IN () URL filter would overflow.
   const keep = new Set(assets.map((a) => a.fqn));
   const stale = existing.filter((e) => !keep.has(e.fqn));
-  changes.removed = stale.map((e) => e.fqn);
   for (let i = 0; i < stale.length; i += 100) {
-    await supabaseAdmin
+    const { error: delErr } = await supabaseAdmin
       .from("catalog_assets")
       .delete()
       .in(
         "id",
         stale.slice(i, i + 100).map((e) => e.id),
       );
+    if (delErr) {
+      // FOUND FROM THE SURVEY (R82). This dropped its error and reported the
+      // stale rows removed: the catalog went on listing tables the source no
+      // longer had, under a crawl that said it had taken them out.
+      throw new Error(
+        `Could not remove ${stale.length - i} stale asset(s) from the catalog: ${delErr.message}`,
+      );
+    }
   }
+  // Claimed only once the rows are gone.
+  changes.removed = stale.map((e) => e.fqn);
   return changes;
 }
 
@@ -710,7 +859,20 @@ async function persistLineage(
   sourceId: string,
   edges: LineageEdge[],
 ): Promise<void> {
-  await supabaseAdmin.from("catalog_lineage").delete().eq("source_id", sourceId);
+  // Only this reader's own rows: ETL runs write pipeline lineage for the same
+  // source under source_system 'etl', and a crawl must not wipe those.
+  const { error: clearErr } = await supabaseAdmin
+    .from("catalog_lineage")
+    .delete()
+    .eq("source_id", sourceId)
+    .eq("source_system", "databricks");
+  if (clearErr) {
+    // The old edges stand; writing the new ones beside them would draw a graph
+    // that was never true (R82).
+    throw new Error(
+      `the previous lineage could not be cleared: ${clearErr.message}; the new edges were not written, so the old ones stand`,
+    );
+  }
   if (edges.length === 0) return;
   const rows = edges.map((e) => ({
     user_id: userId,
@@ -722,7 +884,14 @@ async function persistLineage(
     source_system: "databricks",
   }));
   for (let i = 0; i < rows.length; i += 500) {
-    await supabaseAdmin.from("catalog_lineage").insert(rows.slice(i, i + 500));
+    const { error: insErr } = await supabaseAdmin
+      .from("catalog_lineage")
+      .insert(rows.slice(i, i + 500));
+    if (insErr) {
+      throw new Error(
+        `${rows.length - i} of ${rows.length} lineage edge(s) could not be written: ${insErr.message}; the graph is partial until the next crawl`,
+      );
+    }
   }
 }
 
@@ -929,10 +1098,15 @@ export async function runCrawl(
   decryptStorageConfig: (source: CatalogSourceRow) => Promise<ObjectStoreConfig>,
 ): Promise<CrawlStats> {
   const started = Date.now();
-  await supabaseAdmin
+  const { error: startErr } = await supabaseAdmin
     .from("catalog_sources")
     .update({ status: "crawling", last_error: null, updated_at: new Date().toISOString() })
     .eq("id", source.id);
+  if (startErr) {
+    console.warn(
+      `[catalog] source ${source.id}: could not be marked crawling: ${startErr.message}; a second crawl will not be refused while this one runs`,
+    );
+  }
   try {
     const existing = await loadExistingAssets(source.id);
     let assets: CrawledAsset[];
@@ -967,8 +1141,12 @@ export async function runCrawl(
       try {
         const edges = await fetchDatabricksLineage(warehouseConfig);
         await persistLineage(userId, source.id, edges);
-      } catch {
-        /* lineage is optional — never fail the crawl over it */
+      } catch (e) {
+        // Lineage is optional — never fail the crawl over it — but a graph
+        // left stale or partial is said, not swallowed (R82).
+        console.warn(
+          `[catalog] source ${source.id}: lineage could not be refreshed: ${(e as Error).message}`,
+        );
       }
     }
 
@@ -992,19 +1170,35 @@ export async function runCrawl(
         changed: changes.changed.length,
       },
     });
-    await supabaseAdmin
-      .from("catalog_sources")
-      .update({
-        status: "ready",
-        last_crawl_at: new Date().toISOString(),
-        last_error: null,
-        crawl_stats: stats as unknown as Json,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", source.id);
+    // FOUND FROM THE SURVEY (R82). This dropped its error and returned the
+    // stats: the assets were in the catalog, the crawl said done, and the
+    // source stayed "crawling" — refusing every later crawl as already
+    // running. Retried once; a second failure fails the crawl with the reason,
+    // so the row says what happened rather than what is not happening.
+    const ready = () =>
+      supabaseAdmin
+        .from("catalog_sources")
+        .update({
+          status: "ready",
+          last_crawl_at: new Date().toISOString(),
+          last_error: null,
+          crawl_stats: stats as unknown as Json,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", source.id);
+    let { error: readyErr } = await ready();
+    if (readyErr) {
+      await new Promise((r) => setTimeout(r, 1_000));
+      ({ error: readyErr } = await ready());
+    }
+    if (readyErr) {
+      throw new Error(
+        `Crawled ${stats.assets} asset(s), but the source could not be marked ready: ${readyErr.message}. It will show as crawling until it is — crawl again.`,
+      );
+    }
     return stats;
   } catch (e) {
-    await supabaseAdmin
+    const { error: markErr } = await supabaseAdmin
       .from("catalog_sources")
       .update({
         status: "error",
@@ -1012,6 +1206,11 @@ export async function runCrawl(
         updated_at: new Date().toISOString(),
       })
       .eq("id", source.id);
+    if (markErr) {
+      console.warn(
+        `[catalog] source ${source.id}: could not be marked error: ${markErr.message}; it will show as crawling until it is`,
+      );
+    }
     throw e;
   }
 }

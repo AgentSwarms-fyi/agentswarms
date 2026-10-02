@@ -51,6 +51,8 @@ type AlertRow = {
   email_enabled: boolean;
   last_state: string;
   last_value: number | null;
+  basis?: string | null;
+  horizon?: number | null;
 };
 
 const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -105,6 +107,9 @@ export function ScheduleDialog({
   const [aColumn, setAColumn] = useState("");
   const [aAgg, setAAgg] = useState("first");
   const [aOp, setAOp] = useState("gt");
+  // "actual" compares the refreshed rows; "forecast" the next N projected periods.
+  const [aBasis, setABasis] = useState("actual");
+  const [aHorizon, setAHorizon] = useState("3");
   const [aThreshold, setAThreshold] = useState("");
 
   const chartWidgets = widgets.filter((w) => w.kind === "chart" && w.sql);
@@ -151,9 +156,20 @@ export function ScheduleDialog({
     }
   }
 
+  // FOUND FROM THE UI (R70). Every write below dropped its error, so a
+  // schedule whose delete failed vanished from the dialog and kept running,
+  // an alert switched off stayed on in the database and kept firing, and an
+  // alert whose delete failed left the list and kept firing. A write that
+  // fails is said, and the dialog shows what is actually stored.
   async function removeSchedule() {
     if (!schedule) return;
-    await supabase.from("bi_schedules").delete().eq("id", schedule.id);
+    const { error } = await supabase.from("bi_schedules").delete().eq("id", schedule.id);
+    if (error) {
+      toast.error("Could not remove the schedule", {
+        description: `${error.message}. It is still scheduled.`,
+      });
+      return;
+    }
     setSchedule(null);
   }
 
@@ -172,6 +188,8 @@ export function ScheduleDialog({
         aggregation: aAgg,
         operator: aOp,
         threshold: Number(aThreshold),
+        basis: aBasis,
+        horizon: aBasis === "forecast" ? Math.max(1, Number(aHorizon) || 3) : null,
       })
       .select("*")
       .single();
@@ -182,18 +200,40 @@ export function ScheduleDialog({
   }
 
   async function deleteAlert(id: string) {
-    await supabase.from("bi_alerts").delete().eq("id", id);
+    const { error } = await supabase.from("bi_alerts").delete().eq("id", id);
+    if (error) {
+      toast.error("Could not delete the alert", {
+        description: `${error.message}. It is still set and will still fire.`,
+      });
+      return;
+    }
     setAlerts((prev) => prev.filter((a) => a.id !== id));
   }
 
   async function toggleAlert(a: AlertRow, on: boolean) {
     setAlerts((prev) => prev.map((x) => (x.id === a.id ? { ...x, is_active: on } : x)));
-    await supabase.from("bi_alerts").update({ is_active: on }).eq("id", a.id);
+    const { error } = await supabase.from("bi_alerts").update({ is_active: on }).eq("id", a.id);
+    if (error) {
+      // Undo the optimistic switch: the stored alert is what will fire.
+      setAlerts((prev) => prev.map((x) => (x.id === a.id ? { ...x, is_active: !on } : x)));
+      toast.error(on ? "Could not switch the alert on" : "Could not switch the alert off", {
+        description: `${error.message}. It is ${on ? "still off" : "still on and will still fire"}.`,
+      });
+    }
   }
 
   async function toggleAlertEmail(a: AlertRow) {
     const next = !a.email_enabled;
-    await supabase.from("bi_alerts").update({ email_enabled: next }).eq("id", a.id);
+    const { error } = await supabase
+      .from("bi_alerts")
+      .update({ email_enabled: next })
+      .eq("id", a.id);
+    if (error) {
+      toast.error("Could not change the alert's email setting", {
+        description: `${error.message}. It is unchanged.`,
+      });
+      return;
+    }
     setAlerts((prev) => prev.map((x) => (x.id === a.id ? { ...x, email_enabled: next } : x)));
   }
 
@@ -327,6 +367,7 @@ export function ScheduleDialog({
                     <span className="min-w-0 flex-1 truncate">
                       <span className="font-medium">{widgetTitle(a.widget_id)}</span>
                       {" · "}
+                      {a.basis === "forecast" ? `forecast (next ${a.horizon ?? 3}) ` : ""}
                       {a.column_name ? `${a.aggregation}(${a.column_name})` : "row count"}{" "}
                       {OPERATORS.find((o) => o.v === a.operator)?.label.slice(0, 1)} {a.threshold}
                     </span>
@@ -398,6 +439,29 @@ export function ScheduleDialog({
                       ))}
                     </SelectContent>
                   </Select>
+                )}
+                <Select value={aBasis} onValueChange={setABasis}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="actual" className="text-xs">
+                      latest values
+                    </SelectItem>
+                    <SelectItem value="forecast" className="text-xs">
+                      forecast (next periods)
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+                {aBasis === "forecast" && (
+                  <Input
+                    value={aHorizon}
+                    onChange={(e) => setAHorizon(e.target.value)}
+                    className="h-8 w-16 text-xs"
+                    inputMode="numeric"
+                    placeholder="3"
+                    title="Periods ahead"
+                  />
                 )}
                 <Select value={aOp} onValueChange={setAOp}>
                   <SelectTrigger className="h-8 text-xs">

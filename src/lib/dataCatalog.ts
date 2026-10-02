@@ -14,6 +14,8 @@ export type CatalogColumn = {
   description?: string;
   /** Comment ingested from the external catalog (e.g. Unity Catalog). */
   comment?: string;
+  /** Owner-written tags; a lakehouse tag policy keys on them. Survive re-crawls. */
+  tags?: string[];
   /** Sample-based profile stats from the last crawl. */
   null_pct?: number;
   distinct_count?: number;
@@ -122,9 +124,15 @@ export async function updateCatalogAsset(
     tags?: string[];
     owner?: string | null;
     status?: CatalogAssetStatus;
+    /** The full column list, when a column's tags changed. */
+    columns?: CatalogColumn[];
   },
 ): Promise<void> {
-  const { error } = await supabase.from("catalog_assets").update(patch).eq("id", id);
+  const { columns, ...rest } = patch;
+  const { error } = await supabase
+    .from("catalog_assets")
+    .update(columns ? { ...rest, columns: columns as unknown as Json } : rest)
+    .eq("id", id);
   if (error) throw new Error(error.message);
 }
 
@@ -135,18 +143,30 @@ export type CatalogLineageEdge = {
   downstream_fqn: string;
   upstream_column: string | null;
   downstream_column: string | null;
+  /** false: through an opaque step — one of every input column, not a traced dependency. */
+  exact: boolean;
 };
 
-/** Match lineage FQNs (often catalog.schema.table) to catalog assets
- *  (schema.table) by their trailing two segments. */
+/**
+ * Match lineage FQNs (often catalog.schema.table) to catalog assets
+ * (schema.table) by their trailing two segments.
+ *
+ * An object-store fqn is a PATH and is exempt: `finance/x/*.jsonl.gz` has
+ * three dot-separated pieces, the last two of which are "jsonl" and "gz" —
+ * a key every gzipped dataset in the bucket would share. Both sides of this
+ * join (the crawled asset and the fqn a run reports) write the same string
+ * for an object, so the whole string is the identity.
+ */
 export function lineageKey(fqn: string): string {
-  return fqn.toLowerCase().split(".").slice(-2).join(".");
+  const f = fqn.toLowerCase();
+  if (f.includes("/")) return f;
+  return f.split(".").slice(-2).join(".");
 }
 
 export async function loadCatalogLineage(): Promise<CatalogLineageEdge[]> {
   const { data, error } = await supabase
     .from("catalog_lineage")
-    .select("upstream_fqn, downstream_fqn, upstream_column, downstream_column")
+    .select("upstream_fqn, downstream_fqn, upstream_column, downstream_column, exact")
     .limit(20000);
   if (error) return [];
   return (data ?? []).map((r) => ({
@@ -154,6 +174,7 @@ export async function loadCatalogLineage(): Promise<CatalogLineageEdge[]> {
     downstream_fqn: r.downstream_fqn,
     upstream_column: r.upstream_column,
     downstream_column: r.downstream_column,
+    exact: r.exact ?? true,
   }));
 }
 

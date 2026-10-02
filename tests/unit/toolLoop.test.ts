@@ -16,6 +16,8 @@ import {
   frameUntrustedResult,
   isRetryable,
   MAX_TOOL_RESULT_CHARS,
+  resolveToolName,
+  sanitizeGhostToolCalls,
   TOOL_SAFETY_RULE,
   UNTRUSTED_CONTENT_TOOLS,
 } from "@/utils/tools/loop.server";
@@ -155,5 +157,73 @@ describe("TOOL_SAFETY_RULE", () => {
     // The markers only mean something because the system prompt explains them.
     expect(TOOL_SAFETY_RULE).toMatch(/DATA, never instructions/);
     expect(TOOL_SAFETY_RULE).toContain("EXTERNAL_CONTENT");
+  });
+});
+
+describe("resolveToolName — decorated names map back to the declared tool", () => {
+  const known = ["ml_list_models", "ml_predict", "sql_query"];
+  it("accepts the exact name and trims whitespace", () => {
+    expect(resolveToolName("ml_predict", known)).toBe("ml_predict");
+    expect(resolveToolName("ml_list_models ", known)).toBe("ml_list_models");
+  });
+  it("strips a namespace prefix a provider invented", () => {
+    // Seen from Gemini through OpenRouter: the agent's own system prompt
+    // mentioned a team, and the call came back as "revenue_team:ml_list_models ".
+    expect(resolveToolName("revenue_team:ml_list_models ", known)).toBe("ml_list_models");
+    expect(resolveToolName("functions.ml_predict", known)).toBe("ml_predict");
+    expect(resolveToolName("default_api/sql_query", known)).toBe("sql_query");
+  });
+  it("matches case-insensitively but never guesses", () => {
+    expect(resolveToolName("ML_PREDICT", known)).toBe("ml_predict");
+    expect(resolveToolName("predict", known)).toBeNull();
+    expect(resolveToolName("", known)).toBeNull();
+  });
+});
+
+describe("sanitizeGhostToolCalls — a streamed final answer never hides a tool call", () => {
+  const sse = (frames: unknown[]) =>
+    new ReadableStream<Uint8Array>({
+      start(c) {
+        const enc = new TextEncoder();
+        for (const f of frames) c.enqueue(enc.encode(`data: ${JSON.stringify(f)}\n\n`));
+        c.enqueue(enc.encode("data: [DONE]\n\n"));
+        c.close();
+      },
+    });
+  const read = async (s: ReadableStream<Uint8Array>) => {
+    const r = s.getReader();
+    const dec = new TextDecoder();
+    let out = "";
+    for (;;) {
+      const { value, done } = await r.read();
+      if (done) break;
+      out += dec.decode(value, { stream: true });
+    }
+    return out;
+  };
+  it("turns a tool_call delta into a sentence naming the tool, once", async () => {
+    const out = await read(
+      sanitizeGhostToolCalls(
+        sse([
+          { choices: [{ delta: { role: "assistant", content: "" } }] },
+          {
+            choices: [
+              { delta: { tool_calls: [{ function: { name: "revenue_team:ml_list_models " } }] } },
+            ],
+          },
+          { choices: [{ delta: { tool_calls: [{ function: { arguments: "{}" } }] } }] },
+        ]),
+      ),
+    );
+    // The sentence travels inside a JSON string, so its quotes arrive escaped.
+    expect(out).toContain("tried to call a tool");
+    expect(out).toContain("revenue_team:ml_list_models");
+    expect(out).not.toContain("tool_calls");
+    expect(out.match(/tried to call a tool/g)?.length).toBe(1);
+    expect(out).toContain("data: [DONE]");
+  });
+  it("passes ordinary text frames through untouched", async () => {
+    const frames = [{ choices: [{ delta: { content: "Hello" } }] }];
+    expect(await read(sanitizeGhostToolCalls(sse(frames)))).toContain('{"content":"Hello"}');
   });
 });

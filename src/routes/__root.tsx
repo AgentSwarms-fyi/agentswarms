@@ -1,5 +1,6 @@
 import { Outlet, Link, createRootRoute, HeadContent, Scripts } from "@tanstack/react-router";
 import { Toaster } from "@/components/ui/sonner";
+import { ConfirmHost } from "@/components/ui/confirm-dialog";
 import { ThemeProvider } from "@/hooks/use-theme";
 import { LayoutPrefsProvider } from "@/hooks/use-layout-prefs";
 import { CookieConsent } from "@/components/CookieConsent";
@@ -197,6 +198,9 @@ function RootComponent() {
       <LayoutPrefsProvider>
         <Outlet />
         <Toaster />
+        {/* Mounted beside the Toaster and for the same reason: asking the user
+            something must not depend on a browser dialog they can switch off. */}
+        <ConfirmHost />
         <CookieConsent />
         <SchemaHealthGuard />
       </LayoutPrefsProvider>

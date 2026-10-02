@@ -48,12 +48,12 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     "title": "Agent Builder",
     "description": "A complete reference for every field on an agent. Open Build → Agent Builder → New Agent; the form has six tabs, and nothing is saved until you press Save.",
     "terms": [
-      "###",
-      "END",
+      "SQL_TOOL_SCHEMA_MAX_CHARS",
       "calculator",
       "datetime",
       "kb_graph_search",
       "kb_search",
+      "list_data_tables",
       "llama-nemotron-rerank-vl-1b-v2",
       "mcp_call_tool",
       "metric_query",
@@ -140,6 +140,58 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     ]
   },
   {
+    "route": "/docs/ai-sql",
+    "title": "AI in SQL",
+    "description": "Seven scalar functions answered by a model, callable wherever a lower() is: classify, extract fields, judge sentiment, summarize, translate, filter by a condition a formula cannot express, or ask anything. Every call is governed like every other model call.",
+    "terms": [
+      "AI_SQL_CACHE_TTL_DAYS",
+      "AI_SQL_DEFAULT_MODEL",
+      "AI_SQL_MAX_CALLS_PER_STATEMENT",
+      "ai_*",
+      "ai_classify",
+      "ai_extract",
+      "ai_filter",
+      "ai_sentiment",
+      "ai_summarize(ai_translate(...))",
+      "lakehouse.ai_functions",
+      "openai/gpt-4o",
+      "openrouter/openai/gpt-4o-mini",
+      "provider/model"
+    ],
+    "headings": [
+      {
+        "id": "what",
+        "text": "What it is",
+        "level": 2
+      },
+      {
+        "id": "functions",
+        "text": "The functions",
+        "level": 2
+      },
+      {
+        "id": "passes",
+        "text": "How a statement runs",
+        "level": 2
+      },
+      {
+        "id": "prep",
+        "text": "In Data Prep",
+        "level": 2
+      },
+      {
+        "id": "governance",
+        "text": "Cost, limits and governance",
+        "level": 2
+      },
+      {
+        "id": "troubleshooting",
+        "text": "Troubleshooting",
+        "level": 2
+      }
+    ]
+  },
+  {
     "route": "/docs/analytics",
     "title": "Analytics",
     "description": "Two views built on the same telemetry: workspace-level cost analytics at /analytics, and per-run swarm observability that replays a swarm execution node by node.",
@@ -199,13 +251,16 @@ export const DOCS_INDEX: DocsIndexPage[] = [
   {
     "route": "/docs/api",
     "title": "API & webhooks",
-    "description": "One endpoint runs a swarm from your own code: POST /api/swarm/run. Scoped keys, idempotent retries, and signed callbacks for anything slower than a request.",
+    "description": "Run a swarm, a notebook or an ML model from your own code. POST /api/swarm/run in full: scoped keys, idempotent retries, and signed callbacks for anything slower than a request; the notebook and ML endpoints are summarised at the end.",
     "terms": [
       "/api/notebook/run/status",
+      "/api/scim/v2",
+      "Groups",
       "Idempotency-Key",
       "SWARM_RUN_MAX_CONCURRENT",
       "SWARM_RUN_RATE_LIMIT_PER_MIN",
       "SWARM_RUN_TIMEOUT_MS",
+      "Users",
       "X-AgentSwarms-Event",
       "X-AgentSwarms-Signature",
       "X-AgentSwarms-Timestamp",
@@ -218,6 +273,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "input",
       "inputs",
       "last_used_ip",
+      "mlk_…",
       "nbk_…",
       "order-48213-summary",
       "read_runs",
@@ -319,6 +375,16 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "id": "notebooks",
         "text": "Calling a notebook instead of a swarm",
         "level": 2
+      },
+      {
+        "id": "ml",
+        "text": "Calling an ML model",
+        "level": 2
+      },
+      {
+        "id": "scim",
+        "text": "Provisioning users from the identity provider",
+        "level": 2
       }
     ]
   },
@@ -327,8 +393,14 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     "title": "BI Workspace",
     "description": "Dashboards built on the same catalog, prepared tables and metrics your agents use — so a chart and an agent answering about it cannot disagree.",
     "terms": [
+      "$1.0M",
+      "$837.9k",
+      "$837k",
       "2.6×",
+      "410,379.26",
+      "LIMIT",
       "VITE_BI_SNAPSHOT_ROWS_CAP",
+      "answer",
       "area",
       "avg",
       "bar",
@@ -336,6 +408,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "between",
       "boxplot",
       "bubblemap",
+      "caveats",
       "columnFormats",
       "combo",
       "compare",
@@ -366,14 +439,20 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "neq",
       "nightingale",
       "ontology",
+      "order_id",
       "pie",
+      "predicted_",
+      "prediction",
+      "probability",
       "radar",
+      "revenue",
       "rules",
       "running",
       "sankey",
       "scale",
       "scatter",
       "scolumn",
+      "score",
       "shbar",
       "sum",
       "sum(amount)",
@@ -383,14 +462,56 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "trend",
       "value",
       "value2",
+      "valueField",
       "waterfall",
-      "wordcloud"
+      "wordcloud",
+      "yField"
     ],
     "headings": [
       {
         "id": "ai-analyst",
         "text": "AI Analyst — conversational analysis",
         "level": 2
+      },
+      {
+        "id": "analyst-governed",
+        "text": "Governed steps",
+        "level": 3
+      },
+      {
+        "id": "analyst-predictions",
+        "text": "Predictions from trained models",
+        "level": 3
+      },
+      {
+        "id": "analyst-what-if",
+        "text": "What-if scenarios",
+        "level": 3
+      },
+      {
+        "id": "analyst-verified",
+        "text": "Verified answers and the self-check",
+        "level": 3
+      },
+      {
+        "id": "analyst-charts",
+        "text": "Charts, pinning and computed reasoning",
+        "level": 3
+      },
+      {
+        "id": "analyst-runs",
+        "text": "Concurrency and schedules",
+        "level": 3
+      },
+      {
+        "id": "analyst-sharing",
+        "text": "Sharing an analyst",
+        "level": 3
+      },
+      {
+        "id": "analyst-provenance",
+        "text": "Provenance and export",
+        "level": 3
       },
       {
         "id": "build",
@@ -493,6 +614,36 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "level": 2
       },
       {
+        "id": "verified-figures",
+        "text": "Every figure is checked before you see it",
+        "level": 3
+      },
+      {
+        "id": "partial-results",
+        "text": "A result that is only part of the data says so",
+        "level": 3
+      },
+      {
+        "id": "title-claims",
+        "text": "A title is a claim, and it is checked too",
+        "level": 3
+      },
+      {
+        "id": "chart-fields",
+        "text": "A chart names its columns, and those are checked too",
+        "level": 3
+      },
+      {
+        "id": "stale-prose",
+        "text": "Written insight is withdrawn when its figures stop holding",
+        "level": 3
+      },
+      {
+        "id": "one-of-many",
+        "text": "A single-value card says which row it is showing",
+        "level": 3
+      },
+      {
         "id": "scan",
         "text": "Scan — computed, not generated",
         "level": 3
@@ -518,6 +669,41 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "level": 3
       },
       {
+        "id": "paginated",
+        "text": "Paginated reports",
+        "level": 2
+      },
+      {
+        "id": "report-blocks",
+        "text": "Blocks",
+        "level": 3
+      },
+      {
+        "id": "report-reuse",
+        "text": "Reusing a dashboard&apos;s widgets",
+        "level": 3
+      },
+      {
+        "id": "report-page",
+        "text": "Page setup, header and footer",
+        "level": 3
+      },
+      {
+        "id": "report-tables",
+        "text": "How a long table breaks",
+        "level": 3
+      },
+      {
+        "id": "report-ai",
+        "text": "Generating a report with AI",
+        "level": 3
+      },
+      {
+        "id": "report-export",
+        "text": "Export",
+        "level": 3
+      },
+      {
         "id": "lifecycle",
         "text": "Versioning and promotion",
         "level": 2
@@ -534,12 +720,17 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     "title": "Budgets & cost",
     "description": "Agents spend money on every turn, and a looping graph or a public embed can spend a lot of it quickly. Caps are the control that turns a bad day into a stopped run.",
     "terms": [
+      "$0.00",
+      "$0.0000",
+      "$0.0000046",
+      "$0.000005",
       "$12.34+?",
       "BUDGET_FAIL_CLOSED=true",
       "ENFORCE_BUDGET_CAP",
       "ENFORCE_BUDGET_CAP=true",
       "budget_settings.monthly_cap_usd",
       "embed_key",
+      "gateway_key",
       "group",
       "is_active",
       "monthly_cap_usd",
@@ -629,6 +820,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "kb_search",
       "mcp_call_tool",
       "metric_query",
+      "ml_predict",
       "n8n_run_workflow",
       "sql_query",
       "weather",
@@ -696,32 +888,32 @@ export const DOCS_INDEX: DocsIndexPage[] = [
   {
     "route": "/docs/dashboard",
     "title": "Dashboard",
-    "description": "The dashboard at /dashboard is the screen you land on after signing in. It answers two questions: what is the fastest next thing to do, and what has been happening in your workspace.",
+    "description": "The dashboard at /dashboard is the screen you land on after signing in. It answers one question first — is this deployment healthy, and what is it costing — and then shows what you are running and what has happened in the last day.",
     "terms": [],
     "headings": [
       {
-        "id": "quick-actions",
-        "text": "Quick actions",
+        "id": "status",
+        "text": "Platform status",
         "level": 2
       },
       {
-        "id": "featured-swarms",
-        "text": "Featured swarms",
-        "level": 2
-      },
-      {
-        "id": "stats",
-        "text": "Workspace stats",
-        "level": 2
-      },
-      {
-        "id": "spend",
-        "text": "Spend & usage — by person, team or organisation",
+        "id": "figures",
+        "text": "The four figures",
         "level": 2
       },
       {
         "id": "activity",
         "text": "Activity and model mix",
+        "level": 2
+      },
+      {
+        "id": "running",
+        "text": "What you&rsquo;re running",
+        "level": 2
+      },
+      {
+        "id": "spend",
+        "text": "Spend & usage — by person, team or organisation",
         "level": 2
       },
       {
@@ -737,6 +929,55 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     ]
   },
   {
+    "route": "/docs/data-monitors",
+    "title": "Data monitors",
+    "description": "Standing checks on your tables, run on the platform's own clock, with the history to know what normal looks like, an incident opened when a check fails and closed when it passes again, and a notification either way.",
+    "terms": [
+      "DATA_MONITORS_PER_SWEEP",
+      "DATA_MONITOR_ANOMALY_SIGMA",
+      "data.incident.acknowledged",
+      "data.incident.resolved",
+      "data.monitor.alert"
+    ],
+    "headings": [
+      {
+        "id": "what",
+        "text": "What it is",
+        "level": 2
+      },
+      {
+        "id": "checks",
+        "text": "What a monitor checks",
+        "level": 2
+      },
+      {
+        "id": "baselines",
+        "text": "Baselines",
+        "level": 2
+      },
+      {
+        "id": "incidents",
+        "text": "Schedules and incidents",
+        "level": 2
+      },
+      {
+        "id": "agents",
+        "text": "Agents",
+        "level": 2
+      },
+      {
+        "id": "governance",
+        "text": "Governance",
+        "level": 2
+      },
+      {
+        "id": "troubleshooting",
+        "text": "Troubleshooting",
+        "level": 3
+      }
+    ]
+  },
+  {
     "route": "/docs/data-prep",
     "title": "Data preparation",
     "description": "Raw tables rarely answer a question on their own. Prep joins them, fixes the columns and saves the whole recipe so tomorrow's data goes through the same steps.",
@@ -746,6 +987,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "OR",
       "SELECT",
       "aggregate",
+      "ai",
       "all",
       "amount",
       "append",
@@ -794,7 +1036,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       },
       {
         "id": "steps",
-        "text": "The nine steps",
+        "text": "The ten steps",
         "level": 2
       },
       {
@@ -823,6 +1065,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "level": 3
       },
       {
+        "id": "lakehouse",
+        "text": "Lakehouse tables in and out",
+        "level": 2
+      },
+      {
         "id": "when-not",
         "text": "When not to use prep",
         "level": 2
@@ -832,7 +1079,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
   {
     "route": "/docs/data",
     "title": "Data Catalog & SQL",
-    "description": "Everything tabular: uploaded files, 22 databases and warehouses, 5 app sources, the catalog that describes them, and the workbench that queries them.",
+    "description": "Everything tabular: uploaded files, 22 databases and warehouses, 17 app sources, the catalog that describes them, and the workbench that queries them.",
     "terms": [
       ".avro",
       ".csv",
@@ -840,21 +1087,28 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "2024-03-01",
       "AwsDataCatalog",
       "HTTPS_PROXY",
+      "LAKEHOUSE_CATALOG_URL",
       "LIST",
+      "LastModifiedDate",
       "MAP",
       "NO_PROXY",
       "ORC_MAX_DOWNLOAD_BYTES",
       "ORDS.ENABLE_SCHEMA",
+      "PROVIDER_CREDS_SECRET",
       "SELECT",
       "SQLEXPRESS",
       "STRUCT",
+      "SystemModstamp",
       "UPLOAD_MAX_ROWS",
       "access_key_id",
       "access_token",
       "account",
+      "az://",
       "calculator",
       "catalog",
       "cluster_identifier",
+      "created",
+      "customers",
       "data/orders.parquet",
       "database",
       "dataset",
@@ -863,6 +1117,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "host",
       "https://abc.clickhouse.cloud:8443",
       "instance_name",
+      "issues:KEY",
       "location",
       "monthly_revenue",
       "myorg-myaccount",
@@ -871,7 +1126,9 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "output_location",
       "password",
       "port",
+      "prices",
       "primary",
+      "products",
       "project_id",
       "read_orc",
       "read_orc(&apos;s3://…&apos;)",
@@ -891,6 +1148,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "sheet1",
       "sql_query",
       "ssl",
+      "subscriptions",
       "tedious",
       "token",
       "true",
@@ -922,7 +1180,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       },
       {
         "id": "c-other",
-        "text": "Object stores and lakehouse catalogs",
+        "text": "Object stores and external table catalogs",
         "level": 3
       },
       {
@@ -939,6 +1197,16 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "id": "apps",
         "text": "Apps — SaaS sources",
         "level": 2
+      },
+      {
+        "id": "apps-incremental",
+        "text": "Following a source instead of re-reading it",
+        "level": 3
+      },
+      {
+        "id": "apps-start-over",
+        "text": "Starting a stream over",
+        "level": 3
       },
       {
         "id": "reliability",
@@ -974,6 +1242,26 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "id": "troubleshooting",
         "text": "Troubleshooting",
         "level": 2
+      },
+      {
+        "id": "use-cases",
+        "text": "Use cases",
+        "level": 2
+      },
+      {
+        "id": "use-case-warehouse",
+        "text": "The production warehouse, handed to the team",
+        "level": 3
+      },
+      {
+        "id": "use-case-azure",
+        "text": "Catalog an Azure container",
+        "level": 3
+      },
+      {
+        "id": "use-case-jira",
+        "text": "Ask an agent about Jira, or Zendesk",
+        "level": 3
       }
     ]
   },
@@ -982,8 +1270,15 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     "title": "Logs & traces",
     "description": "Every run on the platform — playground chats, swarm nodes, notebook calls — is recorded as a trace. Reading traces is the core debugging skill in agentic systems, and the one course environments almost never let you practice.",
     "terms": [
+      "LIMIT",
       "PERSIST_PROMPT_BODIES",
+      "PROVENANCE_SIGNING_SECRET",
+      "docs/PROVENANCE.md",
       "false",
+      "now()",
+      "null",
+      "provenance_retention_days",
+      "random()",
       "sql_query",
       "trace_retention_days"
     ],
@@ -996,6 +1291,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       {
         "id": "trace-detail",
         "text": "What a trace contains",
+        "level": 2
+      },
+      {
+        "id": "provenance",
+        "text": "Where did this answer come from?",
         "level": 2
       },
       {
@@ -1032,6 +1332,26 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "id": "prompt-bodies",
         "text": "Retention, and what a regulated tenant can turn off",
         "level": 2
+      },
+      {
+        "id": "use-cases",
+        "text": "Use cases",
+        "level": 2
+      },
+      {
+        "id": "use-case-auditor",
+        "text": "An auditor asks where a number came from",
+        "level": 3
+      },
+      {
+        "id": "use-case-old-answer",
+        "text": "Someone is about to act on an old answer",
+        "level": 3
+      },
+      {
+        "id": "use-case-ai-act",
+        "text": "Evidence for the EU AI Act",
+        "level": 3
       }
     ]
   },
@@ -1061,6 +1381,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "POST",
       "activeTurn",
       "agent",
+      "ai_analyst",
       "allow_ai",
       "allowed_domains",
       "bi_dashboard",
@@ -1177,6 +1498,270 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     ]
   },
   {
+    "route": "/docs/etl",
+    "title": "ETL Pipelines",
+    "description": "Move data from APIs, databases, warehouses and files into destinations the Data Catalog, BI, the AI Analyst and agents can query. Build on a visual canvas, write Python, or generate it with AI — every run executes in the same sandboxed runtime with full logs and audit.",
+    "terms": [
+      "*/15",
+      "/etl-samples/",
+      "200",
+      "ETL_CONTINUOUS_RESTART_BACKOFF_SECONDS",
+      "ETL_CONTINUOUS_ROLLOVER_MINUTES",
+      "ETL_DEST_ACCESS_KEY_ID",
+      "ETL_DEST_BUCKET_URL",
+      "ETL_DEST_ENDPOINT_URL",
+      "ETL_DEST_SECRET_ACCESS_KEY",
+      "ETL_TRIGGER_PER_MIN",
+      "Europe/Berlin",
+      "SPARK_CONNECT_URL",
+      "SPARK_PACKAGES=",
+      "_x",
+      "_y",
+      "api.hubapi.com",
+      "append",
+      "chain",
+      "deploy/k8s/spark/spark-runtime.yaml",
+      "docker",
+      "e2b",
+      "email",
+      "entrypoint(inputs)",
+      "entrypoint(inputs=None)",
+      "internal",
+      "k8s",
+      "lakehouse-catalog:5432",
+      "merge",
+      "notebooks",
+      "numErrors",
+      "raw/orders/*.csv",
+      "regexp_extract",
+      "replace",
+      "sc://spark-connect:15002",
+      "success"
+    ],
+    "headings": [
+      {
+        "id": "when-to-use",
+        "text": "When a pipeline is the right tool",
+        "level": 2
+      },
+      {
+        "id": "building",
+        "text": "Building one",
+        "level": 2
+      },
+      {
+        "id": "canvas",
+        "text": "The visual canvas",
+        "level": 3
+      },
+      {
+        "id": "code",
+        "text": "Code",
+        "level": 3
+      },
+      {
+        "id": "ai",
+        "text": "AI generate and refine",
+        "level": 3
+      },
+      {
+        "id": "samples",
+        "text": "Sample pipelines",
+        "level": 2
+      },
+      {
+        "id": "connections",
+        "text": "Connections and supported systems",
+        "level": 2
+      },
+      {
+        "id": "how-it-runs",
+        "text": "How a run executes",
+        "level": 2
+      },
+      {
+        "id": "engines",
+        "text": "Engines: the sandbox, or a Spark cluster",
+        "level": 2
+      },
+      {
+        "id": "credentials",
+        "text": "Credentials and secrets",
+        "level": 2
+      },
+      {
+        "id": "scheduling",
+        "text": "Schedules, triggers and chaining",
+        "level": 2
+      },
+      {
+        "id": "chain-beyond",
+        "text": "Beyond pipelines: SQL models and ML schedules",
+        "level": 3
+      },
+      {
+        "id": "retries",
+        "text": "Retries and overlap",
+        "level": 3
+      },
+      {
+        "id": "parameters",
+        "text": "Parameters and backfills",
+        "level": 3
+      },
+      {
+        "id": "incremental",
+        "text": "Engine-managed incremental loads",
+        "level": 3
+      },
+      {
+        "id": "spark-writes",
+        "text": "What the cluster writes, and what it does not",
+        "level": 3
+      },
+      {
+        "id": "reverse-etl-saas",
+        "text": "Reverse ETL into a SaaS tool",
+        "level": 2
+      },
+      {
+        "id": "ecosystem",
+        "text": "Where the data goes next",
+        "level": 2
+      },
+      {
+        "id": "observability",
+        "text": "Observability, logs, audit and IAM",
+        "level": 2
+      },
+      {
+        "id": "sizing",
+        "text": "Data-size limits and machine sizing",
+        "level": 2
+      },
+      {
+        "id": "scaling",
+        "text": "Horizontal scaling",
+        "level": 2
+      },
+      {
+        "id": "limits",
+        "text": "Limits, stated plainly",
+        "level": 2
+      }
+    ]
+  },
+  {
+    "route": "/docs/gateway",
+    "title": "AI Gateway",
+    "description": "An OpenAI-compatible endpoint in front of your agents and connected models, and a metrics API in front of the semantic layer. Point any OpenAI SDK, IDE plugin, evaluation harness or other agent at /api/v1/ with a gateway key; every call runs as the key's owner, under that owner's model rules, budgets, traces and audit trail.",
+    "terms": [
+      "AI_GATEWAY_METRICS_MAX_ROWS",
+      "Cache",
+      "X-Gateway-Cache",
+      "X-Gateway-Fallback",
+      "X-Gateway-Model",
+      "X-Trace-Id",
+      "access_note",
+      "agent.chat",
+      "agentswarms",
+      "cached",
+      "compare",
+      "dimensions",
+      "filters",
+      "gateway.access.denied",
+      "gateway.cache.clear",
+      "gateway.chat",
+      "gateway.fallback",
+      "grains",
+      "gw_…",
+      "hit",
+      "insufficient_quota",
+      "insufficient_scope",
+      "invalid_api_key",
+      "invalid_request_error",
+      "last_n_days",
+      "limit",
+      "max_tokens",
+      "messages",
+      "metric.query",
+      "metric_query",
+      "metrics",
+      "miss",
+      "model",
+      "model_not_allowed",
+      "model_not_found",
+      "off",
+      "order_by",
+      "params",
+      "provider/model",
+      "rate_limit_exceeded",
+      "resolution_notes",
+      "rollup",
+      "skip",
+      "stream",
+      "stream_options.include_usage",
+      "temperature",
+      "this_month",
+      "tools",
+      "truncated",
+      "upstream_error",
+      "ytd"
+    ],
+    "headings": [
+      {
+        "id": "what",
+        "text": "What it is",
+        "level": 2
+      },
+      {
+        "id": "keys",
+        "text": "Keys",
+        "level": 2
+      },
+      {
+        "id": "calling",
+        "text": "Calling it",
+        "level": 2
+      },
+      {
+        "id": "metrics",
+        "text": "The semantic layer",
+        "level": 2
+      },
+      {
+        "id": "fallback",
+        "text": "Fallback",
+        "level": 2
+      },
+      {
+        "id": "governance",
+        "text": "Governance",
+        "level": 2
+      },
+      {
+        "id": "cache",
+        "text": "Semantic cache",
+        "level": 2
+      },
+      {
+        "id": "limits",
+        "text": "Limits",
+        "level": 2
+      },
+      {
+        "id": "how-this-compares",
+        "text": "How this compares",
+        "level": 2
+      },
+      {
+        "id": "troubleshooting",
+        "text": "Troubleshooting",
+        "level": 3
+      }
+    ]
+  },
+  {
     "route": "/docs/guardrails",
     "title": "Guardrails & PII",
     "description": "Checks that run outside the model, on the way in and on the way out — which is why they still hold when someone talks the agent out of its instructions.",
@@ -1275,16 +1860,20 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     "title": "Access control",
     "description": "Provision people, put them in groups, control which models they may run, and share data read-only — enforced in the database, not just hidden in the interface.",
     "terms": [
+      "/api/scim/v2",
+      "/login?native=1",
       "ADMIN_EMAIL",
       "analytics",
       "gpt-4o",
       "gpt-4o-mini",
+      "margin",
       "openai",
       "openai/*",
       "openrouter",
       "region",
       "revenue",
-      "salary"
+      "salary",
+      "userName"
     ],
     "headings": [
       {
@@ -1345,6 +1934,36 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       {
         "id": "rollout",
         "text": "A sensible rollout",
+        "level": 3
+      },
+      {
+        "id": "use-cases",
+        "text": "Use cases",
+        "level": 2
+      },
+      {
+        "id": "use-case-contractors",
+        "text": "Contractors may only use one inexpensive model",
+        "level": 3
+      },
+      {
+        "id": "use-case-shared-connection",
+        "text": "A warehouse for the team, no password shared",
+        "level": 3
+      },
+      {
+        "id": "use-case-row-security",
+        "text": "Regional analysts see only their own rows",
+        "level": 3
+      },
+      {
+        "id": "use-case-sso",
+        "text": "Work accounts only",
+        "level": 3
+      },
+      {
+        "id": "use-case-scim",
+        "text": "Joiners and leavers from the directory (SCIM)",
         "level": 3
       }
     ]
@@ -1458,6 +2077,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "level": 2
       },
       {
+        "id": "teams",
+        "text": "Answering in Microsoft Teams",
+        "level": 2
+      },
+      {
         "id": "n8n",
         "text": "n8n workflows",
         "level": 2
@@ -1484,14 +2108,23 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     "title": "Knowledge Base",
     "description": "Collections of documents an agent can search by meaning and quote with citations. This is how you stop an agent inventing your policies.",
     "terms": [
+      "/docs",
       "/embeddings",
       "/models",
+      "DOCUMENT_VISION_MAX_PAGES",
+      "DOCUMENT_VISION_MODEL",
       "GITHUB_TOKEN",
       "OPENROUTER_API_KEY",
+      "QDRANT_REPLICATION",
+      "QDRANT_URL",
+      "VECTOR_STORE=qdrant",
+      "dimensions",
       "error",
       "final_v3.pdf",
       "flat",
       "google/gemini-embedding-001",
+      "kb.document.ocr",
+      "kb_chunks.embedding",
       "kb_graph_search",
       "kb_search",
       "llama-nemotron-rerank-vl-1b-v2",
@@ -1534,7 +2167,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       },
       {
         "id": "s-connectors",
-        "text": "Connected services — Drive, Notion, SharePoint, Dropbox",
+        "text": "Connected services — Drive, Notion, SharePoint, Dropbox, Confluence, Website",
         "level": 3
       },
       {
@@ -1550,6 +2183,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       {
         "id": "embedding-provider",
         "text": "Which model does the embedding",
+        "level": 3
+      },
+      {
+        "id": "vector-store",
+        "text": "Where the vectors are searched",
         "level": 3
       },
       {
@@ -1630,6 +2268,176 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       {
         "id": "quality",
         "text": "Getting better results",
+        "level": 3
+      },
+      {
+        "id": "use-cases",
+        "text": "Use cases",
+        "level": 2
+      },
+      {
+        "id": "use-case-docs-site",
+        "text": "Index your own documentation site",
+        "level": 3
+      },
+      {
+        "id": "use-case-confluence",
+        "text": "A Confluence space, code blocks intact",
+        "level": 3
+      },
+      {
+        "id": "use-case-delete",
+        "text": "Share it, and delete it safely",
+        "level": 3
+      }
+    ]
+  },
+  {
+    "route": "/docs/lakehouse",
+    "title": "Lakehouse",
+    "description": "The built-in columnar warehouse — DuckDB attached to a DuckLake catalog. Use it wherever you'd reach for a data warehouse: fast analytical SQL over tables you own, with open Parquet in your own object storage, a transactional catalog, and stateless compute on every app replica.",
+    "terms": [
+      ".env.example",
+      "ATTACH",
+      "COPY",
+      "DELETE",
+      "INSERT",
+      "INSTALL",
+      "LAKEHOUSE_*",
+      "LAKEHOUSE_CATALOG_URL",
+      "LAKEHOUSE_CLUSTER_FILE_BYTES",
+      "LAKEHOUSE_MEMORY_LIMIT",
+      "LAKEHOUSE_S3_PUBLIC_ENDPOINT",
+      "LAKEHOUSE_SPARK_QUERY_MINUTES",
+      "LAKEHOUSE_SPILL_LIMIT",
+      "MERGE",
+      "NOTEBOOK_NETWORK",
+      "SELECT",
+      "SET",
+      "SHARE_URL_EXPIRY_SECONDS",
+      "SUMMARIZE",
+      "UPDATE",
+      "cached",
+      "count(*)",
+      "docs/LAKEHOUSE.md",
+      "f1_standings",
+      "iceberg_catalog",
+      "internal",
+      "lakehouse-catalog:5432",
+      "lakehouse.iceberg.import",
+      "lakehouse.iceberg.mount",
+      "lakehouse.iceberg.publish",
+      "lakehouse.iceberg.refresh",
+      "orders",
+      "pii",
+      "record_count",
+      "restricted",
+      "spark"
+    ],
+    "headings": [
+      {
+        "id": "what",
+        "text": "What it is",
+        "level": 2
+      },
+      {
+        "id": "use",
+        "text": "Working in the Lakehouse",
+        "level": 2
+      },
+      {
+        "id": "lake",
+        "text": "Querying your data lake",
+        "level": 2
+      },
+      {
+        "id": "fast",
+        "text": "Making queries fast",
+        "level": 2
+      },
+      {
+        "id": "matviews",
+        "text": "Materialized views",
+        "level": 2
+      },
+      {
+        "id": "policies",
+        "text": "Row and column security",
+        "level": 2
+      },
+      {
+        "id": "tag-policies",
+        "text": "Policies by tag",
+        "level": 3
+      },
+      {
+        "id": "concurrency",
+        "text": "Concurrent writes",
+        "level": 2
+      },
+      {
+        "id": "maintenance",
+        "text": "Maintenance and compaction",
+        "level": 2
+      },
+      {
+        "id": "integrity",
+        "text": "When the catalog and the object store disagree",
+        "level": 2
+      },
+      {
+        "id": "governance",
+        "text": "Governance and access",
+        "level": 2
+      },
+      {
+        "id": "ecosystem",
+        "text": "Across the ecosystem",
+        "level": 2
+      },
+      {
+        "id": "sharing",
+        "text": "Sharing tables outside the platform",
+        "level": 2
+      },
+      {
+        "id": "iceberg",
+        "text": "Iceberg interop",
+        "level": 2
+      },
+      {
+        "id": "spark",
+        "text": "Running a query on Spark",
+        "level": 2
+      },
+      {
+        "id": "scaling",
+        "text": "Scaling and limits",
+        "level": 2
+      },
+      {
+        "id": "use-cases",
+        "text": "Use cases",
+        "level": 2
+      },
+      {
+        "id": "use-case-plain-language",
+        "text": "A plain-language question, with the SQL kept",
+        "level": 3
+      },
+      {
+        "id": "use-case-missing-files",
+        "text": "A table whose files are gone",
+        "level": 3
+      },
+      {
+        "id": "use-case-as-of",
+        "text": "Answer as of last week",
+        "level": 3
+      },
+      {
+        "id": "use-case-backup",
+        "text": "Back it up and prove the backup",
         "level": 3
       }
     ]
@@ -1756,6 +2564,480 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       {
         "id": "troubleshooting",
         "text": "Troubleshooting a connected server",
+        "level": 3
+      }
+    ]
+  },
+  {
+    "route": "/docs/ml",
+    "title": "ML Models",
+    "description": "Train a model on a lakehouse table without writing code, keep every version with its metrics and the snapshot it learned from, score rows back into the lakehouse, let agents predict with it, and draw its forecasts on a dashboard — all on your own infrastructure.",
+    "terms": [
+      "SUMMARIZE",
+      "ml_predict"
+    ],
+    "headings": [
+      {
+        "id": "what",
+        "text": "What it is",
+        "level": 2
+      },
+      {
+        "id": "guide",
+        "text": "In this guide",
+        "level": 2
+      },
+      {
+        "id": "tasks",
+        "text": "Tasks",
+        "level": 2
+      },
+      {
+        "id": "use-cases",
+        "text": "Use cases",
+        "level": 2
+      },
+      {
+        "id": "use-case-plan",
+        "text": "Which plan will a customer end up on?",
+        "level": 3
+      },
+      {
+        "id": "use-case-order",
+        "text": "How much is this order worth?",
+        "level": 3
+      },
+      {
+        "id": "use-case-forecast",
+        "text": "Next quarter&apos;s revenue, on the dashboard",
+        "level": 3
+      },
+      {
+        "id": "how-this-compares",
+        "text": "How this compares",
+        "level": 2
+      }
+    ]
+  },
+  {
+    "route": "/docs/ml/operations",
+    "title": "ML Models · Operations",
+    "description": "Sharing and governance, the configurable limits, day-to-day operations, and what to do when something reads wrong.",
+    "terms": [
+      "LimitRange",
+      "ML_API_RATE_LIMIT_PER_MIN",
+      "ML_DRIFT_ALERT_PSI",
+      "ML_MAX_CONCURRENT_TRAININGS_PER_USER",
+      "ML_PREDICT_MAX_ROWS",
+      "ML_TRAIN_GPUS",
+      "ML_TRAIN_MAX_ROWS",
+      "ML_TRAIN_MEM_LIMIT_MB",
+      "ML_TRAIN_TIME_BUDGET_MINUTES",
+      "NOTEBOOK_RUNTIME_IMAGE",
+      "ResourceQuota",
+      "ml-artifacts/",
+      "ml.predict_query",
+      "ml.train.start",
+      "ml.train.succeeded",
+      "ml.version.promote",
+      "ml_model.create",
+      "ml_model.delete",
+      "ml_model.update",
+      "nvidia.com/gpu"
+    ],
+    "headings": [
+      {
+        "id": "sharing",
+        "text": "Sharing and governance",
+        "level": 2
+      },
+      {
+        "id": "limits",
+        "text": "Limits",
+        "level": 2
+      },
+      {
+        "id": "operations",
+        "text": "Operations",
+        "level": 2
+      },
+      {
+        "id": "troubleshooting",
+        "text": "Troubleshooting",
+        "level": 2
+      }
+    ]
+  },
+  {
+    "route": "/docs/ml/predictions",
+    "title": "ML Models · Predictions",
+    "description": "Scoring rows on demand and in batch, letting agents and the AI Analyst predict, the public API, forecasts on dashboards, and feature views that serve a model's features by key.",
+    "terms": [
+      "401",
+      "403",
+      "404",
+      "409",
+      "429",
+      "FEATURE_STORE_MAX_KEYS",
+      "FEATURE_STORE_STALE_MINUTES",
+      "FEATURE_STORE_URL",
+      "ML_API_RATE_LIMIT_PER_MIN",
+      "ML_DRIFT_ALERT_PSI",
+      "ML_PREDICT_MAX_ROWS",
+      "_model_version",
+      "_predicted_at",
+      "classes",
+      "feature_view",
+      "features",
+      "features_served_from",
+      "health",
+      "keys",
+      "keys_not_found",
+      "lakehouse",
+      "mixed",
+      "ml.api_key.denied",
+      "ml.predict_query",
+      "ml.schedule.failed",
+      "ml.schedule.run",
+      "ml_list_models",
+      "ml_predict",
+      "mlk_…",
+      "online",
+      "pipeline",
+      "predict",
+      "predict_proba",
+      "prediction",
+      "proba_&lt;class&gt;",
+      "probability",
+      "read",
+      "rows",
+      "runMlPredict",
+      "task",
+      "tool",
+      "train",
+      "unique"
+    ],
+    "headings": [
+      {
+        "id": "predictions",
+        "text": "Predictions",
+        "level": 2
+      },
+      {
+        "id": "try-it",
+        "text": "Try it",
+        "level": 3
+      },
+      {
+        "id": "batch",
+        "text": "Batch prediction",
+        "level": 3
+      },
+      {
+        "id": "agents",
+        "text": "Agents",
+        "level": 3
+      },
+      {
+        "id": "automation",
+        "text": "Automation",
+        "level": 2
+      },
+      {
+        "id": "api",
+        "text": "Public API",
+        "level": 2
+      },
+      {
+        "id": "external-models",
+        "text": "Bring your own model",
+        "level": 3
+      },
+      {
+        "id": "forecast-period",
+        "text": "What a forecast period is",
+        "level": 3
+      },
+      {
+        "id": "forecasting",
+        "text": "Forecasting in BI",
+        "level": 2
+      },
+      {
+        "id": "features",
+        "text": "Feature views",
+        "level": 2
+      },
+      {
+        "id": "online-store",
+        "text": "Serving them in milliseconds",
+        "level": 3
+      },
+      {
+        "id": "point-in-time",
+        "text": "Point-in-time training sets",
+        "level": 3
+      }
+    ]
+  },
+  {
+    "route": "/docs/ml/serving",
+    "title": "ML Models · Serving",
+    "description": "Warm endpoints for low-latency prediction: copies and autoscaling, what a copy can and cannot do, trying a version on real traffic as a shadow or a canary, and training past what one container holds.",
+    "terms": [
+      "LimitRange",
+      "ML_ARTIFACT_MAX_MB",
+      "ML_SERVE_MEM_LIMIT_MB",
+      "ML_SERVE_SCALE_COOLDOWN_SECONDS",
+      "ML_SERVE_TARGET_RPM_PER_REPLICA",
+      "ML_TRAIN_MEM_LIMIT_MB",
+      "Pending",
+      "PodScheduled",
+      "ResourceQuota",
+      "_predict",
+      "limits.memory",
+      "ml.predict_query",
+      "ml.scale",
+      "served"
+    ],
+    "headings": [
+      {
+        "id": "warm",
+        "text": "Warm endpoints",
+        "level": 2
+      },
+      {
+        "id": "replicas",
+        "text": "More than one copy",
+        "level": 3
+      },
+      {
+        "id": "replicas-scaling",
+        "text": "When copies are added and removed",
+        "level": 3
+      },
+      {
+        "id": "replicas-limits",
+        "text": "What a copy actually is, and how far it gets you",
+        "level": 3
+      },
+      {
+        "id": "shadow",
+        "text": "Trying a version on real traffic",
+        "level": 3
+      },
+      {
+        "id": "canary",
+        "text": "Giving it a share of real traffic",
+        "level": 3
+      },
+      {
+        "id": "data-parallel",
+        "text": "More rows than one container holds",
+        "level": 3
+      },
+      {
+        "id": "copies",
+        "text": "How many copies you can run",
+        "level": 3
+      }
+    ]
+  },
+  {
+    "route": "/docs/ml/training",
+    "title": "ML Models · Training",
+    "description": "From a lakehouse table to a versioned model: preparing the training set, the trainer's search, reading the results and its warnings, how the winner is chosen, versions, and experiments run from a notebook.",
+    "terms": [
+      "/api/ml/experiments/artifact",
+      "/api/ml/experiments/register",
+      "ML_ARTIFACT_MAX_MB",
+      "ML_CV_MIN_HOLDOUT_ROWS",
+      "ML_TRAIN_WORKERS",
+      "SELECT",
+      "TimeSeriesSplit",
+      "WHERE",
+      "approved_by",
+      "artifact_sha256",
+      "artifact_uri",
+      "finish",
+      "key",
+      "key@n",
+      "ml-artifacts/",
+      "ml.experiment.promote",
+      "ml.version.promote",
+      "ml.version.promote.requested",
+      "start_run",
+      "start_run()"
+    ],
+    "headings": [
+      {
+        "id": "prepare",
+        "text": "Prepare a training set",
+        "level": 2
+      },
+      {
+        "id": "train",
+        "text": "Train a model",
+        "level": 2
+      },
+      {
+        "id": "search-workers",
+        "text": "A search across several sandboxes",
+        "level": 3
+      },
+      {
+        "id": "results",
+        "text": "Read the results",
+        "level": 2
+      },
+      {
+        "id": "warnings",
+        "text": "What the trainer warns about",
+        "level": 3
+      },
+      {
+        "id": "selection",
+        "text": "How the winner is chosen",
+        "level": 2
+      },
+      {
+        "id": "selection-mistake",
+        "text": "The mistake, and what it cost",
+        "level": 3
+      },
+      {
+        "id": "selection-now",
+        "text": "What happens now",
+        "level": 3
+      },
+      {
+        "id": "selection-holdout",
+        "text": "The holdout is read once",
+        "level": 3
+      },
+      {
+        "id": "selection-time",
+        "text": "Rows that are ordered in time",
+        "level": 3
+      },
+      {
+        "id": "versions",
+        "text": "Versions",
+        "level": 2
+      },
+      {
+        "id": "experiments",
+        "text": "Experiments",
+        "level": 2
+      },
+      {
+        "id": "experiment-promote",
+        "text": "From a run to a version",
+        "level": 3
+      },
+      {
+        "id": "experiment-save",
+        "text": "Saving the model from the notebook",
+        "level": 3
+      },
+      {
+        "id": "promotion-approval",
+        "text": "Who signs off a promotion",
+        "level": 3
+      }
+    ]
+  },
+  {
+    "route": "/docs/ml/trust",
+    "title": "ML Models · Trust",
+    "description": "Whether a model can be believed today: drift, per-row explanations and reason codes, accuracy against outcomes that arrived later, calibration, the decision threshold, and how groups are treated.",
+    "terms": [
+      "/api/ml/predict/status",
+      "CalibratedClassifierCV",
+      "ML_ASSIST_MODEL",
+      "ML_DECAY_ALERT_RATIO",
+      "ML_DRIFT_ALERT_PSI",
+      "ML_EVALUATIONS_PER_SWEEP",
+      "ML_EXPLAIN_BATCH_MAX_ROWS",
+      "ML_EXPLAIN_BATCH_TOP_K",
+      "ML_EXPLAIN_MAX_ROWS",
+      "ML_EXPLAIN_TOP_K",
+      "ML_FAIRNESS_MIN_RATIO",
+      "argmax",
+      "churned",
+      "f1_macro",
+      "ml.decay.alert",
+      "ml.drift.alert",
+      "ml.fairness.check",
+      "ml.fairness.narrate",
+      "ml.fairness.review",
+      "ml.fairness.suggest",
+      "ml.threshold.set",
+      "predict",
+      "predict_proba",
+      "retained",
+      "rmse",
+      "threshold_applied"
+    ],
+    "headings": [
+      {
+        "id": "drift",
+        "text": "Drift",
+        "level": 2
+      },
+      {
+        "id": "explain",
+        "text": "Why this row got this answer",
+        "level": 2
+      },
+      {
+        "id": "reason-codes",
+        "text": "Reason codes on every scored row",
+        "level": 3
+      },
+      {
+        "id": "ground-truth",
+        "text": "Was it right?",
+        "level": 2
+      },
+      {
+        "id": "calibration",
+        "text": "Is 0.8 really 80%?",
+        "level": 2
+      },
+      {
+        "id": "reliability",
+        "text": "The reliability curve",
+        "level": 3
+      },
+      {
+        "id": "calibration-trainer",
+        "text": "What the trainer does about it",
+        "level": 3
+      },
+      {
+        "id": "threshold",
+        "text": "Where the line is drawn",
+        "level": 2
+      },
+      {
+        "id": "threshold-setting",
+        "text": "A setting, not a retrain",
+        "level": 3
+      },
+      {
+        "id": "threshold-retrain",
+        "text": "A retrain does not carry the line forward",
+        "level": 3
+      },
+      {
+        "id": "fairness",
+        "text": "How groups are treated",
+        "level": 2
+      },
+      {
+        "id": "fairness-agent",
+        "text": "Where the agent layer helps, and where it does not",
         "level": 3
       }
     ]
@@ -1949,6 +3231,13 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     "title": "Agent Chat",
     "description": "The playground at /playground is where you talk to agents directly. It looks like a chat app; the difference is that every message produces a trace you can inspect, and the agent runs with its full saved configuration — same tools, same guardrails, same memory as anywhere else on the platform.",
     "terms": [
+      "/api/slack/command",
+      "/api/slack/events",
+      "/ask",
+      "/support",
+      "app_mention",
+      "chat:write",
+      "message.im",
       "tools.biVisuals"
     ],
     "headings": [
@@ -1986,6 +3275,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "id": "docgen-modes",
         "text": "Browser vs Deep",
         "level": 3
+      },
+      {
+        "id": "slack",
+        "text": "Answering in Slack",
+        "level": 2
       },
       {
         "id": "image-playground",
@@ -2130,13 +3424,61 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     "title": "Install & deploy",
     "description": "Run the whole platform on your own infrastructure. You need a Supabase project for the database and auth, and either Docker or Node.",
     "terms": [
-      "--all",
       "--dev",
-      "--docgen",
-      "--notebooks",
-      "--sandbox",
       ".env",
       ".env.example",
+      "/api/health",
+      "/api/health/ready",
+      "SPARK_CONNECT_URL",
+      "VECTOR_STORE",
+      "deploy/k8s/app/",
+      "deploy/k8s/notebooks/",
+      "docgen",
+      "docs/INSTALL.md",
+      "http://localhost:8080",
+      "js-sandbox",
+      "lakehouse-catalog",
+      "minio",
+      "notebook-gateway",
+      "qdrant",
+      "resources.limits.cpu",
+      "spark-connect",
+      "valkey"
+    ],
+    "headings": [
+      {
+        "id": "quick",
+        "text": "One-command setup",
+        "level": 2
+      },
+      {
+        "id": "guide",
+        "text": "In this guide",
+        "level": 2
+      },
+      {
+        "id": "manual",
+        "text": "Manual setup",
+        "level": 2
+      },
+      {
+        "id": "services",
+        "text": "The services",
+        "level": 2
+      },
+      {
+        "id": "deploy-targets",
+        "text": "Deployment targets",
+        "level": 2
+      }
+    ]
+  },
+  {
+    "route": "/docs/self-hosting/configuration",
+    "title": "Install & deploy · Configuration",
+    "description": "Every environment variable, grouped by what it configures, and the settings that fit each way of running the platform — a laptop, one team, public embeds, a regulated network, a fleet behind a load balancer.",
+    "terms": [
+      ".env",
       "ADMIN_EMAIL",
       "ALLOW_PRIVATE_NETWORK_FETCH",
       "AUDIT_ARCHIVE_ON_PURGE",
@@ -2165,6 +3507,8 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "JS_SANDBOX_MAX_TIMEOUT_MS",
       "JS_SANDBOX_MEM_MB",
       "JS_SANDBOX_URL",
+      "KMS_KEY_REF",
+      "KMS_PROVIDER=vault",
       "LOCAL_ENGINE_MEMORY_MB",
       "LOCAL_ENGINE_THREADS",
       "LOCAL_ENGINE_TIMEOUT_MS",
@@ -2178,7 +3522,6 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "NOTEBOOK_RUNTIME_ENABLED",
       "NOTEBOOK_RUNTIME_IMAGE",
       "NOTEBOOK_RUNTIME_SECRET",
-      "OPENAI_API_KEY",
       "OPENROUTER_API_KEY",
       "OPENROUTER_BASE_URL",
       "OPENROUTER_DEFAULT_MODEL",
@@ -2211,6 +3554,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "SWARM_RUN_TIMEOUT_MS",
       "TRUSTED_PROXY_HOPS",
       "UPLOAD_PER_MINUTE",
+      "VAULT_*",
       "VITE_ADMIN_EMAIL",
       "VITE_SUPABASE_PUBLISHABLE_KEY",
       "VITE_SUPABASE_URL",
@@ -2226,12 +3570,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "WAREHOUSE_QUERY_TIMEOUT_MS",
       "WAREHOUSE_QUEUE_TIMEOUT_MS",
       "X-Forwarded-For",
-      "docs/INSTALL.md",
+      "docs/KEY_MANAGEMENT.md",
       "email_send_log",
       "function",
       "http://127.0.0.1:8091",
       "http://js-sandbox:8091",
-      "http://localhost:8080",
       "max_connections",
       "noreply@example.com",
       "off",
@@ -2241,16 +3584,6 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "yes"
     ],
     "headings": [
-      {
-        "id": "quick",
-        "text": "One-command setup",
-        "level": 2
-      },
-      {
-        "id": "manual",
-        "text": "Manual setup",
-        "level": 2
-      },
       {
         "id": "env",
         "text": "Environment reference",
@@ -2340,26 +3673,160 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "id": "recipe-fleet",
         "text": "Autoscaled behind a load balancer",
         "level": 3
-      },
+      }
+    ]
+  },
+  {
+    "route": "/docs/self-hosting/kubernetes",
+    "title": "Install & deploy · Kubernetes",
+    "description": "Running the platform on Kubernetes: what each manifest is for, then Amazon EKS, Google GKE, Azure AKS and Oracle OKE step by step, and how to verify any of them.",
+    "terms": [
+      "&quot;https://…&quot;",
+      "./docker/notebook-runtime",
+      "./services/notebook-gateway",
+      ".env",
+      "/api/health",
+      "/api/health/ready",
+      "/tmp",
+      "APP_ROLE=analytics",
+      "BI_CRON_TOKEN",
+      "BackendConfig",
+      "CronJob",
+      "DENIED",
+      "Deployment",
+      "INTERNAL_RUN_SECRET",
+      "ImagePullBackOff",
+      "LAKEHOUSE_CATALOG_PASSWORD",
+      "LAKEHOUSE_S3_ENDPOINT",
+      "LAKEHOUSE_S3_URL_STYLE=path",
+      "LoadBalancer",
+      "ManagedCertificate",
+      "NOTEBOOK_RUNTIME_IMAGE",
+      "NetworkPolicy",
+      "PUBLIC_APP_URL",
+      "Provisioning",
+      "SUPABASE_CHART_VERSION",
+      "SUPABASE_URL",
+      "Service",
+      "StatefulSet",
+      "StorageClass",
+      "agentswarms-docgen",
+      "anon",
+      "authenticator",
+      "aws",
+      "baseline",
+      "change-me",
+      "deploy/k8s/app/agentswarms.yaml",
+      "deploy/k8s/app/services.yaml",
+      "deploy/k8s/notebooks/",
+      "docker-compose.yml",
+      "docs/DEPLOYMENT.md",
+      "eksctl",
+      "emptyDir",
+      "gp3",
+      "helm",
+      "kubectl",
+      "oci-bv",
+      "resources.limits.cpu",
+      "restricted",
+      "runAsNonRoot",
+      "storage.googleapis.com",
+      "supabase/postgres",
+      "supabase_auth_admin",
+      "svc/agentswarms"
+    ],
+    "headings": [
       {
-        "id": "optional-services",
-        "text": "Optional services",
+        "id": "kubernetes-overview",
+        "text": "Kubernetes",
         "level": 2
       },
       {
-        "id": "deploy-targets",
-        "text": "Deployment targets",
-        "level": 2
+        "id": "kubernetes",
+        "text": "Kubernetes, in detail",
+        "level": 3
       },
+      {
+        "id": "k8s-eks",
+        "text": "Amazon EKS, step by step",
+        "level": 3
+      },
+      {
+        "id": "k8s-gke",
+        "text": "Google GKE, step by step",
+        "level": 3
+      },
+      {
+        "id": "k8s-aks",
+        "text": "Azure AKS, step by step",
+        "level": 3
+      },
+      {
+        "id": "k8s-oke",
+        "text": "Oracle OKE, step by step",
+        "level": 3
+      },
+      {
+        "id": "k8s-verify",
+        "text": "After any of them",
+        "level": 3
+      }
+    ]
+  },
+  {
+    "route": "/docs/self-hosting/operations",
+    "title": "Install & deploy · Operations",
+    "description": "Scaling from one machine to many, keeping every service available, data residency, and the checks to make before exposing an instance.",
+    "terms": [
+      "--cpus=2",
+      "/api/health",
+      "/api/health/ready",
+      "APP_ROLE=analytics",
+      "DISABLE_INPROCESS_SCHEDULER",
+      "ENFORCE_BUDGET_CAP",
+      "LAKEHOUSE_MEMORY_LIMIT=16GB",
+      "PROVIDER_CREDS_SECRET",
+      "SUPABASE_URL",
+      "TRUSTED_PROXY_HOPS",
+      "WEB_CONCURRENCY",
+      "docs/DEPLOYMENT.md",
+      "region"
+    ],
+    "headings": [
       {
         "id": "scaling",
         "text": "Scaling",
         "level": 2
       },
       {
+        "id": "scaling-up",
+        "text": "One machine, all of it",
+        "level": 3
+      },
+      {
+        "id": "scaling-analytics",
+        "text": "Analytics-only nodes",
+        "level": 3
+      },
+      {
+        "id": "scaling-out",
+        "text": "Then more machines",
+        "level": 3
+      },
+      {
         "id": "operations",
         "text": "Operations",
         "level": 2
+      },
+      {
+        "id": "high-availability",
+        "text": "Keeping every service available",
+        "level": 3
+      },
+      {
+        "id": "residency",
+        "text": "Data residency: one deployment per region",
+        "level": 3
       },
       {
         "id": "hardening",
@@ -2426,6 +3893,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "many_to_one",
       "max",
       "metric_query",
+      "metrics",
       "min",
       "mom",
       "month",
@@ -2467,6 +3935,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "id": "dimension",
         "text": "Dimension",
         "level": 3
+      },
+      {
+        "id": "source",
+        "text": "Where a model&apos;s table comes from",
+        "level": 2
       },
       {
         "id": "define",
@@ -2586,6 +4059,109 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     ]
   },
   {
+    "route": "/docs/sheets",
+    "title": "Sheets",
+    "description": "Spreadsheets with the Excel formulas people already know, over data far larger than a browser could hold: the lakehouse computes the big tables, the browser only shows the rows on screen.",
+    "terms": [
+      "#,##0;[Red]-#,##0",
+      "#BUSY!",
+      "#SPILL!",
+      "#Summary!B6",
+      "-2^2",
+      "15-Mar-2023",
+      "1e5",
+      "=$C2&lt;0",
+      "=A1+30",
+      "=CEILING(0.0000000001,1)",
+      "=FLOOR(4.35,0.05)",
+      "=PROPER(&quot;ÉCOLE&quot;)",
+      "=SORT()",
+      "=SUM()",
+      "=SUM(Revenue)*TaxRate",
+      "=TEXT(2.675,&quot;0.00&quot;)",
+      "A2#",
+      "Orders[amount]",
+      "ROUND(1.005,2)",
+      "SHEETS_AI_FILL_MAX_ROWS",
+      "SHEETS_ASSIST_MODEL",
+      "SHEETS_ASSIST_PER_MINUTE",
+      "SHEETS_EXPORT_MAX_ROWS",
+      "SHEETS_IMPORT_MAX_SHEETS",
+      "SHEETS_MAX_CELLS",
+      "SHEETS_PAGE_ROWS",
+      "SHEETS_UPLOAD_MAX_MB",
+      "SHEETS_VERSIONS_MAX",
+      "SHEETS_VERSION_INTERVAL_MINUTES",
+      "WAREHOUSE_ABS_MAX_ROWS",
+      "[$€-2]",
+      "[&lt;10]",
+      "[h]:mm",
+      "_)",
+      "javascript:",
+      "lakehouse.import",
+      "sheet.share",
+      "sheet.unshare",
+      "£1,234.50"
+    ],
+    "headings": [
+      {
+        "id": "what",
+        "text": "Two kinds of sheet",
+        "level": 2
+      },
+      {
+        "id": "page",
+        "text": "The Sheets page",
+        "level": 2
+      },
+      {
+        "id": "grid",
+        "text": "Grid sheets",
+        "level": 2
+      },
+      {
+        "id": "tables",
+        "text": "Table sheets",
+        "level": 2
+      },
+      {
+        "id": "calculated-columns",
+        "text": "Calculated columns",
+        "level": 3
+      },
+      {
+        "id": "formulas-over-tables",
+        "text": "Formulas over tables in grid sheets",
+        "level": 2
+      },
+      {
+        "id": "files",
+        "text": "Excel and CSV files",
+        "level": 2
+      },
+      {
+        "id": "save",
+        "text": "Saving to the lakehouse and the catalog",
+        "level": 2
+      },
+      {
+        "id": "sharing",
+        "text": "Sharing",
+        "level": 2
+      },
+      {
+        "id": "ai",
+        "text": "AI in a workbook",
+        "level": 2
+      },
+      {
+        "id": "governance",
+        "text": "Governance",
+        "level": 2
+      }
+    ]
+  },
+  {
     "route": "/docs/skills",
     "title": "Skills & Prompt Library",
     "description": "Two small libraries of reusable text: skills are focused playbooks composed into an agent's system prompt at run time; prompts are complete starter system prompts. Both exist so good instructions get written once and reused everywhere.",
@@ -2635,6 +4211,76 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     ]
   },
   {
+    "route": "/docs/sql-models",
+    "title": "SQL Models",
+    "description": "A model is one SELECT that becomes a lakehouse table. ref('other') names another model, which both declares the dependency and resolves to its table. A build walks the graph in dependency order, so a staging table is always rebuilt before the fact that reads it.",
+    "terms": [
+      "&lt;schema&gt;.stg_orders",
+      "+model",
+      "/api/v1/metrics",
+      "SELECT",
+      "analytics.fct_orders",
+      "error",
+      "metric_query",
+      "net_usd",
+      "not_null",
+      "ref(&apos;stg_orders&apos;)",
+      "ref()",
+      "schema.table",
+      "sql_model.build",
+      "sql_model.pause",
+      "sql_model.resume",
+      "stg_orders"
+    ],
+    "headings": [
+      {
+        "id": "what",
+        "text": "What it is",
+        "level": 2
+      },
+      {
+        "id": "why",
+        "text": "Why this and not a materialized view",
+        "level": 2
+      },
+      {
+        "id": "writing",
+        "text": "Writing a model",
+        "level": 2
+      },
+      {
+        "id": "materialization",
+        "text": "Table or view",
+        "level": 3
+      },
+      {
+        "id": "tests",
+        "text": "Tests",
+        "level": 2
+      },
+      {
+        "id": "building",
+        "text": "Building",
+        "level": 2
+      },
+      {
+        "id": "metrics",
+        "text": "After it builds: naming what the columns mean",
+        "level": 2
+      },
+      {
+        "id": "governance",
+        "text": "Governance",
+        "level": 2
+      },
+      {
+        "id": "troubleshooting",
+        "text": "Troubleshooting",
+        "level": 3
+      }
+    ]
+  },
+  {
     "route": "/docs/swarms",
     "title": "Swarm Canvas",
     "description": "A swarm is a directed graph of nodes. Output flows along the edges, shared state flows through all of them. This page documents all eighteen node kinds and every field on each.",
@@ -2669,6 +4315,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "extract",
       "extractSchema",
       "fail",
+      "features_served_from",
       "first",
       "foreach",
       "foreachInput",
@@ -2691,12 +4338,15 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "inputFields[].required",
       "inputFields[].type",
       "inputs",
+      "keys",
+      "keys_not_found",
       "knowledgeBaseId",
       "loop",
       "maxIters",
       "memory",
       "mergeSeparator",
       "message",
+      "ml_predict",
       "model",
       "nodeTimeoutMs",
       "none",
@@ -2715,10 +4365,12 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "retryDelayMs",
       "return",
       "routerPrompt",
+      "rows",
       "select",
       "skillIds",
       "stateAssignments",
       "subSwarmId",
+      "suspended",
       "swarm",
       "systemPrompt",
       "technical",
@@ -2910,6 +4562,108 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "id": "troubleshooting",
         "text": "Troubleshooting",
         "level": 2
+      }
+    ]
+  },
+  {
+    "route": "/docs/workflows",
+    "title": "Workflows",
+    "description": "One graph over the pipelines, model builds, retrains, notebooks and swarms you already have — with the branching, retries, approvals and API trigger an orchestrator is expected to have.",
+    "terms": [
+      "404",
+      "409",
+      "WORKFLOW_TRIGGER_PER_MIN",
+      "all_done",
+      "api",
+      "cron",
+      "cron_expr",
+      "false",
+      "one_success",
+      "partial",
+      "schedule",
+      "trigger",
+      "true"
+    ],
+    "headings": [
+      {
+        "id": "steps",
+        "text": "The fifteen kinds of step",
+        "level": 2
+      },
+      {
+        "id": "work-steps",
+        "text": "Work",
+        "level": 3
+      },
+      {
+        "id": "outside-steps",
+        "text": "Reaching outside",
+        "level": 3
+      },
+      {
+        "id": "control-steps",
+        "text": "Control flow",
+        "level": 3
+      },
+      {
+        "id": "building",
+        "text": "Building a graph",
+        "level": 2
+      },
+      {
+        "id": "trigger-rules",
+        "text": "Trigger rules",
+        "level": 2
+      },
+      {
+        "id": "branching",
+        "text": "Branching",
+        "level": 2
+      },
+      {
+        "id": "no-notation",
+        "text": "Nothing in the editor asks for a notation",
+        "level": 2
+      },
+      {
+        "id": "parameters",
+        "text": "Parameters",
+        "level": 2
+      },
+      {
+        "id": "retries",
+        "text": "Retries, timeouts and failure",
+        "level": 2
+      },
+      {
+        "id": "runs",
+        "text": "Runs",
+        "level": 2
+      },
+      {
+        "id": "api",
+        "text": "Starting a run from outside",
+        "level": 2
+      },
+      {
+        "id": "limits",
+        "text": "Knobs",
+        "level": 3
+      },
+      {
+        "id": "governance",
+        "text": "Who may run it, and what gets recorded",
+        "level": 2
+      },
+      {
+        "id": "audit",
+        "text": "The audit trail",
+        "level": 3
+      },
+      {
+        "id": "step-logs",
+        "text": "Getting from a step to its logs",
+        "level": 3
       }
     ]
   }

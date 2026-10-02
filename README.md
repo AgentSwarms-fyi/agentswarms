@@ -1,9 +1,10 @@
 <div align="center">
-  <img src="public/banner.png" alt="AgentSwarms — Unified Agentic AI and Business Intelligence" width="100%" />
+  <img src="public/banner.png" alt="AgentSwarms — self-hosted agentic AI and data platform: AI agents, multi-agent swarms, RAG, ETL pipelines, a lakehouse, BI dashboards and no-code machine learning on your own infrastructure" width="100%" />
 
-  <p><strong>Deploy your own agentic AI &amp; business-intelligence platform.</strong><br />
-  Build agents, run multi-agent swarms, ground them in your data, and inspect
-  every trace — on your own infrastructure, with your own keys.</p>
+  <p><strong>The self-hosted agentic AI and data platform.</strong><br />
+  Build AI agents and multi-agent swarms, land your data in a lakehouse you own,
+  and put dashboards, an AI analyst and no-code machine learning on top —
+  on your infrastructure, with your model keys, under one set of rules.</p>
 
   <p>
     <img alt="License: Elastic License 2.0" src="https://img.shields.io/badge/license-Elastic%20License%202.0-0B64A0.svg" />
@@ -11,7 +12,7 @@
     <img alt="Node" src="https://img.shields.io/badge/node-%E2%89%A520.19-339933?logo=node.js&logoColor=white" />
     <img alt="TanStack Start" src="https://img.shields.io/badge/TanStack%20Start-React%2019-FF4154?logo=react&logoColor=white" />
     <img alt="Supabase" src="https://img.shields.io/badge/backend-Supabase-3ECF8E?logo=supabase&logoColor=white" />
-    <img alt="Deploy" src="https://img.shields.io/badge/deploy-Docker%20%7C%20Node-2496ED?logo=docker&logoColor=white" />
+    <img alt="Deploy" src="https://img.shields.io/badge/deploy-Docker%20%7C%20Kubernetes-2496ED?logo=docker&logoColor=white" />
   </p>
 
   <p>
@@ -19,36 +20,43 @@
     <a href="#features">Features</a> ·
     <a href="#quickstart">Quickstart</a> ·
     <a href="#documentation">Documentation</a> ·
-    <a href="#this-repo-vs-agentswarmsfyi">Self-host vs. hosted</a> ·
+    <a href="#self-hosted-vs-hosted">Self-hosted vs. hosted</a> ·
     <a href="./CONTRIBUTING.md">Contributing</a>
   </p>
 </div>
 
 ---
 
-**AgentSwarms** is a self-hosted, source-available platform for running AI
-agents against your own data.
+# AgentSwarms: agents that can act, and a data platform worth pointing them at
 
-The agent side is what you'd expect: agent chat, a visual canvas for multi-agent
-swarms, knowledge bases with RAG (hybrid search, parent-child and Q&A indexing),
-MCP in both directions, batch evaluations, and execution traces with per-call
-costs. What's less usual is what sits underneath. A semantic layer holds your
-metric definitions, so an agent asked about revenue uses the same definition
-your finance team does instead of guessing at a column. The data catalog tracks
-lineage, so an answer can be traced back to the table it came from. Model rules,
-spend budgets and a hash-chained audit trail apply per user and per group, and
-they run before the call rather than reporting on it afterwards. Dashboards,
-alerts and scheduled reports read those same definitions.
+Most agent platforms stop at the agent and leave the data to you. **AgentSwarms**
+ships both halves, source-available and self-hosted: agent chat, a canvas for
+multi-agent swarms, RAG knowledge bases and MCP on one side; ETL pipelines, a
+DuckDB-and-Parquet lakehouse you own, BI dashboards, an AI analyst that shows
+its SQL, and no-code machine learning on the other. One semantic layer, one
+catalog with lineage, one IAM and one hash-chained audit trail govern all of it,
+so an agent asked about revenue uses the definition your finance team does, a
+row filter on a table binds the dashboard and the agent alike, and every answer
+traces back to the snapshot it came from. It runs from one Supabase project and
+one Docker command, on your model keys.
 
-Warehouses connect directly — Snowflake, BigQuery, Databricks, Redshift, Trino,
-ClickHouse, Oracle, SQL Server, Postgres and MySQL among them — alongside file
-uploads and SaaS sources like Stripe, Shopify and HubSpot.
+## Why teams pick it
 
-Running it takes one Supabase project and one Docker command. Your data stays in
-that Supabase project, and models run on your own provider keys: OpenRouter,
-OpenAI, Anthropic, Gemini, Bedrock, Azure, OCI, Qwen, Grok, Groq, Ollama, vLLM.
-Set one instance-wide OpenRouter key and people can start without configuring a
-provider at all.
+- **One platform instead of five subscriptions** — agents, RAG, ETL, a lakehouse,
+  BI and ML share one login, one permission model and one audit log.
+- **Data you keep** — tables are zstd Parquet in your own bucket with a
+  transactional catalog; snapshots give time travel; nothing is locked in.
+- **Governance that runs before the call** — model rules, spend budgets, row
+  filters and column masks are enforced server-side, not reported afterwards.
+- **Answers you can check** — the analyst cites its SQL, a forecast says what a
+  period is, a trained model says when its score could mislead.
+- **Any model, any warehouse** — OpenRouter, OpenAI, Anthropic, Gemini, Bedrock,
+  Azure, OCI, Qwen, Grok, Groq, Ollama and vLLM for models; Snowflake, BigQuery,
+  Databricks, Redshift, Trino, ClickHouse, Oracle, SQL Server, Postgres and MySQL
+  connect directly, alongside file uploads and SaaS sources like Stripe, Shopify
+  and HubSpot.
+- **Runs where you run** — Docker on a laptop or a VM, or Kubernetes with
+  autoscaling; Supabase hosted or self-hosted, so nothing has to leave your network.
 
 ## A look at it
 
@@ -72,9 +80,59 @@ asks a clarifying question instead of guessing when one is genuinely needed.
 
 ![Part of an "AI Analyst" analysis steps and result](docs/screenshots/analyst-step2.png)
 
+**ETL pipelines** — move data between systems on a canvas or write ETL code in Python: sources
+into joins, aggregates, quality gates and targets, with the compiled Python one
+toggle away and AI generate/refine on your own model. Runs execute on a
+sandboxed kernel — credentials reach process memory only, never the code or the
+container environment — on a schedule or a webhook, with retries, overlap guards
+and incremental watermarks. Every successful load re-crawls its destination, so
+new tables show up in the catalog for BI, the analyst and agents.
+
+![The ETL visual editor: a reconciliation pipeline as a graph — orders and payments through dedupe, aggregate and a full outer join into matched and exception targets — with the selected join node's configuration open on the right](docs/screenshots/etl-visual-editor.png)
+
+**Lakehouse** — a columnar warehouse of your own, under **Data & BI**. Browse
+schemas, tables, columns and snapshots; query them with governed SQL or plain
+language, on the built-in engine or on the Spark cluster; and see what a query
+actually scanned. Tables are zstd Parquet in your own bucket with a Postgres
+catalog, so compute stays stateless and nothing is locked in.
+
+![The Lakehouse: the object explorer listing analytics and raw_lake schemas beside a SQL editor with Run, Explain and Save-as-view, and the query's results below](docs/screenshots/lakehouse-query.png)
+
+**ML Models** — no-code machine learning on your lakehouse tables, under
+**Data & BI → ML Models**. Pick a table and a goal — predict a column, forecast
+a series, find groups, find anomalies, recommend items — and a sandboxed
+trainer profiles the data, prepares it (filters, imputation, encoding, text as
+features), tries several algorithms under a time budget with optional
+hyperparameter search, and keeps the best with its metrics, leaderboard,
+permutation importance and a passport (lakehouse snapshot, decision id,
+artifact digest). Every model is a registry entry with versions and stages,
+scores rows back into the lakehouse — by hand, on a schedule, or through a
+scoped public API — is an agent tool, reports drift against its training data,
+compares versions side by side, and writes its own model card. Governed like
+everything else: IAM shares, trigger audit, decision ids.
+
+![An ML model page: a clustering model trained on the sample revenue table, showing its silhouette score, the groups it found with their typical rows, the leaderboard of every k tried, and the lineage with snapshot, decision id and artifact digest](docs/screenshots/ml-model-training.png)
+
+**Workflows** — one graph over the pipelines, model builds, retrains,
+notebooks, SQL statements, prep flows, swarms, dashboards and monitors you
+already have, plus HTTP calls, notifications, conditions, waits, approvals and
+sub-workflows: fifteen kinds of step. A step starts when its trigger rule is
+satisfied (`all_success`, `all_done` or `one_success`), independent steps run at
+once, a condition takes the true or the false branch, and a step whose
+dependency failed is marked skipped rather than left pending forever. Retries
+reuse the same row so a step stays one line however many times it was tried.
+Parameters are pinned onto the run; schedules are the coarse four or a cron
+expression with a timezone; and `POST /api/workflows/run` starts one from
+outside with a per-workflow bearer token. Nothing in the editor asks you to
+learn a notation — a condition is assembled from pickers, headers are rows, and
+a secret is chosen by name.
+
 **BI Workspace** — multi-page dashboards over your connected tables and
 warehouses, with KPIs, cross-filtering, scheduled refresh, PDF export and
-publish-and-share links.
+publish-and-share links. Alongside them, **paginated reports**: a fixed page,
+a running header and footer, and tables that continue onto the next page with
+their header redrawn — generated from a table by AI, exported as vector-text
+PDF.
 
 ![A published "Formula 1 Analytics" dashboard showing KPI cards and bar and doughnut charts across multiple pages](docs/screenshots/bi-dashboard.png)
 
@@ -98,38 +156,112 @@ published as callable APIs.
 
 ![The Developer workspace showing the read-only "LangChain fundamentals" sample notebook with runnable Python cells](docs/screenshots/developer-workspace-notebook.png)
 
-## This repo vs. agentswarms.fyi
-
-Same UI, two different missions:
-
-|              | **This repository (source-available, Elastic License 2.0)**                                                                                                 | **[agentswarms.fyi](https://agentswarms.fyi) (hosted)**                                                                                                                 |
-| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Focus**    | **Easy deployment of the full agentic AI &amp; BI platform** on your own infrastructure — agents, swarms, RAG, connected data, dashboards, traces, budgets. | **Learning first**: a hands-on classroom for agentic AI — guided curriculum, build-along labs, interactive notebooks, presentations, and certification — fully managed. |
-| **Runs on**  | Your Supabase project, your provider keys, your Docker host.                                                                                                | Managed infrastructure, including an AI gateway with free-tier models — nothing to configure.                                                                           |
-| **Extras**   | Headless control of your own data; no usage caps other than your own budgets.                                                                               | Hosted-only surfaces: field-engineering blog, community galleries, voice agents, and free standalone tools.                                                             |
-| **Best for** | Teams and tinkerers who want to **run** an agentic AI platform they own.                                                                                    | Learners who want to **study and practice** agentic AI without setting anything up.                                                                                     |
-
-The "AgentSwarms" name and the hosted service remain with the project author.
-
 ## Features
 
-|                                  |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 🤖 **Agent Chat**                | Build an agent, wire up tools, and chat with it in-browser (under **Build → Agent Chat**), with full request/response traces. Flip on **Visual BI** to render a chart from your connected tables next to the answer, and generate a fully-editable **PowerPoint, Word or Excel** from your prompt + the conversation — the Excel can pull **all** rows with live formulas. See **[Agent Chat & document generation](./docs/AGENT_CHAT.md)**.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| 🐝 **Swarm canvas**              | Design multi-agent workflows visually (built on [XYFlow](https://xyflow.com)) and execute them end-to-end — from the canvas, from the API, or on a schedule. Deployed runs **checkpoint as they go**, so a run survives a restart or deploy, and a **human-approval step parks the run** until someone decides rather than rubber-stamping it or failing.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| 📚 **Knowledge Base / RAG**      | Upload documents, ingest pages and repos, or **connect Google Drive, Notion, SharePoint and Dropbox** — synced on a schedule with two-level dedup so unchanged files are never re-downloaded and unchanged content is never re-embedded. Chunk + embed (pgvector), ground agents with citations, and scope synced documents per source: everyone with the KB, owner-only, or **mirrored from the provider's own sharing**. See **[the knowledge-base guide](./docs/KNOWLEDGE_BASES.md)**.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| 🏢 **Data Sources**              | **27 connectors.** 22 databases and warehouses — PostgreSQL, MySQL, **Microsoft SQL Server / Azure SQL**, Oracle, Redshift, Snowflake, Databricks, BigQuery, Azure Synapse, Trino/Starburst/Presto, Athena, **ClickHouse**, **CockroachDB**, **TimescaleDB**, **AlloyDB**, **Greenplum**, **YugabyteDB**, **MariaDB**, **SingleStore**, **StarRocks**, **Apache Doris**, **PlanetScale** — queried in place, read-only, encrypted credentials. Plus 5 apps pulled into datasets on a schedule: **Google Sheets, Stripe, Shopify, HubSpot, Salesforce**. Feed the SQL workbench, SQL agents, BI charts, ontologies and scheduled refreshes. See **[Data sources & connectors](./docs/DATA_SOURCES.md)**.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| 🔑 **Secrets Manager**           | Store credentials once (encrypted, write-only) and reference them anywhere as `{{secret:NAME}}` — warehouse connections, provider keys. Superadmins share secrets with users/groups via IAM.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| 🗂️ **Data Catalog**              | Connect warehouses, S3-compatible buckets (AWS S3, Google Cloud Storage, Cloudflare R2, MinIO, Spaces, B2) or an **Iceberg REST catalog** through a wizard; the crawler lists every table and object, groups partitioned folders into datasets, infers CSV/JSON schemas by sampling, profiles columns (null %, distinct counts, ranges), estimates row counts, and flags likely-PII columns. Schedule daily/weekly incremental crawls with schema-drift notifications, generate asset + column documentation with AI, certify or deprecate assets with owners and tags, trace lineage and usage (which dashboards, prep flows and metrics consume each table), define a business glossary, and jump straight into the SQL workbench.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| 📊 **Business Intelligence**     | A dedicated **AI Analyst** (Spotter-style): reasoning-model analysts scoped to your data that plan → query → self-check → refine → write up, with a fully transparent step trace and one-click PDF export. Plus a BI Workspace with drag-and-drop dashboards: build charts from local datasets or connected data sources, generate visuals (or whole dashboards) with the AI analyst, then publish with a public link or share with IAM groups. Enterprise depth included: click-to-cross-filter and drill-down on every chart type (incl. maps, treemaps, heatmaps), drill-through that pushes the widget's filters, your drill level and the cross-filter into the query so the row count is real and the cap is disclosed, locale/currency number formatting, dashboard filters with date presets and pinned defaults, expandable matrix (pivot) with subtotals, version history with restore, scheduled refreshes with email reports and "what changed" insight digests, **incremental refresh** (re-query only a trailing date window), **SQL aggregation pushdown** so totals stay complete past the snapshot cap, data alerts (in-app + email), row-level security **and column-level masking** on shared dashboards (both enforced server-side), usage analytics, and a mobile-stacked layout. Organize dashboards into **workspaces & folders** with read-only group sharing, **promote** a personal draft into a shared workspace, and **export** model/dashboard definitions to a **Git** repo (GitHub/GitLab). |
-| 🔍 **Observability**             | Inspect every tool call, token, and cost in a full execution trace — plus an audit trail of who did what (model calls, dataset & warehouse queries, dashboard views, catalog crawls) with a configurable retention window, and admin-only spend analytics broken down by user and IAM group.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| 🌐 **Web search & browsing**     | Give agents the `web_search` and `web_browse` tools. Both work with **no key**: page reads use a **built-in fetcher** that strips page chrome and converts to markdown (server-rendered pages only — it does not run JavaScript, and says so when a page comes back empty), and search falls back to DuckDuckGo's Instant Answer API, which returns entity summaries rather than ranked results. For real web search and JavaScript-rendered pages, connect **Firecrawl** on the Integrations page (or set `FIRECRAWL_API_KEY`), or bring your own **Brave / SerpAPI / Tavily / ScrapingBee** key per agent. Every model-driven fetch is SSRF-guarded. See **[Web search & browsing](./docs/INSTALL.md#web-search--browsing-optional)**.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| 🔌 **BYOK + MCP + A2A**          | Encrypted per-user provider keys, MCP server connections, swarm export to LangGraph/CrewAI/OpenAI SDK/Strands, and an A2A endpoint.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| 🛠️ **MCP Builder**               | Write an MCP server in Python with **FastMCP** under **Build → MCP Builder**, deploy it to the same sandboxed kernel the Developer workspace uses, and get a real Streamable-HTTP endpoint. It scales to zero by default (or stays warm), registers itself so your own agents can call it, and can be **exposed publicly** with hashed API keys that support expiry, per-tool and per-IP limits. Secrets bind as environment variables without ever entering the container environment, and a redeploy that changes any tool name, description or schema **blocks calls until you re-approve** — the anti "rug pull" control MCP's own security guidance asks for. Needs the server runtime enabled.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| 🌍 **Web Embedding + React SDK** | Put chat agents, swarm tasks, BI dashboards and the AI Analyst on any website. Two integration paths, one key: a copy-paste **iframe** snippet, or the **React SDK** (`@agentswarms/react`, in [`sdk/react`](./sdk/react/README.md)) with headless hooks (`useAgentChat`, `useAgentAnalyst`) and a themeable drop-in `<AgentChat />` for full UI control. Either way, every control is enforced **server-side**: domain allow-list, key expiry, per-key monthly budget cap, rate limits, guardrails and IAM model rules — disable the key and every integration stops instantly.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| 🛂 **IAM**                       | Superadmins, groups, invite/manual user provisioning, per-user/group model allow-lists, read-only sharing of KBs and data tables, row filters + hidden columns on dashboard shares, invite-only mode.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| 📓 **Developer workspace**       | Python notebooks on **sandboxed server kernels** — real CPython with working `pip install` and genuine **LangChain**, **LangGraph** and **LlamaIndex** imports, not a browser emulation. Ships with read-only, runnable samples for each plus a mixed agentic-stack capstone (knowledge base, tools, skills, guardrails, MCP) — fork any of them to edit. The built-in `agentswarms` helper calls your connected models, searches your knowledge base and **runs your saved agents and swarms**, all governed by IAM rules and logged in Traces — no provider key ever exists inside the sandbox. A notebook can also be **published as a callable API**, and versioned to Git as plain Python. Operators enable the runtime under **Admin → Developer runtime**; see **[the runtime guide](./docs/DEVELOPER_WORKSPACE_RUNTIME.md)**.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| 🛡️ **Guardrails & evals**        | Prompt-injection tests, PII redaction, and LLM-as-judge scoring you can run against your own agents.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+|                                      |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 🤖 **Agent Chat**                    | Build an agent, wire up tools, chat with full request and response traces. **Visual BI** draws a chart from your data beside the answer; a prompt turns into an editable **PowerPoint, Word or Excel**, the Excel with live formulas over every row. [Agent Chat & documents](./docs/AGENT_CHAT.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| 🐝 **Swarm canvas**                  | Multi-agent workflows as a graph, run from the canvas, the API or a schedule. Deployed runs checkpoint as they go and survive a restart; a human-approval step parks the run until someone decides.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| 📚 **Knowledge Base / RAG**          | Uploads, crawled sites, repos, and **Google Drive, Notion, SharePoint, Dropbox and Confluence** synced on a schedule with two-level dedup. Hybrid search, parent-child and Q&A indexing on pgvector or Qdrant per collection, citations, and per-source access scopes down to the provider's own sharing. [Knowledge bases](./docs/KNOWLEDGE_BASES.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| 🏢 **Data Sources**                  | **39 connectors**: 22 databases and warehouses (PostgreSQL, MySQL, SQL Server, Oracle, Snowflake, Databricks, BigQuery, Redshift, Synapse, Trino, Athena, ClickHouse, CockroachDB, TimescaleDB and more) queried in place, read-only, with encrypted credentials; 17 apps (Google Sheets, Stripe, Shopify, HubSpot, Salesforce, Jira, Zendesk, ServiceNow, Intercom, GitHub, Linear, Asana, Freshdesk, Klaviyo, Notion, Airtable, Google Analytics 4) synced into datasets, following changes rather than re-reading where the API allows; and the built-in lakehouse. [Connectors](./docs/DATA_SOURCES.md)                                                                                                                                                                                                                                                                                                                                                      |
+| 🗂️ **Data Catalog**                  | Crawls warehouses, S3-compatible buckets and Iceberg REST catalogs: schema inference, column profiles, likely-PII flags, row estimates, usage, a business glossary, AI-written documentation, certification and deprecation, scheduled re-crawls with drift alerts. Lineage at table **and column** level, recorded by every pipeline run and SQL model build from what actually ran, so a revenue figure traces to the file columns it came from. Tags on tables and columns drive security rules. [Lakehouse](./docs/LAKEHOUSE.md#policies-by-tag)                                                                                                                                                                                                                                                                                                                                                                                                             |
+| 📊 **Business Intelligence**         | Drag-and-drop multi-page dashboards with 26 visual types, cross-filter and drill-through, incremental refresh, SQL aggregation pushdown, data alerts, row and column security on shares, workspaces and folders, dev-to-prod promotion and Git export. Plus the **AI Analyst**: plan, query, self-check, write up, every number cited. [Business intelligence](./docs/BUSINESS_INTELLIGENCE.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| 🧭 **Semantic Layer**                | Metrics and dimensions defined once and used by dashboards and agents alike, with joins declared across a star schema so the AI picks a metric name instead of writing SQL. [Semantic layer](./docs/SEMANTIC_LAYER.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| 🔁 **ETL Pipelines**                 | A visual canvas with the compiled Python one toggle away, a full code mode, and AI generate/refine on your own model. Data Catalog assets, object storage (whole prefixes, or **auto-ingest** of only the files not loaded before), databases, HTTP APIs, webhooks, streams, **change-data-capture** and the lakehouse in; storage, databases, Snowflake, BigQuery, Databricks and the lakehouse out — every source and target picked from what the platform knows, never typed. Cron with real timezones, retries, overlap guards, watermarks, quality gates; a **continuous** schedule keeps one run alive to drain a stream as it arrives; a success can build the SQL models and run the ML schedules downstream of it. An optional **Spark engine** per pipeline, driven over Spark Connect from the same sandbox — a standing cluster, or one cluster per run on Kubernetes — for data that does not fit one box. [ETL pipelines](./docs/ETL_PIPELINES.md) |
+| 🗺️ **Workflows**                     | One graph over the work you already have: **fifteen kinds of step** — ETL pipelines, SQL model builds, single SQL statements, data-prep flows, ML schedules, notebooks, published swarms, dashboard refreshes and data monitors, plus HTTP calls, notifications, conditions, waits, human approvals and sub-workflows. Airflow's trigger rules (`all_success`, `all_done`, `one_success`), true/false branching, run parameters pinned onto the run, per-step retries with backoff, three layers of timeout, cron with a timezone, and a per-workflow bearer token for `POST /api/workflows/run`. Nothing in the editor asks you to learn a notation: a condition is assembled from pickers, headers are rows, and a secret is chosen by name.                                                                                                                                                                                                                   |
+| 🏛️ **Lakehouse**                     | A columnar warehouse built in: DuckDB over zstd Parquet in your bucket with a Postgres transactional catalog. Snapshot time travel, partition pruning, clustering with a layout advisor, a snapshot-keyed result cache, materialized views, spill to disk, compaction, mounted data lakes, and row filters and column masks — set per table, or once per tag for every table and column carrying it — rewritten into the query's parse tree. A SELECT too big for one box runs on the **Spark cluster** from the same editor; a table can be shared outside the platform over **Delta Sharing**. [Lakehouse](./docs/LAKEHOUSE.md)                                                                                                                                                                                                                                                                                                                                |
+| 🧱 **SQL Models**                    | A transformation layer over the lakehouse: models that name each other with `ref()`, built in dependency order on a schedule, with tests that mark a model failed and **skip everything downstream** rather than rebuilding it from data you already know is wrong. dbt's vocabulary, none of its templating. [SQL models](./docs/SQL_MODELS.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| 🧪 **ML Models**                     | No-code classification, regression, forecasting, clustering, anomaly detection and recommendations on lakehouse tables: a sandboxed trainer, a registry with versions and stages, batch predictions back into the lakehouse, drift alerts, scheduled retraining, model cards, an agent tool and a scoped public API. Experiments track what a notebook tried, and a run there saves its model and registers it as a version without ever holding the bucket's credentials. [Machine learning](./docs/ML.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| 🩺 **Data monitors**                 | Standing checks on lakehouse and warehouse tables — freshness, volume against a learned baseline, schema drift, null rate, uniqueness, custom SQL — on the scheduler's clock, with incidents, notifications, audit and an agent tool. [Data monitors](./docs/DATA_MONITORS.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| 🧊 **Iceberg interop**               | Register Iceberg REST catalogs (Lakekeeper, Polaris, Nessie, Glue, Unity, Snowflake Open Catalog) with secrets by name, mount a namespace as a governed read-only schema without copying, publish lakehouse tables as Iceberg tables, import Iceberg tables in — every action audited. [Lakehouse](./docs/LAKEHOUSE.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| 🤝 **Delta Sharing**                 | Hand lakehouse tables to people outside the platform over the open Delta Sharing protocol — the Python client, Spark, Power BI. A share bundles tables under a name, a recipient token is minted per party (shown once as the profile their client loads, revocable, expiring), and every read serves a governed snapshot — the table's policy plus the share's own filter and masks, deletes applied — through presigned URLs; never the lake's own files. [Lakehouse](./docs/LAKEHOUSE.md#sharing-tables-outside-the-platform-delta-sharing)                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| 🌊 **Streaming sources**             | Kafka / Redpanda topics, Kinesis streams and Pub/Sub subscriptions as ETL sources, read in micro-batches on the schedule or continuously by one long-running run, with engine-managed offsets (at-least-once, never lost; exactly-once when every target is a lakehouse table, since a tick's rows and positions then commit in one transaction), secrets by name and the egress allow-list enforced before a run starts. [ETL pipelines](./docs/ETL_PIPELINES.md#continuous-pipelines)                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| 📄 **Document intelligence**         | Scanned PDFs and images uploaded to a knowledge base are read page by page with a vision model — one governed call per page (IAM model rules, budget, trace, audit with cost), the model and the page limit set by the instance. [Knowledge bases](./docs/KNOWLEDGE_BASES.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| 🧠 **AI in SQL**                     | `ai_classify`, `ai_extract`, `ai_sentiment`, `ai_summarize`, `ai_translate`, `ai_filter` and `ai_complete` as scalar functions in lakehouse SQL — every call through the model channel (IAM model rules, budget, trace, cost), answers cached per user and model, a per-statement call cap. [AI in SQL](./docs/AI_SQL.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| 📗 **Sheets**                        | Spreadsheets with Excel formulas over lakehouse-scale data: grid sheets computed in the browser, table sheets computed by the lakehouse (sort, filter, calculated columns compiled to SQL, pivots), formulas over tables in grid cells, imports from connections and CSV, and saving back to the lakehouse and the data catalog with lineage. [Sheets](./docs/SHEETS.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| 🔍 **Observability**                 | Every tool call, token and cost in an execution trace; an audit trail of who did what with configurable retention; spend analytics by user and group.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| 🌐 **Web search & browsing**         | `web_search` and `web_browse` work with no key through a built-in fetcher and DuckDuckGo; add Firecrawl, Brave, SerpAPI, Tavily or ScrapingBee for ranked results and JavaScript pages. Every fetch is SSRF-guarded. [Setup](./docs/INSTALL.md#web-search--browsing-optional)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| 🔌 **AI gateway, BYOK, MCP and A2A** | An **OpenAI-compatible endpoint** (`/api/v1/chat/completions`) in front of your agents and connected models, with per-key scopes, budgets, rate limits and a fallback chain; a **metrics API** (`/api/v1/metrics`) answering governed semantic-layer queries over HTTP; encrypted per-user provider keys; MCP servers in and out; swarm export to LangGraph, CrewAI, the OpenAI SDK and Strands; an A2A endpoint. [AI gateway](./docs/AI_GATEWAY.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| 🛠️ **MCP Builder**                   | Write an MCP server in Python with FastMCP, deploy it to the sandboxed runtime as a Streamable-HTTP endpoint, expose it with hashed keys and per-tool limits; a redeploy that changes a tool blocks calls until re-approved.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| 🌍 **Web embedding + React SDK**     | Put agents, swarms, dashboards and the analyst on any site with an iframe snippet or `@agentswarms/react` hooks; domain allow-lists, budgets and rate limits are enforced server-side. [React SDK](./sdk/react/README.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| 🛂 **IAM**                           | Superadmins, groups, invitations, per-user and per-group model allow-lists, read-only sharing, row filters and hidden columns on shared dashboards, per-table and per-tag security policies on the lakehouse, invite-only mode, SAML SSO, and SCIM 2.0 provisioning so the IdP creates, deactivates and groups users. [Access control](./docs/IAM.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| 📓 **Developer workspace**           | Python notebooks on sandboxed server kernels with real LangChain, LangGraph and LlamaIndex, runnable samples, a helper that calls your models, knowledge bases and agents with no key inside the sandbox, and notebooks published as APIs. [Runtime guide](./docs/DEVELOPER_WORKSPACE_RUNTIME.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| 🔑 **Secrets Manager**               | Store a credential once, encrypted and write-only, and reference it anywhere as `{{secret:NAME}}`; share with users and groups through IAM.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| 🛡️ **Guardrails & evals**            | Prompt-injection tests, PII redaction and LLM-as-judge scoring against your own agents.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+
+## Where it stands
+
+A checkable scorecard: every line links to the document that backs it. The
+connector counts are pinned by tests so they cannot drift; the rest are
+counted by hand and re-checked when the feature changes.
+
+**Strong, and verified here**
+
+- **Everything runs on your infrastructure** — app, notebooks, sandboxes,
+  lakehouse catalog and Parquet in Docker or Kubernetes; the only outbound
+  calls are the ones you configure ([DEPLOYMENT.md](./docs/DEPLOYMENT.md)).
+- **Coverage** — 39 connectors ([DATA_SOURCES.md](./docs/DATA_SOURCES.md)),
+  six knowledge-base sources ([KNOWLEDGE_BASES.md](./docs/KNOWLEDGE_BASES.md)),
+  local embeddings via Ollama or vLLM.
+- **Decision provenance** — every answer carries a decision id and lakehouse
+  snapshot, exports as a signed Answer Passport, and replays as of the moment
+  it was given ([PROVENANCE.md](./docs/PROVENANCE.md)).
+- **Governance that holds in the database** — row filters and column masks as
+  security-definer functions, lakehouse policies rewritten into the parse tree
+  per table or per tag, deny-by-default model access, SAML SSO with SCIM 2.0
+  provisioning from Okta or Entra (a superadmin can never be deactivated by
+  the IdP), stored credentials envelope-encrypted under a key that can live
+  in Vault Transit, and a hash-chained audit log that survives user deletion
+  ([IAM.md](./docs/IAM.md), [LAKEHOUSE.md](./docs/LAKEHOUSE.md#policies-by-tag),
+  [KEY_MANAGEMENT.md](./docs/KEY_MANAGEMENT.md)).
+- **One graph from ingest to model** — a pipeline's success builds the SQL
+  models and runs the ML schedules that depend on it, and lineage is recorded
+  per column from what each run actually did
+  ([ETL_PIPELINES.md](./docs/ETL_PIPELINES.md)).
+- **Machine learning without leaving the platform** — six task types trained
+  in sandboxes on lakehouse tables, a registry with stages, predictions written
+  back, drift alerts, and a trainer that says when a score could mislead
+  ([ML.md](./docs/ML.md)).
+- **Operations** — `npm run backup` captures the four stateful things, copies
+  only the Parquet a standing mirror lacks, refuses a catalog dump whose files
+  are missing from the bucket, and `npm run restore -- <dir> --drill` proves
+  the backup restores; the recovery point and time are stated per deployment
+  shape ([backups and restore](./docs/DEPLOYMENT.md#backups-and-restore)).
+- **Two vector stores, chosen per collection** — pgvector in the application
+  database by default, or Qdrant for a collection that has outgrown it, picked
+  in **RAG Settings → Retrieval → Vector index**; `VECTOR_STORE` is the
+  default for collections that have not chosen. Saving a change moves that
+  collection's existing vectors into the new index and clears the old one, and
+  re-embeds nothing, because the embeddings are a column on the chunk rows.
+  Weaviate and Pinecone are not supported.
+
+**Not there yet — stated so nobody has to discover it**
+
+- **No multi-region failover** — every deployment shape lives in one region;
+  recovery from the loss of a region is a restore from backup, not a failover
+  ([DEPLOYMENT.md](./docs/DEPLOYMENT.md#high-availability-what-survives-the-loss-of-one-instance)).
+  **Data residency** is a different question and is supported today: run one
+  deployment per region, each with its own database and bucket
+  ([DEPLOYMENT.md](./docs/DEPLOYMENT.md#data-residency-one-deployment-per-region)).
+- **High availability of the lakehouse catalog is yours to provide** — the
+  compose file runs one Postgres container; point `LAKEHOUSE_CATALOG_URL` at a
+  managed or replicated Postgres for anything you cannot lose between backups
+  (the cloud runbooks provision one; [what survives the loss of one
+  instance](./docs/DEPLOYMENT.md#high-availability-what-survives-the-loss-of-one-instance)).
+- **Credentialed connectors are verified to validation, not in CI against live
+  tenants** — Confluence, Azure Blob, Jira and Zendesk check the credential when
+  connected; their signing, pagination and parsing are unit-tested on fixtures.
+
+## Self-hosted vs. hosted
+
+Same UI, two missions. The "AgentSwarms" name and the hosted service remain
+with the project author.
+
+|              | **This repository** (source-available, Elastic License 2.0)                                                           | **[agentswarms.fyi](https://agentswarms.fyi)** (hosted)                                                                       |
+| ------------ | --------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| **Focus**    | Deploy the full agentic AI and data platform on your own infrastructure: agents, swarms, RAG, ETL, lakehouse, BI, ML. | Learning first: a guided curriculum, build-along labs, interactive notebooks, presentations and certification, fully managed. |
+| **Runs on**  | Your Supabase project, your provider keys, your Docker host or cluster.                                               | Managed infrastructure with an AI gateway and free-tier models; nothing to configure.                                         |
+| **Best for** | Teams and tinkerers who want to **run** a platform they own, with no caps beyond their own budgets.                   | Learners who want to **study and practice** agentic AI without setting anything up.                                           |
 
 ## Quickstart
 
@@ -139,10 +271,9 @@ bringing up the stack):
 
 ```bash
 cp .env.example .env      # fill in your Supabase keys, then:
-bash scripts/setup.sh --all           # EVERYTHING  →  http://localhost:8080
-# bash scripts/setup.sh               # core stack only (the app; optional services off)
-# bash scripts/setup.sh --dev         # local dev server instead
-# Windows PowerShell:  powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -All
+bash scripts/setup.sh           # EVERY service  →  http://localhost:8080
+# bash scripts/setup.sh --dev         # same services, local dev server for the app
+# Windows PowerShell:  powershell -ExecutionPolicy Bypass -File scripts\setup.ps1
 ```
 
 **No Supabase account at all?** One command deploys the entire solution —
@@ -153,8 +284,8 @@ the API keys signed from it), applies the schema, creates your admin user, and
 writes all of it into `.env` automatically before bringing up the app:
 
 ```bash
-bash scripts/setup-selfhosted.sh --all      # Supabase + EVERYTHING  →  http://localhost:8080
-# ADMIN_EMAIL=you@corp.com bash scripts/setup-selfhosted.sh --all   # non-interactive
+bash scripts/setup-selfhosted.sh      # Supabase + EVERYTHING  →  http://localhost:8080
+# ADMIN_EMAIL=you@corp.com bash scripts/setup-selfhosted.sh   # non-interactive
 # Windows: run it in WSL or Git Bash, with Docker Desktop running
 ```
 
@@ -162,6 +293,22 @@ Budget ~2 GB of image pulls and +2 vCPU / +4 GB RAM for the Supabase stack.
 Details, production hardening and the manual equivalent:
 **[INSTALL.md § self-hosted](./docs/INSTALL.md#option-b--self-hosted-supabase-docker-no-account-needed)**
 and **[DEPLOYMENT.md § Self-hosted Supabase](./docs/DEPLOYMENT.md#self-hosted-supabase-complete-data-residency)**.
+
+**On Kubernetes, fully self-hosted** — the same thing on a cluster, with
+Supabase itself running as pods. One command brings up everything: Postgres,
+authentication, the REST and Realtime APIs, file storage, the app, the Office
+renderer, the JS sandbox and the lakehouse catalog. Nothing is optional and
+nothing leaves the cluster:
+
+```bash
+ADMIN_EMAIL=you@corp.com ADMIN_PASSWORD='...' bash scripts/setup-k8s.sh
+kubectl -n agentswarms port-forward svc/agentswarms 8080:80   # then http://localhost:8080
+```
+
+It generates every secret (including the API keys **signed** from the JWT
+secret), applies the schema, creates your admin user, and waits for each piece
+in the order that actually works. See
+**[DEPLOYMENT.md § Kubernetes](./docs/DEPLOYMENT.md#d-kubernetes)**.
 
 Or do it by hand — there is no separate backend to install, since **Supabase
 _is_ the backend** (Postgres + Auth + Storage), run as a free-tier hosted
@@ -180,86 +327,101 @@ Self-host with Docker (any Node-capable host — VPS, Fly, Railway, Render, K8s)
 
 ```bash
 cp .env.example .env   # fill in Supabase + keys, apply migrations once
-docker compose --profile all up --build
-# → http://localhost:8080   (plain `docker compose up --build` starts the app alone)
+docker compose up --build
+# → http://localhost:8080   (every service; there are no profiles)
 ```
 
-`--profile all` (or the setup script's `--all`) brings up the optional services too: the
+One command brings up every service: the
 **document renderer** (native PowerPoint/Word/Excel), the **JS sandbox** (custom
-code in deployed swarm runs) and the **Developer-workspace runtime** (real Python
-kernels). They are separate profiles because each costs something — LibreOffice
-is a large image, and the notebook runtime needs Docker-socket access through a
-least-privilege proxy. Once up, **Observability → Monitoring** shows every
-service's health in one place.
+code in deployed swarm runs), the **Developer-workspace runtime** (real Python
+kernels), a **catalog Postgres** for the lakehouse, a **Spark Connect cluster**
+for the ETL engine, the **Qdrant vector store** for knowledge bases that
+have outgrown pgvector, the **online feature store** that answers a model's
+feature lookups in milliseconds, and the **object store** the lakehouse writes
+its Parquet files to. Nothing is opt-in and nothing is left unwired: `.env`
+points at every one of them, so the features that need them work the minute
+the install ends. It costs about 5 GB of images and roughly 8 GB of RAM
+(docs/SYSTEM_REQUIREMENTS.md). Once up, **Observability →
+Monitoring** shows every service's health in one place.
 
 First time? Follow **[the full installation guide](./docs/INSTALL.md)** — it
 covers every step on macOS, Linux, and Windows, including the Supabase
 dashboard clicks and a troubleshooting section for the errors people
-actually hit. Wondering what hardware you need (spoiler: a 2 vCPU / 4 GB VM,
-no GPU)? See **[System requirements & sizing](./docs/SYSTEM_REQUIREMENTS.md)**.
+actually hit. Wondering what hardware you need? No GPU, ever — ML training
+included, on CPU. A 2 vCPU / 4 GB VM runs the app alone against Supabase
+Cloud; the default install above, which includes the notebook and MCP
+sandboxes, wants 4 vCPU / 8 GB, and 16 GB if you train models on it. Every
+row is in **[System requirements & sizing](./docs/SYSTEM_REQUIREMENTS.md)**.
 
 **"Does it handle billions of rows?"** Aggregate queries compile to SQL that
-runs **inside your warehouse**, so table size is your warehouse's problem and
-only the grouped result travels. Anything that materialises locally is capped —
-local datasets at 500k rows, dashboard snapshots at 500 rows, warehouse result
-sets at 1,000 (5,000 hard ceiling). Every number, and the environment variable
-that changes it, is in **[Scale and limits](./docs/SCALE_AND_LIMITS.md)**.
+runs **inside your warehouse** — or inside the lakehouse, where columnar scans
+and partition pruning keep large tables workable on one node, and a query that
+outgrows RAM spills to disk instead of failing. Either way only the grouped
+result travels. Anything that materialises locally is capped — local datasets at
+500k rows, dashboard snapshots at 500 rows, warehouse result sets at 1,000
+(5,000 hard ceiling). Every number, and the environment variable that changes
+it, is in **[Scale and limits](./docs/SCALE_AND_LIMITS.md)**. The honest
+ceilings of single-node compute are spelled out in
+**[the lakehouse guide](./docs/LAKEHOUSE.md)**.
 
 ## Documentation
 
-The docs live in [`docs/`](./docs), one focused guide per topic:
+One focused guide per topic in [`docs/`](./docs):
 
-| Guide                                                                    | What it covers                                                                                                                                                                                                                                                                                                                  |
-| ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **[Installation](./docs/INSTALL.md)**                                    | Complete local setup on macOS / Linux / Windows: prerequisites, Supabase project, environment variables, first run, and troubleshooting.                                                                                                                                                                                        |
-| **[System requirements & sizing](./docs/SYSTEM_REQUIREMENTS.md)**        | Minimum hardware (a 2 vCPU / 4 GB VM — no GPU), sizing scenarios from a solo pilot to 1,000 users, token budgets by model tier, GPU sizing for self-hosted models, and monthly cost tables for AWS / GCP / Azure / OCI across US, Europe, Middle East, India and APJC regions.                                                  |
-| **[Scale and limits](./docs/SCALE_AND_LIMITS.md)**                       | What is bounded and by what: aggregation pushes down into your warehouse, local datasets cap at 500k rows, dashboards default to a 500-row snapshot. Every row/timeout/concurrency cap with the env var that changes it.                                                                                                        |
-| **[Model pricing](./docs/MODEL_PRICING.md)**                             | Where a `cost_usd` figure comes from: the provider's own reported charge first, then operator overrides, a git-vendored catalog synced from LiteLLM **and OpenRouter**, and self-hosted zeroes. How `npm run prices:refresh` works, why an unknown price is flagged rather than recorded as free, and how history is re-priced. |
-| **[Production deployment](./docs/DEPLOYMENT.md)**                        | Every path: local desktop, a single cloud VM (OCI/AWS/GCP), autoscaled VMs behind a load balancer, and Kubernetes — plus TLS, scheduling/cron, health checks, backups, and PWA install.                                                                                                                                         |
-| **[Testing](./docs/TESTING.md)**                                         | Running the suite, the differential SQL-engine harness, and what CI does and does not gate.                                                                                                                                                                                                                                     |
-| **[Database schema health check](./docs/SCHEMA_HEALTH_CHECK.md)**        | The pop-up that catches an unapplied migration — a contributor pulled code that expects a column/table their Supabase project doesn't have yet — and shows copyable `supabase db push` / `migration up` / `db reset` commands instead of a cryptic PostgREST error. How to register a new check when you add a migration.       |
-| **[Agent Chat & document generation](./docs/AGENT_CHAT.md)**             | Chatting with a saved agent, per-agent **Visual BI** answers, and generating fully-editable **PowerPoint / Word / Excel** from your prompt (with Sample vs. full-data scope and live Excel formulas) — plus embedding an agent on your own site.                                                                                |
-| **[Data sources & connectors](./docs/DATA_SOURCES.md)**                  | Every database / warehouse / lakehouse connector (PostgreSQL, MySQL, Oracle, Redshift, Snowflake, Databricks, BigQuery, Synapse, Trino, Athena): fields, the read-only + encrypted-credential model, `{{secret:NAME}}` references, and how sources feed the catalog, BI and agents.                                             |
-| **[Business Intelligence](./docs/BUSINESS_INTELLIGENCE.md)**             | Dashboards and the AI analyst: 19 visual types incl. the AI-built ontology, drill-down & forecasting, scheduled refresh + data alerts, AI-generated dashboards, workspaces & folders, dev→prod promotion, Git export, publishing / embedding / export, data prep, and connectors.                                               |
-| **[Semantic Layer](./docs/SEMANTIC_LAYER.md)**                           | Governed metrics + dimensions defined once and consumed by both BI and AI agents (the `metric_query` tool), so business definitions compute consistently and the AI picks names instead of writing SQL. Models can declare LEFT/INNER joins, so metrics span a star schema without pre-joining.                                 |
-| **[Knowledge bases](./docs/KNOWLEDGE_BASES.md)**                         | Sources incl. **Google Drive, Notion, SharePoint and Dropbox** connectors, scheduled sync with two-level dedup (unchanged files aren't re-downloaded, unchanged content isn't re-embedded), per-source access scopes incl. provider-ACL mirroring, and the credential/security model.                                           |
-| **[Access control (IAM) & SSO](./docs/IAM.md)**                          | Superadmins, groups, user provisioning, model allow-lists incl. the **deny-by-default** instance policy, read-only resource sharing, invite-only mode, and SAML SSO.                                                                                                                                                            |
-| **[Developer workspace runtime](./docs/DEVELOPER_WORKSPACE_RUNTIME.md)** | Standing up the sandboxed Python kernels behind notebooks: the Docker/Kubernetes/E2B backends, the threat model and hardening, the egress allow-list, and how model and knowledge-base calls are brokered so no key reaches the sandbox.                                                                                        |
-| **[Extending agents](./docs/EXTENDING.md)**                              | Adding **skills** (markdown `skill.md` capabilities, no code) and **built-in tools** (definition + handler + gate in the registry), plus how tool-routing guidance keeps source selection sane.                                                                                                                                 |
-| **[Architecture](./docs/ARCHITECTURE.md)**                               | Tech stack and project structure.                                                                                                                                                                                                                                                                                               |
-| **[The engineering behind AgentSwarms](./docs/engineering/README.md)**   | How it is built, in seven chapters: request lifecycle, agent and swarm runtimes, the three sandboxes, the security model, scale and concurrency, and the conventions that keep it from drifting.                                                                                                                                |
+- **Get running** — [Installation](./docs/INSTALL.md) ·
+  [System requirements & sizing](./docs/SYSTEM_REQUIREMENTS.md) ·
+  [Production deployment](./docs/DEPLOYMENT.md) (VMs, Kubernetes, TLS,
+  [backups & restore](./docs/DEPLOYMENT.md#backups-and-restore)) ·
+  [Scale and limits](./docs/SCALE_AND_LIMITS.md) ·
+  [Schema health check](./docs/SCHEMA_HEALTH_CHECK.md) ·
+  [Testing](./docs/TESTING.md) ·
+  [Adversarial log](./docs/ADVERSARIAL_LOG.md), the running record of passes
+  that check what the screen says against what the data says ·
+  [Adversarial queue](./docs/ADVERSARIAL_QUEUE.md), what that hunt looks at
+  next and how far it has got ·
+  [UI test results](./docs/UI_TEST_RESULTS.md), the per-round record of what
+  was driven in the browser and what the rows said
+- **Data** — [Data sources & connectors](./docs/DATA_SOURCES.md) ·
+  [ETL pipelines](./docs/ETL_PIPELINES.md) · [Workflows](./docs/WORKFLOWS.md) ·
+  [Lakehouse](./docs/LAKEHOUSE.md) ·
+  [SQL models](./docs/SQL_MODELS.md) ·
+  [Semantic layer](./docs/SEMANTIC_LAYER.md) ·
+  [Business intelligence](./docs/BUSINESS_INTELLIGENCE.md) ·
+  [Machine learning](./docs/ML.md) · [Data monitors](./docs/DATA_MONITORS.md) · [AI in SQL](./docs/AI_SQL.md) · [Sheets](./docs/SHEETS.md) ·
+  [End to end: data and AI](./docs/END_TO_END_DATA_AND_AI.md), a worked
+  scenario with seven planted defects and the pipeline, metric, dashboard and
+  policy that catch them
+- **Agents** — [Agent Chat & document generation](./docs/AGENT_CHAT.md) ·
+  [Knowledge bases](./docs/KNOWLEDGE_BASES.md) ·
+  [Developer workspace runtime](./docs/DEVELOPER_WORKSPACE_RUNTIME.md) ·
+  [Extending agents with skills and tools](./docs/EXTENDING.md) ·
+  [AI gateway](./docs/AI_GATEWAY.md) ·
+  [React SDK](./sdk/react/README.md)
+- **Governance and operations** — [Access control (IAM) & SSO](./docs/IAM.md) ·
+  [Decision provenance](./docs/PROVENANCE.md) ·
+  [Key management](./docs/KEY_MANAGEMENT.md) ·
+  [Model pricing](./docs/MODEL_PRICING.md) ·
+  [Architecture](./docs/ARCHITECTURE.md) ·
+  [The engineering behind AgentSwarms](./docs/engineering/README.md), seven
+  chapters on how it is built
 
-## Contributing
+## Contributing, security and license
 
-Contributions are welcome — see **[CONTRIBUTING.md](./CONTRIBUTING.md)** for
-the workflow, and please read the **[Code of Conduct](./CODE_OF_CONDUCT.md)**
-first.
+Contributions are welcome: see [CONTRIBUTING.md](./CONTRIBUTING.md) and the
+[Code of Conduct](./CODE_OF_CONDUCT.md). Found a vulnerability? Report it
+privately as described in [SECURITY.md](./SECURITY.md) rather than opening a
+public issue.
 
-## Security
-
-Found a vulnerability? Please see **[SECURITY.md](./SECURITY.md)** for how
-to report it responsibly instead of opening a public issue.
-
-## License
-
-AgentSwarms is **source-available** under the **[Elastic License 2.0](./LICENSE.md)** (ELv2).
-In plain terms: you may freely **use, self-host, modify, and redistribute** it —
-but you may **not offer it to third parties as a hosted or managed service**, and
-you may not remove the licensing/copyright notices. A separate **commercial
-license** is available from the author for use cases ELv2 doesn't permit
-(including running it as a SaaS) — reach out if that's you.
-
-The **"AgentSwarms" name, logo, and the hosted service are trademarks of the
-project author** and are not licensed for your use; ELv2 covers the code, not the
-brand.
-
-Every direct dependency uses a permissive license (MIT / Apache-2.0 / ISC / BSD),
-compatible with redistribution under ELv2 — the full audit and credits for the
-open-source projects AgentSwarms builds on live in
-**[ACKNOWLEDGEMENTS.md](./ACKNOWLEDGEMENTS.md)**.
+AgentSwarms is **source-available** under the
+[Elastic License 2.0](./LICENSE.md): use it, self-host it, modify it and
+redistribute it freely, but do not offer it to third parties as a hosted or
+managed service, and keep the notices. A commercial license for uses ELv2 does
+not permit, including running it as a SaaS, is available from the author. The
+"AgentSwarms" name, logo and hosted service are trademarks of the project
+author; ELv2 covers the code, not the brand. Every direct dependency of the application is permissively licensed (MIT / Apache-2.0 / ISC / BSD); the optional service containers run a few LGPL, MPL and GPL programs as separate processes. The full audit, with credits for every open-source dependency and project AgentSwarms builds on, is in [ACKNOWLEDGEMENTS.md](./ACKNOWLEDGEMENTS.md).
 
 ---
 
 <div align="center">
-  <sub>Built with TanStack Start and Supabase — an agentic AI &amp; BI platform you own.</sub>
+  <sub>Built with TanStack Start and Supabase — an agentic AI &amp; data platform you own.</sub>
 </div>

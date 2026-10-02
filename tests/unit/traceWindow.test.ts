@@ -5,10 +5,16 @@
 // header told the user "1,000 traces over the last 30 days" for an account
 // holding 2,731 — with spend, tokens, agent count and a 32%-biased average
 // latency all inheriting the truncation.
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
+  runStepsCaveat,
+  catalogueCaveat,
+  catalogueCount,
+  countHeadline,
   pageTraces,
   traceCountHeadline,
   traceKpiQualifier,
@@ -169,5 +175,338 @@ describe("getExecutionTraces carries the true total (tripwire)", () => {
     const src = readFileSync(resolve("src/utils/traceLog.functions.ts"), "utf8");
     expect(src).toMatch(/count:\s*"exact",\s*head:\s*true/);
     expect(src).toMatch(/total:\s*count\s*\?\?\s*traces\.length/);
+  });
+});
+
+describe("the same sentence for a list that is not traces (module 22)", () => {
+  // Swarm Observability had the identical defect this module exists for:
+  // `.limit(200)` and then "N swarm runs · auto-deleted after 30 days" — a
+  // statement about the ACCOUNT made by a read that only saw the first page.
+  // The noun is a parameter so the two Observability pages cannot end up
+  // describing the same situation in different words.
+  const RUNS = { one: "swarm run", many: "swarm runs" };
+
+  it("claims the total when the window holds everything", () => {
+    expect(countHeadline({ fetched: 42, total: 42 }, RUNS)).toBe(
+      "42 swarm runs over the last 30 days",
+    );
+  });
+
+  it("says most-recent-of when the read was capped", () => {
+    expect(countHeadline({ fetched: 200, total: 1312 }, RUNS)).toBe(
+      "showing the most recent 200 of 1,312 swarm runs from the last 30 days",
+    );
+  });
+
+  it("never implies completeness it does not have", () => {
+    const capped = countHeadline({ fetched: 200, total: 1312 }, RUNS);
+    // The failure this prevents is the bare "200 swarm runs" that reads as the
+    // whole account. Any capped sentence must name BOTH numbers.
+    expect(capped).toContain("200");
+    expect(capped).toContain("1,312");
+    expect(capped.startsWith("200 swarm runs")).toBe(false);
+  });
+
+  it("uses the singular only for exactly one", () => {
+    expect(countHeadline({ fetched: 1, total: 1 }, RUNS)).toBe("1 swarm run over the last 30 days");
+    expect(countHeadline({ fetched: 0, total: 0 }, RUNS)).toBe(
+      "0 swarm runs over the last 30 days",
+    );
+  });
+
+  it("takes the range label like its sibling does", () => {
+    expect(countHeadline({ fetched: 3, total: 3 }, RUNS, "the last 7 days")).toBe(
+      "3 swarm runs over the last 7 days",
+    );
+  });
+
+  it("is what Swarm Observability actually renders", () => {
+    // Source-anchored: the helper being correct is half of it, the page asking
+    // the database for the exact total is the other half.
+    const src = readFileSync("src/routes/_authenticated/analytics_.observability.tsx", "utf8");
+    expect(src).toContain('.select("id", { count: "exact", head: true })');
+    // The RENDERED branch, not the mere presence of the call: a mutant that
+    // put `${runs.length} swarm runs` in front of it left "countHeadline("
+    // in the file and printed the bare row count anyway.
+    expect(src).toContain("            : countHeadline(");
+    expect(src).toContain('{ one: "swarm run", many: "swarm runs" }');
+    // A failed count must not fail the page, but then the label may only claim
+    // what it holds.
+    expect(src).toContain("setExactTotal(countError ? rows.length : (exact ?? rows.length));");
+    // And the list itself says when it is cut.
+    expect(src).toContain("Only the most recent");
+  });
+});
+
+describe("a catalogue rather than a time window (model registry)", () => {
+  // The Model Registry read `.limit(2000)` and printed `models.length` as the
+  // population. Two separate wrongs. The order is ALPHABETICAL by developer, so
+  // truncation does not thin the list evenly — it deletes late-alphabet
+  // developers outright, and they then never appear in the provider filter
+  // either. And the 2,000 was fiction: PostgREST's max-rows on this deployment
+  // is 1,000 — measured while writing this, a `limit=2000` against a 1,109-row
+  // table returned exactly 1,000 — so the declared ceiling was twice the real
+  // one, and nothing on the page could tell.
+  const MODELS = { one: "live model", many: "live models" };
+
+  it("states the count plainly when the catalogue is whole", () => {
+    expect(catalogueCount({ fetched: 770, total: 770 }, MODELS)).toBe("770 live models");
+  });
+
+  it("says first-N-of-M when the read stopped short", () => {
+    expect(catalogueCount({ fetched: 1000, total: 3412 }, MODELS)).toBe(
+      "the first 1,000 of 3,412 live models",
+    );
+  });
+
+  it("never lets the cap pass as the population", () => {
+    const capped = catalogueCount({ fetched: 1000, total: 3412 }, MODELS);
+    expect(capped).toContain("3,412");
+    expect(capped.startsWith("1,000 live models")).toBe(false);
+  });
+
+  it("does not borrow the trace sentence's sense of order", () => {
+    // "the most recent 1,000" would be a lie about an alphabetical list; that
+    // is the whole reason this is a second sentence and not another noun.
+    expect(catalogueCount({ fetched: 1000, total: 3412 }, MODELS)).not.toContain("most recent");
+  });
+
+  it("uses the singular only for exactly one", () => {
+    expect(catalogueCount({ fetched: 1, total: 1 }, MODELS)).toBe("1 live model");
+    expect(catalogueCount({ fetched: 0, total: 0 }, MODELS)).toBe("0 live models");
+  });
+
+  it("stays silent about filters when nothing was cut", () => {
+    expect(catalogueCaveat({ fetched: 770, total: 770 }, MODELS)).toBeNull();
+  });
+
+  it("warns that a capped catalogue puts models beyond the filters", () => {
+    const note = catalogueCaveat({ fetched: 1000, total: 3412 }, MODELS);
+    // The filters and the search box are client-side over the rows in hand, so
+    // the missing models are not one page away — they are unreachable here.
+    expect(note).toContain("1,000");
+    expect(note).toContain("2,412");
+    expect(note).toContain("cannot be found from here");
+  });
+});
+
+describe("what the model registry actually reads and renders", () => {
+  const fn = readFileSync("src/utils/modelRegistry.functions.ts", "utf8");
+  const page = readFileSync("src/routes/_authenticated/model-registry.tsx", "utf8");
+
+  it("asks how many rows the table holds before reading any", () => {
+    expect(fn).toContain('.select("id", { count: "exact", head: true })');
+  });
+
+  it("pages instead of trusting a single .limit()", () => {
+    // The bug was not the number 2,000, it was believing it. PostgREST caps
+    // every response at max-rows regardless of what .limit() asks for.
+    // Anchored on a CHAINED CALL, not the token: the comment above the new
+    // read names `.limit(2000)` to explain why it went, and a substring
+    // assertion would have been satisfied by that prose forever.
+    expect(fn).not.toMatch(/^\s*\.limit\(/m);
+    expect(fn).toContain("pageTraces<RegistryModel>");
+    expect(fn).toContain("const PAGE = 1000;");
+  });
+
+  it("makes the ceiling an env knob, not a constant", () => {
+    expect(fn).toContain('envInt("MODEL_REGISTRY_MAX_ROWS", 5000)');
+    // And that the knob reaches the loop. Declaring MAX_ROWS and then passing
+    // PAGE would leave the env call sitting in the file doing nothing.
+    expect(fn).toContain("{ pageSize: PAGE, maxRows: MAX_ROWS }");
+  });
+
+  it("orders by a unique column last so paging cannot skip or repeat", () => {
+    // developer + display_name is not unique across modalities; a page boundary
+    // inside a tie is how .range() paging loses rows.
+    expect(fn).toContain('.order("id", { ascending: true })');
+  });
+
+  it("lets a failed count degrade to the rows in hand", () => {
+    expect(fn).toContain("total: countError ? models.length : (count ?? models.length),");
+  });
+
+  it("renders the catalogue sentence and the filter caveat", () => {
+    // Presence is not use: both have to reach the page, and the headline must
+    // stop promising coverage it no longer has.
+    expect(page).toContain("catalogueCount(registryWindow, MODEL_NOUN)");
+    expect(page).toContain("catalogueCaveat(registryWindow, MODEL_NOUN)");
+    expect(page).toContain("{cappedCaveat && (");
+    expect(page).toContain('{wholeCatalogue ? " across all major providers" : ""}');
+  });
+});
+
+describe("a run whose header is whole and whose list is not", () => {
+  // /analytics/observability/$runId read swarm_run_steps and swarm_run_edges
+  // with no bound, so past the server's cap the timeline, the data-flow list
+  // and the DAG on the canvas were a prefix. A DAG drawn from a prefix is not a
+  // smaller graph, it is a WRONG one: edges arriving from nodes that are not
+  // there.
+  //
+  // The header is the opposite case. total_cost_usd, total_tokens_* and
+  // step_count are columns on the run row, written by the executor, so they
+  // describe the whole run however much detail came back — verified against
+  // this deployment, where step_count matched the actual row count on all seven
+  // runs checked. Without saying which half is partial, the page simply looks
+  // like it does not add up.
+
+  it("says nothing when every step came back", () => {
+    expect(runStepsCaveat({ fetched: 28, total: 28 })).toBeNull();
+  });
+
+  it("names both numbers when the list is a prefix", () => {
+    const note = runStepsCaveat({ fetched: 1000, total: 1400 });
+    expect(note).toContain("1,000");
+    expect(note).toContain("1,400");
+  });
+
+  it("says which half of the page is still trustworthy", () => {
+    // The point of the sentence: the reader is looking at a header that
+    // disagrees with the list under it, and one of them is right.
+    const note = runStepsCaveat({ fetched: 1000, total: 1400 });
+    expect(note).toContain("canvas");
+    expect(note).toContain("cover all of it");
+  });
+});
+
+/** How many times `needle` appears in `hay` — for anchors that must hold on
+ *  every one of several symmetric sites, not just somewhere. */
+const occurrences = (hay: string, needle: string) => hay.split(needle).length - 1;
+
+describe("what the run detail page actually reads", () => {
+  const page = readFileSync(
+    "src/routes/_authenticated/analytics_.observability.$runId.tsx",
+    "utf8",
+  );
+
+  it("pages both tables by cursor instead of reading them unbounded", () => {
+    expect(page).toContain('.from("swarm_run_steps")');
+    expect(page).toContain('.from("swarm_run_edges")');
+    expect(page).toContain("scanRows<Step>(pageSteps,");
+    expect(page).toContain("scanRows<Edge>(pageEdges,");
+    // COUNTED, not merely present. There are two pagers here, and a mutation
+    // run showed that removing the cursor from one of them left the other's
+    // copy of the same line sitting in the file, happily satisfying a
+    // toContain. An anchor a sibling can satisfy checks nothing — the same
+    // failure as an anchor a comment can satisfy, one symmetry along.
+    expect(occurrences(page, 'q = q.gt("id", after)')).toBe(2);
+    expect(occurrences(page, "{ maxRows: RUN_ROW_SCAN_MAX }")).toBe(2);
+  });
+
+  it("pages by a unique key and sorts for display separately", () => {
+    // Two steps of one run can share a start instant, so started_at is not a
+    // paging key — ordering by it and paging by offset would drop rows.
+    expect(occurrences(page, '.order("id", { ascending: true })')).toBe(2);
+    expect(page).toMatch(/sort\(\(a, b\) => Date\.parse\(a\.started_at\)/);
+  });
+
+  it("renders the caveat it computes", () => {
+    // Presence is not use, for the seventh time this session.
+    expect(page).toMatch(/const stepsCaveat = loadError\s*\?\s*null\s*:\s*runStepsCaveat\(\{/);
+    // Reflow-proof: prettier decides whether a short JSX guard stays on one
+    // line, and it collapsed this one the first time it saw it.
+    expect(page).toMatch(/\{stepsCaveat && </);
+  });
+
+  it("does not report absence it has not established", () => {
+    expect(page).toContain('{loadError ? "The steps of this run could not be read."');
+    expect(page).toContain('{loadError ? "The data flow of this run could not be read."');
+    expect(page).toContain("This run could not be read");
+    // And the error actually reaches that state. Three branches reading
+    // `loadError` are decoration if the catch never sets it.
+    expect(page).toMatch(/catch \(err\) \{[\s\S]*?setLoadError\(err/);
+  });
+
+  it("is enrolled in the failed-read registry, not guarded only from here", () => {
+    // failedReadClaims.test.ts keeps the list of pages that must not report a
+    // failed read as an empty account, and enforces the contract for each. A
+    // page that satisfies it belongs in that list — otherwise the next person
+    // to touch this one gets no warning from the guard built for exactly this.
+    const registry = readFileSync("tests/unit/failedReadClaims.test.ts", "utf8");
+    expect(registry).toContain(
+      'file: "src/routes/_authenticated/analytics_.observability.$runId.tsx"',
+    );
+  });
+
+  it("marks the data-flow count when the scan stopped early", () => {
+    expect(page).toMatch(/\{!loadError && !edgesComplete \? "\+" : ""\}\)/);
+  });
+
+  it("claims no count and no caveat at all when the read failed", () => {
+    // Found by driving the page with the step read failing, not by reading it.
+    // The banner said the detail could not be read; the caveat directly under it
+    // said "Showing the first 0 of 4 steps", and the tab said "Data flow (0)".
+    // Both are what a SUCCESSFUL read of a prefix looks like, so the page told
+    // two different stories about one failure. A truncation caveat over a failed
+    // read is not a caveat — it is a second wrong claim about the same rows.
+    expect(page).toContain("const stepsCaveat = loadError");
+    expect(page).toContain("Data flow ({loadError ? UNKNOWN_COUNT : edges.length}");
+  });
+});
+
+describe("pageTraces reads to the end, not to the first short page", () => {
+  // This module's own pager, and it had the milder half of the defect the sweep
+  // went on to find elsewhere. It stopped at the first page shorter than the one
+  // it asked for — which is only the end when the server gives everything it is
+  // asked for, and `db-max-rows` belongs to whoever runs the database.
+  //
+  // It never SKIPPED, because it stopped rather than advancing past a short
+  // page, so the window headline it feeds stayed honest. It just said "showing
+  // the most recent N of M" for a far smaller N than it needed to.
+
+  /** A page source that clamps every response, as PostgREST does. */
+  const source = (total: number, cap: number) => {
+    let calls = 0;
+    return {
+      calls: () => calls,
+      fetch: async (offset: number, pageSize: number) => {
+        calls++;
+        const take = Math.min(pageSize, cap, Math.max(0, total - offset));
+        return { rows: Array.from({ length: take }, (_, i) => ({ id: offset + i })) };
+      },
+    };
+  };
+
+  it("reads every row when the server honours the page size", async () => {
+    const s = source(2731, 1000);
+    const rows = await pageTraces<{ id: number }>(s.fetch, { pageSize: 1000, maxRows: 5000 });
+    expect(rows).toHaveLength(2731);
+  });
+
+  it("reads every row when the server's cap is SMALLER than the page asked for", async () => {
+    // The finding. Before, this returned 400 of 2,731 and the header said so —
+    // honestly, and needlessly.
+    const s = source(2731, 400);
+    const rows = await pageTraces<{ id: number }>(s.fetch, { pageSize: 1000, maxRows: 5000 });
+    expect(rows).toHaveLength(2731);
+    expect(rows.map((r) => r.id)).toEqual(Array.from({ length: 2731 }, (_, i) => i));
+  });
+
+  it("still stops at its ceiling", async () => {
+    const s = source(20_000, 1000);
+    const rows = await pageTraces<{ id: number }>(s.fetch, { pageSize: 1000, maxRows: 5000 });
+    expect(rows).toHaveLength(5000);
+  });
+
+  it("stops on an empty page rather than asking forever", async () => {
+    const s = source(0, 1000);
+    const rows = await pageTraces<{ id: number }>(s.fetch, { pageSize: 1000, maxRows: 5000 });
+    expect(rows).toEqual([]);
+    expect(s.calls()).toBe(1);
+  });
+
+  it("lets an errored page abort the whole load", async () => {
+    // Unchanged, and the reason the analytics page can trust what it totals: a
+    // half-fetched window summed as if whole is the original defect wearing an
+    // error instead of a limit.
+    await expect(
+      pageTraces<{ id: number }>(
+        async (offset) => {
+          if (offset > 0) throw new Error("statement timeout");
+          return { rows: Array.from({ length: 1000 }, (_, i) => ({ id: i })) };
+        },
+        { pageSize: 1000, maxRows: 5000 },
+      ),
+    ).rejects.toThrow("statement timeout");
   });
 });

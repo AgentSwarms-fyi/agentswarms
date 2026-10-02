@@ -8,12 +8,14 @@ and reports. An editable dashboard is called a **BI project**:
 - **Build visuals by hand** — a right-hand builder pane: pick a source (your
   Data & SQL datasets or any connected warehouse), tick one or **more tables
   to join** (a JOIN skeleton is written for you with auto-detected join
-  keys), run the read-only SQL, then pick from **18 visual types** in an
-  icon picker: column, bar, line, area, **combo (bars + line, dual axis)**,
-  **scatter**, pie/donut, **funnel**, **treemap**, **heatmap**,
-  **box &amp; whisker**, **waterfall**, KPI card (with target comparison),
-  **gauge**, **matrix (pivot) table**, **filled map** and **bubble map**
-  (country-level, fully offline — no tile servers), and table. Column, line
+  keys), run the read-only SQL, then pick from **26 visual types** in an
+  icon picker: column, bar, **stacked column**, **stacked bar**, **bar
+  race**, line, area, **combo (bars + line, dual axis)**, **scatter**,
+  pie/donut, **nightingale**, **radar**, **funnel**, **sankey**,
+  **treemap**, **word cloud**, **heatmap**, **box &amp; whisker**,
+  **waterfall**, KPI card (with target comparison), **gauge**, **matrix
+  (pivot) table**, **filled map**, **bubble map** (country-level, fully
+  offline — no tile servers), table and **ontology**. Column, line
   and area charts support **multi-series** (split by a category column —
   grouped or stacked), and every numeric visual takes a **value format**
   (currency / percent). Widgets live on a 12-column drag-and-resize grid,
@@ -226,6 +228,17 @@ month`, since the rows underneath have no `month` column to filter on.
   sampled. Re-running writes to the same dataset, so every model, widget and
   flow pointing at it keeps working. External warehouse tables can be pulled in
   as capped snapshots to join against local data.
+- **Lakehouse tables in and out** — the prep palette lists every lakehouse
+  table you may read; **Link** puts one on the canvas without copying a row.
+  While every source is a lakehouse table the whole recipe compiles to one
+  DuckDB query that runs through the lakehouse statement guard as you
+  (schema grants, row filters and column masks, audit), so a preview is what
+  the run will produce. **Save as → lakehouse table** writes the result into
+  a schema you own as a materialized view — one atomic
+  `CREATE OR REPLACE TABLE … AS`, refreshed on the flow's schedule — and the
+  table is then an ordinary lakehouse table for the SQL workbench, agents,
+  dashboards and the ML wizard: the way to wrangle a training set before a
+  model learns from it (see [ML.md](./ML.md)).
 - **Pushdown (query folding)** — an external table can be **linked live**
   instead of snapshotted. When every source in a flow is linked to the _same_
   connection and every step is provably translatable, the whole pipeline is
@@ -293,20 +306,137 @@ month`, since the rows underneath have no `month` column to filter on.
   as one commit for review/versioning. Only definitions are exported — widget
   **data rows are stripped**, never the snapshots.
 
+## Paginated reports
+
+A dashboard is a grid you scroll and resize. A **paginated report** is the
+other shape: a fixed page, a flow of blocks down it, and content that
+continues onto the next page when the room runs out. It is what a month-end
+pack, an invoice or a regulatory return has to be, because somebody prints it
+and the page count matters.
+
+Open **BI Workspace → Reports** (`/bi`, the Reports tab). A report opens in
+its own designer at `/bi/report/:id`.
+
+### The two halves are shared on purpose
+
+Everything below the layout is the dashboard's. A report's chart block **is**
+a `BiWidget` — the same query, the same cached rows, the same `ChartSpec` and
+the same renderer — so nothing about a number changes when it moves from a
+tile to a page. What is new is the geometry: page size, margins, a running
+header and footer, explicit breaks, and a table that repeats its header row
+every time it crosses a page.
+
+| File                                                 | What it holds                                                                                                     |
+| ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `src/lib/biReports.ts`                               | The pure model: page geometry, token substitution, `sliceTable`, `paginateBlocks`, validation. No React, no PDF.  |
+| `src/lib/biReportAgent.ts`                           | The AI planner: `suggestReportOutline` on top of the dashboard generator's `describeSchema` and governed catalog. |
+| `src/lib/biReportPdf.ts`                             | `buildReportPdfBytes` — vector-text PDF via pdf-lib, charts embedded as PNG.                                      |
+| `src/components/bi/ReportPagePreview.tsx`            | The paged preview, driven by `paginateBlocks`.                                                                    |
+| `src/components/bi/GenerateReportDialog.tsx`         | Plan → review → build, reusing `runBiTurn` and `widgetFromBiTurn`.                                                |
+| `src/components/bi/AddFromDashboardDialog.tsx`       | Lift an existing dashboard widget onto a page.                                                                    |
+| `src/routes/_authenticated/bi_.report.$reportId.tsx` | The designer.                                                                                                     |
+| `src/utils/biReports.functions.ts`                   | Owner-scoped server functions over `bi_reports`.                                                                  |
+
+### Blocks
+
+| Kind        | Behaviour                                                                                                    |
+| ----------- | ------------------------------------------------------------------------------------------------------------ |
+| `heading`   | Level 1/2/3. Levels 1 and 2 rule off underneath.                                                             |
+| `text`      | A paragraph, wrapped to the content width.                                                                   |
+| `spacer`    | Vertical room in points (72pt = 1 inch).                                                                     |
+| `pagebreak` | Starts the next page. Ignored when the page is still empty, so a leading break does not print a blank sheet. |
+| `chart`     | A widget's chart at a set height. Rasterised at export.                                                      |
+| `table`     | A widget's rows, **flowing** across pages with the header redrawn on each.                                   |
+
+### One pagination function, two consumers
+
+The designer's preview and the PDF renderer call the **same**
+`paginateBlocks`, in the same units (points), with the same `TABLE_ROW_H` and
+`TABLE_HEADER_H`. A preview that flowed differently would be a picture of a
+document nobody receives. `tests/unit/biReports.test.ts` builds real PDFs with
+`pdf-lib` and asserts the preview and the renderer agree on the page count for
+tables of 5, 60 and 200 rows — the drift this design exists to prevent would
+otherwise be invisible until somebody printed it.
+
+`sliceTable` carries the rule: a table needs its header plus at least one row
+to be worth starting, so one that cannot fit both begins on the next page
+rather than stranding a header at the bottom of this one.
+
+### Reusing a dashboard's widgets
+
+**Add from a dashboard** in the designer lists every chart widget with saved
+rows across every page of a chosen dashboard, and drops the chosen one in as a
+chart block or as a table block. The `BiWidget` is carried across by reference,
+not rebuilt, which is what makes the two surfaces incapable of disagreeing. A
+widget with no snapshot is not offered — it would print an empty box.
+
+### Page setup, header and footer
+
+A4, Letter, Legal or A3; portrait or landscape; one uniform margin, clamped so
+it cannot swallow the page. The header and footer each have a left, centre and
+right slot accepting `{{page}}`, `{{pages}}`, `{{title}}`, `{{date}}` and
+`{{time}}`. A new report opens with `Page {{page}} of {{pages}}` in the footer.
+
+The bands are stamped in a **second pass** over the finished pages, not during
+layout: `{{pages}}` is not knowable until the last block has been placed, and a
+footer that says "of 3" on a four-page report is worse than no footer at all.
+The date and time are fixed once per export so every page of one file agrees.
+
+### Generating a report with AI
+
+**Generate with AI** runs the dashboard generator's machinery with one
+difference of shape. `suggestReportOutline` asks for an ordered narrative of
+**sections** rather than a set of tiles, and each section declares whether its
+answer belongs in a chart or in a table somebody will check a row of, plus
+whether it should start a new page. Each chosen section then runs the ordinary
+`runBiTurn` → `widgetFromBiTurn` path, so a generated block is
+indistinguishable from one lifted off a dashboard.
+
+The planner goes through the same IAM-gated `POST /api/bi` route as every other
+BI generation and is traced as **BI Agent: Report outline** (`stage: "report"`).
+
+A section whose query fails or returns no rows is reported with its reason and
+skipped; the rest of the report is still built. If nothing could be built the
+dialog stays open with the reasons rather than handing back an empty document.
+
+### Export
+
+**Export PDF** builds a real vector-text PDF: headings, paragraphs and table
+cells are selectable text, not a screenshot. Only charts are images, rasterised
+by `html2canvas-pro` from the very nodes the preview is showing (tagged
+`data-chart-block`), so the exported chart is the chart you were looking at. A
+chart with no rows prints a visible `[chart unavailable]` marker rather than a
+silent gap.
+
+### Access
+
+A report is **owner-only**. `bi_reports` carries RLS on `auth.uid() = user_id`
+and every server function re-resolves the caller and scopes by `user_id`.
+There is deliberately no `has_resource_access('bi_report', …)` policy: the
+`iam_resource_grants.resource_type` CHECK does not admit `'bi_report'`, so such
+a policy would be dead code that reads like a working share. Send the exported
+PDF instead. Name, page setup and band changes are written to the audit log via
+`audit_row_change('bi_report')`.
+
 ## AI Analyst — your analytical partner
 
-**AI Analyst** (`/ai-analyst`, first under Data &amp; BI) is the dedicated
+**AI Analyst** (`/ai-analyst`, under Data &amp; BI) is the dedicated
 conversational-analysis surface — the Spotter/conversational-BI equivalent,
 built on this stack's own discipline: every answer shows its work.
 
-An **analyst** is two choices and nothing else: a **reasoning model** (picked
-from your connected providers — the dialog suggests reasoning families like
-o3, GPT-5, Claude Opus, DeepSeek-R1, Gemini 2.5 Pro, and nudges you if the
-pick doesn't look like one) and **the data** it is scoped to (all local
-datasets &amp; uploads, one dataset, or one warehouse connection). Create as
-many analysts as you have jobs for them.
+An **analyst** is three choices and nothing else: a **reasoning model**
+(picked from your connected providers — the dialog suggests reasoning
+families like o3, GPT-5, Claude Opus, DeepSeek-R1, Gemini 2.5 Pro, and nudges
+you if the pick doesn't look like one), **the data** it is scoped to (all
+local datasets &amp; uploads, one dataset, or one warehouse connection), and
+the **predictive models** it may score or forecast with — any trained model
+it can use, or exactly the ones you tick. It chooses among them by the
+question, and a model outside the list is refused even when a plan names it:
+the same allow-list rule as an agent's ML tool, enforced when a step scores,
+not only in what the planner is shown. Create as many analysts as you have
+jobs for them.
 
-Both choices stay **editable** — the pencil on an analyst's card reopens the
+All three choices stay **editable** — the pencil on an analyst's card reopens the
 same dialog, so a model that turns out too slow, or data that moved, is a
 two-click change rather than a new analyst. Editing applies to your next
 question: analyses already on the thread are **not** re-run, and they keep
@@ -343,6 +473,75 @@ refusal to answer: the step falls back to hand-written SQL and is shown
 **without** the badge, which is the honest description of what happened. If
 the compile itself fails, the step says so and loses the claim rather than
 keeping a badge it can no longer justify.
+
+**Scored steps predict; the analyst never estimates.** When a question asks
+what _will_ happen, which rows are _likely_ something, or for a predicted
+value, and a trained model from **ML Models** is in scope, the plan may add
+`"score": { "model": "<name>" }` to a step. The step's SQL selects the
+entities — the model's key column(s) when it is bound to a feature view, so
+the features are read from the view, or its feature columns otherwise — and
+the model supplies the prediction columns, joined onto the step's rows (at
+most fifty, the same cap the agent tool has). The step carries a **scored**
+badge naming the model, and under its table says how many rows were scored,
+the model's version and headline metric, where the features came from and
+which keys were not found. Every name is checked against the models the
+analyst actually loaded; a step naming anything else simply is not scored. A
+scoring that fails leaves the rows unscored and says so in the self-check
+note — the analyst does not fill a prediction in itself. The write-up is told
+which steps were scored and must report predictions as what the model
+estimates, naming it, never as something observed. A step whose SQL the
+self-check corrects is scored again on the corrected rows, and its note says
+so; a step re-run by hand loses its predictions along with the badge — they
+belonged to the old rows — until the question is asked again. A prediction
+column that collides with one the SQL already returned is kept under a
+`predicted_` prefix, so the model's numbers are the ones on the table the
+badge vouches for. The SQL writer is told, in the step's own goal, that the
+rows will be scored afterwards and what they must carry — the model's key
+column(s) from the source table, at most fifty rows, no stored predictions
+table and no prediction of its own. And a write-up that comes back as data
+rather than prose (an object of rows under `answer`, with `caveats`) is
+rendered as a table with its caveats, not reported as "no write-up". The
+self-check is told which columns the model added and that they exist in no
+table — it judges the SQL by the rows it was asked to return, and a
+correction it writes never selects the model's columns (live, one did, and
+died on a binder error); and the contribution and trend arithmetic the check
+and the write-up are handed reads only the observed columns, never the
+estimates (live, a table of `order_id`, `prediction`, `probability` was read
+as a two-period breakdown by prediction, and the write-up listed the
+resulting "total change" as a caveat beside the real one). The
+model's **health** rides along: the planner sees each scorable model's latest
+drift reading or evaluation verdict, and a scored step's badge and disclosure
+say it — "open drift alert (PSI 3.291 on 2026-09-14)" — so the write-up can
+warn beside the numbers it cites.
+
+**Forecasts, rankings and what a model can say.** A trained **forecast**
+model in scope is offered to the planner as a forecast step (`"forecast":
+{ "model": "<name>", "horizon": N }`): no SQL — the step's rows are the
+model's projected periods with their interval, the badge says **forecast
+by**, and the write-up is told the rows are a projection. A regression
+model is never a forecast: the planner is told so, and the write-up is told
+a scored regression step gives one estimate per row and is not a series.
+The **most, least or top-N by a model's output** — most anomalous, most
+likely enterprise, highest predicted value — is decided by the platform on
+the scored rows (`"rank": { "by": "<output column>", "desc": true,
+"limit": N }` inside `score`), never in SQL, where the column does not
+exist; the disclosure says "ranked by anomaly_score (highest first), top 10
+of the 50 scored". A step whose goal names a model in scope is scored by it
+even when the planner forgot the block, because naming the model is the
+request. The tool's **model notes** — what each class means, each group's
+size and typical row, the trainer's warnings — travel with the scored step
+(a collapsible under the disclosure) and into the write-up, so it can
+describe a group rather than say it was not told. And the analyst refuses
+rather than improvises: a question naming a model nobody has ("the churn
+model") stops and asks, naming the models that exist, instead of scoring
+with another; rows missing most of a model's feature columns are not
+scored, and the missing ones are named; a self-review correction that reads
+a model's column is refused in code and the original result stands; a
+correction that fails says so, and the write-up is told the step did not
+fail. A scored step's rows are quoted to the write-up in full (up to the
+fifty the model scored) — summarised, fifteen scored orders became
+"order_id total=22104" and a findings table built from it — and an
+identifier column is never totalled in the facts at all.
 
 **What-if scenarios** ride on the same compiler. A compiled step gets a
 flask control offering the two things that can honestly vary: the model's
@@ -585,7 +784,10 @@ sheet names does not open at all.
 ## Asking from Slack
 
 Questions get asked in Slack. An answer that needs another tab opened mostly
-does not get looked up, so an analyst can be reached with a slash command:
+does not get looked up, so an analyst can be reached with a slash command.
+The same door takes agents: a workspace routes each command to its own agent
+or analyst, and answers @mentions in thread — see
+[Answering in Slack](./AGENT_CHAT.md#answering-in-slack). For the analyst:
 
 ```
 /ask what was revenue last month
@@ -635,9 +837,12 @@ cover/contain/tile fit and a darken slider for readability, plus a
 menu has **Appearance**: an **accent colour** (recolours the chart primary
 and header icon via a scoped CSS variable) and a **card style** — default,
 accent tint, or glass (translucent blur, made for image backgrounds).
-All AI calls also carry hard timeouts now (120s client / 100s upstream),
-so a stalled model provider surfaces as a clear error instead of an
-infinite spinner.
+All AI calls also carry deadlines, so a stalled model provider surfaces as a
+clear error instead of an infinite spinner. They are computed per call rather
+than fixed: 60 s upstream for a chat model, 150 s for a reasoning one, plus
+time proportional to the completion budget, capped at 300 s — with the client
+always given 30 s more than the upstream deadline so the server gives up
+first.
 
 ## Pivot conditional formatting
 

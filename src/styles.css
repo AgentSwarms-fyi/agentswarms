@@ -382,6 +382,47 @@ html {
   }
 }
 
+/* Sidebar nav groups. The open height is measured at runtime by Radix and
+   published as --radix-collapsible-content-height, so this is a keyframe
+   animation rather than a transition on `height: auto`, which animates
+   nothing. */
+@keyframes nav-group-open {
+  from {
+    height: 0;
+    opacity: 0;
+  }
+  to {
+    height: var(--radix-collapsible-content-height);
+    opacity: 1;
+  }
+}
+
+@keyframes nav-group-close {
+  from {
+    height: var(--radix-collapsible-content-height);
+    opacity: 1;
+  }
+  to {
+    height: 0;
+    opacity: 0;
+  }
+}
+
+.nav-group-content[data-state="open"] {
+  animation: nav-group-open 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.nav-group-content[data-state="closed"] {
+  animation: nav-group-close 150ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nav-group-content[data-state="open"],
+  .nav-group-content[data-state="closed"] {
+    animation: none;
+  }
+}
+
 /* Thinking animation */
 @keyframes thinking-pulse {
   0%,
@@ -511,4 +552,19 @@ html {
   stroke: var(--primary);
   stroke-width: 2;
   filter: drop-shadow(0 0 4px color-mix(in oklch, var(--primary) 50%, transparent));
+}
+
+/*
+ * A canvas route's height.
+ *
+ * Full-height pages — the analyst, agent chat, the lakehouse workbench, the
+ * ETL canvas — fill the screen below the app chrome and scroll INSIDE
+ * themselves. They each used to subtract a constant, and every one of those
+ * constants was wrong whenever the session-restore banner was up: the page ran
+ * one banner too tall and its bottom row went under the fold. AppLayout
+ * measures the chrome and publishes --app-chrome-h; the fallback is the
+ * header's own height, which is what applies anywhere that variable is absent.
+ */
+.h-canvas {
+  height: calc(100dvh - var(--app-chrome-h, 3rem));
 }

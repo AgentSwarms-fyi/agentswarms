@@ -1,0 +1,896 @@
+// Predictions for one model: score a lakehouse table into a lakehouse table,
+// try a single row from a form the feature schema generates, and the history
+// of runs with their logs. Forecast models show their training forecast.
+import { useServerFn } from "@tanstack/react-start";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
+import { Loader2, Play, ScrollText, Sparkles, Table2, XCircle } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { confirmAsk } from "@/components/ui/confirm-dialog";
+import { cn } from "@/lib/utils";
+import {
+  mlCancelPrediction,
+  mlListPredictions,
+  mlListSources,
+  mlPredictBatch,
+  mlPredictRows,
+  type MlSourceTable,
+} from "@/utils/ml.functions";
+import type { MlModelRow, MlVersionRow } from "@/utils/ml/access.server";
+import type { MlPredictionRow, MlRowsPredictResult } from "@/utils/ml/predict.server";
+import { ML_JOB_LIVE, type MlFeatureSchemaEntry, type MlForecastPoint } from "@/utils/ml/types";
+import { JobStatusChip, fmtDuration, fmtInt, relTime } from "@/components/ml/mlUi";
+import { ML_DRIFT_MODERATE, type MlContribution, type MlDrift } from "@/utils/ml/types";
+
+const LIVE = new Set<string>(ML_JOB_LIVE);
+
+export function PredictionsPanel({
+  token,
+  model,
+  versions,
+  shared,
+}: {
+  token: string;
+  model: MlModelRow;
+  versions: MlVersionRow[];
+  shared: boolean;
+}) {
+  const listFn = useServerFn(mlListPredictions);
+  const cancelFn = useServerFn(mlCancelPrediction);
+  const [runs, setRuns] = useState<MlPredictionRow[] | null>(null);
+  /** The list is the newest runs and older ones exist (the server says). */
+  const [truncated, setTruncated] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [batchOpen, setBatchOpen] = useState(false);
+  const [logsFor, setLogsFor] = useState<MlPredictionRow | null>(null);
+
+  const ready = useMemo(() => versions.filter((v) => v.status === "ready"), [versions]);
+  const production = ready.find((v) => v.id === model.production_version_id) ?? ready[0] ?? null;
+
+  const reload = useCallback(async () => {
+    if (!token) return;
+    try {
+      setError(null);
+      const r = await listFn({ data: { access_token: token, model_id: model.id } });
+      setRuns(r.predictions);
+      setTruncated(r.truncated);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }, [token, listFn, model.id]);
+  useEffect(() => {
+    void reload();
+  }, [reload]);
+  const anyLive = runs?.some((r) => LIVE.has(r.status)) ?? false;
+  useEffect(() => {
+    if (!anyLive) return;
+    const t = setInterval(() => void reload(), 4000);
+    return () => clearInterval(t);
+  }, [anyLive, reload]);
+
+  const cancel = async (run: MlPredictionRow) => {
+    if (!(await confirmAsk({ title: "Cancel this prediction run?" }))) return;
+    await cancelFn({ data: { access_token: token, prediction_id: run.id } });
+    await reload();
+  };
+
+  if (!production) {
+    return (
+      <Card>
+        <CardContent className="p-6 text-sm text-muted-foreground">
+          Predictions need a trained version. Train one first.
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {model.task === "forecast" ? (
+        <ForecastServing version={production} />
+      ) : (
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
+          <TryIt token={token} model={model} version={production} onDone={() => void reload()} />
+          <Card>
+            <CardContent className="space-y-3 p-4">
+              <p className="inline-flex items-center gap-2 text-sm font-medium">
+                <Table2 className="h-4 w-4 text-primary" /> Score a whole table
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Read a lakehouse table with the same columns, write every row back with{" "}
+                {outputBlurb(model.task)}, as a new lakehouse table you own. Agents and dashboards
+                can query it like any other.
+              </p>
+              <Button size="sm" onClick={() => setBatchOpen(true)}>
+                <Play className="mr-1.5 h-3.5 w-3.5" /> Batch prediction
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      <div className="overflow-hidden rounded-lg border bg-card">
+        <table className="w-full text-sm">
+          <thead className="bg-muted text-left text-xs">
+            <tr>
+              <th className="px-3 py-2 font-medium">Started</th>
+              <th className="px-3 py-2 font-medium">Status</th>
+              <th className="px-3 py-2 font-medium">Run</th>
+              <th className="px-3 py-2 font-medium">Input → output</th>
+              <th className="px-3 py-2 text-right font-medium">Rows</th>
+              <th className="px-3 py-2 font-medium">Duration</th>
+              <th className="px-3 py-2 font-medium">Drift</th>
+              <th className="px-3 py-2 text-right font-medium"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {runs === null && error ? (
+              <tr>
+                <td className="px-3 py-6 text-red-600" colSpan={7}>
+                  {error}
+                </td>
+              </tr>
+            ) : runs === null ? (
+              <tr>
+                <td className="px-3 py-6 text-center text-muted-foreground" colSpan={7}>
+                  Loading…
+                </td>
+              </tr>
+            ) : runs.length === 0 ? (
+              <tr>
+                <td className="px-3 py-6 text-center text-muted-foreground" colSpan={7}>
+                  No predictions yet.
+                </td>
+              </tr>
+            ) : (
+              runs.map((r) => {
+                const input = r.input as {
+                  kind: string;
+                  schema?: string;
+                  table?: string;
+                  where?: string;
+                  count?: number;
+                };
+                const output = r.output as { schema: string; table: string } | null;
+                return (
+                  <tr key={r.id} className="border-t">
+                    <td className="px-3 py-2 text-muted-foreground">{relTime(r.created_at)}</td>
+                    <td className="px-3 py-2">
+                      <JobStatusChip status={r.status} />
+                    </td>
+                    <td className="px-3 py-2">
+                      <span className="text-xs">{r.kind}</span>{" "}
+                      <span className="text-[11px] text-muted-foreground">via {r.via}</span>
+                    </td>
+                    <td className="max-w-md px-3 py-2 text-xs">
+                      {input.kind === "rows" ? (
+                        <span>{input.count ?? "?"} row(s)</span>
+                      ) : (
+                        <span>
+                          {input.schema}.{input.table}
+                          {input.where ? (
+                            <span className="text-muted-foreground"> where {input.where}</span>
+                          ) : null}
+                        </span>
+                      )}
+                      {output ? (
+                        <span>
+                          {" "}
+                          →{" "}
+                          <span className="font-medium">
+                            {output.schema}.{output.table}
+                          </span>
+                        </span>
+                      ) : null}
+                      {r.error ? (
+                        <p className="mt-0.5 text-red-600 dark:text-red-400">
+                          {r.error.slice(0, 160)}
+                        </p>
+                      ) : null}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums">{fmtInt(r.row_count)}</td>
+                    <td className="px-3 py-2 tabular-nums">
+                      {fmtDuration(r.started_at ?? r.created_at, r.finished_at)}
+                    </td>
+                    <td className="px-3 py-2">
+                      <DriftBadge row={r} />
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      {LIVE.has(r.status) && !shared ? (
+                        <Button size="sm" variant="ghost" onClick={() => void cancel(r)}>
+                          <XCircle className="mr-1 h-3.5 w-3.5" /> Cancel
+                        </Button>
+                      ) : null}
+                      <Button size="sm" variant="ghost" onClick={() => setLogsFor(r)}>
+                        <ScrollText className="mr-1 h-3.5 w-3.5" /> Logs
+                      </Button>
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+        {truncated ? (
+          <p className="px-3 py-2 text-xs text-muted-foreground">
+            The newest {runs?.length ?? 0} runs. Older runs exist and are not listed here.
+          </p>
+        ) : null}
+      </div>
+
+      <BatchDialog
+        open={batchOpen}
+        onOpenChange={setBatchOpen}
+        token={token}
+        model={model}
+        versions={ready}
+        defaultVersion={production}
+        onStarted={() => void reload()}
+      />
+
+      <Dialog open={logsFor !== null} onOpenChange={(o) => !o && setLogsFor(null)}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Prediction logs</DialogTitle>
+            <DialogDescription>
+              {logsFor
+                ? `${logsFor.status} · started ${relTime(logsFor.started_at ?? logsFor.created_at)}`
+                : ""}
+            </DialogDescription>
+          </DialogHeader>
+          <pre className="max-h-[60vh] overflow-auto rounded-md bg-muted p-3 font-mono text-[11px] leading-relaxed">
+            {[
+              logsFor?.logs,
+              logsFor?.error && !logsFor.logs?.includes(logsFor.error)
+                ? `\n===== error =====\n${logsFor.error}`
+                : "",
+            ]
+              .filter(Boolean)
+              .join("\n") || "No output was captured."}
+          </pre>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function ForecastServing({ version }: { version: MlVersionRow }) {
+  const f = version.forecast as { points: MlForecastPoint[] } | null;
+  return (
+    <Card>
+      <CardContent className="space-y-3 p-4">
+        <p className="text-sm font-medium">Forecast, as trained</p>
+        <p className="text-xs text-muted-foreground">
+          A forecast model serves the periods it projected when it trained (v{version.version});
+          train a new version to move the horizon forward. Agents read these through{" "}
+          <code>ml_predict</code>.
+        </p>
+        {f?.points?.length ? (
+          <div className="max-h-64 overflow-auto rounded-md border">
+            <table className="w-full text-xs">
+              <thead className="sticky top-0 bg-muted">
+                <tr className="text-left">
+                  <th className="px-2 py-1 font-medium">Period</th>
+                  <th className="px-2 py-1 text-right font-medium">Forecast</th>
+                  <th className="px-2 py-1 text-right font-medium">Low</th>
+                  <th className="px-2 py-1 text-right font-medium">High</th>
+                </tr>
+              </thead>
+              <tbody>
+                {f.points.map((p) => (
+                  <tr key={p.period} className="border-t">
+                    <td className="px-2 py-1">{p.period}</td>
+                    <td className="px-2 py-1 text-right tabular-nums">{p.yhat.toFixed(2)}</td>
+                    <td className="px-2 py-1 text-right tabular-nums text-muted-foreground">
+                      {p.lo.toFixed(2)}
+                    </td>
+                    <td className="px-2 py-1 text-right tabular-nums text-muted-foreground">
+                      {p.hi.toFixed(2)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+type TryResult = MlRowsPredictResult;
+
+function TryIt({
+  token,
+  model,
+  version,
+  onDone,
+}: {
+  token: string;
+  model: MlModelRow;
+  version: MlVersionRow;
+  onDone: () => void;
+}) {
+  const predictFn = useServerFn(mlPredictRows);
+  const schema = (version.feature_schema ?? []) as MlFeatureSchemaEntry[];
+  const features = schema.filter((e) => e.role === "feature");
+  const [values, setValues] = useState<Record<string, string>>(() =>
+    Object.fromEntries(
+      features.map((f) => [
+        f.name,
+        f.dtype === "numeric"
+          ? String(f.median ?? f.min ?? 0)
+          : f.dtype === "categorical"
+            ? (f.categories?.[0] ?? "")
+            : f.dtype === "boolean"
+              ? "true"
+              : f.dtype === "datetime"
+                ? new Date().toISOString().slice(0, 10)
+                : "",
+      ]),
+    ),
+  );
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<TryResult | null>(null);
+  // Off by default: it costs a prediction per feature and skips the warm
+  // endpoint, so it is a thing you ask for about a row you have to justify.
+  const [explain, setExplain] = useState(false);
+
+  const run = async () => {
+    setBusy(true);
+    setResult(null);
+    try {
+      const row: Record<string, unknown> = {};
+      for (const f of features) {
+        const v = values[f.name];
+        row[f.name] =
+          f.dtype === "numeric"
+            ? v === ""
+              ? null
+              : Number(v)
+            : f.dtype === "boolean"
+              ? v === "true"
+              : v;
+      }
+      const r = await predictFn({
+        data: {
+          access_token: token,
+          model_id: model.id,
+          version_id: version.id,
+          rows: [row],
+          explain,
+        },
+      });
+      setResult(r);
+      if (!r.ok) toast.error(r.error);
+      onDone();
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const pred = result?.ok ? result.rows[0] : null;
+  const idx = result?.ok ? Object.fromEntries(result.columns.map((c, i) => [c, i])) : {};
+  const probas = result?.ok
+    ? result.columns
+        .filter((c) => c.startsWith("proba_"))
+        .map((c) => ({ label: c.slice(6), p: Number(pred?.[idx[c]] ?? 0) }))
+    : [];
+
+  return (
+    <Card>
+      <CardContent className="space-y-3 p-4">
+        <p className="inline-flex items-center gap-2 text-sm font-medium">
+          <Sparkles className="h-4 w-4 text-primary" /> Try it
+        </p>
+        <p className="text-xs text-muted-foreground">
+          One row through v{version.version}. Runs in a sandbox, so allow half a minute.
+        </p>
+        <div className="grid max-h-72 gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
+          {features.map((f) => (
+            <div key={f.name} className="space-y-1">
+              <Label className="text-[11px]">{f.name}</Label>
+              {f.dtype === "categorical" && f.categories?.length ? (
+                <select
+                  className="h-8 w-full rounded-md border bg-background px-2 text-xs"
+                  value={values[f.name]}
+                  onChange={(e) => setValues({ ...values, [f.name]: e.target.value })}
+                >
+                  {f.categories.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              ) : f.dtype === "boolean" ? (
+                <select
+                  className="h-8 w-full rounded-md border bg-background px-2 text-xs"
+                  value={values[f.name]}
+                  onChange={(e) => setValues({ ...values, [f.name]: e.target.value })}
+                >
+                  <option value="true">true</option>
+                  <option value="false">false</option>
+                </select>
+              ) : (
+                <Input
+                  className="h-8 text-xs"
+                  type={f.dtype === "numeric" ? "number" : f.dtype === "datetime" ? "date" : "text"}
+                  value={values[f.name]}
+                  onChange={(e) => setValues({ ...values, [f.name]: e.target.value })}
+                />
+              )}
+            </div>
+          ))}
+        </div>
+        <div className="flex items-center gap-3">
+          <Button size="sm" disabled={busy} onClick={() => void run()}>
+            {busy ? (
+              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Play className="mr-1.5 h-3.5 w-3.5" />
+            )}
+            Predict
+          </Button>
+          {/* Not offered for a recommender: its answer comes from which
+              items other users chose together, so the per-feature ablation
+              behind this box has no cell to move. Ticking it returned a row
+              with `explanations: null` and no explanation of the absence. */}
+          {model.task !== "recommendation" ? (
+            <label className="inline-flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
+              <input
+                type="checkbox"
+                className="h-3.5 w-3.5 accent-primary"
+                checked={explain}
+                onChange={(e) => setExplain(e.target.checked)}
+              />
+              Explain this answer
+            </label>
+          ) : null}
+          {busy ? (
+            <span className="text-xs text-muted-foreground">Scoring in a sandbox…</span>
+          ) : null}
+        </div>
+        {result?.ok && pred ? (
+          <div className="rounded-lg border bg-muted/30 p-3">
+            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+              {model.task === "clustering"
+                ? "Group"
+                : model.task === "anomaly"
+                  ? "Verdict"
+                  : model.task === "recommendation"
+                    ? `Recommended ${model.item_column}`
+                    : `Predicted ${model.target_column}`}
+            </p>
+            {model.task === "recommendation" ? (
+              <RecList
+                value={pred[idx.prediction]}
+                scores={idx.scores !== undefined ? pred[idx.scores] : null}
+                cold={idx.cold_start !== undefined ? Boolean(pred[idx.cold_start]) : false}
+              />
+            ) : (
+              <p className="text-2xl font-bold tracking-tight tabular-nums">
+                {model.task === "anomaly"
+                  ? Number(pred[idx.prediction]) === 1
+                    ? "Anomaly"
+                    : "Normal"
+                  : model.task === "clustering"
+                    ? `Group ${String(pred[idx.prediction])}`
+                    : String(pred[idx.prediction] ?? "—")}
+                {idx.probability !== undefined ? (
+                  <span className="ml-2 text-sm font-normal text-muted-foreground">
+                    {(Number(pred[idx.probability]) * 100).toFixed(1)}% confidence
+                  </span>
+                ) : idx.anomaly_score !== undefined ? (
+                  <span className="ml-2 text-sm font-normal text-muted-foreground">
+                    score {Number(pred[idx.anomaly_score]).toFixed(3)}
+                  </span>
+                ) : idx.distance !== undefined ? (
+                  <span className="ml-2 text-sm font-normal text-muted-foreground">
+                    distance {Number(pred[idx.distance]).toFixed(3)}
+                  </span>
+                ) : null}
+              </p>
+            )}
+            {result.ok && result.explanations?.[0]?.length ? (
+              <ContributionList parts={result.explanations[0]} task={model.task} />
+            ) : null}
+            {probas.length ? (
+              <div className="mt-2 space-y-1">
+                {probas
+                  .sort((a, b) => b.p - a.p)
+                  .slice(0, 6)
+                  .map((c) => (
+                    <div key={c.label} className="flex items-center gap-2 text-[11px]">
+                      <span className="w-24 truncate">{c.label}</span>
+                      <div className="h-1.5 flex-1 rounded bg-muted">
+                        <div
+                          className="h-1.5 rounded bg-[var(--chart-1)]"
+                          style={{ width: `${Math.round(c.p * 100)}%` }}
+                        />
+                      </div>
+                      <span className="w-12 text-right tabular-nums">
+                        {(c.p * 100).toFixed(1)}%
+                      </span>
+                    </div>
+                  ))}
+              </div>
+            ) : null}
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              {result.algorithm} · {result.elapsedSeconds ?? "?"}s · run{" "}
+              {result.predictionId.slice(0, 8)} is audited with a digest
+            </p>
+          </div>
+        ) : result && !result.ok ? (
+          <p className="rounded-md bg-red-500/10 p-2 text-xs text-red-600 dark:text-red-400">
+            {result.error}
+          </p>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+function BatchDialog({
+  open,
+  onOpenChange,
+  token,
+  model,
+  versions,
+  defaultVersion,
+  onStarted,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  token: string;
+  model: MlModelRow;
+  versions: MlVersionRow[];
+  defaultVersion: MlVersionRow;
+  onStarted: () => void;
+}) {
+  const sourcesFn = useServerFn(mlListSources);
+  const batchFn = useServerFn(mlPredictBatch);
+  const src = model.source as { schema: string; table: string };
+  const [tables, setTables] = useState<MlSourceTable[] | null>(null);
+  // Where predictions may go: owned schemas that are not mounts (R111).
+  const [outSchemas, setOutSchemas] = useState<string[] | null>(null);
+  const [input, setInput] = useState(`${src.schema}.${src.table}`);
+  const [where, setWhere] = useState("");
+  const [outSchema, setOutSchema] = useState(src.schema);
+  const [outTable, setOutTable] = useState(
+    `${
+      model.name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "_")
+        .replace(/^_+|_+$/g, "")
+        .slice(0, 40) || "model"
+    }_predictions`,
+  );
+  const [versionId, setVersionId] = useState(defaultVersion.id);
+  // Off by default: reason codes cost one extra prediction per feature per
+  // row, so asking for them is a decision rather than a default.
+  const [explain, setExplain] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open || tables !== null) return;
+    void sourcesFn({ data: { access_token: token } })
+      .then((r) => {
+        setTables(r.tables);
+        setOutSchemas(r.writableSchemas);
+        setOutSchema((cur) =>
+          r.writableSchemas.includes(cur) ? cur : (r.writableSchemas[0] ?? ""),
+        );
+      })
+      .catch((e) => setErr((e as Error).message));
+  }, [open, tables, sourcesFn, token]);
+
+  const submit = async () => {
+    const [schema, table] = input.split(".");
+    if (!schema || !table) return setErr("Pick an input table");
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await batchFn({
+        data: {
+          access_token: token,
+          model_id: model.id,
+          version_id: versionId,
+          input: { schema, table, where: where.trim() || undefined },
+          output: { schema: outSchema, table: outTable.trim() },
+          explain,
+        },
+      });
+      if (!r.ok) {
+        setErr(r.error);
+        return;
+      }
+      toast.success("Batch prediction started");
+      onOpenChange(false);
+      onStarted();
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-xl">
+        <DialogHeader>
+          <DialogTitle>Batch prediction</DialogTitle>
+          <DialogDescription>
+            Scores every row of a lakehouse table and writes a new table you own. Rows the model
+            never saw columns for are scored with those columns treated as missing.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-1 sm:col-span-2">
+            <Label className="text-xs">Input table</Label>
+            <select
+              className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+            >
+              {(tables ?? [{ schema: src.schema, table: src.table, columns: [] }]).map((t) => (
+                <option key={`${t.schema}.${t.table}`} value={`${t.schema}.${t.table}`}>
+                  {t.schema}.{t.table}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-1 sm:col-span-2">
+            <Label className="text-xs">Only rows where (optional)</Label>
+            <Input
+              className="font-mono text-xs"
+              placeholder="signed_up_on >= '2026-01-01'"
+              value={where}
+              onChange={(e) => setWhere(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Output schema (yours)</Label>
+            <select
+              className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+              value={outSchema}
+              onChange={(e) => setOutSchema(e.target.value)}
+            >
+              {outSchemas && outSchemas.length === 0 && (
+                <option value="">No schema of yours can take a new table</option>
+              )}
+              {(outSchemas ?? [outSchema]).map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Output table</Label>
+            <Input value={outTable} onChange={(e) => setOutTable(e.target.value)} />
+          </div>
+          <div className="space-y-1 sm:col-span-2">
+            <Label className="text-xs">Version</Label>
+            <select
+              className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+              value={versionId}
+              onChange={(e) => setVersionId(e.target.value)}
+            >
+              {versions.map((v) => (
+                <option key={v.id} value={v.id}>
+                  v{v.version} · {v.algorithm ?? "?"} · {v.stage}
+                </option>
+              ))}
+            </select>
+          </div>
+          {/* Same reason as the single-row box above: a recommender's scoring
+              path returns before the reason-code block, so this would write a
+              scored table with no reason columns and no note saying why. */}
+          {model.task !== "recommendation" ? (
+            <label className="flex cursor-pointer items-start gap-2 sm:col-span-2">
+              <input
+                type="checkbox"
+                className="mt-0.5 h-3.5 w-3.5 accent-primary"
+                checked={explain}
+                onChange={(e) => setExplain(e.target.checked)}
+              />
+              <span className="text-xs">
+                <span className="font-medium">Write reason codes beside every row</span>
+                <span className="block text-[11px] leading-relaxed text-muted-foreground">
+                  Adds <code className="font-mono">reason_1</code>…
+                  <code className="font-mono">reason_3</code> and their effects as columns, so
+                  &ldquo;why did this one get that answer&rdquo; is answerable in SQL without coming
+                  back here. It costs an extra prediction per feature per row, so large batches are
+                  refused rather than half-explained — narrow the rows if that happens.
+                </span>
+              </span>
+            </label>
+          ) : null}
+        </div>
+        {err ? (
+          <p className={cn("rounded-md bg-red-500/10 p-2 text-xs text-red-600 dark:text-red-400")}>
+            {err}
+          </p>
+        ) : null}
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button disabled={busy} onClick={() => void submit()}>
+            {busy ? (
+              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Play className="mr-1.5 h-3.5 w-3.5" />
+            )}
+            Predict
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function outputBlurb(task: string) {
+  return task === "clustering" ? (
+    <>
+      a <code>prediction</code> column (the group) and a <code>distance</code> to its centre
+    </>
+  ) : task === "anomaly" ? (
+    <>
+      a <code>prediction</code> column (1 = anomaly) and an <code>anomaly_score</code>
+    </>
+  ) : task === "recommendation" ? (
+    <>
+      a <code>prediction</code> column holding each user's top items and their <code>scores</code>
+    </>
+  ) : (
+    <>
+      a <code>prediction</code> column (and class probabilities)
+    </>
+  );
+}
+
+/**
+ * What moved this answer, as a diverging bar per feature.
+ *
+ * Deliberately NOT called SHAP anywhere the reader can see, because it is not:
+ * each bar is how far the answer moved when that one value was replaced with
+ * the one a typical training row carried. The caption says exactly that, in
+ * one sentence, because a number a person may have to defend to a regulator
+ * should not need a footnote to be understood.
+ */
+function ContributionList({ parts, task }: { parts: MlContribution[]; task: string }) {
+  const widest = Math.max(...parts.map((p) => Math.abs(p.contribution)), 1e-9);
+  const unit = task === "classification" ? "probability" : "predicted value";
+  return (
+    <div className="mt-3 border-t pt-3">
+      <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+        What moved this answer
+      </p>
+      <p className="mb-2 mt-0.5 text-[11px] text-muted-foreground">
+        How far the {unit} moved when each value was replaced with a typical one. Bars to the right
+        pushed the answer up.
+      </p>
+      <div className="space-y-1.5">
+        {parts.map((p) => {
+          const share = Math.abs(p.contribution) / widest;
+          const up = p.contribution > 0;
+          return (
+            <div key={p.feature} className="flex items-center gap-2 text-xs">
+              <span className="w-32 shrink-0 truncate font-mono text-[11px]" title={p.feature}>
+                {p.feature}
+              </span>
+              <span
+                className="w-24 shrink-0 truncate text-muted-foreground"
+                title={String(p.value)}
+              >
+                {String(p.value ?? "—")}
+              </span>
+              <span className="relative h-3 flex-1 rounded bg-muted">
+                <span
+                  className={`absolute top-0 h-3 rounded ${up ? "bg-emerald-500/70" : "bg-rose-500/70"}`}
+                  style={{
+                    width: `${Math.max(2, share * 50)}%`,
+                    left: up ? "50%" : undefined,
+                    right: up ? undefined : "50%",
+                  }}
+                />
+                <span className="absolute left-1/2 top-0 h-3 w-px bg-border" />
+              </span>
+              <span className="w-16 shrink-0 text-right tabular-nums">
+                {p.contribution > 0 ? "+" : ""}
+                {p.contribution.toFixed(3)}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function RecList({ value, scores, cold }: { value: unknown; scores: unknown; cold: boolean }) {
+  const items = parseList(value).map(String);
+  const weights = parseList(scores).map(Number);
+  if (!items.length) return <p className="text-sm text-muted-foreground">Nothing to recommend.</p>;
+  return (
+    <div>
+      <ol className="flex flex-wrap gap-1.5">
+        {items.map((it, i) => (
+          <li
+            key={`${it}-${i}`}
+            className="inline-flex items-center gap-1.5 rounded-md border bg-background px-2 py-1 text-sm"
+          >
+            <span className="text-[10px] tabular-nums text-muted-foreground">{i + 1}</span>
+            <span className="font-medium">{it}</span>
+            {Number.isFinite(weights[i]) && weights[i] > 0 ? (
+              <span className="text-[10px] tabular-nums text-muted-foreground">
+                {weights[i].toFixed(2)}
+              </span>
+            ) : null}
+          </li>
+        ))}
+      </ol>
+      {cold ? (
+        <p className="mt-2 text-[11px] text-muted-foreground">
+          No history for this user, so these are the most popular items.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function parseList(v: unknown): unknown[] {
+  if (Array.isArray(v)) return v;
+  if (typeof v !== "string") return [];
+  try {
+    const parsed = JSON.parse(v) as unknown;
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+/** The population stability of a run's rows against the training data. */
+function DriftBadge({ row }: { row: { drift_score: number | null; result: unknown } }) {
+  const score = row.drift_score;
+  if (score === null || score === undefined) {
+    return <span className="text-[11px] text-muted-foreground">—</span>;
+  }
+  const drift = (row.result as { drift?: MlDrift | null } | null)?.drift ?? null;
+  const top = drift
+    ? Object.entries(drift.features)
+        .slice(0, 5)
+        .map(([k, v]) => `${k}: ${v.toFixed(2)}`)
+        .join("\n")
+    : "";
+  const tone =
+    score >= 0.25
+      ? "border-red-500/40 bg-red-500/10 text-red-600 dark:text-red-400"
+      : score >= ML_DRIFT_MODERATE
+        ? "border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400"
+        : "border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400";
+  return (
+    <span
+      className={`inline-flex rounded border px-1.5 py-0.5 text-[10px] tabular-nums ${tone}`}
+      title={`Highest per-feature PSI. Below 0.1 stable, 0.1–0.25 moderate, above 0.25 the population moved.\n${top}`}
+    >
+      {score >= 0.25 ? "high" : score >= ML_DRIFT_MODERATE ? "moderate" : "stable"} ·{" "}
+      {score.toFixed(2)}
+    </span>
+  );
+}

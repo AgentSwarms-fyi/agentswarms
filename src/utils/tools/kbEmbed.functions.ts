@@ -5,6 +5,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { scanKeysPresent } from "@/lib/cursorScan";
 import { embedAndStoreDocuments, type EmbedDocInput } from "./embedding.server";
 import { resolveEmbedTarget } from "./embedTarget.server";
 
@@ -152,13 +153,33 @@ export const backfillKbEmbeddings = createServerFn({ method: "POST" })
     let pending = docs;
     if (!data.force) {
       const ids = docs.map((d) => d.id);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data: existing } = await (writer.from("kb_chunks" as any) as any)
-        .select("document_id")
-        .in("document_id", ids);
-      const have = new Set<string>(
-        ((existing ?? []) as { document_id: string }[]).map((r) => r.document_id),
-      );
+      // This probe decides who gets embedded AGAIN, so a row it fails to see
+      // costs money and inserts a second copy of a document's chunks, which
+      // then over-weights those passages in every later retrieval.
+      //
+      // It used to be one unbounded `.select("document_id").in(...)`. PostgREST
+      // answers that with at most `db-max-rows` — 1,000 on a default Supabase
+      // project — and supabase-js returns the short page with no error, so past
+      // 1,000 chunk rows across this batch (50 documents of ~10 KB at the
+      // default 500-character chunk size reach it) indexed documents simply
+      // fell off the end and were read as pending. The scan pages by cursor and
+      // skips the rest of a document as soon as one of its rows proves
+      // membership.
+      const have = await scanKeysPresent(ids, async (after, pageSize) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let q = (writer.from("kb_chunks" as any) as any)
+          .select("document_id")
+          .in("document_id", ids)
+          .order("document_id", { ascending: true })
+          .limit(pageSize);
+        if (after) q = q.gt("document_id", after);
+        const { data: page, error: pageErr } = await q;
+        // The old read discarded its error, and an errored probe yields an
+        // empty `have` — which is the same as claiming nothing is indexed and
+        // re-embedding the lot. Fail the backfill instead.
+        if (pageErr) throw new Error(`could not check existing chunks: ${pageErr.message}`);
+        return ((page ?? []) as { document_id: string }[]).map((r) => r.document_id);
+      });
       pending = docs.filter((d) => !have.has(d.id));
     }
     if (pending.length === 0)
@@ -205,11 +226,96 @@ export const backfillKbEmbeddings = createServerFn({ method: "POST" })
     return { ...result, skipped: false as const };
   });
 
-/** Whether the operator's built-in OpenAI embedding key is configured —
- * lets the RAG settings UI label "Built-in" honestly. */
+/**
+ * What the RAG settings UI needs to label its provider list honestly.
+ *
+ * `openrouterAvailable` covers the case the dialog could not otherwise see: the
+ * operator set OPENROUTER_API_KEY, so OpenRouter works for this user without
+ * them connecting anything, even though they own no integration row.
+ *
+ * `anyProviderResolvable` asks the real resolver rather than inspecting the
+ * environment, so the answer is whatever ingest would actually do. It is the
+ * difference between "vector search is on" and "your documents are being saved
+ * with keyword search only", which a user otherwise discovers by noticing bad
+ * retrieval.
+ */
 export const kbEmbedStatus = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .handler(async () => ({
-    builtinConfigured: Boolean(process.env.OPENAI_API_KEY),
+  .handler(async ({ context }) => ({
     openrouterAvailable: Boolean(process.env.OPENROUTER_API_KEY),
+    anyProviderResolvable: Boolean(await resolveEmbedTarget(context.userId)),
   }));
+
+/**
+ * Ask a provider, for real, whether it can embed into this store.
+ *
+ * THE GAP THIS FILLS. `kb_chunks.embedding` is `vector(1536)` and embedTexts
+ * hard-rejects any other width, so "this provider has an embeddings API" is not
+ * the same as "this provider works here". Several models the picker offers are
+ * natively 768, 1024 or 4096 and only fit if they honour the OpenAI
+ * `dimensions` parameter — which some do and some silently ignore. Which is
+ * which cannot be known from a model id, and a hardcoded list rots: two
+ * nvidia/* entries in this repo turned out to 404 on the live endpoint.
+ *
+ * So the answer is measured instead of predicted. One short string, one call,
+ * and the reader learns before their documents are saved rather than after,
+ * when the alternative is noticing that retrieval has quietly been keyword-only.
+ */
+export const kbEmbedProbe = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) =>
+    z
+      .object({
+        provider: z.string().max(64).optional().nullable(),
+        model: z.string().max(200).optional().nullable(),
+      })
+      .parse(input ?? {}),
+  )
+  .handler(
+    async ({
+      data,
+      context,
+    }): Promise<{
+      ok: boolean;
+      provider?: string;
+      model?: string;
+      dims?: number;
+      message?: string;
+    }> => {
+      const { userId } = context;
+      const target = await resolveEmbedTarget(userId, {
+        provider: data.provider,
+        model: data.model,
+      });
+      if (!target) {
+        return {
+          ok: false,
+          message:
+            "That provider is not connected, or has no credentials saved. Connect it under Integrations first.",
+        };
+      }
+      const { embedTexts } = await import("./embedding.server");
+      try {
+        const [vector] = await embedTexts(["probe"], target.apiKey, target.model, {
+          endpoint: target.endpoint,
+          allowCustomModel: target.allowCustomModel,
+          userId,
+          surface: "kb_embed_probe",
+        });
+        return {
+          ok: true,
+          provider: target.provider,
+          model: target.model,
+          dims: vector?.length,
+        };
+      } catch (e) {
+        // Provider errors quote the request back. Strip the key before this
+        // reaches a browser — the same class of leak the lakehouse had.
+        let message = (e as Error).message;
+        if (target.apiKey && target.apiKey.length >= 6) {
+          message = message.split(target.apiKey).join("[redacted]");
+        }
+        return { ok: false, provider: target.provider, model: target.model, message };
+      }
+    },
+  );

@@ -1,9 +1,14 @@
 // Transport-agnostic outbound mailer for the self-hosted build.
 //
+// NO THIRD PARTY IS REQUIRED. SMTP is built in: `nodemailer` is a dependency
+// of this package, so any mail relay you already have — a corporate
+// Exchange, SES, a provider's free tier, a box in the next rack — works with
+// four environment variables and no account anywhere. Resend is offered
+// first only because it needs no relay at all, not because it is preferred.
+//
 // Picks the first configured transport, in this order:
-//   1. RESEND_API_KEY  — Resend's HTTPS API
-//   2. SMTP_HOST       — SMTP via nodemailer (Node/Docker deployments only;
-//                        `npm install nodemailer` if it isn't already present)
+//   1. RESEND_API_KEY  — Resend's HTTPS API, for deployments with no relay
+//   2. SMTP_HOST       — any SMTP server, over nodemailer
 //   3. none            — no-op: the send is logged and skipped. The app must
 //                        keep working without any mailer configured.
 //
@@ -67,12 +72,17 @@ async function sendViaSmtp(args: MailArgs): Promise<MailResult> {
     nodemailer =
       (await import(/* @vite-ignore */ "nodemailer")).default ??
       (await import(/* @vite-ignore */ "nodemailer"));
-  } catch {
+  } catch (e) {
+    // nodemailer is a dependency of this package, so reaching here means the
+    // runtime could not load it rather than that the operator forgot to
+    // install it. Telling them to `npm install nodemailer` sent people after
+    // a problem they did not have; the real cause is a bundler or a runtime
+    // that cannot do a dynamic import.
     return {
       sent: false,
       reason:
-        "SMTP_HOST is set but nodemailer is not available in this runtime. " +
-        "Run `npm install nodemailer` (Node deployments), or use RESEND_API_KEY instead.",
+        "SMTP_HOST is set but nodemailer could not be loaded in this runtime: " +
+        (e instanceof Error ? e.message : String(e)),
     };
   }
 

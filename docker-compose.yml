@@ -2,29 +2,24 @@
 #
 #   1. cp .env.example .env   (fill in your Supabase project + keys)
 #   2. Apply the database migrations once:  supabase link && supabase db push
-#   3. docker compose up --build
+#   3. docker compose up -d --build
 #   4. Open http://localhost:8080
 #
-# Optional — the Developer-workspace SERVER RUNTIME (real Python kernels that can
-# pip install and run LangChain/LlamaIndex/LangGraph):
+# EVERY SERVICE STARTS. There are no profiles and nothing to opt into: the
+# Developer-workspace Python runtime and its egress proxy, the lakehouse
+# catalog and its object store, the vector store, the feature store, the Spark
+# cluster, the Office renderer and the JS sandbox all come up with the app, and
+# .env.example points the app at every one of them. A product whose features
+# depend on which flag the installer was given is a product most installs never
+# see — and the support question "is X installed?" has one answer now.
 #
-#   docker compose --profile notebooks up -d --build
+# What that costs: about 5 GB of images and roughly 8 GB of RAM for the whole
+# set (docs/SYSTEM_REQUIREMENTS.md). `scripts/setup.sh --dev` runs the app on
+# the host for development and starts the same services beside it.
 #
-# then turn it on in the app under Admin → Developer runtime. No env wiring is
-# needed: the app defaults to the service names below and generates its own
-# signing secret. See docs/DEVELOPER_WORKSPACE_RUNTIME.md.
-#
-# MCP Builder (Build → MCP Builder) runs on this same runtime — no extra service,
-# but it does need this profile up. Optional capacity knobs, if the defaults of 3
-# per user / 20 per instance don't suit: MCP_MAX_SERVERS_PER_USER,
-# MCP_MAX_SERVERS_TOTAL.
-#
-# Optional — the JS SANDBOX, so Function and custom-component nodes also run in
-# DEPLOYED (API-key) and SCHEDULED swarm runs rather than canvas-only:
-#
-#   docker compose --profile sandbox up -d --build
-#
-# See docs/DEPLOYMENT.md § "JS sandbox".
+# The Developer-workspace runtime still needs ONE switch after install — Admin →
+# Developer runtime — because it lets people run code; the containers are here
+# and waiting. MCP Builder (Build → MCP Builder) runs on that same runtime.
 #
 # Compose reads .env automatically: the VITE_* values are passed as build args
 # (inlined into the client bundle), everything else is runtime environment.
@@ -59,8 +54,27 @@ services:
     # js-internal lets the app reach the (optional) JS sandbox by service name.
     networks: [default, nb-internal, js-internal]
     restart: unless-stopped
+    # `restart` covers a process that EXITS. It does nothing for one that is
+    # running and wedged, which is the failure an operator actually meets — so
+    # every service that can answer for itself does. `node -e` rather than curl
+    # or wget: the runtime image ships neither, and a health check that depends
+    # on a tool the image lacks reports unhealthy for ever.
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:8080/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      # The first boot runs migrations and warms the engine; failing it during
+      # that would only make `docker ps` lie about a healthy start.
+      start_period: 90s
 
-  # ── Developer-workspace server runtime (opt-in: --profile notebooks) ─────────
+  # ── Developer-workspace server runtime ─────────
 
   # Build-only helper so `--build` produces the kernel image the orchestrator
   # launches. It never really runs (entrypoint exits immediately).
@@ -68,7 +82,6 @@ services:
     build:
       context: ./docker/notebook-runtime
     image: agentswarms/notebook-runtime:latest
-    profiles: [notebooks, all]
     entrypoint: ["/bin/true"]
     restart: "no"
 
@@ -77,7 +90,6 @@ services:
     build:
       context: ./services/notebook-gateway
     image: agentswarms/notebook-gateway:latest
-    profiles: [notebooks, all]
     environment:
       PORT: "8090"
       SUPABASE_URL: ${SUPABASE_URL}
@@ -95,7 +107,6 @@ services:
   # are exposed to the app (never the raw /var/run/docker.sock).
   notebook-docker-proxy:
     image: tecnativa/docker-socket-proxy:latest # pin a digest in production
-    profiles: [notebooks, all]
     environment:
       # Only the API sections the orchestrator needs: create/inspect/stop/remove
       # containers, plus read access to images and networks (preflight verifies
@@ -116,24 +127,287 @@ services:
     # network. Inside compose the app uses the service name instead.
     ports:
       - "127.0.0.1:2375:2375"
+    # Seen live: the proxy's HAProxy wedged a thread ("ha_stuck_warning" in its
+    # own log) and answered nothing on either address, so every sandbox start
+    # failed with "Cannot reach the Docker socket-proxy" until it was
+    # recreated. A health check makes that state visible — `docker compose ps`
+    # and Observability → Monitoring — rather than discovered from a failed
+    # run; `docker compose restart notebook-docker-proxy` is the fix.
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:2375/_ping >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     networks: [default]
     restart: unless-stopped
 
   # Default-deny egress proxy — the kernels' only route to the internet.
   notebook-egress:
     image: ubuntu/squid:latest # pin a digest in production
-    profiles: [notebooks, all]
     # Fixed name so the app can locate and restart it when an administrator
     # saves a new egress allow-list (squid re-reads ACL files only on start,
     # and the docker socket proxy deliberately denies `exec`).
-    container_name: agentswarms-notebook-egress
+    #
+    # The SAME variable the app reads (egressApply.server.ts), so the two agree
+    # by construction. A fixed literal here meant two instances on one host
+    # collided on the name — found running a second install beside a first.
+    container_name: ${NOTEBOOK_EGRESS_CONTAINER:-agentswarms-notebook-egress}
     volumes:
       - ./deploy/notebooks/egress/squid.conf:/etc/squid/squid.conf:ro
-      - ./deploy/notebooks/egress/allowed_domains:/etc/squid/allowed_domains:ro
+      # The DIRECTORY, not the two ACL files individually. allowed_domains and
+      # allowed_ips are generated (the app rewrites them on every admin save) and
+      # therefore untracked — and Docker silently creates a *directory* at a
+      # bind-mount source that does not exist. Mounting them by name meant a
+      # fresh clone that skipped setup.sh got two directories in its working
+      # tree and a squid that would not start. The directory itself is always
+      # present: squid.conf and the .default templates live in it.
+      - ./deploy/notebooks/egress:/etc/squid/egress:ro
     networks: [default, nb-internal, nb-dev]
     restart: unless-stopped
 
-  # ── Server-side Office renderer (opt-in: --profile docgen) ───────────────────
+  # ── Lakehouse catalog ──────────────────────────
+  # The DuckLake transactional catalog: schemas, table manifests and snapshots
+  # live here while table DATA lives as Parquet in object storage. Any
+  # Postgres 12+ works; this one exists so a single-host deployment has zero
+  # extra moving parts. Point LAKEHOUSE_CATALOG_URL at it (or at your own).
+  lakehouse-catalog:
+    image: postgres:16
+    # 55432, not 5432: a developer's own Postgres is usually on 5432 and a
+    # port clash here reads as "the catalog is broken".
+    ports:
+      - "127.0.0.1:55432:5432"
+    environment:
+      POSTGRES_USER: ${LAKEHOUSE_CATALOG_USER:-lakehouse}
+      POSTGRES_PASSWORD: ${LAKEHOUSE_CATALOG_PASSWORD:-change-me}
+      POSTGRES_DB: lakehouse_catalog
+    volumes:
+      - lakehouse-catalog-data:/var/lib/postgresql/data
+    # nb-internal is LOAD-BEARING, not tidiness. An ETL pipeline with a
+    # lakehouse target attaches DuckLake from inside a notebook kernel, and
+    # kernels sit on that `internal` network with no route off it except the
+    # HTTP egress proxy. Parquet travels over HTTP and so goes through the
+    # proxy; the CATALOG is a raw Postgres TCP connection and cannot. With the
+    # catalog only on `default`, every lakehouse-target pipeline failed with
+    # "Network is unreachable" the moment the app ran in a container rather
+    # than under `npm run dev` (dev kernels get the routable nb-dev network).
+    networks: [default, nb-internal]
+    restart: unless-stopped
+    # An unclean stop makes Postgres replay its WAL on the next start, which on
+    # a large catalog is minutes of "the database system is starting up". This
+    # is what tells you the difference between still recovering and broken.
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U $${POSTGRES_USER:-lakehouse} -d $${POSTGRES_DB:-lakehouse_catalog}",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 300s
+
+  # ── Qdrant vector store ───────────────────────
+  # Where knowledge-base embeddings are searched when VECTOR_STORE=qdrant.
+  # Opt-in because it is not needed to run the platform: the default keeps
+  # vectors in Postgres beside the chunks, which is one fewer thing to operate
+  # and one fewer thing to back up.
+  #
+  # It holds VECTORS AND TWO IDS. The chunk text, the document and the
+  # permissions stay in Postgres, so a Qdrant that loses this volume costs a
+  # re-index (Admin -> Developer runtime -> AI services -> Re-index) and nothing else —
+  # which is why there is no backup guidance here and why losing it is not a
+  # data-loss event.
+  #
+  # ONE NODE IS NOT HIGH AVAILABILITY. This is the single-node shape for a
+  # laptop or a small install; a deployment that needs retrieval to survive
+  # losing a node runs a Qdrant cluster and sets QDRANT_REPLICATION to at
+  # least 2. The admin page reports the replication the collection ACTUALLY
+  # has, so the difference is visible rather than assumed.
+  # ── Object store for the lakehouse ────────────────────────────────────────
+  # The catalog (above) records which Parquet files make up a table; the files
+  # themselves live here. Both are needed, which is why both start: a catalog
+  # with nowhere to write is a lakehouse that fails on its first table.
+  #
+  # quay.io, not Docker Hub: MinIO's Docker Hub repository is not publicly
+  # pullable (`pull access denied for minio/minio`), and quay.io is where they
+  # publish. Measured, not assumed — the first version of this file named the
+  # Hub and every install would have failed on the pull.
+  #
+  # Any S3-compatible store replaces it — AWS S3, R2, GCS — by pointing
+  # LAKEHOUSE_S3_* at that instead. This one is here so an install has a
+  # working lakehouse without an account anywhere.
+  minio:
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${LAKEHOUSE_S3_KEY_ID:-agentswarms}
+      MINIO_ROOT_PASSWORD: ${LAKEHOUSE_S3_SECRET:-agentswarms-lake-dev}
+      # The console is published on loopback only; the API is in-network.
+      MINIO_BROWSER_REDIRECT_URL: http://localhost:9001
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - lake-data:/data
+    healthcheck:
+      # `mc ready local`, the server image's own client, so "healthy" means it
+      # answers rather than that a port is open.
+      #
+      # The grace is wide because the FIRST start formats the pool, and the
+      # first start of an AgentSwarms install is also when eleven other
+      # containers are starting and several images are still building. At
+      # 20s + 5 x 15s a loaded laptop missed it, minio-init refused to run
+      # ("dependency failed to start: container minio is unhealthy") and the
+      # install stopped with no bucket. Idle, it is ready in about 30s.
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 60s
+
+  # One-shot: create the bucket. Nothing in the app creates it — a missing
+  # bucket surfaces as a write error on the first table, which is a poor way to
+  # learn that a container never ran.
+  minio-init:
+    image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
+    depends_on:
+      minio: { condition: service_healthy }
+    # MC_HOST_<alias> is mc's own way to carry a target's credentials. The first
+    # version ran `mc alias set …` through a folded shell string, where YAML
+    # turned the line continuations into spaces and mc read the access key as a
+    # command: "agentswarms: command not found", and no bucket.
+    environment:
+      MC_HOST_lake: http://${LAKEHOUSE_S3_KEY_ID:-agentswarms}:${LAKEHOUSE_S3_SECRET:-agentswarms-lake-dev}@minio:9000
+    entrypoint: ["mc", "mb", "--ignore-existing", "lake/lakehouse"]
+    restart: "no"
+
+  qdrant:
+    image: qdrant/qdrant:v1.12.4
+    # Loopback only, so `scripts/setup.sh --dev` (app on the host) reaches the
+    # same service the containerised app does rather than running without it.
+    ports:
+      - "127.0.0.1:6333:6333"
+    environment:
+      # PASS-THROUGH, and it has to be. Written as
+      # `QDRANT__SERVICE__API_KEY: ${QDRANT_API_KEY:-}` this variable is always
+      # SET, just empty — and Qdrant reads an empty key as "API-key auth is on,
+      # and the key is the empty string". Every request without one then gets
+      # `401 Must provide an API key`, which is a server that refuses to work
+      # out of the box and blames your credentials for it. The list form below
+      # is omitted entirely when the variable is unset, which leaves auth off.
+      #
+      # To secure it, set BOTH in .env: QDRANT__SERVICE__API_KEY for the server
+      # here, and QDRANT_API_KEY for what the app sends. They are two settings
+      # because most deployments point at a Qdrant this file did not start.
+      - QDRANT__SERVICE__API_KEY
+    volumes:
+      - qdrant-data:/qdrant/storage
+    restart: unless-stopped
+    # The image ships no curl and no wget, so the check opens the port itself.
+    # `bash` explicitly, not CMD-SHELL: /dev/tcp is a bash feature and the
+    # image's /bin/sh is dash, where the same line is a file-not-found and the
+    # service reports unhealthy for ever while serving perfectly.
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/6333"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # ── Online feature store ─────────────────
+  # Where a feature view's latest row per key is kept FOR SERVING.
+  #
+  # MEASURED, which is why it exists. Every governed lakehouse statement costs
+  # ~130 ms before it reads a single row (min of 300 audited statements; p50
+  # 336 ms), because the access check ahead of it is a round trip to a hosted
+  # Postgres. That is a fair price for a dashboard and a poor one for a
+  # prediction, which needs the same handful of rows every time.
+  #
+  # VALKEY, NOT REDIS, and for a licence rather than a preference: Redis moved
+  # to RSALv2/SSPL, which this project cannot ship inside its own stack. Valkey
+  # is the BSD-3 fork of the same server and speaks the same protocol, so an
+  # operator who already runs Redis can point FEATURE_STORE_URL at it instead.
+  #
+  # NO VOLUME, DELIBERATELY. Everything in here is a copy of rows the lakehouse
+  # already holds, and a refresh rebuilds it. Persisting it would create a
+  # second source of truth with a restore path of its own — and a feature store
+  # that can be restored to a state the lake never had is worse than one that
+  # starts empty, because empty is visibly empty.
+  #
+  # Not published to the host, for the same reason the vector store is not: a
+  # feature store on a laptop's loopback is one anybody on that laptop can read.
+  valkey:
+    image: valkey/valkey:8.1-alpine
+    ports:
+      - "127.0.0.1:6379:6379"
+    command:
+      - valkey-server
+      # Persistence off on both mechanisms. `--save ""` is the documented way
+      # to disable snapshots; leaving the default would write an RDB into the
+      # container's writable layer, which is neither durable nor wanted.
+      - --save
+      - ""
+      - --appendonly
+      - "no"
+      - --maxmemory
+      - ${FEATURE_STORE_MAXMEMORY:-256mb}
+      # LRU rather than noeviction: a full store that starts REFUSING writes
+      # fails a refresh, while one that drops its coldest keys serves what it
+      # has and sends the rest to the lakehouse — slower, never wrong. The
+      # refresh records how many keys it wrote, so a store that cannot hold the
+      # whole view says so rather than implying it is complete.
+      - --maxmemory-policy
+      - allkeys-lru
+    restart: unless-stopped
+    # The image's own client, like the catalog's pg_isready — a check that
+    # speaks the server's protocol is the only one that can tell "listening"
+    # from "answering".
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ── Spark Connect server ────────────────────────
+  # The Spark engine's STATIC-ENDPOINT provider for one host: driver and
+  # executors in one JVM (local[*]). Enough to run every Spark-engine pipeline
+  # against MinIO and the lakehouse on a laptop; production points
+  # SPARK_CONNECT_URL at a real cluster instead. Kernels reach it on
+  # nb-internal, the same way they reach the lakehouse catalog: gRPC cannot go
+  # through the HTTP egress proxy. The first start downloads the S3, Delta and
+  # JDBC jars (several hundred MB) into the spark-ivy volume; later starts are
+  # fast.
+  spark-connect:
+    image: apache/spark:4.2.0-python3
+    ports:
+      - "127.0.0.1:15002:15002"
+    user: root
+    environment:
+      SPARK_NO_DAEMONIZE: "true"
+      HOME: /tmp
+    command:
+      - /opt/spark/sbin/start-connect-server.sh
+      - --packages
+      - org.apache.hadoop:hadoop-aws:3.5.0,io.delta:delta-spark_2.13:4.4.0,org.postgresql:postgresql:42.7.13,com.mysql:mysql-connector-j:9.7.0
+      - --conf
+      - spark.jars.ivy=/tmp/ivy
+      - --conf
+      - spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension
+      - --conf
+      - spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog
+      - --conf
+      - spark.driver.memory=${SPARK_CONNECT_DRIVER_MEMORY:-2g}
+      - --conf
+      - spark.connect.grpc.binding.port=15002
+    volumes:
+      - spark-ivy:/tmp/ivy
+    networks: [default, nb-internal, nb-dev]
+    restart: unless-stopped
+
+  # ── Server-side Office renderer ───────────────────
   # python-pptx (native editable charts/tables + LibreOffice render-verify),
   # python-docx (multi-page Word) and openpyxl (Excel with LibreOffice formula
   # recalc). No env wiring needed — the app probes `docgen:8099` (in-network) and
@@ -143,7 +417,6 @@ services:
     build:
       context: ./docgen-service
     image: agentswarms/docgen:latest
-    profiles: [docgen, all]
     environment:
       # Used only for the optional render-verify vision loop; falls back to no
       # verification if unset.
@@ -162,8 +435,22 @@ services:
     ports:
       - "127.0.0.1:8099:8099"
     restart: unless-stopped
+    # LibreOffice can wedge on a bad render; the process stays up and stops
+    # answering, which is exactly what `restart` cannot see.
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8099/health', timeout=5).status == 200 else 1)",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
 
-  # ── JS sandbox for headless custom code (opt-in: --profile sandbox) ─────────
+  # ── JS sandbox for headless custom code ─────────
   # Runs Function and custom-component snippets for DEPLOYED (API-key) and
   # SCHEDULED swarm runs. The canvas keeps using the in-browser Worker sandbox;
   # this exists so the same node also works unattended.
@@ -181,14 +468,13 @@ services:
   # worker thread that is terminated afterwards (services/js-sandbox).
   #
   # Enable with:
-  #   docker compose --profile sandbox up -d --build
+  #   docker compose up -d --build
   #   JS_SANDBOX_URL=http://js-sandbox:8091   (in .env; already the default
   #   the app tries, so this line is only needed if you rename/move it)
   js-sandbox:
     build:
       context: ./services/js-sandbox
     image: agentswarms/js-sandbox:latest
-    profiles: [sandbox, all]
     environment:
       PORT: "8091"
       # Shared secret with the app. Defaults to the service-role key, which the
@@ -203,13 +489,13 @@ services:
     # guard is the shared secret.
     #
     # NOTE this binding does not take effect as long as the service sits only on
-    # `js-internal` (internal: true) below - Docker publishes no host port from
+    # `js-internal` (internal: true) below — Docker publishes no host port from
     # an internal-only network, and you get NetworkSettings.Ports "8091/tcp":[].
     # That is intended: under Compose the app reaches the sandbox in-network as
     # js-sandbox:8091 and no host port is wanted. It is kept as a safety net, so
     # that if the network is ever made routable the port lands on loopback
     # rather than every interface. To reach the sandbox from `npm run dev` on
-    # the host, run the service directly instead - see docs/DEPLOYMENT.md.
+    # the host, run the service directly instead — see docs/DEPLOYMENT.md.
     ports:
       - "127.0.0.1:8091:8091"
     networks: [js-internal]
@@ -223,6 +509,20 @@ services:
     tmpfs:
       - /tmp:size=16m,mode=1777
     restart: unless-stopped
+    # A snippet that pins the event loop leaves the process up and deaf. The
+    # image is node:22-slim, so node itself is the only client available.
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:8091/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
 
 # Network topology for the runtime (egress control):
 #   nb-internal — internal:true, so kernels have NO direct internet. Members:
@@ -246,3 +546,9 @@ networks:
   # gateway reachability, weaker egress isolation — dev only.
   nb-dev:
     name: agentswarms_nb-dev
+
+volumes:
+  lakehouse-catalog-data:
+  lake-data:
+  spark-ivy:
+  qdrant-data:

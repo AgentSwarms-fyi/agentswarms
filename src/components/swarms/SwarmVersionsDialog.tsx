@@ -1,6 +1,6 @@
 // Version history for a saved swarm: list snapshots, capture the current graph
 // as a named version, restore a past version (into the canvas), or delete one.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import type { Node, Edge } from "@xyflow/react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
@@ -62,23 +62,31 @@ export function SwarmVersionsDialog({
   edges: Edge[];
   open: boolean;
   onOpenChange: (v: boolean) => void;
-  onRestore: (nodes: Node<SwarmNodeData>[], edges: Edge[]) => void | Promise<void>;
+  /** Resolves to false when nothing was restored; the dialog then stays open. */
+  onRestore: (nodes: Node<SwarmNodeData>[], edges: Edge[]) => Promise<boolean>;
 }) {
   const { user } = useAuth();
   const [versions, setVersions] = useState<VersionRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [label, setLabel] = useState("");
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // FOUND IN R207: Enter in the name field called saveVersion past the
+  // button's disabled={saving}, and two quick Enters land before React
+  // re-renders, so one name made two versions. A ref is set at once.
+  const savingRef = useRef(false);
 
   const load = useCallback(async () => {
     if (!swarmId) return;
     setLoading(true);
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("swarm_versions")
       .select("id, label, kind, node_count, created_at, nodes, edges")
       .eq("swarm_id", swarmId)
       .order("created_at", { ascending: false });
-    setVersions((data ?? []) as VersionRow[]);
+    // FOUND IN R189: a failed read read as "No versions yet".
+    setLoadError(error ? error.message : null);
+    setVersions(error ? [] : ((data ?? []) as VersionRow[]));
     setLoading(false);
   }, [swarmId]);
 
@@ -87,9 +95,10 @@ export function SwarmVersionsDialog({
   }, [open, swarmId, load]);
 
   const saveVersion = async () => {
-    if (!swarmId || !user) return;
+    if (!swarmId || !user || savingRef.current) return;
+    savingRef.current = true;
     setSaving(true);
-    await snapshotSwarmVersion({
+    const error = await snapshotSwarmVersion({
       swarmId,
       userId: user.id,
       nodes,
@@ -97,7 +106,14 @@ export function SwarmVersionsDialog({
       label: label.trim() || `Version ${new Date().toLocaleString()}`,
       kind: "manual",
     });
+    savingRef.current = false;
     setSaving(false);
+    // FOUND IN R190: this said "Version saved" whether or not the row landed.
+    // The label stays, so trying again is one click.
+    if (error) {
+      toast.error("The version was not saved", { description: error });
+      return;
+    }
     setLabel("");
     await load();
     toast.success("Version saved");
@@ -106,14 +122,14 @@ export function SwarmVersionsDialog({
   const restore = async (v: VersionRow) => {
     const vNodes = (Array.isArray(v.nodes) ? v.nodes : []) as Node<SwarmNodeData>[];
     const vEdges = (Array.isArray(v.edges) ? v.edges : []) as Edge[];
-    await onRestore(vNodes, vEdges);
+    const restored = await onRestore(vNodes, vEdges);
     await load(); // a pre-restore safety snapshot was just added
-    onOpenChange(false);
+    if (restored) onOpenChange(false);
   };
 
   const remove = async (id: string) => {
     const { error } = await supabase.from("swarm_versions").delete().eq("id", id);
-    if (error) return toast.error("Could not delete version");
+    if (error) return toast.error("Could not delete version", { description: error.message });
     setVersions((prev) => prev.filter((v) => v.id !== id));
   };
 
@@ -162,6 +178,11 @@ export function SwarmVersionsDialog({
               <div className="px-1 space-y-1.5">
                 {loading ? (
                   <p className="text-xs text-muted-foreground py-3">Loading…</p>
+                ) : loadError ? (
+                  <p className="text-xs text-destructive py-3">
+                    The versions could not be read, so this list says nothing about them:{" "}
+                    {loadError}
+                  </p>
                 ) : versions.length === 0 ? (
                   <p className="text-xs text-muted-foreground py-3">
                     No versions yet — Save the swarm or capture one above.
@@ -208,15 +229,36 @@ export function SwarmVersionsDialog({
                           </AlertDialogFooter>
                         </AlertDialogContent>
                       </AlertDialog>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 text-muted-foreground hover:text-destructive shrink-0"
-                        onClick={() => void remove(v.id)}
-                        title="Delete version"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
+                      {/* FOUND IN R207: the trash deleted at once, for good, with
+                          no confirm, beside a Restore that asks first. */}
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-muted-foreground hover:text-destructive shrink-0"
+                            title="Delete version"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Delete “{v.label}”?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              This snapshot ({v.node_count} node{v.node_count === 1 ? "" : "s"}) is
+                              removed for good and cannot be restored afterwards. The canvas is not
+                              changed.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction onClick={() => void remove(v.id)}>
+                              Delete
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
                     </div>
                   ))
                 )}

@@ -20,6 +20,7 @@
 // and provider credentials. Without that service it is refused, with a message
 // saying how to enable it. Still owner-login-only: `a2a_remote` (needs the
 // owner's JWT for the /api/a2a proxy).
+import { beginDecision } from "@/utils/provenance/decision.server";
 import type { Node, Edge } from "@xyflow/react";
 import {
   interpolate,
@@ -48,8 +49,10 @@ import { captureCheckpoint, restoreTracker, type SwarmCheckpoint } from "@/lib/s
 import { commitLevelWrites, type StagedWrites, type StateReducer } from "@/lib/swarmGraph";
 import { clearCheckpoint, loadCheckpoint, saveCheckpoint } from "@/utils/swarmCheckpoint.server";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { readChatStream, toolNodeEvents } from "@/lib/chatStream";
 import { createServerSwarmTracer } from "@/utils/observability/serverTracer.server";
 import { runHttpNodeCore, runToolNodeCore, type ToolNodeParams } from "@/utils/swarmNodes.server";
+import type { ToolEvent } from "@/utils/tools/loop.server";
 import type { AgentToolContext } from "@/utils/tools/registry.server";
 import { internalRunSecret } from "@/utils/internalOrigin.server";
 import {
@@ -65,8 +68,13 @@ import { envInt } from "@/utils/rateLimit.server";
 // Tool context for headless data tools: service-role client with scopeUserId
 // set, which forces the loaders to restrict data to what the owner may read
 // (own + public samples + IAM-shared).
-function dataToolCtx(userId: string): AgentToolContext {
-  return { userId, sb: supabaseAdmin as never, scopeUserId: userId };
+function dataToolCtx(userId: string, decisionId?: string | null): AgentToolContext {
+  return {
+    userId,
+    sb: supabaseAdmin as never,
+    scopeUserId: userId,
+    decisionId: decisionId ?? undefined,
+  };
 }
 
 export type ExecuteResult = {
@@ -92,6 +100,9 @@ type Ctx = Record<string, string>;
 const LEVEL_CONCURRENCY = Math.max(1, envInt("SWARM_LEVEL_CONCURRENCY", 4));
 
 const HEADLESS_SAFE_TOOLS = new Set([
+  // Grants are re-derived from scopeUserId inside the tool.
+  "ml_predict",
+  "ml_list_models",
   "web_search",
   "web_browse",
   "calculator",
@@ -110,6 +121,8 @@ const HEADLESS_SCOPED_TOOLS = new Set(["sql_query", "kb_search"]);
 async function serverChat(args: {
   origin: string;
   userId: string;
+  /** The run this turn belongs to; becomes the turn's decision id. */
+  runId?: string | null;
   node: Node<SwarmNodeData>;
   systemPrompt: string;
   userMessage: string;
@@ -122,6 +135,12 @@ async function serverChat(args: {
    * (deployed API, schedules, evals) recorded latency but zero tokens/cost.
    */
   onUsage?: (u: { model?: string; costUsd: number; tokensIn: number; tokensOut: number }) => void;
+  /**
+   * Receives every `tool` event of the turn — a call and its result — the
+   * same events the canvas records on its step. Without this a headless
+   * step said `tool_calls: []` while its agent had called three tools.
+   */
+  onToolEvent?: (e: ToolEvent) => void;
 }): Promise<string> {
   const secret = internalRunSecret();
   if (!secret) {
@@ -138,6 +157,9 @@ async function serverChat(args: {
     headers: { "Content-Type": "application/json", "x-internal-run-secret": secret },
     body: JSON.stringify({
       internalUserId: args.userId,
+      // Every node turn joins the run's decision, so the run's provenance is
+      // one id rather than one per node.
+      decisionId: args.runId ?? undefined,
       provider: d.provider || "openrouter",
       model: d.model || "google/gemini-3-flash-preview",
       systemPrompt: args.systemPrompt,
@@ -161,64 +183,9 @@ async function serverChat(args: {
     const txt = await res.text().catch(() => "");
     throw new Error(`chat failed [${res.status}]: ${txt.slice(0, 300)}`);
   }
-  // Parse the OpenAI-compatible SSE stream → assistant text.
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let text = "";
-  let event = "message";
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    let idx: number;
-    while ((idx = buffer.indexOf("\n")) !== -1) {
-      let line = buffer.slice(0, idx);
-      buffer = buffer.slice(idx + 1);
-      if (line.endsWith("\r")) line = line.slice(0, -1);
-      if (line === "") {
-        event = "message";
-        continue;
-      }
-      if (line.startsWith("event: ")) {
-        event = line.slice(7).trim();
-        continue;
-      }
-      if (!line.startsWith("data: ")) continue;
-      const payload = line.slice(6).trim();
-      if (!payload || payload === "[DONE]") continue;
-      if (event === "cost") {
-        try {
-          const c = JSON.parse(payload) as {
-            model?: string;
-            costUsd?: number;
-            tokensIn?: number;
-            tokensOut?: number;
-          };
-          args.onUsage?.({
-            model: c.model,
-            costUsd: c.costUsd ?? 0,
-            tokensIn: c.tokensIn ?? 0,
-            tokensOut: c.tokensOut ?? 0,
-          });
-        } catch {
-          /* telemetry only — never break the run */
-        }
-        continue;
-      }
-      if (event !== "message") continue;
-      try {
-        const p = JSON.parse(payload) as {
-          choices?: { delta?: { content?: string }; message?: { content?: string } }[];
-        };
-        const delta = p.choices?.[0]?.delta?.content ?? p.choices?.[0]?.message?.content ?? "";
-        if (typeof delta === "string") text += delta;
-      } catch {
-        /* keep-alive */
-      }
-    }
-  }
-  return text.trim();
+  // Text, the `cost` event and every `tool` event, read by the same pure
+  // reader a test can feed bytes to (src/lib/chatStream.ts).
+  return readChatStream(res.body, { usage: args.onUsage, tool: args.onToolEvent });
 }
 
 // Extract a JSON payload from an optionally fenced string.
@@ -252,7 +219,12 @@ async function createApprovalRequest(args: {
     approverGroupIds?: string[];
   };
   try {
-    await supabaseAdmin.from("approvals").insert({
+    // FOUND FROM THE SURVEY (R90). This insert is the ONLY thing that puts a
+    // parked run in front of a person. It sat in a try/catch a supabase
+    // answer never reaches, so a failed insert was not even the warn this
+    // comment promises: the run parked, the inbox stayed empty, and nothing
+    // anywhere said why nobody was asked.
+    const { error } = await supabaseAdmin.from("approvals").insert({
       user_id: args.userId,
       agent_name: d.label || "Approval gate",
       agent_avatar: d.avatar || "🛡️",
@@ -265,6 +237,11 @@ async function createApprovalRequest(args: {
       approver_group_ids: Array.isArray(d.approverGroupIds) ? d.approverGroupIds : [],
       swarm_run_id: args.runId,
     } as never);
+    if (error) {
+      console.warn(
+        `[swarmExecute] run ${args.runId ?? "(untracked)"} parked at "${d.label ?? "approval"}" but nobody was asked: the approval row could not be written: ${error.message}. The run keeps its checkpoint — resume it by hand.`,
+      );
+    }
   } catch (e) {
     console.warn("[swarmExecute] could not create approval request:", (e as Error).message);
   }
@@ -347,12 +324,24 @@ export async function executeSwarmServer(opts: {
     { model?: string; costUsd: number; tokensIn: number; tokensOut: number }
   >();
 
+  // Every tool event of a node — its agent's turn, or the node's own call
+  // when it IS a tool — lands on its step, as the canvas tracer records.
+  const nodeToolCalls = new Map<string, unknown[]>();
+  const recordToolEvents = (nodeId: string, events: unknown[]) => {
+    const arr = nodeToolCalls.get(nodeId) ?? [];
+    arr.push(...events);
+    nodeToolCalls.set(nodeId, arr);
+  };
+
   // Inject the conversation history into every LLM node call (chat mode), and
   // record what the call actually cost.
   const chat = (a: Parameters<typeof serverChat>[0]) =>
     withNodeRetry(a.node.data, () =>
       serverChat({
         ...a,
+        // The run is the decision; `runId` is assigned once the tracer exists,
+        // before any node executes, so the closure sees it.
+        runId,
         history: opts.history,
         signal: ac.signal,
         onUsage: (u) => {
@@ -364,6 +353,7 @@ export async function executeSwarmServer(opts: {
             tokensOut: prev.tokensOut + u.tokensOut,
           });
         },
+        onToolEvent: (e) => recordToolEvents(a.node.id, [e]),
       }),
     );
 
@@ -379,9 +369,22 @@ export async function executeSwarmServer(opts: {
           swarmName: `${opts.swarm.name} (${opts.source})`,
           inputPrompt: opts.input,
           swarmSnapshot: { nodes, edges },
+          // FOUND FROM THE SURVEY (R92). The `resume` option above already
+          // promises that the timeline continues rather than forking; this is
+          // the line that keeps that promise. Without it the parked run was
+          // never closed and the resumed half was recorded under a new id.
+          resumeRunId: opts.resume?.runId ?? null,
         })
       : null;
   const runId: string | null = tracer?.runId ?? null;
+  // The run is the decision. Every node turn (via serverChat) and every data
+  // tool call (via dataToolCtx) carries this id, so the whole run's provenance
+  // -- model calls, data read, cost -- keys off one value.
+  // Not on a resume: the decision for this run was recorded when it started,
+  // and it carries the run's id, so a second one would be the same row (R92).
+  if (runId && !opts.resume) {
+    beginDecision({ userId: opts.userId, kind: "swarm_run", id: runId, rootRef: runId });
+  }
 
   const finish = async (
     status: "success" | "error" | "suspended",
@@ -392,10 +395,26 @@ export async function executeSwarmServer(opts: {
       // A suspended run is deliberately left open: its timeline continues when
       // the approval is decided, so it must not be closed off as finished.
       if (status === "suspended") {
-        await supabaseAdmin
-          .from("swarm_runs")
-          .update({ status: "suspended", updated_at: new Date().toISOString() })
-          .eq("id", runId!);
+        // FOUND FROM THE SURVEY (R90). The run is parked; this is what says
+        // so. Dropped, the row stayed "running" — the Observability page
+        // showed a run in flight for ever, and the approval path below read
+        // the word rather than the checkpoint and treated the approver's
+        // decision as a second click. Retried once, then said.
+        const park = () =>
+          supabaseAdmin
+            .from("swarm_runs")
+            .update({ status: "suspended", updated_at: new Date().toISOString() })
+            .eq("id", runId!);
+        let { error: parkErr } = await park();
+        if (parkErr) {
+          await new Promise((r) => setTimeout(r, 1_000));
+          ({ error: parkErr } = await park());
+        }
+        if (parkErr) {
+          console.warn(
+            `[swarmExecute] run ${runId} is parked awaiting approval but its record could not be marked suspended after two attempts: ${parkErr.message}. It will show as running until it is; approving it still resumes it, because the checkpoint decides.`,
+          );
+        }
       } else {
         await tracer.finish({ status, finalOutput: output || null, errorMessage: error });
       }
@@ -598,9 +617,19 @@ export async function executeSwarmServer(opts: {
               sql_tables: d.toolConfigs?.sql_table_names,
               mcp_servers: d.toolConfigs?.mcp_server_names,
               web_config: d.toolConfigs?.web_search || d.toolConfigs?.web_browse,
+              ml_model_names: d.toolConfigs?.ml_model_names,
             };
             const res = await withNodeRetry(d, async () => {
-              const r = await runToolNodeCore(dataToolCtx(opts.userId), params);
+              const r = await runToolNodeCore(dataToolCtx(opts.userId, runId), params);
+              recordToolEvents(
+                node.id,
+                toolNodeEvents({
+                  id: globalThis.crypto.randomUUID(),
+                  name: toolId,
+                  args,
+                  result: r,
+                }),
+              );
               if (!r.ok) throw new Error(`Tool node failed: ${r.error}`);
               return r;
             });
@@ -612,11 +641,21 @@ export async function executeSwarmServer(opts: {
             if (!kbId) throw new Error("Retrieve node has no knowledge base selected.");
             const query = interpolate(d.retrieveQuery || "{{input}}", ctx);
             const res = await withNodeRetry(d, async () => {
-              const r = await runToolNodeCore(dataToolCtx(opts.userId), {
+              const args = { query, top_k: String(d.retrieveTopK ?? 5) };
+              const r = await runToolNodeCore(dataToolCtx(opts.userId, runId), {
                 tool_id: "kb_search",
-                args: { query, top_k: String(d.retrieveTopK ?? 5) },
+                args,
                 knowledge_base_id: kbId,
               });
+              recordToolEvents(
+                node.id,
+                toolNodeEvents({
+                  id: globalThis.crypto.randomUUID(),
+                  name: "kb_search",
+                  args,
+                  result: r,
+                }),
+              );
               if (!r.ok) throw new Error(`Retrieve node failed: ${r.error}`);
               return r;
             });
@@ -999,7 +1038,9 @@ export async function executeSwarmServer(opts: {
               tokensOut: used?.tokensOut,
               costUsd: used?.costUsd,
               latencyMs: Date.now() - stepStartedAt,
+              toolCalls: nodeToolCalls.get(node.id) ?? [],
             });
+            nodeToolCalls.delete(node.id);
           }
           // Checkpoint AFTER the node, in `finally`, so a node that failed but
           // was continued past (onError: continue) is still recorded as done —

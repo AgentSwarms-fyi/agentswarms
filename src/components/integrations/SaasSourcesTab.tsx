@@ -9,7 +9,9 @@ import { useCallback, useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import { format } from "date-fns";
-import { Check, Loader2, Plug2, RefreshCw, Trash2, Unplug, X } from "lucide-react";
+
+import { StreamStateDialog } from "./StreamStateDialog";
+import { Check, ListTree, Loader2, Plug2, RefreshCw, Trash2, Unplug, X } from "lucide-react";
 
 import {
   AlertDialog,
@@ -54,6 +56,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
 import { providerInitials } from "@/components/integrations/WarehousesTab";
 import { SAAS_LABELS, SAAS_PROVIDERS } from "@/utils/saas/types";
+import { SAAS_CARDS } from "@/utils/saas/catalog";
 import type {
   SaasConfig,
   SaasConnectionSummary,
@@ -70,14 +73,6 @@ import {
   syncSaasConnection,
 } from "@/utils/saas.functions";
 import { SCHEDULE_LABELS, scheduleSummary } from "@/lib/saasSchedule";
-
-type Field = {
-  key: string;
-  label: string;
-  placeholder?: string;
-  type?: "password" | "textarea";
-  hint?: string;
-};
 
 /**
  * App logos, discovered from the assets directory.
@@ -110,112 +105,6 @@ function ProviderMark({ provider }: { provider: SaasProvider }) {
   );
 }
 
-/**
- * Per-provider copy and form fields.
- *
- * Field-driven rather than a hand-written form per provider: the dialog below
- * renders whatever is listed here, so a new connector is an entry in this
- * table and its config type — not another branch in the JSX.
- */
-const PROVIDER_HELP: Record<
-  SaasProvider,
-  { description: string; setup: string; unit: string; fields: Field[] }
-> = {
-  google_sheets: {
-    description: "Sync worksheets from a Google spreadsheet into datasets.",
-    setup:
-      "Create a service account in Google Cloud, download its JSON key, then SHARE the " +
-      "spreadsheet with the key's client_email address (Share → paste it → Viewer). " +
-      "Without that share step Google returns 403 no matter how valid the key is.",
-    unit: "worksheet",
-    fields: [
-      {
-        key: "spreadsheet_id",
-        label: "Spreadsheet URL or id",
-        placeholder: "https://docs.google.com/spreadsheets/d/…",
-      },
-      {
-        key: "service_account_json",
-        label: "Service account key JSON",
-        type: "textarea",
-        placeholder: '{ "type": "service_account", … }',
-      },
-    ],
-  },
-  stripe: {
-    description: "Sync charges, invoices, subscriptions and more into datasets.",
-    setup:
-      "Use a RESTRICTED key with read-only permissions (Developers → API keys → Create " +
-      "restricted key). A full secret key works but grants far more than this needs — " +
-      "nothing here ever writes to Stripe.",
-    unit: "object type",
-    fields: [
-      {
-        key: "api_key",
-        label: "Secret or restricted key",
-        type: "password",
-        placeholder: "rk_live_… or sk_live_…",
-        hint: "Not the publishable key (pk_…) — that cannot read these endpoints.",
-      },
-    ],
-  },
-  hubspot: {
-    description: "Sync contacts, companies, deals and tickets into datasets.",
-    setup:
-      "Settings → Integrations → Private Apps → create an app, grant it the read scopes for " +
-      "the objects you want (crm.objects.contacts.read and so on), then copy its access token. " +
-      "A private app is used rather than OAuth because that needs a public redirect URL.",
-    unit: "object type",
-    fields: [
-      {
-        key: "access_token",
-        label: "Private app access token",
-        type: "password",
-        placeholder: "pat-na1-…",
-      },
-    ],
-  },
-  salesforce: {
-    description: "Sync accounts, contacts, leads, opportunities and cases into datasets.",
-    setup:
-      "Create a connected app with the Client Credentials flow enabled and a 'run as' user set " +
-      "(Setup → App Manager → New Connected App → OAuth Settings). Copy its consumer key and " +
-      "secret. No redirect URL is needed — this is a server-to-server flow.",
-    unit: "object",
-    fields: [
-      {
-        key: "instance_url",
-        label: "Instance URL",
-        placeholder: "https://acme.my.salesforce.com",
-        hint: "Your My Domain address. A sandbox uses its own domain.",
-      },
-      { key: "client_id", label: "Consumer key", type: "password", placeholder: "3MVG9…" },
-      { key: "client_secret", label: "Consumer secret", type: "password" },
-    ],
-  },
-  shopify: {
-    description: "Sync orders, customers and products into datasets.",
-    setup:
-      "In your Shopify admin: Settings → Apps and sales channels → Develop apps → create an " +
-      "app, grant it read_orders, read_customers and read_products, then install it and copy " +
-      "the Admin API access token.",
-    unit: "resource",
-    fields: [
-      {
-        key: "shop_domain",
-        label: "Shop domain",
-        placeholder: "acme.myshopify.com",
-      },
-      {
-        key: "access_token",
-        label: "Admin API access token",
-        type: "password",
-        placeholder: "shpat_…",
-      },
-    ],
-  },
-};
-
 export function SaasSourcesTab() {
   const { session } = useAuth();
   const token = session?.access_token ?? "";
@@ -235,6 +124,11 @@ export function SaasSourcesTab() {
   const [values, setValues] = useState<Record<string, string>>({});
   const [schedule, setSchedule] = useState<SyncSchedule>("daily");
   const [streams, setStreams] = useState<SaasStream[] | null>(null);
+  const [streamsFor, setStreamsFor] = useState<{
+    id: string;
+    name: string;
+    shared?: boolean;
+  } | null>(null);
   const [picked, setPicked] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [syncingId, setSyncingId] = useState<string | null>(null);
@@ -274,9 +168,16 @@ export function SaasSourcesTab() {
    */
   const configFor = () => ({ provider: dialogProvider, ...values }) as unknown as SaasConfig;
 
-  /** Every field for the chosen provider has a value. */
+  /**
+   * Every field the provider INSISTS on has a value.
+   *
+   * Optional ones are skipped, because they were not: Jira's project keys and
+   * Asana's workspace both say "optional" on the label and both kept the
+   * Connect button disabled until somebody typed into them.
+   */
   const fieldsComplete = () =>
-    !!dialogProvider && PROVIDER_HELP[dialogProvider].fields.every((f) => values[f.key]?.trim());
+    !!dialogProvider &&
+    SAAS_CARDS[dialogProvider].fields.every((f) => f.optional || values[f.key]?.trim());
 
   const onDiscover = async () => {
     setBusy(true);
@@ -286,8 +187,10 @@ export function SaasSourcesTab() {
       // Pre-select everything: the common case is "sync this spreadsheet", and
       // an empty selection saves a source that does nothing.
       setPicked(found.map((s) => s.id));
-      const unit = dialogProvider ? PROVIDER_HELP[dialogProvider].unit : "item";
-      toast.success(`Found ${found.length} ${unit}${found.length === 1 ? "" : "s"}`);
+      const card = dialogProvider ? SAAS_CARDS[dialogProvider] : null;
+      // The stated plural, not `${unit}s` — that is how "repositorys" shipped.
+      const noun = found.length === 1 ? (card?.unit ?? "item") : (card?.units ?? "items");
+      toast.success(`Found ${found.length} ${noun}`);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not read that source");
     } finally {
@@ -297,7 +200,7 @@ export function SaasSourcesTab() {
 
   const onSave = async () => {
     if (!name.trim()) return toast.error("Give this source a name");
-    const unit = dialogProvider ? PROVIDER_HELP[dialogProvider].unit : "item";
+    const unit = dialogProvider ? SAAS_CARDS[dialogProvider].unit : "item";
     if (picked.length === 0) return toast.error(`Choose at least one ${unit} to sync`);
     setBusy(true);
     try {
@@ -380,7 +283,7 @@ export function SaasSourcesTab() {
     }
   };
 
-  const help = dialogProvider ? PROVIDER_HELP[dialogProvider] : null;
+  const help = dialogProvider ? SAAS_CARDS[dialogProvider] : null;
   /**
    * One instant for every row, so two rows a second apart do not disagree
    * about what "due now" means.
@@ -402,7 +305,7 @@ export function SaasSourcesTab() {
                 </div>
                 <CardTitle className="text-base">{SAAS_LABELS[p]}</CardTitle>
               </div>
-              <p className="text-xs text-muted-foreground">{PROVIDER_HELP[p].description}</p>
+              <p className="text-xs text-muted-foreground">{SAAS_CARDS[p].description}</p>
               {/* CONNECTED MEANS A CONNECTION EXISTS. This was keyed off
                   `last_sync_status === "ok"`, so a source that was connected
                   but had never synced — or whose last run failed — showed no
@@ -448,8 +351,10 @@ export function SaasSourcesTab() {
         <CardHeader>
           <CardTitle className="text-base">Connected sources</CardTitle>
           <CardDescription>
-            Each synced stream becomes a dataset. A sync REPLACES that dataset — the previous
-            contents are kept as a restorable version.
+            Each synced stream becomes a dataset. A stream that can be followed is read from where
+            it got to last time; one that cannot is re-read in full, replacing the dataset. Either
+            way the previous contents are kept as a restorable version — open{" "}
+            <strong>Streams</strong> to see which is which.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -567,6 +472,15 @@ export function SaasSourcesTab() {
                         )}
                         {syncingId === c.id ? "Syncing…" : "Sync now"}
                       </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="gap-1.5"
+                        onClick={() => setStreamsFor({ id: c.id, name: c.name, shared: c.shared })}
+                        title="What each stream is doing, and how far it has got"
+                      >
+                        <ListTree className="h-3.5 w-3.5" /> Streams
+                      </Button>
                       {/* Shared sources belong to someone else. The server
                           refuses regardless; a button that always errors is
                           its own bug. Sync stays available — noticing stale
@@ -603,15 +517,20 @@ export function SaasSourcesTab() {
               <Input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="Finance spreadsheet"
+                placeholder={dialogProvider ? `My ${SAAS_LABELS[dialogProvider]}` : "My source"}
               />
+              {/* FOUND FROM THE UI. Both of these were written for Google
+                  Sheets and shown for every provider, so somebody connecting
+                  ServiceNow was told about spreadsheets and a “Sheet1” they do
+                  not have. The unit each provider syncs is already declared. */}
               <p className="text-[11px] text-muted-foreground">
-                Prefixes the dataset names, so two sources with a “Sheet1” cannot overwrite each
+                Prefixes the dataset names, so two sources with a same-named{" "}
+                {dialogProvider ? SAAS_CARDS[dialogProvider].unit : "stream"} cannot overwrite each
                 other.
               </p>
             </div>
             {dialogProvider &&
-              PROVIDER_HELP[dialogProvider].fields.map((f) => (
+              SAAS_CARDS[dialogProvider].fields.map((f) => (
                 <div key={f.key} className="space-y-1">
                   <Label className="text-xs">{f.label}</Label>
                   {f.type === "textarea" ? (
@@ -640,13 +559,13 @@ export function SaasSourcesTab() {
               onClick={onDiscover}
             >
               {busy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
-              Connect and list {dialogProvider ? `${PROVIDER_HELP[dialogProvider].unit}s` : ""}
+              Connect and list {dialogProvider ? SAAS_CARDS[dialogProvider].units : ""}
             </Button>
 
             {streams && (
               <div className="space-y-1">
                 <Label className="text-xs">
-                  Sync these {dialogProvider ? `${PROVIDER_HELP[dialogProvider].unit}s` : "items"}
+                  Sync these {dialogProvider ? SAAS_CARDS[dialogProvider].units : "items"}
                 </Label>
                 <div className="max-h-40 space-y-1 overflow-y-auto rounded-md border border-border/50 bg-background/40 p-2">
                   {streams.map((s) => (
@@ -769,6 +688,16 @@ export function SaasSourcesTab() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <StreamStateDialog
+        connectionId={streamsFor?.id ?? null}
+        connectionName={streamsFor?.name ?? ""}
+        shared={streamsFor?.shared}
+        open={streamsFor !== null}
+        onOpenChange={(o) => {
+          if (!o) setStreamsFor(null);
+        }}
+      />
     </div>
   );
 }

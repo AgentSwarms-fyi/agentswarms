@@ -54,7 +54,11 @@ function PlaygroundDoc() {
       <P>
         Pick an agent from the selector and the conversation runs against its saved configuration:
         provider, model, system prompt, knowledge bases, skills, tools, guardrails, and memory.
-        Conversations are persisted, so you can leave and pick a thread back up later.
+        Conversations are persisted, so you can leave and pick a thread back up later. If your
+        agents cannot be read, the page says so and offers <em>Try again</em>, rather than asking
+        you to pick from an empty selector. The same goes for a conversation that cannot be started:
+        the message box needs one, so the empty chat gives the reason and a <em>Try again</em>{" "}
+        instead of inviting a message it cannot take.
       </P>
       <UL>
         <li>
@@ -71,9 +75,11 @@ function PlaygroundDoc() {
           "remembered" rather than guessing.
         </li>
         <li>
-          <strong>Fallback override</strong> — if the primary model fails, the playground offers a
-          fallback model picker; your choice sticks for the rest of the session and is shown
-          explicitly.
+          <strong>Fallback override</strong> — if the provider rate-limits the model or runs out of
+          credits, the playground offers a fallback model picker; your choice sticks for the rest of
+          the session and is shown explicitly. A refusal from the platform itself (your monthly
+          budget, your administrator&apos;s model rules, a conversation too large to send) is shown
+          in its own words instead: another model would be refused the same way.
         </li>
       </UL>
 
@@ -83,7 +89,10 @@ function PlaygroundDoc() {
         for any message: the resolved prompt, tool calls with their arguments and results, tokens,
         cost, and latency. This is the playground's real purpose — the fastest loop from "I changed
         something in my agent" to "I can see exactly what that change did". The same traces are
-        queryable later from <DocLink to="/docs/debugging">Logs &amp; traces</DocLink>.
+        queryable later from <DocLink to="/docs/debugging">Logs &amp; traces</DocLink>. The Trace
+        tab says <em>Trace not recorded</em> only when it read the table and found no row; when the
+        read itself fails it says <em>Trace not read</em>, names the error and offers{" "}
+        <em>Try again</em>.
       </P>
 
       <H2 id="skill-samples">Skill-sample agents</H2>
@@ -133,7 +142,7 @@ function PlaygroundDoc() {
           ["Edit & resend", "Rewrite your message and rerun from that point."],
           [
             "Inspector",
-            "Live thinking, tool calls, and the full request/response for the last turn.",
+            "Live thinking, tool calls, and the full request/response for the last turn. A tool call shows its arguments and a result preview; the ML tools show their result as a person reads it — a prediction table (key columns first, model and version, keys not found, where the features came from) or the model list — and an error as the error.",
           ],
         ]}
       />
@@ -196,6 +205,35 @@ function PlaygroundDoc() {
         stored in a private bucket so Download still works after a reload — until the agent's chat
         retention window purges it.
       </P>
+
+      <H2 id="slack">Answering in Slack</H2>
+      <P>
+        An agent can answer where the question is already being asked. Both ways in are configured
+        under <strong>Integrations → Slack</strong>, and both run the agent as the workspace&apos;s
+        owner — its prompt, tools, knowledge and guardrails, the owner&apos;s model rules and
+        budgets, and a trace and an audit row per turn, exactly as in the app.
+      </P>
+      <UL>
+        <li>
+          <strong>Slash commands, routed per command.</strong> Point <C>/ask</C> at an AI Analyst
+          and <C>/support</C> at an agent; the request URL is <C>/api/slack/command</C>. A command
+          with no route falls back to the workspace&apos;s analyst, which is what every installation
+          had before routing existed.
+        </li>
+        <li>
+          <strong>@mentions and direct messages, answered in thread.</strong> Subscribe Event
+          Subscriptions to <C>app_mention</C> and <C>message.im</C> at <C>/api/slack/events</C>, add
+          the <C>chat:write</C> scope, and paste the Bot User OAuth Token into the workspace. An
+          event carries no reply URL, so the answer goes back over Slack&apos;s Web API — which is
+          the only reason a token is needed at all.
+        </li>
+      </UL>
+      <Callout kind="why" title="Why the answer is not instant, and why that is fine">
+        Slack errors if nothing replies within three seconds; a turn takes 30–95. Both endpoints
+        acknowledge immediately and post the real answer afterwards. A retry that arrives while the
+        first attempt is still thinking is acknowledged and dropped — answering it too would post
+        the same answer three times.
+      </Callout>
 
       <H2 id="image-playground">Image Playground</H2>
       <P>

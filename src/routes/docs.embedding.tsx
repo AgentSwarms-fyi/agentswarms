@@ -99,8 +99,8 @@ function EmbeddingPage() {
             <C key="a">resource_type</C>,
             "—",
             <>
-              One of <C key="x">agent</C>, <C key="y">swarm</C>, <C key="z">bi_dashboard</C>. Fixed
-              at creation.
+              One of <C key="x">agent</C>, <C key="y">swarm</C>, <C key="z">bi_dashboard</C> or{" "}
+              <C key="w">ai_analyst</C>. Fixed at creation.
             </>,
           ],
           [

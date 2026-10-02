@@ -14,7 +14,9 @@
 import { createRequire } from "node:module";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { selectAllPages } from "@/lib/pagedSelect";
 import { registerPrepFns } from "@/lib/alasqlPrepFns";
+import { STAGING_PREFIX } from "@/lib/datasetParse";
 import type { Json } from "@/integrations/supabase/types";
 import {
   buildPrepSql,
@@ -25,6 +27,8 @@ import {
   prepTables,
   withIncrementalWindow,
   prepWarehouseBinding,
+  prepBindingRef,
+  prepLakehouseBinding,
   PREP_TYPE_META,
   validatePrepConfig,
   type PrepDialect,
@@ -70,8 +74,8 @@ export type PrepExecution = {
   /** Total rows the flow produced before the output cap was applied. */
   producedRows: number;
   sql: string;
-  /** "warehouse" when the pipeline was folded into the source system. */
-  engine: "local" | "warehouse";
+  /** "warehouse" when folded into the source system; "lakehouse" when every source is a lakehouse table. */
+  engine: "local" | "warehouse" | "lakehouse";
   /** Why folding didn't happen (shown to the user); absent when it did. */
   foldSkipReason?: string;
 };
@@ -81,15 +85,37 @@ export type PrepExecution = {
  * in-memory database. Loading every dataset — what the old code did — is both
  * slower and a memory hazard on accounts with many datasets.
  */
+/** Guards the `id.in.(…)` interpolation below — a non-UUID there is a syntax error at best. */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 async function loadFlowTables(
   userId: string,
   needed: Set<string>,
   cfg?: PrepFlowConfig,
 ): Promise<{ tables: FlowTable[]; truncated: string[] }> {
+  // Same visibility BI refresh gives a dashboard: own datasets, public samples,
+  // and datasets shared by an IAM grant. Data Prep saw only the first two, so a
+  // dataset someone shared with you worked in a dashboard and was invisible in
+  // a prep flow — the grant appeared to do nothing here.
+  //
+  // Visibility and MASKING are one decision, not two. A shared dataset must
+  // arrive with its owner's row filters and column masks applied
+  // (restrictSharedDataset below); widening the query without that would turn a
+  // missing feature into a data leak.
+  const { grantedDatasetIds, restrictSharedDataset } =
+    await import("@/utils/data/sharedDatasets.server");
+  const granted = await grantedDatasetIds(supabaseAdmin, userId);
+  const grantedIds = [...granted].filter((id) => UUID_RE.test(id));
+  const orParts = [`user_id.eq.${userId}`, "is_sample.eq.true"];
+  if (grantedIds.length) orParts.push(`id.in.(${grantedIds.join(",")})`);
+
   const { data: tables, error } = await supabaseAdmin
     .from("user_data_tables")
     .select("id, name, columns, user_id, is_sample")
-    .or(`user_id.eq.${userId},is_sample.eq.true`);
+    // `__upload_*` rows are staging areas for an in-flight upload, not datasets;
+    // they were selectable as prep sources.
+    .not("name", "like", `${STAGING_PREFIX}%`)
+    .or(orParts.join(","));
   if (error) throw new Error(error.message);
 
   const loaded: FlowTable[] = [];
@@ -100,7 +126,39 @@ async function loadFlowTables(
   // Warehouse-linked tables have no local rows. When folding was refused we
   // still owe the user a correct answer, so their data is BUFFERED locally
   // (bounded, and reported when the bound bites) and the pipeline runs here.
-  const wareTables = Object.entries(cfg?.sources ?? {}).filter(([name]) => needed.has(name));
+  // A lakehouse table in a MIXED flow (beside local or warehouse tables) is
+  // buffered here through the statement guard, bounded like any other source.
+  const lakeTables = Object.entries(cfg?.sources ?? {}).flatMap(([name, b]) =>
+    needed.has(name) && b.kind === "lakehouse" ? [[name, b] as const] : [],
+  );
+  if (lakeTables.length > 0) {
+    const { runLakehouseStatement } = await import("@/utils/lakehouse/core.server");
+    const cap = Math.min(sourceCap, LAKEHOUSE_PREP_ROW_CAP);
+    for (const [name, b] of lakeTables) {
+      const res = await runLakehouseStatement(
+        userId,
+        `SELECT * FROM ${qi(b.schema)}.${qi(b.table)}`,
+        { rowCap: cap + 1, auditVia: "prep" },
+      );
+      if (res.rows.length > cap) truncated.push(name);
+      loaded.push({
+        name,
+        columns: res.columns.map((c) => ({
+          name: c.name,
+          type: /INT|NUM|DEC|FLOAT|DOUBLE|REAL/i.test(c.type)
+            ? "number"
+            : /DATE|TIME/i.test(c.type)
+              ? "date"
+              : "string",
+        })),
+        rows: lakehouseRows(res).slice(0, cap),
+      });
+    }
+  }
+
+  const wareTables = Object.entries(cfg?.sources ?? {}).flatMap(([name, b]) =>
+    needed.has(name) && b.kind === "warehouse" ? [[name, b] as const] : [],
+  );
   if (wareTables.length > 0) {
     const { loadWarehouseConnectionForUser } = await import("@/utils/warehouse/connections.server");
     const { executeWarehouseQuery } = await import("@/utils/warehouse/drivers.server");
@@ -115,10 +173,13 @@ async function loadFlowTables(
         );
         connCache.set(binding.connectionId, conn);
       }
+      // Bill the tenant: the governor reads `userId ? gateFor(userId) : null`,
+      // so omitting it removes the per-user gate rather than relaxing it.
       const res = await executeWarehouseQuery(
         conn.config,
         `SELECT * FROM ${binding.ref}`,
         sourceCap,
+        { userId },
       );
       if (res.rows.length >= sourceCap) truncated.push(name);
       // A buffered warehouse table has no locally declared schema; the column
@@ -137,29 +198,35 @@ async function loadFlowTables(
   for (const t of tables ?? []) {
     if (!needed.has(t.name)) continue;
     if (cfg?.sources?.[t.name]) continue; // already buffered from the warehouse
-    const rows: Record<string, unknown>[] = [];
-    const PAGE = 1000;
-    let hitCap = false;
-    for (let start = 0; start < sourceCap; start += PAGE) {
-      const { data: chunk, error: rowErr } = await supabaseAdmin
-        .from("user_data_rows")
-        .select("row")
-        .eq("table_id", t.id)
-        .range(start, start + PAGE - 1);
-      if (rowErr || !chunk || chunk.length === 0) break;
-      rows.push(...chunk.map((c) => c.row as Record<string, unknown>));
-      if (chunk.length < PAGE) break;
-      if (rows.length >= sourceCap) {
-        hitCap = true;
-        break;
-      }
+    // Through selectAllPages, which advances by the rows it RECEIVED and keeps
+    // the page's error. The old loop advanced by the page it asked for, so a
+    // short page left a HOLE rather than a tail — and `hitCap` only ever
+    // described the ceiling, never the rows a failed or clamped page dropped on
+    // the way to it. A prep flow reading a dataset with gaps produces a
+    // perfectly ordinary-looking output.
+    const scan = await selectAllPages<{ row: unknown }>(
+      () =>
+        supabaseAdmin
+          .from("user_data_rows")
+          .select("row")
+          .eq("table_id", t.id)
+          .order("id", { ascending: true }),
+      sourceCap,
+    );
+    const rows = scan.rows.map((c) => c.row as Record<string, unknown>);
+    if (scan.truncated) truncated.push(t.name);
+    let columns = Array.isArray(t.columns) ? (t.columns as FlowTable["columns"]) : [];
+    let visibleRows = rows;
+    // A dataset that is neither yours nor a sample reached you through a grant,
+    // and a grant can carry row filters and column masks. Apply them here, at
+    // the point of loading, so every downstream step of the flow only ever sees
+    // what the grant allows.
+    if (!t.is_sample && t.user_id !== userId) {
+      const restricted = await restrictSharedDataset(supabaseAdmin, t.id, userId, columns, rows);
+      columns = restricted.columns as FlowTable["columns"];
+      visibleRows = restricted.rows;
     }
-    if (hitCap) truncated.push(t.name);
-    loaded.push({
-      name: t.name,
-      columns: Array.isArray(t.columns) ? (t.columns as FlowTable["columns"]) : [],
-      rows,
-    });
+    loaded.push({ name: t.name, columns, rows: visibleRows });
   }
   return { tables: loaded, truncated };
 }
@@ -218,20 +285,25 @@ async function tryFoldToWarehouse(
 
   const sql = buildPrepSql(cfg, {
     dialect,
-    physicalTable: (name) => cfg.sources?.[name]?.ref ?? name,
+    physicalTable: (name) => {
+      const b = cfg.sources?.[name];
+      return b ? prepBindingRef(b) : name;
+    },
   });
 
   // PROVE the fold on the real warehouse before trusting it. Ten dialects
   // cannot be verified from here; the warehouse itself is the authority, and
   // a parse/semantic error must degrade to the local path, never to bad data.
   try {
-    await executeWarehouseQuery(conn.config, `SELECT * FROM (${sql}) AS _fold_check`, 1);
+    await executeWarehouseQuery(conn.config, `SELECT * FROM (${sql}) AS _fold_check`, 1, {
+      userId,
+    });
   } catch (e) {
     return { skip: `the warehouse rejected the pushed-down query (${(e as Error).message})` };
   }
 
   const outputCap = rowLimit ?? prepOutputRowsCap();
-  const res = await executeWarehouseQuery(conn.config, sql, outputCap);
+  const res = await executeWarehouseQuery(conn.config, sql, outputCap, { userId });
   const cast = castRows(res.rows, cfg);
   return {
     execution: {
@@ -264,6 +336,11 @@ export async function executePrepFlow(
   const valid = validatePrepConfig(cfg);
   if (!valid.ok) throw new Error(valid.error);
 
+  // Every source on the lakehouse: one governed query through the statement
+  // guard (schema grants, policy rewrite, audit), nothing copied through here.
+  const lake = prepLakehouseBinding(cfg);
+  if (lake) return runOnLakehouse(userId, cfg, lake, opts.rowLimit);
+
   const folded = await tryFoldToWarehouse(userId, cfg, opts.rowLimit);
   if (folded && "execution" in folded) return folded.execution;
   const foldSkipReason = folded && "skip" in folded ? folded.skip : undefined;
@@ -288,7 +365,7 @@ export async function executePrepFlow(
     const { runLocalSqlDuckDB } = await import("@/utils/data/duckdb.server");
     // rowCap is applied after, so `outputCapped` can still be reported
     // honestly rather than silently truncating at the engine.
-    const res = await runLocalSqlDuckDB(sql, tables);
+    const res = await runLocalSqlDuckDB(sql, tables, { aiUserId: userId });
     produced = res.rows;
   } else {
     const db = alasqlDatabaseFrom(tables);
@@ -310,6 +387,54 @@ export async function executePrepFlow(
     sql,
     engine: "local",
     foldSkipReason,
+  };
+}
+
+const qi = (v: string) => `"${v.replace(/"/g, '""')}"`;
+/** The statement guard's own ceiling; a lakehouse flow that must come back as rows stops here. */
+export const LAKEHOUSE_PREP_ROW_CAP = 100_000;
+
+/** Rows as objects, the shape the cast layer and every caller expect. */
+function lakehouseRows(res: { columns: { name: string }[]; rows: unknown[][] }) {
+  return res.rows.map((r) => Object.fromEntries(res.columns.map((c, i) => [c.name, r[i]])));
+}
+
+/** Compile the flow over its lakehouse tables and read the result back as the caller. */
+export function lakehousePrepSql(
+  cfg: PrepFlowConfig,
+  lake: NonNullable<ReturnType<typeof prepLakehouseBinding>>,
+): string {
+  return buildPrepSql(cfg, {
+    dialect: "duckdb",
+    physicalTable: (name) => {
+      const t = lake.tables[name];
+      return t ? `${qi(t.schema)}.${qi(t.table)}` : qi(name);
+    },
+  });
+}
+
+async function runOnLakehouse(
+  userId: string,
+  cfg: PrepFlowConfig,
+  lake: NonNullable<ReturnType<typeof prepLakehouseBinding>>,
+  rowLimit?: number,
+): Promise<PrepExecution> {
+  const { runLakehouseStatement } = await import("@/utils/lakehouse/core.server");
+  const sql = lakehousePrepSql(cfg, lake);
+  const cap = Math.min(rowLimit ?? prepOutputRowsCap(), LAKEHOUSE_PREP_ROW_CAP);
+  // One row over the cap, so "capped" can be reported honestly.
+  const res = await runLakehouseStatement(userId, sql, { rowCap: cap + 1, auditVia: "prep" });
+  const produced = lakehouseRows(res);
+  const cast = castRows(produced.slice(0, cap), cfg);
+  return {
+    columns: cast.columns,
+    rows: cast.rows,
+    failures: cast.failures,
+    truncatedSources: [],
+    outputCapped: produced.length > cap,
+    producedRows: Math.min(produced.length, cap),
+    sql,
+    engine: "lakehouse",
   };
 }
 
@@ -367,7 +492,21 @@ export async function materialisePrepOutput(args: {
       reason: args.reason ?? "prep_run",
       note: `Rebuilt by the "${args.flowName}" flow`,
     });
-    await supabaseAdmin.from("user_data_rows").delete().eq("table_id", tableId);
+    // FOUND FROM THE SURVEY (R87). A rebuild is a delete and an insert, and
+    // this delete's error was dropped: the old rows stayed, the new ones were
+    // appended below, and the dataset came out DOUBLED — every sum, count and
+    // average over it wrong — under a flow that reported success. Nothing
+    // downstream recomputes this; the insert must not run unless the delete
+    // did.
+    const { error: clearErr } = await supabaseAdmin
+      .from("user_data_rows")
+      .delete()
+      .eq("table_id", tableId);
+    if (clearErr) {
+      throw new Error(
+        `The dataset's previous rows could not be cleared: ${clearErr.message}. Nothing was written, so "${args.tableName}" still holds the rows it had.`,
+      );
+    }
     const { error } = await supabaseAdmin
       .from("user_data_tables")
       .update({
@@ -429,7 +568,11 @@ export async function refreshPrepIncremental(args: {
   userId: string;
   cfg: PrepFlowConfig;
   tableId: string;
-}): Promise<{ rowsReplaced: number; since: string; engine: "local" | "warehouse" } | null> {
+}): Promise<{
+  rowsReplaced: number;
+  since: string;
+  engine: "local" | "warehouse" | "lakehouse";
+} | null> {
   const verdict = incrementalEligibility(args.cfg);
   if (!verdict.ok) return null;
   const column = verdict.column;
@@ -476,13 +619,21 @@ export async function refreshPrepIncremental(args: {
   }
 
   // The output schema can still drift (a renamed column); keep it current.
-  await supabaseAdmin
+  // The rows are in; this puts the schema they were written under on the
+  // dataset. Dropped, a renamed column would be described by its old name
+  // for every reader (R87).
+  const { error: schemaErr } = await supabaseAdmin
     .from("user_data_tables")
     .update({
       columns: result.columns as unknown as Json,
       data_loaded_at: new Date().toISOString(),
     })
     .eq("id", args.tableId);
+  if (schemaErr) {
+    throw new Error(
+      `${result.rows.length} row(s) were replaced, but the dataset's column list could not be updated: ${schemaErr.message}. It describes the previous columns until it is — refresh again.`,
+    );
+  }
 
   await import("@/utils/data/parquet.server")
     .then((m) => m.refreshDatasetMirror({ userId: args.userId, tableId: args.tableId }))
@@ -514,10 +665,15 @@ export async function savePrepSemantics(args: {
       .eq("user_id", args.userId)
       .eq("table_id", args.tableId)
       .maybeSingle();
-    if (existing) {
-      await supabaseAdmin.from("user_data_semantics").update(payload).eq("id", existing.id);
-    } else {
-      await supabaseAdmin.from("user_data_semantics").insert(payload);
+    // A supabase call answers with its error rather than throwing, so this
+    // catch never saw one: the enhancement was dropped in silence (R87).
+    const { error } = existing
+      ? await supabaseAdmin.from("user_data_semantics").update(payload).eq("id", existing.id)
+      : await supabaseAdmin.from("user_data_semantics").insert(payload);
+    if (error) {
+      console.warn(
+        `[prep] dataset ${args.tableId}: its semantics could not be saved: ${error.message}; the data is there, the descriptions are not`,
+      );
     }
   } catch {
     /* semantics are an enhancement — the data already saved successfully */

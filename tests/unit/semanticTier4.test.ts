@@ -292,4 +292,26 @@ describe("fiscal compare shift", () => {
     expect(compiled.sql).toContain("INTERVAL '3 month'");
     expect(compiled.columns).toContain("total_prev");
   });
+
+  it("the lakehouse dialect shifts with DuckDB interval arithmetic over real dates", () => {
+    // The lakehouse reached the compiler as a dialect it had never declared,
+    // so period-over-period refused it ("No date arithmetic defined"). Its
+    // columns are typed DATE/TIMESTAMP, so the shift is a plain CAST - the
+    // local engine's TRY_CAST exists for text-typed dates it does not have.
+    const m = model({ dimensions: [{ name: "day", sql: "day", type: "time" }] });
+    const compiled = compileSemanticQuery(
+      m,
+      {
+        model: "m",
+        metrics: ["total"],
+        dimensions: ["day"],
+        grains: { day: "month" },
+        compare: "yoy",
+      },
+      { dialect: "lakehouse" },
+    );
+    expect(compiled.sql).toMatch(/\(CAST\(day AS DATE\) \+ INTERVAL -?\d+ (YEAR|MONTH)\)/);
+    expect(compiled.sql).not.toContain("TRY_CAST");
+    expect(compiled.columns).toContain("total_prev");
+  });
 });

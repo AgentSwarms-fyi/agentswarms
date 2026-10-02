@@ -10,11 +10,30 @@ grounded in your own data.
 ## Chatting with an agent
 
 1. Pick an agent from the selector (create one first in **Agent Builder**).
+   If your agents cannot be read, the page says so, with the error and
+   **Try again**, instead of asking for a pick from an empty selector.
+   An agent you have not chatted with gets a first conversation made for it.
+   If that, or **New Chat**, cannot be saved, a toast and the empty chat say
+   so, with the reason and **Try again**: without a conversation there is
+   nowhere to write, and the message box stays off.
 2. Type a message. The agent runs with its configured system prompt, tools,
    knowledge base and model.
 3. The right-hand **inspector** shows the live thinking, tool calls, and the
    full request/response for the last turn; everything is also recorded in
-   **Traces**.
+   **Traces**. Its Trace tab says "Trace not recorded" only after reading the
+   table and finding no row; a read that fails says "Trace not read", with the
+   error and **Try again**.
+4. When a turn fails, the playground names who refused it. A provider's rate
+   limit or exhausted credits opens the fallback model picker. The platform's
+   own refusals — `budget_exceeded` (402), `model_not_allowed` (403),
+   `conversation_too_large` — are shown in the route's own words, with no
+   provider name in front and no picker, since every model is refused alike
+   (`src/lib/chatFailure.ts`). A tool call shows its arguments and a preview of its result —
+   except the ML tools, whose results are shown as a person reads them: a
+   prediction table with the key columns first, the model and version above
+   it, which keys were not found and where the features came from beside it
+   (`ml_predict`), or the list of models with task, version, headline metric
+   and key columns (`ml_list_models`). An error shows as the error.
 
 You can override the model per session, edit/regenerate messages, and attach
 files. Conversations are saved per agent.
@@ -188,6 +207,102 @@ against your connected provider's key, with the operator's shared
 `OPENROUTER_API_KEY` only as a zero-config fallback, and filtered by your IAM
 model rules.
 
+## Answering in Slack
+
+An agent can answer where the question is already being asked. Two ways in,
+both configured under **Integrations → Slack**, both running the agent as the
+workspace's owner — its prompt, its tools, its knowledge, its guardrails, the
+owner's IAM model rules and budgets, and a trace and an audit row for every
+turn, exactly as in the app.
+
+**Slash commands, routed per command.** A workspace can point `/ask` at an AI
+Analyst and `/support` at an agent; the request URL is
+`https://<your host>/api/slack/command`. A command with no route falls back to
+the workspace's analyst, which is what every installation had before routing
+existed, so adding this changed nothing until a route is added. Slack shows an
+error if nothing answers within three seconds and a turn takes 30–95, so the
+endpoint acknowledges immediately and posts the real answer to the reply URL
+afterwards.
+
+**@mentions and direct messages, answered in thread.** Subscribe the app's
+**Event Subscriptions** to `app_mention` and `message.im`, pointing at
+`https://<your host>/api/slack/events`, give it the `chat:write` scope, and
+paste the **Bot User OAuth Token** into the workspace. An event carries no
+reply URL — the only way to answer one is Slack's Web API with that token,
+which is why a workspace that only uses slash commands never needs it. The
+answer lands in the thread the question was asked in, or starts one under it,
+so a minute-long answer does not surface at the bottom of a channel that has
+moved on.
+
+What the endpoints refuse, and why:
+
+| Situation                                      | What happens                                                                                                                          |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| An unsigned or wrongly signed request          | The same terse 401 as every other failure. The reason is logged on the server; an endpoint that explained itself would help a prober. |
+| Slack retries an event (`X-Slack-Retry-Num`)   | Acknowledged and dropped. The first delivery is still being answered; answering the retry too would post the same answer three times. |
+| Another bot's message, an edit, a channel post | Ignored. Two bots in one channel would otherwise answer each other for as long as the workspace can afford it.                        |
+| The routed agent is paused or deleted          | One sentence in the channel naming what to fix, and the real reason on the integration page and in the audit log.                     |
+| No bot token, but a mention arrives            | Recorded on the workspace row, since there is no way to reply without one.                                                            |
+
+Every turn audits `slack.command` with the workspace, the command or
+`@mention`, who asked as Slack names them, the question, and the trace id.
+
+## Answering in Microsoft Teams
+
+The same idea as Slack, through a Bot Framework registration. Configure it
+under **Integrations → Teams**: paste the bot's **Microsoft App id** and a
+client secret, choose the agent or analyst that answers, and put
+`https://<your host>/api/teams/messages` in the bot's **Messaging endpoint** in
+the Azure portal. The turn runs as the bot's owner, with the same model rules,
+budgets, traces and audit rows as everywhere else.
+
+**The secret is not optional here.** A Slack slash command arrives with a reply
+URL that needs no credential; the Bot Framework never sends one, so every
+answer is posted with a token minted from the app's client secret. A bot
+without one receives questions and cannot answer them, and the integration page
+says so rather than leaving you to wonder.
+
+**A single-tenant bot should name its tenant.** Left empty, the registration is
+treated as multi-tenant and answers any organisation Microsoft routes to it.
+With a tenant id set, an activity from a different tenant is refused — the
+token proves that Microsoft sent the request, not which company it came from.
+
+### How an inbound request proves itself
+
+Slack signs each request with a shared secret, so verifying one is an HMAC.
+Microsoft signs with a rotating RSA key it publishes, so verification means
+fetching the key set, choosing the key the token names, checking an RS256
+signature, and then checking the claims. Four of those matter, and each is a
+real vulnerability on its own:
+
+- **The signature**, against Microsoft's published key — never a key the token
+  brought with it, which would verify the attacker's own signature.
+- **The issuer**, which must be `https://api.botframework.com`.
+- **The audience**, which must be this bot's App id. A token minted for another
+  bot is a valid Microsoft token and still not yours.
+- **The service URL**, which the token carries and the activity must match.
+  Skip it and an attacker can make the bot post its answer — and whatever it
+  read — to a host they control.
+
+The algorithm is pinned to RS256 rather than read from the token, and every
+check fails closed: a missing header, an unknown key id, a key set that will
+not load are all refused. Failures answer the same terse 401 and explain
+themselves only in the server log.
+
+What the endpoint refuses, and why:
+
+| Situation                                                    | What happens                                                                                         |
+| ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
+| An unsigned, forged or expired token                         | 401, with the reason logged server-side only. An endpoint that explained itself would help a prober. |
+| An activity from a tenant a single-tenant bot does not serve | 401. Microsoft sent it; that is not the same as the right organisation sending it.                   |
+| The bot's own message coming back                            | Ignored. Teams delivers a bot its own posts, and a bot that answers itself never stops.              |
+| `conversationUpdate`, reactions, typing                      | Acknowledged and ignored — none of them is a question.                                               |
+| Nothing chosen to answer                                     | One sentence in Teams naming what to fix, and the reason on the integration page.                    |
+| No client secret saved                                       | Recorded on the bot row: the question arrived and there is no way to reply to it.                    |
+
+Every turn audits `teams.message` with the bot, who asked as Teams names them
+(an Entra object id), the question and the trace id.
+
 ## Embedding an agent
 
 Agents can be embedded on your own site (see **Integrations → Web Embedding**,
@@ -207,3 +322,38 @@ Two ways to integrate, same key, same server-side enforcement:
   stream event, wire citations and Visual-BI widgets into custom surfaces).
   The domain allow-list, expiry, budget cap, guardrails and rate limits apply
   identically — disabling the key stops SDK apps as instantly as iframes.
+
+## Use cases
+
+### A chart with a paper trail
+
+A sales lead asks an agent for revenue by region this quarter.
+
+1. The agent picks the dataset among its sources, writes the SQL, and answers
+   with a chart rather than a table when the shape of the result calls for
+   one — see [Visual BI answers](#visual-bi-answers).
+2. The turn is a decision: its trace under **Traces** lists the read, the
+   tables and the lakehouse snapshot, and **Passport** exports the whole
+   chain signed. When the number is questioned later, it is replayed rather
+   than argued about — see [Decision provenance](./PROVENANCE.md).
+
+### A board deck straight from the data
+
+1. Ask for _a five-slide summary of the quarter as PowerPoint_. The document
+   is generated from the answer's data, with native editable charts and tables
+   when the server-side renderer is running (it is, on every install) and
+   in-browser generation otherwise.
+2. Choose **full data** when the deck must carry every row, and **sample**
+   when the point is the shape. Excel exports can carry live formulas that
+   recalculate in the spreadsheet — see
+   [Generating documents](#generating-documents-powerpoint--word--excel).
+
+### Publish an agent, keep the limits
+
+An agent that answers product questions should be embeddable on the public
+website.
+
+1. Embed it from the agent's page — see [Embedding an agent](#embedding-an-agent).
+2. Anonymous visitors run the owner's stored model, and every request is
+   checked against the owner's model-access rules, so an embed can never
+   spend on a model its owner is not allowed to call.

@@ -3,6 +3,12 @@
 // Everything operates on widget snapshot rows, so it works identically in
 // the editor, shared views and the public page.
 
+import {
+  forecastModelPoints,
+  forecastPeriods,
+  forecastValues,
+  type ForecastSetting,
+} from "./mlForecast";
 import type { BiCondFormat, BiCondRule } from "@/lib/biAgent";
 
 export type DrillEntry = { field: string; value: string };
@@ -99,11 +105,36 @@ export function parseDateValue(v: unknown): Date | null {
     return Number.isNaN(d.getTime()) ? null : d;
   }
   if (typeof v !== "string" || !v.trim()) return null;
+  const s = v.trim();
   // Reject plain numbers ("2026" is a year but "42" is not a date).
-  if (/^\d{1,3}(\.\d+)?$/.test(v.trim())) return null;
-  const d = new Date(v);
-  return Number.isNaN(d.getTime()) ? null : d;
+  if (/^\d{1,3}(\.\d+)?$/.test(s)) return null;
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return null;
+  // FOUND IN R196: text with no offset was read as the VIEWER's local time.
+  // The SQL engines run in UTC (R195) and write a TIMESTAMP as
+  // "2026-01-01 00:00:00", so for a viewer east of UTC a server-run tile put
+  // every month one back ("2025-12" for January) while the same tile run in
+  // the browser, which hands over an epoch, was right. Text without an offset
+  // is the engines' wall-clock time and is read as UTC. An ISO date, month or
+  // year is UTC already, and text with an offset means what it says.
+  if (NAIVE_UTC_ALREADY.test(s) || HAS_OFFSET.test(s)) return d;
+  return new Date(
+    Date.UTC(
+      d.getFullYear(),
+      d.getMonth(),
+      d.getDate(),
+      d.getHours(),
+      d.getMinutes(),
+      d.getSeconds(),
+      d.getMilliseconds(),
+    ),
+  );
 }
+
+/** ISO forms `new Date` already reads as UTC: "2026", "2026-01", "2026-01-01". */
+const NAIVE_UTC_ALREADY = /^\d{4}(-\d{2}(-\d{2})?)?$/;
+/** A time followed by Z or ±hh[[:]mm], or a GMT/UTC zone anywhere. */
+const HAS_OFFSET = /\d:\d{2}(:\d{2}(\.\d+)?)?\s*(Z|[+-]\d{2}(:?\d{2})?)$|\b(GMT|UTC)\b/i;
 
 /** True when ≥80% of the field's non-null values parse as dates. */
 export function isMostlyDates(rows: Record<string, unknown>[], field: string): boolean {
@@ -143,6 +174,125 @@ export function bucketDate(v: unknown, grain: DateGrain): string | null {
     case "year":
       return String(y);
   }
+}
+
+/**
+ * True when a field holds RAW date values rather than labels a person reads.
+ *
+ * The distinction is the whole point. `SELECT strftime(d, '%Y-%m')` returns
+ * "2023-01" — already a label, and relabelling it would only risk changing
+ * it. `SELECT date_trunc('month', d)` returns a timestamp, which arrives here
+ * as a Date or an epoch number and renders on the axis as `1667260800000`.
+ */
+/**
+ * Epoch range this will commit to: 2001-09-09 through 2100, as milliseconds
+ * or as seconds.
+ *
+ * Deliberately NARROWER than `parseDateValue`, which maps anything under
+ * 10^10 to seconds and so reads the money column 13946.229 as a moment in
+ * 1970. That reading is harmless where it only decides whether to OFFER a
+ * grain toggle; it is not harmless here, where a "yes" rewrites the column's
+ * printed values. So this answers "is this unmistakably a timestamp", and
+ * anything short of unmistakable is left exactly as the query returned it.
+ */
+function plausibleEpoch(n: number): boolean {
+  if (!Number.isInteger(n)) return false; // a stamp is not 13946.229
+  const a = Math.abs(n);
+  return (a >= 1e12 && a <= 4.102e12) || (a >= 1e9 && a <= 4.102e9);
+}
+
+/**
+ * The engines' TIMESTAMP text: "2026-01-01 00:00:00", with fractions and an
+ * offset or not. A day alone ("2026-01-05") is NOT here: text cannot tell a
+ * DATE from a `strftime(d, '%Y-%m-%d')` label someone chose, and a label must
+ * not be rewritten (see the tests on hasRawDateValues).
+ */
+const ENGINE_TIMESTAMP_TEXT =
+  /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}(:?\d{2})?)?$/;
+
+export function hasRawDateValues(rows: Record<string, unknown>[], field: string): boolean {
+  let raw = 0;
+  let total = 0;
+  for (const r of rows) {
+    const v = r[field];
+    if (v === null || v === undefined || v === "") continue;
+    total++;
+    if (v instanceof Date) raw++;
+    // A four-digit year is a LABEL already ("2026"), not a raw stamp — the
+    // same reading parseDateValue takes of it. Everything else must look like
+    // an actual epoch, or a column of revenue becomes a column of dates.
+    else if (typeof v === "number" && plausibleEpoch(v)) raw++;
+    // The SQL engines' own TIMESTAMP text is a stamp too, not a label a person
+    // wrote: a time down to the second is what a query returns. The server's
+    // rows reached an axis as "2026-02-01 00:00:00" where the browser's,
+    // epochs then, were labelled "2026-02-01" (R197).
+    else if (typeof v === "string" && ENGINE_TIMESTAMP_TEXT.test(v.trim())) raw++;
+  }
+  return total > 0 && raw / total >= 0.8;
+}
+
+/** How many labels an axis can carry before they stop being readable. */
+const MAX_AUTO_BUCKETS = 60;
+
+const GRAIN_DAYS: [DateGrain, number][] = [
+  ["day", 1],
+  ["week", 7],
+  ["month", 30.44],
+  ["quarter", 91.31],
+  ["year", 365.25],
+];
+
+/**
+ * The grain a date axis should be LABELLED at when nobody picked one.
+ *
+ * Returns null when there is nothing to fix — the values are already labels,
+ * or are not dates at all — so the common case changes not at all.
+ *
+ * Found by generating a report with AI: its SQL grouped by `date_trunc`, and
+ * every tick on the finance team's revenue trend read `1667260800000`. The
+ * grain toggle would have fixed it, but it defaults to "auto" and auto did
+ * nothing, so the unreadable axis is the one every reader gets. Picking the
+ * finest grain that still fits is what "auto" always claimed to do.
+ */
+export function autoDateGrain(rows: Record<string, unknown>[], field: string): DateGrain | null {
+  if (!hasRawDateValues(rows, field)) return null;
+  const times: number[] = [];
+  for (const r of rows) {
+    const d = parseDateValue(r[field]);
+    if (d) times.push(d.getTime());
+  }
+  if (times.length === 0) return null;
+  const spanDays = (Math.max(...times) - Math.min(...times)) / 86_400_000;
+  for (const [grain, days] of GRAIN_DAYS) {
+    if (spanDays / days <= MAX_AUTO_BUCKETS) return grain;
+  }
+  return "year";
+}
+
+/**
+ * Relabel a date field in place — no reordering, no aggregation, no rows lost.
+ *
+ * Deliberately NOT `bucketRowsX`: an explicit grain is a request to regroup
+ * the data, but auto is only a request to make the axis readable. Sorting
+ * would reorder a ranked chart and dropping unparsable rows would quietly
+ * change a total, and neither is something a reader asked for by not
+ * choosing a grain.
+ *
+ * What this function does not do, a caller still might: a bar chart combines
+ * equal categories through `aggregateByField` whatever produced the labels,
+ * so daily rows labelled by month do total per month there. That is the
+ * chart's own long-standing behaviour, not something introduced here — a line
+ * chart, which does not aggregate, keeps every point.
+ */
+export function labelRowsX(
+  rows: Record<string, unknown>[],
+  field: string,
+  grain: DateGrain,
+): Record<string, unknown>[] {
+  return rows.map((r) => {
+    const label = bucketDate(r[field], grain);
+    return label === null ? r : { ...r, [field]: label };
+  });
 }
 
 /** Replace a field's values with bucket labels (unparsable rows dropped). */
@@ -215,30 +365,53 @@ export function linearFit(ys: number[]): LinearFit | null {
 }
 
 /**
- * Forecast rows appended after the series: dashed projection with a ±1.96σ
- * corridor. x labels extend the last bucket when possible, else "+n".
+ * Forecast rows appended after the series: a projection with a residual band
+ * that widens with distance. The numbers come from the shared forecaster
+ * (src/lib/mlForecast.ts) — the same one the Analyst and the alert engine
+ * use — or verbatim from a registry forecast model attached to the chart.
+ * x labels extend the last bucket when possible, else "+n".
  */
 export function forecastRows(
   data: Record<string, unknown>[],
   xKey: string,
   yKey: string,
-  periods: number,
-): { fit: LinearFit; rows: Record<string, unknown>[] } | null {
-  const fit = linearFit(data.map((d) => Number(d[yKey])));
-  if (!fit || periods <= 0) return null;
+  setting: ForecastSetting,
+): {
+  fit: { method: string; seasonLength: number | null; sigma: number };
+  rows: Record<string, unknown>[];
+} | null {
+  const periods = Math.min(forecastPeriods(setting), 24);
+  if (periods <= 0 || data.length === 0) return null;
   const n = data.length;
-  const rows = Array.from({ length: Math.min(periods, 24) }, (_, k) => {
-    const i = n + k;
-    const y = fit.slope * i + fit.intercept;
-    const band = 1.96 * fit.sigma;
-    return {
-      [xKey]: nextBucketLabel(String(data[n - 1]?.[xKey] ?? ""), k + 1) ?? `+${k + 1}`,
-      __forecast: y,
-      __lo: y - band,
-      __hi: y + band,
-    };
-  });
-  return { fit, rows };
+  const modelPoints = forecastModelPoints(setting);
+  if (modelPoints) {
+    const rows = modelPoints.slice(0, periods).map((p) => ({
+      [xKey]: p.period,
+      __forecast: p.yhat,
+      __lo: p.lo,
+      __hi: p.hi,
+      __band: [p.lo, p.hi],
+    }));
+    return { fit: { method: "registry model", seasonLength: null, sigma: 0 }, rows };
+  }
+  const lastLabel = String(data[n - 1]?.[xKey] ?? "");
+  const fc = forecastValues(
+    data.map((d) => Number(d[yKey])),
+    periods,
+    { labelHint: lastLabel },
+  );
+  if (!fc) return null;
+  const rows = fc.points.map((p) => ({
+    [xKey]: nextBucketLabel(lastLabel, p.step) ?? `+${p.step}`,
+    __forecast: p.value,
+    __lo: p.lo,
+    __hi: p.hi,
+    __band: [p.lo, p.hi],
+  }));
+  return {
+    fit: { method: fc.fit.method, seasonLength: fc.fit.seasonLength, sigma: fc.fit.sigma },
+    rows,
+  };
 }
 
 /** Extend "2026-07" → "2026-08", "2026-Q3" → "2026-Q4", "2026" → "2027"… */

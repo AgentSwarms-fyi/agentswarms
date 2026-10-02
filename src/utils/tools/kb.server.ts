@@ -6,11 +6,21 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 import { embedTexts } from "./embedding.server";
+import { storeFor, storeKindForChoice } from "@/utils/vector/store.server";
+import type { VectorStoreKind } from "@/utils/vector/types";
 import {
+  applyGroundingBudget,
+  assembleCitationTexts,
+  CHUNKS_PER_DOCUMENT,
+  CITATION_CHARS_PER_CHUNK,
+  DEFAULT_MIN_SIMILARITY,
   fuseHybrid,
+  GROUNDING_MAX_CHARS,
+  groundingPasses,
   resolveRetrievalSettings,
   type Candidate,
   type RetrievalSettings,
+  type VectorStoreChoice,
 } from "@/lib/kbRag";
 
 export type Citation = {
@@ -71,6 +81,8 @@ export function buildGroundingPrompt(
      * opposed to there being no knowledge base wired at all.
      */
     searched?: boolean;
+    /** Every way the search fell short; see RetrievalReport. */
+    degraded?: string[];
   },
 ): string {
   // A SEARCH THAT FOUND NOTHING IS A FACT THE MODEL NEEDS.
@@ -90,6 +102,18 @@ export function buildGroundingPrompt(
   if (citations.length === 0) {
     const base = userSystemPrompt?.trim() ?? "";
     if (!opts?.searched) return userSystemPrompt || "";
+    if (opts.degraded?.length) {
+      // Nothing came back AND the search fell short: the model must not be
+      // told the documents lack it. It was told exactly that, over a failed
+      // ACL read, a failed vector search and a failed keyword scan alike.
+      return (
+        (base ? base + "\n\n" : "") +
+        "A knowledge base is attached to this assistant and was searched for this question, but " +
+        `the search could not be completed: ${opts.degraded.join("; ")}. ` +
+        "Do not say the documents lack the information — say that the search could not be " +
+        "completed and what could not be checked, and do not cite sources you were not given."
+      );
+    }
     return (
       (base ? base + "\n\n" : "") +
       "A knowledge base is attached to this assistant and was searched for this question. " +
@@ -98,7 +122,11 @@ export function buildGroundingPrompt(
       "than answering from general knowledge, and do not cite sources you were not given."
     );
   }
-  const header = userSystemPrompt?.trim() ? userSystemPrompt.trim() + "\n\n" : "";
+  const header =
+    (userSystemPrompt?.trim() ? userSystemPrompt.trim() + "\n\n" : "") +
+    (opts?.degraded?.length
+      ? `Retrieval was partial — ${opts.degraded.join("; ")}. Say so where it bears on the answer.\n\n`
+      : "");
   // Names are interpolated too, and a document's name is often the <title> of
   // an ingested page — attacker-controlled in exactly the same way the body is.
   const sources = citations
@@ -243,19 +271,45 @@ const STOP = new Set([
 ]);
 
 const SNIPPET_RADIUS = 280;
-const SNIPPET_MAX = 560;
+
+/**
+ * What the model reads per turn — operator settings, defaults in kbRag.ts
+ * (which is where the reasoning lives). Read per call so a running instance
+ * picks up a change without a restart of anything but the process.
+ */
+function envInt(name: string, fallback: number, lo: number, hi: number): number {
+  const raw = process.env[name];
+  const n = raw === undefined || raw === "" ? NaN : Number(raw);
+  return Number.isFinite(n) ? Math.min(hi, Math.max(lo, Math.floor(n))) : fallback;
+}
+const chunksPerDocument = () => envInt("KB_CHUNKS_PER_DOCUMENT", CHUNKS_PER_DOCUMENT, 1, 10);
+const citationCharsPerChunk = () =>
+  envInt("KB_CITATION_CHARS_PER_CHUNK", CITATION_CHARS_PER_CHUNK, 100, 20_000);
+const groundingMaxChars = () =>
+  envInt("KB_GROUNDING_MAX_CHARS", GROUNDING_MAX_CHARS, 500, 1_000_000);
+
+/**
+ * The auto-RAG similarity floor (kbRag.ts explains the rule and the numbers).
+ * Read by the chat routes and passed as `minSimilarity`; the kb_search TOOL
+ * passes nothing, because a model that asked to search gets what matched.
+ */
+export function autoRagMinSimilarity(): number {
+  const raw = process.env.KB_MIN_SIMILARITY;
+  const n = raw === undefined || raw === "" ? NaN : Number(raw);
+  return Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : DEFAULT_MIN_SIMILARITY;
+}
 /**
  * Parent-expanded citations get a much larger budget than a child snippet.
  *
- * The 560-char cap exists to stop one runaway chunk from eating the prompt. A
+ * The per-chunk cap exists to stop one runaway chunk from eating the prompt. A
  * parent is deliberately large — that is the whole reason to retrieve one — so
- * reusing the child cap here would trim a 4,000-character parent down to 560
- * and quietly deliver flat chunking under a different name.
+ * reusing the child cap here would trim a 4,000-character parent down to a
+ * fragment and quietly deliver flat chunking under a different name.
  */
 const PARENT_SNIPPET_MAX = 4000;
 
 function trimSnippet(s: string): string {
-  return s.replace(/\s+/g, " ").trim().slice(0, SNIPPET_MAX);
+  return s.replace(/\s+/g, " ").trim().slice(0, citationCharsPerChunk());
 }
 
 /**
@@ -285,7 +339,7 @@ function citationText(row: {
   return trimSnippet(row.content);
 }
 
-export async function retrieveCitationsServer(opts: {
+export type RetrievalOpts = {
   sb: SupabaseClient<Database>;
   agentId?: string | null;
   query: string;
@@ -304,8 +358,23 @@ export async function retrieveCitationsServer(opts: {
    * which errs toward deny — never toward a leak.
    */
   principal?: RetrievalPrincipal;
-}): Promise<Citation[]> {
+  /**
+   * Below this best vector similarity, with no keyword hit, the turn is not
+   * grounded (groundingPasses). Unset or 0 = every match grounds.
+   */
+  minSimilarity?: number;
+};
+
+/** What came back, and every way the search fell short of a complete, checked one. */
+export type RetrievalReport = { citations: Citation[]; degraded: string[] };
+
+export async function retrieveCitationsReport(opts: RetrievalOpts): Promise<RetrievalReport> {
   const { sb } = opts;
+  // Every way this search fell short. A caller that gets [] with nothing in
+  // here has a knowledge base with no match; a caller that gets [] with
+  // something in here has a search that could not be completed, and the
+  // two must never be told to the model the same way.
+  const degraded: string[] = [];
   const topK = Math.max(1, Math.min(opts.topK ?? 5, 8));
   // Optional re-ranker (from the agent's tools.reranker) — when set we
   // over-fetch candidates and let the model reorder them.
@@ -314,11 +383,18 @@ export async function retrieveCitationsServer(opts: {
   // 1) Resolve KB ids — agent's own + any extras passed by the caller.
   const agentKbIds: string[] = [];
   if (opts.agentId) {
-    const { data: agent } = await sb
+    const { data: agent, error: agentErr } = await sb
       .from("agents")
       .select("knowledge_base_id, tools")
       .eq("id", opts.agentId)
       .maybeSingle();
+    // A failed read of the agent's configuration is not "no knowledge base":
+    // answered that way the search covered nothing and the model was told
+    // the documents had no match.
+    if (agentErr)
+      throw new Error(
+        `could not read the agent's knowledge-base configuration: ${agentErr.message}`,
+      );
     if (agent) {
       const tools = (agent.tools ?? {}) as {
         knowledgeBaseIds?: unknown;
@@ -335,7 +411,7 @@ export async function retrieveCitationsServer(opts: {
     }
   }
   let kbIds = Array.from(new Set([...agentKbIds, ...(opts.extraKbIds ?? [])]));
-  if (kbIds.length === 0) return [];
+  if (kbIds.length === 0) return { citations: [], degraded };
 
   // Headless tenant guard: with RLS off, restrict the resolved KB ids to what
   // the owner may read — own KBs, public samples, and KBs shared to them via an
@@ -353,7 +429,7 @@ export async function retrieveCitationsServer(opts: {
         .map((k) => k.id),
     );
     kbIds = kbIds.filter((id) => allowed.has(id));
-    if (kbIds.length === 0) return [];
+    if (kbIds.length === 0) return { citations: [], degraded };
   }
 
   // 1b) Retrieval settings live on the knowledge base, not the agent: they
@@ -361,14 +437,23 @@ export async function retrieveCitationsServer(opts: {
   // play the most keyword-leaning wins, because a KB configured for hybrid was
   // configured that way for a reason (identifiers, error codes, product names)
   // and silently searching it semantically would lose exactly those matches.
-  let retrieval: RetrievalSettings = { mode: "semantic", semanticWeight: 1 };
+  let retrieval: RetrievalSettings = {
+    mode: "semantic",
+    semanticWeight: 1,
+    vectorStore: "default",
+  };
+  // Which index each collection chose. A request can span collections that
+  // chose differently, so this is a map rather than one answer: the search
+  // below asks each store for its own collections and merges the results.
+  const storeOf = new Map<string, VectorStoreChoice>();
   try {
     const { data: kbSettings } = await sb
       .from("knowledge_bases")
-      .select("retrieval_settings")
+      .select("id, retrieval_settings")
       .in("id", kbIds);
     for (const row of kbSettings ?? []) {
       const r = resolveRetrievalSettings(row.retrieval_settings);
+      storeOf.set(row.id, r.vectorStore);
       if (r.semanticWeight < retrieval.semanticWeight) retrieval = r;
     }
   } catch {
@@ -378,7 +463,7 @@ export async function retrieveCitationsServer(opts: {
   // 2) Vector search via pgvector — best-effort. The query must be embedded
   // with the same model/provider the documents were embedded with, so read
   // the embed config stamped on the KB's documents and resolve the caller's
-  // integration when it isn't the built-in OpenAI key.
+  // connected provider from it.
   type ChunkRow = {
     id: string;
     document_id: string;
@@ -394,8 +479,12 @@ export async function retrieveCitationsServer(opts: {
   };
   let vectorRows: ChunkRow[] = [];
   let vectorScores: Candidate[] = [];
+  /** Set when a vector search was attempted and did not answer. */
+  let vectorSearchFailed = false;
   let fusedCits: Citation[] = [];
-  let embedKey = process.env.OPENAI_API_KEY ?? "";
+  // No operator-key default: an unresolvable target leaves this empty and
+  // retrieval falls back to keyword search, which is the honest outcome.
+  let embedKey = "";
   let embedEndpoint: string | undefined;
   let embedModel: string | undefined;
   let allowCustomModel = false;
@@ -442,19 +531,74 @@ export async function retrieveCitationsServer(opts: {
       // fusion can only promote what it was given, so a top-k fetch would let
       // the keyword side rescue nothing.
       const wide = reranker || retrieval.mode !== "semantic" ? Math.min(topK * 3, 30) : topK;
+      // WHICH chunks, from whichever store holds the vectors — pgvector in the
+      // same database by default, an external one where the collection chose
+      // one. Grouped, because a request can span both: each store answers for
+      // its own collections and the lists are merged by score. The scores are
+      // comparable (both are cosine similarity in 0..1), and the fusion below
+      // normalises within the list anyway.
+      const byStore = new Map<VectorStoreKind, string[]>();
+      for (const id of kbIds) {
+        const kind = storeKindForChoice(storeOf.get(id));
+        byStore.set(kind, [...(byStore.get(kind) ?? []), id]);
+      }
+      const perStore = await Promise.all(
+        [...byStore.entries()].map(([kind, ids]) =>
+          storeFor(kind, sb).search({
+            embedding: queryEmbedding,
+            knowledgeBaseIds: ids,
+            limit: wide,
+          }),
+        ),
+      );
+      const matches = perStore
+        .flat()
+        .sort((a, b) => b.score - a.score)
+        .slice(0, wide);
+      // WHAT they are, always from Postgres and always through the caller's
+      // own client. This is the second ACL check: a store that returned an id
+      // from somebody else's knowledge base gets nothing back, because RLS and
+      // the kb_ids filter both apply here.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data: matches, error: matchErr } = await (sb as any).rpc("match_kb_chunks_v2", {
-        query_embedding: `[${queryEmbedding.join(",")}]`,
+      const { data: rows, error: rowErr } = await (sb as any).rpc("kb_chunks_by_ids", {
+        chunk_ids: matches.map((m) => m.id),
         kb_ids: kbIds,
-        match_count: wide,
       });
-      if (matchErr) throw new Error(matchErr.message);
-      vectorRows = (matches ?? []) as ChunkRow[];
-      vectorScores = vectorRows.map((r) => ({ id: r.id, score: r.similarity ?? 0 }));
+      if (rowErr) throw new Error(rowErr.message);
+      const byChunkId = new Map<string, ChunkRow>(
+        ((rows ?? []) as ChunkRow[]).map((r) => [r.id, r]),
+      );
+      // Ordered by the store's ranking; a uuid array has none of its own.
+      vectorRows = matches
+        .map((m) => byChunkId.get(m.id))
+        .filter((r): r is ChunkRow => r !== undefined);
+      const scoreOf = new Map(matches.map((m) => [m.id, m.score]));
+      vectorScores = vectorRows.map((r) => ({ id: r.id, score: scoreOf.get(r.id) ?? 0 }));
     } catch (err) {
+      vectorSearchFailed = true;
+      const msg = err instanceof Error ? err.message : String(err);
       console.warn("[kb.server] vector search failed, falling back to keyword scan:", err);
+      degraded.push(`vector search failed, keyword search only: ${msg}`);
     }
   }
+
+  /**
+   * What to run, and how to weigh it, once the vector side is known.
+   *
+   * A store that cannot be reached must not mean an empty answer: the chunk
+   * text never left Postgres, so keyword search still works. But a
+   * semantic-only collection would skip the keyword pass entirely, and even
+   * with it forced on, a `semanticWeight` of 1 scores every keyword hit ZERO
+   * and hands back a list ordered by nothing. So for a turn where the vectors
+   * are unavailable, keyword IS the signal and is weighted as such.
+   *
+   * This is what makes the promise in the deployment docs true — "losing the
+   * vector store degrades retrieval to keyword search rather than breaking it"
+   * — for every collection rather than only the ones already set to hybrid.
+   */
+  const effective: RetrievalSettings = vectorSearchFailed
+    ? { ...retrieval, mode: "keyword", semanticWeight: 0 }
+    : retrieval;
 
   // 2b) Keyword search over the SAME chunks, via Postgres full-text search.
   //
@@ -464,7 +608,7 @@ export async function retrieveCitationsServer(opts: {
   // — could never rescue a weak semantic match.
   let keywordRows: ChunkRow[] = [];
   let keywordScores: Candidate[] = [];
-  if (retrieval.mode !== "semantic") {
+  if (effective.mode !== "semantic") {
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { data: kwMatches, error: kwErr } = await (sb as any).rpc("keyword_kb_chunks", {
@@ -491,7 +635,7 @@ export async function retrieveCitationsServer(opts: {
   {
     const byId = new Map<string, ChunkRow>();
     for (const r of [...vectorRows, ...keywordRows]) if (!byId.has(r.id)) byId.set(r.id, r);
-    const fused = fuseHybrid(vectorScores, keywordScores, retrieval);
+    const fused = fuseHybrid(vectorScores, keywordScores, effective);
     if (fused.length > 0) {
       const docIds = Array.from(
         new Set(fused.map((f) => byId.get(f.id)?.document_id).filter((d): d is string => !!d)),
@@ -502,22 +646,46 @@ export async function retrieveCitationsServer(opts: {
       ]);
       const kbMap = new Map((kbs ?? []).map((k) => [k.id, k.name]));
       const docMap = new Map((docs ?? []).map((d) => [d.id, d.name]));
-      const seenDocs = new Set<string>();
-      const out: Citation[] = [];
-      for (const f of fused) {
-        const row = byId.get(f.id);
-        if (!row || seenDocs.has(row.document_id)) continue;
-        seenDocs.add(row.document_id);
-        out.push({
-          index: out.length + 1,
-          documentId: row.document_id,
-          documentName: docMap.get(row.document_id) ?? "Document",
-          knowledgeBaseId: row.knowledge_base_id,
-          knowledgeBaseName: kbMap.get(row.knowledge_base_id) ?? "Knowledge Base",
-          snippet: citationText(row),
-        });
-      }
-      fusedCits = out;
+      // One citation per document, carrying that document's best few chunks
+      // in reading order. One chunk was not enough: a policy's table and the
+      // prose about it rank separately, and the prose won (kbRag.ts says why).
+      const kbOfDoc = new Map<string, string>();
+      for (const r of byId.values()) kbOfDoc.set(r.document_id, r.knowledge_base_id);
+      const assembled = assembleCitationTexts(
+        fused,
+        (id) => {
+          const row = byId.get(id);
+          if (!row) return undefined;
+          return {
+            key: row.parent_id ?? row.id,
+            documentId: row.document_id,
+            chunkIndex: row.chunk_index,
+            text: citationText(row),
+            charsCap: row.parent_content ? PARENT_SNIPPET_MAX : undefined,
+          };
+        },
+        { chunksPerDocument: chunksPerDocument(), charsPerChunk: citationCharsPerChunk() },
+      );
+      // Nothing here resembles the question: ground on nothing rather than
+      // on the least-unrelated document (kbRag.ts, groundingPasses).
+      const bestSimilarity = vectorSearchFailed
+        ? null
+        : vectorScores.reduce<number | null>(
+            (m, c) => (m === null || c.score > m ? c.score : m),
+            null,
+          );
+      const grounded = groundingPasses(bestSimilarity, keywordRows.length, opts.minSimilarity ?? 0);
+      fusedCits = (grounded ? assembled : []).map((a, i) => {
+        const kbId = kbOfDoc.get(a.documentId) ?? kbIds[0];
+        return {
+          index: i + 1,
+          documentId: a.documentId,
+          documentName: docMap.get(a.documentId) ?? "Document",
+          knowledgeBaseId: kbId,
+          knowledgeBaseName: kbMap.get(kbId) ?? "Knowledge Base",
+          snippet: a.text,
+        };
+      });
     }
   }
 
@@ -526,9 +694,10 @@ export async function retrieveCitationsServer(opts: {
   let keywordCits: Citation[] = [];
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: chunkedRows } = await (sb.from("kb_chunks" as any) as any)
+    const { data: chunkedRows, error: chunkedErr } = await (sb.from("kb_chunks" as any) as any)
       .select("document_id")
       .in("knowledge_base_id", kbIds);
+    if (chunkedErr) throw new Error(`could not list embedded documents: ${chunkedErr.message}`);
     const embedded = new Set<string>(
       ((chunkedRows ?? []) as { document_id: string }[]).map((c) => c.document_id),
     );
@@ -541,18 +710,23 @@ export async function retrieveCitationsServer(opts: {
     const KEYWORD_SCAN_CAP = 5000;
     const KEYWORD_PAGE = 1000;
     type DocRow = { id: string; name: string; content: string | null; knowledge_base_id: string };
-    const allDocs: DocRow[] = [];
-    for (let offset = 0; offset < KEYWORD_SCAN_CAP; offset += KEYWORD_PAGE) {
-      const { data: page } = await sb
-        .from("knowledge_documents")
-        .select("id, name, content, knowledge_base_id")
-        .in("knowledge_base_id", kbIds)
-        .range(offset, offset + KEYWORD_PAGE - 1);
-      if (!page || page.length === 0) break;
-      allDocs.push(...page);
-      if (page.length < KEYWORD_PAGE) break;
-    }
-    if (allDocs.length >= KEYWORD_SCAN_CAP) {
+    // The checked pager: it reads the error of every page (this loop dropped
+    // it and stopped, so a failed page was "no more documents"), advances by
+    // what the server actually returned rather than KEYWORD_PAGE (db-max-rows
+    // below the page size used to end the scan after one page), and probes
+    // the cap instead of guessing from the count.
+    void KEYWORD_PAGE;
+    const { selectAllPages } = await import("@/lib/pagedSelect");
+    const scan = await selectAllPages<DocRow>(
+      () =>
+        sb
+          .from("knowledge_documents")
+          .select("id, name, content, knowledge_base_id")
+          .in("knowledge_base_id", kbIds),
+      KEYWORD_SCAN_CAP,
+    );
+    const allDocs: DocRow[] = scan.rows;
+    if (scan.truncated) {
       console.warn(
         `[kb.server] keyword scan hit ${KEYWORD_SCAN_CAP}-doc cap; back-fill embeddings to ensure full coverage`,
       );
@@ -625,7 +799,9 @@ export async function retrieveCitationsServer(opts: {
       }
     }
   } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
     console.warn("[kb.server] keyword fallback failed:", err);
+    degraded.push(`keyword search over un-embedded documents failed: ${msg}`);
   }
 
   // 4) Append the unembedded-document fallback beneath the fused results.
@@ -682,15 +858,26 @@ export async function retrieveCitationsServer(opts: {
         })
         .map((c, i) => ({ ...c, index: i + 1 }));
     } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
       // Availability guard for ONE state only: an instance whose database
       // predates the connector migration (acl columns missing → the select
-      // errors). In that state no source can have a restrictive scope, so
-      // keeping the candidates IS the correct pre-migration behaviour. Once
-      // migrated, the query succeeds and enforcement is unconditional.
-      console.warn(
-        "[kb.server] ACL filter unavailable (pre-migration schema?) — applying legacy visibility:",
-        err instanceof Error ? err.message : err,
-      );
+      // errors with "does not exist"). In that state no source can have a
+      // restrictive scope, so keeping the candidates IS the correct
+      // pre-migration behaviour. It used to keep them on EVERY failure — a
+      // timeout on the ACL read showed restricted documents to whoever
+      // asked. Any other failure fails closed and says so.
+      if (/does not exist|42703/i.test(msg)) {
+        console.warn(
+          "[kb.server] ACL filter unavailable (pre-migration schema) — applying legacy visibility:",
+          msg,
+        );
+      } else {
+        console.warn("[kb.server] ACL filter failed — withholding candidates:", msg);
+        degraded.push(
+          `document access could not be checked, ${merged.length} candidate document(s) withheld: ${msg}`,
+        );
+        merged = [];
+      }
     }
   }
 
@@ -705,9 +892,21 @@ export async function retrieveCitationsServer(opts: {
       candidates: merged,
       topK,
     });
-    if (ranked) return ranked;
+    if (ranked) return { citations: applyGroundingBudget(ranked, groundingMaxChars()), degraded };
   }
-  return merged.slice(0, topK).map((c, i) => ({ ...c, index: i + 1 }));
+  // The turn's budget, applied last so it counts what the model will read.
+  return {
+    citations: applyGroundingBudget(
+      merged.slice(0, topK).map((c, i) => ({ ...c, index: i + 1 })),
+      groundingMaxChars(),
+    ),
+    degraded,
+  };
+}
+
+/** The citations alone. Callers that can say "the search fell short" use the report. */
+export async function retrieveCitationsServer(opts: RetrievalOpts): Promise<Citation[]> {
+  return (await retrieveCitationsReport(opts)).citations;
 }
 
 /** Cohere/Jina-style POST {base}/rerank — supported by NVIDIA NIM, vLLM,

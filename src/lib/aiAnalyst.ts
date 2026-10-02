@@ -62,6 +62,47 @@ export type AnalystSource =
 
 export type AnalystCheckVerdict = "pass" | "refined" | "suspect";
 
+/**
+ * The predictive models an analyst may use — its own choice, made in the
+ * same dialog as its reasoning model and its data. `null` (or absent) means
+ * every model the owner can use; a list means exactly those, by name; an
+ * empty list means none, and the planner is not told about scoring at all.
+ * The same rule an agent's ML tool follows, enforced the same way: the
+ * server refuses a model outside the list when a step tries to score with
+ * it, whatever the planner was shown.
+ */
+export function analystModelsAllowed<T extends { name: string }>(
+  models: T[],
+  allow: readonly string[] | null | undefined,
+): T[] {
+  if (!Array.isArray(allow)) return models;
+  const names = new Set(allow.map((n) => n.trim()).filter((n) => n.length > 0));
+  return models.filter((m) => names.has(m.name));
+}
+
+/** What the analyst's card and dialog say about its predictive-model choice. */
+export function describeModelChoice(
+  allow: readonly string[] | null | undefined,
+  total: number,
+): string {
+  if (!Array.isArray(allow)) {
+    return total === 0 ? "No predictive models trained yet" : `Any predictive model (${total})`;
+  }
+  const n = allow.filter((s) => s.trim().length > 0).length;
+  if (n === 0) return "No predictive models — steps are never scored";
+  return `${n} of ${total} predictive model${total === 1 ? "" : "s"}`;
+}
+
+/**
+ * Rank the SCORED rows by one of the model's output columns — the only way
+ * to answer "the most / least / top N by the model": the output exists on
+ * the scored rows and in no table, so no SQL can order by it. Measured
+ * live: asked for the ten most anomalous orders, the SQL sampled fifty at
+ * random, the reviewer tried `ORDER BY anomaly_score` and died on a binder
+ * error, and the write-up reported the step as failed.
+ */
+export type ScoreRank = { by: string; desc: boolean; limit?: number };
+
 export type AnalystStep = {
   goal: string;
   sql?: string;
@@ -118,7 +159,24 @@ export type AnalystStep = {
     rows: Record<string, unknown>[];
     delta: MetricDelta[];
   };
-  status: "pending" | "writing_sql" | "running" | "checking" | "done" | "error";
+  /**
+   * The plan asked for this step's rows to be scored by a trained model.
+   * Present means the SQL selects the entities and the model supplies the
+   * prediction columns — the analyst never estimates a prediction itself.
+   */
+  score?: { model: string; rank?: ScoreRank };
+  /**
+   * The plan asked a trained FORECAST model for its projection. No SQL: the
+   * rows are the model's periods with their interval, read through the same
+   * runner the agent tool uses. Measured live: with forecast models hidden
+   * from the planner, "what will monthly net_usd do over the next 3 months"
+   * was answered by scoring fifty orders with a regression model and
+   * inventing a flat monthly projection from their mean.
+   */
+  forecast?: { model: string; horizon?: number };
+  /** What scoring actually did — the disclosure half of `score` (and of `forecast`). */
+  scored?: ScoredDisclosure;
+  status: "pending" | "writing_sql" | "running" | "scoring" | "checking" | "done" | "error";
 };
 
 /**
@@ -129,6 +187,243 @@ export type AnalystStep = {
  * metric called that?" — and the full model lives on the server, which is
  * where the SQL is actually compiled.
  */
+/**
+ * A trained model the plan may score rows with — what the planner is told,
+ * flattened like GovernedModelFields: names and columns, never the artifact.
+ */
+export type ScorableModel = {
+  name: string;
+  task: string;
+  target: string | null;
+  version: number | null;
+  algorithm: string | null;
+  /** One headline metric, named ("accuracy 0.94"), or null. */
+  metric: string | null;
+  /** Set when the model is bound to a feature view: rows are scored by key. */
+  keyColumns: string[] | null;
+  features: string[];
+  /** The model's health line ("Health: …") — an open drift or decay alert, or what was last measured. */
+  health: string | null;
+};
+
+/** What scoring actually did — the disclosure half of `score`. */
+export type ScoredDisclosure = {
+  model: string;
+  version: number | null;
+  task: string;
+  algorithm: string | null;
+  metric: string | null;
+  /** True when the rows were scored by key through the model's feature view. */
+  keys: boolean;
+  featuresServedFrom: string | null;
+  rowsScored: number;
+  keysNotFound: string[];
+  /**
+   * The columns the model ADDED to the rows, as named on the table (after
+   * any `predicted_` prefix) — so the self-check and the write-up can be
+   * told which columns are estimates and which the SQL returned. Absent on
+   * steps scored before it was recorded.
+   */
+  columns?: string[];
+  /** The model's health line at scoring time, so the badge and the write-up can say it. */
+  health: string | null;
+  /**
+   * What the tool said about the columns and the model — what the classes
+   * mean, each group's profile, the trainer's warnings — minus the health
+   * line, which is `health`. The write-up cannot describe a group it was
+   * never told about.
+   */
+  notes?: string[];
+  /** The ranking applied to the scored rows, when the plan asked for one. */
+  ranked?: { by: string; desc: boolean; limit: number | null; of: number } | null;
+  /** A forecast step: what one row is. */
+  forecast?: {
+    period: string | null;
+    aggregation: string | null;
+    lastObserved: string | null;
+  } | null;
+};
+
+/** A forecast model's projection, as the loop receives it: one row per period. */
+export type ForecastResult =
+  | {
+      ok: true;
+      columns: string[];
+      rows: Record<string, unknown>[];
+      scored: ScoredDisclosure;
+    }
+  | { ok: false; error: string };
+
+export type ScoreRowsResult =
+  | {
+      ok: true;
+      columns: string[];
+      rows: Record<string, unknown>[];
+      scored: ScoredDisclosure;
+    }
+  | { ok: false; error: string };
+
+/** Rows a scored step scores — the step's own sample, and the tool's cap. */
+export const ANALYST_SCORE_CAP = 50;
+
+/**
+ * Join a model's predictions onto the rows they were made for.
+ *
+ * By KEY IDENTITY when the rows were scored through a feature view — the
+ * tool carries the key column(s) on every prediction, and a prediction
+ * attributed to the wrong entity is the worst failure this can have; by
+ * position otherwise, since rows mode answers one prediction per input row
+ * in order. A row with no prediction gets nulls, never a neighbour's values.
+ *
+ * A prediction column that COLLIDES with a column the SQL already returned
+ * (a step that read a stored predictions table and then asked to score it)
+ * is kept under a `predicted_` prefix rather than silently replaced or
+ * silently dropped: the badge says a model scored these rows, so the model's
+ * numbers must be the ones on the table.
+ */
+export function joinPredictions(
+  rows: Record<string, unknown>[],
+  predictions: Record<string, unknown>[],
+  keyColumns: string[] | null,
+): { columns: string[]; rows: Record<string, unknown>[]; added: string[] } {
+  const inputColumns = rows.length ? Object.keys(rows[0]) : [];
+  const keyed = !!keyColumns && keyColumns.length > 0;
+  const print = (r: Record<string, unknown>) =>
+    JSON.stringify((keyColumns ?? []).map((k) => String(r[k])));
+  const predColumns: string[] = [];
+  for (const p of predictions)
+    for (const k of Object.keys(p))
+      if (!(keyed && keyColumns!.includes(k)) && !predColumns.includes(k)) predColumns.push(k);
+  const outName = (c: string) => (inputColumns.includes(c) ? `predicted_${c}` : c);
+  const byPrint = keyed ? new Map(predictions.map((p) => [print(p), p])) : null;
+  const joined = rows.map((r, i) => {
+    const p = byPrint ? byPrint.get(print(r)) : predictions[i];
+    const out: Record<string, unknown> = { ...r };
+    for (const c of predColumns) out[outName(c)] = p ? (p[c] ?? null) : null;
+    return out;
+  });
+  const added = predColumns.map(outName);
+  return { columns: [...inputColumns, ...added], rows: joined, added };
+}
+
+const escapeRx = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** True when `name` appears whole in `text` (case-insensitive, not inside another word). */
+export function namesModel(text: string, name: string): boolean {
+  return new RegExp(`(^|[^\\w])${escapeRx(name)}([^\\w]|$)`, "i").test(text);
+}
+
+/**
+ * Rank scored rows by a model output column, nulls last, then keep the top
+ * `limit`. A column the rows do not have leaves them unranked and SAYS so —
+ * an unranked table presented as "the ten most anomalous" is the lie this
+ * exists to prevent.
+ */
+export function rankScoredRows(
+  rows: Record<string, unknown>[],
+  rank: ScoreRank,
+  columns: string[],
+): {
+  rows: Record<string, unknown>[];
+  applied: { by: string; desc: boolean; limit: number | null; of: number } | null;
+  note: string | null;
+} {
+  if (!columns.includes(rank.by)) {
+    return {
+      rows,
+      applied: null,
+      note:
+        `The plan asked to rank by "${rank.by}", which is not a column of the scored rows ` +
+        `(${columns.join(", ")}); the rows below are unranked.`,
+    };
+  }
+  const dir = rank.desc ? -1 : 1;
+  const sorted = [...rows].sort((a, b) => {
+    const x = a[rank.by];
+    const y = b[rank.by];
+    const xn = x === null || x === undefined;
+    const yn = y === null || y === undefined;
+    if (xn || yn) return xn && yn ? 0 : xn ? 1 : -1;
+    if (typeof x === "number" && typeof y === "number") return (x - y) * dir;
+    return String(x).localeCompare(String(y)) * dir;
+  });
+  const limit = rank.limit && rank.limit > 0 ? Math.floor(rank.limit) : null;
+  return {
+    rows: limit ? sorted.slice(0, limit) : sorted,
+    applied: { by: rank.by, desc: rank.desc, limit, of: rows.length },
+    note: null,
+  };
+}
+
+const GENERIC_MODEL_WORDS = new Set([
+  "same",
+  "this",
+  "that",
+  "trained",
+  "ml",
+  "machine",
+  "learning",
+  "data",
+  "semantic",
+  "governed",
+  "best",
+  "right",
+  "new",
+  "other",
+  "any",
+  "a",
+  "an",
+  "the",
+  "forecast",
+  "forecasting",
+  "prediction",
+  "predictive",
+  "scoring",
+  "regression",
+  "classification",
+  "classifier",
+  "clustering",
+  "anomaly",
+  "recommendation",
+  "selected",
+  "chosen",
+  "current",
+  "appropriate",
+  "suitable",
+  "available",
+  "existing",
+  "fitting",
+  "registry",
+]);
+
+/**
+ * The model a question names that does not exist — "the churn model" when
+ * there is none. Measured live: the planner silently scored the rows with
+ * the clustering model instead and the write-up presented "top five at
+ * risk". Returns the phrase to ask about, or null when every named word
+ * belongs to a known model (or the words are generic — "a trained forecast
+ * model" names a kind, not a model). What to do about it is the loop's
+ * call: ask, or — once the user has chosen to go on without the model —
+ * strip a plan that still reaches for another one.
+ */
+export function namedModelMissing(question: string, known: string[]): string | null {
+  // The words between the LAST determiner and "model": "the customers with
+  // the churn model" names "churn", not "customers with the churn".
+  const m = question.match(
+    /\b(?:the|a|an|our|my|your)\s+((?:(?!(?:the|a|an|our|my|your)\s)[A-Za-z0-9_\u00b7-]+\s+){1,5}?)model\b/i,
+  );
+  if (!m) return null;
+  const phrase = m[1].trim();
+  const words = phrase
+    .toLowerCase()
+    .split(/[\s\u00b7-]+/)
+    .filter((w) => w && !GENERIC_MODEL_WORDS.has(w));
+  if (words.length === 0) return null;
+  const lower = known.map((n) => n.toLowerCase());
+  const hit = lower.some((n) => words.every((w) => n.includes(w)));
+  return hit ? null : phrase;
+}
+
 export type GovernedModelFields = {
   name: string;
   label?: string;
@@ -378,14 +673,150 @@ export function describeGovernedVocabulary(catalog: GovernedModelFields[]): stri
   );
 }
 
+/**
+ * The trained models a plan may score rows with, for the planner.
+ *
+ * Only present when a model is in scope — the same cost discipline as the
+ * governed vocabulary — and phrased as what a step must RETURN for scoring
+ * to work: the key column(s) when the model has a feature view (the
+ * features are then read from the view, which is the whole point of one),
+ * else the feature columns themselves.
+ */
+/** The columns a model of this task adds to a scored row — the vocabulary a plan may rank by. */
+export function modelOutputs(task: string): string {
+  switch (task) {
+    case "classification":
+      return "prediction (the class), probability (confidence in it), proba_<class> (each class's probability)";
+    case "regression":
+      return "prediction (the estimated value)";
+    case "anomaly":
+      return "prediction (1 = anomaly), anomaly_score (higher = more unusual)";
+    case "clustering":
+      return "prediction (the group number), distance (smaller = more typical of the group)";
+    case "recommendation":
+      return "prediction (ranked items), scores, cold_start";
+    default:
+      return "prediction";
+  }
+}
+
+export function describeScorableModels(models: ScorableModel[]): string {
+  const scorable = models.filter((m) => m.task !== "forecast");
+  const forecasters = models.filter((m) => m.task === "forecast");
+  if (scorable.length === 0 && forecasters.length === 0) return "";
+  const forecastBlock =
+    forecasters.length === 0
+      ? ""
+      : "\n\nFORECAST MODELS (a projection of the series each was trained on — the step needs NO " +
+        "SQL; the platform returns the model's projected periods with an interval):\n" +
+        forecasters
+          .slice(0, 8)
+          .map(
+            (m) =>
+              `MODEL ${m.name} — forecast` +
+              (m.target ? ` → ${m.target}` : "") +
+              (m.version !== null ? `, v${m.version}` : "") +
+              (m.metric ? `, ${m.metric}` : "") +
+              (m.health ? `\n  ${m.health}` : ""),
+          )
+          .join("\n");
+  if (scorable.length === 0) return forecastBlock;
+  const lines = scorable.slice(0, 8).map((m) => {
+    const by = m.keyColumns
+      ? `score by key — the step's SQL must return ${m.keyColumns.map((k) => `"${k}"`).join(" and ")}; the features are read from the model's feature view`
+      : `the step's SQL must return the feature columns: ${m.features.slice(0, 24).join(", ")}`;
+    const head =
+      `MODEL ${m.name} — ${m.task}` +
+      (m.target ? ` → ${m.target}` : "") +
+      (m.version !== null ? `, v${m.version}` : "") +
+      (m.metric ? `, ${m.metric}` : "");
+    // The owner's warning, where the planner decides whether to lean on it.
+    const health = m.health ? `\n  ${m.health}` : "";
+    return `${head}\n  ${by}\n  outputs: ${modelOutputs(m.task)}${health}`;
+  });
+  return (
+    "\n\nTRAINED MODELS YOU CAN SCORE ROWS WITH (a prediction per row — an estimate, " +
+    "never an observed value):\n" +
+    lines.join("\n") +
+    forecastBlock
+  );
+}
+
+/**
+ * What the SQL writer must know about a scored step.
+ *
+ * The planner is told what a scored step must return; the SQL is written in
+ * a SEPARATE call that sees only the step's goal — so the rule never reached
+ * the writer, and live it reached for a stored predictions table it found in
+ * the schema, twice, returning the columns the model would have produced
+ * instead of the entities the model was to score. The goal now carries the
+ * requirement into the writer's prompt.
+ */
+export function scoringSqlGoal(
+  step: Pick<AnalystStep, "goal" | "score">,
+  models: ScorableModel[] = [],
+): string {
+  if (!step.score) return step.goal;
+  const m = models.find((x) => x.name === step.score?.model);
+  const need = m?.keyColumns?.length
+    ? `the column(s) ${m.keyColumns.map((k) => `"${k}"`).join(" and ")} of the entities to score, one row per DISTINCT entity`
+    : m
+      ? `one row per DISTINCT entity to score with the feature columns ${m.features.slice(0, 24).join(", ")}, plus the column(s) that identify the entity (its id or name) so the scored rows can be named`
+      : "one row per DISTINCT entity to score";
+  return (
+    `${step.goal}. The rows this query returns will be scored by the trained model ` +
+    `"${step.score.model}" AFTER the query runs: return ${need} — ` +
+    (step.score.rank
+      ? `up to 50 rows (the platform keeps the top ${step.score.rank.limit ?? "N"} by ${step.score.rank.by} after scoring, so do NOT limit to that number) — `
+      : `at most 50 rows, or the number the goal itself names — `) +
+    `from the source table itself: do NOT read any stored ` +
+    `predictions table, do NOT compute a prediction yourself, and never ORDER BY or filter on ` +
+    `a model output (it exists in no table; the platform ranks the scored rows).`
+  );
+}
+
 export function buildAnalysisPlanPrompt(args: {
   schema: string;
   question: string;
   prior: string;
   /** Governed models in scope; empty means the plan cannot claim governance. */
   catalog?: GovernedModelFields[];
+  /** Trained models in scope; empty means no step can be scored. */
+  models?: ScorableModel[];
 }): { systemPrompt: string; userPrompt: string } {
   const vocabulary = describeGovernedVocabulary(args.catalog ?? []);
+  const scorable = describeScorableModels(args.models ?? []);
+  const hasForecasters = (args.models ?? []).some((m) => m.task === "forecast");
+  // The user accepted the analyst's assumption (the route re-asks with it
+  // appended). Measured live: the planner asked the same question again.
+  const answeredRule = /Proceed with this assumption:/.test(args.question)
+    ? '\n\nTHE USER HAS ANSWERED. The question ends with "Proceed with this assumption: …" — ' +
+      "that is the answer to whatever you would have asked. Plan under that assumption; do " +
+      "NOT return clarify again."
+    : "";
+  const scoreRule = scorable
+    ? "\n\nADD A SCORED STEP when the question asks which rows are LIKELY something, for a " +
+      "predicted value, or to estimate, score or predict with a NAMED trained model: add " +
+      '"score": { "model": "<model name>" } to that step. Its SQL must return one row per ' +
+      "entity to score — the model's key column(s) when it scores by key, else its feature " +
+      "columns — and at most fifty rows. Use the EXACT model name; a step naming any other " +
+      "model loses its scoring. Never estimate a prediction yourself: a scored step is the " +
+      "only way to get one, and a step without one holds observed values only. " +
+      "For the MOST / LEAST / TOP-N BY THE MODEL'S OUTPUT (most anomalous, most likely " +
+      'enterprise, highest predicted value) add "rank": { "by": "<output column>", "desc": ' +
+      'true, "limit": N } inside "score": the SQL still returns a sample of entities (at most ' +
+      "fifty) and the platform ranks the scored rows — a model output exists in no table, so " +
+      "SQL can never sort or filter by it. A regression model estimates one row at a time; it " +
+      "is NOT a forecast." +
+      (hasForecasters
+        ? " ADD A FORECAST STEP when the question asks what a series WILL do over coming " +
+          'periods: add "forecast": { "model": "<forecast model name>", "horizon": N } with no ' +
+          "other work in that step — the platform returns the model's projected periods. " +
+          "Never use a regression model to forecast."
+        : "") +
+      " If the question names a model that is not listed, do not substitute another model: " +
+      'return { "clarify": ... } saying no model of that name exists and naming the ones that do.'
+    : "";
   const governedRule = vocabulary
     ? "\n\nPREFER A GOVERNED STEP when the step's numbers come from a governed model's " +
       'metrics. Add "semantic": { "model": "<model name>", "metrics": ["<metric>"], ' +
@@ -418,12 +849,21 @@ export function buildAnalysisPlanPrompt(args: {
       "row limits, which of two equivalent columns to group by. When you must ask, return " +
       '{ "clarify": "one specific question", "assumption": "what you would assume if told to ' +
       'proceed" } and NOTHING else.' +
-      governedRule,
+      governedRule +
+      scoreRule +
+      answeredRule,
     userPrompt:
-      `${args.schema}${vocabulary}\n\n${args.prior}QUESTION: ${args.question}\n\n` +
+      `${args.schema}${vocabulary}${scorable}\n\n${args.prior}QUESTION: ${args.question}\n\n` +
       `Return JSON: { "approach": "1-3 sentences on how you'll answer and why these steps", ` +
       `"steps": [ { "goal": "concrete, measurable step goal"${
         vocabulary ? ', "semantic": { ... } (optional)' : ""
+      }${
+        scorable
+          ? ', "score": { "model": "<model name>", "rank": { "by": "<output column>", "desc": true, "limit": N } } (optional; rank optional)' +
+            (hasForecasters
+              ? ', "forecast": { "model": "<forecast model name>", "horizon": N } (optional)'
+              : "")
+          : ""
       } } ] } ` +
       `— OR { "clarify": "...", "assumption": "..." } if you genuinely cannot proceed well.`,
   };
@@ -431,10 +871,45 @@ export function buildAnalysisPlanPrompt(args: {
 
 export function buildCheckPrompt(args: {
   question: string;
-  steps: Array<{ goal: string; sql?: string; facts: string; error?: string }>;
+  steps: Array<{
+    goal: string;
+    sql?: string;
+    facts: string;
+    error?: string;
+    /** A trained model scored this step's rows after the SQL ran; these are the columns it added. */
+    scored?: { model: string; columns: string[]; ranked?: string | null };
+    /** A forecast model's projection — there is no SQL to correct. */
+    forecast?: {
+      model: string;
+      period?: string | null;
+      periods?: number;
+      lastObserved?: string | null;
+    };
+  }>;
   /** Governed models in scope — named so the reviewer cannot mistake one for a table. */
   catalog?: GovernedModelFields[];
 }): { systemPrompt: string; userPrompt: string } {
+  // A scored step's facts carry the model's columns beside the SQL's, and
+  // nothing said which was which. Measured live: the reviewer "corrected"
+  // a scored step with `SELECT order_id, prediction, probability, …` and
+  // the rewrite died on `Binder Error: Referenced column "prediction" not
+  // found` — the prediction exists in no table; the model wrote it onto the
+  // rows after the query. The reviewer is now told which columns are the
+  // model's, that they are not in any table, and that a correction returns
+  // the same key column(s) and is scored again on its own.
+  const scoredRule = args.steps.some((s) => s.scored || s.forecast)
+    ? "\n\nA STEP MARKED SCORED AFTER THE QUERY had its rows scored by a trained model once " +
+      "the SQL had run. Judge only whether the SQL returned the right rows to score — the " +
+      "entities its goal names — and never the predictions themselves: the model's columns " +
+      "exist in no table, so a refined_sql must not select, filter or sort by them; it " +
+      "returns the same key column(s) from the source table, and its rows are scored again " +
+      "automatically. A ranking by a model output (RANKED BY) was applied by the platform " +
+      "after scoring — never propose ORDER BY on one. A step marked FORECAST BY has no SQL: " +
+      "its rows are the model's projected periods; judge only whether that answers the goal. " +
+      "A step whose goal names a trained model but is NOT marked SCORED AFTER THE QUERY or " +
+      "FORECAST BY did not run it: its numbers are observed values, so mark it suspect and " +
+      "say the model did not run."
+    : "";
   // A step that FELL BACK to hand-written SQL still carries a goal phrased
   // around the governed model ("From saas_sales_model, compute total_sales…").
   // Measured live: the reviewer read that as a table name, "corrected" correct
@@ -455,6 +930,21 @@ export function buildCheckPrompt(args: {
     .map(
       (s, i) =>
         `STEP ${i + 1}: ${s.goal}\nSQL: ${s.sql ?? "(none)"}\n` +
+        (s.scored
+          ? `SCORED AFTER THE QUERY by the trained model "${s.scored.model}": the column(s) ` +
+            `${s.scored.columns.join(", ")} are the model's estimates, added to the rows after ` +
+            `the SQL ran — they exist in no table.${s.scored.ranked ? ` RANKED BY ${s.scored.ranked}.` : ""}\n`
+          : "") +
+        (s.forecast
+          ? `FORECAST BY the trained model "${s.forecast.model}": the rows are its projected ` +
+            `periods (period, forecast, lower, upper)` +
+            (s.forecast.periods
+              ? ` — ${s.forecast.periods} of them, each one ${s.forecast.period ?? "period"}` +
+                (s.forecast.lastObserved ? `, after ${s.forecast.lastObserved}` : "")
+              : "") +
+            `; there is no SQL to correct. If the goal asks for a different period (months when ` +
+            `each row is a week) or a different horizon, say so in the note.\n`
+          : "") +
         (s.error ? `ENGINE ERROR: ${s.error}` : `RESULT FACTS: ${s.facts}`),
     )
     .join("\n\n");
@@ -469,7 +959,8 @@ export function buildCheckPrompt(args: {
       "with a corrected single SELECT statement — it will be re-executed and replace the " +
       "result. Be specific in notes: name the number or shape that concerns you. Never " +
       "invent data." +
-      modelsAreNotTables,
+      modelsAreNotTables +
+      scoredRule,
     userPrompt:
       `QUESTION: ${args.question}\n\n${stepBlocks}\n\n` +
       `Return JSON: { "checks": [ { "verdict": "pass|suspect", "note": "one sentence", ` +
@@ -482,7 +973,19 @@ export function buildSynthesisPrompt(args: {
   question: string;
   approach: string;
   prior: string;
-  steps: Array<{ goal: string; facts: string; verdict?: string; note?: string; error?: string }>;
+  steps: Array<{
+    goal: string;
+    facts: string;
+    verdict?: string;
+    note?: string;
+    error?: string;
+    /** "model vN (metric)" when a trained model scored this step's rows. */
+    scored?: string;
+    /** The step is a forecast model's projection, not a scored query. */
+    forecast?: boolean;
+    /** What the tool said about the model's columns — class meanings, group profiles, warnings. */
+    scoredNotes?: string[];
+  }>;
 }): { systemPrompt: string; userPrompt: string } {
   const stepBlocks = args.steps
     .map(
@@ -490,9 +993,20 @@ export function buildSynthesisPrompt(args: {
         `STEP ${i + 1}: ${s.goal}\n` +
         (s.error
           ? `FAILED: ${s.error}`
-          : `RESULT: ${s.facts}${s.verdict ? `\nCHECK: ${s.verdict}${s.note ? ` — ${s.note}` : ""}` : ""}`),
+          : `RESULT: ${s.facts}${
+              s.scored
+                ? s.forecast
+                  ? `\nFORECAST BY: ${s.scored} — the rows are the model's projected periods with an interval`
+                  : `\nSCORED BY: ${s.scored} — the prediction columns are model estimates`
+                : ""
+            }${
+              s.scoredNotes && s.scoredNotes.length
+                ? `\nMODEL NOTES:\n${s.scoredNotes.map((n) => `- ${n}`).join("\n")}`
+                : ""
+            }${s.verdict ? `\nCHECK: ${s.verdict}${s.note ? ` — ${s.note}` : ""}` : ""}`),
     )
     .join("\n\n");
+  const anyScored = args.steps.some((s) => s.scored);
   return {
     systemPrompt:
       "You are a senior data analyst writing up findings. Answer the question using ONLY the " +
@@ -500,7 +1014,23 @@ export function buildSynthesisPrompt(args: {
       "like (step 2). Lead with the direct answer, then the supporting evidence, then any " +
       "caveat a careful analyst would add (suspect checks, failed steps, sample caps). " +
       "Markdown, short paragraphs and lists, no headings. If the steps do not answer the " +
-      "question, say exactly what is missing instead of guessing.",
+      "question, say exactly what is missing instead of guessing." +
+      // The same honesty rule the forecaster carries: a prediction is what a
+      // model expects, and a write-up that says "will" where the data says
+      // "is likely to" has turned an estimate into a fact.
+      (anyScored
+        ? " A step marked SCORED BY carries PREDICTIONS from a trained model: report them as " +
+          "what the model estimates or expects, name the model where you cite them, and never " +
+          "present a predicted value as something that was observed. Use its MODEL NOTES to " +
+          "explain what a class, a group or a score means. A SCORED BY regression step gives " +
+          "one estimate per row and is not a series — never turn it into a projection. A step " +
+          "marked FORECAST BY holds the model's projected periods with an interval: report them " +
+          "as what the model expects, with the interval."
+        : "") +
+      " A step NOT marked SCORED BY or FORECAST BY holds observed values only — never call " +
+      "its numbers a model's estimate or forecast. A CHECK note saying a proposed correction " +
+      "failed or was refused means the step's own result above stands: the step did not fail, " +
+      "report its numbers.",
     userPrompt:
       `${args.prior}QUESTION: ${args.question}\nAPPROACH: ${args.approach}\n\n${stepBlocks}\n\n` +
       `Return JSON: { "answer": "markdown", "follow_ups": ` +
@@ -636,13 +1166,42 @@ export function parseSemanticStep(
   return q;
 }
 
+/** A plan's rank block, validated: a column name, a direction (default descending), an optional limit within the scoring cap. */
+export function parseScoreRank(raw: unknown): ScoreRank | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const o = raw as Record<string, unknown>;
+  const by =
+    typeof o.by === "string" ? o.by.trim() : typeof o.column === "string" ? o.column.trim() : "";
+  if (!by) return undefined;
+  const desc =
+    typeof o.desc === "boolean"
+      ? o.desc
+      : typeof o.dir === "string"
+        ? o.dir.toLowerCase() !== "asc"
+        : true;
+  const limit =
+    typeof o.limit === "number" && o.limit >= 1
+      ? Math.min(ANALYST_SCORE_CAP, Math.floor(o.limit))
+      : undefined;
+  return { by, desc, ...(limit ? { limit } : {}) };
+}
+
 export function parseAnalysisPlan(
   raw: unknown,
   /** Governed models in scope. Omitted → no step can claim to be governed. */
   catalog: GovernedModelFields[] = [],
+  /** Trained models in scope. Omitted → no step can ask to be scored. */
+  models: ScorableModel[] = [],
+  /** The question, as the goal of a plan the model collapsed into one bare step. */
+  question = "",
 ): {
   approach: string;
-  steps: { goal: string; semantic?: SemanticQuery }[];
+  steps: {
+    goal: string;
+    semantic?: SemanticQuery;
+    score?: { model: string; rank?: ScoreRank };
+    forecast?: { model: string; horizon?: number };
+  }[];
   /** Set INSTEAD of steps when the analyst needs an answer before it can plan. */
   clarify?: string;
   /** What it would assume if told to proceed anyway. */
@@ -656,11 +1215,32 @@ export function parseAnalysisPlan(
     unknown
   >;
   const approach = typeof o.approach === "string" ? o.approach.trim() : "";
-  const list = Array.isArray(o.steps)
+  const isStepLike = (v: unknown): v is Record<string, unknown> =>
+    !!v &&
+    typeof v === "object" &&
+    !Array.isArray(v) &&
+    (typeof (v as Record<string, unknown>).goal === "string" ||
+      ["score", "scored", "forecast", "semantic"].some(
+        (k) =>
+          !!(v as Record<string, unknown>)[k] &&
+          typeof (v as Record<string, unknown>)[k] === "object",
+      ));
+  const found = Array.isArray(o.steps)
     ? o.steps
     : Array.isArray(o.analysis_steps)
       ? o.analysis_steps
-      : ((Object.values(o).find(Array.isArray) as unknown[] | undefined) ?? []);
+      : isStepLike(o.steps)
+        ? [o.steps]
+        : ((Object.values(o).find(Array.isArray) as unknown[] | undefined) ?? []);
+  // Measured live, twice in one session: asked for the ten most anomalous
+  // orders, the model returned `{ "score": { "model": …, "rank": … } }`
+  // and nothing else — the plan collapsed into its one interesting block —
+  // and the analyst said "no analysis steps". A bare step-shaped root IS a
+  // one-step plan; its goal is the question.
+  const list: unknown[] =
+    found.length === 0 && isStepLike(o)
+      ? [{ ...o, goal: typeof o.goal === "string" && o.goal.trim() ? o.goal : question }]
+      : found;
   const goalOf = (s: unknown): string => {
     if (typeof s === "string") return s.trim();
     const obj = (s ?? {}) as Record<string, unknown>;
@@ -674,7 +1254,56 @@ export function parseAnalysisPlan(
       const goal = goalOf(s);
       const obj = (s ?? {}) as Record<string, unknown>;
       const semantic = parseSemanticStep(obj.semantic ?? obj.governed, catalog);
-      return semantic ? { goal, semantic } : { goal };
+      // A scored step names a model that is actually in scope, or it is not
+      // a scored step — the same rule as a governed block. A name the model
+      // invented does not become a prediction by being asked for.
+      const scoreRaw = obj.score ?? obj.scored ?? obj.model_score;
+      const scoreName =
+        scoreRaw && typeof scoreRaw === "object"
+          ? (scoreRaw as Record<string, unknown>).model
+          : scoreRaw;
+      const rankRaw =
+        scoreRaw && typeof scoreRaw === "object"
+          ? (scoreRaw as Record<string, unknown>).rank
+          : undefined;
+      const rank = parseScoreRank(rankRaw);
+      let score =
+        typeof scoreName === "string" &&
+        models.some((m) => m.name === scoreName.trim() && m.task !== "forecast")
+          ? { model: scoreName.trim(), ...(rank ? { rank } : {}) }
+          : undefined;
+      // A forecast step names a FORECAST model — no SQL, the model's own periods.
+      const fRaw = obj.forecast;
+      const fName =
+        fRaw && typeof fRaw === "object" ? (fRaw as Record<string, unknown>).model : fRaw;
+      const fHorizon =
+        fRaw && typeof fRaw === "object" ? (fRaw as Record<string, unknown>).horizon : undefined;
+      let forecast =
+        typeof fName === "string" &&
+        models.some((m) => m.name === fName.trim() && m.task === "forecast")
+          ? {
+              model: fName.trim(),
+              ...(typeof fHorizon === "number" && fHorizon >= 1
+                ? { horizon: Math.min(120, Math.floor(fHorizon)) }
+                : {}),
+            }
+          : undefined;
+      // A goal that NAMES a model in scope is scored by it even when the
+      // planner forgot the block. Measured live: "estimate their net_usd
+      // with the revenue_facts model" came back with no score, was written
+      // as SQL over the actual values, and the write-up called those the
+      // model's estimates. Naming the model is the request.
+      if (!score && !forecast) {
+        const named = models.find((m) => namesModel(goal, m.name));
+        if (named && named.task === "forecast") forecast = { model: named.name };
+        else if (named) score = { model: named.name, ...(rank ? { rank } : {}) };
+      }
+      return {
+        goal,
+        ...(semantic ? { semantic } : {}),
+        ...(score ? { score } : {}),
+        ...(forecast ? { forecast } : {}),
+      };
     })
     .filter((s) => s.goal.length > 0)
     .slice(0, MAX_ANALYSIS_STEPS);
@@ -713,17 +1342,94 @@ export function parseAnalysisPlan(
  * write-up came back shaped so the strict `.answer` read produced the
  * "no write-up" fallback on a perfectly good analysis.
  */
+/**
+ * A structured answer, as prose a person can read.
+ *
+ * Measured live with gpt-4o-mini on a scored step: asked for `{ "answer":
+ * "markdown" }`, it returned `{ "answer": { "orders": [ { "order_id": 1000,
+ * "predicted_plan": "pro", "probability": 0.9479 }, … ] }, "caveats": [...] }`
+ * — a perfectly good answer as data — and the strict string read produced
+ * "produced no write-up" over a finished analysis, twice. An array of flat
+ * objects becomes a table, an object becomes a list, and anything stranger
+ * is shown as JSON rather than as nothing.
+ */
+export function structuredToMarkdown(value: unknown, depth = 0): string {
+  const isFlat = (v: unknown): v is Record<string, unknown> =>
+    !!v &&
+    typeof v === "object" &&
+    !Array.isArray(v) &&
+    Object.values(v).every((x) => x === null || typeof x !== "object");
+  const cell = (v: unknown): string =>
+    v === null || v === undefined
+      ? "—"
+      : typeof v === "number"
+        ? String(Number(v.toFixed(4)))
+        : typeof v === "object"
+          ? JSON.stringify(v)
+          : String(v).replace(/\|/g, "\\|");
+  if (value === null || value === undefined) return "";
+  if (typeof value !== "object") return String(value);
+  if (Array.isArray(value)) {
+    if (value.length === 0) return "";
+    if (value.every(isFlat)) {
+      const cols: string[] = [];
+      for (const row of value)
+        for (const k of Object.keys(row)) if (!cols.includes(k)) cols.push(k);
+      return (
+        `| ${cols.join(" | ")} |\n| ${cols.map(() => "---").join(" | ")} |\n` +
+        value.map((row) => `| ${cols.map((c) => cell(row[c])).join(" | ")} |`).join("\n")
+      );
+    }
+    return value
+      .map((v) => `- ${structuredToMarkdown(v, depth + 1).replace(/\n/g, "\n  ")}`)
+      .join("\n");
+  }
+  const o = value as Record<string, unknown>;
+  const label = (k: string) => k.replace(/_/g, " ");
+  return Object.entries(o)
+    .map(([k, v]) => {
+      if (v !== null && typeof v === "object") {
+        const body = structuredToMarkdown(v, depth + 1);
+        return depth === 0
+          ? `**${label(k)}**\n\n${body}`
+          : `- ${label(k)}:\n  ${body.replace(/\n/g, "\n  ")}`;
+      }
+      return `- ${label(k)}: ${cell(v)}`;
+    })
+    .join("\n\n");
+}
+
 export function parseSynthesis(raw: unknown): string {
   if (typeof raw === "string") return raw.trim();
   const o = (raw ?? {}) as Record<string, unknown>;
+  const caveats = ["caveats", "caveat", "notes"]
+    .map((k) => o[k])
+    .find((v) => Array.isArray(v) || typeof v === "string");
+  const withCaveats = (answer: string): string => {
+    if (!answer) return answer;
+    const list = Array.isArray(caveats)
+      ? caveats.filter((c): c is string => typeof c === "string" && c.trim().length > 0)
+      : typeof caveats === "string" && caveats.trim()
+        ? [caveats.trim()]
+        : [];
+    return list.length
+      ? `${answer}\n\n**Caveats**\n\n${list.map((c) => `- ${c}`).join("\n")}`
+      : answer;
+  };
   for (const k of ["answer", "markdown", "text", "findings", "summary"]) {
-    if (typeof o[k] === "string" && (o[k] as string).trim()) return (o[k] as string).trim();
+    const v = o[k];
+    if (typeof v === "string" && v.trim()) return withCaveats(v.trim());
+    // The answer as DATA rather than prose — rendered, not discarded.
+    if (v !== null && typeof v === "object") {
+      const rendered = structuredToMarkdown(v).trim();
+      if (rendered) return withCaveats(rendered);
+    }
   }
   // A single string value under an unexpected key is still the answer.
   const strings = Object.values(o).filter(
     (v): v is string => typeof v === "string" && v.trim().length > 0,
   );
-  return strings.length === 1 ? strings[0].trim() : "";
+  return strings.length === 1 ? withCaveats(strings[0].trim()) : "";
 }
 
 /**
@@ -807,20 +1513,41 @@ export function driversForStep(step: {
  *
  * So: quote small results in full, summarise big ones, and say which.
  */
-export function describeStepResult(result: QueryResult, maxRows = QUOTE_ROWS_UP_TO): string {
+export function describeStepResult(
+  result: QueryResult,
+  maxRows = QUOTE_ROWS_UP_TO,
+  /** Columns a trained model added to the rows — listed as estimates, never fed to the arithmetic. */
+  estimates: string[] = [],
+): string {
   // Two shapes get arithmetic attached before the model ever sees them, so
   // the write-up cites computed values instead of eyeballing columns: a
   // two-period breakdown gets contribution analysis, and a time series gets
   // its trend, outliers and (only when the history supports one) a labelled
   // projection.
-  const drivers = driversForStep({ columns: result.columns, rows: result.rows });
+  //
+  // The arithmetic reads OBSERVED columns only. A scored step's rows carry
+  // the model's columns too, and measured live the driver detector read
+  // `order_id | prediction | probability` as a two-period breakdown by
+  // prediction, computed the "contribution" of order_id -> probability, and
+  // the reviewer repeated its "-11,054.852 total change" as a concern that
+  // the write-up then listed as a caveat. An estimate is quoted in the rows,
+  // marked as one; it is never a period, a series or a driver.
+  const estimated = estimates.filter((c) => result.columns.includes(c));
+  const observed = {
+    columns: result.columns.filter((c) => !estimated.includes(c)),
+    rows: result.rows,
+  };
+  const drivers = driversForStep(observed);
   const driverBlock = drivers ? `\n\nCONTRIBUTION ANALYSIS:\n${describeDrivers(drivers)}` : "";
-  const series = seriesFrom(result.columns, result.rows);
+  const series = seriesFrom(observed.columns, result.rows);
   const reading = series ? readSeries(series) : null;
   const seriesBlock = reading ? `\n\n${describeSeries(reading, forecastSeries(series!))}` : "";
   const extra = driverBlock + seriesBlock;
+  const estimateNote = estimated.length
+    ? `\nMODEL ESTIMATES (added to the rows after the query; in no table): ${estimated.join(", ")}`
+    : "";
   if (result.rows.length === 0 || result.rows.length > maxRows) {
-    return describeResultFacts(result) + extra;
+    return describeResultFacts(result) + estimateNote + extra;
   }
   const cell = (v: unknown) => {
     if (v === null || v === undefined) return "null";
@@ -830,10 +1557,45 @@ export function describeStepResult(result: QueryResult, maxRows = QUOTE_ROWS_UP_
   const rows = result.rows
     .map((r) => result.columns.map((c) => `${c}=${cell(r[c])}`).join(" | "))
     .join("\n");
+  const name = (c: string) => (estimated.includes(c) ? `${c} (model estimate)` : c);
   return (
     `${result.rows.length} row${result.rows.length === 1 ? "" : "s"}, ` +
-    `columns: ${result.columns.join(", ")}\n${rows}${extra}`
+    `columns: ${result.columns.map(name).join(", ")}\n${rows}${extra}`
   );
+}
+
+/**
+ * The one line the write-up is told about a scored step: the model, its
+ * version and metric, its health, and any ranking the platform applied.
+ */
+export function scoredLabel(s: ScoredDisclosure): string {
+  const ranked = s.ranked
+    ? `; ranked by ${s.ranked.by} ${s.ranked.desc ? "desc" : "asc"}${s.ranked.limit ? `, top ${s.ranked.limit} of ${s.ranked.of} scored` : ""}`
+    : "";
+  const periods = s.forecast
+    ? ` (${s.rowsScored} ${s.forecast.period ?? "period"}s${s.forecast.lastObserved ? ` after ${s.forecast.lastObserved}` : ""})`
+    : "";
+  return `${s.model} v${s.version ?? "?"}${s.metric ? ` (${s.metric})` : ""}${periods}${s.health ? `; ${s.health}` : ""}${ranked}`;
+}
+
+/**
+ * What the check and the write-up are told a step returned: the result,
+ * with the columns a model added marked as estimates and kept out of the
+ * arithmetic. One helper so the three prompts that read a result cannot
+ * disagree about which columns the SQL produced.
+ */
+export function stepFacts(result: QueryResult | null, step: Pick<AnalystStep, "scored">): string {
+  // A scored step's rows ARE the answer — up to the scoring cap, they are
+  // quoted in full. Measured live: fifteen scored orders were summarised
+  // (rows > QUOTE_ROWS_UP_TO), so the write-up saw "order_id total=22104"
+  // and three per-class maxima, and built its findings table out of those.
+  return result
+    ? describeStepResult(
+        result,
+        step.scored ? Math.max(QUOTE_ROWS_UP_TO, ANALYST_SCORE_CAP) : QUOTE_ROWS_UP_TO,
+        step.scored?.columns ?? [],
+      )
+    : "(no result)";
 }
 
 /**
@@ -949,6 +1711,8 @@ export async function runAnalystTurn(args: {
     rows: Record<string, unknown>[];
     rollup?: string;
     access_note?: string;
+    /** The rows are a prefix: the governed query has more than were returned. */
+    truncated?: boolean;
   }>;
   /**
    * How to reach the model. Defaults to the browser session, which is the
@@ -957,6 +1721,24 @@ export async function runAnalystTurn(args: {
    * the reasoning an anonymous visitor gets is the reasoning the owner gets.
    */
   llm?: LlmJsonFn;
+  /** Trained models the plan may score rows with. Empty = no scored steps. */
+  models?: ScorableModel[];
+  /**
+   * Score a step's rows with a registry model. Injected like runSemantic and
+   * for the same reason: scoring happens SERVER-side, where the model, its
+   * feature view and the owner's grants live — the browser only ever holds
+   * model names. Absent means a scored step is planned but cannot run, and
+   * says so.
+   */
+  scoreRows?: (req: { model: string; rows: Record<string, unknown>[] }) => Promise<ScoreRowsResult>;
+  /** A forecast model's projection, server-side like scoreRows. Absent means a forecast step cannot run, and says so. */
+  forecast?: (req: { model: string }) => Promise<ForecastResult>;
+  /**
+   * Names of trained models the user could enable for this analyst but has
+   * not — so a question naming one gets "not enabled for this analyst"
+   * rather than "no such model", and points at the setting.
+   */
+  modelsOutsideScope?: string[];
   onUpdate: (turn: AnalystTurn) => void;
 }): Promise<AnalystTurn> {
   const ask: LlmJsonFn = args.llm ?? llmJson;
@@ -999,6 +1781,94 @@ export async function runAnalystTurn(args: {
   // sample — the check must see true magnitudes, the store must stay small.
   const results: (QueryResult | null)[] = [];
 
+  // Score a step's rows with the model its plan named. The step's own sample
+  // (≤ ANALYST_SCORE_CAP, the tool's cap too) is what gets scored, and the
+  // prediction columns join BOTH the step and the result the check and the
+  // write-up read — a predicted column is never one the findings could not
+  // have seen. A scoring that fails leaves the rows unscored and SAYS so;
+  // the analyst never fills a prediction in itself.
+  const scoreStep = async (step: AnalystStep, res: QueryResult, i: number) => {
+    if (!step.score) return;
+    if (!args.scoreRows) {
+      step.check = {
+        verdict: "suspect",
+        note: `The plan asked to score these rows with ${step.score.model}, but scoring is not available here — the rows below are unscored.`,
+      };
+      delete step.score;
+      return;
+    }
+    step.status = "scoring";
+    emit();
+    try {
+      const out = await args.scoreRows({
+        model: step.score.model,
+        rows: res.rows.slice(0, ANALYST_SCORE_CAP),
+      });
+      if (!out.ok) throw new Error(out.error);
+      // total_matched carries the true pre-cap count through, so
+      // "(showing 50 of 108)" and "scored 50 of 108" can both be said.
+      // The MOST / LEAST / TOP-N by the model's output is decided HERE, on
+      // the scored rows — the one place the output exists.
+      const ranked = step.score.rank
+        ? rankScoredRows(out.rows, step.score.rank, out.columns)
+        : null;
+      const rows = ranked ? ranked.rows : out.rows;
+      const scoredResult: QueryResult = {
+        ...res,
+        columns: out.columns,
+        rows,
+        row_count: rows.length,
+        total_matched: res.total_matched ?? res.rows.length,
+      };
+      captureResult(step, scoredResult);
+      results[i] = scoredResult;
+      step.scored = { ...out.scored, ranked: ranked?.applied ?? null };
+      if (ranked?.note) step.check = { verdict: "suspect", note: ranked.note };
+    } catch (e) {
+      step.check = {
+        verdict: "suspect",
+        note: `Could not score with ${step.score.model}: ${(e as Error).message}. The rows below are unscored.`,
+      };
+      delete step.score;
+    }
+  };
+
+  // A forecast step asks a FORECAST model for its projection: no SQL, the
+  // rows are the model's periods. A projection that cannot be produced is
+  // a failed step, not a quiet table of nothing.
+  const forecastStep = async (step: AnalystStep, i: number) => {
+    if (!step.forecast) return;
+    if (!args.forecast) {
+      step.error = `The plan asked ${step.forecast.model} for a forecast, but forecasting is not available here.`;
+      step.status = "error";
+      results[i] = null;
+      return;
+    }
+    step.status = "scoring";
+    emit();
+    const out = await args.forecast({ model: step.forecast.model });
+    if (!out.ok) {
+      step.error = `Could not forecast with ${step.forecast.model}: ${out.error}`;
+      step.status = "error";
+      results[i] = null;
+      return;
+    }
+    const horizon = step.forecast.horizon;
+    const rows = horizon && horizon > 0 ? out.rows.slice(0, horizon) : out.rows;
+    const res: QueryResult = {
+      columns: out.columns,
+      rows,
+      row_count: rows.length,
+      total_matched: rows.length,
+      capped: false,
+      duration_ms: 0,
+    };
+    captureResult(step, res);
+    results[i] = res;
+    step.scored = { ...out.scored, rowsScored: rows.length };
+    step.status = "done";
+  };
+
   try {
     // 1. PLAN
     await ensureGovernedCatalog();
@@ -1010,11 +1880,95 @@ export async function runAnalystTurn(args: {
       question: args.question,
       prior,
       catalog,
+      models: args.models,
     });
-    const plan = parseAnalysisPlan(
+    let plan = parseAnalysisPlan(
       await ask<unknown>({ ...planPrompt, model: args.model, maxTokens: ANALYST_TOKENS.plan }),
       catalog,
+      args.models ?? [],
+      args.question,
     );
+    // Asked again after the user accepted the assumption: one more try,
+    // told so in plain words, before honouring a question it still insists on.
+    if (plan.clarify && /Proceed with this assumption:/.test(args.question)) {
+      plan = parseAnalysisPlan(
+        await ask<unknown>({
+          ...planPrompt,
+          systemPrompt:
+            planPrompt.systemPrompt +
+            "\n\nYou asked once and the user answered with the assumption above. Return steps now; " +
+            "a second clarify is a refusal to work.",
+          model: args.model,
+          maxTokens: ANALYST_TOKENS.plan,
+        }),
+        catalog,
+        args.models ?? [],
+        args.question,
+      );
+    }
+    // The question named a model that does not exist and the plan reached
+    // for another one: ask, rather than answer "which five are most at risk"
+    // with a clustering model standing in for a churn model nobody has.
+    // A model the user HAS but did not enable for this analyst is named as
+    // exactly that, whether the plan substituted or asked on its own.
+    const missing =
+      plan.steps.some((s) => s.score || s.forecast) || plan.clarify
+        ? namedModelMissing(args.question, [
+            ...(args.models ?? []).map((m) => m.name),
+            ...catalog.map((c) => c.name),
+          ])
+        : null;
+    const outside =
+      missing && !/Proceed with this assumption:/.test(args.question)
+        ? (args.modelsOutsideScope ?? []).find((n) => {
+            const words = missing
+              .toLowerCase()
+              .split(/[\s\u00b7-]+/)
+              .filter(Boolean);
+            return words.every((w) => n.toLowerCase().includes(w));
+          })
+        : undefined;
+    if (outside) {
+      const names = (args.models ?? []).map((m) => `"${m.name}"`).join(", ");
+      plan = {
+        approach: "",
+        steps: [],
+        clarify:
+          `"${outside}" exists but is not enabled for this analyst` +
+          (names
+            ? ` — its predictive models are ${names}.`
+            : " — it has no predictive models enabled.") +
+          " Enable it under the analyst's settings (the pencil on its card), or ask with one it may use.",
+        assumption: "Answer from the data alone, without a trained model",
+      };
+    }
+    if (outside) {
+      // Said above; nothing to strip and nothing more to ask.
+    } else if (missing && /Proceed with this assumption:/.test(args.question)) {
+      // The user already chose to go on; a plan that still reaches for
+      // another model is stripped of its scoring, never trusted. Measured
+      // live: the planner's own second assumption was "the churn model is
+      // the one defined in the schema" — there is none — and accepting it
+      // would have scored the rows with the clustering model again.
+      plan = {
+        ...plan,
+        approach:
+          `No trained model named "${missing}" exists; answered from the data alone. ` +
+          plan.approach,
+        steps: plan.steps.map(({ score: _score, forecast: _forecast, ...rest }) => rest),
+      };
+    } else if (missing) {
+      const names = (args.models ?? []).map((m) => `"${m.name}"`).join(", ");
+      plan = {
+        approach: "",
+        steps: [],
+        clarify:
+          `No trained model named "${missing}" is available to this analyst` +
+          (names ? `; it can use ${names}.` : ".") +
+          " Which should it use, or should it answer without a model?",
+        assumption: "Answer from the data alone, without a trained model",
+      };
+    }
     // 1b. STOP AND ASK, when proceeding would mean inventing the question.
     // A guess that runs produces confident numbers with the assumption
     // buried in SQL nobody reads; a question costs one exchange and leaves
@@ -1031,6 +1985,8 @@ export async function runAnalystTurn(args: {
     turn.steps = plan.steps.map((s) => ({
       goal: s.goal,
       ...(s.semantic ? { semantic: s.semantic } : {}),
+      ...(s.score ? { score: s.score } : {}),
+      ...(s.forecast ? { forecast: s.forecast } : {}),
       status: "pending" as const,
     }));
     turn.status = "working";
@@ -1050,6 +2006,8 @@ export async function runAnalystTurn(args: {
     await mapWithConcurrency(turn.steps, ANALYST_STEP_CONCURRENCY, async (step, i) => {
       step.status = "writing_sql";
       emit();
+      // A scored step's goal carries what the SQL must return for scoring.
+      const sqlGoal = scoringSqlGoal(step, args.models);
       const stepPlan: BiPlan = {
         intent: `One step of a larger analysis. Overall question: ${args.question}`,
         tables: [],
@@ -1075,16 +2033,30 @@ export async function runAnalystTurn(args: {
             };
             step.status = "running";
             emit();
+            // `capped: false` used to be written here unconditionally — a
+            // claim of completeness over a result the runner had cut at its
+            // cap. The runner now says; the step says after it, in the note
+            // the self-check keeps and the write-up reads.
             const governedResult: QueryResult = {
               columns: res.columns,
               rows: res.rows,
               row_count: res.rows.length,
               total_matched: res.rows.length,
-              capped: false,
+              capped: res.truncated === true,
               duration_ms: 0,
             };
             captureResult(step, governedResult);
+            if (res.truncated) {
+              step.check = {
+                verdict: "suspect",
+                note:
+                  `Partial: the governed model returned the first ${res.rows.length} groups of a larger ` +
+                  `result, so totals and rankings from this step may be incomplete — narrow with a ` +
+                  `filter or a coarser grain to see everything.`,
+              };
+            }
             results[i] = governedResult;
+            await scoreStep(step, governedResult, i);
             step.status = "done";
             emit();
             compiled = true;
@@ -1107,8 +2079,13 @@ export async function runAnalystTurn(args: {
           emit();
           return;
         }
+        if (step.forecast) {
+          await forecastStep(step, i);
+          emit();
+          return;
+        }
         step.sql = await generateSql({
-          question: step.goal,
+          question: sqlGoal,
           plan: stepPlan,
           datasets: args.datasets,
           semantics: args.semantics,
@@ -1126,7 +2103,7 @@ export async function runAnalystTurn(args: {
         } catch (e) {
           // One repair pass with the engine's own error, like the BI analyst.
           step.sql = await generateSql({
-            question: step.goal,
+            question: sqlGoal,
             plan: stepPlan,
             datasets: args.datasets,
             semantics: args.semantics,
@@ -1151,7 +2128,7 @@ export async function runAnalystTurn(args: {
         if ((step.rowCount ?? 0) > ANALYST_ROW_CAP) {
           try {
             const reshaped = await generateSql({
-              question: step.goal,
+              question: sqlGoal,
               plan: stepPlan,
               datasets: args.datasets,
               semantics: args.semantics,
@@ -1172,6 +2149,8 @@ export async function runAnalystTurn(args: {
             /* keep the original result + its truncation disclosure */
           }
         }
+        // Scored AFTER the reshape, on the rows the step will actually show.
+        await scoreStep(step, results[i] as QueryResult, i);
         step.status = "done";
       } catch (e) {
         step.error = (e as Error).message;
@@ -1195,8 +2174,26 @@ export async function runAnalystTurn(args: {
       steps: turn.steps.map((s, i) => ({
         goal: s.goal,
         sql: s.sql,
-        facts: results[i] ? describeStepResult(results[i]!) : "(no result)",
+        facts: stepFacts(results[i], s),
         error: s.error,
+        scored:
+          s.scored && !s.forecast
+            ? {
+                model: s.scored.model,
+                columns: s.scored.columns ?? [],
+                ranked: s.scored.ranked
+                  ? `${s.scored.ranked.by} ${s.scored.ranked.desc ? "desc" : "asc"}${s.scored.ranked.limit ? `, top ${s.scored.ranked.limit} of ${s.scored.ranked.of}` : ""}`
+                  : null,
+              }
+            : undefined,
+        forecast: s.forecast
+          ? {
+              model: s.forecast.model,
+              period: s.scored?.forecast?.period ?? null,
+              periods: s.scored?.rowsScored,
+              lastObserved: s.scored?.forecast?.lastObserved ?? null,
+            }
+          : undefined,
       })),
       catalog,
     });
@@ -1215,7 +2212,34 @@ export async function runAnalystTurn(args: {
         const step = turn.steps[i];
         const c = checked.checks[i];
         if (step.status === "error") continue;
-        if (c.refined_sql) {
+        // A note written BEFORE the check — a governed compile that fell back
+        // to written SQL, a scoring that failed — is a fact about how this
+        // step was produced, and the check's verdict is a fact about the SQL.
+        // The verdict used to replace the note, so "the governed model could
+        // not answer this step" vanished behind a green "pass". Both are kept.
+        const pre = step.check;
+        // A correction that reads the model's columns cannot run — they
+        // exist in no table — and the prompt rule alone did not hold
+        // (measured: `ORDER BY anomaly_score` proposed anyway). Refused HERE,
+        // and said, so the original, successful result stands in the open.
+        const touches = c.refined_sql
+          ? (step.scored?.columns ?? []).filter((col) => namesModel(c.refined_sql!, col))
+          : [];
+        if (c.refined_sql && step.forecast) {
+          step.check = {
+            verdict: c.verdict,
+            note: `${c.note || "Self-review proposed a correction"} (a forecast step has no SQL to correct; the model's projection stands.)`,
+          };
+        } else if (c.refined_sql && touches.length > 0) {
+          step.check = {
+            verdict: "suspect",
+            note:
+              `${pre ? `${pre.note} ` : ""}${c.note || "Self-review proposed a correction"} — the proposed ` +
+              `correction reads the model's column${touches.length === 1 ? "" : "s"} ${touches.join(", ")}, ` +
+              `which no query can (a model output exists in no table); the original result above stands. ` +
+              `To rank by a model output, the plan asks for "rank" and the platform orders the scored rows.`,
+          };
+        } else if (c.refined_sql) {
           try {
             const res = await runSql(c.refined_sql);
             step.sql = c.refined_sql;
@@ -1228,26 +2252,61 @@ export async function runAnalystTurn(args: {
             const wasGoverned = step.governed?.model;
             step.governed = undefined;
             delete step.semantic;
+            // A REFINED STEP IS RE-SCORED: the corrected query's rows are new
+            // rows, and the old prediction columns belonged to the old ones —
+            // but unlike a governed compile, scoring can simply run again on
+            // what the correction returned. The first live round showed why:
+            // the check narrowed a scored step and the reader was left with
+            // "the predictions are gone; ask again". So they are scored
+            // again, and the note says so; a scoring that fails leaves its
+            // own note beside the correction's.
+            step.scored = undefined;
             captureResult(step, res);
             results[i] = res;
             step.check = {
               verdict: "refined",
               note:
+                (pre ? `${pre.note} ` : "") +
                 (c.note || "Corrected on self-review.") +
                 (wasGoverned
                   ? ` The correction is hand-written SQL, so this step is no longer compiled from ${wasGoverned}.`
                   : ""),
             };
+            if (step.score) {
+              const correction = step.check;
+              await scoreStep(step, res, i);
+              // Read through a fresh reference: the narrowing from
+              // `step.scored = undefined` above survives the call.
+              const rescored = (step as AnalystStep).scored;
+              if (rescored) {
+                step.check = {
+                  verdict: "refined",
+                  note: `${correction.note} The corrected rows were scored again with ${rescored.model}.`,
+                };
+              } else if (step.check && step.check !== correction) {
+                step.check = {
+                  verdict: "suspect",
+                  note: `${correction.note} ${step.check.note}`,
+                };
+              }
+            }
           } catch (e) {
             // The refinement itself failed — keep the original result and
             // surface the concern rather than losing a working answer.
             step.check = {
               verdict: "suspect",
-              note: `${c.note || "Self-review proposed a correction"} (correction failed: ${(e as Error).message})`,
+              note:
+                `${c.note || "Self-review proposed a correction"} (the proposed correction failed to run — ` +
+                `${(e as Error).message} — so the original result above stands.)`,
             };
           }
         } else {
-          step.check = { verdict: c.verdict, note: c.note };
+          step.check = pre
+            ? {
+                verdict: "suspect",
+                note: `${pre.note} Self-check: ${c.verdict}${c.note ? ` — ${c.note}` : ""}.`,
+              }
+            : { verdict: c.verdict, note: c.note };
         }
         step.status = "done";
       }
@@ -1272,10 +2331,13 @@ export async function runAnalystTurn(args: {
       prior,
       steps: turn.steps.map((s, i) => ({
         goal: s.goal,
-        facts: results[i] ? describeStepResult(results[i]!) : "(no result)",
+        facts: stepFacts(results[i], s),
         verdict: s.check?.verdict,
         note: s.check?.note,
         error: s.error,
+        scored: s.scored ? scoredLabel(s.scored) : undefined,
+        forecast: !!s.forecast,
+        scoredNotes: s.scored?.notes,
       })),
     });
     const [synth] = await Promise.all([
@@ -1333,6 +2395,10 @@ export async function rerunStep(args: {
     check: { verdict: "suspect", note: "Edited and re-run by hand — not self-checked." },
     // Same for the chart: it was chosen for the old result's shape.
     chart: undefined,
+    // And for the predictions: they belonged to the old rows. A hand-run
+    // step is unscored until the question is asked again.
+    scored: undefined,
+    score: undefined,
   };
 }
 
@@ -1382,10 +2448,13 @@ export async function resynthesizeTurn(args: {
       prior: priorContext(args.priorTurns),
       steps: turn.steps.map((s, i) => ({
         goal: s.goal,
-        facts: results[i] ? describeStepResult(results[i]!) : "(no result)",
+        facts: stepFacts(results[i], s),
         verdict: s.check?.verdict,
         note: s.check?.note,
         error: s.error,
+        scored: s.scored ? scoredLabel(s.scored) : undefined,
+        forecast: !!s.forecast,
+        scoredNotes: s.scored?.notes,
       })),
     });
     const [synth] = await Promise.all([

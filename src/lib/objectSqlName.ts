@@ -16,7 +16,11 @@ import { safeTableName } from "@/lib/datasetParse";
  * name comes from the folder, which is also what the catalog displays.
  */
 export function objectSqlName(fqn: string): string {
-  const trimmed = fqn.replace(/\/\*\.[a-z0-9]+$/i, "");
-  const base = (trimmed.split("/").pop() ?? trimmed).replace(/\.[a-z0-9]+$/i, "");
+  // The `(\.gz)?` is not decoration: dlt gzips text output, so a folder of
+  // ndjson is globbed `*.jsonl.gz`, and without it the trim misses, the name
+  // comes out of the glob instead of the folder, and the seeded query names a
+  // table the server cannot resolve.
+  const trimmed = fqn.replace(/\/\*\.[a-z0-9]+(\.gz)?$/i, "");
+  const base = (trimmed.split("/").pop() ?? trimmed).replace(/\.[a-z0-9]+(\.gz)?$/i, "");
   return safeTableName(base || "object");
 }

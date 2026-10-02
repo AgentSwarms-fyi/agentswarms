@@ -210,7 +210,7 @@ function LoginPage() {
           <span>
             <span className="block text-base font-bold leading-tight">AgentSwarms</span>
             <span className="block text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-              Unified agentic AI &amp; business intelligence
+              Unified Agentic AI and Data Platform
             </span>
           </span>
         </Link>

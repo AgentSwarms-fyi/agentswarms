@@ -49,7 +49,7 @@ function DataPrepPage() {
       />
 
       <P>
-        Find it under <strong>Data &amp; BI → Data Catalog → Data preparation</strong>. The output
+        Find it under <strong>Data &amp; BI → BI Workspace → Data preparation</strong>. The output
         is a new prepared table that behaves like any other: chart it, query it, attach it to an
         agent.
       </P>
@@ -69,7 +69,11 @@ function DataPrepPage() {
       <UL>
         <li>
           <strong>Local tables</strong> — uploads and previously prepared tables, already in the
-          workspace.
+          workspace. This includes the built-in samples and any dataset{" "}
+          <strong>shared with you by an IAM grant</strong>: a shared dataset arrives with the
+          owner&rsquo;s row filters and column masks already applied, so every join, step and output
+          downstream of it only ever sees what the grant allows. Staging rows from an upload still
+          in progress are not offered as sources.
         </li>
         <li>
           <strong>External tables</strong> — connected warehouses and databases, expanded as{" "}
@@ -143,7 +147,7 @@ customers┘                          status=       margin =
         ]}
       />
 
-      <H2 id="steps">The nine steps</H2>
+      <H2 id="steps">The ten steps</H2>
       <P>Steps apply in order. Any one can be removed, and the preview updates as you go.</P>
       <Table
         headers={["Step", "What it does", "Configure"]}
@@ -216,6 +220,13 @@ customers┘                          status=       margin =
             "Replace values in a column",
             "Column, match and replacement",
           ],
+          [
+            <>
+              AI column <C key="j">ai</C>
+            </>,
+            "Classify, extract fields, judge sentiment or a condition, summarize, translate, or ask a free prompt - answered by a model",
+            "Output name, what the model does, the column it reads (or a prompt with {column} placeholders), and an optional model. Runs on the lakehouse or the DuckDB local engine; see AI in SQL for cost, caching and the per-statement cap.",
+          ],
         ]}
       />
 
@@ -273,9 +284,9 @@ date_trunc('month', ordered_at)`}</Code>
 
       <H2 id="worked">Worked example — a messy export to a monthly table</H2>
       <P>
-        The nine steps above are documented one at a time; this is what they look like assembled.
-        The situation: a raw order export where test orders are mixed in with real ones, the same
-        order appears twice when it was edited, and finance wants revenue by month and product — not
+        The ten steps above are documented one at a time; this is what they look like assembled. The
+        situation: a raw order export where test orders are mixed in with real ones, the same order
+        appears twice when it was edited, and finance wants revenue by month and product — not
         eleven thousand rows.
       </P>
       <Steps
@@ -351,6 +362,32 @@ date_trunc('month', ordered_at)`}</Code>
         A prepared table records what it was built from, visible in the{" "}
         <DocLink to="/docs/data">catalog</DocLink>. Before deleting or restructuring a source table,
         check what depends on it there.
+      </P>
+
+      <H2 id="lakehouse">Lakehouse tables in and out</H2>
+      <P>
+        The palette lists every lakehouse table you may read. <strong>Link</strong> puts one on the
+        canvas without copying a row: the flow remembers the table, and while every source is a
+        lakehouse table the whole recipe — joins, every step — compiles to one DuckDB query that
+        runs through the lakehouse statement guard as you (schema grants, row filters and column
+        masks, audit), so a preview is what the run will produce. A lakehouse table beside a local
+        dataset or a warehouse table is buffered like a warehouse table and the flow runs locally.
+      </P>
+      <P>
+        <strong>Save as → lakehouse table</strong> writes the result into a schema you own as a
+        materialized view: one atomic <C>CREATE OR REPLACE TABLE … AS</C>, so readers see the old
+        table or the new one and never a half-built one, and nothing travels through the app — the
+        dataset row caps do not apply. The flow&apos;s refresh schedule rebuilds it as you. The
+        table is then an ordinary lakehouse table: the SQL workbench, agents, dashboards and the{" "}
+        <DocLink to="/docs/ml">ML wizard</DocLink> see it at once, which makes a flow the way to
+        wrangle a training set — dedupe, fill, derive, filter, aggregate — before a model learns
+        from it.
+      </P>
+      <P>
+        Until the list of lakehouse tables has been read, <strong>Save as</strong> offers a local
+        dataset only, and its hover text says why: still checking, the read failed (with the reason,
+        and <strong>Try again</strong> in the palette), or the lakehouse is not configured on this
+        deployment. The reload button above the palette reads the lakehouse list again too.
       </P>
 
       <H2 id="when-not">When not to use prep</H2>

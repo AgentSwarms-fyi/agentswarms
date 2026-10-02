@@ -18,22 +18,23 @@ label. So `sqlserver.svg`, not `SQL Server.svg`.
 A provider with no asset renders its initials instead. That is a deliberate
 fallback, not a bug: **a connector must never be blocked on sourcing a logo.**
 
-### Currently missing
+### Which ones are missing
 
-12 of 22 warehouses and all 5 apps. These render initials today:
+There used to be a hand-written list here, and it went stale the moment a
+connector was added: it claimed "12 of 22 warehouses and all 5 apps" while the
+app had grown to 23 warehouses and 17 apps. Nothing kept it in step, and
+nothing could — so the list is gone rather than wrong.
 
-```
-src/assets/warehouses/sqlserver.svg      src/assets/warehouses/singlestore.svg
-src/assets/warehouses/clickhouse.svg     src/assets/warehouses/starrocks.svg
-src/assets/warehouses/cockroachdb.svg    src/assets/warehouses/doris.svg
-src/assets/warehouses/timescaledb.svg    src/assets/warehouses/planetscale.svg
-src/assets/warehouses/alloydb.svg        src/assets/warehouses/mariadb.svg
-src/assets/warehouses/greenplum.svg      src/assets/warehouses/yugabytedb.svg
+Ask the running app instead, where the answer cannot be out of date: open
+**Integrations → Data Sources** and **Integrations → Apps**, and every tile
+showing two letters instead of a mark is a provider without a logo. Against the
+tree, it is the difference between the ids in `WAREHOUSE_PROVIDERS` /
+`SAAS_PROVIDERS` and the `.svg` filenames in the two directories above.
 
-src/assets/saas/google_sheets.svg        src/assets/saas/hubspot.svg
-src/assets/saas/stripe.svg               src/assets/saas/salesforce.svg
-src/assets/saas/shopify.svg
-```
+No app logos are bundled at all today — they are trademarked marks the project
+may not have the right to redistribute, which is the next section's subject.
+Initials are a deliberate fallback rather than a gap to close in a hurry:
+**a connector must never be blocked on sourcing a logo.**
 
 ### Before adding one — licensing
 

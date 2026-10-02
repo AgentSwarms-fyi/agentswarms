@@ -152,35 +152,15 @@ If the customer is angry, or asks for a refund above $500, reply only:
             "1 – 128,000",
             "Caps the REPLY only, not the prompt. Too low truncates mid-sentence — the usual cause of unparseable JSON.",
           ],
-          [
-            "Top-P (Nucleus Sampling)",
-            "1",
-            "0 – 1, step 0.05",
-            "Alternative randomness control. Change temperature OR top-p, never both — they interact and tuning both makes results unpredictable.",
-          ],
-          [
-            "Frequency Penalty",
-            "0",
-            "-2 – 2, step 0.1",
-            "Positive values discourage repeating the same tokens. Useful for long prose that loops.",
-          ],
-          [
-            "Presence Penalty",
-            "0",
-            "-2 – 2, step 0.1",
-            "Positive values push toward new topics. Rarely needed; leave at 0.",
-          ],
-          [
-            "Stop Sequences",
-            "empty",
-            "Comma-separated",
-            <>
-              Strings that end generation immediately, e.g. <C key="s">END</C> or <C key="h">###</C>
-              . Use when you post-process output and need a hard terminator.
-            </>,
-          ],
         ]}
       />
+      <Callout kind="warn" title="Four fields on that panel do nothing yet">
+        <strong>Top-P</strong>, <strong>Frequency Penalty</strong>,{" "}
+        <strong>Presence Penalty</strong> and <strong>Stop Sequences</strong> are rendered but not
+        wired: nothing you type into them is saved with the agent or sent to the provider. Only{" "}
+        <strong>Temperature</strong> and <strong>Max Tokens</strong> reach the model. They are
+        listed here so nobody spends an afternoon tuning a control that is inert.
+      </Callout>
       <Callout kind="warn" title="Temperature is the setting people get wrong">
         If an agent must return JSON, extract a field, choose a category or pick the right tool, set
         temperature to <strong>0</strong>. The creativity you lose is not creativity you wanted.
@@ -453,7 +433,13 @@ If the customer is angry, or asks for a refund above $500, reply only:
         many it pattern-matches on whichever description sounds richest and runs SQL against a table
         that cannot answer the question instead of searching the web. If an agent seems to need
         eight tools, it probably wants to be a <DocLink to="/docs/swarms">swarm</DocLink> of three
-        narrow ones.
+        narrow ones. Measured: the same twenty knowledge-base questions cost about 2,400 prompt
+        tokens a turn with the knowledge base alone and 10,400 with thirteen tools enabled — the
+        answers were identical, the bill was not — and a question with a percentage in it went round
+        the calculator three times, four times the tokens and twice the wait. Most tools cost
+        150–700 prompt tokens before they are called; SQL Query is the exception, because its
+        description carries your tables and their columns — budgeted at 4,000 characters (
+        <C>SQL_TOOL_SCHEMA_MAX_CHARS</C>), the rest by name for <C>list_data_tables</C> to fill in.
       </Callout>
 
       {/* ── WORKED EXAMPLE ── */}

@@ -52,7 +52,7 @@ describe("the licence the project actually ships under", () => {
       for (const e of readdirSync(dir, { withFileTypes: true })) {
         const p = `${dir}/${e.name}`;
         if (e.isDirectory()) {
-          if (["node_modules", ".git", "dist", ".output"].includes(e.name)) continue;
+          if (["node_modules", ".git", ".claude", "dist", ".output"].includes(e.name)) continue;
           walk(p);
         } else if (/\.(ts|tsx|md)$/.test(e.name)) {
           if (SELF.test(readFileSync(p, "utf8"))) offenders.push(p);
@@ -181,8 +181,9 @@ describe("the trust pages describe the software that exists", () => {
     // the number the code exports — PARSED from the claim itself: a bare
     // toContain("22 ") matched SVG path coordinates and let a wrong count
     // survive its own mutation test.
-    const { WAREHOUSE_PROVIDERS } = await import("@/utils/warehouse/types");
-    const n = WAREHOUSE_PROVIDERS.length;
+    const { EXTERNAL_WAREHOUSE_PROVIDERS } = await import("@/utils/warehouse/types");
+    // The lakehouse is a built-in provider, not an external connector.
+    const n = EXTERNAL_WAREHOUSE_PROVIDERS.length;
     expect(n).toBe(22);
     for (const [page, claim] of [
       ["src/routes/architecture.tsx", /(\d+) warehouse connectors/],
@@ -192,6 +193,71 @@ describe("the trust pages describe the software that exists", () => {
       const m = readFileSync(page, "utf8").match(claim);
       expect(m, `${page} no longer states the connector count`).not.toBeNull();
       expect(Number(m![1]), `${page} states a stale count`).toBe(n);
+    }
+  });
+
+  it("the handbook index reaches every documentation page", () => {
+    // FOUND BY AUDIT. Eight pages — ETL, Lakehouse, SQL Models, ML, AI in SQL,
+    // data monitors, the gateway and workflows — existed, were in the sidebar,
+    // and were absent from the index that presents itself as the map. A page
+    // nobody links is a page nobody finds from the handbook's front door.
+    const index = readFileSync("src/routes/docs.index.tsx", "utf8");
+    const linked = new Set([...index.matchAll(/"\/docs\/([a-z/-]+)"/g)].map((m) => m[1]));
+    const pages = readdirSync("src/routes")
+      .filter((f) => f.startsWith("docs.") && f.endsWith(".tsx"))
+      // docs.ml_.training.tsx is /docs/ml/training, a page of the ML guide.
+      .map((f) => f.slice("docs.".length, -".tsx".length).replace(/_\./g, "/"))
+      .filter((n) => n && n !== "index");
+    // A guide's sub-page is reached through the guide: the index links the
+    // overview, and the overview's own map links every sub-page (that map is
+    // guarded in docsCurrency, where the sidebar must link each of them).
+    const reached = (n: string) =>
+      linked.has(n) || (n.includes("/") && linked.has(n.split("/")[0]));
+    const missing = pages.filter((n) => !reached(n));
+    expect(missing, `docs.index.tsx links no page for: ${missing.join(", ")}`).toEqual([]);
+  });
+
+  it("the chart-type count is the picker's length, everywhere it is claimed", async () => {
+    // FOUND BY AUDIT. Four places stated the number and no two agreed: the
+    // README said 19, the BI document 18, the landing page 19 and the about
+    // page 27 — while the picker offered 26. A count nobody pins is a count
+    // that drifts once per feature, so parse it out of each claim.
+    const { VIZ_TYPES } = await import("@/components/bi/BiVizPicker");
+    const n = VIZ_TYPES.length;
+    expect(n).toBe(26);
+    for (const [page, claim] of [
+      ["README.md", /multi-page dashboards with (\d+) visual types/],
+      ["docs/BUSINESS_INTELLIGENCE.md", /pick from \*\*(\d+) visual types\*\*/],
+      ["src/routes/index.tsx", /title: "(\d+) visual types"/],
+      ["src/routes/about.tsx", /(\d+) chart types/],
+    ] as const) {
+      const m = readFileSync(page, "utf8").match(claim);
+      expect(m, `${page} no longer states the chart-type count`).not.toBeNull();
+      expect(Number(m![1]), `${page} states a stale count`).toBe(n);
+    }
+  });
+
+  it("the grantable resource types are the ones the constraint admits", () => {
+    // FOUND BY AUDIT. IAM.md listed ten of the thirteen types the CHECK
+    // permits, so three shareable things — an AI analyst, a lakehouse schema
+    // and an ML model — were live in the share dialog and absent from the
+    // document that tells you what can be shared.
+    const migrations = readdirSync("supabase/migrations").sort();
+    const last = migrations
+      .filter((f) =>
+        readFileSync(`supabase/migrations/${f}`, "utf8").includes("resource_type IN ("),
+      )
+      .pop();
+    expect(last, "no migration defines the resource_type CHECK").toBeTruthy();
+    const sql = readFileSync(`supabase/migrations/${last}`, "utf8");
+    const block = sql.slice(sql.lastIndexOf("resource_type IN ("));
+    const types = [...block.slice(0, block.indexOf(")")).matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
+    expect(types.length).toBe(13);
+    const iam = readFileSync("docs/IAM.md", "utf8");
+    // The document names them in prose rather than as ids, so pin the three
+    // that were missing by the words it uses for them.
+    for (const phrase of ["AI analyst", "lakehouse schema", "ML model"]) {
+      expect(iam, `IAM.md no longer mentions ${phrase}`).toContain(phrase);
     }
   });
 
@@ -261,7 +327,7 @@ describe("no document promises the removed in-browser runtime", () => {
     for (const e of readdirSync(dir, { withFileTypes: true })) {
       const p = `${dir}/${e.name}`;
       if (e.isDirectory()) {
-        if (["node_modules", ".git", "dist", ".output"].includes(e.name)) continue;
+        if (["node_modules", ".git", ".claude", "dist", ".output"].includes(e.name)) continue;
         docs(p, out);
       } else if (e.name.endsWith(".md")) out.push(p);
     }
@@ -280,14 +346,45 @@ describe("no document promises the removed in-browser runtime", () => {
   });
 
   it("does not describe notebooks as running in the browser", () => {
+    // THIS GUARD HAD A HOLE, and an audit walked through it. It matched three
+    // exact phrasings — "in-browser python", "browser (pyodide)", "via
+    // pyodide" — and the removed runtime's actual NAME was "Lite". So
+    // INSTALL.md told operators "Notebooks run in the browser (Lite) only" and
+    // walked them through a "Lite / Server switch" that does not exist, while
+    // this test passed. Matching a feature by one of its names is matching it
+    // by none of them.
+    //
+    // Checked per LINE, not per file, so a document is still free to explain
+    // that the runtime was removed — which is the only way it may mention it.
+    const RUNTIME_CLAIM =
+      /in-browser python|in-browser pyodide|browser \(pyodide\)|via \[?pyodide|lite \(browser\)|browser \(lite\)|lite ?\/ ?server|in the browser \(lite\)/i;
+    // A line that is plainly about the REMOVAL, or about Google's model.
+    const EXPLAINING =
+      /removed|overtaken|~~|no in-browser|used to|no longer|was written alongside|flash ?lite/i;
+
     const offenders: string[] = [];
     for (const f of docs(".")) {
-      const text = readFileSync(f, "utf8");
-      // Allowed: explaining that it WAS removed. Not allowed: presenting it as
-      // how notebooks work.
-      if (/in-browser python|browser \(pyodide\)|via \[?pyodide/i.test(text)) offenders.push(f);
+      for (const [i, line] of readFileSync(f, "utf8").split("\n").entries()) {
+        if (RUNTIME_CLAIM.test(line) && !EXPLAINING.test(line)) {
+          offenders.push(`${f}:${i + 1}`);
+        }
+      }
     }
     expect(offenders, `still promise an in-browser runtime: ${offenders.join(", ")}`).toEqual([]);
+  });
+
+  it("does not tell an operator that notebooks work without the runtime", () => {
+    // The other half of the same lie, and the one an operator acts on: the
+    // optional-services table said skipping the `notebooks` profile merely
+    // downgraded notebooks to a browser runtime. It does not downgrade them —
+    // the editor renders a Runtime required panel and nothing runs.
+    const gate = readFileSync("src/routes/_authenticated/notebooks.py.$pyNotebookId.tsx", "utf8");
+    expect(gate, "the runtime gate is gone — re-check what happens without it").toMatch(
+      /runtimeEnabled === false[\s\S]{0,200}RuntimeRequired/,
+    );
+    const install = readFileSync("docs/INSTALL.md", "utf8");
+    expect(install).not.toMatch(/Notebooks run in the browser/i);
+    expect(install).toMatch(/Notebooks cannot run at all/i);
   });
 
   it("does not tell an operator to switch to it", () => {

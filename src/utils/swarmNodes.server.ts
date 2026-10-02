@@ -78,6 +78,10 @@ export const TOOL_NODE_IDS = [
   "datetime",
   "weather",
   "mcp_call_tool",
+  // "Score with model": the ML scoring the agent tool does, with no model
+  // deciding to do it. Headless-safe because runMlPredict re-derives grants
+  // from scopeUserId, exactly as the agent-node tool does.
+  "ml_predict",
 ] as const;
 
 // Tools that read user data through RLS — cannot run in a headless run without
@@ -91,6 +95,9 @@ export type ToolNodeParams = {
   sql_tables?: string[];
   mcp_servers?: string[];
   web_config?: { provider?: string; api_key?: string };
+  // The node's ML model allow-list — ABSENT means every model the owner can
+  // use, the same rule the agent tool applies.
+  ml_model_names?: string[];
 };
 
 export async function runToolNodeCore(
@@ -152,6 +159,33 @@ export async function runToolNodeCore(
           { server_name: a.server_name ?? "", tool_name: a.tool_name ?? "", arguments: args },
           p.mcp_servers,
         );
+        break;
+      }
+      case "ml_predict": {
+        // The deterministic scoring node runs the SAME code as the agent tool
+        // (runMlPredict) — but with no model in the loop to read an error and
+        // try again, an {"error"} written quietly into the flow state would be
+        // read downstream as a result. So the node FAILS on one instead.
+        const parseList = (label: string, raw: string | undefined) => {
+          if (!raw || !raw.trim()) return undefined;
+          try {
+            const v: unknown = JSON.parse(raw);
+            if (!Array.isArray(v)) throw new Error("not an array");
+            return v as Record<string, unknown>[];
+          } catch {
+            throw new Error(`\`${label}\` must be a JSON array of objects`);
+          }
+        };
+        const keys = parseList("keys", a.keys);
+        const rows = parseList("rows", a.rows);
+        result = await reg.runMlPredict(
+          ctx,
+          { model: a.model ?? "", ...(keys ? { keys } : {}), ...(rows ? { rows } : {}) },
+          p.ml_model_names,
+          "swarm_tool_node",
+        );
+        const scored = JSON.parse(result) as { error?: unknown };
+        if (typeof scored.error === "string") return { ok: false, error: scored.error };
         break;
       }
       default:

@@ -168,6 +168,12 @@ function SwarmsPage() {
           [<C key="l">memory</C>, "object", "See memory scope below"],
         ]}
       />
+      <P>
+        The inspector&apos;s pickers read your tables, semantic models, ML models, MCP servers and
+        connected providers when it opens. A list that could not be read says so rather than
+        inviting you to create your first one, and names what the node keeps selected, so a node
+        restricted to one table still shows that it is.
+      </P>
       <H3 id="node-memory">Node memory scope</H3>
       <Table
         headers={["ltm_scope", "Behaviour"]}
@@ -369,7 +375,7 @@ Path:    data.id`}</Code>
         rows={[
           [
             <C key="a">toolId</C>,
-            "One of the ten swarm tool ids (kb_search, sql_query, web_search, …)",
+            "One of the nine ids this node offers (web_search, web_browse, sql_query, kb_search, calculator, datetime, weather, mcp_call_tool, ml_predict) — a subset of the twelve an agent node can call",
           ],
           [
             <C key="b">toolArgs</C>,
@@ -377,6 +383,22 @@ Path:    data.id`}</Code>
           ],
         ]}
       />
+      <P>
+        <strong>Score with model</strong> (<C>ml_predict</C>) scores rows with a registry model and
+        no LLM turn: pick the model, then give <C>keys</C> — a JSON array such as{" "}
+        <C>{'[{"order_id": {{input}}}]'}</C>, for a model bound to a feature view, whose features
+        are read from the view — or <C>rows</C> with the feature values. One or the other, never
+        both. The node writes the same JSON the agent tool returns (predictions with their key
+        columns, <C>keys_not_found</C>, <C>features_served_from</C>) to its output variable, and it{" "}
+        <em>fails</em> on any error — an unknown model, both inputs at once, a list that is not
+        valid JSON, a key set that matches nothing at all — rather than passing an error object
+        downstream as if it were a result. A key that matches nothing <em>among others</em> is not
+        an error: it comes back named in <C>keys_not_found</C> beside the rows that did score.
+        Headless runs score as the swarm&apos;s owner, the same grants the agent tool re-derives,
+        and the node&apos;s step records the call and its result — the same two events an
+        agent&apos;s tool use leaves on its step — so a scheduled run&apos;s trace shows what was
+        scored, not only what came out.
+      </P>
       <Callout kind="why">
         Use a <C>tool</C> node instead of an <C>agent</C> node whenever the call is not a judgement
         call. If you always want the same query run, having a model decide to run it is pure cost
@@ -583,7 +605,8 @@ input ──▶ split ┼──▶ legal analysis ─────┼──▶ me
       <P>
         <strong>Watch for</strong> approvals that never get answered. A parked run holds its state
         and waits, which is correct, but nobody is watching by default — decide who is notified and
-        what happens to a run nobody answers.
+        what happens to a run nobody answers. A run nobody will answer can be cancelled from Recent
+        runs; rejecting it instead records a rejection and ends the run as an error.
       </P>
 
       <Callout kind="info" title="Combining them">
@@ -678,14 +701,31 @@ input ──▶ split ┼──▶ legal analysis ─────┼──▶ me
           running, done, error, waiting, skipped) and shows each node's last output.
         </li>
         <li>
-          <strong>Recent runs</strong> — history with inputs and results.
+          <strong>Recent runs</strong> — history with inputs and results. A run parked at an
+          approval reads Awaiting approval, with Review approval to open the inbox and Cancel to end
+          it: cancelling removes its saved state and closes its approval request, so nobody is asked
+          to decide a run that is over, and a decision made afterwards does not resume it.
         </li>
         <li>
-          <strong>Traces</strong> — per-node steps with prompts, tool calls, tokens and cost. See{" "}
+          <strong>Chat</strong> — a multi-turn conversation with the swarm, saved as you go. A turn
+          belongs to the conversation it was sent in: New chat, or opening another conversation,
+          stops it and saves what it had there. Closing the dialog lets it finish, and reopening
+          shows it.
+        </li>
+        <li>
+          <strong>Traces</strong> — per-node steps with prompts, tool calls, tokens and cost.
+          Headless runs — the deployed API, schedules, evals — record the same tool calls a canvas
+          run does, and a tool node records its own call and result. See{" "}
           <DocLink to="/docs/debugging">Logs &amp; traces</DocLink>.
         </li>
         <li>
-          <strong>Versions</strong> — the graph is snapshotted on save; diff and restore.
+          <strong>Versions</strong> — the graph is snapshotted on save; diff and restore. A history
+          that cannot be read says so rather than <em>No versions yet</em>. Restore first saves the
+          current graph as a <em>Before restore</em> version, so it can be undone; if that version
+          cannot be saved, nothing is restored and the canvas stays as it was. A version you capture
+          by name that does not land says so, and keeps its name for another try; pressing Enter
+          twice captures it once. Deleting a version asks first, because a deleted snapshot cannot
+          be restored.
         </li>
       </UL>
 
@@ -702,14 +742,23 @@ input ──▶ split ┼──▶ legal analysis ─────┼──▶ me
         current graph, and after that your saves stay private until you press{" "}
         <strong>Publish</strong> — so you can rewrite a prompt at 3am without changing what a live
         integration receives. The Deploy dialog shows <em>Draft ahead</em> whenever the canvas has
-        moved on, and <DocLink to="/docs/api">API &amp; webhooks</DocLink> covers the states.
+        moved on, and <DocLink to="/docs/api">API &amp; webhooks</DocLink> covers the states. When
+        the dialog cannot read the swarm&apos;s keys, schedules or published snapshot it says{" "}
+        <em>Deployment not read</em> rather than guessing, each list names its error, and adding a
+        schedule is off until the schedules can be read, since a second copy of an existing one
+        would run the swarm twice. The toolbar&apos;s Deploy button carries the same{" "}
+        <em>Draft ahead</em> badge; if what is live cannot be re-read after a Publish, the button
+        says <em>Live not checked</em> instead of dropping the badge.
       </P>
 
       <H2 id="components">Custom components</H2>
       <P>
         A <strong>Function</strong> node holds a snippet used once. <strong>Components</strong> are
         the reusable form: author a snippet with a declared parameter schema in the palette&rsquo;s{" "}
-        <em>My components → Manage</em>, and it appears in the palette of every swarm you build.
+        <em>My components → Manage</em>, and it appears in the palette of every swarm you build. If
+        your components cannot be read, the palette and the library say so and name the error rather
+        than showing <em>None yet</em>; the palette reads them once, so its message has a{" "}
+        <em>Try again</em>.
       </P>
       <Table
         headers={["Piece", "What it is"]}
@@ -743,11 +792,11 @@ input ──▶ split ┼──▶ legal analysis ─────┼──▶ me
       </Callout>
       <Callout kind="warn">
         The sandbox is an <strong>opt-in service</strong>:{" "}
-        <code className="font-mono">docker compose --profile sandbox up -d --build</code>. Until an
-        operator starts it, deployed and scheduled runs refuse custom code rather than executing it
-        beside the server&rsquo;s credentials — and the Deploy dialog tells you so, for this
-        instance specifically, before you deploy. Custom code never runs in the application process
-        either way.
+        <code className="font-mono">docker compose up -d --build</code>. Until an operator starts
+        it, deployed and scheduled runs refuse custom code rather than executing it beside the
+        server&rsquo;s credentials — and the Deploy dialog tells you so, for this instance
+        specifically, before you deploy. Custom code never runs in the application process either
+        way.
       </Callout>
 
       <H2 id="file-inputs">File inputs</H2>
@@ -811,8 +860,18 @@ input ──▶ split ┼──▶ legal analysis ─────┼──▶ me
       <P>
         Runs are resumable and cancellable: cancelling is enforced server-side, and a case that
         already has a verdict is never scored twice, so &ldquo;run remaining&rdquo; picks up exactly
-        where it stopped. Approval nodes are auto-rejected by default — leave that on unless the
-        swarm is safe to auto-approve in a batch. Each result links to its full execution trace.
+        where it stopped. Approval nodes are auto-rejected by default, which ends such a case with
+        an error rather than a verdict. Turning that off does not approve them: the case parks as{" "}
+        <C>suspended</C> and waits for a person, which is rarely what a batch wants, so remove the
+        gate from a swarm you mean to evaluate unattended. Each result links to its full execution
+        trace.
+      </P>
+      <P>
+        A list the page could not read says so, rather than showing nothing: the cases, a run&apos;s
+        results and a comparison baseline each name the error, and a comparison is never drawn
+        against a baseline that was not read. When a run cannot read its cases to carry on it stops
+        and says why, and &ldquo;Executing cases…&rdquo; shows only while cases execute. A delete
+        that is refused says so, and the case or dataset stays.
       </P>
 
       <H2 id="export">Export</H2>

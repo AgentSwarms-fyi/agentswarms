@@ -16,6 +16,8 @@ manage everything else.
 > defence does nothing. See
 > [DEPLOYMENT.md → Bootstrap the operator](./DEPLOYMENT.md#bootstrap-the-operator).
 
+## What it manages
+
 It manages:
 
 - **Users** — invite by email (Supabase sends the invitation) or create
@@ -24,6 +26,9 @@ It manages:
   superadmin is protected.
 - **Groups** — organize users; model rules and resource shares can target a
   whole group at once.
+- **Provisioning** — with SCIM 2.0 the identity provider creates users before
+  they sign in, deactivates them when they leave, and keeps groups in step;
+  see [Users and groups pushed from the IdP](#users-and-groups-pushed-from-the-idp-scim).
 - **Model access** — allow rules on a user or group define what they may call
   (patterns: `*`, `openai/*`, or an exact model id; the allowed set is the
   union of all applicable rules). What **no rules** means is an instance
@@ -39,10 +44,14 @@ It manages:
   for anonymous visitors and are checked against the owner's effective rules
   on every request — and reflected in the model pickers.
 
-- **Shares** — grant users or groups **read-only** access to any knowledge
-  base, SQL data table, secret, BI dashboard, semantic model, catalog source,
-  LLM key/credential, **database & warehouse connection** or **app source**;
-  recipients' agents can search/query them but never modify them. A shared
+- **Shares** — grant users or groups **read-only** access to any of thirteen
+  resource types: knowledge base, SQL data table, secret, BI dashboard,
+  semantic model, catalog source, integration, LLM key/credential,
+  **database & warehouse connection**, **app source**, **AI analyst**,
+  **lakehouse schema** or **ML model**;
+  recipients' agents can search/query them but never modify them. (A Sheets
+  workbook is shared from the workbook itself, to view or to edit: see
+  [Sheets → Sharing](./SHEETS.md#sharing).) A shared
   **connection** runs as its OWNER: the owner's credential is decrypted
   server-side and the grantee's queries run against the owner's warehouse, so
   a grantee gains the use of a connection without ever receiving its
@@ -89,3 +98,125 @@ It manages:
   > feature; self-hosted GoTrue → set `GOTRUE_SAML_ENABLED=true` with a
   > `GOTRUE_SAML_PRIVATE_KEY`. The SSO tab detects and explains this if it's
   > not enabled yet.
+
+## Use cases
+
+Every walkthrough below uses the tabs on **Admin → IAM**: _Users_, _Groups_,
+_Access_, _Attributes_, _Budgets_, _SSO_ and _Settings_.
+
+### Contractors may only use one inexpensive model
+
+You have a group of external contractors who should build and test agents but
+never run the frontier models the rest of the company pays for.
+
+1. **Settings → Default model access → Deny by default.** From now on a user
+   with no rules can call no models at all. Nobody who already has rules is
+   affected, and superadmins bypass deny mode, so you cannot lock yourself out.
+2. **Groups →** create _Contractors_ and add the accounts.
+3. **Access →** add a model rule on the _Contractors_ group. A rule is a
+   pattern: `*`, a provider prefix such as `openai/*`, or one exact model id.
+   Grant the single model you are willing to pay for.
+
+The rule is enforced on the server for every call the contractor's work
+makes — the playground, saved agents, swarm nodes, the API, and a public embed
+of their agent, which runs its owner's stored model and is re-checked against
+the owner's rules on every anonymous request. The model pickers only show what
+the rules allow, so the restriction is visible before it is enforced.
+
+### Give the team a warehouse without giving anyone its password
+
+A data engineer owns the production Postgres connection and the whole
+analytics group needs to query it from agents and the SQL workbench.
+
+1. The owner creates the connection once under **Integrations → Data
+   Sources** and tests it.
+2. On **Admin → IAM → Access** the owner (or a superadmin) shares the
+   connection with the _Analytics_ group, read-only.
+3. Each analyst's agents can now query it. The credential never leaves the
+   server: a shared connection runs **as its owner** — the owner's stored
+   secret is decrypted server-side and the grantee's queries run against the
+   owner's warehouse. Revoking the share stops the access; nothing needs to
+   be rotated, because nothing was handed out.
+
+### Regional analysts see only their own rows
+
+One `sales` table, three regions, and each regional lead may see only their
+region — and never the `margin` column.
+
+1. Share the dataset with each lead (or with a per-region group) on
+   **Access**, adding a **row filter** on `region` and a **column mask** that
+   removes `margin`.
+2. For a single grant that adapts to whoever is looking, set each viewer's
+   region on the **Attributes** tab and reference the attribute in the filter:
+   one grant, per-viewer rows.
+
+Both restrictions are enforced **inside the database**: a grantee cannot read
+the raw table at all, every read goes through a security-definer function that
+applies the filter and mask first, so the result is the same through the SQL
+workbench, an agent tool or the REST API. When someone holds two grants, rows
+combine (any allowing grant admits the row) and masks intersect (a column is
+hidden only when every grant hides it) — a second grant never reduces access.
+
+### Work accounts only
+
+Security wants every login to go through the corporate identity provider.
+
+1. Enable SAML on your Supabase project first (hosted: **Authentication →
+   Sign In / Up → SSO (SAML 2.0)**; self-hosted GoTrue: `GOTRUE_SAML_ENABLED`
+   and a private key). The **SSO** tab tells you if this is still missing.
+2. On **SSO**, copy the ACS URL and Entity ID into the IdP's SAML app, then
+   paste the IdP's metadata URL or XML and list the email domains it covers.
+   The login page gains _Continue with single sign-on_.
+3. Once a superadmin has signed in through the IdP successfully, turn on
+   **Require SSO**. Email/password and social login disappear from the login
+   page; `/login?native=1` stays as the superadmin escape hatch, so a broken
+   IdP cannot lock the instance.
+
+SSO-provisioned users get in even when the instance is **invite-only**
+(Settings), so you can close public signup at the same time.
+
+### Users and groups pushed from the IdP (SCIM)
+
+SSO lets people sign in; it does not create them before they do, deactivate
+them when they leave, or keep groups in step. **SCIM 2.0 provisioning** does:
+the identity provider pushes users and groups to the platform as they change
+in the directory, and an offboarded person is deactivated here the same
+minute.
+
+1. On **SSO → Provisioning (SCIM)**, mint a provisioning token with a label
+   (one per IdP application). The token is shown once; only its hash is kept.
+   A double Enter in the label field mints one token: the key and the Mint
+   token button share one in-flight guard.
+2. In the IdP, enable provisioning on the SAML application and give it the
+   base URL `https://<your host>/api/scim/v2` with the token as the bearer
+   token. Okta: _Provisioning → Integration → SCIM connector base URL_, unique
+   identifier `userName`, authentication _HTTP Header_. Microsoft Entra ID:
+   _Provisioning → Admin credentials → Tenant URL + Secret token_. Both test
+   the connection immediately.
+3. Assign users and groups to the application. What the IdP does from then
+   on and what happens here:
+
+| The IdP sends                                   | Here                                                                                                       |
+| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `POST /Users`                                   | An account is created, confirmed, and passes the invite-only gate; first and last name land on the profile |
+| `PATCH /Users/{id}` with `active: false`        | The account is banned (the same ban the IAM page applies) — every session and API key stops working        |
+| `PATCH /Users/{id}` with `active: true`         | The ban is lifted                                                                                          |
+| `PUT` / `PATCH` names, `userName`, `externalId` | The profile and the sign-in email follow                                                                   |
+| `DELETE /Users/{id}`                            | The account is deleted (Okta never sends this; Entra does for a hard delete)                               |
+| `POST /Groups`, `PATCH` members                 | An IAM group is created or its members changed — grants and model rules on the group apply at once         |
+| `GET /Users?filter=userName eq "…"`             | The lookup IdPs do before creating, so a user who already exists is matched, not duplicated                |
+
+Two rules hold whatever the IdP says. **A superadmin cannot be deactivated
+or deleted over SCIM** — the request is refused with a 403 the IdP shows its
+admin, so a misconfigured push or a leaked token cannot take the last way in;
+demote the account in IAM first. And every SCIM write is an audit event under
+the token's label (`scim:<label>`), so the trail says the IdP did it, not a
+person.
+
+The endpoint supports filtering by `userName`, `externalId`, `emails.value`,
+`displayName` and `id` with `eq`, PATCH in both the Okta (path-less) and
+Entra (path) dialects, and paging with `startIndex` and `count`. It declares
+bulk, sorting and ETags unsupported in `ServiceProviderConfig` rather than
+half-implementing them. Requests are rate limited across all tokens
+(`SCIM_RATE_LIMIT_PER_MIN`, default 300). Revoke a token on the same tab; the
+IdP's next request gets a 401 and the attempt is audited.

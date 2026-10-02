@@ -13,7 +13,7 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-import { formatSpend, spendCaveat, sumSpend } from "@/lib/spendCompleteness";
+import { spendTrend, formatSpend, spendCaveat, sumSpend } from "@/lib/spendCompleteness";
 
 describe("totalling what is known", () => {
   it("sums the priced rows", () => {
@@ -142,5 +142,69 @@ describe("spend with no user to attribute it to", () => {
     // key={null} makes React fall back to the index silently and reuse rows
     // across re-sorts.
     expect(SRC).toMatch(/key=\{u\.user_id \?\? `unattributed-\$\{i\}`\}/);
+  });
+});
+
+describe("a week-over-week trend between two totals that may be floors", () => {
+  // The MTD card prints `formatSpend(mtd)` with a "+?" when some calls had no
+  // known price — and printed a percentage "vs last week" right beneath it,
+  // built from two bare reduces. One card saying "this total is at least this
+  // much" and "spend is down 40%", where the 40% could be entirely an artifact
+  // of which of the two weeks held the unpriced calls.
+  const whole = (total: number) => ({ total, unpricedRows: 0, partial: false });
+  const floor = (total: number, unpriced: number) => ({
+    total,
+    unpricedRows: unpriced,
+    partial: true,
+  });
+
+  it("gives a percentage when both weeks are fully priced", () => {
+    expect(spendTrend(whole(150), whole(100)).pct).toBeCloseTo(50, 10);
+    expect(spendTrend(whole(150), whole(100)).caveat).toBeNull();
+  });
+
+  it("goes negative when spend really fell", () => {
+    expect(spendTrend(whole(50), whole(100)).pct).toBeCloseTo(-50, 10);
+  });
+
+  it("refuses a percentage when THIS week is a floor", () => {
+    // The drop may be real or may be the unpriced calls. Both are consistent
+    // with the numbers, so no arrow can be drawn honestly.
+    const t = spendTrend(floor(60, 12), whole(100));
+    expect(t.pct).toBeNull();
+    expect(t.caveat).toContain("12 calls");
+    expect(t.caveat).toContain("either way");
+  });
+
+  it("refuses a percentage when the BASELINE week is a floor", () => {
+    const t = spendTrend(whole(100), floor(60, 3));
+    expect(t.pct).toBeNull();
+    expect(t.caveat).toContain("3 calls");
+  });
+
+  it("counts the unpriced calls from both weeks, and says call not calls for one", () => {
+    expect(spendTrend(floor(1, 2), floor(1, 3)).caveat).toContain("5 calls");
+    expect(spendTrend(floor(1, 1), whole(1)).caveat).toContain("1 call");
+  });
+
+  it("refuses a percentage against a week with no spend at all", () => {
+    // Dividing by zero produced 0% before, which reads as "unchanged" — a
+    // claim, and a different one from "there is nothing to compare against".
+    const t = spendTrend(whole(80), whole(0));
+    expect(t.pct).toBeNull();
+    expect(t.caveat).toContain("no spend to compare against");
+  });
+
+  it("is what the analytics card actually uses", () => {
+    // Source-anchored: the defect was never in the arithmetic, it was that the
+    // page did the arithmetic itself with a bare reduce.
+    const src = readFileSync("src/routes/_authenticated/analytics.tsx", "utf8");
+    expect(src).toContain("const trend = spendTrend(lastWeek, prevWeek);");
+    expect(src).toContain("trend={trend.pct ?? undefined}");
+    // The two weeks must come from sumSpend, or the trend is computed from
+    // numbers that already lost the flag.
+    expect(src).toContain("const lastWeek = sumSpend(");
+    expect(src).toContain("const prevWeek = sumSpend(");
+    expect(src).not.toMatch(/reduce\(\(acc, t\) => acc \+ Number\(t\.cost_usd\), 0\)/);
   });
 });

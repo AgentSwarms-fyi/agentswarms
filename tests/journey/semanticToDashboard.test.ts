@@ -726,7 +726,12 @@ describe("the builder's governed-metric source", () => {
     expect(pane).toContain("limit: 100,");
     // The footer submit swaps to the governed path, gated on a real preview.
     expect(pane).toContain("onClick={submitMetric} disabled={!canSubmitMetric}");
-    expect(pane).toContain("Boolean(title.trim() && mmName && mmMetrics.length > 0 && mmPreview)");
+    // Gated on a model, its metrics, a real preview and a title — said under the
+    // button by metricBlocker since R203 (tests/unit/biBuilderReady.test.ts).
+    expect(pane).toMatch(
+      /metricBlocker\(\{\s*model: mmName,\s*metrics: mmMetrics\.length,\s*ran: Boolean\(mmPreview\),\s*title,\s*\}\)/,
+    );
+    expect(pane).toContain("const canSubmitMetric = metricBlocked === null;");
     // "semantic" is not a warehouse id: schema fetch must skip it, and the
     // AI tab (tables only) falls back to local.
     expect(pane).toContain('v !== "local" && v !== "semantic"');

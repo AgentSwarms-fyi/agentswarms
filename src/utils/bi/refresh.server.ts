@@ -11,15 +11,28 @@
 //     condition clears. Refresh failures notify too.
 //
 // Triggering: `ensureScheduler()` starts a 60s interval inside the running
-// node server (lazily, on first request that imports this module) and
-// `/api/bi/cron` lets external cron services drive it on serverless hosts.
+// node server. It is reached only through `/api/bi/cron` — NOT through any
+// request that merely imports this module — and each worker calls that route
+// for itself at boot (server.mjs, R95). Before R95 the only caller was the
+// notification bell, so a restarted server ran no schedules until somebody
+// signed in. `/api/bi/cron` also lets external cron services drive the passes
+// on serverless hosts.
+import { beginDecision } from "@/utils/provenance/decision.server";
 import { createRequire } from "node:module";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { selectAllPages } from "@/lib/pagedSelect";
 import type { Json } from "@/integrations/supabase/types";
 import type { SemanticQuery, SqlDialect } from "@/lib/semanticLayer";
 import type { ChartSpec } from "@/lib/biAgent";
-import { aggregationPlan } from "@/lib/biAggregate";
+import {
+  forecastModelPoints,
+  forecastPeriods,
+  forecastValues,
+  type ForecastSetting,
+} from "@/lib/mlForecast";
+import { syncForecastVersions } from "@/utils/ml/forecast.server";
+import { aggregationPlan, isMeasureAgg, renderAggregateClauses } from "@/lib/biAggregate";
 import { buildDirectQuerySql } from "@/lib/biDirectQuery";
 import {
   incrementalCutoffIso,
@@ -35,13 +48,26 @@ import { loadWarehouseConnectionForUser } from "@/utils/warehouse/connections.se
 import { executeWarehouseQuery } from "@/utils/warehouse/drivers.server";
 import { parsePrepConfig } from "@/lib/dataPrepCore";
 import { assertLocalReadOnlySql } from "@/lib/sqlSafety";
+import { restateWidgetNote } from "@/lib/biTitleClaims";
+import { restateWidgetNarrative } from "@/lib/biNumericClaims";
 import { STAGING_PREFIX } from "@/lib/datasetParse";
 import { localEngineName } from "@/utils/data/localEngine.server";
 
 // One definition, shared with the client that creates the snapshot in the
 // first place — a second copy here is how the two silently drift apart.
 const WIDGET_ROW_CAP = widgetRowCap();
-const LOCAL_ROWS_PER_TABLE_CAP = 20_000;
+/**
+ * Rows one un-mirrored dataset may contribute to a refresh.
+ *
+ * An env knob rather than a constant because reaching it is now a refusal
+ * rather than a silent truncation, so an operator has to be able to move it.
+ */
+function localRowsPerTableCap(): number {
+  const raw = (process.env.BI_LOCAL_ROWS_PER_TABLE_CAP ?? "").trim();
+  if (!raw) return 20_000;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : 20_000;
+}
 const MIN_PROCESS_INTERVAL_MS = 30_000;
 const SCHEDULES_PER_RUN = 10;
 
@@ -160,18 +186,40 @@ async function loadLocalTables(userId: string): Promise<LocalTable[]> {
       });
       continue;
     }
-    const rows: Record<string, unknown>[] = [];
-    const PAGE = 1000;
-    for (let start = 0; start < LOCAL_ROWS_PER_TABLE_CAP; start += PAGE) {
-      const { data: chunk, error: rowErr } = await supabaseAdmin
-        .from("user_data_rows")
-        .select("row")
-        .eq("table_id", t.id)
-        .range(start, start + PAGE - 1);
-      if (rowErr || !chunk || chunk.length === 0) break;
-      rows.push(...chunk.map((c) => c.row as Record<string, unknown>));
-      if (chunk.length < PAGE) break;
+    // Through selectAllPages. Three things were wrong here, on the path that
+    // decides what a dashboard widget STORES as its answer.
+    //
+    // The page's own error used to be folded into the exhaustion test, which
+    // made a failed page indistinguishable from the end of the data: a
+    // statement timeout produced a smaller dataset and a confident number
+    // computed over it. (Described rather than quoted — a test asserts that
+    // expression is gone, and a comment carrying it would satisfy the
+    // assertion forever.) The
+    // exhaustion test was the short page. And the offsets had no ORDER BY at
+    // all, so two pages could repeat a row and drop another — which does not
+    // merely undercount, it changes the answer in either direction.
+    const scanned = await selectAllPages<{ row: unknown }>(
+      () =>
+        supabaseAdmin
+          .from("user_data_rows")
+          .select("row")
+          .eq("table_id", t.id)
+          .order("id", { ascending: true }),
+      localRowsPerTableCap(),
+    );
+    if (scanned.truncated) {
+      // Datasets this size normally have a Parquet mirror and never reach here
+      // (PARQUET_MIN_ROWS defaults to 5,000). One that does — mirroring off, or
+      // not yet synced — must fail its refresh rather than publish a figure
+      // over the first N rows, because nothing downstream can tell a widget
+      // computed from a prefix from one computed from the table.
+      throw new Error(
+        `"${t.name}" has more than ${localRowsPerTableCap().toLocaleString()} rows and no Parquet ` +
+          `mirror — enable PARQUET_MIRROR or raise BI_LOCAL_ROWS_PER_TABLE_CAP; refusing to ` +
+          `refresh from a prefix of it`,
+      );
     }
+    const rows = scanned.rows.map((c) => c.row as Record<string, unknown>);
     let columns = Array.isArray(t.columns) ? (t.columns as LocalTable["columns"]) : [];
     let visibleRows = rows;
     if (isShared) {
@@ -312,7 +360,7 @@ function incrementalWindow(w: WidgetJson): { column: string; fromIso: string } |
  */
 function applyResult(
   w: WidgetJson,
-  result: { columns: string[]; rows: Record<string, unknown>[] },
+  result: { columns: string[]; rows: Record<string, unknown>[]; truncated?: boolean },
   inc?: { column: string; fromIso: string },
 ): void {
   const prior = Array.isArray(w.rows) ? w.rows : [];
@@ -325,7 +373,8 @@ function applyResult(
     w.rows = merged.slice(0, WIDGET_ROW_CAP);
     // Partial either when the merge overflowed the cap (rows dropped) or when
     // the window itself came back capped.
-    w.truncated = merged.length > WIDGET_ROW_CAP || result.rows.length >= WIDGET_ROW_CAP;
+    w.truncated =
+      merged.length > WIDGET_ROW_CAP || (result.truncated ?? result.rows.length >= WIDGET_ROW_CAP);
   } else {
     w.rows = result.rows.slice(0, WIDGET_ROW_CAP);
     // The `!w.agg_pushdown` qualifier that used to be here was wrong. It read
@@ -333,10 +382,36 @@ function applyResult(
     // VALUE, false of the row LIST. A GROUP BY over 364 days still returns 364
     // rows, and a cap drops the tail of the series whether or not the sums
     // inside it were pushed down.
-    w.truncated = result.rows.length >= WIDGET_ROW_CAP;
+    w.truncated = result.truncated ?? result.rows.length >= WIDGET_ROW_CAP;
   }
   w.columns = result.columns;
   w.refreshed_at = new Date().toISOString();
+  // The rows just changed, so any sentence counting them has to be re-checked
+  // or withdrawn. Left alone, "The data has 3 rows, not 5." goes on being
+  // displayed beside a chart drawing five bars.
+  const restated = restateWidgetNote({
+    title: w.title,
+    sql: w.sql,
+    chart: w.chart as { type?: string } | undefined,
+    reconcile_note: typeof w.reconcile_note === "string" ? w.reconcile_note : undefined,
+    rows: w.rows,
+    truncated: w.truncated,
+  });
+  if (restated) {
+    w.title = restated.title;
+    w.reconcile_note = restated.reconcile_note;
+  }
+  // The stored narrative describes the rows that were just replaced. Its
+  // figures are re-checked against the new ones and the prose is withdrawn if
+  // they no longer hold — the same reasoning as the note above, applied to the
+  // sentence that actually carries numbers.
+  const staleProse = restateWidgetNarrative({
+    narrative: typeof w.narrative === "string" ? w.narrative : undefined,
+    columns: w.columns,
+    rows: w.rows,
+    truncated: w.truncated,
+  });
+  if (staleProse) w.narrative = undefined;
 }
 
 // ── Dashboard refresh ────────────────────────────────────────────────────
@@ -360,6 +435,12 @@ export async function refreshDashboardServer(dashboardId: string): Promise<{
     .single();
   if (error || !dash) throw new Error(error?.message ?? "Dashboard not found");
   const readUpdatedAt = dash.updated_at;
+  // A refresh is a decision: the numbers it lands are what people will later
+  // ask "where did this come from?" about. Records which lakehouse snapshot was
+  // current, which is the one fact that cannot be reconstructed afterwards.
+  // Widget-level stamping follows once semantic queries write audit rows;
+  // until then the refresh's own decision row (and its snapshot) is the record.
+  beginDecision({ userId: dash.user_id, kind: "dashboard_refresh", rootRef: dash.id });
 
   // Columns aggregation must not collapse away: every dashboard filter narrows
   // widgets client-side by column name, and filterWidgetRows SKIPS a column it
@@ -388,7 +469,7 @@ export async function refreshDashboardServer(dashboardId: string): Promise<{
     if (w.kind !== "chart") continue;
     if (!w.sql && w.source?.kind !== "semantic") continue;
     try {
-      let result: { columns: string[]; rows: Record<string, unknown>[] };
+      let result: { columns: string[]; rows: Record<string, unknown>[]; truncated?: boolean };
       // Incremental only applies to SQL-backed widgets: a semantic widget
       // re-runs its governed metric query in full, so a metric-definition
       // change is always reflected immediately.
@@ -422,7 +503,9 @@ export async function refreshDashboardServer(dashboardId: string): Promise<{
           },
           maxRows: WIDGET_ROW_CAP,
         });
-        result = { columns: r.columns, rows: r.rows };
+        // The runner knows whether it cut (it fetched one past the cap);
+        // the SQL paths below still infer it from the row count.
+        result = { columns: r.columns, rows: r.rows, truncated: r.truncated };
       } else if (w.source?.kind === "warehouse" && w.source.connection_id) {
         const conn = await loadWarehouseConnectionForUser(
           supabaseAdmin,
@@ -769,32 +852,257 @@ export function buildReportDigest(
   return { html, text };
 }
 
+/**
+ * The aggregate a FORECAST-basis alert compares: the next `horizon`
+ * projected periods of a single-series line/area widget — from the registry
+ * model attached to the chart when there is one, else the shared forecaster
+ * over the widget's stored rows. Null when the widget is not such a series,
+ * or the rule counts rows (a projection has no row count).
+ */
+/**
+ * One value per x bucket, summed, in first-seen order — the shape the line
+ * renderer aggregates to before it forecasts, so a forecast alert projects
+ * the same series the chart draws.
+ */
+function sumByBucket(
+  rows: Record<string, unknown>[],
+  xField: string,
+  yField: string,
+): Record<string, unknown>[] {
+  const order: string[] = [];
+  const sums = new Map<string, number>();
+  for (const r of rows) {
+    const x = String(r[xField] ?? "");
+    const y = Number(r[yField]);
+    if (!sums.has(x)) {
+      order.push(x);
+      sums.set(x, 0);
+    }
+    if (Number.isFinite(y)) sums.set(x, (sums.get(x) ?? 0) + y);
+  }
+  return order.map((x) => ({ [xField]: x, [yField]: sums.get(x) ?? 0 }));
+}
+
+export function forecastAlertValue(
+  widget: WidgetJson,
+  alert: { column_name: string; aggregation: string; horizon?: number | null },
+): number | null {
+  const chart = widget.chart as
+    | { type?: string; xField?: string; yField?: string; forecast?: ForecastSetting }
+    | undefined;
+  if (!chart || (chart.type !== "line" && chart.type !== "area")) return null;
+  if (!chart.xField || !chart.yField || alert.aggregation === "count") return null;
+  const horizon = Math.max(1, alert.horizon ?? forecastPeriods(chart.forecast) ?? 3);
+  const model = forecastModelPoints(chart.forecast);
+  let projected: number[];
+  if (model) {
+    projected = model.slice(0, horizon).map((p) => p.yhat);
+  } else {
+    const data = sumByBucket(widget.rows ?? [], chart.xField, chart.yField);
+    const yField = chart.yField;
+    const xField = chart.xField;
+    const fc = forecastValues(
+      data.map((d) => Number(d[yField])),
+      horizon,
+      { labelHint: String(data[data.length - 1]?.[xField] ?? "") },
+    );
+    if (!fc) return null;
+    projected = fc.points.map((p) => p.value);
+  }
+  const col = alert.column_name || "value";
+  return alertValue(
+    projected.map((v) => ({ [col]: v })),
+    col,
+    alert.aggregation,
+  );
+}
+
+/**
+ * The SQL that answers an alert exactly, or null when it cannot be written.
+ *
+ * An alert's value is computed from the widget's stored rows, and those rows
+ * are a PREFIX: `applyResult` slices to WIDGET_ROW_CAP and the engines cap at
+ * the same number. On a table smaller than the cap the prefix IS the result and
+ * nothing is wrong. On a warehouse table it is not, and the alert then compares
+ * a threshold against the sum of the first N rows and emails the figure as
+ * fact. `count` is the worst of them: it returns `rows.length`, which on a
+ * capped snapshot is exactly the cap, so "row count above 1000" can never fire
+ * and "row count below 600" always does.
+ *
+ * So when the snapshot is partial the aggregate is asked of the database
+ * instead, through the same validated builder pushdown uses — identifiers
+ * quoted per dialect, unknown columns refused — rather than hand-written SQL.
+ *
+ * Null for the cases that cannot be expressed as one scalar aggregate over the
+ * widget's own query: a row count (COUNT(*) is not COUNT(col), which skips
+ * nulls), `first` (an order-dependent pick, not an aggregate), and anything
+ * whose column the widget's stored columns do not contain.
+ */
+export function alertAggregateSql(
+  w: WidgetJson,
+  columnName: string,
+  aggregation: string,
+  dialect: SqlDialect,
+): string | null {
+  if (!w.sql || !columnName) return null;
+  if (!isMeasureAgg(aggregation)) return null;
+  const columns = w.columns ?? [];
+  const plan = { dims: [], measures: [{ field: columnName, agg: aggregation }] };
+  // Ask the validator whether it will render this, rather than inferring from
+  // what comes back. When it refuses, buildDirectQuerySql still wraps the query
+  // as SELECT * — and running THAT would fetch raw rows for scalarFrom to read
+  // a number out of, which is a wrong alert value dressed as an exact one.
+  // Found by a mutant: comparing the result against the base SQL looked like it
+  // caught this and did not.
+  if (!renderAggregateClauses(plan, columns, dialect)) return null;
+  return buildDirectQuerySql({ baseSql: w.sql, columns, agg: plan, dialect, rowCap: 1 });
+}
+
+/** Read the single number out of a one-row, one-measure aggregate result. */
+function scalarFrom(rows: Record<string, unknown>[]): number | null {
+  const row = rows[0];
+  if (!row) return null;
+  for (const v of Object.values(row)) {
+    if (isBlank(v)) continue;
+    const n = Number(v);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
+}
+
+/**
+ * Ask the database for an alert's value, for a widget whose snapshot is a
+ * prefix. Null whenever that cannot be done — the caller must then decline to
+ * fire rather than fall back to the prefix.
+ */
+async function exactAlertValue(
+  w: WidgetJson,
+  userId: string,
+  columnName: string,
+  aggregation: string,
+): Promise<number | null> {
+  try {
+    if (w.source?.kind === "warehouse" && w.source.connection_id) {
+      const conn = await loadWarehouseConnectionForUser(
+        supabaseAdmin,
+        { connectionId: w.source.connection_id },
+        userId,
+      );
+      const sql = alertAggregateSql(w, columnName, aggregation, conn.config.provider as SqlDialect);
+      if (!sql) return null;
+      const res = await executeWarehouseQuery(conn.config, sql, 1, { userId });
+      return scalarFrom(res.rows);
+    }
+    // A semantic-source widget has no SQL of its own to aggregate over; it is
+    // answered by the governed runner, which is a different question from this
+    // one. Declining is correct — inventing a query would not be.
+    if (w.source?.kind === "semantic") return null;
+    const dialect = await localEngineName();
+    const sql = alertAggregateSql(w, columnName, aggregation, dialect as SqlDialect);
+    if (!sql) return null;
+    const res = await runLocalSqlForUser(userId, sql);
+    return scalarFrom(res.rows);
+  } catch (e) {
+    console.warn(`[bi-alert] exact aggregate failed: ${(e as Error).message}`);
+    return null;
+  }
+}
+
 export async function evaluateAlerts(
   dashboardId: string,
   dashboardName: string,
   userId: string,
   widgets: WidgetJson[],
 ): Promise<void> {
-  const { data: alerts } = await supabaseAdmin
+  // Scoped to the dashboard's OWNER.
+  //
+  // This query returned every alert on the dashboard whoever wrote it, and then
+  // notified `userId` — the owner — for all of them. The UI only offers the
+  // dialog to the owner (the Schedule button sits behind `!readOnly`, and
+  // `readOnly = !isOwner`), so this was not reachable by clicking. It is
+  // reachable by inserting directly: RLS on bi_alerts is
+  // `WITH CHECK (auth.uid() = user_id)`, which lets anyone who can read a
+  // shared dashboard attach an alert to it under their own id. The owner would
+  // then get notifications for a rule they never wrote.
+  //
+  // Routing to `a.user_id` instead would be worse, not better. The value is
+  // computed from the widget's stored rows, which are the owner's UNMASKED
+  // results — a viewer whose access to that data is masked would receive an
+  // aggregate over rows they cannot see. Per-viewer alerting needs per-viewer
+  // evaluation, not a different recipient on the same number.
+  //
+  // So alerts belong to the dashboard owner, and the query says so rather than
+  // leaving it to the UI.
+  const { data: alerts, error: alertsErr } = await supabaseAdmin
     .from("bi_alerts")
     .select("*")
     .eq("dashboard_id", dashboardId)
+    .eq("user_id", userId)
     .eq("is_active", true);
+  // A failed read is not "no alerts": evaluated as none, a refresh that
+  // crossed a threshold notified nobody.
+  if (alertsErr) throw new Error(`could not read alerts: ${alertsErr.message}`);
   const now = new Date().toISOString();
   for (const a of alerts ?? []) {
     const widget = widgets.find((w) => w.id === a.widget_id);
     if (!widget) continue;
-    const value = alertValue(widget.rows ?? [], a.column_name, a.aggregation);
+    const basis = (a as { basis?: string }).basis ?? "actual";
+    const horizon = (a as { horizon?: number | null }).horizon ?? null;
+    // A partial snapshot is not the data. Every aggregation over it is wrong
+    // — and a forecast fitted to a prefix of the series is wrong too, which is
+    // why this covers both bases rather than only the arithmetic one.
+    const partial = widget.truncated === true;
+    const value = partial
+      ? basis === "forecast"
+        ? null
+        : await exactAlertValue(widget, userId, a.column_name, a.aggregation)
+      : basis === "forecast"
+        ? forecastAlertValue(widget, {
+            column_name: a.column_name,
+            aggregation: a.aggregation,
+            horizon,
+          })
+        : alertValue(widget.rows ?? [], a.column_name, a.aggregation);
+    if (partial && value === null) {
+      // Silence would be the same bug one layer down: the owner would think
+      // the rule was watching. Said once, on the way into the state.
+      if (a.last_state !== "partial") {
+        await notify(
+          a.user_id,
+          a.label || `Alert on "${widget.title ?? "widget"}" could not be checked`,
+          `This widget's snapshot hit the row cap, so ${
+            a.column_name ? `${a.aggregation}(${a.column_name})` : "the row count"
+          } over it would not be the real figure. The alert was not evaluated on "${dashboardName}".`,
+          `/bi/${dashboardId}`,
+        );
+      }
+      // FOUND FROM THE SURVEY (R85). `last_state` is not a display column:
+      // it is the edge that decides whether a person is told. A write that
+      // failed left it on its previous value, so the same alert was sent
+      // again on the next check, and the one after that.
+      const { error: partialErr } = await supabaseAdmin
+        .from("bi_alerts")
+        .update({ last_state: "partial", last_value: null, last_checked_at: now })
+        .eq("id", a.id);
+      if (partialErr) {
+        console.warn(
+          `[bi-alert] alert ${a.id} on "${dashboardName}" was not evaluated, but its state could not be recorded: ${partialErr.message}; the same notice will be sent again on the next check`,
+        );
+      }
+      continue;
+    }
     if (value === null) continue;
     const fires = alertFires(value, a.operator, Number(a.threshold));
     if (fires && a.last_state !== "triggered") {
-      const metric = a.column_name ? `${a.aggregation}(${a.column_name})` : "row count";
+      const metric =
+        (basis === "forecast" ? `forecast (next ${horizon ?? 3}) ` : "") +
+        (a.column_name ? `${a.aggregation}(${a.column_name})` : "row count");
       const title = a.label || `Alert on "${widget.title ?? "widget"}"`;
       const body = `${metric} is ${Math.round(value * 100) / 100} (${OP_LABEL[a.operator] ?? a.operator} ${a.threshold}) on "${dashboardName}".`;
-      await notify(userId, title, body, `/bi/${dashboardId}`);
+      await notify(a.user_id, title, body, `/bi/${dashboardId}`);
       // Optional email delivery — never blocks the alert pipeline.
       if (a.email_enabled) {
-        const to = await ownerEmail(userId);
+        const to = await ownerEmail(a.user_id);
         if (to) {
           void sendMail({
             to,
@@ -810,10 +1118,21 @@ export async function evaluateAlerts(
         }
       }
     }
-    await supabaseAdmin
+    const { error: stateErr } = await supabaseAdmin
       .from("bi_alerts")
       .update({ last_state: fires ? "triggered" : "ok", last_value: value, last_checked_at: now })
       .eq("id", a.id);
+    if (stateErr) {
+      // Told once, and the record of having told them did not land: the same
+      // alert fires again on every check until it does (R85).
+      console.warn(
+        `[bi-alert] alert ${a.id} on "${dashboardName}" checked ${fires ? "triggered" : "ok"} but its state could not be recorded: ${stateErr.message}; ${
+          fires
+            ? "it will notify again on the next check"
+            : "it will notify again when it next trips, even if it never cleared"
+        }`,
+      );
+    }
   }
 }
 
@@ -850,19 +1169,26 @@ export async function processDueSchedules(force = false): Promise<number> {
   processing = true;
   lastProcessed = now;
   try {
-    const { data: due } = await supabaseAdmin
+    const { data: due, error: dueErr } = await supabaseAdmin
       .from("bi_schedules")
       .select("*")
       .eq("enabled", true)
       .lte("next_run_at", new Date().toISOString())
       .order("next_run_at")
       .limit(SCHEDULES_PER_RUN);
+    // A failed read is not "nothing due".
+    if (dueErr) throw new Error(`could not read due schedules: ${dueErr.message}`);
     let ran = 0;
     for (const s of due ?? []) {
       let status = "ok";
       let lastError: string | null = null;
       try {
         const res = await refreshDashboardServer(s.dashboard_id);
+        // Alerts on an attached registry forecast evaluate its CURRENT
+        // projection, as the owner, whatever the widget embedded when saved.
+        await syncForecastVersions(res.widgets as Array<{ chart?: unknown }>, res.userId).catch(
+          () => 0,
+        );
         await evaluateAlerts(s.dashboard_id, res.name, res.userId, res.widgets);
         // Insight digest: notify what moved since the previous snapshots.
         if (res.changes.length > 0) {
@@ -915,15 +1241,38 @@ export async function processDueSchedules(force = false): Promise<number> {
           "error",
         );
       }
-      await supabaseAdmin
-        .from("bi_schedules")
-        .update({
-          last_run_at: new Date().toISOString(),
-          last_status: status,
-          last_error: lastError,
-          next_run_at: computeNextRun(s.cadence, s.at_hour, s.weekday, new Date()).toISOString(),
-        })
-        .eq("id", s.id);
+      // FOUND FROM THE SURVEY (R85). This write carries the CLOCK. Dropped,
+      // a refresh that ran left `next_run_at` in the past, so the next sweep
+      // — a minute later — ran the whole dashboard again, and the one after
+      // that: a refresh loop, paid for in queries, with nothing on the page
+      // to say why. Retried once, then said with the schedule and the cost.
+      const stamp = () =>
+        supabaseAdmin
+          .from("bi_schedules")
+          .update({
+            last_run_at: new Date().toISOString(),
+            last_status: status,
+            last_error: lastError,
+            next_run_at: computeNextRun(s.cadence, s.at_hour, s.weekday, new Date()).toISOString(),
+          })
+          .eq("id", s.id);
+      let { error: stampErr } = await stamp();
+      if (stampErr) {
+        await new Promise((r) => setTimeout(r, 1_000));
+        ({ error: stampErr } = await stamp());
+      }
+      if (stampErr) {
+        console.warn(
+          `[bi-schedule] schedule ${s.id} ran ${status} but its next run could not be set after two attempts: ${stampErr.message}. It is still due, so the next sweep will refresh the dashboard again.`,
+        );
+        await notify(
+          s.user_id,
+          "Scheduled refresh could not record its next run",
+          `The dashboard refreshed, but the schedule still says it is due: ${stampErr.message}. It will keep refreshing every sweep until the schedule can be written.`,
+          `/bi/${s.dashboard_id}`,
+          "warning",
+        );
+      }
       ran++;
     }
     return ran;
@@ -953,11 +1302,31 @@ export async function refreshPrepFlowServer(
     .eq("id", flowId)
     .single();
   if (error || !flow) throw new Error(error?.message ?? "Prep flow not found");
+  const cfg = parsePrepConfig(flow.config);
+  if (cfg.output?.kind === "lakehouse") {
+    // A lakehouse output is a materialized view: one CREATE OR REPLACE TABLE
+    // AS, committed atomically, rebuilt as the flow's owner on this schedule.
+    const { refreshMaterializedView } = await import("@/utils/lakehouse/matviews.server");
+    const { data: view } = await supabaseAdmin
+      .from("lakehouse_materialized_views")
+      .select("*")
+      .eq("user_id", flow.user_id)
+      .eq("schema_name", cfg.output.schema)
+      .eq("table_name", cfg.output.table)
+      .maybeSingle();
+    if (!view) {
+      throw new Error(
+        "The flow's lakehouse table definition no longer exists — run the flow again",
+      );
+    }
+    const res = await refreshMaterializedView(view as never, "prep_refresh");
+    if (!res.ok) throw new Error(res.error ?? "Lakehouse refresh failed");
+    return { userId: flow.user_id, name: flow.name, rowCount: res.rows ?? 0 };
+  }
   if (!flow.output_table_id) throw new Error("Flow has never been run — nothing to refresh");
 
   const { executePrepFlow, materialisePrepOutput, refreshPrepIncremental } =
     await import("@/utils/bi/prep.server");
-  const cfg = parsePrepConfig(flow.config);
 
   // Incremental first: reprocess only the newest slice when the flow is
   // eligible and already has data. Returns null when a full rebuild is
@@ -1024,13 +1393,14 @@ export async function processDuePrepFlows(force = false): Promise<number> {
   const now = Date.now();
   if (!force && now - lastPrepProcessed < MIN_PROCESS_INTERVAL_MS) return 0;
   lastPrepProcessed = now;
-  const { data: flows } = await supabaseAdmin
+  const { data: flows, error: flowsErr } = await supabaseAdmin
     .from("user_prep_flows")
     .select("id, name, user_id, refresh_interval_minutes, last_refresh_at, output_table_id")
     .eq("refresh_enabled", true)
     .not("output_table_id", "is", null)
     .order("last_refresh_at", { ascending: true, nullsFirst: true })
     .limit(SCHEDULES_PER_RUN);
+  if (flowsErr) throw new Error(`could not read prep flows due: ${flowsErr.message}`);
   if (!flows || flows.length === 0) return 0;
   let ran = 0;
   for (const f of flows) {
@@ -1051,10 +1421,15 @@ export async function processDuePrepFlows(force = false): Promise<number> {
         "error",
       );
     }
-    await supabaseAdmin
+    const { error: flowErr } = await supabaseAdmin
       .from("user_prep_flows")
       .update({ last_refresh_at: new Date().toISOString(), last_refresh_error: lastError })
       .eq("id", f.id);
+    if (flowErr) {
+      console.warn(
+        `[bi-prep] flow ${f.id} refreshed but its record could not be stamped: ${flowErr.message}; the page shows the previous refresh until it is`,
+      );
+    }
     ran++;
   }
   return ran;
@@ -1065,6 +1440,12 @@ export async function processDuePrepFlows(force = false): Promise<number> {
 export type CronPassResult = {
   /** false when another instance/runner held the lease and we skipped. */
   ran: boolean;
+  /**
+   * Every step or read that failed this pass, as "step: reason". A pass that
+   * could not read its schedule used to answer with zeros and no word; the
+   * zeros are still here, and so is why.
+   */
+  errors: string[];
   processed: number;
   prep_flows: number;
   /** Saved analyses whose pinned SQL was re-run this pass. */
@@ -1072,8 +1453,19 @@ export type CronPassResult = {
   /** Datasets whose quality tests were re-evaluated this pass. */
   quality_checks: number;
   catalog_crawls: number;
+  /** Scheduled ETL pipelines started this pass. */
+  etl_runs: number;
+  /** Materialized views refreshed this pass. */
+  matview_refreshes: number;
+  sql_model_builds: number;
+  /** Scheduled workflow graphs started this pass. */
+  workflow_runs: number;
+  /** Live workflow runs advanced a step this pass. */
+  workflow_steps: number;
   swarm_schedules: number;
   kernels_reaped: number;
+  /** Prediction runs measured against real outcomes this pass. */
+  ml_evaluations: number;
 };
 
 /**
@@ -1087,6 +1479,14 @@ export type CronPassResult = {
  * `/api/bi/cron`. Both share the "scheduler" lease, so at most one pass runs at
  * a time across the whole fleet.
  */
+// The last pass THIS process ran, for the Monitoring page's scheduler probe.
+// Process memory on purpose: it answers for the instance that served the
+// request, and a multi-instance deployment reads the one that answered.
+let lastCronPass: { at: string; result: CronPassResult } | null = null;
+export function getLastCronPass(): { at: string; result: CronPassResult } | null {
+  return lastCronPass;
+}
+
 export async function runCronPass(opts: { force?: boolean } = {}): Promise<CronPassResult> {
   const force = opts.force ?? false;
   const empty: CronPassResult = {
@@ -1096,117 +1496,187 @@ export async function runCronPass(opts: { force?: boolean } = {}): Promise<CronP
     analyses: 0,
     quality_checks: 0,
     catalog_crawls: 0,
+    etl_runs: 0,
+    matview_refreshes: 0,
+    sql_model_builds: 0,
+    workflow_runs: 0,
+    workflow_steps: 0,
     swarm_schedules: 0,
     kernels_reaped: 0,
+    ml_evaluations: 0,
+    errors: [],
   };
 
   const { acquireCronLease, releaseCronLease } = await import("@/utils/cronLock.server");
   if (!(await acquireCronLease("scheduler"))) return empty;
+  // A failed step is still folded — one sweep must not stop the others — but
+  // it is RECORDED now, not only warned about. MEASURED: /api/bi/cron
+  // answered { ok: true, processed: 0, … } over a pass whose schedule read
+  // had failed, and nothing anywhere said so.
+  const errors: string[] = [];
+  const fold = <T>(step: string, e: unknown, value?: T): T => {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn(`[${step}] failed:`, msg);
+    errors.push(`${step}: ${msg}`);
+    return value as T;
+  };
   try {
-    const processed = await processDueSchedules(force);
-    const prep_flows = await processDuePrepFlows(force);
+    const processed = await processDueSchedules(force).catch((e) => fold("bi-schedules", e, 0));
+    const prep_flows = await processDuePrepFlows(force).catch((e) => fold("prep-flows", e, 0));
     // Scheduled analyses re-run their pinned SQL. Lazy import for the same
     // reason as the others: it keeps the module graph out of server boot.
     const analyses = await import("@/utils/analyst/schedule.server")
       .then((m) => m.processDueAnalyses(force))
-      .catch((e) => {
-        console.warn("[analyst-schedule] sweep failed:", (e as Error).message);
-        return 0;
-      });
+      .catch((e) => fold("analyst-schedule", e, 0));
     // Freshness SLAs only mean something if they fire when nothing happens —
     // a table that stopped refreshing raises no event of its own.
     const quality_checks = await import("@/utils/bi/quality.server")
       .then((m) => m.processDueQualityChecks(force))
-      .catch((e) => {
-        console.warn("[data-quality] sweep failed:", (e as Error).message);
-        return 0;
-      });
+      .catch((e) => fold("data-quality", e, 0));
     // Lazy imports keep these module graphs out of server boot and avoid cycles.
     const catalog_crawls = await import("@/utils/catalog/schedule.server")
       .then((m) => m.processDueCatalogCrawls(force))
-      .catch((e) => {
-        console.warn("[catalog-scheduler] processing failed:", (e as Error).message);
-        return 0;
-      });
+      .catch((e) => fold("catalog-scheduler", e, 0));
+    // Scheduled ETL pipelines ride the same sweep and lease.
+    const etl_runs = await import("@/utils/etl/schedule.server")
+      .then((m) => m.processDueEtlPipelines(force))
+      .catch((e) => fold("etl-scheduler", e, 0));
+
+    // Scheduled materialized-view refreshes ride the same sweep and the same
+    // compare-and-set claim, so every replica can run this pass safely.
+    const matview_refreshes = await import("@/utils/lakehouse/matviews.server")
+      .then((m) => m.processDueMaterializedViews(force))
+      .catch((e) => fold("lakehouse-matview", e, 0));
+
+    // SQL models ride the same sweep. A due model builds itself AND its
+    // ancestors, and several due models for one owner become one build, so a
+    // shared staging table is built once rather than once per dependant.
+    // Ground truth arrives late and on its own schedule, so this is driven
+    // from the PREDICTIONS rather than from a schedule of its own: every pass
+    // asks which recent runs have gone a day without being measured. On a
+    // deployment where no model names an outcome source it is one indexed
+    // query that returns nothing.
+    const ml_evaluations = await import("@/utils/ml/evaluate.server")
+      .then((m) => m.runDueEvaluations().then((r) => r.evaluated))
+      .catch((e) => fold("ml-evaluate", e, 0));
+
+    const sql_model_builds = await import("@/utils/sqlModels/run.server")
+      .then((m) => m.processDueSqlModels(force))
+      .catch((e) => fold("sql-models", e, 0));
+
+    // Lakehouse maintenance rides the same pass, but hourly: compaction is
+    // cheap on an idle catalog and pointless every minute. Any replica may run
+    // it — the steps are idempotent and DuckLake serialises them through the
+    // catalog — and a failure here never touches the rest of the sweep.
+    if (force || new Date().getMinutes() < 2) {
+      try {
+        const { runLakehouseMaintenance } = await import("@/utils/lakehouse/core.server");
+        const res = await runLakehouseMaintenance();
+        if (res.ran) {
+          const failed = res.steps.filter((st) => !st.ok).length;
+          console.log(
+            `[lakehouse] maintenance: ${res.steps.length - failed}/${res.steps.length} steps ok`,
+          );
+        }
+      } catch (e) {
+        fold("lakehouse-maintenance", e);
+      }
+    }
     await import("@/utils/audit.server")
       .then((m) => m.purgeAuditEvents(force))
-      .catch((e) => console.warn("[audit-purge] failed:", (e as Error).message));
+      .catch((e) => fold("audit-purge", e));
     await import("@/utils/chatRetention.server")
       .then(async (m) => {
         await m.purgeExpiredChats(force);
         await m.purgeExpiredEmbedTranscripts(force);
       })
-      .catch((e) => console.warn("[chat-retention] failed:", (e as Error).message));
+      .catch((e) => fold("chat-retention", e));
     await import("@/utils/swarmWebhook.server")
       .then((m) => m.purgeIdempotencyRecords())
-      .catch((e) => console.warn("[idempotency-purge] failed:", (e as Error).message));
+      .catch((e) => fold("idempotency-purge", e));
     // A process killed mid-upload leaves a staging dataset nobody can see and
     // nothing else will ever delete.
     await import("@/utils/data/ingest.server")
       .then((m) => m.sweepAbandonedUploads())
-      .catch((e) => console.warn("[upload-sweep] failed:", (e as Error).message));
+      .catch((e) => fold("upload-sweep", e));
     // Rebuild columnar mirrors that browser-side saves left stale, and drop
     // objects whose dataset is gone.
     await import("@/utils/data/parquet.server")
       .then((m) => m.sweepDatasetMirrors())
-      .catch((e) => console.warn("[parquet-sweep] failed:", (e as Error).message));
+      .catch((e) => fold("parquet-sweep", e));
     await import("@/utils/integrations/health.server")
       .then(async (m) => {
         await m.checkIntegrationHealth(force);
         // Independent of health checks: retire legacy plaintext secrets.
         await m.sweepPlaintextSecrets();
       })
-      .catch((e) => console.warn("[integration-health] failed:", (e as Error).message));
+      .catch((e) => fold("integration-health", e));
     // Data connections get the same treatment as LLM keys: a warehouse
     // password expires on the customer's rotation policy, and without this the
     // first sign is a dashboard erroring in front of someone.
     await import("@/utils/integrations/connectionHealth.server")
       .then((m) => m.checkConnectionHealth(force))
-      .catch((e) => console.warn("[connection-health] failed:", (e as Error).message));
+      .catch((e) => fold("connection-health", e));
     await import("@/utils/observability/retention.server")
       .then((m) => m.purgeTraces(force))
-      .catch((e) => console.warn("[trace-retention] failed:", (e as Error).message));
+      .catch((e) => fold("trace-retention", e));
     await import("@/utils/observability/otelExport.server")
       .then((m) => m.exportOtelTraces())
-      .catch((e) => console.warn("[otel-export] failed:", (e as Error).message));
+      .catch((e) => fold("otel-export", e));
     await import("@/utils/saas/schedule.server")
       .then((m) => m.processDueSaasSyncs(force))
-      .catch((e) => console.warn("[saas-sync] processing failed:", (e as Error).message));
+      .catch((e) => fold("saas-sync", e));
     // KB connector sources (Drive / Notion / SharePoint / Dropbox) on the same
     // cadence and claim discipline as SaaS data sources.
     await import("@/utils/kb/schedule.server")
       .then((m) => m.processDueKbSyncs(force))
-      .catch((e) => console.warn("[kb-sync] processing failed:", (e as Error).message));
+      .catch((e) => fold("kb-sync", e));
     // Traces recorded before their model had a known price re-resolve here —
     // an alias mapping or a price refresh corrects history, not just the
     // future, so budgets stop summing real spend as $0.
     await import("@/utils/observability/reprice.server")
       .then((m) => m.repriceUnpricedTraces(force))
-      .catch((e) => console.warn("[trace-reprice] failed:", (e as Error).message));
+      .catch((e) => fold("trace-reprice", e));
+    // Workflow graphs ride the same sweep, in two halves. Due workflows
+    // start; runs already in flight take a step. The second half is what makes
+    // a graph move at all — a step only begins once the step before it has
+    // been seen to finish, and this is where that is noticed.
+    const workflow_runs = await import("@/utils/workflows/run.server")
+      .then((m) => m.processDueWorkflows(force))
+      .catch((e) => fold("workflow", e, 0));
+    const workflow_steps = await import("@/utils/workflows/run.server")
+      .then((m) => m.advanceLiveWorkflowRuns())
+      .catch((e) => fold("workflow", e, 0));
     const swarm_schedules = await import("@/utils/swarmSchedules.server")
       .then((m) => m.processDueSwarmSchedules(force))
-      .catch((e) => {
-        console.warn("[swarm-scheduler] processing failed:", (e as Error).message);
-        return 0;
-      });
+      .catch((e) => fold("swarm-scheduler", e, 0));
     let kernels_reaped = 0;
     try {
       kernels_reaped = await import("@/utils/notebookRuntime/service.server").then((m) =>
         m.reapSessions(),
       );
     } catch (e) {
-      console.warn("[cron] notebook kernel reap failed:", (e as Error).message);
+      fold("kernel-reap", e);
     }
-    return {
+    const result: CronPassResult = {
       ran: true,
       processed,
       prep_flows,
       quality_checks,
       catalog_crawls,
+      etl_runs,
+      matview_refreshes,
+      sql_model_builds,
+      workflow_runs,
+      workflow_steps,
       analyses,
       swarm_schedules,
       kernels_reaped,
+      ml_evaluations,
+      errors,
     };
+    lastCronPass = { at: new Date().toISOString(), result };
+    return result;
   } finally {
     await releaseCronLease("scheduler");
   }

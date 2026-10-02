@@ -184,6 +184,8 @@ export function BiModelSelect({
   className,
   disabled = false,
   allowUnset = false,
+  unsetLabel = "Server default",
+  unsetSub = "whatever the instance falls back to",
 }: {
   /** Encoded "provider::model" choice, or null when nothing is selected. */
   value: string | null;
@@ -192,6 +194,9 @@ export function BiModelSelect({
   disabled?: boolean;
   /** Offer an explicit "Server default" entry mapping to null (publish dialog). */
   allowUnset?: boolean;
+  /** What the null entry is called, and says under it (the Sheets assistant names its default). */
+  unsetLabel?: string;
+  unsetSub?: string;
 }) {
   const { session } = useAuth();
   const token = session?.access_token;
@@ -333,14 +338,14 @@ export function BiModelSelect({
   const modelLabel = value
     ? (selectedEntry?.display ?? parsedValue?.model ?? value)
     : allowUnset
-      ? "Server default"
+      ? unsetLabel
       : "Select model…";
 
   const q = query.trim().toLowerCase();
   const filteredEntries = q
     ? entries.filter((e) => `${e.display} ${e.sub}`.toLowerCase().includes(q))
     : entries;
-  const showUnset = allowUnset && (!q || "server default".includes(q));
+  const showUnset = allowUnset && (!q || unsetLabel.toLowerCase().includes(q));
 
   return (
     <div className={cn("flex min-w-0 gap-1.5", className)}>
@@ -440,9 +445,9 @@ export function BiModelSelect({
                       className={cn("mr-2 h-3.5 w-3.5", value ? "opacity-0" : "opacity-100")}
                     />
                     <span className="min-w-0">
-                      <span className="block truncate">Server default</span>
+                      <span className="block truncate">{unsetLabel}</span>
                       <span className="block truncate font-mono text-[10px] text-muted-foreground">
-                        whatever the instance falls back to
+                        {unsetSub}
                       </span>
                     </span>
                   </button>

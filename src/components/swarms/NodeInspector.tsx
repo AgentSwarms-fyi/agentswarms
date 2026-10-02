@@ -264,6 +264,12 @@ const TOOL_CATALOG: { id: SwarmToolId; label: string; desc: string; icon: typeof
     icon: Database,
   },
   {
+    id: "ml_predict",
+    label: "ML Predictions",
+    desc: "Score rows with trained models from the ML registry (own and shared); forecasts return their projected periods.",
+    icon: Brain,
+  },
+  {
     id: "calculator",
     label: "Calculator",
     desc: "Safe math expression evaluator. No key needed.",
@@ -346,19 +352,37 @@ export function NodeInspector({
     { id: string; name: string }[]
   >([]);
   const [semanticModelsLoaded, setSemanticModelsLoaded] = useState(false);
+  // ML models for the ml_predict per-node allow-list. RLS returns own + shared,
+  // the same set listModelsForUser gives the tool at run time.
+  const [availableMlModels, setAvailableMlModels] = useState<
+    { id: string; name: string; task: string; production_version_id: string | null }[]
+  >([]);
+  const [mlModelsLoaded, setMlModelsLoaded] = useState(false);
   // Connected MCP servers — used by the mcp_call_tool per-node allow-list picker
   // so users can check off servers instead of typing names from memory.
   const [availableMcpServers, setAvailableMcpServers] = useState<
     { id: string; name: string; type: string; status: string }[]
   >([]);
   const [mcpServersLoaded, setMcpServersLoaded] = useState(false);
+  // FOUND IN R187: each of these reads dropped its error, and a failed one
+  // read as an empty account: "No tables yet. Upload a CSV…", with the
+  // node's own restriction ("Node will only see 1 selected table.") gone
+  // from view. Why a list could not be read, by list.
+  const [listErrors, setListErrors] = useState<
+    Partial<Record<"providers" | "tables" | "semantic" | "ml" | "mcp", string>>
+  >({});
+  const noteError = (list: "providers" | "tables" | "semantic" | "ml" | "mcp", message: string) =>
+    setListErrors((e) => ({ ...e, [list]: message }));
   useEffect(() => {
     (async () => {
       const connected = new Set<string>(["openrouter"]);
-      const [{ data: creds }, { data: integ }] = await Promise.all([
-        supabase.from("provider_credentials").select("provider, is_active"),
-        supabase.from("integrations").select("provider, type, is_active"),
-      ]);
+      const [{ data: creds, error: credsErr }, { data: integ, error: integErr }] =
+        await Promise.all([
+          supabase.from("provider_credentials").select("provider, is_active"),
+          supabase.from("integrations").select("provider, type, is_active"),
+        ]);
+      const providersErr = credsErr ?? integErr;
+      if (providersErr) noteError("providers", providersErr.message);
       creds?.forEach((r: { provider: string | null; is_active: boolean | null }) => {
         if (r.is_active !== false && r.provider) connected.add(r.provider);
       });
@@ -368,24 +392,35 @@ export function NodeInspector({
           if (r.is_active !== false && r.provider) connected.add(r.provider);
         });
       setConnectedProviders(connected);
-      const { data: dt } = await supabase
+      const { data: dt, error: dtErr } = await supabase
         .from("user_data_tables")
         .select("id, name, is_sample")
         .order("name", { ascending: true });
-      if (dt) setAvailableDataTables(dt);
+      if (dtErr) noteError("tables", dtErr.message);
+      else if (dt) setAvailableDataTables(dt);
       setDataTablesLoaded(true);
-      const { data: sm } = await supabase
+      const { data: sm, error: smErr } = await supabase
         .from("semantic_models")
         .select("id, name")
         .order("name", { ascending: true });
-      if (sm) setAvailableSemanticModels(sm);
+      if (smErr) noteError("semantic", smErr.message);
+      else if (sm) setAvailableSemanticModels(sm);
       setSemanticModelsLoaded(true);
-      const { data: mcp } = await supabase
+      const { data: ml, error: mlErr } = await supabase
+        .from("ml_models")
+        .select("id, name, task, production_version_id")
+        .order("name", { ascending: true });
+      if (mlErr) noteError("ml", mlErr.message);
+      else if (ml) setAvailableMlModels(ml);
+      setMlModelsLoaded(true);
+      const { data: mcp, error: mcpErr } = await supabase
         .from("mcp_servers")
         .select("id, name, type, status")
         .eq("status", "connected")
         .order("name", { ascending: true });
-      if (mcp) {
+      if (mcpErr) noteError("mcp", mcpErr.message);
+      // Only a list that was read may prune the node's selection.
+      else if (mcp) {
         setAvailableMcpServers(mcp as any);
         // Only live servers are selectable. Prune anything removed or no
         // longer connected on the inspected node before it can render.
@@ -647,11 +682,13 @@ export function NodeInspector({
                   {availableProviders.map((p) => (
                     <SelectItem key={p.value} value={p.value}>
                       {p.label}
-                      {!connectedProviders.has(p.value) && p.value !== "openrouter" && (
-                        <span className="ml-2 text-[10px] text-muted-foreground">
-                          (not connected)
-                        </span>
-                      )}
+                      {!listErrors.providers &&
+                        !connectedProviders.has(p.value) &&
+                        p.value !== "openrouter" && (
+                          <span className="ml-2 text-[10px] text-muted-foreground">
+                            (not connected)
+                          </span>
+                        )}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -660,6 +697,12 @@ export function NodeInspector({
                 Only providers you've connected appear here. Add more in{" "}
                 <strong>Integrations</strong>.
               </p>
+              {listErrors.providers && (
+                <p className="text-[10px] text-destructive">
+                  Your connected providers could not be read, so none is marked as not connected:{" "}
+                  {listErrors.providers}
+                </p>
+              )}
             </Section>
 
             <Section label="Model">
@@ -954,6 +997,12 @@ export function NodeInspector({
                                 </Label>
                                 {!mcpServersLoaded ? (
                                   <p className="text-[10px] text-muted-foreground">Loading…</p>
+                                ) : listErrors.mcp ? (
+                                  <PickerReadError
+                                    what="Your MCP servers"
+                                    error={listErrors.mcp}
+                                    kept={(tc.mcp_server_names ?? []) as string[]}
+                                  />
                                 ) : availableMcpServers.length === 0 ? (
                                   <p className="text-[10px] text-muted-foreground">
                                     No MCP servers connected. Add one under{" "}
@@ -1034,6 +1083,12 @@ export function NodeInspector({
                                   <p className="text-[10px] text-muted-foreground">
                                     Loading tables…
                                   </p>
+                                ) : listErrors.tables ? (
+                                  <PickerReadError
+                                    what="Your tables"
+                                    error={listErrors.tables}
+                                    kept={tc.sql_table_names ?? []}
+                                  />
                                 ) : availableDataTables.length === 0 ? (
                                   <p className="text-[10px] text-muted-foreground">
                                     No tables yet. Upload a CSV in{" "}
@@ -1095,6 +1150,12 @@ export function NodeInspector({
                                   <p className="text-[10px] text-muted-foreground">
                                     Loading models…
                                   </p>
+                                ) : listErrors.semantic ? (
+                                  <PickerReadError
+                                    what="Your semantic models"
+                                    error={listErrors.semantic}
+                                    kept={tc.metric_model_names ?? []}
+                                  />
                                 ) : availableSemanticModels.length === 0 ? (
                                   <p className="text-[10px] text-muted-foreground">
                                     No semantic models yet. Define one under{" "}
@@ -1146,6 +1207,100 @@ export function NodeInspector({
                                         ? "No models selected — this tool stays inactive on this node."
                                         : `Node can query ${(tc.metric_model_names ?? []).length} model${(tc.metric_model_names ?? []).length === 1 ? "" : "s"}.`}
                                     </p>
+                                  </>
+                                )}
+                              </div>
+                            )}
+
+                            {on && t.id === "ml_predict" && (
+                              <div className="mt-2 pt-2 border-t border-border/40 space-y-1">
+                                {/* ALLOW-ALL UNTIL TOUCHED — the opposite of the semantic
+                                    picker above. Predictions were allow-all before this list
+                                    existed, and a node built then must keep working. Once a
+                                    list is present it is exact, and [] means none. */}
+                                <Label className="text-[10px] text-muted-foreground block">
+                                  Models this node may predict with
+                                </Label>
+                                {!mlModelsLoaded ? (
+                                  <p className="text-[10px] text-muted-foreground">
+                                    Loading models…
+                                  </p>
+                                ) : listErrors.ml ? (
+                                  <PickerReadError
+                                    what="Your ML models"
+                                    error={listErrors.ml}
+                                    kept={tc.ml_model_names ?? []}
+                                  />
+                                ) : availableMlModels.length === 0 ? (
+                                  <p className="text-[10px] text-muted-foreground">
+                                    No ML models yet. Train one under{" "}
+                                    <span className="font-medium text-foreground">ML Models</span>.
+                                  </p>
+                                ) : (
+                                  <>
+                                    <div className="max-h-32 overflow-y-auto space-y-1 rounded-md border border-border/40 bg-background/40 p-2">
+                                      {availableMlModels.map((m) => {
+                                        const list = tc.ml_model_names;
+                                        const checked =
+                                          Array.isArray(list) && list.includes(m.name);
+                                        return (
+                                          <label
+                                            key={m.id}
+                                            className={`flex items-start gap-2 cursor-pointer text-[10px] ${
+                                              m.production_version_id ? "" : "opacity-60"
+                                            }`}
+                                            title={
+                                              m.production_version_id
+                                                ? undefined
+                                                : "No production version yet — cannot predict until one is promoted"
+                                            }
+                                          >
+                                            <input
+                                              type="checkbox"
+                                              className="mt-0.5"
+                                              checked={checked}
+                                              onChange={(e) => {
+                                                const prev = Array.isArray(list) ? list : [];
+                                                const next = e.target.checked
+                                                  ? Array.from(new Set([...prev, m.name]))
+                                                  : prev.filter((n) => n !== m.name);
+                                                patchToolConfig({ ml_model_names: next });
+                                              }}
+                                            />
+                                            <span className="font-mono truncate flex-1">
+                                              {m.name}
+                                            </span>
+                                            <span className="text-muted-foreground">{m.task}</span>
+                                          </label>
+                                        );
+                                      })}
+                                    </div>
+                                    <p
+                                      className={`text-[10px] ${
+                                        Array.isArray(tc.ml_model_names) &&
+                                        tc.ml_model_names.length === 0
+                                          ? "text-amber-600 dark:text-amber-500"
+                                          : "text-muted-foreground"
+                                      }`}
+                                    >
+                                      {!Array.isArray(tc.ml_model_names)
+                                        ? "All models you can use — select some to restrict this node to them."
+                                        : tc.ml_model_names.length === 0
+                                          ? "No models selected — this node cannot predict. Pick at least one, or switch the tool off."
+                                          : `Restricted to ${tc.ml_model_names.length} model${tc.ml_model_names.length === 1 ? "" : "s"}.`}
+                                    </p>
+                                    {Array.isArray(tc.ml_model_names) && (
+                                      <button
+                                        type="button"
+                                        className="text-[10px] underline text-muted-foreground"
+                                        onClick={() => {
+                                          const { ml_model_names: _drop, ...rest } = tc;
+                                          onChange({ toolConfigs: rest });
+                                        }}
+                                      >
+                                        Allow every model again
+                                      </button>
+                                    )}
                                   </>
                                 )}
                               </div>
@@ -1217,7 +1372,9 @@ export function NodeInspector({
                           ).map((r) => (
                             <SelectItem key={r.id} value={r.id}>
                               {r.label}
-                              {!connectedProviders.has(r.id) && r.id !== "openrouter"
+                              {!listErrors.providers &&
+                              !connectedProviders.has(r.id) &&
+                              r.id !== "openrouter"
                                 ? " (not connected)"
                                 : ""}
                             </SelectItem>
@@ -1322,7 +1479,12 @@ export function NodeInspector({
         {data.kind === "http" && <HttpPanel data={data} onChange={onChange} />}
 
         {data.kind === "tool" && (
-          <ToolPanel data={data} onChange={onChange} knowledgeBases={knowledgeBases} />
+          <ToolPanel
+            data={data}
+            onChange={onChange}
+            knowledgeBases={knowledgeBases}
+            mlModels={availableMlModels}
+          />
         )}
 
         {data.kind === "foreach" && <ForEachPanel data={data} onChange={onChange} />}
@@ -1630,6 +1792,20 @@ function GuardrailsSection({
         )}
       </div>
     </Section>
+  );
+}
+
+/**
+ * A picker whose list could not be read (R187): says so, and names what the
+ * node keeps selected, since a restriction must stay visible.
+ */
+function PickerReadError({ what, error, kept }: { what: string; error: string; kept: string[] }) {
+  const sentence = /[.!?]$/.test(error.trim()) ? error.trim() : `${error.trim()}.`;
+  return (
+    <p className="text-[10px] text-destructive">
+      {what} could not be read, so this list says nothing about them: {sentence}
+      {kept.length > 0 ? ` The node keeps its selection: ${kept.join(", ")}.` : ""}
+    </p>
   );
 }
 
@@ -2586,16 +2762,29 @@ const TOOL_NODE_OPTIONS: {
       { key: "arguments", placeholder: '{"key": "{{input}}"}', textarea: true },
     ],
   },
+  {
+    // Score rows with a registry model and no LLM turn. The model is a
+    // picker below (toolArgs.model); keys OR rows are JSON arrays that take
+    // {{var}} templating like every other tool argument.
+    id: "ml_predict",
+    label: "Score with model",
+    args: [
+      { key: "keys", placeholder: '[{"order_id": {{input}}}]', textarea: true },
+      { key: "rows", placeholder: '[{"region": "AMER", "net_usd": 120}]', textarea: true },
+    ],
+  },
 ];
 
 function ToolPanel({
   data,
   onChange,
   knowledgeBases,
+  mlModels,
 }: {
   data: SwarmNodeData;
   onChange: (patch: Partial<SwarmNodeData>) => void;
   knowledgeBases: { id: string; name: string }[];
+  mlModels: { id: string; name: string; task: string; production_version_id: string | null }[];
 }) {
   const toolId = (data.toolId as SwarmToolId) || "web_search";
   const opt = TOOL_NODE_OPTIONS.find((o) => o.id === toolId) ?? TOOL_NODE_OPTIONS[0];
@@ -2666,6 +2855,34 @@ function ToolPanel({
               ))}
             </SelectContent>
           </Select>
+        </Section>
+      )}
+      {toolId === "ml_predict" && (
+        <Section label="Model">
+          <Select
+            value={args.model || "__none__"}
+            onValueChange={(v) => setArg("model", v === "__none__" ? "" : v)}
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none__">Pick a model (required)</SelectItem>
+              {mlModels
+                .filter((m) => m.production_version_id)
+                .map((m) => (
+                  <SelectItem key={m.id} value={m.name}>
+                    {m.name} · {m.task}
+                  </SelectItem>
+                ))}
+            </SelectContent>
+          </Select>
+          <p className="text-[10px] text-muted-foreground mt-1">
+            Only models with a production version are listed. Fill <strong>keys</strong> for a model
+            bound to a feature view (its features are read from the view) or <strong>rows</strong>{" "}
+            with the feature values — one or the other. Any error fails this node rather than
+            flowing on as a result.
+          </p>
         </Section>
       )}
     </>

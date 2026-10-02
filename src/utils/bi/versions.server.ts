@@ -13,6 +13,7 @@
 // shows up in production.
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { selectAllPages } from "@/lib/pagedSelect";
 import type { Json } from "@/integrations/supabase/types";
 
 export type VersionReason = "upload" | "prep_run" | "prep_refresh" | "restore" | "overwrite";
@@ -72,23 +73,35 @@ export async function snapshotDataset(args: {
   const cap = versionRowCap();
   let rows: Record<string, unknown>[] | null = null;
   if (rowCount <= cap && cap > 0) {
-    rows = [];
-    for (let start = 0; start < rowCount; start += PAGE) {
-      const { data: chunk, error } = await supabaseAdmin
-        .from("user_data_rows")
-        .select("row")
-        .eq("table_id", args.tableId)
-        .range(start, start + PAGE - 1);
-      if (error) {
-        // A partial copy is worse than an honest metadata-only version: it
-        // would present itself as restorable and then silently lose rows.
-        console.warn(`[versions] row copy failed, storing metadata only: ${error.message}`);
-        rows = null;
-        break;
+    // Through selectAllPages. The error handling here was already right — "a
+    // partial copy is worse than an honest metadata-only version: it would
+    // present itself as restorable and then silently lose rows" — and that is
+    // exactly why the paging had to match it. Advancing by the page it asked
+    // for meant a clamped page left a HOLE in a snapshot that still called
+    // itself restorable, which is the same lie the error branch refuses to
+    // tell. Ordering by id for the same reason: offsets without an order are
+    // not a sequence.
+    try {
+      const scan = await selectAllPages<{ row: unknown }>(
+        () =>
+          supabaseAdmin
+            .from("user_data_rows")
+            .select("row")
+            .eq("table_id", args.tableId)
+            .order("id", { ascending: true }),
+        rowCount,
+      );
+      rows = scan.truncated ? null : scan.rows.map((c) => c.row as Record<string, unknown>);
+      if (rows === null) {
+        console.warn("[versions] row copy incomplete, storing metadata only");
       }
-      if (!chunk || chunk.length === 0) break;
-      rows.push(...chunk.map((c) => c.row as Record<string, unknown>));
-      if (chunk.length < PAGE) break;
+    } catch (e) {
+      console.warn(
+        `[versions] row copy failed, storing metadata only: ${
+          e instanceof Error ? e.message : String(e)
+        }`,
+      );
+      rows = null;
     }
   }
 
@@ -139,7 +152,7 @@ async function pruneVersions(tableId: string): Promise<void> {
       .order("created_at", { ascending: false })
       .range(keep, keep + 99);
     if (old && old.length > 0) {
-      await supabaseAdmin
+      const { error: pruneErr } = await supabaseAdmin
         .from("user_data_table_versions")
         .delete()
         .in(
@@ -234,10 +247,20 @@ export async function restoreDatasetVersion(args: {
 
   // The schema travels with the rows — restoring 2020's rows under 2026's
   // column list would leave the dataset describing columns it no longer has.
-  await supabaseAdmin
+  // FOUND FROM THE SURVEY (R85). The rows of the restored version are in
+  // place; this puts ITS columns on the dataset. Dropped, the restore
+  // answered ok with exactly the state the comment above forbids — old rows
+  // under the current column list — so it is said, as a failure, naming what
+  // is where.
+  const { error: schemaErr } = await supabaseAdmin
     .from("user_data_tables")
     .update({ columns: (version.columns ?? []) as Json, data_loaded_at: new Date().toISOString() })
     .eq("id", version.table_id);
+  if (schemaErr) {
+    throw new Error(
+      `The version's rows were restored, but the dataset's column list could not be set to this version's: ${schemaErr.message}. The table now holds this version's rows under the previous column list — restore it again.`,
+    );
+  }
 
   await import("@/utils/data/parquet.server")
     .then((m) => m.refreshDatasetMirror({ userId: args.userId, tableId: version.table_id }))

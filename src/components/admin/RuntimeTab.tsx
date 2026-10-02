@@ -4,7 +4,18 @@
 import { useCallback, useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
-import { AlertTriangle, Loader2, Plus, Server, Trash2 } from "lucide-react";
+import {
+  AlertTriangle,
+  Boxes,
+  Cpu,
+  Database,
+  KeyRound,
+  Loader2,
+  Plus,
+  Power,
+  Sparkles,
+  Trash2,
+} from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,9 +23,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { VectorStorePanel } from "@/components/admin/VectorStorePanel";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { normalizeEgressHost } from "@/utils/notebookRuntime/egress";
+import { normalizeEgressHost, normalizeEgressIp } from "@/utils/notebookRuntime/egress";
+import { useTokenRef } from "@/hooks/use-token-ref";
 import {
   Select,
   SelectContent,
@@ -33,32 +47,119 @@ import {
   type PreflightCheck,
 } from "@/utils/notebookRuntimeAdmin.functions";
 
+/**
+ * What to say when the schema refuses a save.
+ *
+ * A rejected save used to show nothing at all: the validator throws before the
+ * handler runs, the promise rejected into the console, and the page sat there
+ * looking saved. On a form of thirty numbers, "invalid input" is not an answer
+ * either - the field has to be named, so this digs the issues out of the zod
+ * payload and reads the column name back as words.
+ */
+function refusalMessage(e: unknown): string {
+  const raw = e instanceof Error ? e.message : String(e);
+  try {
+    const issues = JSON.parse(raw) as { path?: (string | number)[]; message?: string }[];
+    if (Array.isArray(issues) && issues.length > 0) {
+      return issues
+        .slice(0, 3)
+        .map((i) => {
+          const field = (i.path ?? []).join(".").replace(/_/g, " ") || "A value";
+          return `${field}: ${i.message ?? "not allowed"}`;
+        })
+        .join("; ");
+    }
+  } catch {
+    // Not a zod payload. The plain message is the best there is.
+  }
+  return raw || "The settings could not be saved";
+}
+
 function NumberField({
   label,
   value,
   onChange,
   hint,
+  warn,
+  step,
 }: {
   label: string;
   value: number;
   onChange: (n: number) => void;
   hint?: string;
+  /** Decimal knobs say so, or the browser marks every fraction invalid. */
+  step?: number;
+  /** Shown when the value exceeds what this host reports — advice, not a block. */
+  warn?: string | null;
 }) {
   return (
     <div className="space-y-1">
       <Label className="text-xs">{label}</Label>
       <Input
         type="number"
+        step={step}
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="h-8"
+        className={`h-8 ${warn ? "border-amber-500/60" : ""}`}
       />
-      {hint ? <p className="text-[10px] text-muted-foreground">{hint}</p> : null}
+      {warn ? (
+        <p className="text-[10px] text-amber-600 dark:text-amber-500">{warn}</p>
+      ) : hint ? (
+        <p className="text-[10px] text-muted-foreground">{hint}</p>
+      ) : null}
     </div>
   );
 }
 
-export function RuntimeTab({ token }: { token: string }) {
+/**
+ * A DuckDB memory-limit string ("2GB", "512MB", "1.5 GiB") as GB, or null when
+ * it is not parseable — in which case the capacity readout stays hidden rather
+ * than guessing. Bare numbers are GB, matching how the field is documented.
+ */
+function memoryLimitGb(raw: string): number | null {
+  const m = /^\s*([\d.]+)\s*([kmgt])?i?b?\s*$/i.exec(raw ?? "");
+  if (!m) return null;
+  const n = Number(m[1]);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  const perUnit: Record<string, number> = { k: 1 / 1024 ** 2, m: 1 / 1024, g: 1, t: 1024 };
+  return n * (perUnit[(m[2] ?? "g").toLowerCase()] ?? 1);
+}
+
+/**
+ * The page's tabs, in the order an operator meets them: turn it on, size the
+ * sandboxes, size the data platform, size ML, configure AI services, decide
+ * who may use it. Exported so the route can validate `?tab=` against them.
+ */
+export const RUNTIME_TABS = [
+  { id: "runtime", label: "Runtime", icon: Power },
+  { id: "sandboxes", label: "Sandboxes", icon: Boxes },
+  { id: "data", label: "Data platform", icon: Database },
+  { id: "ml", label: "Machine learning", icon: Cpu },
+  { id: "ai", label: "AI services", icon: Sparkles },
+  { id: "access", label: "Access", icon: KeyRound },
+] as const;
+export type RuntimeTabId = (typeof RUNTIME_TABS)[number]["id"];
+export function isRuntimeTabId(v: unknown): v is RuntimeTabId {
+  return RUNTIME_TABS.some((t) => t.id === v);
+}
+
+export function RuntimeTab({
+  token,
+  tab,
+  onTabChange,
+}: {
+  token: string;
+  /** Controlled tab, when the route keeps it in the URL. */
+  tab?: RuntimeTabId;
+  onTabChange?: (tab: RuntimeTabId) => void;
+}) {
+  const { tokenRef, signedIn } = useTokenRef(token);
+  const [localTab, setLocalTab] = useState<RuntimeTabId>(tab ?? "runtime");
+  const activeTab = tab ?? localTab;
+  const changeTab = (next: RuntimeTabId) => {
+    setLocalTab(next);
+    onTabChange?.(next);
+  };
   const getStateFn = useServerFn(nbRuntimeGetState);
   const updateFn = useServerFn(nbRuntimeUpdateSettings);
   const addGrantFn = useServerFn(nbRuntimeAddGrant);
@@ -67,13 +168,42 @@ export function RuntimeTab({ token }: { token: string }) {
   const [state, setState] = useState<NbRuntimeState | null>(null);
   const [form, setForm] = useState<NbRuntimeSettings | null>(null);
   const [egressText, setEgressText] = useState("");
-  // Lines the squid ACL renderer will drop. Uses the SAME function that does
-  // the dropping, so the warning cannot disagree with the behaviour.
+  const [fallbackText, setFallbackText] = useState("");
+  // Lines the squid ACL renderer will drop. Uses the SAME functions that do the
+  // dropping, so the warning cannot disagree with the behaviour.
+  //
+  // BOTH of them, which is the whole subtlety: the list is rendered into two
+  // ACL files — hostnames into dstdomain, addresses into dst — so an entry is
+  // only really discarded when neither claims it. Checking normalizeEgressHost
+  // alone (as this did) reported every IP as ignored, including the self-hosted
+  // MinIO address that the dst file was added to support and that the proxy was
+  // already honouring. A security control that under-reports its own coverage
+  // sends operators looking for a problem that is not there.
   const rejectedEgress = egressText
     .split("\n")
     .map((s) => s.trim())
-    .filter((s) => s && !s.startsWith("#") && normalizeEgressHost(s) === null);
+    .filter(
+      (s) =>
+        s && !s.startsWith("#") && normalizeEgressHost(s) === null && normalizeEgressIp(s) === null,
+    );
+  // Worker processes, reported by the server rather than derived from the CPU
+  // count — WEB_CONCURRENCY and a container's CPU quota both move it.
+  const workers = state?.host?.workers ?? 1;
+  const lakehousePerWorkerGb = form ? memoryLimitGb(form.lakehouse_memory_limit) : null;
+  const lakehouseTotalGb =
+    lakehousePerWorkerGb === null ? null : lakehousePerWorkerGb * Math.max(1, workers);
+  const lakehouseOverHost =
+    lakehouseTotalGb !== null && !!state?.host && lakehouseTotalGb > state.host.totalMemMb / 1024;
   const [saving, setSaving] = useState(false);
+  // The form is ONE object across every tab; whether anything on any tab has
+  // changed since the last load is one comparison, and the save bar says so —
+  // otherwise a change made three tabs ago is invisible from where you stand.
+  const dirty =
+    !!state &&
+    !!form &&
+    (JSON.stringify(form) !== JSON.stringify(state.settings) ||
+      egressText !== state.settings.egress_allowlist.join("\n") ||
+      fallbackText !== (state.settings.gateway_fallback_models ?? []).join("\n"));
   const [grantType, setGrantType] = useState<"user" | "group">("group");
   const [grantId, setGrantId] = useState("");
   const [busyGrant, setBusyGrant] = useState(false);
@@ -87,9 +217,12 @@ export function RuntimeTab({ token }: { token: string }) {
   // enabled and who may use it.
   const [loadError, setLoadError] = useState<string | null>(null);
 
+  // Read on opening the page (and after a save), not when the session
+  // refreshes (R125): that put the saved settings back over every unsaved
+  // field on every tab, and the save bar then said there was nothing to save.
   const load = useCallback(() => {
     setLoadError(null);
-    getStateFn({ data: { access_token: token } })
+    getStateFn({ data: { access_token: tokenRef.current } })
       .then((res) => {
         if (!res.ok) {
           toast.error(res.error);
@@ -99,13 +232,15 @@ export function RuntimeTab({ token }: { token: string }) {
         setState(res);
         setForm(res.settings);
         setEgressText(res.settings.egress_allowlist.join("\n"));
+        setFallbackText((res.settings.gateway_fallback_models ?? []).join("\n"));
       })
       .catch((e: unknown) => {
         const msg = e instanceof Error ? e.message : "Could not reach the server";
         toast.error(msg);
         setLoadError(msg);
       });
-  }, [getStateFn, token]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [getStateFn, signedIn]);
 
   useEffect(() => {
     load();
@@ -150,8 +285,14 @@ export function RuntimeTab({ token }: { token: string }) {
       .split("\n")
       .map((s) => s.trim())
       .filter(Boolean);
+    const gateway_fallback_models = fallbackText
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean);
     try {
-      const res = await updateFn({ data: { access_token: token, ...form, egress_allowlist } });
+      const res = await updateFn({
+        data: { access_token: token, ...form, egress_allowlist, gateway_fallback_models },
+      });
       if (!res.ok) return toast.error(res.error);
 
       // Saving the list and APPLYING it to the proxy are different things, and
@@ -168,6 +309,8 @@ export function RuntimeTab({ token }: { token: string }) {
         );
       }
       load();
+    } catch (e) {
+      toast.error(refusalMessage(e));
     } finally {
       setSaving(false);
     }
@@ -212,316 +355,931 @@ export function RuntimeTab({ token }: { token: string }) {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-start gap-3">
-        <Server className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
-        <div>
-          <h3 className="text-sm font-semibold">Server runtime</h3>
-          <p className="text-xs text-muted-foreground">
-            Developer-workspace notebooks run on secure server kernels — real CPython with{" "}
-            <code>pip install</code> and the actual frameworks. Off by default: a notebook shows a{" "}
-            &ldquo;runtime required&rdquo; prompt until you enable it here.
-          </p>
-        </div>
-      </div>
-
       {!state.secretConfigured && (
         <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
           <p>
             <strong>Runtime not fully set up yet.</strong> Enabling it below mints a signing secret
             automatically — no env var needed. To actually start kernels you also need the runtime
-            services running (<code>docker compose --profile notebooks up -d --build</code>). Only
-            set <code>NOTEBOOK_RUNTIME_SECRET</code> yourself if you run replicas that don&apos;t
-            share a database. See docs/DEVELOPER_WORKSPACE_RUNTIME.md.
+            services running (<code>docker compose up -d --build</code>). Only set{" "}
+            <code>NOTEBOOK_RUNTIME_SECRET</code> yourself if you run replicas that don&apos;t share
+            a database. See docs/DEVELOPER_WORKSPACE_RUNTIME.md.
           </p>
         </div>
       )}
 
-      {/* Enablement */}
-      <div className="space-y-3 rounded-lg border border-border/60 p-3">
-        <label className="flex items-center justify-between gap-3">
-          <span>
-            <span className="block text-sm font-medium">Enable server runtime</span>
-            <span className="block text-xs text-muted-foreground">
-              Allow Developer-workspace notebooks to launch server kernels.
-            </span>
-          </span>
-          <Switch
-            checked={form.server_runtime_enabled}
-            onCheckedChange={(v) => set("server_runtime_enabled", v)}
-          />
-        </label>
-        <label className="flex items-center justify-between gap-3">
-          <span>
-            <span className="block text-sm font-medium">Require an access grant</span>
-            <span className="block text-xs text-muted-foreground">
-              When on, only superadmins and granted users/groups (below) may start a kernel.
-            </span>
-          </span>
-          <Switch checked={form.require_grant} onCheckedChange={(v) => set("require_grant", v)} />
-        </label>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="space-y-1">
-            <Label className="text-xs">Backend</Label>
-            <Select value={form.backend} onValueChange={(v) => set("backend", v)}>
-              <SelectTrigger className="h-8">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="docker">Docker — needs Docker on this host</SelectItem>
-                <SelectItem value="k8s">Kubernetes — needs app running in-cluster</SelectItem>
-                <SelectItem value="e2b">E2B — not implemented yet</SelectItem>
-              </SelectContent>
-            </Select>
-            <p className="text-[10px] text-muted-foreground">
-              Selecting a backend does <strong>not</strong> install anything — it only chooses which
-              API the orchestrator calls. Run the preflight below to confirm it can actually launch
-              kernels here.
-            </p>
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">Kernel image</Label>
-            <Input
-              value={form.default_image}
-              onChange={(e) => set("default_image", e.target.value)}
-              className="h-8"
-            />
-          </div>
-        </div>
-      </div>
+      <Tabs value={activeTab} onValueChange={(v) => changeTab(v as RuntimeTabId)}>
+        <TabsList className="h-auto flex-wrap justify-start gap-1">
+          {RUNTIME_TABS.map((t) => (
+            <TabsTrigger key={t.id} value={t.id} className="gap-1.5">
+              <t.icon className="h-3.5 w-3.5" />
+              {t.label}
+            </TabsTrigger>
+          ))}
+        </TabsList>
 
-      {/* Limits */}
-      <div className="space-y-3 rounded-lg border border-border/60 p-3">
-        <p className="text-sm font-medium">Limits</p>
-        <div className="grid gap-3 sm:grid-cols-3">
-          <NumberField
-            label="Max sessions / user"
-            value={form.max_sessions_per_user}
-            onChange={(n) => set("max_sessions_per_user", n)}
-          />
-          <NumberField
-            label="Max sessions (total)"
-            value={form.max_sessions_total}
-            onChange={(n) => set("max_sessions_total", n)}
-          />
-          <NumberField
-            label="Cell timeout (s)"
-            value={form.cell_timeout_seconds}
-            onChange={(n) => set("cell_timeout_seconds", n)}
-          />
-          <NumberField
-            label="Idle TTL (min)"
-            value={form.idle_ttl_minutes}
-            onChange={(n) => set("idle_ttl_minutes", n)}
-          />
-          <NumberField
-            label="Session max (min)"
-            value={form.session_max_minutes}
-            onChange={(n) => set("session_max_minutes", n)}
-          />
-          <div />
-          <NumberField
-            label="Interactive CPU"
-            value={Number(form.cpu_limit)}
-            onChange={(n) => set("cpu_limit", String(n))}
-            hint="cores"
-          />
-          <NumberField
-            label="Interactive memory (MB)"
-            value={form.mem_limit_mb}
-            onChange={(n) => set("mem_limit_mb", n)}
-          />
-          <div />
-          <NumberField
-            label="Batch CPU"
-            value={Number(form.batch_cpu_limit)}
-            onChange={(n) => set("batch_cpu_limit", String(n))}
-            hint="cores"
-          />
-          <NumberField
-            label="Batch memory (MB)"
-            value={form.batch_mem_limit_mb}
-            onChange={(n) => set("batch_mem_limit_mb", n)}
-          />
-          <NumberField
-            label="Batch max (min)"
-            value={form.batch_max_minutes}
-            onChange={(n) => set("batch_max_minutes", n)}
-          />
-        </div>
-      </div>
-
-      {/* Egress */}
-      <div className="space-y-2 rounded-lg border border-border/60 p-3">
-        <p className="text-sm font-medium">Egress allowlist</p>
-        <p className="text-xs text-muted-foreground">
-          Domains kernels may reach (one per line). Everything else is denied. Keep the egress
-          proxy&apos;s allowlist file in sync when you change this.
-        </p>
-        <Textarea
-          value={egressText}
-          onChange={(e) => setEgressText(e.target.value)}
-          rows={5}
-          className="font-mono text-xs"
-        />
-        {/*
-          SAY WHICH LINES WILL BE DISCARDED. The list is normalised into a squid
-          dstdomain ACL, and anything that is not a usable hostname is dropped —
-          IP addresses in particular, since dstdomain matches by DNS suffix and
-          could never match an address. Until now that happened silently: an
-          operator typed 10.0.0.1, watched it save, and believed egress to it
-          was permitted. It was not, and nothing said so. Rejecting an entry
-          correctly is only half the job on a security control; the other half
-          is telling the person who typed it.
-        */}
-        {rejectedEgress.length > 0 && (
-          <p className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-600 dark:text-amber-400">
-            Ignored — not a hostname the proxy can match:{" "}
-            <span className="font-mono">{rejectedEgress.join(", ")}</span>. An IP address cannot be
-            used here; the allow-list matches domains and their subdomains.
+        {/* Turn it on, choose where kernels run, prove it can start one. */}
+        <TabsContent value="runtime" className="space-y-4">
+          <p className="text-xs text-muted-foreground">
+            Switch the runtime on, choose where kernels run, and check that it can actually start
+            one.
           </p>
-        )}
-        <label className="flex items-center gap-2 pt-1 text-xs">
-          <Switch checked={form.pip_allowed} onCheckedChange={(v) => set("pip_allowed", v)} />
-          Allow runtime <code>pip install</code>
-        </label>
-      </div>
-
-      {/* Preflight — probes the selected backend instead of failing later. */}
-      <div className="space-y-2 rounded-lg border border-border/60 p-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <p className="text-sm font-medium">Backend readiness</p>
-            <p className="text-xs text-muted-foreground">
-              Checks whether the selected backend can actually start a kernel right now.
-            </p>
-          </div>
-          <Button
-            size="sm"
-            variant="outline"
-            className="gap-1.5"
-            onClick={runPreflight}
-            disabled={checking}
-          >
-            {checking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-            Run preflight
-          </Button>
-        </div>
-        {checks && (
-          <ul className="space-y-1 pt-1">
-            {checks.map((c) => (
-              <li key={c.name} className="flex items-start gap-2 text-xs">
-                <span
-                  className={cn(
-                    "mt-0.5 inline-block h-2 w-2 shrink-0 rounded-full",
-                    c.status === "pass"
-                      ? "bg-emerald-500"
-                      : c.status === "warn"
-                        ? "bg-amber-500"
-                        : "bg-destructive",
-                  )}
-                />
-                <span className="min-w-0">
-                  <span className="font-medium">{c.name}</span>{" "}
-                  <span className="text-muted-foreground">— {c.detail}</span>
+          <div className="space-y-3 rounded-lg border border-border/60 p-3">
+            <label className="flex items-center justify-between gap-3">
+              <span>
+                <span className="block text-sm font-medium">Enable server runtime</span>
+                <span className="block text-xs text-muted-foreground">
+                  Allow Developer-workspace notebooks to launch server kernels.
                 </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+              </span>
+              <Switch
+                checked={form.server_runtime_enabled}
+                onCheckedChange={(v) => set("server_runtime_enabled", v)}
+              />
+            </label>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1">
+                <Label className="text-xs">Backend</Label>
+                <Select value={form.backend} onValueChange={(v) => set("backend", v)}>
+                  <SelectTrigger className="h-8">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="docker">Docker — needs Docker on this host</SelectItem>
+                    <SelectItem value="k8s">Kubernetes — needs app running in-cluster</SelectItem>
+                    <SelectItem value="e2b">E2B — not implemented yet</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-[10px] text-muted-foreground">
+                  Selecting a backend does <strong>not</strong> install anything — it only chooses
+                  which API the orchestrator calls. Run the preflight below to confirm it can
+                  actually launch kernels here.
+                </p>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Kernel image</Label>
+                <Input
+                  value={form.default_image}
+                  onChange={(e) => set("default_image", e.target.value)}
+                  className="h-8"
+                />
+              </div>
+            </div>
+          </div>
+          {/* Preflight — probes the selected backend instead of failing later. */}
+          <div className="space-y-2 rounded-lg border border-border/60 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="text-sm font-medium">Backend readiness</p>
+                <p className="text-xs text-muted-foreground">
+                  Checks whether the selected backend can actually start a kernel right now.
+                </p>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5"
+                onClick={runPreflight}
+                disabled={checking}
+              >
+                {checking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                Run preflight
+              </Button>
+            </div>
+            {checks && (
+              <ul className="space-y-1 pt-1">
+                {checks.map((c) => (
+                  <li key={c.name} className="flex items-start gap-2 text-xs">
+                    <span
+                      className={cn(
+                        "mt-0.5 inline-block h-2 w-2 shrink-0 rounded-full",
+                        c.status === "pass"
+                          ? "bg-emerald-500"
+                          : c.status === "warn"
+                            ? "bg-amber-500"
+                            : "bg-destructive",
+                      )}
+                    />
+                    <span className="min-w-0">
+                      <span className="font-medium">{c.name}</span>{" "}
+                      <span className="text-muted-foreground">— {c.detail}</span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </TabsContent>
 
-      <div className="flex justify-end">
+        {/* How many kernels, how big, how long, and what they may reach. */}
+        <TabsContent value="sandboxes" className="space-y-4">
+          <p className="text-xs text-muted-foreground">
+            How many kernels may run at once, how much of the machine each may take, how long one
+            lives, and what it may reach.
+          </p>
+          {/* Limits */}
+          <div className="space-y-3 rounded-lg border border-border/60 p-3">
+            <p className="text-sm font-medium">Limits</p>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <NumberField
+                label="Max sessions / user"
+                value={form.max_sessions_per_user}
+                onChange={(n) => set("max_sessions_per_user", n)}
+              />
+              <NumberField
+                label="Max sessions (total)"
+                value={form.max_sessions_total}
+                onChange={(n) => set("max_sessions_total", n)}
+              />
+              <NumberField
+                label="Cell timeout (s)"
+                value={form.cell_timeout_seconds}
+                onChange={(n) => set("cell_timeout_seconds", n)}
+              />
+              <NumberField
+                label="Idle TTL (min)"
+                value={form.idle_ttl_minutes}
+                onChange={(n) => set("idle_ttl_minutes", n)}
+              />
+              <NumberField
+                label="Session max (min)"
+                value={form.session_max_minutes}
+                onChange={(n) => set("session_max_minutes", n)}
+              />
+              <div />
+              <NumberField
+                label="Interactive CPU"
+                value={Number(form.cpu_limit)}
+                onChange={(n) => set("cpu_limit", String(n))}
+                hint="cores"
+              />
+              <NumberField
+                label="Interactive memory (MB)"
+                value={form.mem_limit_mb}
+                onChange={(n) => set("mem_limit_mb", n)}
+                warn={
+                  state?.host && form.mem_limit_mb > state.host.totalMemMb
+                    ? `More than this host's ${(state.host.totalMemMb / 1024).toFixed(1)} GB`
+                    : null
+                }
+              />
+              <div />
+              <NumberField
+                label="Batch CPU"
+                value={Number(form.batch_cpu_limit)}
+                onChange={(n) => set("batch_cpu_limit", String(n))}
+                hint="cores"
+                warn={
+                  state?.host && Number(form.batch_cpu_limit) > state.host.cpus
+                    ? `More than the ${state.host.cpus} CPU this host reports`
+                    : null
+                }
+              />
+              <NumberField
+                label="Batch memory (MB)"
+                value={form.batch_mem_limit_mb}
+                onChange={(n) => set("batch_mem_limit_mb", n)}
+                warn={
+                  state?.host && form.batch_mem_limit_mb > state.host.totalMemMb
+                    ? `More than this host's ${(state.host.totalMemMb / 1024).toFixed(1)} GB`
+                    : null
+                }
+              />
+              <NumberField
+                label="Batch max (min)"
+                value={form.batch_max_minutes}
+                onChange={(n) => set("batch_max_minutes", n)}
+              />
+              <NumberField
+                label="Sandbox scratch (MB)"
+                value={form.sandbox_tmpfs_mb}
+                onChange={(n) => set("sandbox_tmpfs_mb", n)}
+                hint="~/.local + ~/work per sandbox"
+                warn={
+                  form.sandbox_tmpfs_mb < 1024
+                    ? "Under 1 GB, a pipeline using both the SQL transform and a lakehouse node can run out mid-install"
+                    : null
+                }
+              />
+            </div>
+          </div>
+
+          {/* Egress */}
+          <div className="space-y-2 rounded-lg border border-border/60 p-3">
+            <p className="text-sm font-medium">Egress allowlist</p>
+            <p className="text-xs text-muted-foreground">
+              Domains kernels may reach (one per line). Everything else is denied. Keep the egress
+              proxy&apos;s allowlist file in sync when you change this.
+            </p>
+            <Textarea
+              value={egressText}
+              onChange={(e) => setEgressText(e.target.value)}
+              rows={5}
+              className="font-mono text-xs"
+            />
+            {/*
+              SAY WHICH LINES WILL BE DISCARDED. The list is normalised into two
+              squid ACLs — hostnames into dstdomain, addresses into dst — and
+              anything neither file can take is dropped. Until this warning existed
+              that happened silently: an operator typed a typo, watched it save, and
+              believed egress to it was permitted. It was not, and nothing said so.
+              Rejecting an entry correctly is only half the job on a security
+              control; the other half is telling the person who typed it — and not
+              crying wolf over entries that ARE being honoured.
+            */}
+            {rejectedEgress.length > 0 && (
+              <p className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-600 dark:text-amber-400">
+                Ignored — neither a hostname nor an IP address:{" "}
+                <span className="font-mono">{rejectedEgress.join(", ")}</span>. A hostname matches
+                that domain and its subdomains; an IP address is matched exactly.
+              </p>
+            )}
+            <label className="flex items-center gap-2 pt-1 text-xs">
+              <Switch checked={form.pip_allowed} onCheckedChange={(v) => set("pip_allowed", v)} />
+              Allow runtime <code>pip install</code>
+            </label>
+          </div>
+        </TabsContent>
+
+        {/* Capacity for the lakehouse, pipelines and monitors; the Spark engine. */}
+        <TabsContent value="data" className="space-y-4">
+          <p className="text-xs text-muted-foreground">
+            Capacity for the lakehouse engine, pipeline runs and data monitors — and where a
+            pipeline on the Spark engine gets its cluster.
+          </p>
+          <div className="space-y-3 rounded-lg border border-border/60 p-3">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <p className="text-sm font-medium">Data platform</p>
+              {state?.host && (
+                <p className="text-[11px] text-muted-foreground">
+                  This host reports{" "}
+                  <span className="font-medium text-foreground">{state.host.cpus} CPU</span> and{" "}
+                  <span className="font-medium text-foreground">
+                    {(state.host.totalMemMb / 1024).toFixed(1)} GB
+                  </span>{" "}
+                  RAM
+                </p>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Nothing here is capped by the application — a bigger machine can be used in full.
+              Values above what the host reports are flagged but still allowed, because a
+              container&apos;s view of its host is not always the whole story.
+            </p>
+
+            <p className="text-xs font-medium text-muted-foreground">Lakehouse query engine</p>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="space-y-1">
+                <Label className="text-xs">Memory limit</Label>
+                <Input
+                  value={form.lakehouse_memory_limit}
+                  onChange={(e) => set("lakehouse_memory_limit", e.target.value)}
+                  placeholder="2GB"
+                  className="h-8"
+                />
+                <p className="text-[10px] text-muted-foreground">
+                  e.g. 48GB. Queries past it spill to disk rather than failing.
+                </p>
+              </div>
+              <NumberField
+                label="Threads"
+                value={form.lakehouse_threads}
+                onChange={(n) => set("lakehouse_threads", n)}
+                hint="per query engine"
+                warn={
+                  state?.host && form.lakehouse_threads > state.host.cpus
+                    ? `More than the ${state.host.cpus} CPU this host reports`
+                    : null
+                }
+              />
+              {/*
+                THE MULTIPLIER, SPELLED OUT. The engine lives in each app PROCESS
+                and the server forks one worker per CPU, so this limit is charged
+                once per worker — a number that used to be invisible here and reads
+                as a per-machine budget. On a 16-core host, "16GB" is 256 GB of
+                intent. The batch row below has always shown its product; this is
+                the same courtesy for the setting most likely to OOM a box.
+              */}
+              {lakehouseTotalGb !== null && (
+                <div className="space-y-1 sm:col-span-3">
+                  <Label className="text-xs">Lakehouse capacity</Label>
+                  <p
+                    className={
+                      "rounded-md border px-2 py-1.5 text-[11px] " +
+                      (lakehouseOverHost
+                        ? "border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                        : "border-border/60 bg-muted/40 text-muted-foreground")
+                    }
+                  >
+                    {form.lakehouse_memory_limit} × {workers} worker{workers === 1 ? "" : "s"} ={" "}
+                    <span
+                      className={lakehouseOverHost ? "font-medium" : "font-medium text-foreground"}
+                    >
+                      {lakehouseTotalGb.toFixed(1)} GB
+                    </span>{" "}
+                    if every worker runs a heavy query at once
+                    {lakehouseOverHost && state?.host
+                      ? ` — more than the ${(state.host.totalMemMb / 1024).toFixed(1)} GB this host reports. It is a ceiling rather than a reservation, so idle workers hold nothing, but that is the figure an out-of-memory kill cares about.`
+                      : "."}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <p className="text-xs font-medium text-muted-foreground">ETL throughput</p>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <NumberField
+                label="Concurrent runs / user"
+                value={form.etl_max_concurrent_runs_per_user}
+                onChange={(n) => set("etl_max_concurrent_runs_per_user", n)}
+              />
+              <NumberField
+                label="Pipelines started per sweep"
+                value={form.etl_pipelines_per_sweep}
+                onChange={(n) => set("etl_pipelines_per_sweep", n)}
+                hint="sweeps run every 60s"
+              />
+              <div className="space-y-1">
+                <Label className="text-xs">Batch capacity</Label>
+                <p className="rounded-md border border-border/60 bg-muted/40 px-2 py-1.5 text-[11px] text-muted-foreground">
+                  {form.etl_max_concurrent_runs_per_user} runs × {Number(form.batch_cpu_limit) || 0}{" "}
+                  CPU / {(form.batch_mem_limit_mb / 1024).toFixed(1)} GB ={" "}
+                  <span className="font-medium text-foreground">
+                    {(
+                      form.etl_max_concurrent_runs_per_user * (Number(form.batch_cpu_limit) || 0)
+                    ).toFixed(1)}{" "}
+                    CPU /{" "}
+                    {(
+                      (form.etl_max_concurrent_runs_per_user * form.batch_mem_limit_mb) /
+                      1024
+                    ).toFixed(1)}{" "}
+                    GB
+                  </span>{" "}
+                  per user at full tilt
+                </p>
+              </div>
+            </div>
+            <p className="text-xs font-medium text-muted-foreground">Data monitors</p>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <NumberField
+                label="Monitors per sweep"
+                value={form.data_monitors_per_sweep}
+                onChange={(n) => set("data_monitors_per_sweep", n)}
+                hint="Due data monitors one scheduler sweep runs (sweeps run every 60 s)."
+              />
+              <NumberField
+                label="Anomaly threshold (sigma)"
+                value={form.data_monitor_anomaly_sigma}
+                onChange={(n) => set("data_monitor_anomaly_sigma", n)}
+                step={0.1}
+                hint="Standard deviations from the learned baseline beyond which a volume check alerts. 3 is the usual choice."
+              />
+            </div>
+            <p className="text-xs font-medium text-muted-foreground">Sheets</p>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <NumberField
+                label="Cells per grid sheet"
+                value={form.sheets_max_cells}
+                onChange={(n) => set("sheets_max_cells", n)}
+                hint="Most non-empty cells one grid sheet may hold. Large data belongs in a table sheet, which lives in the lakehouse."
+              />
+              <NumberField
+                label="Table sheet page (rows)"
+                value={form.sheets_page_rows}
+                onChange={(n) => set("sheets_page_rows", n)}
+                hint="Rows a table sheet fetches from the lakehouse at a time while you scroll."
+              />
+              <NumberField
+                label="Upload size (MB)"
+                value={form.sheets_upload_max_mb}
+                onChange={(n) => set("sheets_upload_max_mb", n)}
+                hint="Largest CSV a person can upload into the lakehouse from Sheets. Bigger files go through object storage and an ETL pipeline."
+              />
+              <NumberField
+                label="Sheets per file import"
+                value={form.sheets_import_max_sheets}
+                onChange={(n) => set("sheets_import_max_sheets", n)}
+                hint="Most sheets one Excel or CSV import may bring into a workbook."
+              />
+              <NumberField
+                label="Rows per table in a download"
+                value={form.sheets_export_max_rows}
+                onChange={(n) => set("sheets_export_max_rows", n)}
+                hint="Most rows of a table sheet written into a downloaded .xlsx or .csv. Save larger tables to the lakehouse instead."
+              />
+              <NumberField
+                label="Minutes between automatic versions"
+                value={form.sheets_version_interval_minutes}
+                onChange={(n) => set("sheets_version_interval_minutes", n)}
+                hint="A workbook keeps a version of itself as people edit, at most one this often. Named versions are taken whenever someone asks."
+              />
+              <NumberField
+                label="Automatic versions kept per workbook"
+                value={form.sheets_versions_max}
+                onChange={(n) => set("sheets_versions_max", n)}
+                hint="The oldest automatic versions beyond this are removed; named versions are kept."
+              />
+              <div className="space-y-1">
+                <Label className="text-xs">Assistant model</Label>
+                <Input
+                  value={form.sheets_assist_model}
+                  onChange={(e) => set("sheets_assist_model", e.target.value)}
+                  placeholder="openrouter/google/gemini-3-flash-preview"
+                  className="h-8 font-mono text-xs"
+                />
+                <p className="text-[10px] text-muted-foreground">
+                  The default provider/model for the Sheets assistant and Fill with AI; each person
+                  may pick another in the panel. It goes through the chat channel, so each person's
+                  IAM model rules and budget apply.
+                </p>
+              </div>
+              <NumberField
+                label="Assistant requests per person a minute"
+                value={form.sheets_assist_per_minute}
+                onChange={(n) => set("sheets_assist_per_minute", n)}
+                hint="Model calls one person's Sheets assistant and Fill with AI may make in a minute (each step of a question is one call)."
+              />
+              <NumberField
+                label="Rows one Fill with AI may write"
+                value={form.sheets_ai_fill_max_rows}
+                onChange={(n) => set("sheets_ai_fill_max_rows", n)}
+                hint="Most rows one Fill with AI works through, sent to the model 50 at a time."
+              />
+            </div>
+          </div>
+          {/* The Spark engine: where a run's cluster comes from, and how big it is. */}
+          <div className="space-y-3 rounded-lg border border-border/60 p-3">
+            <div>
+              <p className="text-sm font-medium">Spark engine</p>
+              <p className="text-xs text-muted-foreground">
+                A pipeline that chooses the Spark engine drives a cluster over Spark Connect from
+                its sandbox. Pipelines on the default engine are unaffected either way.
+              </p>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Clusters come from</Label>
+              <Select
+                value={form.spark_provider}
+                onValueChange={(v) =>
+                  set("spark_provider", v as NbRuntimeSettings["spark_provider"])
+                }
+              >
+                <SelectTrigger className="h-8">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="static">An endpoint you run — shared by every run</SelectItem>
+                  <SelectItem value="k8s">Kubernetes — one cluster per run</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {form.spark_provider === "static" ? (
+              <>
+                <Input
+                  className="font-mono text-xs"
+                  value={form.spark_connect_url}
+                  onChange={(e) => set("spark_connect_url", e.target.value)}
+                  placeholder="sc://spark-connect:15002"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Leave it empty and the engine picker says Spark is unavailable. gRPC cannot go
+                  through the egress proxy, so the host must be reachable from the kernel network
+                  directly — the Compose <code>spark</code> profile is; a remote cluster needs a
+                  route to it. A token in the URL (<code>;token=…</code>) is kept out of every run
+                  log.
+                </p>
+              </>
+            ) : (
+              <>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-1 sm:col-span-2">
+                    <Label className="text-xs">Spark image</Label>
+                    <Input
+                      className="h-8 font-mono text-xs"
+                      value={form.spark_image}
+                      onChange={(e) => set("spark_image", e.target.value)}
+                      placeholder="apache/spark:4.2.0-python3"
+                    />
+                    <p className="text-[10px] text-muted-foreground">
+                      Driver and executors. Must be Spark 4.2 — the client in the sandbox image
+                      speaks that protocol version.
+                    </p>
+                  </div>
+                  <NumberField
+                    label="Executors per run"
+                    value={form.spark_executors}
+                    onChange={(n) => set("spark_executors", n)}
+                    hint="pods asked for per run"
+                  />
+                  <NumberField
+                    label="Cores per executor"
+                    value={form.spark_executor_cores}
+                    onChange={(n) => set("spark_executor_cores", n)}
+                  />
+                  <NumberField
+                    label="Executor memory (MB)"
+                    value={form.spark_executor_mem_mb}
+                    onChange={(n) => set("spark_executor_mem_mb", n)}
+                  />
+                  <NumberField
+                    label="Driver memory (MB)"
+                    value={form.spark_driver_mem_mb}
+                    onChange={(n) => set("spark_driver_mem_mb", n)}
+                    hint="collected results land here"
+                  />
+                </div>
+                {form.backend !== "k8s" ? (
+                  <p className="text-[11px] text-amber-600 dark:text-amber-500">
+                    The backend above is <code>{form.backend}</code>, so this app is probably not
+                    running in a cluster — and per-run clusters need it to be. Until it is, the
+                    engine picker shows Spark as unavailable rather than offering an engine every
+                    run would fail on.
+                  </p>
+                ) : null}
+                <p className="text-[11px] text-muted-foreground">
+                  Each run gets its own driver and executors in the <code>agentswarms-spark</code>{" "}
+                  namespace, and they are deleted when it ends — so a run's size is the node pool,
+                  not one box. Apply <code>deploy/k8s/spark/spark-runtime.yaml</code> first: it
+                  carries the namespace, the service account the driver needs to ask for executors,
+                  the quota that bounds all of this, and the network policy that lets sandboxes
+                  reach a driver. The first run on a new image resolves the connector jars, which is
+                  slow; bake them in and set <code>SPARK_PACKAGES=</code> to skip it.
+                </p>
+              </>
+            )}
+          </div>
+        </TabsContent>
+
+        <TabsContent value="ml" className="space-y-4">
+          <p className="text-xs text-muted-foreground">
+            Budgets for training and batch prediction, and when a drift alert fires.
+          </p>
+          <div className="space-y-3 rounded-lg border border-border/60 p-3">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <p className="text-sm font-medium">Machine learning</p>
+              {state?.host && (
+                <p className="text-[11px] text-muted-foreground">
+                  This host reports{" "}
+                  <span className="font-medium text-foreground">{state.host.cpus} CPU</span> and{" "}
+                  <span className="font-medium text-foreground">
+                    {(state.host.totalMemMb / 1024).toFixed(1)} GB
+                  </span>{" "}
+                  RAM
+                </p>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Nothing here is capped by the application — a bigger machine can be used in full.
+              Values above what the host reports are flagged but still allowed, because a
+              container&apos;s view of its host is not always the whole story.
+            </p>
+
+            <p className="text-xs font-medium text-muted-foreground">Machine learning</p>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <NumberField
+                label="Training rows"
+                value={form.ml_train_max_rows}
+                onChange={(n) => set("ml_train_max_rows", n)}
+                hint="larger tables are reservoir-sampled to this"
+              />
+              <NumberField
+                label="Training time budget (min)"
+                value={form.ml_train_time_budget_minutes}
+                onChange={(n) => set("ml_train_time_budget_minutes", n)}
+                hint="default per run; the wizard can lower it"
+              />
+              <NumberField
+                label="Training sandbox memory (MB)"
+                value={form.ml_train_mem_limit_mb}
+                onChange={(n) => set("ml_train_mem_limit_mb", n)}
+              />
+              <NumberField
+                label="Serving sandbox memory (MB)"
+                value={form.ml_serve_mem_limit_mb}
+                onChange={(n) => set("ml_serve_mem_limit_mb", n)}
+                hint="A scorer holds ONE fitted model resident and answers requests; measured at 169 MB against the 8 GB it used to borrow from the training budget. On Kubernetes this is the number a namespace quota counts per copy, so it decides how many copies of a model you may run. The default leaves room for the largest artifact the platform accepts, unpickled."
+              />
+              <NumberField
+                label="Concurrent trainings / user"
+                value={form.ml_max_concurrent_trainings_per_user}
+                onChange={(n) => set("ml_max_concurrent_trainings_per_user", n)}
+              />
+              <NumberField
+                label="Batch prediction rows"
+                value={form.ml_predict_max_rows}
+                onChange={(n) => set("ml_predict_max_rows", n)}
+              />
+              <NumberField
+                label="Search workers"
+                value={form.ml_train_workers}
+                onChange={(n) => set("ml_train_workers", n)}
+                hint="Sandboxes one training job spreads its algorithm search across. Each worker trains its own share of the candidates and the job keeps the best; a single model still trains in one container. Bounded by sessions per user above, and only classification and regression have a search to split."
+              />
+              <NumberField
+                label="Training GPUs"
+                value={form.ml_train_gpus}
+                onChange={(n) => set("ml_train_gpus", n)}
+                hint="Requested per training sandbox: a Docker device request, or nvidia.com/gpu on Kubernetes. Needs a CUDA-capable runtime image."
+              />
+              <NumberField
+                label="Notebook artifact size (MB)"
+                value={form.ml_artifact_max_mb}
+                onChange={(n) => set("ml_artifact_max_mb", n)}
+                hint="Largest model a notebook run may save into the lake bucket through the platform. The kernel holds no bucket credentials, so the bytes travel through the app."
+              />
+              <NumberField
+                label="Drift alert threshold (PSI)"
+                value={form.ml_drift_alert_psi}
+                onChange={(n) => set("ml_drift_alert_psi", n)}
+                hint="A batch prediction whose rows drift past this population stability index notifies the model's owner. 0.25 is the usual line."
+              />
+              <NumberField
+                label="Fairness review threshold (ratio)"
+                value={form.ml_fairness_min_ratio}
+                onChange={(n) => set("ml_fairness_min_ratio", n)}
+                hint="A group selected less often than this share of the best-treated group's rate asks for review. 0.8 is the four-fifths rule from the US EEOC guidelines — a rule of thumb rather than a law, and not the standard everywhere."
+              />
+              <NumberField
+                label="Cross-validate below this many holdout rows"
+                value={form.ml_cv_min_holdout_rows}
+                onChange={(n) => set("ml_cv_min_holdout_rows", n)}
+                hint="Picking a model never reads the holdout — it scores candidates inside the training rows. Above this many held-out rows one inner split already pins the score, so k-fold would cost k times the fits to buy almost nothing; below it, folds earn their keep. Time-ordered data always uses time-series folds."
+              />
+              <NumberField
+                label="Split training above this many rows per worker"
+                value={form.ml_parallel_min_rows}
+                onChange={(n) => set("ml_parallel_min_rows", n)}
+                hint="A dataset too large for one container is refitted across several, each on its own hashed slice, and their fits averaged. Each worker still has to see enough rows to learn from: measured, a slice of 25,000 costs about half a point of F1 against a single fit while beating the sample fit that is the alternative, and a slice of 2,500 costs three points. Below this the trainer samples the old way instead."
+              />
+              <NumberField
+                label="Decay alert threshold (ratio)"
+                value={form.ml_decay_alert_ratio}
+                onChange={(n) => set("ml_decay_alert_ratio", n)}
+                hint="How much worse than its training score a model may do against real outcomes before its owner is told. A ratio, so 0.1 means ten per cent worse — and it reads the same way for a metric that should rise and one that should fall."
+              />
+            </div>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="ai" className="space-y-4">
+          <p className="text-xs text-muted-foreground">
+            Models and limits for AI in SQL, document reading on upload, and the AI gateway — and
+            where knowledge-base embeddings are searched.
+          </p>
+          <div className="space-y-3 rounded-lg border border-border/60 p-3">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <p className="text-sm font-medium">AI services</p>
+              {state?.host && (
+                <p className="text-[11px] text-muted-foreground">
+                  This host reports{" "}
+                  <span className="font-medium text-foreground">{state.host.cpus} CPU</span> and{" "}
+                  <span className="font-medium text-foreground">
+                    {(state.host.totalMemMb / 1024).toFixed(1)} GB
+                  </span>{" "}
+                  RAM
+                </p>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Nothing here is capped by the application — a bigger machine can be used in full.
+              Values above what the host reports are flagged but still allowed, because a
+              container&apos;s view of its host is not always the whole story.
+            </p>
+
+            <p className="text-xs font-medium text-muted-foreground">AI in SQL</p>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <NumberField
+                label="AI calls per statement"
+                value={form.ai_sql_max_calls_per_statement}
+                onChange={(n) => set("ai_sql_max_calls_per_statement", n)}
+                hint="Model calls one lakehouse statement may make through ai_* functions (distinct inputs only; cached answers are free)."
+              />
+              <div className="space-y-1">
+                <Label className="text-xs">Default model</Label>
+                <Input
+                  value={form.ai_sql_default_model}
+                  onChange={(e) => set("ai_sql_default_model", e.target.value)}
+                  placeholder="openrouter/google/gemini-3-flash-preview"
+                  className="h-8 font-mono text-xs"
+                />
+                <p className="text-[10px] text-muted-foreground">
+                  provider/model an ai_* function uses when the statement names none.
+                </p>
+              </div>
+              <NumberField
+                label="Answer cache (days)"
+                value={form.ai_sql_cache_ttl_days}
+                onChange={(n) => set("ai_sql_cache_ttl_days", n)}
+                hint="How long an ai_* answer is reused for the same input and model before the model is asked again."
+              />
+            </div>
+            <p className="text-xs font-medium text-muted-foreground">Document intelligence</p>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="space-y-1 sm:col-span-2">
+                <Label className="text-xs">Vision model</Label>
+                <Input
+                  value={form.document_vision_model}
+                  onChange={(e) => set("document_vision_model", e.target.value)}
+                  placeholder="openrouter/google/gemini-3-flash-preview"
+                  className="h-8 font-mono text-xs"
+                />
+                <p className="text-[10px] text-muted-foreground">
+                  provider/model that reads scanned PDF pages and images uploaded to a knowledge
+                  base; it must accept images.
+                </p>
+              </div>
+              <NumberField
+                label="Pages per document"
+                value={form.document_vision_max_pages}
+                onChange={(n) => set("document_vision_max_pages", n)}
+                hint="Pages one uploaded document may have read by the vision model (one model call per page)."
+              />
+            </div>
+            <p className="text-xs font-medium text-muted-foreground">AI gateway</p>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <NumberField
+                label="Gateway calls per minute"
+                value={form.gateway_rate_limit_per_min}
+                onChange={(n) => set("gateway_rate_limit_per_min", n)}
+                hint="Calls a minute one AI-gateway key may make unless the key sets its own limit (Integrations → LLM Gateway → API access)."
+              />
+              <div className="space-y-1 sm:col-span-2">
+                <Label className="text-xs">Gateway fallback chain</Label>
+                <Textarea
+                  value={fallbackText}
+                  onChange={(e) => setFallbackText(e.target.value)}
+                  rows={2}
+                  className="font-mono text-xs"
+                  placeholder={"openrouter/openai/gpt-4o-mini\nopenrouter/google/gemini-2.5-flash"}
+                />
+                <p className="text-xs text-muted-foreground">
+                  provider/model entries, one per line, tried in order when a gateway call&apos;s
+                  model fails with a provider error, after the key&apos;s own chain. Empty = none.
+                </p>
+              </div>
+              <NumberField
+                label="Metrics API rows per query"
+                value={form.gateway_metrics_max_rows}
+                onChange={(n) => set("gateway_metrics_max_rows", n)}
+                hint="Rows one /api/v1/metrics/query call may return; a smaller limit in the request wins."
+              />
+            </div>
+            <p className="text-xs font-medium text-muted-foreground">
+              Semantic cache
+              <span className="ml-2 font-normal">
+                Applies only to keys that switch it on (Integrations &rarr; LLM Gateway &rarr; API
+                access).
+              </span>
+            </p>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <NumberField
+                label="Similarity to reuse an answer"
+                value={form.gateway_cache_similarity}
+                onChange={(n) => set("gateway_cache_similarity", n)}
+                step={0.01}
+                hint="Cosine similarity a cached question must reach before its answer is reused. Lower reuses more and risks answering a near-miss."
+              />
+              <NumberField
+                label="Answer lifetime (hours)"
+                value={form.gateway_cache_ttl_hours}
+                onChange={(n) => set("gateway_cache_ttl_hours", n)}
+                hint="How long a cached answer stays reusable before the model is asked again."
+              />
+              <NumberField
+                label="Temperature ceiling"
+                value={form.gateway_cache_max_temperature}
+                onChange={(n) => set("gateway_cache_max_temperature", n)}
+                step={0.1}
+                hint="Above this temperature a turn is never served from, or written to, the cache: a high temperature asks for variety."
+              />
+            </div>
+          </div>
+
+          <VectorStorePanel token={token} />
+        </TabsContent>
+
+        {/* Who may start a kernel. */}
+        <TabsContent value="access" className="space-y-4">
+          <p className="text-xs text-muted-foreground">
+            Who may start a kernel once the runtime is on. Superadmins always can; everyone else
+            needs a grant when the switch below is on.
+          </p>
+          <div className="space-y-3 rounded-lg border border-border/60 p-3">
+            <label className="flex items-center justify-between gap-3">
+              <span>
+                <span className="block text-sm font-medium">Require an access grant</span>
+                <span className="block text-xs text-muted-foreground">
+                  When on, only superadmins and granted users/groups (below) may start a kernel.
+                </span>
+              </span>
+              <Switch
+                checked={form.require_grant}
+                onCheckedChange={(v) => set("require_grant", v)}
+              />
+            </label>
+          </div>
+          {/* Grants */}
+          <div className="space-y-3 rounded-lg border border-border/60 p-3">
+            <div>
+              <p className="text-sm font-medium">Access grants</p>
+              <p className="text-xs text-muted-foreground">
+                Used only when &ldquo;Require an access grant&rdquo; is on. Superadmins always have
+                access.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="space-y-1">
+                <Label className="text-xs">Type</Label>
+                <Select
+                  value={grantType}
+                  onValueChange={(v) => {
+                    setGrantType(v as "user" | "group");
+                    setGrantId("");
+                  }}
+                >
+                  <SelectTrigger className="h-8 w-28">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="group">Group</SelectItem>
+                    <SelectItem value="user">User</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="min-w-0 flex-1 space-y-1">
+                <Label className="text-xs">{grantType === "group" ? "Group" : "User"}</Label>
+                <Select value={grantId} onValueChange={setGrantId}>
+                  <SelectTrigger className="h-8">
+                    <SelectValue placeholder={`Select a ${grantType}…`} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {targets.length === 0 ? (
+                      <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                        None available
+                      </div>
+                    ) : (
+                      targets.map((t) => (
+                        <SelectItem key={t.id} value={t.id}>
+                          {"name" in t ? t.name : (t.email ?? t.id)}
+                        </SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button
+                size="sm"
+                onClick={addGrant}
+                disabled={busyGrant || !grantId}
+                className="h-8 gap-1"
+              >
+                <Plus className="h-3.5 w-3.5" /> Grant
+              </Button>
+            </div>
+
+            {state.grants.length === 0 ? (
+              <p className="text-xs text-muted-foreground">No grants yet.</p>
+            ) : (
+              <ul className="space-y-1">
+                {state.grants.map((g) => (
+                  <li
+                    key={g.id}
+                    className="flex items-center justify-between gap-2 rounded border border-border/50 px-2 py-1 text-sm"
+                  >
+                    <span className="flex items-center gap-2">
+                      <Badge variant="outline" className="text-[10px] capitalize">
+                        {g.principal_type}
+                      </Badge>
+                      {g.name}
+                    </span>
+                    <button
+                      type="button"
+                      className="text-muted-foreground hover:text-destructive"
+                      onClick={() => void removeGrant(g.id)}
+                      title="Remove grant"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </TabsContent>
+      </Tabs>
+
+      {/* One form across every tab, so one save covers them all — and says so. */}
+      <div className="sticky bottom-0 z-10 flex items-center justify-between gap-3 border-t border-border/60 bg-background/95 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+        <p className="text-xs text-muted-foreground" aria-live="polite">
+          {dirty
+            ? "Unsaved changes — one save covers every tab."
+            : "Everything on every tab is saved."}
+        </p>
         <Button size="sm" onClick={save} disabled={saving} className="gap-1.5">
           {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
           Save settings
         </Button>
-      </div>
-
-      {/* Grants */}
-      <div className="space-y-3 rounded-lg border border-border/60 p-3">
-        <div>
-          <p className="text-sm font-medium">Access grants</p>
-          <p className="text-xs text-muted-foreground">
-            Used only when &ldquo;Require an access grant&rdquo; is on. Superadmins always have
-            access.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-end gap-2">
-          <div className="space-y-1">
-            <Label className="text-xs">Type</Label>
-            <Select
-              value={grantType}
-              onValueChange={(v) => {
-                setGrantType(v as "user" | "group");
-                setGrantId("");
-              }}
-            >
-              <SelectTrigger className="h-8 w-28">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="group">Group</SelectItem>
-                <SelectItem value="user">User</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="min-w-0 flex-1 space-y-1">
-            <Label className="text-xs">{grantType === "group" ? "Group" : "User"}</Label>
-            <Select value={grantId} onValueChange={setGrantId}>
-              <SelectTrigger className="h-8">
-                <SelectValue placeholder={`Select a ${grantType}…`} />
-              </SelectTrigger>
-              <SelectContent>
-                {targets.length === 0 ? (
-                  <div className="px-2 py-1.5 text-xs text-muted-foreground">None available</div>
-                ) : (
-                  targets.map((t) => (
-                    <SelectItem key={t.id} value={t.id}>
-                      {"name" in t ? t.name : (t.email ?? t.id)}
-                    </SelectItem>
-                  ))
-                )}
-              </SelectContent>
-            </Select>
-          </div>
-          <Button
-            size="sm"
-            onClick={addGrant}
-            disabled={busyGrant || !grantId}
-            className="h-8 gap-1"
-          >
-            <Plus className="h-3.5 w-3.5" /> Grant
-          </Button>
-        </div>
-
-        {state.grants.length === 0 ? (
-          <p className="text-xs text-muted-foreground">No grants yet.</p>
-        ) : (
-          <ul className="space-y-1">
-            {state.grants.map((g) => (
-              <li
-                key={g.id}
-                className="flex items-center justify-between gap-2 rounded border border-border/50 px-2 py-1 text-sm"
-              >
-                <span className="flex items-center gap-2">
-                  <Badge variant="outline" className="text-[10px] capitalize">
-                    {g.principal_type}
-                  </Badge>
-                  {g.name}
-                </span>
-                <button
-                  type="button"
-                  className="text-muted-foreground hover:text-destructive"
-                  onClick={() => void removeGrant(g.id)}
-                  title="Remove grant"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
       </div>
     </div>
   );

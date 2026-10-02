@@ -12,7 +12,26 @@
 // implying success.
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { renderEgressAllowlist } from "./egress";
+import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { renderEgressAllowlist, renderEgressIpAllowlist } from "./egress";
+
+/**
+ * Destinations the PLATFORM configured, unioned in so an operator never has to
+ * allow-list infrastructure this deployment set up itself.
+ *
+ * The lakehouse object store is the case that proves the need: an ETL
+ * lakehouse node reads and writes Parquet over S3 from inside a kernel, and
+ * when that endpoint is a raw IP — the norm for a self-hosted MinIO — squid
+ * denies it with a 403 that DuckDB reports as "Authentication Failure ...
+ * credentials did not work". That message sends you hunting a credential bug
+ * which does not exist, exactly the misdirection this module exists to stop.
+ */
+export function platformEgressHosts(): string[] {
+  const out: string[] = [];
+  const endpoint = process.env.LAKEHOUSE_S3_ENDPOINT?.trim();
+  if (endpoint) out.push(endpoint);
+  return out;
+}
 
 export type EgressApplyResult = {
   applied: boolean;
@@ -67,9 +86,12 @@ async function restartProxy(): Promise<{ ok: boolean; reason?: string }> {
     const id = rows?.[0]?.Id;
     if (!id) return { ok: false, reason: `No running container matching "${name}".` };
 
+    // Seen live: the restart took longer than 20s while the daemon was busy
+    // and the caller reported "could not be reloaded" for a proxy that came
+    // back seconds later. A minute is generous and the call is rare.
     const res = await fetch(`${dockerBase()}/containers/${id}/restart?t=5`, {
       method: "POST",
-      signal: AbortSignal.timeout(20000),
+      signal: AbortSignal.timeout(60000),
     });
     if (!res.ok && res.status !== 204) {
       return { ok: false, reason: `Restarting the proxy returned ${res.status}.` };
@@ -88,12 +110,22 @@ async function restartProxy(): Promise<{ ok: boolean; reason?: string }> {
  */
 export async function applyEgressAllowlist(hosts: string[]): Promise<EgressApplyResult> {
   const file = allowlistPath();
-  const body = renderEgressAllowlist(hosts ?? []);
+  // The operator's list plus whatever this deployment configured for itself.
+  const all = [...(hosts ?? []), ...platformEgressHosts()];
+  const body = renderEgressAllowlist(all);
   const count = body.split("\n").filter((l) => l && !l.startsWith("#")).length;
 
   try {
     await fs.mkdir(path.dirname(file), { recursive: true });
     await fs.writeFile(file, body, "utf8");
+    // Raw-IP entries go into the sibling dst file — dstdomain cannot match
+    // them, so leaving them in allowed_domains would silently deny a LAN
+    // MinIO while the admin field claimed otherwise.
+    await fs.writeFile(
+      path.join(path.dirname(file), "allowed_ips"),
+      renderEgressIpAllowlist(all),
+      "utf8",
+    );
   } catch (e) {
     const err = e as NodeJS.ErrnoException;
     const hint =
@@ -113,4 +145,56 @@ export async function applyEgressAllowlist(hosts: string[]): Promise<EgressApply
     };
   }
   return { applied: true, hosts: count };
+}
+
+/**
+ * Make sure the proxy admits the hosts this deployment configured for
+ * itself (the lake's S3 endpoint above all) BEFORE a sandbox needs them.
+ *
+ * The allow-list used to reach the proxy only when an administrator saved
+ * the runtime settings. Configure the lakehouse afterwards and every sandbox
+ * that read Parquet got a 403 from squid, which DuckDB reports as
+ * "Authentication Failure ... credentials did not work" — a credential hunt
+ * for a bug that is not there. Called at job start; a no-op (no write, no
+ * proxy restart) when the rendered files already match, so a running job is
+ * never disturbed by another one starting.
+ */
+export async function ensurePlatformEgress(): Promise<EgressApplyResult> {
+  if (!platformEgressHosts().length) return { applied: true, hosts: 0 };
+  // On Kubernetes the allow-list is the notebook-egress ConfigMap, not a file
+  // this process can write: name the hosts so the warning is the instruction.
+  if ((process.env.NOTEBOOK_RUNTIME_BACKEND || "").toLowerCase() === "k8s") {
+    return {
+      applied: false,
+      reason:
+        `On Kubernetes, add ${platformEgressHosts().join(", ")} to the notebook-egress ConfigMap ` +
+        `(allowed_domains, or allowed_ips for a raw address) and restart the proxy; ` +
+        `see deploy/k8s/notebooks/notebook-runtime.yaml.`,
+    };
+  }
+  let stored: string[] = [];
+  try {
+    const { data } = await supabaseAdmin
+      .from("notebook_runtime_settings")
+      .select("egress_allowlist")
+      .eq("id", true)
+      .maybeSingle();
+    stored = (data?.egress_allowlist ?? []) as string[];
+  } catch {
+    /* no settings row yet: the platform hosts alone */
+  }
+  const all = [...stored, ...platformEgressHosts()];
+  const file = allowlistPath();
+  try {
+    const [domains, ips] = await Promise.all([
+      fs.readFile(file, "utf8").catch(() => ""),
+      fs.readFile(path.join(path.dirname(file), "allowed_ips"), "utf8").catch(() => ""),
+    ]);
+    if (domains === renderEgressAllowlist(all) && ips === renderEgressIpAllowlist(all)) {
+      return { applied: true, hosts: all.length };
+    }
+  } catch {
+    /* unreadable: fall through and (re)write */
+  }
+  return applyEgressAllowlist(stored);
 }

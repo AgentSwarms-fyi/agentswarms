@@ -1,0 +1,2535 @@
+// Lakehouse: the built-in columnar warehouse. Browse schemas and tables,
+// run governed SQL (typed or NL-generated), inspect snapshots, import
+// platform datasets — all through the server chokepoint that enforces
+// schema access, audits every statement, and writes query history.
+import { formatUsd } from "@/lib/usd";
+import { confirmAsk } from "@/components/ui/confirm-dialog";
+import { SharesDialog } from "@/components/lakehouse/SharesDialog";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { useServerFn } from "@tanstack/react-start";
+import {
+  ChevronDown,
+  ChevronRight,
+  Clock3,
+  Database as DatabaseIcon,
+  Download,
+  AlertTriangle,
+  Boxes,
+  Flame,
+  HardDrive,
+  Loader2,
+  Play,
+  Plus,
+  RefreshCw,
+  Sparkles,
+  Table2,
+  Trash2,
+  Gauge,
+  Layers,
+  Mountain,
+  Rows3,
+  ShieldCheck,
+  Upload,
+  FileSpreadsheet,
+} from "lucide-react";
+import { toast } from "sonner";
+
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
+import { formatBytes } from "@/utils/lakehouse/layout";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
+import { BiModelSelect } from "@/components/bi/BiModelSelect";
+import { AiFunctionsReference } from "@/components/lakehouse/AiFunctionsReference";
+import {
+  IcebergCatalogsDialog,
+  PublishToIcebergDialog,
+} from "@/components/lakehouse/IcebergDialog";
+import { downloadCsv } from "@/lib/exportData";
+import { useSingleFlight } from "@/lib/singleFlight";
+import { matviewBadge } from "@/lib/matviewBadge";
+import { useAuth } from "@/hooks/use-auth";
+import { useTokenRef } from "@/hooks/use-token-ref";
+import { supabase } from "@/integrations/supabase/client";
+import { parseModelChoice } from "@/utils/providers/modelChoice";
+import {
+  createLakehouseSchema,
+  createLakehouseTable,
+  dropLakehouseSchema,
+  getLakehouseIntegrity,
+  getLakehouseOverview,
+  getLakehouseTable,
+  importDatasetToLakehouse,
+  listLakeMountCandidates,
+  listLakehouseHistory,
+  lakehouseSparkStatus,
+  startLakehouseSparkQuery,
+  getLakehouseSparkQuery,
+  cancelLakehouseSparkQuery,
+  mountLakeSource,
+  getLakehousePolicy,
+  listLakehouseMatviews,
+  profileLakehouseQuery,
+  refreshLakehouseMatview,
+  saveLakehouseMatview,
+  setLakehousePartitioning,
+  getLakehouseLayout,
+  rewriteLakehouseLayout,
+  clearLakehouseLayout,
+  setLakehousePolicy,
+  listLakehouseTagPolicies,
+  setLakehouseTagPolicy,
+  deleteLakehouseTagPolicy,
+  type LakehouseTagPolicy,
+  type LakehousePolicy,
+  type LakehouseMatview,
+  type LakehouseProfile,
+  runLakehouseQuery,
+  type LakehouseOverview,
+  type LakehouseTableDetail,
+  type LakehouseTableSummary,
+} from "@/utils/lakehouse.functions";
+import type { LakehouseResult } from "@/utils/lakehouse/core.server";
+
+export const Route = createFileRoute("/_authenticated/lakehouse")({
+  component: LakehousePage,
+});
+
+function fmtBytes(n: number | null): string {
+  if (n === null) return "—";
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1024 ** 3) return `${(n / 1024 ** 2).toFixed(1)} MB`;
+  return `${(n / 1024 ** 3).toFixed(2)} GB`;
+}
+
+function LakehousePage() {
+  const { session } = useAuth();
+  const token = session?.access_token ?? "";
+  const overviewFn = useServerFn(getLakehouseOverview);
+  const integrityFn = useServerFn(getLakehouseIntegrity);
+
+  const [data, setData] = useState<LakehouseOverview | null>(null);
+  // Tables the catalog describes but the object store no longer has.
+  //
+  // This cannot be inferred from the overview: DuckLake answers count(*) from
+  // ducklake_data_file.record_count without reading a single Parquet, so a
+  // table whose data is gone still reports its full row count and looks
+  // healthy. The only way to know is to list the store and compare.
+  const [broken, setBroken] = useState<Map<string, { missing: number; rows: number }>>(new Map());
+  /** Why the overview could not be read, or null. Rendered — see reload(). */
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [selected, setSelected] = useState<{ schema: string; table: string } | null>(null);
+  const [tab, setTab] = useState("query");
+  const [sql, setSql] = useState("");
+
+  const reload = useCallback(async () => {
+    if (!token) return;
+    try {
+      setData(await overviewFn({ data: { access_token: token } }));
+      setLoadError(null);
+      // Best-effort and non-blocking: an integrity check must never be the
+      // reason the page fails to render.
+      integrityFn({ data: { access_token: token } })
+        .then((r) => {
+          const m = new Map<string, { missing: number; rows: number }>();
+          for (const i of r.issues ?? []) {
+            m.set(`${i.schema}.${i.table}`, { missing: i.missing.length, rows: i.missing_rows });
+          }
+          setBroken(m);
+        })
+        .catch(() => setBroken(new Map()));
+    } catch (e) {
+      // FOUND FROM THE UI. A toast was the only signal, so a failed load left
+      // the page as a permanent pair of skeletons: the toast expires, and after
+      // that nothing on screen distinguishes "still loading" from "the catalog
+      // is unreachable". The page has to hold the reason, not announce it once.
+      setLoadError((e as Error).message);
+      toast.error((e as Error).message);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+  useEffect(() => {
+    void reload();
+  }, [reload]);
+
+  const openTable = (schema: string, table: string) => {
+    setSelected({ schema, table });
+    setTab("table");
+  };
+
+  return (
+    // Full-height workbench: the explorer is a fixed rail, the working pane
+    // scrolls on its own. Stacking these (the old xl-only grid) put the schema
+    // tree above the editor on every laptop screen, which is not what a
+    // database explorer is.
+    <div className="flex h-canvas w-full flex-col overflow-hidden p-3 lg:p-4">
+      <div className="mb-3 flex flex-none flex-wrap items-center justify-between gap-2">
+        <div>
+          <h1 className="flex items-center gap-2 text-xl font-semibold">
+            <HardDrive className="h-5 w-5" /> Lakehouse
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            Your local data warehouse — columnar SQL over Parquet in your own storage.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={reload}>
+            <RefreshCw className="mr-1 h-4 w-4" /> Refresh
+          </Button>
+          {data?.enabled && <MountLakeDialog onMounted={reload} />}
+          {data?.enabled && <IcebergCatalogsDialog onChanged={reload} />}
+          {data?.enabled && <NewSchemaDialog onCreated={reload} />}
+          {data?.enabled && <TagPoliciesDialog />}
+          {data?.enabled && (
+            <SharesDialog
+              tables={data.tables.map((t) => ({ schema: t.schema, name: t.name }))}
+              ownedSchemas={data.schemas.filter((s) => s.owned).map((s) => s.name)}
+            />
+          )}
+        </div>
+      </div>
+
+      {data === null && loadError !== null ? (
+        <Card>
+          <CardContent className="space-y-3 py-8 text-sm">
+            <p className="font-medium">The lakehouse could not be reached.</p>
+            <p className="rounded bg-muted px-2 py-1.5 font-mono text-xs break-all">{loadError}</p>
+            <p className="text-muted-foreground">
+              Both halves have to be reachable from this server: the catalog Postgres (
+              <code className="font-mono">LAKEHOUSE_CATALOG_URL</code>) and the object store (
+              <code className="font-mono">LAKEHOUSE_S3_ENDPOINT</code>). The tables themselves are
+              fine — this is a connection problem, not a data one.
+            </p>
+            <Button variant="outline" size="sm" onClick={reload}>
+              <RefreshCw className="mr-1 h-4 w-4" /> Try again
+            </Button>
+          </CardContent>
+        </Card>
+      ) : data === null ? (
+        <div className="flex min-h-0 flex-1 gap-3">
+          <Skeleton className="hidden w-64 flex-none lg:block xl:w-72" />
+          <Skeleton className="min-w-0 flex-1" />
+        </div>
+      ) : !data.enabled ? (
+        <Card>
+          <CardContent className="py-8 text-sm text-muted-foreground">
+            The lakehouse isn&apos;t configured on this deployment. Set{" "}
+            <code className="font-mono">LAKEHOUSE_CATALOG_URL</code> and the{" "}
+            <code className="font-mono">LAKEHOUSE_*</code> storage variables (see{" "}
+            <code className="font-mono">.env.example</code> and docs/LAKEHOUSE.md), then restart.
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="flex min-h-0 flex-1 gap-3">
+          <SchemaRail
+            data={data}
+            broken={broken}
+            selected={selected}
+            onOpenTable={openTable}
+            onChanged={reload}
+          />
+          <Tabs
+            value={tab}
+            onValueChange={setTab}
+            className="flex min-w-0 flex-1 flex-col overflow-hidden"
+          >
+            <TabsList className="flex-none self-start">
+              <TabsTrigger value="query">Query</TabsTrigger>
+              <TabsTrigger value="table" disabled={!selected}>
+                {selected ? `${selected.schema}.${selected.table}` : "Table"}
+              </TabsTrigger>
+              <TabsTrigger value="history">History</TabsTrigger>
+            </TabsList>
+            <TabsContent value="query" className="mt-2 min-h-0 min-w-0 flex-1 overflow-y-auto pr-1">
+              <QueryTab
+                sql={sql}
+                setSql={setSql}
+                hasSchemas={data.schemas.length > 0}
+                onDataChanged={() => void reload()}
+              />
+            </TabsContent>
+            <TabsContent value="table" className="mt-2 min-h-0 min-w-0 flex-1 overflow-y-auto pr-1">
+              {selected && (
+                <TableTab
+                  key={`${selected.schema}.${selected.table}`}
+                  schema={selected.schema}
+                  table={selected.table}
+                  onDropped={() => {
+                    setSelected(null);
+                    setTab("query");
+                    void reload();
+                  }}
+                  onQueryIt={(q) => {
+                    setSql(q);
+                    setTab("query");
+                  }}
+                />
+              )}
+            </TabsContent>
+            <TabsContent
+              value="history"
+              className="mt-2 min-h-0 min-w-0 flex-1 overflow-y-auto pr-1"
+            >
+              <HistoryTab
+                onPick={(q) => {
+                  setSql(q);
+                  setTab("query");
+                }}
+              />
+            </TabsContent>
+          </Tabs>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Left rail ───────────────────────────────────────────────────────────────
+
+function SchemaRail({
+  data,
+  broken,
+  selected,
+  onOpenTable,
+  onChanged,
+}: {
+  data: LakehouseOverview;
+  /** schema.table -> files the store is missing. Empty until the check returns. */
+  broken: Map<string, { missing: number; rows: number }>;
+  selected: { schema: string; table: string } | null;
+  onOpenTable: (schema: string, table: string) => void;
+  onChanged: () => void;
+}) {
+  const { session } = useAuth();
+  const token = session?.access_token ?? "";
+  const dropFn = useServerFn(dropLakehouseSchema);
+  const [filter, setFilter] = useState("");
+  const [openSchemas, setOpenSchemas] = useState<Set<string>>(new Set());
+
+  const bySchema = useMemo(() => {
+    const m = new Map<string, LakehouseTableSummary[]>();
+    for (const t of data.tables) {
+      const list = m.get(t.schema) ?? [];
+      list.push(t);
+      m.set(t.schema, list);
+    }
+    return m;
+  }, [data.tables]);
+
+  const q = filter.trim().toLowerCase();
+  const visible = data.schemas.filter(
+    (s) => !q || s.name.includes(q) || (bySchema.get(s.name) ?? []).some((t) => t.name.includes(q)),
+  );
+
+  return (
+    <aside className="hidden w-64 flex-none flex-col overflow-hidden rounded-lg border bg-card lg:flex xl:w-72">
+      <div className="flex-none space-y-2 border-b px-3 py-2.5">
+        <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          <DatabaseIcon className="h-3.5 w-3.5" /> Object explorer
+        </div>
+        <Input
+          placeholder="Search schemas and tables…"
+          className="h-8"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+        />
+      </div>
+      <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto px-2 py-2">
+        {visible.length === 0 && (
+          <p className="px-1 py-4 text-xs text-muted-foreground">
+            {data.schemas.length === 0
+              ? "No schemas yet — create one to start loading tables."
+              : "Nothing matches the search."}
+          </p>
+        )}
+        {visible.map((s) => {
+          const open = openSchemas.has(s.name) || Boolean(q);
+          const tables = (bySchema.get(s.name) ?? []).filter(
+            (t) => !q || t.name.includes(q) || s.name.includes(q),
+          );
+          return (
+            <div key={s.id}>
+              <div className="group flex items-center justify-between rounded-md px-1 py-1 hover:bg-muted">
+                <button
+                  className="flex min-w-0 flex-1 items-center gap-1 text-left text-sm"
+                  onClick={() =>
+                    setOpenSchemas((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(s.name)) next.delete(s.name);
+                      else next.add(s.name);
+                      return next;
+                    })
+                  }
+                >
+                  {open ? (
+                    <ChevronDown className="h-3.5 w-3.5 flex-none text-muted-foreground" />
+                  ) : (
+                    <ChevronRight className="h-3.5 w-3.5 flex-none text-muted-foreground" />
+                  )}
+                  <span className="truncate font-medium">{s.name}</span>
+                  <span className="text-[11px] text-muted-foreground">({s.table_count})</span>
+                  {!s.owned && (
+                    <Badge variant="outline" className="ml-1 text-[10px]">
+                      shared
+                    </Badge>
+                  )}
+                  {s.lake_source_id && (
+                    <Badge
+                      variant="outline"
+                      className="ml-1 text-[10px]"
+                      title="A read-only mount of a data-lake storage source"
+                    >
+                      lake
+                    </Badge>
+                  )}
+                  {s.iceberg_catalog_id && (
+                    <Badge
+                      variant="outline"
+                      className="ml-1 text-[10px]"
+                      title={`A read-only mount of the Iceberg namespace ${s.iceberg_namespace ?? ""}`}
+                    >
+                      iceberg
+                    </Badge>
+                  )}
+                </button>
+                <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100">
+                  {!s.lake_source_id && !s.iceberg_catalog_id && (
+                    <NewTableDialog schema={s.name} onCreated={onChanged} />
+                  )}
+                  {s.owned && (
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-6 w-6"
+                      title="Drop schema and everything in it"
+                      onClick={async () => {
+                        if (
+                          !(await confirmAsk({
+                            title: `Drop schema "${s.name}"?`,
+                            body: "Every table in it is dropped too. This cannot be undone.",
+                            actionLabel: "Drop schema",
+                          }))
+                        )
+                          return;
+                        try {
+                          await dropFn({ data: { access_token: token, name: s.name } });
+                          toast.success(`Dropped ${s.name}`);
+                          onChanged();
+                        } catch (e) {
+                          toast.error((e as Error).message);
+                        }
+                      }}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
+                </div>
+              </div>
+              {open &&
+                tables.map((t) => {
+                  const active = selected?.schema === s.name && selected?.table === t.name;
+                  const hurt = broken.get(`${s.name}.${t.name}`);
+                  return (
+                    <button
+                      key={t.name}
+                      title={
+                        hurt
+                          ? `${hurt.missing} data file(s) this table refers to are missing from object storage — ${hurt.rows.toLocaleString()} row(s) cannot be read. Re-import the table, or drop it.`
+                          : undefined
+                      }
+                      className={`flex w-full items-center justify-between gap-2 rounded-md py-1 pl-7 pr-2 text-left text-[13px] hover:bg-muted ${active ? "bg-muted font-medium" : ""} ${hurt ? "text-destructive" : ""}`}
+                      onClick={() => onOpenTable(s.name, t.name)}
+                    >
+                      <span className="flex min-w-0 items-center gap-1.5">
+                        <Table2 className="h-3.5 w-3.5 flex-none text-muted-foreground" />
+                        <span className="truncate">{t.name}</span>
+                        {hurt && (
+                          <AlertTriangle
+                            className="h-3.5 w-3.5 flex-none text-destructive"
+                            aria-label="Missing data files"
+                          />
+                        )}
+                      </span>
+                      <span className="flex-none font-mono text-[10px] tabular-nums text-muted-foreground">
+                        {/* The row count comes from catalog metadata, so it
+                            still reads full for a table whose Parquet is gone.
+                            Say so here rather than letting the number reassure. */}
+                        {hurt
+                          ? `${hurt.missing} file${hurt.missing === 1 ? "" : "s"} missing`
+                          : `${t.row_count === null ? "" : `${t.row_count.toLocaleString()} · `}${fmtBytes(t.size_bytes)}`}
+                      </span>
+                    </button>
+                  );
+                })}
+            </div>
+          );
+        })}
+      </div>
+      <div className="flex-none border-t px-3 py-2 text-[11px] text-muted-foreground">
+        {data.schemas.length} schema{data.schemas.length === 1 ? "" : "s"} · {data.tables.length}{" "}
+        table{data.tables.length === 1 ? "" : "s"}
+      </div>
+    </aside>
+  );
+}
+
+// ── Query tab ───────────────────────────────────────────────────────────────
+
+function QueryTab({
+  sql,
+  setSql,
+  hasSchemas,
+  onDataChanged,
+}: {
+  sql: string;
+  setSql: (s: string) => void;
+  hasSchemas: boolean;
+  onDataChanged: () => void;
+}) {
+  const { session } = useAuth();
+  const token = session?.access_token ?? "";
+  const runFn = useServerFn(runLakehouseQuery);
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState<LakehouseResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  // Where the statement runs. Spark is offered only when the deployment has
+  // an endpoint or a per-job provider; a SELECT sent there is polled until
+  // its rows land, the same way a training job is.
+  // Remembered per browser: the Query tab unmounts when another tab is
+  // shown, and losing the choice on every tab switch was the first thing
+  // noticed when testing it.
+  const [engine, setEngineState] = useState<"duckdb" | "spark">(() => {
+    try {
+      return localStorage.getItem("lakehouse.engine") === "spark" ? "spark" : "duckdb";
+    } catch {
+      return "duckdb";
+    }
+  });
+  const setEngine = (v: "duckdb" | "spark") => {
+    setEngineState(v);
+    try {
+      localStorage.setItem("lakehouse.engine", v);
+    } catch {
+      /* private mode: the choice lasts for this tab */
+    }
+  };
+  const [spark, setSpark] = useState<{ configured: boolean; provider: string } | null>(null);
+  const sparkStatusFn = useServerFn(lakehouseSparkStatus);
+  const startSparkFn = useServerFn(startLakehouseSparkQuery);
+  const getSparkFn = useServerFn(getLakehouseSparkQuery);
+  const cancelSparkFn = useServerFn(cancelLakehouseSparkQuery);
+  const [sparkJob, setSparkJob] = useState<{
+    id: string;
+    startedAt: number;
+    status: string;
+  } | null>(null);
+  const [, bump] = useState(0);
+  useEffect(() => {
+    if (!token) return;
+    void sparkStatusFn({ data: { access_token: token } })
+      .then(setSpark)
+      .catch(() => setSpark(null));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+  useEffect(() => {
+    if (!sparkJob) return;
+    const t = setInterval(() => bump((x) => x + 1), 1000);
+    return () => clearInterval(t);
+  }, [sparkJob]);
+  const [nl, setNl] = useState("");
+  const profileFn = useServerFn(profileLakehouseQuery);
+  const [profile, setProfile] = useState<LakehouseProfile | null>(null);
+  const [profiling, setProfiling] = useState(false);
+  const [modelChoice, setModelChoice] = useState<string | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [explanation, setExplanation] = useState("");
+  const areaRef = useRef<HTMLTextAreaElement>(null);
+
+  const runOnSpark = async (s: string): Promise<LakehouseResult | null> => {
+    const { id } = await startSparkFn({ data: { access_token: token, sql: s } });
+    const startedAt = Date.now();
+    setSparkJob({ id, startedAt, status: "queued" });
+    try {
+      // Two seconds between polls: a sandbox takes ~10 s to start and a
+      // query seconds to minutes, so anything tighter is noise.
+      for (;;) {
+        await new Promise((r) => setTimeout(r, 2000));
+        const q = await getSparkFn({ data: { access_token: token, id } });
+        if (!q) throw new Error("The query is gone — it may have been cancelled elsewhere.");
+        setSparkJob({ id, startedAt, status: q.status });
+        if (q.status === "succeeded") return q.result;
+        if (q.status === "cancelled") return null;
+        if (q.status === "failed") {
+          const tail = (q.logs ?? "").trim().split("\n").slice(-6).join("\n");
+          throw new Error((q.error ?? "The query failed on Spark.") + (tail ? `\n\n${tail}` : ""));
+        }
+      }
+    } finally {
+      setSparkJob(null);
+    }
+  };
+
+  // One run at a time, from the button or from Ctrl+Enter (R211): the
+  // button's disabled={running} never reached the keyboard, and one INSERT
+  // with two quick Ctrl+Enters wrote two rows.
+  const run = useSingleFlight(async (statement?: string) => {
+    const s = (statement ?? sql).trim();
+    if (!s) return;
+    setRunning(true);
+    setError(null);
+    setProfile(null);
+    try {
+      const res =
+        engine === "spark"
+          ? await runOnSpark(s)
+          : await runFn({ data: { access_token: token, sql: s } });
+      setResult(res);
+    } catch (e) {
+      setResult(null);
+      setError((e as Error).message);
+    } finally {
+      setRunning(false);
+    }
+  });
+
+  // One draft at a time, from the button or from Enter (R211).
+  const generate = useSingleFlight(async () => {
+    if (!nl.trim()) return;
+    setGenerating(true);
+    setExplanation("");
+    try {
+      const parsed = parseModelChoice(modelChoice);
+      const resp = await fetch("/api/lakehouse/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          question: nl.trim(),
+          provider: parsed?.provider,
+          model: parsed?.model,
+        }),
+      });
+      const out = (await resp.json()) as { sql?: string; explanation?: string; error?: string };
+      if (!resp.ok || !out.sql) throw new Error(out.error ?? "Generation failed");
+      setSql(out.sql);
+      setExplanation(out.explanation ?? "");
+      toast.success("SQL drafted — review, then run");
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setGenerating(false);
+    }
+  });
+
+  const exportCsv = () => {
+    if (!result) return;
+    // The ONE shared CSV writer — quoting and formula-injection guards live
+    // there, and a test hunts down any local reimplementation.
+    downloadCsv(
+      result.columns.map((c) => c.name),
+      result.rows.map((r) => Object.fromEntries(result.columns.map((c, i) => [c.name, r[i]]))),
+      "lakehouse-result",
+    );
+  };
+
+  return (
+    <div className="flex h-full min-h-0 flex-col gap-2">
+      <Card className="flex-none">
+        <CardContent className="space-y-2 p-3">
+          {/* One row: the hint lives in the placeholder rather than a label
+              line, so the ask bar costs 40px instead of three stacked rows. */}
+          <div className="flex flex-wrap items-center gap-2">
+            <Input
+              className="h-8 w-full min-w-40 flex-1 sm:w-auto"
+              value={nl}
+              onChange={(e) => setNl(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && void generate()}
+              placeholder="Ask in plain language — e.g. total amount by customer, largest first"
+              disabled={!hasSchemas}
+            />
+            <div className="w-44 flex-none">
+              <BiModelSelect value={modelChoice} onChange={setModelChoice} allowUnset />
+            </div>
+            <Button
+              size="sm"
+              className="flex-none"
+              onClick={() => void generate()}
+              disabled={generating || !hasSchemas}
+            >
+              {generating ? (
+                <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+              ) : (
+                <Sparkles className="mr-1 h-4 w-4" />
+              )}
+              Draft SQL
+            </Button>
+          </div>
+          {explanation && <p className="text-xs text-muted-foreground">{explanation}</p>}
+          <Textarea
+            ref={areaRef}
+            value={sql}
+            onChange={(e) => setSql(e.target.value)}
+            onKeyDown={(e) => {
+              if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+                e.preventDefault();
+                void run();
+              }
+            }}
+            rows={6}
+            spellCheck={false}
+            className="min-h-24 resize-y font-mono text-[13px]"
+            placeholder={
+              "SELECT …\n\nOne statement per run. Tables are schema.table. Ctrl+Enter runs."
+            }
+          />
+          <div className="flex flex-wrap items-center gap-2">
+            {spark?.configured && (
+              <Select value={engine} onValueChange={(v) => setEngine(v as "duckdb" | "spark")}>
+                <SelectTrigger
+                  className="h-9 w-44"
+                  title="Where the statement runs: this worker's lakehouse engine, or the Spark cluster the ETL engine uses — one query spread across the cluster's executors, in Spark's SQL dialect"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="duckdb">Lakehouse engine</SelectItem>
+                  <SelectItem value="spark">Spark cluster</SelectItem>
+                </SelectContent>
+              </Select>
+            )}
+            <Button onClick={() => void run()} disabled={running || !sql.trim()}>
+              {running ? (
+                <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+              ) : (
+                <Play className="mr-1 h-4 w-4" />
+              )}
+              Run
+            </Button>
+            <Button
+              variant="outline"
+              disabled={profiling || !sql.trim()}
+              title="Show the plan the engine chose and what it actually cost"
+              onClick={async () => {
+                setProfiling(true);
+                setError(null);
+                try {
+                  setProfile(await profileFn({ data: { access_token: token, sql: sql.trim() } }));
+                } catch (e) {
+                  setProfile(null);
+                  setError((e as Error).message);
+                } finally {
+                  setProfiling(false);
+                }
+              }}
+            >
+              {profiling ? (
+                <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+              ) : (
+                <Gauge className="mr-1 h-4 w-4" />
+              )}
+              Explain
+            </Button>
+            <SaveMatviewDialog sql={sql} onSaved={onDataChanged} />
+            <AiFunctionsReference onInsert={(example) => setSql(example)} />
+            {sparkJob && (
+              <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <Flame className="h-3.5 w-3.5 text-orange-500" />
+                {sparkJob.status === "queued" ? "Starting on Spark" : "Running on Spark"} ·{" "}
+                {Math.round((Date.now() - sparkJob.startedAt) / 1000)} s
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-6 px-2 text-xs"
+                  onClick={() =>
+                    void cancelSparkFn({ data: { access_token: token, id: sparkJob.id } }).catch(
+                      (e) => toast.error((e as Error).message),
+                    )
+                  }
+                >
+                  Cancel
+                </Button>
+              </span>
+            )}
+            {result && (
+              <>
+                <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  {result.row_count.toLocaleString()} row(s) · {result.duration_ms} ms
+                  {result.truncated ? " · truncated" : ""}
+                  {result.cached && (
+                    <Badge
+                      variant="secondary"
+                      className="text-[10px]"
+                      title="Served from the result cache — invalidated automatically by any write"
+                    >
+                      cached
+                    </Badge>
+                  )}
+                  {result.engine === "spark" && (
+                    <Badge
+                      variant="secondary"
+                      className="text-[10px]"
+                      title={`Answered by the Spark cluster${result.spark_version ? ` (Spark ${result.spark_version})` : ""}: one query spread across its executors, reading the tables' snapshot files directly`}
+                    >
+                      <Flame className="mr-0.5 h-3 w-3 text-orange-500" />
+                      spark
+                    </Badge>
+                  )}
+                  {result.ai && (result.ai.calls > 0 || result.ai.cached > 0) && (
+                    <Badge
+                      variant="secondary"
+                      className="text-[10px]"
+                      title={`AI functions (${result.ai.functions.join(", ")}): ${result.ai.calls} model call(s), ${result.ai.cached} from the answer cache${result.ai.cost_usd != null ? ` · ${formatUsd(result.ai.cost_usd)}` : ""}${result.ai.models.length ? ` · ${result.ai.models.join(", ")}` : ""}`}
+                    >
+                      {result.ai.calls} AI call{result.ai.calls === 1 ? "" : "s"}
+                      {result.ai.cached ? ` · ${result.ai.cached} cached` : ""}
+                    </Badge>
+                  )}
+                </span>
+                <Button variant="ghost" size="sm" onClick={exportCsv}>
+                  <Download className="mr-1 h-3.5 w-3.5" /> CSV
+                </Button>
+              </>
+            )}
+          </div>
+          {error && (
+            <p className="whitespace-pre-wrap rounded-md bg-red-500/10 p-2 font-mono text-xs text-red-500">
+              {error}
+            </p>
+          )}
+        </CardContent>
+      </Card>
+      {profile && (
+        <div className="flex-none overflow-hidden rounded-lg border bg-card">
+          <div className="flex flex-wrap items-center gap-3 border-b px-2.5 py-1.5 text-[11px]">
+            <span className="font-medium uppercase tracking-wide text-muted-foreground">
+              Query profile
+            </span>
+            {profile.rows_scanned !== null && (
+              <span className="flex items-center gap-1">
+                <Rows3 className="h-3 w-3 text-muted-foreground" />
+                {profile.rows_scanned.toLocaleString()} rows scanned
+              </span>
+            )}
+            {profile.latency_ms !== null && <span>{profile.latency_ms} ms engine time</span>}
+            {profile.result_rows !== null && <span>{profile.result_rows} returned</span>}
+            <button
+              className="ml-auto text-muted-foreground hover:text-foreground"
+              onClick={() => setProfile(null)}
+            >
+              Close
+            </button>
+          </div>
+          <pre className="max-h-56 overflow-auto px-2.5 py-2 font-mono text-[11px] leading-4">
+            {profile.plan}
+          </pre>
+        </div>
+      )}
+      {result && (
+        <div className="min-h-0 flex-1">
+          <ResultGrid result={result} fill />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ResultGrid({ result, fill }: { result: LakehouseResult; fill?: boolean }) {
+  if (!result.columns.length) {
+    return (
+      <div className="rounded-lg border bg-card px-3 py-2.5 text-sm text-muted-foreground">
+        Statement completed — no result set.
+      </div>
+    );
+  }
+  return (
+    <div className={`overflow-hidden rounded-lg border bg-card ${fill ? "h-full" : ""}`}>
+      <div className={fill ? "h-full overflow-auto" : "max-h-[26rem] overflow-auto"}>
+        <table className="w-full text-xs">
+          <thead className="sticky top-0 z-10 bg-muted">
+            <tr>
+              {result.columns.map((c) => (
+                <th key={c.name} className="whitespace-nowrap px-2 py-1.5 text-left font-medium">
+                  {c.name}
+                  <span className="ml-1 font-normal lowercase text-muted-foreground">{c.type}</span>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="font-mono tabular-nums">
+            {result.rows.map((r, i) => (
+              <tr key={i} className="border-t">
+                {r.map((v, j) => (
+                  <td
+                    key={j}
+                    className="max-w-72 truncate px-2 py-1"
+                    title={v === null ? "" : String(v)}
+                  >
+                    {v === null ? <span className="text-muted-foreground">∅</span> : String(v)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ── Table tab ───────────────────────────────────────────────────────────────
+
+function TableTab({
+  schema,
+  table,
+  onDropped,
+  onQueryIt,
+}: {
+  schema: string;
+  table: string;
+  onDropped: () => void;
+  onQueryIt: (sql: string) => void;
+}) {
+  const { session } = useAuth();
+  const token = session?.access_token ?? "";
+  const detailFn = useServerFn(getLakehouseTable);
+  const policyFn = useServerFn(getLakehousePolicy);
+  const matviewsFn = useServerFn(listLakehouseMatviews);
+  const refreshMvFn = useServerFn(refreshLakehouseMatview);
+  const [refreshingMv, setRefreshingMv] = useState(false);
+  const runFn = useServerFn(runLakehouseQuery);
+  const [detail, setDetail] = useState<LakehouseTableDetail | null>(null);
+  const [policy, setPolicy] = useState<LakehousePolicy | null>(null);
+  const [matview, setMatview] = useState<LakehouseMatview | null>(null);
+  const matviewState = matview ? matviewBadge(matview) : null;
+  const [preview, setPreview] = useState<LakehouseResult | null>(null);
+
+  useEffect(() => {
+    if (!token) return;
+    void (async () => {
+      try {
+        setDetail(await detailFn({ data: { access_token: token, schema, table } }));
+        // Only an owner gets a policy back; for everyone else it stays null
+        // and the badge simply never appears.
+        setPolicy(await policyFn({ data: { access_token: token, schema, table } }));
+        const views = await matviewsFn({ data: { access_token: token } });
+        setMatview(views.find((v) => v.schema_name === schema && v.table_name === table) ?? null);
+        setPreview(
+          await runFn({
+            data: {
+              access_token: token,
+              sql: `SELECT * FROM "${schema}"."${table}" LIMIT 100`,
+              row_cap: 100,
+            },
+          }),
+        );
+      } catch (e) {
+        toast.error((e as Error).message);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [schema, table, token]);
+
+  if (!detail) return <Skeleton className="h-64 w-full" />;
+
+  return (
+    <div className="flex h-full min-h-0 flex-col gap-2">
+      <div className="flex flex-none flex-wrap items-center gap-2">
+        <Badge variant="secondary" className="font-mono">
+          {schema}.{table}
+        </Badge>
+        {detail.row_count !== null && (
+          <span className="text-xs text-muted-foreground">
+            {detail.row_count.toLocaleString()} row(s)
+          </span>
+        )}
+        {detail.partitioned_by.length > 0 && (
+          <Badge
+            variant="outline"
+            className="font-mono text-[10px]"
+            title="Queries filtering on these columns open only the matching files"
+          >
+            partitioned by {detail.partitioned_by.join(", ")}
+          </Badge>
+        )}
+        {detail.clustered_by.length > 0 && (
+          <Badge
+            variant="outline"
+            className="font-mono text-[10px]"
+            title="Files are in key order, so a filter on these columns opens only the files whose range matches"
+          >
+            clustered by {detail.clustered_by.join(", ")}
+          </Badge>
+        )}
+        <Link
+          to="/data-monitors"
+          search={{ source: "lakehouse", schema, table, create: true }}
+          className="text-xs text-primary hover:underline"
+          title="Watch this table for staleness, volume changes, schema drift, nulls or duplicates"
+        >
+          Monitor this table
+        </Link>
+        <Link
+          to="/semantics"
+          search={{ source: "lakehouse", schema, table, create: true }}
+          className="text-xs text-primary hover:underline"
+          title="Name what these columns mean, so dashboards, the AI Analyst and agents all compute them the same way"
+        >
+          Define metrics on this
+        </Link>
+        <PublishToIcebergDialog schema={schema} table={table} />
+        {matviewState && (
+          // FOUND IN R185: a failed rebuild read "materialized", the failure
+          // only in this badge's hover title.
+          <Badge
+            variant="outline"
+            className={
+              matviewState.failed
+                ? "gap-1 border-destructive/50 text-[10px] text-destructive"
+                : "gap-1 text-[10px]"
+            }
+            title={matviewState.title}
+          >
+            <Layers className="h-3 w-3" />
+            {matviewState.label}
+          </Badge>
+        )}
+        {matviewState?.note && (
+          <span className="text-[11px] text-destructive">{matviewState.note}</span>
+        )}
+        {policy && (
+          <Badge
+            variant="outline"
+            className="gap-1 text-[10px]"
+            title={
+              [
+                policy.row_filter ? `Rows: ${policy.row_filter}` : null,
+                policy.masked_columns.length ? `Masked: ${policy.masked_columns.join(", ")}` : null,
+              ]
+                .filter(Boolean)
+                .join(" · ") || "Secured"
+            }
+          >
+            <ShieldCheck className="h-3 w-3" /> secured
+          </Badge>
+        )}
+        <div className="ml-auto flex gap-2">
+          {matview?.is_owner && (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={refreshingMv}
+              title={
+                matview.last_refreshed_at
+                  ? `Last rebuilt ${new Date(matview.last_refreshed_at).toLocaleString()}`
+                  : "Never rebuilt"
+              }
+              onClick={async () => {
+                setRefreshingMv(true);
+                try {
+                  const res = await refreshMvFn({
+                    data: { access_token: token, id: matview.id },
+                  });
+                  if (res.error) toast.error(`Rebuild failed: ${res.error}`);
+                  else toast.success(`Rebuilt — ${res.rows ?? 0} row(s) in ${res.ms} ms`);
+                  const views = await matviewsFn({ data: { access_token: token } });
+                  setMatview(
+                    views.find((v) => v.schema_name === schema && v.table_name === table) ?? null,
+                  );
+                  setDetail(await detailFn({ data: { access_token: token, schema, table } }));
+                } catch (e) {
+                  toast.error((e as Error).message);
+                } finally {
+                  setRefreshingMv(false);
+                }
+              }}
+            >
+              {refreshingMv ? (
+                <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RefreshCw className="mr-1 h-3.5 w-3.5" />
+              )}
+              Rebuild
+            </Button>
+          )}
+          <PolicyDialog
+            schema={schema}
+            table={table}
+            columns={detail.columns.map((c) => c.name)}
+            current={policy}
+            onChanged={setPolicy}
+          />
+          <PartitionDialog
+            schema={schema}
+            table={table}
+            columns={detail.columns.map((c) => c.name)}
+            current={detail.partitioned_by}
+            onChanged={(cols) => setDetail({ ...detail, partitioned_by: cols })}
+          />
+          <LayoutDialog
+            schema={schema}
+            table={table}
+            current={detail.clustered_by}
+            onChanged={(cols) => setDetail({ ...detail, clustered_by: cols })}
+          />
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => onQueryIt(`SELECT *\nFROM "${schema}"."${table}"\nLIMIT 100`)}
+          >
+            <Play className="mr-1 h-3.5 w-3.5" /> Query
+          </Button>
+          {detail.sheet_owner ? (
+            <Link
+              to="/sheets/$workbookId"
+              params={{ workbookId: detail.sheet_owner.workbook_id }}
+              className="inline-flex items-center gap-1.5 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-xs text-emerald-700 hover:bg-emerald-500/15 dark:text-emerald-300"
+              title="Sheets replaces this table when the sheet refreshes its import, and the sheet's formulas stand on its columns, so it is changed only from Sheets. Query it here like any table."
+              data-testid="sheet-owner"
+            >
+              <FileSpreadsheet className="h-3.5 w-3.5" />
+              Held by Sheets · {detail.sheet_owner.workbook} › {detail.sheet_owner.sheet}
+            </Link>
+          ) : (
+            <InsertRowDialog schema={schema} table={table} columns={detail.columns} />
+          )}
+          {!detail.sheet_owner && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="text-red-500"
+              onClick={async () => {
+                if (
+                  !(await confirmAsk({
+                    title: `Drop table ${schema}.${table}?`,
+                    body: "The table's rows and its Parquet files go, along with the lakehouse's own record of them. Its entry in the Data Catalog stays until the next crawl. This cannot be undone.",
+                    actionLabel: "Drop table",
+                  }))
+                )
+                  return;
+                try {
+                  await runFn({
+                    data: { access_token: token, sql: `DROP TABLE "${schema}"."${table}"` },
+                  });
+                  toast.success("Table dropped");
+                  onDropped();
+                } catch (e) {
+                  toast.error((e as Error).message);
+                }
+              }}
+            >
+              <Trash2 className="mr-1 h-3.5 w-3.5" /> Drop
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {/* Metadata on top (columns + snapshots, each scrolling in place), data
+          below filling the rest — the shape you read top-down, not a sidebar
+          that steals width from the rows. */}
+      <div className="grid flex-none gap-2 md:grid-cols-2">
+        <div className="overflow-hidden rounded-lg border bg-card">
+          <div className="border-b px-2.5 py-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            Columns ({detail.columns.length})
+          </div>
+          <div className="max-h-32 overflow-y-auto px-2.5 py-1.5">
+            {detail.columns.map((c) => (
+              <div
+                key={c.name}
+                className="flex items-center justify-between gap-3 text-xs leading-5"
+              >
+                <span className="truncate font-mono">{c.name}</span>
+                <span className="flex-none text-muted-foreground">
+                  {c.type.toLowerCase()}
+                  {c.nullable ? "" : " · not null"}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="overflow-hidden rounded-lg border bg-card">
+          <div className="flex items-center gap-1 border-b px-2.5 py-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            <Clock3 className="h-3 w-3" /> Snapshots
+            <span className="ml-auto font-normal normal-case tracking-normal">
+              click to time-travel
+            </span>
+          </div>
+          <div className="max-h-32 overflow-y-auto px-2.5 py-1.5">
+            {detail.snapshots.length === 0 && (
+              <p className="text-xs text-muted-foreground">No snapshots yet.</p>
+            )}
+            {detail.snapshots.map((snap) => (
+              <button
+                key={snap.id}
+                className="block w-full rounded px-1 py-0.5 text-left text-[11px] leading-5 hover:bg-muted"
+                title={`Query this table as of snapshot ${snap.id}`}
+                onClick={() =>
+                  onQueryIt(
+                    `SELECT *\nFROM "${schema}"."${table}" AT (VERSION => ${snap.id})\nLIMIT 100`,
+                  )
+                }
+              >
+                <span className="font-mono">v{snap.id}</span>{" "}
+                <span className="text-muted-foreground">
+                  {snap.time ? new Date(snap.time).toLocaleString() : ""}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="min-h-0 flex-1">
+        {preview ? (
+          <ResultGrid result={preview} fill />
+        ) : (
+          <Skeleton className="h-full min-h-32 w-full" />
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── History tab ─────────────────────────────────────────────────────────────
+
+function HistoryTab({ onPick }: { onPick: (sql: string) => void }) {
+  const { session } = useAuth();
+  const token = session?.access_token ?? "";
+  const historyFn = useServerFn(listLakehouseHistory);
+  const [rows, setRows] = useState<
+    Awaited<ReturnType<typeof listLakehouseHistory>>["history"] | null
+  >(null);
+  useEffect(() => {
+    if (!token) return;
+    void historyFn({ data: { access_token: token } })
+      .then((r) => setRows(r.history))
+      .catch(() => setRows([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+  if (rows === null) return <Skeleton className="h-40 w-full" />;
+  return (
+    <Card>
+      <CardContent className="space-y-1 pt-4">
+        {rows.length === 0 && (
+          <p className="py-4 text-sm text-muted-foreground">Nothing run yet.</p>
+        )}
+        {rows.map((h) => (
+          <button
+            key={h.id}
+            className="flex w-full items-center gap-3 rounded-md border px-2 py-1.5 text-left hover:bg-muted"
+            onClick={() => onPick(h.sql)}
+          >
+            <Badge
+              variant={h.status === "ok" ? "secondary" : "destructive"}
+              className="w-14 justify-center text-[10px]"
+            >
+              {h.status === "ok" ? h.kind : "error"}
+            </Badge>
+            {h.engine === "spark" && (
+              <Badge variant="outline" className="text-[10px]" title="Ran on the Spark cluster">
+                spark
+              </Badge>
+            )}
+            <span className="min-w-0 flex-1 truncate font-mono text-xs">{h.sql}</span>
+            <span className="flex-none font-mono text-[10px] tabular-nums text-muted-foreground">
+              {h.cached ? "cached · " : ""}
+              {h.retries > 0 ? `retried ${h.retries}× · ` : ""}
+              {h.row_count !== null ? `${h.row_count} rows · ` : ""}
+              {h.duration_ms ?? 0} ms
+            </span>
+          </button>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── Dialogs ─────────────────────────────────────────────────────────────────
+
+/**
+ * Turn the query in the editor into a materialized view: a real table holding
+ * the answer, rebuilt on a schedule.
+ */
+function SaveMatviewDialog({ sql, onSaved }: { sql: string; onSaved: () => void }) {
+  const { session } = useAuth();
+  const token = session?.access_token ?? "";
+  const saveFn = useServerFn(saveLakehouseMatview);
+  const [open, setOpen] = useState(false);
+  const [schema, setSchema] = useState("");
+  const [name, setName] = useState("");
+  const [schedule, setSchedule] = useState<"manual" | "hourly" | "daily" | "weekly">("daily");
+  const [busy, setBusy] = useState(false);
+  const overviewFn = useServerFn(getLakehouseOverview);
+  const [schemas, setSchemas] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!open || !token) return;
+    void (async () => {
+      try {
+        const data = await overviewFn({ data: { access_token: token } });
+        // Only schemas you own — a view writes a table, and a mount (of a lake
+        // source or, since R111, an Iceberg namespace) or a shared schema is
+        // not yours to write into.
+        const own = data.schemas.filter(
+          (sch) => sch.owned && !sch.lake_source_id && !sch.iceberg_catalog_id,
+        );
+        setSchemas(own.map((sch) => sch.name));
+        setSchema((cur) => cur || own[0]?.name || "");
+      } catch {
+        setSchemas([]);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, token]);
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button
+          variant="outline"
+          disabled={!sql.trim()}
+          title="Store this query's answer as a table, rebuilt on a schedule"
+        >
+          <Layers className="mr-1 h-4 w-4" /> Save as view
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Save as materialized view</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <p className="text-xs text-muted-foreground">
+            The answer is stored as a real table and rebuilt on the schedule you pick. Queries then
+            read the stored rows instead of recomputing — the usual reason a dashboard goes from
+            seconds to instant.
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1">
+              <label className="text-xs font-medium">Schema</label>
+              <Select value={schema} onValueChange={setSchema}>
+                <SelectTrigger className="text-xs">
+                  <SelectValue placeholder="Pick one" />
+                </SelectTrigger>
+                <SelectContent>
+                  {schemas.map((sch) => (
+                    <SelectItem key={sch} value={sch} className="font-mono text-xs">
+                      {sch}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium">Table name</label>
+              <Input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="daily_revenue"
+                className="font-mono text-xs"
+              />
+            </div>
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium">Rebuild</label>
+            <div className="flex gap-1.5">
+              {(["manual", "hourly", "daily", "weekly"] as const).map((opt) => (
+                <Button
+                  key={opt}
+                  size="sm"
+                  variant={schedule === opt ? "default" : "outline"}
+                  className="flex-1 text-xs capitalize"
+                  onClick={() => setSchedule(opt)}
+                >
+                  {opt}
+                </Button>
+              ))}
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              Rebuilding replaces the table in one commit, so readers see the old rows until the new
+              ones are ready — never a half-built table. A rebuild that fails leaves the previous
+              data in place.
+            </p>
+          </div>
+          <Button
+            className="w-full"
+            disabled={busy || !schema || !name.trim()}
+            onClick={async () => {
+              setBusy(true);
+              try {
+                const res = await saveFn({
+                  data: {
+                    access_token: token,
+                    schema,
+                    table: name.trim(),
+                    sql: sql.trim(),
+                    schedule,
+                  },
+                });
+                if (res.error) toast.error(`Saved, but the first build failed: ${res.error}`);
+                else toast.success(`Built ${schema}.${name.trim()} — ${res.rows ?? 0} row(s)`);
+                onSaved();
+                setOpen(false);
+              } catch (e) {
+                toast.error((e as Error).message);
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            {busy ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
+            Save and build
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * Row and column security for one table. Only the owner sees this; everyone
+ * else reads through whatever it says without being told what it says.
+ */
+function PolicyDialog({
+  schema,
+  table,
+  columns,
+  current,
+  onChanged,
+}: {
+  schema: string;
+  table: string;
+  columns: string[];
+  current: LakehousePolicy | null;
+  onChanged: (policy: LakehousePolicy | null) => void;
+}) {
+  const { session } = useAuth();
+  const token = session?.access_token ?? "";
+  const setFn = useServerFn(setLakehousePolicy);
+  const [open, setOpen] = useState(false);
+  const [filter, setFilter] = useState("");
+  const [masked, setMasked] = useState<string[]>([]);
+  const [style, setStyle] = useState<"null" | "hash">("null");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    setFilter(current?.row_filter ?? "");
+    setMasked(current?.masked_columns ?? []);
+    setStyle(current?.mask_style ?? "null");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button size="sm" variant="outline" title="Row and column security">
+          <ShieldCheck className="mr-1 h-3.5 w-3.5" /> Security
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>
+            Security for {schema}.{table}
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <p className="text-xs text-muted-foreground">
+            Applies to everyone you share this schema with. You are never filtered — a rule you
+            can&apos;t see through would be impossible to check.
+          </p>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium">Rows they can see</label>
+            <Input
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              placeholder="owner_email = @me"
+              className="font-mono text-xs"
+            />
+            <p className="text-[11px] text-muted-foreground">
+              A condition over this table&apos;s columns. <code className="font-mono">@me</code>{" "}
+              becomes the reader&apos;s email and <code className="font-mono">@user_id</code> their
+              id, so one rule can give each person their own slice. Leave empty for all rows.
+            </p>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium">Columns they can&apos;t read</label>
+            <div className="max-h-40 space-y-1 overflow-y-auto">
+              {columns.map((col) => {
+                const on = masked.includes(col);
+                return (
+                  <button
+                    key={col}
+                    className={`flex w-full items-center justify-between rounded-md border px-2 py-1.5 text-left text-xs ${on ? "border-primary/60 bg-primary/5" : ""}`}
+                    onClick={() =>
+                      setMasked(on ? masked.filter((x) => x !== col) : [...masked, col])
+                    }
+                  >
+                    <span className="font-mono">{col}</span>
+                    {on && <span className="text-[10px] text-muted-foreground">hidden</span>}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {masked.length > 0 && (
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium">How to hide them</label>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant={style === "null" ? "default" : "outline"}
+                  className="flex-1 text-xs"
+                  onClick={() => setStyle("null")}
+                >
+                  Blank
+                </Button>
+                <Button
+                  size="sm"
+                  variant={style === "hash" ? "default" : "outline"}
+                  className="flex-1 text-xs"
+                  onClick={() => setStyle("hash")}
+                >
+                  Scramble
+                </Button>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                {style === "null"
+                  ? "Values come back empty. Works for every column type."
+                  : "Text columns come back as a digest — still groupable and joinable, but unreadable. Other types are blanked."}
+              </p>
+            </div>
+          )}
+
+          <Button
+            className="w-full"
+            disabled={busy}
+            onClick={async () => {
+              setBusy(true);
+              try {
+                const res = await setFn({
+                  data: {
+                    access_token: token,
+                    schema,
+                    table,
+                    row_filter: filter.trim() || null,
+                    masked_columns: masked,
+                    mask_style: style,
+                  },
+                });
+                onChanged(res);
+                toast.success(res ? "Security applied" : "Security removed");
+                setOpen(false);
+              } catch (e) {
+                toast.error((e as Error).message);
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            {busy ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
+            {filter.trim() || masked.length ? "Apply security" : "Remove security"}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Set or clear a table's partition columns — the biggest scan-reduction lever. */
+function PartitionDialog({
+  schema,
+  table,
+  columns,
+  current,
+  onChanged,
+}: {
+  schema: string;
+  table: string;
+  columns: string[];
+  current: string[];
+  onChanged: (cols: string[]) => void;
+}) {
+  const { session } = useAuth();
+  const token = session?.access_token ?? "";
+  const setFn = useServerFn(setLakehousePartitioning);
+  const [open, setOpen] = useState(false);
+  const [picked, setPicked] = useState<string[]>(current);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (open) setPicked(current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button size="sm" variant="outline" title="Partitioning">
+          <Rows3 className="mr-1 h-3.5 w-3.5" /> Partition
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>
+            Partition {schema}.{table}
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <p className="text-xs text-muted-foreground">
+            Files are written one set per partition value, so a query filtering on these columns
+            opens only the matching files. Pick columns with few distinct values (a date, a region,
+            a tenant) — never a high-cardinality id, which produces a file per row.
+          </p>
+          <div className="max-h-56 space-y-1 overflow-y-auto">
+            {columns.map((col) => {
+              const on = picked.includes(col);
+              return (
+                <button
+                  key={col}
+                  className={`flex w-full items-center justify-between rounded-md border px-2 py-1.5 text-left text-xs ${on ? "border-primary/60 bg-primary/5" : ""}`}
+                  onClick={() =>
+                    setPicked(on ? picked.filter((x) => x !== col) : [...picked, col].slice(0, 4))
+                  }
+                >
+                  <span className="font-mono">{col}</span>
+                  {on && (
+                    <span className="text-[10px] text-muted-foreground">
+                      key {picked.indexOf(col) + 1}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Applies to files written from now on; run maintenance or rewrite the table to
+            re-partition what already exists.
+          </p>
+          <Button
+            className="w-full"
+            disabled={busy}
+            onClick={async () => {
+              setBusy(true);
+              try {
+                const res = await setFn({
+                  data: { access_token: token, schema, table, columns: picked },
+                });
+                onChanged(res.partitioned_by);
+                toast.success(
+                  res.partitioned_by.length
+                    ? `Partitioned by ${res.partitioned_by.join(", ")}`
+                    : "Partitioning cleared",
+                );
+                setOpen(false);
+              } catch (e) {
+                toast.error((e as Error).message);
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            {busy ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
+            {picked.length ? "Apply partitioning" : "Clear partitioning"}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+const ADVICE_LABEL: Record<string, string> = {
+  cluster: "Cluster",
+  recluster: "Rewrite",
+  compact: "Compact",
+  ok: "OK",
+};
+
+/**
+ * Files in key order: what the catalog says about this table's files, what
+ * queries filtered on, the advice, and the rewrite that acts on it. The
+ * numbers come from DuckLake's own per-file statistics, so "a lookup opens 4
+ * of 4 files" is what the engine would actually do.
+ */
+function LayoutDialog({
+  schema,
+  table,
+  current,
+  onChanged,
+}: {
+  schema: string;
+  table: string;
+  current: string[];
+  onChanged: (cols: string[]) => void;
+}) {
+  const { session } = useAuth();
+  const token = session?.access_token ?? "";
+  const { tokenRef, signedIn } = useTokenRef(token);
+  const readFn = useServerFn(getLakehouseLayout);
+  const rewriteFn = useServerFn(rewriteLakehouseLayout);
+  const clearFn = useServerFn(clearLakehouseLayout);
+  const [open, setOpen] = useState(false);
+  const [info, setInfo] = useState<Awaited<ReturnType<typeof getLakehouseLayout>> | null>(null);
+  const [picked, setPicked] = useState<string[]>(current);
+  const [targetMb, setTargetMb] = useState("");
+  const [keep, setKeep] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  // Read when the dialog opens (and after a rewrite), not when the session
+  // refreshes (R125): that blanked the open dialog and put the saved keys,
+  // target size and "keep clustered" back over the ones being chosen.
+  const load = useCallback(async () => {
+    try {
+      const r = await readFn({ data: { access_token: tokenRef.current, schema, table } });
+      setInfo(r);
+      setPicked(r.layout?.cluster_columns.length ? r.layout.cluster_columns : current);
+      // Shown in MB with up to two decimals: a demo table's 100 KB target
+      // must read 0.1, not round up to 1 and rewrite into one file.
+      setTargetMb(String(Math.max(0.01, Math.round((r.target_file_bytes / 1048576) * 100) / 100)));
+      setKeep(r.layout?.keep_clustered ?? false);
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signedIn, schema, table]);
+  useEffect(() => {
+    if (open) {
+      setInfo(null);
+      void load();
+    }
+  }, [open, load]);
+
+  const columns = info?.columns ?? [];
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button size="sm" variant="outline" title="Clustering and the layout advisor">
+          <Boxes className="mr-1 h-3.5 w-3.5" /> Layout
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>
+            Layout of {schema}.{table}
+          </DialogTitle>
+        </DialogHeader>
+        {!info ? (
+          <Skeleton className="h-48 w-full" />
+        ) : (
+          <div className="space-y-3">
+            <p className="text-xs text-muted-foreground" data-testid="layout-summary">
+              {info.files} file(s) · {formatBytes(info.bytes)} · {info.rows.toLocaleString()} row(s)
+              · target {formatBytes(info.target_file_bytes)} per file
+              {info.layout?.cluster_columns.length ? (
+                <>
+                  {" "}
+                  · clustered by{" "}
+                  <span className="font-mono">{info.layout.cluster_columns.join(", ")}</span>
+                  {info.layout.last_rewrite_at
+                    ? ` · rewritten ${new Date(info.layout.last_rewrite_at).toLocaleString()} in ${info.layout.last_rewrite_ms ?? 0} ms (${info.layout.last_rewrite_files_before ?? "?"} → ${info.layout.last_rewrite_files_after ?? "?"} files)`
+                    : ""}
+                  {info.files_since_rewrite > 0
+                    ? ` · ${info.files_since_rewrite} file(s) written since`
+                    : ""}
+                  {info.layout.last_error
+                    ? ` · last maintenance rewrite failed: ${info.layout.last_error}`
+                    : ""}
+                </>
+              ) : null}
+            </p>
+            <div className="space-y-1" data-testid="layout-advice">
+              {info.advice.map((a) => (
+                <div
+                  key={a.title}
+                  className="flex items-start gap-2 rounded-md border px-2 py-1.5 text-xs"
+                >
+                  <Badge
+                    variant={a.kind === "ok" ? "secondary" : "outline"}
+                    className="mt-0.5 flex-none text-[10px]"
+                  >
+                    {ADVICE_LABEL[a.kind] ?? a.kind}
+                  </Badge>
+                  <div className="min-w-0 flex-1">
+                    <div className="font-medium">{a.title}</div>
+                    <div className="text-muted-foreground">{a.detail}</div>
+                  </div>
+                  {a.columns && a.columns.length > 0 && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-6 flex-none px-2 text-[11px]"
+                      onClick={() => setPicked(a.columns ?? [])}
+                    >
+                      Use
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
+            <div className="overflow-hidden rounded-lg border">
+              <div className="grid grid-cols-[1fr_auto_auto] gap-x-3 border-b bg-muted/40 px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                <span>Column · click to pick a key, in order</span>
+                <span title="Files a lookup on this column opens, on average, out of the table's files">
+                  lookup opens
+                </span>
+                <span title="SELECTs that filtered on this column in the last 7 days">
+                  filtered · 7d
+                </span>
+              </div>
+              <div className="max-h-44 overflow-y-auto">
+                {columns.length === 0 && (
+                  <p className="px-2 py-2 text-xs text-muted-foreground">
+                    No file statistics yet — the table has no Parquet files (empty, still inlined in
+                    the catalog, or a mount).
+                  </p>
+                )}
+                {columns.map((col) => {
+                  const on = picked.includes(col.name);
+                  return (
+                    <button
+                      key={col.name}
+                      className={`grid w-full grid-cols-[1fr_auto_auto] items-center gap-x-3 px-2 py-1 text-left text-xs ${on ? "bg-primary/5" : "hover:bg-muted"}`}
+                      onClick={() =>
+                        setPicked(
+                          on
+                            ? picked.filter((x) => x !== col.name)
+                            : [...picked, col.name].slice(0, 4),
+                        )
+                      }
+                    >
+                      <span className="truncate">
+                        <span className="font-mono">{col.name}</span>
+                        <span className="ml-1 text-muted-foreground">{col.type.toLowerCase()}</span>
+                        {on && (
+                          <span className="ml-1 text-[10px] text-primary">
+                            key {picked.indexOf(col.name) + 1}
+                          </span>
+                        )}
+                      </span>
+                      <span className="font-mono text-muted-foreground">
+                        {col.files >= 2 ? `${col.touched} of ${col.files}` : "—"}
+                      </span>
+                      <span className="font-mono text-muted-foreground">
+                        {info.filtered[col.name] ?? 0}×
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs">Target file size (MB)</Label>
+                <Input
+                  className="h-8"
+                  type="number"
+                  min={1}
+                  value={targetMb}
+                  onChange={(e) => setTargetMb(e.target.value)}
+                />
+              </div>
+              <div className="flex items-end gap-2 pb-1">
+                <Switch id="layout-keep" checked={keep} onCheckedChange={setKeep} />
+                <Label htmlFor="layout-keep" className="text-xs">
+                  Keep clustered
+                </Label>
+              </div>
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              The rewrite ranges rows on the first key and sorts every range by all keys, one
+              transaction, one file per target size — so a filter on a key opens only the files
+              whose range matches. Keep clustered lets the hourly maintenance pass rewrite the table
+              again when new files land; clustered tables are left out of file merging either way.
+            </p>
+            <div className="flex gap-2">
+              <Button
+                className="flex-1"
+                disabled={busy || picked.length === 0}
+                onClick={async () => {
+                  setBusy(true);
+                  try {
+                    const mb = Number(targetMb);
+                    const res = await rewriteFn({
+                      data: {
+                        access_token: token,
+                        schema,
+                        table,
+                        columns: picked,
+                        target_file_mb: Number.isFinite(mb) && mb > 0 ? mb : undefined,
+                        keep_clustered: keep,
+                      },
+                    });
+                    onChanged(res.clustered_by);
+                    toast.success(
+                      `Rewritten in ${res.ms} ms: ${res.files_before} → ${res.files_after} file(s); a lookup on ${picked[0]} opens ${res.touched_after} file(s), was ${res.touched_before}`,
+                    );
+                    await load();
+                  } catch (e) {
+                    toast.error((e as Error).message);
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
+                {busy ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
+                Rewrite now
+              </Button>
+              {info.layout && (
+                <Button
+                  variant="ghost"
+                  disabled={busy}
+                  title="Forget the cluster keys; files stay as they are and maintenance merges them again"
+                  onClick={async () => {
+                    setBusy(true);
+                    try {
+                      const res = await clearFn({ data: { access_token: token, schema, table } });
+                      onChanged(res.clustered_by);
+                      toast.success("Layout forgotten");
+                      await load();
+                    } catch (e) {
+                      toast.error((e as Error).message);
+                    } finally {
+                      setBusy(false);
+                    }
+                  }}
+                >
+                  Forget layout
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function MountLakeDialog({ onMounted }: { onMounted: () => void }) {
+  const { session } = useAuth();
+  const token = session?.access_token ?? "";
+  const listFn = useServerFn(listLakeMountCandidates);
+  const mountFn = useServerFn(mountLakeSource);
+  const [open, setOpen] = useState(false);
+  const [sources, setSources] = useState<{ id: string; name: string; asset_count: number }[]>([]);
+  const [sourceId, setSourceId] = useState("");
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!open || !token) return;
+    void listFn({ data: { access_token: token } })
+      .then((r) => setSources(r.sources))
+      .catch(() => setSources([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, token]);
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button size="sm" variant="outline">
+          <Mountain className="mr-1 h-4 w-4" /> Mount data lake
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Mount a data lake</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <p className="text-xs text-muted-foreground">
+            Query files in an object-storage source as lakehouse tables. Each crawled dataset
+            becomes a read-only view — no copying, no path handling, and you can join lake data
+            against lakehouse tables in one query.
+          </p>
+          <div>
+            <Label className="text-xs">Storage source</Label>
+            <Select
+              value={sourceId}
+              onValueChange={(v) => {
+                setSourceId(v);
+                const src = sources.find((x) => x.id === v);
+                if (src && !name) {
+                  setName(
+                    src.name
+                      .toLowerCase()
+                      .replace(/[^a-z0-9_]/g, "_")
+                      .slice(0, 40),
+                  );
+                }
+              }}
+            >
+              <SelectTrigger className="h-8">
+                <SelectValue placeholder="Choose a crawled source" />
+              </SelectTrigger>
+              <SelectContent>
+                {sources.map((src) => (
+                  <SelectItem key={src.id} value={src.id}>
+                    {src.name} ({src.asset_count} dataset{src.asset_count === 1 ? "" : "s"})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label className="text-xs">Mount as schema</Label>
+            <Input
+              value={name}
+              onChange={(e) => setName(e.target.value.toLowerCase())}
+              className="h-8 font-mono"
+              placeholder="raw_lake"
+            />
+          </div>
+          <Button
+            className="w-full"
+            disabled={busy || !sourceId || !name.trim()}
+            onClick={async () => {
+              setBusy(true);
+              try {
+                const res = await mountFn({
+                  data: { access_token: token, catalog_source_id: sourceId, name: name.trim() },
+                });
+                toast.success(
+                  `Mounted ${res.views} table(s)${res.skipped ? ` — ${res.skipped} skipped` : ""}`,
+                );
+                setOpen(false);
+                setName("");
+                setSourceId("");
+                onMounted();
+              } catch (e) {
+                toast.error((e as Error).message);
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            {busy ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
+            Mount
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * Policies by tag: one rule, written once, applied wherever the tag is. Only
+ * an owner's own rules are shown; readers never see them, as with a table's
+ * policy.
+ */
+function TagPoliciesDialog() {
+  const { session } = useAuth();
+  const token = session?.access_token ?? "";
+  const listFn = useServerFn(listLakehouseTagPolicies);
+  const setFn = useServerFn(setLakehouseTagPolicy);
+  const deleteFn = useServerFn(deleteLakehouseTagPolicy);
+  const [open, setOpen] = useState(false);
+  const [rules, setRules] = useState<LakehouseTagPolicy[] | null>(null);
+  const [tag, setTag] = useState("");
+  const [scope, setScope] = useState<"column" | "table">("column");
+  const [style, setStyle] = useState<"null" | "hash">("null");
+  const [filter, setFilter] = useState("");
+  const [busy, setBusy] = useState(false);
+  const load = async () => {
+    try {
+      setRules(await listFn({ data: { access_token: token } }));
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  };
+  useEffect(() => {
+    if (open) void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+  const save = async () => {
+    setBusy(true);
+    try {
+      await setFn({
+        data: {
+          access_token: token,
+          tag: tag.trim(),
+          scope,
+          mask_style: style,
+          row_filter: scope === "table" ? filter : null,
+        },
+      });
+      toast.success(`Rule saved for "${tag.trim().toLowerCase()}"`);
+      setTag("");
+      setFilter("");
+      await load();
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button
+          size="sm"
+          variant="outline"
+          title="Rules by tag: mask every column carrying a tag, or filter every table carrying one"
+        >
+          <ShieldCheck className="mr-1 h-4 w-4" /> Tag policies
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Policies by tag</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <p className="text-xs text-muted-foreground">
+            Tag columns and tables in the Data Catalog; a rule here applies wherever the tag is, for
+            everyone you share a schema with. You are never filtered. A table&apos;s own Security
+            policy still applies; the two are combined, the stricter mask winning.
+          </p>
+          <div className="space-y-1">
+            {rules === null ? (
+              <Skeleton className="h-8 w-full" />
+            ) : rules.length === 0 ? (
+              <p className="text-xs text-muted-foreground">No rules yet.</p>
+            ) : (
+              rules.map((r) => (
+                <div
+                  key={r.id}
+                  className="flex items-center gap-2 rounded-md border px-2 py-1.5 text-xs"
+                >
+                  <Badge variant="secondary" className="font-mono">
+                    {r.tag}
+                  </Badge>
+                  <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                    {r.scope === "column"
+                      ? `columns with this tag are ${r.mask_style === "hash" ? "scrambled" : "blanked"}`
+                      : `tables with this tag show only rows where ${r.row_filter}`}
+                  </span>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-6 w-6"
+                    title="Remove this rule"
+                    onClick={async () => {
+                      try {
+                        await deleteFn({ data: { access_token: token, id: r.id } });
+                        await load();
+                      } catch (e) {
+                        toast.error((e as Error).message);
+                      }
+                    }}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              ))
+            )}
+          </div>
+          <div className="space-y-2 rounded-md border p-3">
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <Label className="text-xs">Tag</Label>
+                <Input
+                  value={tag}
+                  onChange={(e) => setTag(e.target.value)}
+                  placeholder="pii"
+                  className="h-8 font-mono text-xs"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Applies to</Label>
+                <Select value={scope} onValueChange={(v) => setScope(v as "column" | "table")}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="column">Columns with the tag — mask them</SelectItem>
+                    <SelectItem value="table">Tables with the tag — filter rows</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            {scope === "column" ? (
+              <div className="space-y-1">
+                <Label className="text-xs">How</Label>
+                <Select value={style} onValueChange={(v) => setStyle(v as "null" | "hash")}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="null">Blank — empties the value, any type</SelectItem>
+                    <SelectItem value="hash">
+                      Scramble — hashes text so it stays groupable and joinable
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : (
+              <div className="space-y-1">
+                <Label className="text-xs">Rows they can see</Label>
+                <Input
+                  value={filter}
+                  onChange={(e) => setFilter(e.target.value)}
+                  placeholder="region = 'east'  or  owner_email = @me"
+                  className="h-8 font-mono text-xs"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Checked against every table carrying the tag when you save. @me is the
+                  reader&apos;s email, @user_id their id.
+                </p>
+              </div>
+            )}
+            <Button
+              size="sm"
+              onClick={() => void save()}
+              disabled={busy || !tag.trim() || (scope === "table" && !filter.trim())}
+            >
+              {busy ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
+              Save rule
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function NewSchemaDialog({ onCreated }: { onCreated: () => void }) {
+  const { session } = useAuth();
+  const token = session?.access_token ?? "";
+  const createFn = useServerFn(createLakehouseSchema);
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button size="sm">
+          <Plus className="mr-1 h-4 w-4" /> New schema
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>New schema</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-2">
+          <Label>Name</Label>
+          <Input
+            value={name}
+            onChange={(e) => setName(e.target.value.toLowerCase())}
+            placeholder="analytics"
+            className="font-mono"
+          />
+          <p className="text-xs text-muted-foreground">
+            Lowercase letters, digits and underscores. Share it from Admin → IAM.
+          </p>
+          <Button
+            className="w-full"
+            disabled={busy || !name.trim()}
+            onClick={async () => {
+              setBusy(true);
+              try {
+                await createFn({ data: { access_token: token, name: name.trim() } });
+                toast.success(`Schema "${name.trim()}" created`);
+                setOpen(false);
+                setName("");
+                onCreated();
+              } catch (e) {
+                toast.error((e as Error).message);
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            Create
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+const NEW_TABLE_TYPES = [
+  "VARCHAR",
+  "INTEGER",
+  "BIGINT",
+  "DOUBLE",
+  "DECIMAL(18,4)",
+  "BOOLEAN",
+  "DATE",
+  "TIMESTAMP",
+  "JSON",
+] as const;
+
+function NewTableDialog({ schema, onCreated }: { schema: string; onCreated: () => void }) {
+  const { session } = useAuth();
+  const token = session?.access_token ?? "";
+  const createFn = useServerFn(createLakehouseTable);
+  const importFn = useServerFn(importDatasetToLakehouse);
+  const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<"columns" | "import">("columns");
+  const [name, setName] = useState("");
+  const [cols, setCols] = useState<{ name: string; type: (typeof NEW_TABLE_TYPES)[number] }[]>([
+    { name: "id", type: "INTEGER" },
+  ]);
+  const [datasets, setDatasets] = useState<{ id: string; name: string }[]>([]);
+  const [datasetId, setDatasetId] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    void supabase
+      .from("user_data_tables")
+      .select("id, name")
+      .order("name")
+      .then(({ data }) => setDatasets((data ?? []) as typeof datasets));
+  }, [open]);
+
+  const submit = async () => {
+    setBusy(true);
+    try {
+      if (mode === "columns") {
+        await createFn({
+          data: { access_token: token, schema, table: name.trim(), columns: cols },
+        });
+      } else {
+        if (!datasetId) throw new Error("Pick a dataset to import");
+        const res = await importFn({
+          data: { access_token: token, table_id: datasetId, schema, table: name.trim() },
+        });
+        toast.success(`Imported ${res.rows.toLocaleString()} row(s)`);
+      }
+      toast.success(`Table ${schema}.${name.trim()} ready`);
+      setOpen(false);
+      setName("");
+      onCreated();
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button size="icon" variant="ghost" className="h-6 w-6" title="New table in this schema">
+          <Plus className="h-3.5 w-3.5" />
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>New table in {schema}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              variant={mode === "columns" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setMode("columns")}
+            >
+              Define columns
+            </Button>
+            <Button
+              variant={mode === "import" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setMode("import")}
+            >
+              <Upload className="mr-1 h-3.5 w-3.5" /> Import dataset
+            </Button>
+          </div>
+          <div>
+            <Label className="text-xs">Table name</Label>
+            <Input
+              value={name}
+              onChange={(e) => setName(e.target.value.toLowerCase())}
+              placeholder="orders"
+              className="h-8 font-mono"
+            />
+          </div>
+          {mode === "columns" ? (
+            <div className="space-y-1.5">
+              {cols.map((c, i) => (
+                <div key={i} className="flex gap-1.5">
+                  <Input
+                    value={c.name}
+                    onChange={(e) =>
+                      setCols(
+                        cols.map((x, j) =>
+                          j === i ? { ...x, name: e.target.value.toLowerCase() } : x,
+                        ),
+                      )
+                    }
+                    placeholder="column"
+                    className="h-8 flex-1 font-mono text-xs"
+                  />
+                  <Select
+                    value={c.type}
+                    onValueChange={(v) =>
+                      setCols(
+                        cols.map((x, j) =>
+                          j === i ? { ...x, type: v as (typeof NEW_TABLE_TYPES)[number] } : x,
+                        ),
+                      )
+                    }
+                  >
+                    <SelectTrigger className="h-8 w-36 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {NEW_TABLE_TYPES.map((t) => (
+                        <SelectItem key={t} value={t}>
+                          {t}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-8 w-8"
+                    onClick={() => setCols(cols.filter((_, j) => j !== i))}
+                    disabled={cols.length === 1}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              ))}
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full"
+                onClick={() => setCols([...cols, { name: "", type: "VARCHAR" }])}
+              >
+                <Plus className="mr-1 h-3.5 w-3.5" /> Add column
+              </Button>
+            </div>
+          ) : (
+            <div>
+              <Label className="text-xs">Platform dataset</Label>
+              <Select value={datasetId} onValueChange={setDatasetId}>
+                <SelectTrigger className="h-8">
+                  <SelectValue placeholder="Choose a dataset" />
+                </SelectTrigger>
+                <SelectContent>
+                  {datasets.map((d) => (
+                    <SelectItem key={d.id} value={d.id}>
+                      {d.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Uploads, prep outputs and connector-synced tables — column types inferred.
+              </p>
+            </div>
+          )}
+          <Button className="w-full" disabled={busy || !name.trim()} onClick={submit}>
+            {busy ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
+            {mode === "columns" ? "Create table" : "Import"}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function InsertRowDialog({
+  schema,
+  table,
+  columns,
+}: {
+  schema: string;
+  table: string;
+  columns: { name: string; type: string }[];
+}) {
+  const { session } = useAuth();
+  const token = session?.access_token ?? "";
+  const runFn = useServerFn(runLakehouseQuery);
+  const [open, setOpen] = useState(false);
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    setBusy(true);
+    try {
+      const names = columns.map((c) => `"${c.name}"`).join(", ");
+      const lits = columns
+        .map((c) => {
+          const v = values[c.name] ?? "";
+          if (v === "") return "NULL";
+          const numeric = /INT|DOUBLE|DECIMAL|BIGINT/i.test(c.type) && !Number.isNaN(Number(v));
+          const boolish = /BOOL/i.test(c.type);
+          if (numeric) return v;
+          if (boolish) return v.toLowerCase() === "true" ? "true" : "false";
+          return `'${v.replace(/'/g, "''")}'`;
+        })
+        .join(", ");
+      await runFn({
+        data: {
+          access_token: token,
+          sql: `INSERT INTO "${schema}"."${table}" (${names}) VALUES (${lits})`,
+        },
+      });
+      toast.success("Row inserted");
+      setOpen(false);
+      setValues({});
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button size="sm" variant="outline">
+          <Plus className="mr-1 h-3.5 w-3.5" /> Insert row
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>
+            Insert into {schema}.{table}
+          </DialogTitle>
+        </DialogHeader>
+        <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
+          {columns.map((c) => (
+            <div key={c.name}>
+              <Label className="text-xs">
+                {c.name} <span className="text-muted-foreground">({c.type.toLowerCase()})</span>
+              </Label>
+              <Input
+                value={values[c.name] ?? ""}
+                onChange={(e) => setValues({ ...values, [c.name]: e.target.value })}
+                className="h-8 font-mono text-xs"
+                placeholder="NULL"
+              />
+            </div>
+          ))}
+        </div>
+        <Button className="w-full" disabled={busy} onClick={submit}>
+          {busy ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
+          Insert
+        </Button>
+      </DialogContent>
+    </Dialog>
+  );
+}

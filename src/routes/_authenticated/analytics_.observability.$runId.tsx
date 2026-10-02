@@ -1,6 +1,10 @@
+import { formatUsd } from "@/lib/usd";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { scanRows } from "@/lib/cursorScan";
+import { UNKNOWN_COUNT } from "@/lib/listClaim";
+import { runStepsCaveat } from "@/lib/traceWindow";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -68,6 +72,11 @@ type Edge = {
   created_at: string;
 };
 
+// Steps and edges of one run. A run that reaches this has gone very wrong
+// already; the ceiling is here so an unbounded client read cannot exist,
+// not because it should ever bite.
+const RUN_ROW_SCAN_MAX = 20_000;
+
 function TraceDetail() {
   const { runId } = Route.useParams();
   const [run, setRun] = useState<Run | null>(null);
@@ -75,18 +84,65 @@ function TraceDetail() {
   const [edges, setEdges] = useState<Edge[]>([]);
   const [selectedStep, setSelectedStep] = useState<Step | null>(null);
   const [loading, setLoading] = useState(true);
+  // Why the detail could not be read, or null. Without it `?? []` renders a
+  // failed query as "No steps recorded." on a run that has plenty.
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [edgesComplete, setEdgesComplete] = useState(true);
 
   useEffect(() => {
     void (async () => {
-      const [r, s, e] = await Promise.all([
-        supabase.from("swarm_runs").select("*").eq("id", runId).maybeSingle(),
-        supabase.from("swarm_run_steps").select("*").eq("run_id", runId).order("started_at"),
-        supabase.from("swarm_run_edges").select("*").eq("run_id", runId).order("created_at"),
-      ]);
-      setRun((r.data as Run) ?? null);
-      setSteps((s.data ?? []) as Step[]);
-      setEdges((e.data ?? []) as Edge[]);
-      setLoading(false);
+      setLoading(true);
+      try {
+        const r = await supabase.from("swarm_runs").select("*").eq("id", runId).maybeSingle();
+        if (r.error) throw new Error(r.error.message);
+        setRun((r.data as Run) ?? null);
+
+        // Cursor-paged by id, then sorted for display. Both reads were
+        // unbounded `.select("*")`, and PostgREST answers those with at most
+        // db-max-rows — 1,000 on a default Supabase project — with no error and
+        // no flag. Ordering by started_at and paging by offset would not fix
+        // it: paging needs a unique key, and two steps of one run can share a
+        // start instant.
+        // Written twice rather than once over a `table: string`: supabase-js
+        // types `.from()` on a literal union of the schema's tables, so a
+        // generic pager makes every call below it `never`. Two short functions
+        // beat one clever one that has to be cast back into place.
+        const pageSteps = async (after: string | null, size: number) => {
+          let q = supabase
+            .from("swarm_run_steps")
+            .select("*")
+            .eq("run_id", runId)
+            .order("id", { ascending: true })
+            .limit(size);
+          if (after) q = q.gt("id", after);
+          const { data, error } = await q;
+          if (error) throw new Error(error.message);
+          return (data ?? []) as Step[];
+        };
+        const pageEdges = async (after: string | null, size: number) => {
+          let q = supabase
+            .from("swarm_run_edges")
+            .select("*")
+            .eq("run_id", runId)
+            .order("id", { ascending: true })
+            .limit(size);
+          if (after) q = q.gt("id", after);
+          const { data, error } = await q;
+          if (error) throw new Error(error.message);
+          return (data ?? []) as Edge[];
+        };
+
+        const s = await scanRows<Step>(pageSteps, (x) => x.id, { maxRows: RUN_ROW_SCAN_MAX });
+        const e = await scanRows<Edge>(pageEdges, (x) => x.id, { maxRows: RUN_ROW_SCAN_MAX });
+        setSteps([...s.rows].sort((a, b) => Date.parse(a.started_at) - Date.parse(b.started_at)));
+        setEdges([...e.rows].sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at)));
+        setEdgesComplete(e.complete);
+        setLoadError(null);
+      } catch (err) {
+        setLoadError(err instanceof Error ? err.message : "Could not read this run");
+      } finally {
+        setLoading(false);
+      }
     })();
   }, [runId]);
 
@@ -96,7 +152,27 @@ function TraceDetail() {
         <Skeleton className="h-64" />
       </div>
     );
-  if (!run) return <div className="p-6 text-sm text-muted-foreground">Run not found.</div>;
+  if (!run)
+    return (
+      <div className="p-6 text-sm text-muted-foreground">
+        {/* "Not found" is a claim about the database. A read that failed has
+            not established that. */}
+        {loadError ? `This run could not be read — ${loadError}` : "Run not found."}
+      </div>
+    );
+
+  // step_count is a column on the run row, written by the executor, so it is
+  // the whole run's figure however much of the detail came back.
+  //
+  // Only when the read SUCCEEDED, though. MEASURED by driving the page with
+  // the step read failing: the banner said the detail could not be read, and
+  // under it this sentence said "Showing the first 0 of 4 steps" — which is
+  // what a successful read of a prefix looks like. A truncation caveat over a
+  // failed read is not a caveat, it is a second and different wrong claim
+  // about the same rows.
+  const stepsCaveat = loadError
+    ? null
+    : runStepsCaveat({ fetched: steps.length, total: run.step_count });
 
   const startedAt = new Date(run.started_at).getTime();
   const totalDuration = Math.max(
@@ -145,8 +221,22 @@ function TraceDetail() {
         <Metric label="Duration" value={`${run.total_latency_ms}ms`} />
         <Metric label="Tokens in" value={run.total_tokens_in.toLocaleString()} />
         <Metric label="Tokens out" value={run.total_tokens_out.toLocaleString()} />
-        <Metric label="Cost" value={`$${Number(run.total_cost_usd).toFixed(4)}`} />
+        <Metric label="Cost" value={formatUsd(run.total_cost_usd)} />
       </div>
+
+      {/* Placed under the metrics on purpose: this is where the discrepancy
+          shows. "Steps 1,400" above a timeline holding a thousand rows reads as
+          a page that cannot add up, unless it says which half is partial. */}
+      {stepsCaveat && <p className="text-xs text-amber-600 dark:text-amber-400">{stepsCaveat}</p>}
+      {loadError && (
+        <div
+          role="alert"
+          className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm"
+        >
+          The detail of this run could not be read — {loadError}. The totals above come from the run
+          itself and still stand.
+        </div>
+      )}
 
       {run.input_prompt && (
         <Card className="p-3">
@@ -169,7 +259,12 @@ function TraceDetail() {
           <TabsTrigger value="timeline">
             <ListOrdered className="h-3.5 w-3.5 mr-1" /> Timeline
           </TabsTrigger>
-          <TabsTrigger value="dataflow">Data flow ({edges.length})</TabsTrigger>
+          <TabsTrigger value="dataflow">
+            {/* A bare count from a scan that stopped early is the same
+                claim as the one on the header, one screen down. */}
+            Data flow ({loadError ? UNKNOWN_COUNT : edges.length}
+            {!loadError && !edgesComplete ? "+" : ""})
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="canvas" className="mt-3">
@@ -226,14 +321,15 @@ function TraceDetail() {
                       />
                     </div>
                     <div className="col-span-3 text-right text-[11px] font-mono text-muted-foreground">
-                      {s.latency_ms}ms · {s.tokens_in}/{s.tokens_out} tok · $
-                      {Number(s.cost_usd).toFixed(4)}
+                      {s.latency_ms}ms · {s.tokens_in}/{s.tokens_out} tok · {formatUsd(s.cost_usd)}
                     </div>
                   </button>
                 );
               })}
               {steps.length === 0 && (
-                <p className="text-sm text-muted-foreground p-6 text-center">No steps recorded.</p>
+                <p className="text-sm text-muted-foreground p-6 text-center">
+                  {loadError ? "The steps of this run could not be read." : "No steps recorded."}
+                </p>
               )}
             </div>
           </Card>
@@ -241,7 +337,9 @@ function TraceDetail() {
 
         <TabsContent value="dataflow" className="mt-3">
           {edges.length === 0 ? (
-            <p className="text-sm text-muted-foreground p-6 text-center">No edges fired.</p>
+            <p className="text-sm text-muted-foreground p-6 text-center">
+              {loadError ? "The data flow of this run could not be read." : "No edges fired."}
+            </p>
           ) : (
             <Card className="p-3">
               <div className="space-y-1 text-xs font-mono">
@@ -285,7 +383,7 @@ function TraceDetail() {
                   label="Tokens"
                   value={`${selectedStep.tokens_in}/${selectedStep.tokens_out}`}
                 />
-                <Metric label="Cost" value={`$${Number(selectedStep.cost_usd).toFixed(4)}`} />
+                <Metric label="Cost" value={formatUsd(selectedStep.cost_usd)} />
               </div>
               <Tabs defaultValue="input" className="mt-4">
                 <TabsList className="flex-wrap h-auto">

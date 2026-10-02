@@ -45,7 +45,7 @@ import { catalogCreateSource, catalogCrawlSource } from "@/utils/catalog.functio
 import { listWarehouseConnections } from "@/utils/warehouse.functions";
 import { WAREHOUSE_LABELS, type WarehouseConnectionSummary } from "@/utils/warehouse/types";
 
-type StorageProvider = "aws" | "gcs" | "r2" | "minio" | "spaces" | "b2" | "custom";
+type StorageProvider = "aws" | "gcs" | "r2" | "minio" | "spaces" | "b2" | "custom" | "azure";
 
 const STORAGE_PRESETS: Record<
   StorageProvider,
@@ -93,6 +93,16 @@ const STORAGE_PRESETS: Record<
     endpoint: "",
     endpointHint: "https://storage.example.com",
     region: "us-east-1",
+    pathStyle: true,
+  },
+  azure: {
+    // Not S3. The endpoint is derived from the account name unless overridden
+    // (Azurite, sovereign clouds); region is meaningless and kept only so the
+    // shared form validates.
+    label: "Azure Blob Storage / ADLS Gen2",
+    endpoint: "",
+    endpointHint: "https://<account>.blob.core.windows.net (optional)",
+    region: "global",
     pathStyle: true,
   },
 };
@@ -435,7 +445,9 @@ export function AddSourceWizard({
                 )}
                 <div className="grid grid-cols-2 gap-2.5">
                   <div className="space-y-1.5">
-                    <Label className="text-xs">Bucket</Label>
+                    <Label className="text-xs">
+                      {provider === "azure" ? "Container" : "Bucket"}
+                    </Label>
                     <Input
                       value={bucket}
                       onChange={(e) => {
@@ -458,7 +470,9 @@ export function AddSourceWizard({
                 </div>
                 <div className="grid grid-cols-2 gap-2.5">
                   <div className="space-y-1.5">
-                    <Label className="text-xs">Access key ID</Label>
+                    <Label className="text-xs">
+                      {provider === "azure" ? "Storage account name" : "Access key ID"}
+                    </Label>
                     <Input
                       value={accessKey}
                       onChange={(e) => setAccessKey(e.target.value)}
@@ -467,7 +481,9 @@ export function AddSourceWizard({
                     />
                   </div>
                   <div className="space-y-1.5">
-                    <Label className="text-xs">Secret access key</Label>
+                    <Label className="text-xs">
+                      {provider === "azure" ? "Account key or SAS token" : "Secret access key"}
+                    </Label>
                     <Input
                       type="password"
                       value={secretKey}
@@ -520,7 +536,7 @@ export function AddSourceWizard({
               <p className="mt-1 text-muted-foreground">
                 {kind === "warehouse"
                   ? `${connections?.find((c) => c.id === connectionId)?.name ?? "Connection"} — every schema and table will be cataloged with column types and row estimates.`
-                  : `s3://${bucket}/${prefix} — objects are listed (up to 2,000), partitioned folders are grouped into datasets, and CSV/JSON files are sampled to infer columns.`}
+                  : `${provider === "azure" ? "az" : "s3"}://${bucket}/${prefix} — objects are listed (up to 2,000), partitioned folders are grouped into datasets, and CSV/JSON files are sampled to infer columns.`}
               </p>
             </div>
 

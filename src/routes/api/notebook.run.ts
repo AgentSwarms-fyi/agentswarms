@@ -16,6 +16,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { startSession, getSession } from "@/utils/notebookRuntime/service.server";
+import { notebookRuntimeRefusal } from "@/utils/notebookRuntime/config.server";
 import { hashNotebookApiKey } from "@/utils/notebookApiKeys";
 
 const corsHeaders = {
@@ -58,6 +59,25 @@ export const Route = createFileRoute("/api/notebook/run")({
         }
         if (key.expires_at && new Date(key.expires_at).getTime() < Date.now()) {
           return json({ error: "API key has expired" }, 401);
+        }
+
+        // FOUND FROM THE SURVEY (R96). The key proves who published this
+        // notebook; it does not prove they may still run code here. The admin's
+        // "Enable server runtime" and "Require an access grant" switches are
+        // asked about the OWNER on every call, so turning the runtime off, or
+        // revoking a grant, also stops every key that owner ever minted.
+        const refused = await notebookRuntimeRefusal(key.user_id);
+        if (refused) {
+          return json(
+            {
+              error: refused.code,
+              message:
+                refused.code === "runtime_disabled"
+                  ? "The server runtime is not enabled on this instance, so published notebooks cannot run."
+                  : "This notebook's owner has not been granted access to the server runtime.",
+            },
+            403,
+          );
         }
 
         let body: { inputs?: Record<string, unknown>; async?: boolean } = {};

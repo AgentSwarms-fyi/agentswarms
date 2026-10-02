@@ -3,6 +3,7 @@
 //
 // The repository is the same per-user connection BI uses, so it can be set up
 // from either place — there is one repo, not one per feature.
+import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { useCallback, useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
@@ -131,9 +132,9 @@ export function NotebookGitDialog({
 
   async function restore(v: NbGitVersion) {
     if (
-      !window.confirm(
-        `Replace this notebook's cells with the version committed in ${v.commit_sha.slice(0, 7)}?\n\nAnything not committed will be lost.`,
-      )
+      !(await confirmAsk({
+        title: `Replace this notebook's cells with the version committed in ${v.commit_sha.slice(0, 7)}?\n\nAnything not committed will be lost.`,
+      }))
     ) {
       return;
     }

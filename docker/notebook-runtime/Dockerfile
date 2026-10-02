@@ -14,7 +14,7 @@
 FROM python:3.12-slim
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends build-essential ca-certificates \
+    && apt-get install -y --no-install-recommends build-essential ca-certificates libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
 RUN useradd -m -u 1000 -s /bin/bash runner
@@ -23,9 +23,18 @@ WORKDIR /opt/agentswarms
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# DuckDB extensions for lakehouse pipeline nodes, installed at build time into
+# a read-only directory the generated code prefers. Without this every run
+# with a lakehouse node downloaded them through the egress proxy first — slow,
+# and impossible without .duckdb.org on the allow-list. The directory is
+# world-readable; LOAD needs nothing more.
+RUN python -c "import duckdb; c = duckdb.connect(config={'extension_directory': '/opt/agentswarms/duckdb-ext'}); c.execute('INSTALL ducklake; INSTALL postgres; INSTALL httpfs;'); print('baked', [r[0] for r in c.execute(\"SELECT extension_name FROM duckdb_extensions() WHERE installed\").fetchall()])" \
+    && chmod -R a+rX /opt/agentswarms/duckdb-ext
+
 COPY agentswarms_helper.py /opt/agentswarms/agentswarms.py
 COPY batch_runner.py /opt/agentswarms/batch_runner.py
 COPY mcp_runner.py /opt/agentswarms/mcp_runner.py
+COPY score_server.py /opt/agentswarms/score_server.py
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 

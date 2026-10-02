@@ -1,6 +1,8 @@
 // Resolves the effective server-runtime configuration (the single settings row,
 // with a few env overrides for deploy-time wiring) and the per-user capability
 // check. Used by every /api/notebook/runtime/* route.
+import os from "node:os";
+
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { runtimeSecretConfigured } from "./token.server";
 
@@ -23,7 +25,314 @@ export type RuntimeSettings = {
   batchMaxMinutes: number;
   egressAllowlist: string[];
   pipAllowed: boolean;
+  /** Writable tmpfs per sandbox (~/.local and ~/work), in MB. */
+  sandboxTmpfsMb: number;
 };
+
+// The Spark engine's own settings — provider, endpoint and cluster sizing —
+// live in @/utils/etl/sparkCluster.server, next to the code that acts on them.
+
+/**
+ * Compute limits that are NOT about the notebook sandbox — the in-process
+ * lakehouse engine and ETL throughput — resolved the same way: the settings
+ * row wins, then the environment variable, then the built-in default.
+ *
+ * They live in the runtime settings row because that is the one place an
+ * operator already goes to say how much of the host this deployment may use.
+ */
+export type PlatformResourceSettings = {
+  lakehouseMemoryLimit: string;
+  lakehouseThreads: number;
+  etlMaxConcurrentRunsPerUser: number;
+  etlPipelinesPerSweep: number;
+  /** Rows one training run reads; larger tables are reservoir-sampled. */
+  mlTrainMaxRows: number;
+  mlTrainTimeBudgetMinutes: number;
+  mlTrainMemLimitMb: number;
+  mlServeMemLimitMb: number;
+  mlMaxConcurrentTrainingsPerUser: number;
+  mlPredictMaxRows: number;
+  /** GPUs requested per training sandbox; 0 = none. */
+  mlTrainGpus: number;
+  /**
+   * Sandboxes one training job spreads its candidate search across. 1 is the
+   * old behaviour. The runtime's own per-user session limit is the ceiling
+   * that actually bites, so a job takes fewer workers rather than failing to
+   * start them.
+   */
+  mlTrainWorkers: number;
+  /** PSI above which a batch prediction raises a drift notification. */
+  mlDriftAlertPsi: number;
+  /**
+   * How much worse than its training metric a model may score against real
+   * outcomes before an evaluation raises one.
+   *
+   * A ratio, not a metric value, so one number reads the same for an f1 that
+   * should go up and an RMSE that should go down.
+   */
+  mlDecayAlertRatio: number;
+  mlCvMinHoldoutRows: number;
+  /** Rows a worker must still get before a dataset is split across containers. */
+  mlParallelMinRows: number;
+  /**
+   * Selection-rate ratio below which a fairness check asks for review.
+   *
+   * Four fifths is the US EEOC guideline's rule of thumb, not a law and not
+   * the standard everywhere — a default, so a deployment may hold itself to
+   * more.
+   */
+  mlFairnessMinRatio: number;
+  /** Largest artifact (MB) a notebook run may upload into the lake bucket. */
+  mlArtifactMaxMb: number;
+  /** Warm inference endpoints one user may hold open. */
+  mlMaxDeploymentsPerUser: number;
+  /** Warm inference endpoints this instance may hold open. */
+  mlMaxDeploymentsTotal: number;
+  /** Calls a minute one AI-gateway key may make unless it sets its own. */
+  gatewayRateLimitPerMin: number;
+  /** provider/model entries every gateway call may fall back to, after the key's chain. */
+  gatewayFallbackModels: string[];
+  /** Rows one metrics API query (/api/v1/metrics/query) may return. */
+  gatewayMetricsMaxRows: number;
+  /** Cosine similarity a cached question must reach before its answer is reused. */
+  gatewayCacheSimilarity: number;
+  /** Hours a cached gateway answer stays reusable. */
+  gatewayCacheTtlHours: number;
+  /** Above this temperature a turn is never served from, or written to, the cache. */
+  gatewayCacheMaxTemperature: number;
+  /** Due data monitors one scheduler sweep runs. */
+  dataMonitorsPerSweep: number;
+  /** Most non-empty cells one Sheets grid sheet may hold. */
+  sheetsMaxCells: number;
+  /** Rows a Sheets table sheet fetches from the lakehouse per page. */
+  sheetsPageRows: number;
+  /** Largest file (MB) a Sheets upload may bring into the lakehouse. */
+  sheetsUploadMaxMb: number;
+  /** Most sheets one Sheets file import brings in. */
+  sheetsImportMaxSheets: number;
+  /** Most rows of a table sheet written into a downloaded workbook. */
+  sheetsExportMaxRows: number;
+  /** The least time between two automatic versions of a Sheets workbook (taken as people save); named versions and the one before a restore are not limited. */
+  sheetsVersionIntervalMinutes: number;
+  /** Automatic versions kept per Sheets workbook; older ones are pruned first, named ones are kept. */
+  sheetsVersionsMax: number;
+  /** provider/model the Sheets assistant and Fill with AI call (through the chat channel). */
+  sheetsAssistModel: string;
+  /** Model calls one person's Sheets assistant and Fill with AI may make in a minute. */
+  sheetsAssistPerMinute: number;
+  /** Most rows one Fill with AI in Sheets works through. */
+  sheetsAiFillMaxRows: number;
+  /** Standard deviations from the learned baseline beyond which a volume check alerts. */
+  dataMonitorAnomalySigma: number;
+  /** Model calls one SQL statement may make through ai_* functions. */
+  aiSqlMaxCallsPerStatement: number;
+  /** provider/model an ai_* function uses when the statement names none. */
+  aiSqlDefaultModel: string;
+  /** Days an ai_* answer is reused before the model is asked again. */
+  aiSqlCacheTtlDays: number;
+  /** provider/model that reads scanned pages and images on knowledge-base upload. */
+  documentVisionModel: string;
+  /** Pages one uploaded document may have read by the vision model. */
+  documentVisionMaxPages: number;
+};
+
+/** A stored override only counts when it is a usable positive number. */
+function positive(v: number | null | undefined): number | undefined {
+  return typeof v === "number" && Number.isFinite(v) && v > 0 ? Math.trunc(v) : undefined;
+}
+
+function envInt(name: string): number | undefined {
+  const n = Number(process.env[name]?.trim());
+  return Number.isFinite(n) && n > 0 ? Math.trunc(n) : undefined;
+}
+
+/**
+ * The compute knobs, resolved. Deliberately NOT capped here: an operator who
+ * has bought a 64-core machine is allowed to use it, and a ceiling written
+ * into the code is a ceiling nobody can raise without a release. The admin UI
+ * shows what the host actually has and warns when a value exceeds it, which
+ * informs the decision instead of overriding it.
+ */
+const nonNegative = (v: unknown) =>
+  typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : undefined;
+const positiveNum = (v: unknown) =>
+  typeof v === "number" && Number.isFinite(v) && v > 0 ? v : undefined;
+/** A decimal knob (a PSI threshold), read like envInt but not truncated. */
+function envNum(name: string): number | undefined {
+  const raw = process.env[name];
+  const n = raw ? Number.parseFloat(raw) : Number.NaN;
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+}
+
+/**
+ * A decimal knob whose zero is a real setting rather than an unset one.
+ *
+ * The cache's temperature ceiling is the case: 0 means only a fully
+ * deterministic turn may be cached, which is the strictest an operator can
+ * ask for, and reading it as "unset" would silently loosen it to the default.
+ */
+function envNumZeroOk(name: string): number | undefined {
+  const raw = process.env[name];
+  const n = raw ? Number.parseFloat(raw) : Number.NaN;
+  return Number.isFinite(n) && n >= 0 ? n : undefined;
+}
+
+export async function getPlatformResources(): Promise<PlatformResourceSettings> {
+  const { data } = await supabaseAdmin
+    .from("notebook_runtime_settings")
+    .select(
+      "lakehouse_memory_limit, lakehouse_threads, etl_max_concurrent_runs_per_user, etl_pipelines_per_sweep, ml_train_max_rows, ml_train_time_budget_minutes, ml_train_mem_limit_mb, ml_serve_mem_limit_mb, ml_max_concurrent_trainings_per_user, ml_predict_max_rows, ml_train_gpus, ml_train_workers, ml_drift_alert_psi, ml_decay_alert_ratio, ml_fairness_min_ratio, ml_cv_min_holdout_rows, ml_parallel_min_rows, ml_artifact_max_mb, ml_max_deployments_per_user, ml_max_deployments_total, gateway_rate_limit_per_min, gateway_fallback_models, gateway_metrics_max_rows, gateway_cache_similarity, gateway_cache_ttl_hours, gateway_cache_max_temperature, data_monitors_per_sweep, data_monitor_anomaly_sigma, sheets_max_cells, sheets_page_rows, sheets_upload_max_mb, sheets_import_max_sheets, sheets_export_max_rows, sheets_version_interval_minutes, sheets_versions_max, sheets_assist_model, sheets_assist_per_minute, sheets_ai_fill_max_rows, ai_sql_max_calls_per_statement, ai_sql_default_model, ai_sql_cache_ttl_days, document_vision_model, document_vision_max_pages",
+    )
+    .eq("id", true)
+    .maybeSingle();
+
+  return {
+    lakehouseMemoryLimit:
+      data?.lakehouse_memory_limit?.trim() || process.env.LAKEHOUSE_MEMORY_LIMIT?.trim() || "2GB",
+    lakehouseThreads: positive(data?.lakehouse_threads) ?? envInt("LAKEHOUSE_THREADS") ?? 4,
+    etlMaxConcurrentRunsPerUser:
+      positive(data?.etl_max_concurrent_runs_per_user) ??
+      envInt("ETL_MAX_CONCURRENT_RUNS_PER_USER") ??
+      3,
+    etlPipelinesPerSweep:
+      positive(data?.etl_pipelines_per_sweep) ?? envInt("ETL_PIPELINES_PER_SWEEP") ?? 3,
+    // Machine learning. Generous by default and, like everything above,
+    // uncapped: a large VM is allowed to train on all of its rows.
+    mlTrainMaxRows: positive(data?.ml_train_max_rows) ?? envInt("ML_TRAIN_MAX_ROWS") ?? 2_000_000,
+    mlTrainTimeBudgetMinutes:
+      positive(data?.ml_train_time_budget_minutes) ?? envInt("ML_TRAIN_TIME_BUDGET_MINUTES") ?? 30,
+    mlTrainMemLimitMb:
+      positive(data?.ml_train_mem_limit_mb) ?? envInt("ML_TRAIN_MEM_LIMIT_MB") ?? 8192,
+    // SERVING IS NOT TRAINING. A scorer holds one fitted model resident and
+    // answers requests — measured at 169 MiB against the 8 GiB it used to
+    // inherit from the training budget. The number matters on Kubernetes,
+    // where a namespace ResourceQuota counts this per copy and therefore
+    // decides how many copies fit. The default leaves room for the largest
+    // artifact the platform accepts (ml_artifact_max_mb, 512 MB) unpickled.
+    mlServeMemLimitMb:
+      positive(data?.ml_serve_mem_limit_mb) ?? envInt("ML_SERVE_MEM_LIMIT_MB") ?? 2048,
+    mlMaxConcurrentTrainingsPerUser:
+      positive(data?.ml_max_concurrent_trainings_per_user) ??
+      envInt("ML_MAX_CONCURRENT_TRAININGS_PER_USER") ??
+      2,
+    mlPredictMaxRows:
+      positive(data?.ml_predict_max_rows) ?? envInt("ML_PREDICT_MAX_ROWS") ?? 5_000_000,
+    mlTrainGpus: nonNegative(data?.ml_train_gpus) ?? envInt("ML_TRAIN_GPUS") ?? 0,
+    mlTrainWorkers: positive(data?.ml_train_workers) ?? envInt("ML_TRAIN_WORKERS") ?? 1,
+    mlDriftAlertPsi: positiveNum(data?.ml_drift_alert_psi) ?? envNum("ML_DRIFT_ALERT_PSI") ?? 0.25,
+    // Ten per cent worse than the validation score. Uncapped like the rest:
+    // what counts as "worse enough to tell somebody" belongs to the model's
+    // job, not to this platform.
+    mlDecayAlertRatio:
+      positiveNum(data?.ml_decay_alert_ratio) ?? envNum("ML_DECAY_ALERT_RATIO") ?? 0.1,
+    mlCvMinHoldoutRows:
+      positive(data?.ml_cv_min_holdout_rows) ?? envInt("ML_CV_MIN_HOLDOUT_ROWS") ?? 2000,
+    mlParallelMinRows:
+      positive(data?.ml_parallel_min_rows) ?? envInt("ML_PARALLEL_MIN_ROWS") ?? 25_000,
+    mlFairnessMinRatio:
+      positiveNum(data?.ml_fairness_min_ratio) ?? envNum("ML_FAIRNESS_MIN_RATIO") ?? 0.8,
+    // A notebook's model reaches the lake through the app, so this bounds one
+    // upload. Uncapped like the rest: a large VM may keep a large model.
+    mlArtifactMaxMb: positive(data?.ml_artifact_max_mb) ?? envInt("ML_ARTIFACT_MAX_MB") ?? 512,
+    // A warm scorer costs its memory whether or not anyone is scoring, which
+    // is why these are small by default and a per-endpoint idle timer takes
+    // one down when it stops earning that memory.
+    mlMaxDeploymentsPerUser:
+      positive(data?.ml_max_deployments_per_user) ?? envInt("ML_MAX_DEPLOYMENTS_PER_USER") ?? 2,
+    mlMaxDeploymentsTotal:
+      positive(data?.ml_max_deployments_total) ?? envInt("ML_MAX_DEPLOYMENTS_TOTAL") ?? 10,
+    gatewayRateLimitPerMin:
+      positive(data?.gateway_rate_limit_per_min) ?? envInt("AI_GATEWAY_RATE_LIMIT_PER_MIN") ?? 60,
+    gatewayMetricsMaxRows:
+      positive(data?.gateway_metrics_max_rows) ?? envInt("AI_GATEWAY_METRICS_MAX_ROWS") ?? 10000,
+    // 0.97 is deliberately high. Two questions a cosine hair apart can still
+    // want different answers ("revenue in 2025" against "revenue in 2024"),
+    // and a cache that answers the wrong one is worse than one that misses.
+    gatewayCacheSimilarity:
+      positiveNum(Number(data?.gateway_cache_similarity ?? Number.NaN)) ??
+      envNum("AI_GATEWAY_CACHE_SIMILARITY") ??
+      0.97,
+    gatewayCacheTtlHours:
+      positive(data?.gateway_cache_ttl_hours) ?? envInt("AI_GATEWAY_CACHE_TTL_HOURS") ?? 24,
+    gatewayCacheMaxTemperature:
+      nonNegative(Number(data?.gateway_cache_max_temperature ?? Number.NaN)) ??
+      envNumZeroOk("AI_GATEWAY_CACHE_MAX_TEMPERATURE") ??
+      0.3,
+    gatewayFallbackModels: Array.isArray(data?.gateway_fallback_models)
+      ? data.gateway_fallback_models.filter(
+          (s): s is string => typeof s === "string" && s.trim() !== "",
+        )
+      : (process.env.AI_GATEWAY_FALLBACK_MODELS ?? "")
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean),
+    dataMonitorsPerSweep:
+      positive(data?.data_monitors_per_sweep) ?? envInt("DATA_MONITORS_PER_SWEEP") ?? 20,
+    dataMonitorAnomalySigma:
+      positiveNum(data?.data_monitor_anomaly_sigma) ?? envNum("DATA_MONITOR_ANOMALY_SIGMA") ?? 3,
+    sheetsMaxCells: positive(data?.sheets_max_cells) ?? envInt("SHEETS_MAX_CELLS") ?? 200_000,
+    sheetsPageRows: positive(data?.sheets_page_rows) ?? envInt("SHEETS_PAGE_ROWS") ?? 500,
+    sheetsUploadMaxMb: positive(data?.sheets_upload_max_mb) ?? envInt("SHEETS_UPLOAD_MAX_MB") ?? 50,
+    sheetsImportMaxSheets:
+      positive(data?.sheets_import_max_sheets) ?? envInt("SHEETS_IMPORT_MAX_SHEETS") ?? 100,
+    sheetsExportMaxRows:
+      positive(data?.sheets_export_max_rows) ?? envInt("SHEETS_EXPORT_MAX_ROWS") ?? 100_000,
+    sheetsVersionIntervalMinutes:
+      positive(data?.sheets_version_interval_minutes) ??
+      envInt("SHEETS_VERSION_INTERVAL_MINUTES") ??
+      30,
+    sheetsVersionsMax: positive(data?.sheets_versions_max) ?? envInt("SHEETS_VERSIONS_MAX") ?? 50,
+    sheetsAssistModel:
+      (typeof data?.sheets_assist_model === "string" && data.sheets_assist_model.trim()) ||
+      (process.env.SHEETS_ASSIST_MODEL ?? "").trim() ||
+      "openrouter/google/gemini-3-flash-preview",
+    sheetsAssistPerMinute:
+      positive(data?.sheets_assist_per_minute) ?? envInt("SHEETS_ASSIST_PER_MINUTE") ?? 30,
+    sheetsAiFillMaxRows:
+      positive(data?.sheets_ai_fill_max_rows) ?? envInt("SHEETS_AI_FILL_MAX_ROWS") ?? 2000,
+    aiSqlMaxCallsPerStatement:
+      positive(data?.ai_sql_max_calls_per_statement) ??
+      envInt("AI_SQL_MAX_CALLS_PER_STATEMENT") ??
+      200,
+    aiSqlDefaultModel:
+      (typeof data?.ai_sql_default_model === "string" && data.ai_sql_default_model.trim()) ||
+      (process.env.AI_SQL_DEFAULT_MODEL ?? "").trim() ||
+      "openrouter/google/gemini-3-flash-preview",
+    aiSqlCacheTtlDays:
+      positive(data?.ai_sql_cache_ttl_days) ?? envInt("AI_SQL_CACHE_TTL_DAYS") ?? 30,
+    documentVisionModel:
+      (typeof data?.document_vision_model === "string" && data.document_vision_model.trim()) ||
+      (process.env.DOCUMENT_VISION_MODEL ?? "").trim() ||
+      "openrouter/google/gemini-3-flash-preview",
+    documentVisionMaxPages:
+      positive(data?.document_vision_max_pages) ?? envInt("DOCUMENT_VISION_MAX_PAGES") ?? 200,
+  };
+}
+
+/**
+ * What this host actually has, so the admin UI can size against reality rather
+ * than against a number someone guessed. In a container these report the
+ * cgroup's view where the runtime exposes it, and the host's otherwise — which
+ * is why the UI presents them as guidance, not as a limit.
+ *
+ * `cpus` uses availableParallelism rather than os.cpus().length: the latter
+ * reports the MACHINE even under a CPU quota (measured: 8 inside a --cpus=2
+ * container), which would have had the admin page sizing against cores this
+ * deployment is not allowed to use.
+ *
+ * `workers` is how many app PROCESSES exist, published by server.mjs rather
+ * than re-derived here so the two can never disagree. It matters because
+ * per-process resources — the lakehouse engine above all — are charged once per
+ * worker, not once per host. Absent under `vite dev`, where the answer is 1.
+ */
+export function hostResources(): { cpus: number; totalMemMb: number; workers: number } {
+  const declared = Number(process.env.AGENTSWARMS_WORKERS);
+  return {
+    cpus: Math.max(1, os.availableParallelism?.() ?? os.cpus()?.length ?? 1),
+    totalMemMb: Math.max(1, Math.round(os.totalmem() / (1024 * 1024))),
+    workers: Number.isFinite(declared) && declared >= 1 ? Math.trunc(declared) : 1,
+  };
+}
 
 function envBool(name: string): boolean | undefined {
   const v = process.env[name];
@@ -67,6 +376,7 @@ export async function getRuntimeSettings(): Promise<RuntimeSettings> {
     batchCpuLimit: data?.batch_cpu_limit ?? "2",
     batchMemLimitMb: data?.batch_mem_limit_mb ?? 4096,
     batchMaxMinutes: data?.batch_max_minutes ?? 120,
+    sandboxTmpfsMb: positive(data?.sandbox_tmpfs_mb) ?? 512,
     egressAllowlist: data?.egress_allowlist ?? [
       "pypi.org",
       "files.pythonhosted.org",
@@ -96,6 +406,23 @@ export async function canUseRuntime(userId: string): Promise<boolean> {
   ).rpc("can_use_notebook_runtime", { uid: userId });
   if (error) return false;
   return data === true;
+}
+
+/**
+ * May this user run NOTEBOOK code on a server kernel, and if not, why.
+ *
+ * The one question every path that runs a user's notebook must ask (R96): the
+ * interactive kernel route, a published notebook's API, a workflow's Notebook
+ * step, and minting the key that publishes one. Platform sandboxes — ETL, ML
+ * training and serving, Spark queries — are not notebooks and do not ask.
+ */
+export async function notebookRuntimeRefusal(userId: string) {
+  const { runtimeRefusalFor } = await import("./refusal");
+  const settings = await getRuntimeSettings();
+  return runtimeRefusalFor({
+    enabled: settings.enabled,
+    permitted: settings.enabled && (await canUseRuntime(userId)),
+  });
 }
 
 const LIVE_STATUSES = ["queued", "starting", "ready", "running", "stopping"];
@@ -152,6 +479,10 @@ export async function countLiveServices(userId: string): Promise<number> {
     .select("id", { count: "exact", head: true })
     .eq("user_id", userId)
     .eq("kind", "service")
+    // MCP servers only. A warm model scorer is also a service session, and
+    // counting it here would spend an MCP slot on a model — and refuse an MCP
+    // server because somebody deployed one.
+    .not("mcp_app_id", "is", null)
     .in("status", LIVE_STATUSES);
   return count ?? 0;
 }
@@ -162,6 +493,7 @@ export async function countLiveServicesTotal(): Promise<number> {
     .from("notebook_runtime_sessions")
     .select("id", { count: "exact", head: true })
     .eq("kind", "service")
+    .not("mcp_app_id", "is", null)
     .in("status", LIVE_STATUSES);
   return count ?? 0;
 }

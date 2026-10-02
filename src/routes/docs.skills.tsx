@@ -192,7 +192,10 @@ function SkillsDoc() {
         same prompt against two or three models side by side, streaming the outputs next to each
         other with per-panel latency, token counts, and real cost. Preset experiments are included —
         constraint-following, JSON-only output, and similar discriminating tasks — each with a note
-        on what to watch for.
+        on what to watch for. The tokens and cost are the ones the server records for each call, so
+        they match the rows on the Traces page. Latency is measured in the browser and includes the
+        network, so it reads a little higher there. A model that did not answer is left out of the
+        ranking.
       </P>
 
       <Note>

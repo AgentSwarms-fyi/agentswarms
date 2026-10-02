@@ -50,6 +50,8 @@ function surfaceFor(stage?: string): string {
       return "BI Agent: Narrative";
     case "suggestions":
       return "BI Agent: Suggestions";
+    case "report":
+      return "BI Agent: Report outline";
     default:
       return "BI Agent: Generic";
   }

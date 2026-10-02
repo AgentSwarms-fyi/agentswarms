@@ -26,11 +26,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useAuth } from "@/hooks/use-auth";
+import { useTokenRef } from "@/hooks/use-token-ref";
 import { gitExportNow, gitGetConfig, gitSaveConfig } from "@/utils/gitExport.functions";
 
 export function BiGitSyncDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { session } = useAuth();
   const token = session?.access_token ?? "";
+  const { tokenRef, signedIn } = useTokenRef(token);
   const getConfig = useServerFn(gitGetConfig);
   const saveConfig = useServerFn(gitSaveConfig);
   const exportNow = useServerFn(gitExportNow);
@@ -55,7 +57,11 @@ export function BiGitSyncDialog({ open, onClose }: { open: boolean; onClose: () 
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
 
+  // The saved settings load when the dialog opens, not when the session
+  // refreshes (R125): that put the saved repo, branch and folder back over
+  // unsaved edits, and "Export now" saves first, so it exported to those.
   useEffect(() => {
+    const token = tokenRef.current;
     if (!open || !token) return;
     setLoading(true);
     getConfig({ data: { access_token: token } })
@@ -73,7 +79,8 @@ export function BiGitSyncDialog({ open, onClose }: { open: boolean; onClose: () 
       })
       .catch((e) => toast.error((e as Error).message))
       .finally(() => setLoading(false));
-  }, [open, token, getConfig]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, signedIn, getConfig]);
 
   async function save(): Promise<boolean> {
     setSaving(true);

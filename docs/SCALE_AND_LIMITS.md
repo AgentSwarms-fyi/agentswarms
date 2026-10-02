@@ -34,7 +34,10 @@ every one is read by code you can grep for.
 ## Choosing per dataset, and bounding the total
 
 Each local dataset carries a **storage mode**, visible and changeable on
-**Monitoring → Materialised data**:
+**Monitoring → Materialised data**. That panel lists the datasets actually
+holding bytes; the rest — the ones reading directly, which is most of them on a
+typical workspace — are one click away behind _"Show N datasets holding
+nothing"_. The modes:
 
 | Mode     | What it does                                                  |
 | -------- | ------------------------------------------------------------- |
@@ -129,6 +132,16 @@ what you want for real volume.
 
 ### BI dashboards — `src/lib/biDashboards.ts`
 
+| Setting                       | Default  | What it bounds                                                  |
+| ----------------------------- | -------- | --------------------------------------------------------------- |
+| `BI_LOCAL_ROWS_PER_TABLE_CAP` | `20,000` | Rows one un-mirrored dataset may contribute to a widget refresh |
+
+Reaching that ceiling **fails the refresh** rather than computing the widget
+over the first N rows — nothing downstream can tell a figure derived from a
+prefix from one derived from the table. Datasets this size normally have a
+Parquet mirror (`PARQUET_MIN_ROWS`, 5,000) and never reach it; one that does,
+with mirroring off or not yet synced, names the knob in the error.
+
 | Setting / field             | Default                  | What it bounds                     |
 | --------------------------- | ------------------------ | ---------------------------------- |
 | `VITE_BI_SNAPSHOT_ROWS_CAP` | `500` (ceiling `100000`) | Rows cached in a widget's snapshot |
@@ -179,6 +192,33 @@ A crawl lists at most **2,000 objects** per bucket and infers a schema for the
 **20** largest groups. CSV/JSON schemas come from a **128 KB** head-of-file
 sample; Parquet schemas come from the file's **footer**, which is also where
 its exact row count is read from — neither downloads the file.
+
+### Model registry — `src/utils/modelRegistry.functions.ts`
+
+| Setting                   | Default | What it bounds                           |
+| ------------------------- | ------- | ---------------------------------------- |
+| `MODEL_REGISTRY_MAX_ROWS` | `5,000` | Models the browse page loads in one read |
+
+The registry is read by paging in **1,000-row** steps up to that ceiling, with
+the exact row count read first so the page can tell a whole catalogue from a
+prefix of one. When the ceiling bites, the header says "the first N of M live
+models" and a line above the filters says the rest are not loaded — the filters
+and the search box work over the rows in hand, so a model past the ceiling is
+not one page away, it is unreachable from that screen.
+
+Two helpers exist for reading past it. `src/lib/pagedSelect.ts` pages by
+offset for the rows themselves and reports whether its own ceiling stopped
+it; `src/lib/cursorScan.ts` pages by cursor, which is what a MEMBERSHIP
+question needs and what stays correct when the server's cap is smaller than
+the page requested. Neither treats a short page as proof of the end.
+
+**`.limit()` is not a ceiling you control.** PostgREST caps every response at
+its `db-max-rows`, which is **1,000** on a default Supabase project; a
+`.limit(2000)` above that is silently halved and supabase-js returns the short
+page with no error. Any read that must be complete has to page and compare
+against an exact count, which is what `pageTraces` in `src/lib/traceWindow.ts`
+exists for. Paging also needs a unique column last in the ORDER BY — without it
+a page boundary landing inside a tie can repeat or skip rows.
 
 ### Object-store queries — `src/utils/catalog/objectStoreQuery.server.ts`
 
@@ -275,7 +315,36 @@ a parked run can outlive any HTTP connection. See the API guide in the app at
 ### Knowledge bases (RAG)
 
 Per synced source: **500 items**, **400,000 characters** per document, and a
-crawl depth of **5**. Retrieval is pgvector (HNSW cosine) in your Postgres.
+crawl depth of **5**. Retrieval is pgvector (HNSW cosine) in your Postgres by
+default; `VECTOR_STORE=qdrant` moves the vector search into Qdrant, which is
+what an index too large for the database — or one that must survive losing it —
+wants. The chunk text stays in Postgres either way, so keyword search and the
+storage growth below are unchanged.
+
+What one answer reads: each cited document carries up to
+`KB_CHUNKS_PER_DOCUMENT` chunks (**3**) of up to `KB_CITATION_CHARS_PER_CHUNK`
+characters (**1,600**), and the whole turn is capped at
+`KB_GROUNDING_MAX_CHARS` (**12,000**, about 3,000 tokens). Raise the budget for
+a model with a large window and questions that span many documents; lower it
+for a small model. Below `KB_MIN_SIMILARITY` (**0.3**) on the best chunk, with
+no keyword hit, a turn is not grounded at all. See KNOWLEDGE_BASES.md → What
+the model reads.
+
+How the index is counted: both the "does this document already have chunks"
+probe in the backfill and the per-document counts on the Knowledge page read
+`kb_chunks` by **cursor**, not by offset, through `src/lib/cursorScan.ts`. They
+used to be single unbounded selects, which PostgREST answers with at most
+`db-max-rows` (**1,000** on a default Supabase project) and no error — so past a
+thousand chunks the backfill re-embedded documents it had already embedded and
+the page badged them "Pending embedding". The client scan stops at **50,000**
+chunks and the page then says its coverage could not be read in full rather than
+drawing a bar from a prefix.
+
+What a tool costs before it is called: every enabled tool's schema rides on
+every request. Most are 150–700 tokens; the `sql_query` description carries the
+user's tables inline and is budgeted by `SQL_TOOL_SCHEMA_MAX_CHARS` (**4,000**
+characters, about 1,000 tokens): columns until the budget is spent, names
+after, `list_data_tables` for the rest.
 
 ---
 
@@ -297,3 +366,88 @@ Postgres (traces, audit, KB vectors); see
 **Scaling out:** the container is stateless with no sticky sessions. Background
 work takes a cross-instance database lease, and `DISABLE_INPROCESS_SCHEDULER`
 pins scheduling to one node. Remember that pool and rate limits are per process.
+
+**Where a governed query's first milliseconds go:** every lakehouse statement
+resolves which schemas the caller may read before it runs anything, and that is
+a query against the application database — one round trip, measured at 85 ms
+from inside the app container against a hosted Supabase. It is paid whether the
+statement touches eight hundred rows or eight million, which is why a trivial
+query never finishes faster than that floor. A deployment that cares about the
+floor should look at where its application database is before anything else on
+this page: the number above is network, not work.
+
+### Machine learning — `src/utils/notebookRuntime/config.server.ts`
+
+Training and batch prediction run inside batch sandboxes of the notebook
+runtime, so the sandbox limits (`batch_cpu_limit`, `sandbox_tmpfs_mb`) apply
+as well. Each value below is resolved per call as **settings row → environment
+variable → default**; the settings row is edited under **Admin → Developer
+runtime** and takes effect on the next job, no redeploy.
+
+| Setting                                  | Default                                    | What it bounds                                                                                                                                                                                                                                                                                                                           |
+| ---------------------------------------- | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ML_TRAIN_MAX_ROWS`                      | 2,000,000                                  | Rows one training run reads. A larger table is reservoir-sampled to this many, and the version says so.                                                                                                                                                                                                                                  |
+| `ML_TRAIN_TIME_BUDGET_MINUTES`           | 30                                         | Default wall-clock budget per run; candidates are skipped, not aborted, once 85% is spent.                                                                                                                                                                                                                                               |
+| `ML_TRAIN_MEM_LIMIT_MB`                  | 8192                                       | Memory ceiling of a training sandbox. A model that needs more fails with the sandbox's OOM, not silently.                                                                                                                                                                                                                                |
+| `ML_SERVE_MEM_LIMIT_MB`                  | 2048                                       | Memory ceiling of a SCORER replica, which holds one fitted model resident rather than fitting one — measured at 169 MB. Separate from the training budget because on Kubernetes a namespace ResourceQuota counts this per copy, so it decides how many copies of a model you may run.                                                    |
+| `ML_MAX_CONCURRENT_TRAININGS_PER_USER`   | 2                                          | Training jobs one user may have live at once.                                                                                                                                                                                                                                                                                            |
+| `ML_PREDICT_MAX_ROWS`                    | 5,000,000                                  | Rows one batch prediction may score.                                                                                                                                                                                                                                                                                                     |
+| `ML_API_RATE_LIMIT_PER_MIN`              | 60                                         | Calls a minute one ML API key may make, across every `/api/ml/*` endpoint (global limiter).                                                                                                                                                                                                                                              |
+| `ML_TRAIN_WORKERS`                       | 1                                          | Sandboxes one training job spreads its work across: the algorithm search, where the job keeps the best worker's model, and a refit too large for one container, where each worker fits its own hashed slice of the rows and the fits are averaged into one model.                                                                        |
+| `FEATURE_STORE_URL`                      | —                                          | Where the online feature store is, e.g. `redis://valkey:6379`. Unset means there is none and every feature lookup reads the lakehouse — correct, and measured at 127 ms at best against ~2 ms.                                                                                                                                           |
+| `FEATURE_STORE_STALE_MINUTES`            | 60                                         | How old a view's stored rows may be before lookups stop trusting them and read the lakehouse instead. Each view may override it.                                                                                                                                                                                                         |
+| `FEATURE_STORE_MAX_KEYS`                 | 500,000                                    | Keys one refresh will write before it stops. A store holding part of its view is correct — the rest is read from the lakehouse — and the panel says how much it holds.                                                                                                                                                                   |
+| `FEATURE_STORE_MAXMEMORY`                | 256mb                                      | What the bundled valkey is given. It evicts its coldest keys rather than refusing writes, so exceeding it costs lookups their speed, never their correctness.                                                                                                                                                                            |
+| `ML_PARALLEL_MIN_ROWS`                   | 25,000                                     | Fewest rows a worker of a split refit may get. Below it the trainer samples down to `ML_TRAIN_MAX_ROWS` and fits in one container instead, because a slice too small costs more accuracy than the sampling it replaces: measured, 25,000 rows a worker costs about half a point of F1 against a single fit and 2,500 costs three points. |
+| `SPARK_CONNECT_URL`                      | —                                          | Spark Connect endpoint for pipelines on the Spark engine (Settings → Engine); unset = the engine is unavailable.                                                                                                                                                                                                                         |
+| `SPARK_PROVIDER`                         | `static`                                   | Where a Spark-engine run's cluster comes from: `static` (a shared endpoint) or `k8s` (one driver + executors per run, deleted when it ends).                                                                                                                                                                                             |
+| `SPARK_IMAGE`                            | `apache/spark:4.2.0-python3`               | Driver and executor image under `k8s`. Must match the sandbox client's major.minor.                                                                                                                                                                                                                                                      |
+| `SPARK_EXECUTORS`                        | 2                                          | Executor pods one Spark-engine run asks for.                                                                                                                                                                                                                                                                                             |
+| `SPARK_EXECUTOR_CORES`                   | 1                                          | Cores per executor.                                                                                                                                                                                                                                                                                                                      |
+| `SPARK_EXECUTOR_MEM_MB`                  | 2048                                       | Memory per executor.                                                                                                                                                                                                                                                                                                                     |
+| `SPARK_DRIVER_MEM_MB`                    | 2048                                       | Driver memory; collected results land here.                                                                                                                                                                                                                                                                                              |
+| `ETL_CONTINUOUS_ROLLOVER_MINUTES`        | 720                                        | How long a continuous pipeline's run lives before it ends cleanly and the sweep starts the next.                                                                                                                                                                                                                                         |
+| `ETL_CONTINUOUS_RESTART_BACKOFF_SECONDS` | 300                                        | After a continuous run fails outright, how long the sweep waits before starting another.                                                                                                                                                                                                                                                 |
+| `SPARK_PACKAGES`                         | the four connectors                        | Connector jars resolved at driver start; set empty for an image that already carries them.                                                                                                                                                                                                                                               |
+| `SPARK_K8S_STARTUP_TIMEOUT_SECONDS`      | 420                                        | How long a per-run driver may take to answer before the run fails.                                                                                                                                                                                                                                                                       |
+| `ML_TRAIN_GPUS`                          | 0                                          | GPUs requested per training sandbox: a Docker device request, or `nvidia.com/gpu` on Kubernetes.                                                                                                                                                                                                                                         |
+| `ML_DRIFT_ALERT_PSI`                     | 0.25                                       | Population stability index above which a batch prediction audits `ml.drift.alert` and notifies the owner.                                                                                                                                                                                                                                |
+| `ML_DECAY_ALERT_RATIO`                   | `0.1`                                      | How much worse than its training metric a model may score against real outcomes before its owner is told. A ratio, so it reads the same for a metric that should rise and one that should fall.                                                                                                                                          |
+| `ML_EVALUATIONS_PER_SWEEP`               | `20`                                       | Prediction runs measured against outcomes in one scheduler pass. A cadence bound, not a resource cap.                                                                                                                                                                                                                                    |
+| `ML_EXPLAIN_MAX_ROWS`                    | `20`                                       | Rows one request may have explained. Each feature costs an extra prediction per row.                                                                                                                                                                                                                                                     |
+| `ML_EXPLAIN_TOP_K`                       | `8`                                        | Features returned per explained row, largest contribution first.                                                                                                                                                                                                                                                                         |
+| `ML_FAIRNESS_MIN_RATIO`                  | `0.8`                                      | Selection-rate ratio below which a fairness check asks for review. The four-fifths rule from the US EEOC guidelines — a rule of thumb, not a law, and not the standard everywhere.                                                                                                                                                       |
+| `ML_ASSIST_MODEL`                        | `openrouter/google/gemini-3-flash-preview` | The model that suggests sensitive columns and reads a fairness result back in words. It never produces a number.                                                                                                                                                                                                                         |
+| `ML_ARTIFACT_MAX_MB`                     | 512                                        | Largest artifact a notebook run may save into the lake bucket through the app; the kernel holds no bucket credentials, so the bytes travel through the platform.                                                                                                                                                                         |
+| `ML_MAX_DEPLOYMENTS_PER_USER`            | 2                                          | Warm inference endpoints one person may hold open; each is a container holding a model in memory.                                                                                                                                                                                                                                        |
+| `ML_MAX_DEPLOYMENTS_TOTAL`               | 10                                         | Warm inference endpoints this instance may hold open at once.                                                                                                                                                                                                                                                                            |
+| `AI_GATEWAY_RATE_LIMIT_PER_MIN`          | 60                                         | Calls a minute one AI-gateway key may make unless the key sets its own (global limiter across replicas).                                                                                                                                                                                                                                 |
+| `AI_GATEWAY_FALLBACK_MODELS`             | —                                          | Comma-separated `provider/model` entries every gateway call may fall back to, after the key's own chain.                                                                                                                                                                                                                                 |
+| `AI_GATEWAY_METRICS_MAX_ROWS`            | 10,000                                     | Rows one metrics API query (`/api/v1/metrics/query`) may return; a smaller `limit` in the request wins.                                                                                                                                                                                                                                  |
+| `AI_GATEWAY_CACHE_SIMILARITY`            | 0.97                                       | Cosine similarity a cached question must reach before its answer is reused, for keys with the cache on.                                                                                                                                                                                                                                  |
+| `AI_GATEWAY_CACHE_TTL_HOURS`             | 24                                         | Hours a cached gateway answer stays reusable; expired rows are never served.                                                                                                                                                                                                                                                             |
+| `AI_GATEWAY_CACHE_MAX_TEMPERATURE`       | 0.3                                        | Above this temperature a turn is neither served from nor written to the semantic cache.                                                                                                                                                                                                                                                  |
+| `DATA_MONITORS_PER_SWEEP`                | 20                                         | Due data monitors one scheduler sweep runs; a check must answer within 60 seconds.                                                                                                                                                                                                                                                       |
+| `DATA_MONITOR_ANOMALY_SIGMA`             | 3                                          | Standard deviations from a volume monitor's learned baseline beyond which it alerts (needs five runs of history).                                                                                                                                                                                                                        |
+| `SHEETS_MAX_CELLS`                       | 200,000                                    | Non-empty cells one Sheets grid sheet may hold; a save past it is refused. Large data belongs in a table sheet, which lives in the lakehouse.                                                                                                                                                                                            |
+| `SHEETS_PAGE_ROWS`                       | 500                                        | Rows a Sheets table sheet fetches from the lakehouse per page while scrolling.                                                                                                                                                                                                                                                           |
+| `SHEETS_UPLOAD_MAX_MB`                   | 50                                         | Largest CSV (MB) a Sheets upload brings into the lakehouse. Larger files go to object storage and in through an ETL pipeline.                                                                                                                                                                                                            |
+| `SHEETS_IMPORT_MAX_SHEETS`               | 100                                        | Most sheets one Excel or CSV import brings into a workbook.                                                                                                                                                                                                                                                                              |
+| `SHEETS_EXPORT_MAX_ROWS`                 | 100,000                                    | Most rows of a table sheet written into a downloaded .xlsx or .csv; save larger tables to the lakehouse instead.                                                                                                                                                                                                                         |
+| `SHEETS_VERSION_INTERVAL_MINUTES`        | 30                                         | The least time between two automatic versions of a Sheets workbook (taken as people save); named versions and the one before a restore are not limited.                                                                                                                                                                                  |
+| `SHEETS_VERSIONS_MAX`                    | 50                                         | Automatic versions kept per Sheets workbook; older ones are pruned first, named ones are kept.                                                                                                                                                                                                                                           |
+| `SHEETS_ASSIST_MODEL` | `openrouter/google/gemini-3-flash-preview` | The default provider/model for the Sheets assistant and Fill with AI; each person may pick another in the panel. Calls go through the chat channel: each person's IAM model rules, budget, traces and cost apply. |
+| `SHEETS_ASSIST_PER_MINUTE` | 30 | Model calls one person's Sheets assistant and Fill with AI may make in a minute; each step of a question is one call. |
+| `SHEETS_AI_FILL_MAX_ROWS` | 2,000 | Most rows one Fill with AI in Sheets works through (sent 50 at a time). |
+| `AI_SQL_MAX_CALLS_PER_STATEMENT`         | 200                                        | Model calls one lakehouse statement may make through `ai_*` functions (distinct inputs; cached answers are free).                                                                                                                                                                                                                        |
+| `LAKEHOUSE_SPARK_QUERY_MINUTES`          | 30                                         | Wall clock one lakehouse query may hold the Spark cluster; the batch sandbox's own limit is sized for training jobs.                                                                                                                                                                                                                     |
+| `AI_SQL_CACHE_TTL_DAYS`                  | 30                                         | Days an `ai_*` answer is reused for the same input and model before the model is asked again.                                                                                                                                                                                                                                            |
+| `DOCUMENT_VISION_MAX_PAGES`              | 200                                        | Pages one scanned PDF or image upload may have read by the vision model (one model call per page).                                                                                                                                                                                                                                       |
+| `NOTEBOOK_K8S_GPU_NODE_SELECTOR`         | —                                          | Kubernetes only: JSON node selector for GPU training pods (`ML_TRAIN_GPUS` > 0).                                                                                                                                                                                                                                                         |
+| `NOTEBOOK_K8S_GPU_TOLERATIONS`           | —                                          | Kubernetes only: JSON tolerations for GPU training pods, for a tainted GPU pool.                                                                                                                                                                                                                                                         |
+
+Nothing here is a ceiling in the code. On a 64-core, 512 GB machine set
+`ML_TRAIN_MAX_ROWS` to the size of your largest table and
+`ML_TRAIN_MEM_LIMIT_MB` to what a sandbox may take, and the trainer will use
+it; the admin page shows what the host actually has so the numbers are chosen
+against reality.

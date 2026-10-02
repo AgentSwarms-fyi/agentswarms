@@ -197,7 +197,7 @@ function AnalyticsDoc() {
       <H2 id="swarm-observability">Swarm observability</H2>
       <P>
         Swarm runs get their own deep-inspection view at{" "}
-        <DocLink to="/analytics">Analytics → Swarm Observability</DocLink>. Opening a run shows
+        <DocLink to="/docs/debugging">Observability → Swarm Traces</DocLink>. Opening a run shows
         three tabs:
       </P>
       <FieldList
@@ -317,9 +317,9 @@ function AnalyticsDoc() {
           ],
           [
             <C key="c">AUDIT_ARCHIVE_ON_PURGE</C>,
-            "off",
+            "on",
             "env var",
-            "Archive events on purge instead of dropping them.",
+            "Purged events are archived rather than dropped. Set it to 0, false or no to drop them instead.",
           ],
         ]}
       />

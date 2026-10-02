@@ -35,6 +35,7 @@ import {
   priorContext,
   QUOTE_ROWS_UP_TO,
   describeStepResult,
+  stepFacts,
   rerunStep,
   withStaleAnswer,
   trimStepForStorage,
@@ -278,6 +279,34 @@ describe("the prompts say what the loop relies on", () => {
     expect(p.userPrompt).toContain("headline");
   });
 
+  it("check: a scored step names the model's columns, and the reviewer is told they exist in no table", () => {
+    // Measured live: the reviewer "corrected" a scored step with
+    // `SELECT order_id, prediction, probability, …` and the rewrite died on
+    // `Binder Error: Referenced column "prediction" not found` — the model
+    // had written that column onto the rows after the query ran.
+    const p = buildCheckPrompt({
+      question: "which plan is each order likely on",
+      steps: [
+        {
+          goal: "score the orders",
+          sql: "SELECT order_id FROM t",
+          facts: "3 rows",
+          scored: { model: "plan classifier", columns: ["prediction", "probability"] },
+        },
+      ],
+    });
+    expect(p.userPrompt).toContain(
+      'SCORED AFTER THE QUERY by the trained model "plan classifier": the column(s) prediction, probability are the model\'s estimates',
+    );
+    expect(p.userPrompt).toContain("they exist in no table");
+    expect(p.systemPrompt).toContain("A STEP MARKED SCORED AFTER THE QUERY");
+    expect(p.systemPrompt).toMatch(/refined_sql must not select, filter or sort by them/);
+    expect(p.systemPrompt).toMatch(/scored again automatically/);
+    const plain = buildCheckPrompt({ question: "q", steps: [{ goal: "g", facts: "f" }] });
+    expect(plain.systemPrompt).not.toContain("SCORED AFTER THE QUERY");
+    expect(plain.userPrompt).not.toContain("SCORED AFTER THE QUERY");
+  });
+
   it("synthesis: numbers only from step results, cited by step", () => {
     const p = buildSynthesisPrompt({
       question: "why?",
@@ -292,11 +321,69 @@ describe("the prompts say what the loop relies on", () => {
 });
 
 describe("the wiring (real nav, source guards)", () => {
-  it("AI Analyst is the FIRST item under Data & BI", () => {
+  it("pins its own height, so the composer never leaves the screen", () => {
+    // It used to say `h-full`, which is height:100% against an ancestor that
+    // has only a MIN height — so it resolved to auto, the transcript's own
+    // scroller never engaged, and the page grew to the height of the whole
+    // analysis. Measured on a real thread: the "Ask the analyst" field sat at
+    // y=12944 on a 12992px document. You had to scroll the entire answer to
+    // reach the box you ask the next question in.
+    const page = readFileSync("src/routes/_authenticated/ai-analyst.tsx", "utf8");
+    expect(page).toContain("h-canvas");
+    expect(page).not.toContain('className="flex h-full min-h-0"');
+    // The transcript keeps its own scroller; that part was always right.
+    expect(page).toContain("min-h-0 flex-1 space-y-4 overflow-y-auto");
+
+    // And the height it subtracts is MEASURED, not guessed: with the
+    // session-restore banner up, a hard-coded 3rem is short by exactly the
+    // banner and puts the composer back under the fold.
+    const layout = readFileSync("src/components/AppLayout.tsx", "utf8");
+    expect(layout).toContain("--app-chrome-h");
+    expect(layout).toContain("ResizeObserver");
+    const css = readFileSync("src/styles.css", "utf8");
+    expect(css).toContain(".h-canvas");
+    expect(css).toContain("calc(100dvh - var(--app-chrome-h, 3rem))");
+  });
+
+  it("gives every full-height route the same height, from one place", () => {
+    // Seven routes each subtracted their own constant and two of them had the
+    // wrong one — the header is h-12, which is 3rem, not the 3.5rem they used.
+    const routes = [
+      "bi_.$dashboardId",
+      "data-sql",
+      "etl",
+      "lakehouse",
+      "notebooks",
+      "playground",
+      "swarms",
+      "ai-analyst",
+    ];
+    for (const r of routes) {
+      const src = readFileSync(`src/routes/_authenticated/${r}.tsx`, "utf8");
+      expect(src, r).toContain("h-canvas");
+      expect(src, r).not.toContain("h-[calc(100vh-");
+    }
+  });
+
+  it("AI Analyst leads the pages that CONSUME data, after the ones that make it", () => {
+    // This used to pin AI Analyst as the first item in the group, on the
+    // reasoning that asking a question is what most people open the app to
+    // do. Data & BI now reads in the order data moves — find it, move it,
+    // store it, shape it, define it, then use it — because eleven items in
+    // an arbitrary order is a list you search rather than read.
+    //
+    // What survives that change is the part worth pinning: of everything
+    // that consumes the data, the Analyst comes first.
     const dataBi = NAV_GROUPS.find((g) => g.label === "Data & BI");
     expect(dataBi).toBeDefined();
-    expect(dataBi!.items[0].title).toBe("AI Analyst");
-    expect(dataBi!.items[0].url).toBe("/ai-analyst");
+    const titles = dataBi!.items.map((i) => i.title);
+    const analyst = titles.indexOf("AI Analyst");
+    expect(dataBi!.items[analyst].url).toBe("/ai-analyst");
+    for (const consumer of ["BI Workspace", "ML Models"]) {
+      expect(analyst, consumer).toBeLessThan(titles.indexOf(consumer));
+    }
+    // And it still comes after the layer that gives it its vocabulary.
+    expect(analyst).toBeGreaterThan(titles.indexOf("Semantic Layer"));
   });
 
   it("the page runs the real loop and stores TRIMMED turns", () => {
@@ -796,7 +883,11 @@ describe("what the write-up is actually shown", () => {
     // the query returned.
     const { readFileSync } = await import("node:fs");
     const lib = readFileSync("src/lib/aiAnalyst.ts", "utf8");
-    expect(lib.match(/describeStepResult\(results\[i\]!\)/g) ?? []).toHaveLength(3);
+    // Through the one helper that knows which columns a model added.
+    expect(lib.match(/stepFacts\(results\[i\], s\)/g) ?? []).toHaveLength(3);
+    // And the check is told, per step, which model and which columns.
+    expect(lib).toContain("columns: s.scored.columns ?? [],");
+    expect(lib).toContain("period: s.scored?.forecast?.period ?? null,");
   });
 });
 
@@ -891,6 +982,58 @@ describe("Tier 2 — the analysis the model is not trusted to do", () => {
     expect(text).toContain("CONTRIBUTION ANALYSIS");
     expect(text).toContain("DRIVERS");
     expect(text).toContain("OFFSETS"); // AMER moved against the fall
+  });
+
+  it("never runs the arithmetic over a model's columns, and marks them as estimates", () => {
+    // The live shape: a scored step's SQL returned order_id, and the model
+    // added prediction and probability. Read as observed data that is "a
+    // two-period breakdown by prediction" — order_id -> probability — and
+    // the reviewer repeated the resulting "-11,054.852 total change" as a
+    // concern the write-up then listed as a caveat.
+    const scored = res(
+      ["order_id", "prediction", "probability"],
+      [
+        { order_id: 1000, prediction: "pro", probability: 0.9479 },
+        { order_id: 1001, prediction: "enterprise", probability: 0.9678 },
+        { order_id: 1002, prediction: "free", probability: 0.9445 },
+      ],
+    );
+    // Not told, the detector fires — that is the trap.
+    expect(describeStepResult(scored)).toContain("CONTRIBUTION ANALYSIS");
+    const told = describeStepResult(scored, QUOTE_ROWS_UP_TO, ["prediction", "probability"]);
+    expect(told).not.toContain("CONTRIBUTION ANALYSIS");
+    expect(told).toContain(
+      "columns: order_id, prediction (model estimate), probability (model estimate)",
+    );
+    expect(told).toContain("prediction=pro"); // the rows are still quoted in full
+    // An estimate the result does not carry is ignored, not invented.
+    expect(describeStepResult(scored, QUOTE_ROWS_UP_TO, ["nope"])).not.toContain("model estimate");
+  });
+
+  it("says which columns are estimates on a summarised result too", () => {
+    const rows = Array.from({ length: QUOTE_ROWS_UP_TO + 1 }, (_, i) => ({
+      order_id: 1000 + i,
+      prediction: i % 2 ? "pro" : "free",
+      probability: 0.9,
+    }));
+    const text = describeStepResult(
+      res(["order_id", "prediction", "probability"], rows),
+      QUOTE_ROWS_UP_TO,
+      ["prediction", "probability"],
+    );
+    expect(text).toContain(
+      "MODEL ESTIMATES (added to the rows after the query; in no table): prediction, probability",
+    );
+    expect(text).not.toContain("CONTRIBUTION ANALYSIS");
+  });
+
+  it("stepFacts carries a scored step's columns, and reads an unscored step plainly", () => {
+    const r = res(["order_id", "prediction"], [{ order_id: 1, prediction: "pro" }]);
+    expect(stepFacts(r, { scored: undefined })).toContain("columns: order_id, prediction\n");
+    expect(stepFacts(r, { scored: { columns: ["prediction"] } as never })).toContain(
+      "prediction (model estimate)",
+    );
+    expect(stepFacts(null, { scored: undefined })).toBe("(no result)");
   });
 
   it("leaves an ordinary breakdown alone", () => {

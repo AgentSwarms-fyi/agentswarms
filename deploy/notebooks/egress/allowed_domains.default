@@ -1,0 +1,25 @@
+# TEMPLATE — copied to `allowed_domains` on first setup, then owned by the app.
+#
+# The live file is NOT tracked in git: the app rewrites it whenever an
+# administrator saves Admin → Developer runtime, so tracking it meant every
+# install produced a dirty working tree and, worse, offered up whatever
+# addresses that operator had allow-listed (an internal host, a LAN IP) as a
+# commit. Edit the allow-list in the admin UI; edit this file only to change
+# what a NEW install starts with.
+#
+# Allowlisted egress destinations for notebook kernels (squid dstdomain).
+# A leading dot matches all subdomains.
+#
+# PyPI (runtime pip install)
+.pypi.org
+.pythonhosted.org
+# DuckDB extension registry. The runtime image ships the ducklake, postgres
+# and httpfs extensions that lakehouse ETL nodes load, so those download
+# nothing; this stays for notebooks that INSTALL other extensions, and for an
+# image built without them, where the run fails with "Failed to download
+# extension (HTTP 403)": squid refused it, not DuckDB.
+.duckdb.org
+# Direct LLM endpoints (only needed if users call providers directly; model
+# calls via agentswarms.chat() are brokered by the platform and don't use this).
+.openrouter.ai
+.openai.com

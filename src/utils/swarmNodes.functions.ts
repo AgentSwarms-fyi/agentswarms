@@ -58,6 +58,7 @@ export const executeToolNode = createServerFn({ method: "POST" })
         sql_tables: z.array(z.string()).optional(),
         mcp_servers: z.array(z.string()).optional(),
         web_config: z.object({ provider: z.string(), api_key: z.string() }).partial().optional(),
+        ml_model_names: z.array(z.string()).optional(),
       })
       .parse(input),
   )

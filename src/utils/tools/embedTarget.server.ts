@@ -10,14 +10,34 @@
 import { resolveOpenAICompatTransport } from "@/utils/providers/credentials.server";
 import type { ProviderId } from "@/utils/providers/types";
 
-/** The operator's OPENAI_API_KEY rather than a per-user integration. */
+/**
+ * A LEGACY STAMP, not a provider you can choose any more.
+ *
+ * Embeddings used to be able to come from the operator's `OPENAI_API_KEY`,
+ * which made a self-hosted install depend on an OpenAI account for retrieval
+ * even when its models came from somewhere else entirely. That path is gone:
+ * every embedding now comes from a connected model provider.
+ *
+ * The stamp has to keep resolving, though. Documents embedded before this
+ * change carry `openai_builtin` in their metadata, and the vectors are still
+ * good — so the stamp maps onto a connected provider serving the SAME vector
+ * space (text-embedding-3-small), never a different one. Mixing spaces does not
+ * error, it returns confident nonsense, which is the whole reason this module
+ * exists.
+ */
 export const BUILTIN_PROVIDER = "openai_builtin";
 
 /**
+ * Who can reproduce the legacy built-in vector space, best first. OpenAI serves
+ * the exact model; OpenRouter proxies the same one.
+ */
+const LEGACY_BUILTIN_EQUIVALENTS = ["openai", "openrouter"];
+
+/**
  * Preferred provider when the caller doesn't name one and the user has it
- * connected. OpenRouter keeps embedding off the OpenAI quota that chat, doc
- * generation and retrieval otherwise share — once that quota is exhausted,
- * knowledge-base search goes down with it.
+ * connected. It is also the one provider whose resolution falls back to an
+ * operator-wide key (OPENROUTER_API_KEY), so the instance that gets chat for
+ * free gets retrieval for free from the same account.
  */
 export const DEFAULT_EMBED_PROVIDER = "openrouter";
 
@@ -25,10 +45,10 @@ export const DEFAULT_EMBED_PROVIDER = "openrouter";
  * Default embedding model per provider, used when the caller names none.
  *
  * OpenRouter routes to text-embedding-3-small rather than one of the nemotron
- * embedding models on purpose: it is the same vector space the built-in OpenAI
- * key produces, so moving a collection to OpenRouter to escape an exhausted
- * OpenAI quota does not invalidate chunks that are already embedded. A model
- * with a different space (or width) is selectable, but means a re-embed.
+ * embedding models on purpose: it is the same vector space older collections
+ * were written in, so a knowledge base embedded before this release stays
+ * searchable without a re-index. A model with a different space (or width) is
+ * selectable, but means a re-embed.
  */
 export const PROVIDER_EMBED_MODEL: Record<string, string> = {
   openrouter: "openai/text-embedding-3-small",
@@ -55,20 +75,42 @@ export type EmbedTarget = {
   provider: string;
   model: string;
   apiKey: string;
-  /** Absent for the built-in key (embedTexts defaults to the OpenAI endpoint). */
+  /** Always set now that every target is a connected provider. */
   endpoint?: string;
   allowCustomModel: boolean;
 };
 
-function builtinTarget(model?: string): EmbedTarget | null {
-  const key = process.env.OPENAI_API_KEY;
-  if (!key) return null;
-  return {
-    provider: BUILTIN_PROVIDER,
-    model: model || PROVIDER_EMBED_MODEL[BUILTIN_PROVIDER],
-    apiKey: key,
-    allowCustomModel: false,
-  };
+/**
+ * The same model, named the way a given provider names it.
+ *
+ * `text-embedding-3-small` on OpenAI is `openai/text-embedding-3-small` on
+ * OpenRouter — one vector space, two spellings. Getting this wrong is the
+ * silent-nonsense case, so it is spelled out rather than left to the caller.
+ */
+function sameSpaceModel(provider: string, model: string | undefined): string | undefined {
+  if (!model) return undefined;
+  if (provider === "openrouter") {
+    return model.includes("/") ? model : `openai/${model}`;
+  }
+  if (provider === "openai") return model.replace(/^openai\//, "");
+  return model;
+}
+
+/**
+ * Resolve a legacy `openai_builtin` stamp against connected providers.
+ *
+ * Returns null when the user has connected nothing that can reproduce the
+ * space — which is honest: re-embedding under a provider they do have is the
+ * only correct repair, and quietly answering from a different space would not
+ * be.
+ */
+async function legacyBuiltinTarget(userId: string, model?: string): Promise<EmbedTarget | null> {
+  const wanted = model || PROVIDER_EMBED_MODEL[BUILTIN_PROVIDER];
+  for (const provider of LEGACY_BUILTIN_EQUIVALENTS) {
+    const t = await integrationTarget(userId, provider, sameSpaceModel(provider, wanted));
+    if (t) return t;
+  }
+  return null;
 }
 
 async function integrationTarget(
@@ -91,10 +133,14 @@ async function integrationTarget(
 /**
  * Resolve the embedding target.
  *
- * An explicit provider is honoured exactly — a caller that says "openai_builtin"
- * gets that or nothing, because silently substituting a different provider is
- * how vector spaces get mixed. Only when none is named do we fall back:
- * OpenRouter → the built-in key → any other connected embedding provider.
+ * An explicit provider is honoured exactly, because silently substituting a
+ * different one is how vector spaces get mixed. The single exception is the
+ * legacy "openai_builtin" stamp, which no longer names anything that exists and
+ * is mapped onto a connected provider serving the same space.
+ *
+ * When no provider is named: OpenRouter, then any other connected provider with
+ * an embeddings endpoint. There is deliberately no operator-key fallback — an
+ * install should not need an OpenAI account to search its own documents.
  */
 export async function resolveEmbedTarget(
   userId: string,
@@ -133,9 +179,10 @@ export async function resolveEmbedArgs(
     })
   | null
 > {
-  const target = userId
-    ? await resolveEmbedTargetInner(userId, opts)
-    : builtinTarget(opts.model || undefined);
+  // Without a user there is no connected provider to resolve, and there is no
+  // longer an operator key to fall back on. Null is the honest answer; callers
+  // already treat it as "documents saved, semantic search not updated".
+  const target = userId ? await resolveEmbedTargetInner(userId, opts) : null;
   if (!target) return null;
   return {
     openaiKey: target.apiKey,
@@ -155,15 +202,16 @@ async function resolveEmbedTargetInner(
 
   if (requested) {
     return requested === BUILTIN_PROVIDER
-      ? builtinTarget(model)
+      ? legacyBuiltinTarget(userId, model)
       : integrationTarget(userId, requested, model);
   }
 
+  // Connected providers only. OpenRouter first — it is the one that also
+  // resolves the operator's OPENROUTER_API_KEY, so an instance configured for
+  // zero-config chat gets zero-config embeddings from the same place instead of
+  // needing a second account with a different vendor.
   const preferred = await integrationTarget(userId, DEFAULT_EMBED_PROVIDER, model);
   if (preferred) return preferred;
-
-  const builtin = builtinTarget(model);
-  if (builtin) return builtin;
 
   for (const p of EMBED_CAPABLE) {
     if (p === DEFAULT_EMBED_PROVIDER) continue;

@@ -4,6 +4,13 @@
 //      the column structure and semantics and proposes 8-14 widgets that
 //      maximize the variety of chart types the data supports, plus an
 //      executive summary.
+//
+//      The table may live in the local engine, in a connected warehouse, or in
+//      the built-in lakehouse. Only the local option existed at first, which
+//      made this dialog the one place in BI that could not see the lakehouse
+//      the dashboards around it were already querying. Where the SQL runs is
+//      resolved by lib/biGenerationSource, so this file and the report
+//      planner cannot drift apart on it.
 //   2. Review & generate: the user sees the summary and a checklist of
 //      suggested visuals (chart-type icon, title, rationale), selects the
 //      ones they want, and generates them through the existing GenBI
@@ -16,6 +23,7 @@ import {
   BarChart3,
   BarChartHorizontal,
   Check,
+  Database,
   FastForward,
   Flower2,
   Gauge,
@@ -60,6 +68,13 @@ import type { BiDataContext } from "@/components/bi/biDataContext";
 import { llmJson, runBiTurn, suggestDashboardWidgets, type WidgetSuggestion } from "@/lib/biAgent";
 import { widgetFromBiTurn, widgetFromSemantic, type BiWidget } from "@/lib/biDashboards";
 import type { MetricModelOption } from "@/components/bi/biDataContext";
+import {
+  LOCAL_SOURCE_KEY,
+  generationSource,
+  generationSourceOptions,
+} from "@/lib/biGenerationSource";
+import { reconcileChartFields } from "@/lib/biChartFields";
+import { parseTitleClaim, reconcileWidgetResult } from "@/lib/biTitleClaims";
 import {
   suggestGovernedWidgets,
   toSemanticQuery,
@@ -140,6 +155,8 @@ export function GenerateDashboardDialog({
   /** Validated governed widgets, keyed by the id shown in the checklist. */
   const [governed, setGoverned] = useState<Map<string, ValidGovernedWidget>>(new Map());
   const [rejected, setRejected] = useState<RejectedGovernedWidget[]>([]);
+  /** "local", or the id of a warehouse/lakehouse connection. */
+  const [sourceKey, setSourceKey] = useState(LOCAL_SOURCE_KEY);
   const [table, setTable] = useState("");
   const [focus, setFocus] = useState("");
   const [analyzing, setAnalyzing] = useState(false);
@@ -165,12 +182,25 @@ export function GenerateDashboardDialog({
   /** The governed source is offered only when the project actually wires it. */
   const canGovern = Boolean(ctx.listMetricModels && ctx.runMetric);
 
-  const selectedTable = ctx.datasets.some((d) => d.name === table)
+  const gen = generationSource({
+    sourceKey,
+    datasets: ctx.datasets,
+    datasetsError: ctx.datasetsError ?? null,
+    semantics: ctx.semantics,
+    metrics: ctx.metrics,
+    warehouses: ctx.warehouses,
+    whTables: ctx.whTables,
+    userId: ctx.userId,
+  });
+  const sourceOptions = generationSourceOptions(ctx.warehouses);
+  const selectedTable = gen.datasets.some((d) => d.name === table)
     ? table
-    : (ctx.datasets[0]?.name ?? "");
-  const scoped = ctx.datasets.filter((d) => d.name === selectedTable);
+    : (gen.datasets[0]?.name ?? "");
+  const scoped = gen.datasets.filter((d) => d.name === selectedTable);
+  // Saved metrics are keyed to LOCAL dataset ids, so `gen.metrics` is already
+  // empty for a warehouse — this narrows the local case to the picked table.
   const scopedMetrics =
-    scoped.length > 0 ? ctx.metrics.filter((m) => m.table_id === scoped[0].id) : [];
+    scoped.length > 0 ? gen.metrics.filter((m) => m.table_id === scoped[0].id) : [];
 
   function reset() {
     setPhase("configure");
@@ -238,9 +268,11 @@ export function GenerateDashboardDialog({
 
   async function analyze() {
     if (sourceKind === "semantic") return analyzeGoverned();
-    if (scoped.length === 0) {
-      return toast.error("No local datasets — upload data on the Data & SQL page first.");
-    }
+    // `notReady` is the specific reason — a schema still loading, a broken
+    // connection, an empty warehouse — and each needs a different response
+    // from the user, so none of them may collapse into "no datasets".
+    if (gen.notReady) return toast.error(gen.notReady);
+    if (scoped.length === 0) return toast.error("Pick a table to generate from");
     setAnalyzing(true);
     try {
       const res = await suggestDashboardWidgets({
@@ -351,16 +383,65 @@ export function GenerateDashboardDialog({
           const turn = await runBiTurn({
             question: picks[i].question,
             datasets: scoped,
-            semantics: ctx.semantics,
+            semantics: gen.semantics,
             metrics: scopedMetrics,
             model: ctx.model ?? undefined,
             preferChart: picks[i].chartType || undefined,
+            // Against a warehouse the SQL runs there, in that dialect — and
+            // the widget records it, so refresh and drill-through go back to
+            // the same place rather than looking for a local table.
+            execute: gen.warehouse ? (sql) => ctx.runSql(gen.source, sql) : undefined,
+            dialect: gen.dialect,
             onUpdate: () => {},
           });
-          const widget = widgetFromBiTurn(turn, { kind: "local" });
+          // The planner names a visual before it knows what the query will
+          // return. Check the title against what came back, and repair it
+          // where a repair is deterministic — "Top 5" over 14 rows, or a
+          // category chart whose SQL narrowed to a single row.
+          const fixed = await reconcileWidgetResult({
+            title: picks[i].title,
+            question: picks[i].question,
+            sql: turn.sql,
+            chartType: picks[i].chartType || undefined,
+            rows: turn.result?.rows ?? [],
+            execute: (q) => ctx.runSql(gen.source, q),
+          });
+          if (fixed.changed !== "none" && turn.result) {
+            turn.result = { ...turn.result, rows: fixed.rows, row_count: fixed.rows.length };
+            turn.sql = fixed.sql;
+          }
+          // The chart names columns too, and the query does not always return
+          // them. Corrected on the TURN rather than on the widget, so that
+          // widgetFromBiTurn derives `agg_pushdown` from the spec that will
+          // actually be drawn.
+          const fields = reconcileChartFields({
+            chart: turn.chart,
+            columns: turn.result?.columns ?? [],
+            rows: turn.result?.rows ?? [],
+          });
+          if (fields.verdict !== "ok") turn.chart = fields.chart;
+          const widget = widgetFromBiTurn(turn, gen.source);
+          // A race caps its own frame at twelve rows regardless of the query,
+          // so a title promising ten has to reach the renderer as a number.
+          const claim = parseTitleClaim(picks[i].title) ?? parseTitleClaim(picks[i].question);
+          if (widget?.chart && claim && widget.chart.type === "barrace") {
+            widget.chart = { ...widget.chart, topN: claim.n };
+          }
           ok = Boolean(widget && turn.status === "done" && (turn.result?.row_count ?? 0) > 0);
           if (ok && widget) {
-            widget.title = picks[i].title || widget.title;
+            // The note goes on HERE, with the final title. Applied any earlier
+            // it is silently overwritten by this line — which is exactly what
+            // happened, and what driving the dashboard caught.
+            const base = picks[i].title || widget.title;
+            // The COUNT note goes last and is stored on the widget. It is the
+            // only one a later refresh can re-derive, and it can only be found
+            // again if it is the title's suffix. The field note stays ahead of
+            // it: it describes a repair already applied to this widget, so a
+            // refresh must not re-check and delete it.
+            const fieldNote = fields.verdict !== "ok" ? fields.note : undefined;
+            const notes = [fieldNote, fixed.note].filter(Boolean);
+            widget.title = notes.length ? `${base} — ${notes.join(" ")}` : base;
+            widget.reconcile_note = fixed.note;
             widgets.push(widget);
           } else {
             // runBiTurn resolves (never throws) with the reason on the turn.
@@ -520,24 +601,79 @@ export function GenerateDashboardDialog({
                   )}
                 </>
               ) : (
-                <Select value={selectedTable} onValueChange={setTable} disabled={busy}>
-                  <SelectTrigger className="h-9 w-full text-xs">
-                    <span className="flex min-w-0 items-center gap-1.5">
-                      <Table2 className="h-3.5 w-3.5 shrink-0 text-teal-600 dark:text-teal-400" />
-                      <SelectValue placeholder="Pick a table…" />
-                    </span>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {ctx.datasets.map((d) => (
-                      <SelectItem key={d.id} value={d.name} className="text-xs">
-                        <span className="font-mono">{d.name}</span>
-                        <span className="ml-1.5 text-muted-foreground">
-                          · {d.row_count.toLocaleString()} rows
+                <>
+                  {/* Offered only when there is something to choose between —
+                      a lone "Local" dropdown is a control that does nothing. */}
+                  {sourceOptions.length > 1 && (
+                    <Select
+                      value={sourceKey}
+                      onValueChange={(v) => {
+                        setSourceKey(v);
+                        // The table name belongs to the old source; keeping it
+                        // would show a local table selected against a
+                        // warehouse and generate from whatever matched first.
+                        setTable("");
+                        // Fetched here, on the user's pick, and NOT in an
+                        // effect: `ensureSchema` re-fetches a connection left
+                        // in "error", and an effect that re-runs whenever
+                        // `whTables` changes would retry a broken warehouse
+                        // forever, one error toast per round.
+                        if (v !== LOCAL_SOURCE_KEY) ctx.ensureSchema(v);
+                      }}
+                      disabled={busy}
+                    >
+                      <SelectTrigger className="mb-1.5 h-9 w-full text-xs">
+                        <span className="flex min-w-0 items-center gap-1.5">
+                          <Database className="h-3.5 w-3.5 shrink-0 text-primary" />
+                          <SelectValue />
                         </span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                      </SelectTrigger>
+                      <SelectContent>
+                        {sourceOptions.map((o) => (
+                          <SelectItem key={o.key} value={o.key} className="text-xs">
+                            {o.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                  <Select value={selectedTable} onValueChange={setTable} disabled={busy}>
+                    <SelectTrigger className="h-9 w-full text-xs">
+                      <span className="flex min-w-0 items-center gap-1.5">
+                        <Table2 className="h-3.5 w-3.5 shrink-0 text-teal-600 dark:text-teal-400" />
+                        <SelectValue placeholder={gen.notReady ?? "Pick a table…"} />
+                      </span>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {gen.datasets.map((d) => (
+                        <SelectItem key={d.id} value={d.name} className="text-xs">
+                          <span className="font-mono">{d.name}</span>
+                          {/* A warehouse table is queried live and its row
+                              count is not known here; printing "0 rows" would
+                              read as an empty table. */}
+                          {!gen.warehouse && (
+                            <span className="ml-1.5 text-muted-foreground">
+                              · {d.row_count.toLocaleString()} rows
+                            </span>
+                          )}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {gen.notReady && (
+                    <p className="text-[10px] text-amber-600 dark:text-amber-400">{gen.notReady}</p>
+                  )}
+                  {gen.warehouse && !gen.notReady && (
+                    <p className="text-[10px] text-muted-foreground">
+                      {/* The connection's NAME only. Adding the provider label
+                          reads as "queries Lakehouse live in AgentSwarms
+                          Lakehouse (built-in)" — the dialect matters to the
+                          prompt, not to the person reading this. */}
+                      Every widget queries {gen.warehouse.name} live — nothing is copied into this
+                      app.
+                    </p>
+                  )}
+                </>
               )}
             </div>
             <div className="space-y-1">

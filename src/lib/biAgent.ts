@@ -12,6 +12,7 @@
 //
 // We keep the LLM calls small and JSON-only so they're fast and cheap.
 
+import type { ForecastSetting } from "./mlForecast";
 import { supabase } from "@/integrations/supabase/client";
 // TYPE-ONLY, deliberately. sqlEngine pulls in lib/browserDuckdb, which imports
 // `duckdb-mvp.wasm?url` — a Vite-only specifier. A value import here made this
@@ -28,6 +29,8 @@ import { parseModelChoice } from "@/utils/providers/modelChoice";
 import { clientDeadlineMs } from "@/lib/llmDeadline";
 import type { GovernedModelFields } from "@/lib/aiAnalyst";
 import type { ScenarioParameter } from "@/lib/analystScenario";
+import { computeInsightFacts, formatInsightFacts, queryRowLimit } from "@/lib/biInsightFacts";
+import { unsupportedFigures, valuesStatedIn, verifyClaims } from "@/lib/biNumericClaims";
 
 export type ColumnMeta = {
   description?: string;
@@ -90,8 +93,11 @@ export type BiChartAnalytics = {
   running?: boolean;
   /** Linear trend line (line, single series). */
   trend?: boolean;
-  /** Forecast this many buckets ahead with a ±1.96σ corridor (line, single series). */
-  forecast?: number;
+  /**
+   * Forecast ahead (line, single series): a number of buckets for the built-in
+   * forecaster, or an object attaching a registry forecast model's projection.
+   */
+  forecast?: ForecastSetting;
   refLine?: BiRefLine;
 };
 
@@ -123,7 +129,18 @@ export type ChartSpec = {
     // Stacked horizontal bar — xField category, yField measure, split by seriesField.
     | { type: "shbar"; xField: string; yField: string; seriesField: string }
     // Animated bar-chart race — xField category (racing bars), yField measure, timeField frames.
-    | { type: "barrace"; xField: string; yField: string; timeField: string }
+    | {
+        type: "barrace";
+        xField: string;
+        yField: string;
+        timeField: string;
+        /**
+         * Rows per frame. Set from a title that promised a number, because
+         * a race titled "Top 10 Customers" that draws twelve is a title
+         * the chart does not keep. Undefined leaves the renderer's default.
+         */
+        topN?: number;
+      }
     // Sankey flow — xField=source node, yField=target node, valueField=flow magnitude.
     | { type: "sankey"; xField: string; yField: string; valueField: string }
     // Nightingale / polar-area rose — one wedge per nameField, radius ∝ valueField.
@@ -186,6 +203,14 @@ export type LlmJsonOpts = {
   temperature?: number;
   /** Completion-token cap; raise it for large structured outputs (deck plans). */
   maxTokens?: number;
+  /**
+   * Which step of the BI agent this is, so the trace says so.
+   *
+   * The server has always mapped this to a surface name; nothing sent it,
+   * which left every BI call recorded as "BI Agent: Generic" and made plan,
+   * SQL, chart and narrative spend indistinguishable in Traces.
+   */
+  stage?: "plan" | "sql" | "chart" | "narrative" | "suggestions" | "report";
 };
 
 /**
@@ -232,6 +257,7 @@ export async function llmJson<T>(opts: LlmJsonOpts): Promise<T> {
         model: choice?.model,
         temperature: opts.temperature,
         maxTokens: opts.maxTokens,
+        stage: opts.stage,
       }),
       signal: ctrl.signal,
     });
@@ -949,6 +975,17 @@ export function isPreAggregated(column: string): boolean {
   );
 }
 
+/**
+ * A column that names things rather than measures them: ids, keys, codes.
+ * Summing one is a number with no meaning, and measured live it was worse
+ * than meaningless — the self-check read "order_id total=22104" for fifteen
+ * orders as a sign the query had aggregated wrongly, "corrected" a correct
+ * query, and the write-up built its findings table on the 22104.
+ */
+export function isIdentifierColumn(column: string): boolean {
+  return /(^|_)(id|ids|key|code|uuid|guid|number|no|nr|num)$/i.test(column.trim());
+}
+
 export function describeResultFacts(result: QueryResult): string {
   const rows = result.rows ?? [];
   if (rows.length === 0) return "";
@@ -978,6 +1015,15 @@ export function describeResultFacts(result: QueryResult): string {
   const lines: string[] = [];
   if (truncated) lines.push(truncated.trim());
   for (const c of numeric) {
+    if (isIdentifierColumn(c)) {
+      const distinct = new Set(
+        rows.map((r) => r[c]).filter((v) => v !== null && v !== undefined && v !== ""),
+      ).size;
+      lines.push(
+        `${c}: identifier column, ${distinct} distinct value${distinct === 1 ? "" : "s"} (not a quantity — no total)`,
+      );
+      continue;
+    }
     let sum = 0;
     let count = 0;
     let max = -Infinity;
@@ -1084,7 +1130,42 @@ export async function summarizeResult(args: {
       `want is not in COMPUTED FACTS, describe the data without it rather than estimating.\n\n` +
       `Return JSON: { "summary": "..." }`,
   });
-  return out.summary;
+  // Same check the insight card gets, on the surface that carries far more of
+  // the product's answers: every NL question produces one of these. The facts
+  // above make an invented figure unlikely; this makes it visible.
+  const measuredRows = args.result.rows ?? [];
+  const measured0 = computeInsightFacts(args.result.columns ?? [], measuredRows);
+  // A truncated result has no meaningful shares, for the same reason a capped
+  // query has none: they would be shares of a prefix.
+  const measured = measured0 && args.result.capped ? { ...measured0, shares: [] } : measured0;
+  const stated = valuesStatedIn(facts);
+  const check = (t: string) => unsupportedFigures(verifyClaims(t, measured, measuredRows, stated));
+
+  let summary = out.summary;
+  let bad = check(summary);
+  if (bad.length > 0) {
+    const retry = await llmJson<{ summary: string }>({
+      model: args.model,
+      stage: "narrative",
+      systemPrompt:
+        "You are correcting a short analytics answer. Keep its length and tone. " +
+        `These figures do not appear in the data and must not appear: ${bad.join(", ")}. ` +
+        "Replace each with a figure from COMPUTED FACTS, or drop the claim. " +
+        'Output JSON only: { "summary": "..." }.',
+      userPrompt:
+        `QUESTION: ${args.question}\n${facts}\n\nANSWER TO CORRECT:\n${summary}\n\n` +
+        'Return JSON: { "summary": "..." }',
+    });
+    const retryBad = check(retry.summary);
+    if (retryBad.length < bad.length) {
+      summary = retry.summary;
+      bad = retryBad;
+    }
+    if (bad.length > 0) {
+      summary += ` (Not checked against the data: ${bad.join(", ")}.)`;
+    }
+  }
+  return summary;
 }
 
 // ── Suggested questions for a dataset ──────────────────────────────────
@@ -1120,9 +1201,29 @@ export async function generateWidgetInsight(args: {
   sql?: string;
   columns: string[];
   rows: Record<string, unknown>[];
+  /** True when `rows` is a capped snapshot and the query returned more. */
+  truncated?: boolean;
   model?: string;
 }): Promise<string> {
   const sample = args.rows.slice(0, 30);
+  // Totals and shares are computed here, over every row THE CARD WAS GIVEN,
+  // because a model asked to divide will divide wrongly and the card is headed
+  // "What the data shows". Measured: it reported regional shares of
+  // 48% / 39% / 19%, which sum to 106%.
+  const rowLimit = queryRowLimit(args.sql);
+  // ...and "every row it was given" is not "every row" when the snapshot hit
+  // the row cap. Reading the SQL cannot tell you that — the query asked for
+  // everything and the cap took the tail — so the widget has to say so. Without
+  // this the card states a prefix's total as the total, and the numeric checker
+  // GROUNDS it, because the figure really is derivable from the rows it holds.
+  const cappedAt = args.truncated ? args.rows.length : null;
+  const partial = rowLimit != null || cappedAt != null;
+  const measured0 = computeInsightFacts(args.columns, args.rows);
+  // A partial result has no meaningful shares, so they are removed from the
+  // facts AND from what the checker will accept — a "100%" written against
+  // one row of a LIMIT 1 result should be caught, not grounded.
+  const measured = measured0 && partial ? { ...measured0, shares: [] } : measured0;
+  const facts = measured ? formatInsightFacts(measured, rowLimit, cappedAt) : "";
   const out = await llmJson<{ insight: string }>({
     model: args.model,
     systemPrompt:
@@ -1132,10 +1233,54 @@ export async function generateWidgetInsight(args: {
       "'**Watch out for**' (1-2 bullets on anomalies, gaps or caveats), and " +
       "'**Suggested next steps**' (1-2 actionable bullets). Be specific — quote real numbers " +
       "from the data, rounded for readability ($1.2M, 3.4k). No preamble, no headings beyond " +
-      "the bolded labels.",
-    userPrompt: `VISUAL: ${args.title}\nSQL: ${args.sql ?? "n/a"}\nCOLUMNS: ${args.columns.join(", ")}\nTOTAL ROWS: ${args.rows.length}\nROWS (sample): ${JSON.stringify(sample)}\n\nReturn JSON: { "insight": "..." }`,
+      "the bolded labels. " +
+      "FACTS is authoritative and already computed over every row: take every total, " +
+      "share and percentage from it verbatim. Do NOT calculate a percentage, share, " +
+      "ratio or total yourself, and do not state one FACTS does not give you — the " +
+      "rows below may be a sample of a longer result, so anything derived from them " +
+      "can be wrong.",
+    userPrompt: `VISUAL: ${args.title}\nSQL: ${args.sql ?? "n/a"}\nCOLUMNS: ${args.columns.join(", ")}\nTOTAL ROWS: ${args.rows.length}\n${facts ? `FACTS (authoritative):\n${facts}\n` : ""}ROWS (sample): ${JSON.stringify(sample)}\n\nReturn JSON: { "insight": "..." }`,
   });
-  return out.insight;
+
+  // Write, then CHECK. The facts above make an invented figure less likely;
+  // they cannot make it impossible, and a card headed "What the data shows"
+  // has to be right rather than probably right. Every numeral is matched back
+  // against the rows and the computed facts, and anything that matches nothing
+  // gets one chance to be rewritten before the reader is told about it.
+  const check = (text: string) => unsupportedFigures(verifyClaims(text, measured, args.rows));
+
+  let insight = out.insight;
+  let bad = check(insight);
+  if (bad.length > 0) {
+    // Naming the offending figures is the whole of the retry: a model told
+    // only "try again" tends to produce the same number in a new sentence.
+    const retry = await llmJson<{ insight: string }>({
+      model: args.model,
+      systemPrompt:
+        "You are correcting a BI insight card. Keep the same three bolded " +
+        "sections and the same structure. These figures do not appear in the " +
+        `data and must not appear in the card: ${bad.join(", ")}. Replace each ` +
+        "with a figure from FACTS, or remove the claim. Change nothing else. " +
+        'Output JSON only: { "insight": "<markdown>" }.',
+      userPrompt:
+        `${facts ? `FACTS (authoritative):\n${facts}\n\n` : ""}` +
+        `CARD TO CORRECT:\n${insight}\n\nReturn JSON: { "insight": "..." }`,
+    });
+    const retryBad = check(retry.insight);
+    // Keep whichever version a reader can check more of — a retry that made
+    // things worse is not an improvement just because it is newer.
+    if (retryBad.length < bad.length) {
+      insight = retry.insight;
+      bad = retryBad;
+    }
+    if (bad.length > 0) {
+      // Disclose rather than delete. Cutting the sentence would leave prose
+      // that reads as if it were all verified, which is the failure this is
+      // here to prevent.
+      insight += `\n\n_Could not be checked against this visual's data: ${bad.join(", ")}._`;
+    }
+  }
+  return insight;
 }
 
 // ── Orchestrator ───────────────────────────────────────────────────────

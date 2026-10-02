@@ -12,6 +12,1697 @@ development branch and may be ahead of the latest tag.
 
 ---
 
+## Unreleased
+
+**A pass over the lakehouse, ETL and ML halves, looking for the places where a
+control was offered and did not do what it said.** Seven of them; each was
+found by running the thing rather than reading it, and each is described in
+full in its own commit.
+
+### Verified AI answers
+
+- **The analyst's written answer is checked the same way an insight card is.**
+  Every natural-language question produces one, which makes it the busiest
+  place the product turns data into prose. It already computed its own facts —
+  added after it once reported "approximately $1.4M" against a true total of
+  $704,186 — but nothing verified what came back. Now every numeral is matched
+  against the result, with one named retry and a disclosure for anything that
+  survives.
+
+  Figures the writer was **given** count as grounded. An analyst answer is
+  handed a facts block stating things a row simply does not contain — how many
+  distinct identifiers, how many rows of how many the engine returned — and is
+  told to use them. Admitting only row values would have flagged the model for
+  obeying its instructions, which is the fastest way to make a warning worth
+  ignoring.
+
+- **A visual's title is now checked against its query.** The planner names a
+  chart before it knows what the query will return, and the two drift: a chart
+  titled "Top 5 Products by Sales" drew fourteen bars because its SQL carried
+  no `LIMIT`, and one titled "Top 10 Customers" drew twelve because the bar
+  race caps its own frame. A title promising N over a query that returned more
+  now takes the N it promised — only when the query sorted, since the first
+  five of an unordered result are an arbitrary five — and a bar race is told
+  the N its title claims. A promise the data cannot meet is disclosed instead:
+  "Top 5 Regions by Revenue — The data has 3 rows, not 5."
+
+- **Every figure an insight card states is now checked against the data before
+  the card is shown.** Handing the model computed facts made an invented number
+  less likely; nothing made it impossible, and a card headed "What the data
+  shows" has to be right rather than probably right. Each numeral in the
+  generated prose is matched back to a row value, a computed total, range or
+  mean, or a share. A figure that matches nothing gets one rewrite naming it
+  explicitly, and anything that survives that is disclosed to the reader rather
+  than shipped silently.
+
+  Rounding is what makes this hard, and the rule is that **the tolerance comes
+  from the precision the writer chose**: "$1.0M" claims only that the value
+  rounds to 1.0M, so it admits ±50,000, while "410,379.26" is held to ±0.005.
+  A fixed fuzz would either wave through a wrong figure or reject a correct one
+  depending on magnitude — and the margin matters, because the 19% that started
+  this was only 0.9 away from the true 18.1%.
+
+  Deterministic: no model call, no cost, the same verdict every time. The model
+  proposes, the check decides — the same split the insight sweep already uses.
+
+- **A query that caps itself now says so.** An AI-generated widget titled
+  "Revenue by Region" ended its SQL `ORDER BY total_revenue DESC LIMIT 1`, and
+  the insight card then wrote that AMER was "100% of the total revenue" and
+  that "there are no other regions contributing" — sentences that are true of
+  the one row the widget holds and false about the business, with every figure
+  in them verifying. A trailing `LIMIT n` now produces a PARTIAL caveat in the
+  facts instead of shares, and the shares are withheld from the checker too, so
+  a "100%" written against a capped result is caught rather than grounded.
+
+### BI dashboards and reports
+
+A pass over the BI half — 25 visual types over a series whose every value was
+known in advance, then the AI features on top. Five of the six fixes are one
+sentence: a value the query returned is not a value a person can read.
+
+- **Maps take ISO country codes.** A column of alpha-2 codes — the ordinary way
+  country data is stored — matched TWO of the 280 assigned codes, and `GB`, the
+  real code for the United Kingdom, drew nothing. Alpha-2 now resolves through
+  `Intl.DisplayNames` and the numeric form through the atlas's own feature ids,
+  which ARE ISO 3166-1 numeric: **171 of the bundled atlas's 177 countries**
+  now resolve from a code, up from 2. Two aliases that had always pointed at
+  shapes the atlas cannot draw were removed.
+
+- **A date axis on AUTO no longer prints epoch milliseconds.** A chart whose
+  SQL returns a real timestamp — which is every chart the AI writes — drew its
+  axis as `1667260800000`. "Auto" now picks the finest grain whose labels fit
+  and relabels in place: an explicit grain is a request to reshape the data —
+  it sorts, sums and drops what will not parse — where auto only makes the
+  axis readable, so no row moves, disappears or changes value. (A bar chart
+  still combines equal categories afterwards, as it always has, so daily rows
+  labelled by month do total per month.)
+
+- **A report preview shows what the PDF will print.** The preview rendered
+  `410379.26499999943` where the exported PDF rendered `410,379.26`, and a date
+  column read `1640995200000` in both. One cell formatter now serves both
+  surfaces, and a table column is typed from its values first — dates print as
+  dates, with every row keeping its own, because a table is a list somebody
+  checks a row of.
+
+- **An AI insight card no longer does its own arithmetic.** One reported
+  regional shares of 48%, 39% and 19% — three shares of one total that sum to
+  106%. Totals, ranges and shares are now computed over every row and handed to
+  the model as authoritative facts, which also fixes a quieter gap: the prompt
+  sends 30 rows, and the card speaks about the whole result.
+
+- **Both AI generators can now be pointed at a warehouse or the built-in
+  lakehouse.** "Generate Entire Dashboard" and the paginated-report planner
+  offered local datasets only, which made them the one place in BI that could
+  not see the lakehouse the dashboards around them were already querying. They
+  now share one source resolver, and it is careful about the things that
+  quietly assume local: semantic models and saved metrics are keyed to local
+  dataset ids, so a warehouse source carries neither rather than applying one
+  table's definitions to another's columns; a schema that is still loading, a
+  connection that is broken and a warehouse with no tables each say something
+  different; and a connection that disappears mid-dialog refuses instead of
+  falling back to local data. Each generated widget records the connection it
+  queried, so refresh and drill-through return to it.
+
+  The report editor's own route also had to be wired: it handed the generator
+  an empty warehouse list and a `runSql` that threw "A report generates from
+  local datasets", so the picker had nothing to offer there no matter what the
+  dialog did. It now loads connections, fetches schemas lazily, and runs a
+  report block's SQL at the widget row cap rather than the workbench's 50-row
+  preview cap.
+
+- **The ontology's AI step gets a deadline sized to the job.** Building one over
+  21 lakehouse tables refused at 60 seconds and fell back to heuristic labels
+  with zero relationships. The deadline scales with the requested completion
+  cap and this call named none, so the largest generation in the product had
+  the clock of a one-line SQL step.
+
+### Lakehouse
+
+- **A write is now authorized for what it READS, not only for what it writes.**
+  `CREATE TABLE mine.copy AS SELECT * FROM finance.salaries` was checked
+  against `mine` alone: DuckDB refuses to serialize any non-SELECT statement
+  to JSON, so the AST walk that authorizes a SELECT's schemas had nothing to
+  walk and the read side of a write went unchecked. Writes now have their read
+  set recovered by a position-based scanner (a table reference is one that
+  follows `FROM`/`JOIN`/`INTO`/`USING`/`UPDATE`/`TABLE`/`VIEW`), every schema
+  it names is authorized, and a write that reads a table carrying a security
+  policy is refused rather than silently bypassing the policy.
+- **The comment stripper knows what a string is.** The stripper that runs
+  before every statement executes was two regexes that did not: `SELECT 'A--B'`
+  was cut to `SELECT 'A` and refused as an unterminated literal, and
+  `SELECT '/*' AS a, '*/' AS b` quietly became one column with no error at all.
+
+### ETL
+
+- **Run parameters reach a visual pipeline.** They were validated, pinned on
+  the run row, shipped to the sandbox and handed to `entrypoint(inputs)` —
+  which passed them to a `_tick` that never read its argument. A backfill
+  dialog that calls itself "the standard way to backfill a window" re-ran the
+  window and read exactly what the pipeline always reads. A field may now carry
+  `{{params.NAME}}`, optionally with a default (`{{params.day|2026-01-01}}`),
+  in a source path, an HTTP URL, a filter expression and a SQL step. A field
+  with no reference compiles to the literal it always compiled to.
+- **Auto-ingest and a row cursor can no longer share one source.** They are two
+  cursors competing for one state slot: the first run looked perfect and the
+  second died inside `json.loads` with a message nobody could map back to "you
+  turned on two switches". Refused at compile, naming the node and the column.
+- **A preview no longer consumes a CDC source.** Previewing a change-data-
+  capture source created the replication slot and drank the initial snapshot,
+  so the first real run found the slot already there, skipped the snapshot and
+  reported success having loaded none of the table's history.
+- **Pressing Run on a graph the editor refused says why.** The answer was
+  "Pipeline has no code to run" — true, and useless: it reads like the pipeline
+  is empty. The stored graph is recompiled so the run repeats the sentence the
+  canvas showed.
+
+- **A quality gate's row-count rule no longer offers to drop rows.** The
+  severity dropdown offered "Drop bad rows" for every check. A frame that is
+  too short has no offending rows to remove, so the generated code aborted the
+  run — correctly — while recording `severity: 'drop'` in the run's quality
+  metric, leaving a record that said rows had been dropped. The option is gone
+  for that check in the editor, and both emitters record what they did.
+
+- **A caught-up stream no longer fails on every quiet tick.** A Kafka source
+  with no new messages returns zero rows and only its five `_stream_*` metadata
+  columns — never the payload's — so the next step raised `KeyError` instead of
+  producing an empty result. On a schedule that was a failure every interval
+  once the backlog drained; on a continuous pipeline, every rollover. Row-wise
+  steps now skip an input with no rows and keep its shape, in both the run
+  compiler and the preview compiler. `union` and a custom Python step are
+  exempt: what "no rows" means there is the author's call.
+- **A failed access check no longer reads as a refusal.** `accessibleSchemas`
+  dropped the error from its query and returned an empty list, so a database
+  blip became "this account can reach no schema at all" — which five callers
+  report as a permissions verdict ("no access to lakehouse schema X — it
+  doesn't exist, or nobody shared it"), each inviting the reader to grant
+  access they already have. Caught on a live run: a pipeline wrote a lakehouse
+  table, and a later run of the same pipeline was refused for having no access
+  to the schema it had just written.
+- **"Add rename" adds a rename.** One of the fifteen transform kinds could not
+  be configured from the canvas at all: the button did nothing. A rename is
+  stored as `{from: to}`, and the editor derived its rows from that map — so a
+  new row with no source column yet had no key to be stored under, was dropped
+  on the way out, and vanished before it rendered. The draft list now lives in
+  the editor and only complete pairs are saved; the node panel is keyed by node
+  so a half-typed row cannot follow the reader to the next node.
+- **A preview says why it cannot run, instead of dying in a container.** The
+  preview compiled the graph up front — for exactly this reason — but resolved
+  its credentials and egress from inside the sandbox, so a bucket that was
+  never picked, a secret that is not set or an unreachable host came back as
+  `500 Internal Server Error` on the runtime's source route, wrapped in a
+  Python traceback. It resolves both before starting anything.
+- **An HTTP node that points somewhere the sandbox cannot reach says so, before
+  a container starts.** Stream sources had that pre-flight check from the
+  start; the HTTP API source and the reverse-ETL HTTP target — the two most
+  likely to point at something new — did not, and failed instead with a
+  forty-line urllib3 `ProxyError` ending in `Tunnel connection failed: 403
+Forbidden`, naming no host and never mentioning an allow-list. The same
+  check now covers all of them, and it judges reachability the way the proxy
+  does: a leading dot covers a domain and its subdomains (the exact-match
+  version refused subdomains squid would have admitted), and the hosts that
+  bypass the proxy entirely — the app itself, `localhost`, in-cluster
+  suffixes — count as reachable rather than being dropped by an ACL
+  normaliser that insists on two labels.
+- **Adding a node continues from the one you are on.** Every added node used to
+  land on a fixed column, unconnected, so a ten-step pipeline meant nine drags
+  between 8px handles over nodes that began overlapping at the seventh. The
+  rules are the compiler's own — a source is never chained into, a target
+  never chained from — so an automatic edge cannot build a graph that will not
+  compile.
+- **Every node kind is now compiled by the suite, on both engines.** The tests
+  named "compiles every source type" and "compiles every transform type"
+  covered six of eleven sources and seven of fifteen transforms. The
+  replacement is keyed on the config type unions, so adding a node kind stops
+  type-checking until it has a row: 52 cases across both emitters, each one
+  compiled by a real interpreter, plus every write mode, table format and file
+  format. Spark's two gaps (Iceberg, merge into a database) are asserted as
+  refusals in words.
+- **`orders.json`** joins the sample datasets — the same 308 rows as
+  `orders.csv` in the envelope a paginated API returns — so the HTTP API
+  source is demonstrable on a fresh install with nothing to set up.
+- **The SQL transform runs on DuckDB.** It went through ibis, whose
+  requirement was unpinned, so every new sandbox installed whatever ibis had
+  released most recently — and ibis 12.0.0 against the runtime's pandas 3.0.5
+  fails on the statement it generates to MATERIALISE the frame, before the
+  query is ever seen: `ParserException: syntax error at end of input`. One of
+  the fifteen transform kinds was broken on a fresh install. DuckDB registers a
+  pandas frame natively and is already in the image, so the fix removes a
+  dependency rather than freezing one.
+- **The product can read back what the product just wrote.** dlt gzips text
+  output, so an object-storage target writes `<load>.jsonl.gz` and
+  `<load>.csv.gz` — and three separate places assumed the file was called
+  `.ndjson`/`.csv` and contained text. The catalog globbed
+  `finance/x/*.ndjson` over a folder holding `*.jsonl.gz`, which is the
+  catalog's join key, so **Query data** answered `IO Error: No files found that
+match the pattern`, an ETL catalog-asset source resolved to nothing, and
+  mounting the bucket as a lakehouse schema silently skipped the dataset. The
+  row estimate counted newlines in gzip BYTES, turning a 52-row exception
+  report into a confident, plausible 10. And the object-storage source opened
+  the key raw, so a pipeline reading another pipeline's output died with
+  `UnicodeDecodeError: … byte 0x8b` — the medallion pattern the bundled sample
+  demonstrates. Every one of them now goes by the extension the file actually
+  carries, and what dlt names its files was measured against dlt 1.30.0 rather
+  than assumed, because assuming is how this happened. The glob a RUN reports
+  moved with them, since `catalog_lineage` joins on that string and fixing only
+  the crawler would have traded a broken query for a broken lineage edge.
+- **The New pipeline dialog keeps no draft across dismissals.** Dismiss it with
+  a template selected and the tile is still highlighted when it reopens — and
+  the tile toggles, so clicking the one you want deselects it and the pipeline
+  is created from the blank starter graph under the name you chose for the
+  sample. Two nodes where the sample has ten, with nothing to say so. Radix
+  unmounts the dialog's content but not the component holding its state, so
+  `open` alone reset nothing; the create path already cleared both fields.
+- **A compiler fix now reaches the pipelines that already exist.** The
+  generated program is a cache of the graph, not the definition of it — and a
+  run executed the cache. `source_code` is written by whichever compiler was
+  running at the last save, and the editor recompiles only on save, where the
+  button is disabled when nothing has changed. So an upgraded deployment went
+  on running the previous release's program, one pipeline at a time, until
+  somebody edited each for some other reason; the runs kept succeeding and
+  nothing said why they were different. Caught twice in one sitting by fixes
+  that had already shipped: the SQL step's move off ibis did not reach a
+  pipeline created before the rebuild (nor did its requirements, so pip went on
+  installing ibis), and a corrected target fqn left a pipeline created twenty
+  minutes earlier reporting the old one — a lineage edge pointing at a filename
+  that does not exist, next to a catalog asset that was right. A visual
+  pipeline's graph is now recompiled at run start, for the engine that run
+  uses, and its packages derived from the same graph; a graph the current
+  compiler refuses stops the run with the compiler's own sentence rather than
+  running a program built from rules it now fails. A code pipeline's source and
+  its hand-typed requirements are untouched.
+- **A node you did not finish configuring is refused by name.** A Platform
+  dataset source whose picker was never opened saved, ran, and died inside the
+  sandbox with `requests.exceptions.HTTPError: 404 Client Error: for url:
+http://agentswarms:8080/api/notebook/runtime/source` — the app's own internal
+  API, named as though it were the problem, with nothing tying it back to the
+  node or the empty field. Targets have been refused by name for as long as
+  they have gone through the identifier check ("Lakehouse table must be a valid
+  identifier … got ''") and the bucket check ("Node “Reconciled” has no
+  bucket selected"); sources and transforms got it only where a field happened
+  to pass through one of those, and everything else reached pandas, requests or
+  DuckDB and failed in that library's vocabulary. Now every required field is
+  checked at compile with a sentence that names the node: a source with no
+  dataset, file, URL, code, lakehouse table, connection, table or query; a
+  filter with no expression, a select with no columns, a derive with no name or
+  expression, a sort with no columns, an aggregate with no group-by or no
+  aggregations, a join with a key on one side only, a SQL step with no query.
+  Fields whose emptiness MEANS something are deliberately left alone — a rename
+  with no pairs is a no-op, a dedupe or a fill with no columns means every
+  column — because refusing those would be inventing a rule rather than
+  reporting one. Both engines get it from one list: the Spark compiler already
+  validates through the pandas compiler for exactly this reason. One of these
+  turns a run that used to SUCCEED into a refusal, deliberately: a select with
+  no columns emitted `df[[]]` and loaded a frame with no columns at all, which
+  is a wrong answer delivered quietly rather than an error.
+- **A reverse-ETL target on an unusual port says the proxy refused it, before a
+  container starts.** Kernels have no direct route out; every request goes
+  through the egress proxy, which denies a port outside `Safe_ports`
+  (80, 443, 9000, 19000) before it ever looks at the domain. Found live: a
+  target pointed at an allow-listed host on `:8099` failed with a bare
+  `403 Client Error: Forbidden for url: http://…:8099/hook`, which reads as the
+  endpoint saying no. The allow-list under Admin → Developer runtime covers
+  HOSTS; nothing covered ports, so the one rule that could refuse a perfectly
+  configured node was invisible until it fired, in a library's words, from
+  inside a container. The pre-flight now names the node, the port and the
+  allowed set — and HTTPS to anything but 443 gets its own sentence, because
+  `http_access deny CONNECT !SSL_ports` is a separate denial with an identical
+  symptom. The app's copy of the port list is checked against
+  `deploy/notebooks/egress/squid.conf` by a test that parses it, so the two
+  cannot drift in either direction.
+
+### ML
+
+- **The decision threshold applies on a warm endpoint, not only a cold one.**
+  The batch path sent the version's threshold and positive label with every
+  request; the warm path — the one a deployed endpoint uses, and the one under
+  every latency claim — sent neither, so a model whose operating point had been
+  deliberately moved reverted to argmax the moment it was deployed. The scorer
+  now takes both per request, and a shadow deployment is mirrored with the
+  primary's line so the comparison is like for like.
+
+- **Promote-when-better no longer picks the noisier anomaly detector.** An
+  anomaly model's primary metric is `anomaly_rate`, the share of rows the
+  detector flagged; it was not marked lower-is-better, so "is the candidate
+  better" read as "does it flag MORE rows" and a nightly retrain installed
+  whichever version was noisiest. The trainer had already written
+  `higher_is_better: False` on its own leaderboard row, so the two halves
+  disagreed in silence. The rate describes the fit rather than scoring it, so
+  it now decides nothing: production is kept and the notification says why. The
+  schedule dialog's promote-when-better box is disabled for that task with the
+  reason in place of its label, so the refusal does not leave a control that
+  ticks and never fires.
+
+- **"Explain this answer" is not offered where there is no answer to give.**
+  A recommender's prediction comes from which items other users chose
+  together, not from the row's own columns, and its scoring path returns
+  before either explanation branch — so ticking the box produced a prediction
+  with a null explanations field and no word about the absence. The control is
+  gone for that task, and the program now says why for every other caller.
+- **The trainer program is compiled as Python by the suite.** It is a
+  2,000-line module carried as a TypeScript string, and every other test of it
+  reads substrings out of that string — which is how an unbalanced quote
+  reaches a sandbox and dies at import. Added after exactly that happened while
+  writing the fix above.
+
+### Email
+
+- **Nothing about email requires a Resend account.** SMTP was supported and
+  worked; the documentation, the `.env.example` and the settings copy all
+  described Resend as the way email is sent, so a self-hosted install read as
+  needing a third-party account to invite a user.
+
+## 1.5.0 — 2026-09-17
+
+**The platform grew a data half that runs itself, and an install that brings
+all of it.** A hundred and eight commits since 1.4.0: every service on every
+install with nothing left opt-in, workflows as one graph over four separate
+clocks, a transformation layer over the lakehouse, Delta Sharing, SCIM, column
+level lineage, exactly-once streaming, a Spark engine for pipelines, and a
+dashboard that opens on what the deployment is doing rather than on a list of
+features. **Fifty-three migrations** — run `npx supabase db push` after
+pulling.
+
+### Every service, on every install
+
+- **There are no compose profiles any more.** `docker compose up -d --build`,
+  `bash scripts/setup.sh`, `setup.ps1` and `setup-k8s.sh` each install the whole
+  product: the Office renderer, the JS sandbox, the Developer-workspace Python
+  runtime and its egress proxy, the lakehouse catalog, the vector store, the
+  feature store, the Spark cluster — and a **MinIO object store**, which is new,
+  because a lakehouse catalog with nowhere to write its Parquet is a lakehouse
+  that fails on its first table. About 5 GB of images and roughly 8 GB of RAM
+  (docs/SYSTEM_REQUIREMENTS.md).
+- **Installed and wired, not merely installed.** `.env.example` and both
+  installers now point the app at every service — `VECTOR_STORE=qdrant`,
+  `FEATURE_STORE_URL`, `LAKEHOUSE_CATALOG_URL` and `LAKEHOUSE_S3_*`,
+  `SPARK_CONNECT_URL` — and the installers generate the catalog password in the
+  two places that must carry the same value. The Kubernetes installer applies
+  the notebook and Spark manifests too, and writes the same wiring into
+  `agentswarms-env`.
+- **`--dev` gets the same product.** Every service publishes its port on
+  loopback (the catalog on 55432, so a developer's own Postgres keeps 5432), and
+  `setup.sh --dev` / `setup.ps1 -Dev` rewrite `.env` to reach them from the host.
+- **The old flags still work and now do nothing.** `--all`, `--docgen`,
+  `--notebooks`, `--sandbox`, `--lakehouse`, `--spark`, `--vectors`,
+  `--featurestore` and their PowerShell twins are accepted so older notes and
+  scripts keep running.
+- **Nothing is "optional" on the status page either.** Every service in the
+  monitoring catalogue is required, so a service that is not answering reads
+  **Down** rather than a grey "Not running" that made an outage look deliberate,
+  and every message that told somebody to start a profile now names the one
+  command that starts everything.
+
+### What a knowledge-base answer actually reads
+
+- **A citation carries a document's best few chunks, whole, in reading
+  order.** It was one chunk cut to 560 characters. Measured on a twelve-document
+  policy corpus, that answered "what is the Gold Severity 1 response time" with
+  "the excerpt does not include the table" against a document whose first chunk
+  _is_ the table — the prose about the table outranked it and the collapse kept
+  one. Now three chunks per document (`KB_CHUNKS_PER_DOCUMENT`), up to 1,600
+  characters each (`KB_CITATION_CHARS_PER_CHUNK`), under a 12,000-character
+  budget per turn (`KB_GROUNDING_MAX_CHARS`).
+- **Hybrid retrieval is the default** for a collection that never saved
+  retrieval settings (weighted 0.7 toward meaning). Semantic-only lost the
+  exact-term questions — "Severity 1", "RTO", "HIPAA" — to paragraphs that
+  merely resembled them. A collection that chose semantic keeps it.
+- **Measured on the same set:** eleven of twenty right before, twenty of twenty
+  after, at 2,400 prompt tokens a turn; thirteen tools enabled cost 10,400 a turn
+  for the same answers; a 24-turn conversation stays flat at ~4,000 tokens
+  under the 20-message window. Details in `docs/ADVERSARIAL_LOG.md` (R12).
+- **An off-topic turn is not grounded.** Retrieval runs on every turn of an
+  agent with a collection attached; below `KB_MIN_SIMILARITY` (0.3) on the
+  best chunk, with no keyword hit, the model is told the search found nothing
+  instead of being handed five documents to ignore. Measured: document
+  questions 0.38–0.75, off-topic 0.10–0.32; the `kb_search` tool is never
+  floored.
+- **The SQL tool's table listing has a budget** (`SQL_TOOL_SCHEMA_MAX_CHARS`,
+  4,000 characters): columns until it is spent, names after, `list_data_tables`
+  for the rest. Fifteen tables of forty columns were 4,300 prompt tokens on
+  every turn of every agent with the tool enabled — the largest single item of
+  a thirteen-tool prompt. The Data & SQL page's assistant uses the same listing.
+
+### The installers and deployment assets, verified and kept that way
+
+- **`npm run check:infra`** (in the gate and in CI): every tracked shell script
+  is executable and parses, the PowerShell installer parses, every compose
+  profile is a flag of both installers and part of `--all`, the Kubernetes
+  manifests' selectors, images, resource requests and secret references
+  resolve, compose renders with and without `--profile all`, and every
+  Dockerfile build arg is passed. `check:doc-commands` runs in CI too.
+- **Found by it, fixed:** none of the six shell scripts was executable in git
+  (`./scripts/setup.sh` was "Permission denied" on a fresh Linux or macOS
+  clone); `setup.sh --help` had lost `--featurestore`; both installers said
+  "six profiles" of seven. `setup-k8s.sh` and `setup.ps1` gained `--help` /
+  `-Help`.
+- **The runtime verifier** (`deploy/notebooks/test/verify-runtime.sh`) pointed
+  its test kernel at the Docker host gateway even when the app runs in
+  compose, where the kernel's network is internal and has no such route, and
+  reported a healthy install as failing. It now mirrors the product's own
+  callback URL. `docker build --check` is clean for all five Dockerfiles.
+
+### The handbook, reorganised
+
+- **Page families.** ML Models is an overview and five pages (Training,
+  Predictions, Serving, Trust, Operations); Install & deploy is an overview and
+  three (Configuration, Kubernetes, Operations). Sub-pages sit under their guide
+  in the sidebar and show only while you are in the family.
+- **A map under every long title**, a rail that lists only the subsections of
+  the section being read, a hover anchor on every heading, back-to-top, and
+  subsections in the BI page's AI Analyst section.
+
+### Trained models reach agents, the canvas and the AI Analyst
+
+- **An agent's ML tool says which models it may use.** Enabling ML
+  Predictions showed an API-key field for a tool that needs none; it shows a
+  model picker now (`agents.tools.toolConfigs.ml_model_names` — absent means
+  every model the owner can reach, a list means exactly those), enforced
+  server-side on every call.
+- **Score by key.** The agent tool takes the model's key columns when the
+  model is bound to a feature view and reads the features from the table the
+  training read, instead of typing twenty feature values out of a
+  conversation — the training–serving skew feature views exist to remove.
+- **Score with model on the canvas.** A deterministic tool node scores rows
+  without spending an LLM turn on the decision; the same rows score the same
+  way on every run.
+- **A prediction in the Playground is a table**, not the first 400 characters
+  of JSON ending mid-probability.
+- **The AI Analyst scores a step's rows with a trained model, and says it
+  did**: a scored badge naming the model, a disclosure under the table (rows
+  scored, version, headline metric, where the features came from, keys not
+  found), ranking by the model's output done by the platform rather than in
+  SQL, forecast steps for forecast models, model notes carried into the
+  write-up, refusals rather than substitutions when a question names a model
+  nobody has.
+- **A model's health travels with it.** The latest drift reading or
+  evaluation verdict reaches the agent's model list, the Playground panel and
+  the analyst's badge and disclosure, so an answer can warn beside the number
+  it cites.
+- **A headless swarm step records its tool calls**, as the canvas already did
+  (`swarm_run_steps.tool_calls` on scheduled runs), so the Swarm Traces page
+  no longer shows a deployed run as if its agents never used a tool.
+- **An analyst is three choices**: the reasoning model, the data, and the
+  predictive models it may score or forecast with (`ai_analysts.ml_model_names`
+  — null for any, a list for exactly those, empty for none), enforced on the
+  server; the analyst page wraps and stays usable at 1000, 768 and 375px.
+- **Seventeen findings from driving the analyst against seven models** are
+  fixed and recorded (ADVERSARIAL_LOG R10 and R11; the new
+  `docs/UI_TEST_RESULTS.md` keeps the before and after).
+
+### Workflows: one graph over four separate clocks
+
+- **Data & BI → Workflows orchestrates work that already exists.** A step is an
+  ETL pipeline, a SQL model build, an ML schedule or a notebook; an arrow means
+  _after_. Nothing new executes — the workflow decides **when**, and records
+  what happened as one run instead of four unrelated ones.
+- **Fan-out and fan-in, which a chain could not do.** A pipeline could already
+  name models and schedules to start on success, but a chain is a _line_:
+  "retrain only after BOTH the orders pipeline and the customers model have
+  finished" was not expressible, and the workaround was to stagger cron times
+  and hope. Independent steps now run at once, and a step with two arrows into
+  it waits for both.
+- **A failure skips its whole branch, and skipped is not a failure.** A step
+  that never ran tells you nothing about itself, and folding the two together
+  makes a run report say four things broke when one did. The skip is
+  transitive, because leaving the rest pending would be a run that never ends.
+  **Carry on if this step fails** reverses it for one step — for the one that
+  refreshes a dashboard, not the one that loads the data.
+- **A partial SQL model build counts as a failure**, because it means some
+  models failed and the tables the next step is about to train on are stale.
+- **The graph is pinned onto the run**, so editing a workflow never rewrites
+  the history of what ran, and every step start is claimed with a conditional
+  update so app replicas cannot double-start one.
+- The canvas is the ETL builder's, so the gesture is the one operators know,
+  and the run paints its state onto the same graph. Owner-only and audited.
+
+### Workflows: fifteen kinds of step, and nothing left to type
+
+- **Four kinds of step became fifteen.** Four is a demo. Alongside the ETL
+  pipeline, model build, ML schedule and notebook there is now a **SQL
+  statement**, a **data-prep flow**, a **swarm** (its published graph, not the
+  draft), a **dashboard refresh** and a **data monitor** — plus an **HTTP
+  request** and a **notification** for reaching outside, and four kinds of
+  control flow the orchestrator owns itself: **condition**, **wait**,
+  **approval** and **sub-workflow**.
+- **Trigger rules, under Airflow's names.** `all_success`, `all_done`,
+  `one_success` — an operator who knows one orchestrator should not have to
+  learn a second vocabulary for the same three ideas. An `all_done` step is
+  never skipped for an upstream failure, which is what makes a cleanup step
+  possible.
+- **Branching.** A condition takes the `true` or the `false` arrow; the canvas
+  colours and labels them, and everything on the branch not taken is marked
+  skipped, transitively.
+- **Parameters, pinned onto the run.** A workflow declares them with defaults,
+  a run may override any of them, and what it used stays readable after the
+  defaults change. An unknown name is left **as written** rather than replaced
+  with an empty string — a SQL statement that silently loses its date filter
+  and scans all history is worse than one that fails visibly.
+- **Retries in place.** A step keeps ONE row however many times it is tried, so
+  it stays one line in the run view; the wait doubles and stops at an hour.
+  Three ceilings, each for a different failure: the step's own, the workflow's,
+  and the subsystem's.
+- **`POST /api/workflows/run`**, with a bearer token minted per workflow, the
+  plaintext shown once and a SHA-256 hash stored. "No such workflow", "no token
+  minted" and "wrong token" all answer one undifferentiated 404, so a valid
+  token for one workflow cannot enumerate the others. Rate limited globally.
+- **Cron with a timezone**, alongside the coarse four. An expression that stops
+  parsing takes that one workflow out of the schedule rather than wedging the
+  sweep for everybody.
+
+### Workflows: an audit trail, and a way out of a failed step
+
+- **Six audit actions where there were none.** A database trigger already
+  recorded the row changes — create, update, delete — but nothing recorded that
+  a workflow had actually **run**, which is the whole point of an orchestrator.
+  Now: run (with how it was triggered), run finished, run cancelled, token
+  minted, token revoked, and **trigger denied**. The handlers deliberately do
+  not re-emit the three the trigger owns; doing so wrote two rows per save with
+  the same action name and different detail, which is worse for an auditor than
+  either alone.
+- **The audit trigger now watches the cron expression and the timezone.**
+  It watched `schedule` but not `cron_expr`, so moving a workflow from "07:00 on
+  weekdays" to "every minute" — or from `Europe/London` to `UTC`, which shifts
+  every run by an hour — changed when work ran across the platform and left no
+  audit row at all, because `schedule` read `cron` on both sides.
+- **A run is audited in one place, not at each caller.** The event is written
+  inside `startWorkflowRun`, so a run started by the scheduler, by the API or by
+  a parent workflow is recorded on exactly the same terms as one somebody
+  clicked. `trigger` is the column that tells them apart, and `api` means a
+  bearer token was accepted for that workflow.
+- **A refused bearer token reaches the workflow's owner.** The same class of
+  signal as an embed or swarm API-key denial, and styled that way in the audit
+  log. Nothing is written when the workflow does not exist — there is nobody to
+  tell, and the caller learns nothing either way because the answer is the same
+  undifferentiated 404. The presented token is never recorded, only whether it
+  was wrong or never minted. The audit write does not block the refusal, so the
+  two paths stay the same length.
+- **A failed step is no longer a dead end with a UUID on it.** Each step in the
+  run view links to where its work keeps its logs — a swarm step to its own
+  trace, the rest to the page that owns the run, because only a swarm run has a
+  page of its own and a link to a 404 is worse than no link. `target_run_id`
+  had been carried in the DTO since the first version and never shown.
+- **Ownership is checked twice, and now says so.** A step can only point at
+  something you own; that is verified when the workflow is saved and again when
+  it runs, because a pipeline can be deleted or transferred in between. The
+  in-app documentation claimed changes were "written to the audit log" before
+  any of them were — that sentence is now true rather than removed.
+
+### Workflows: the editor asks for choices, not notation
+
+- **A condition is assembled, not written.** It used to be a text box wanting
+  `{{ params.full_refresh }} == true`. It is now two side pickers and a test
+  said in words — _is_, _is not_, _is more than_, _is at least_. The stored
+  string is unchanged, so a run record still reads as one small expression;
+  what changed is that nobody has to produce it.
+- **A parameter's value can no longer rewrite the comparison it sits in.** The
+  expression used to be split into `left op right` _after_ the parameters were
+  filled in, so a value containing `>` or `==` silently became part of the
+  comparison. The split now happens on the expression as written, and respects
+  quotes.
+- **HTTP headers are rows, and a secret is picked by name** rather than typed
+  as `{{secret:CI_TOKEN}}` from memory. Only names reach the browser; the value
+  is resolved server-side at run time.
+- **SQL models are ticked from the ones that exist**, not typed as a
+  comma-separated list where a rename produced a step that built nothing and
+  called it success. A model that has since been deleted stays in the list,
+  ticked and flagged.
+- **Every free-text field that takes a parameter has a Parameter button** that
+  inserts `{{ params.name }}` at the cursor.
+- **The step palette moved off the top of the canvas** and down the side, in
+  four named groups. Fifteen buttons wrapped over three rows pushed the canvas
+  down the screen and said nothing about which of them belonged together. Each
+  family has its own colour, shared by the palette, the canvas and the run list.
+- **The saved-workflow list is capped and searchable** instead of growing until
+  it pushed the palette off the bottom of the card.
+
+Five bugs found by testing this from the UI rather than from the tests: a step
+that failed _inside_ its own start call was never retried (which was every HTTP
+and SQL step); a graph containing any of the eleven new kinds saved and drew
+fine and then failed at run against a `CHECK` that still listed four; picking a
+workflow while another was loading left whichever response landed last in the
+editor; a header row vanished if you chose its secret before typing its name;
+and deleting workflows below the search threshold took the box away while
+leaving its text still filtering. Each has a test that fails without its fix.
+
+Two migrations (the orchestration tables, and the widened `CHECK`), 94 unit
+tests. Knobs:
+`WORKFLOW_STEP_TIMEOUT_MINUTES`, `WORKFLOW_RUNS_PER_SWEEP`,
+`WORKFLOW_TRIGGER_PER_MIN`.
+
+### Paginated reports in the BI Workspace
+
+- **BI → Reports builds documents with pages, not a grid that scrolls.** A
+  dashboard has no pages, so exporting one is a screenshot of a grid; a
+  month-end pack, an invoice or a regulatory return needs the other shape. A
+  report is a fixed page, a flow of blocks down it, and a **table that
+  continues onto the next page with its header row redrawn** — the one thing a
+  screenshot of a scrolling grid can never do. Page size (A4/Letter/Legal/A3),
+  orientation, margin, and a running header and footer taking `{{page}}`,
+  `{{pages}}`, `{{title}}`, `{{date}}` and `{{time}}`. The bands are stamped in
+  a second pass, because the total page count is not knowable until the last
+  block is placed and a footer that says "of 3" on a four-page report is worse
+  than no footer.
+- **A chart block is a dashboard widget.** The same query, the same cached
+  rows, the same chart spec and the same renderer, so a number does not change
+  when it moves from a tile to a page. **Add from a dashboard** puts one you
+  already built onto a page — as the visual, or as the rows behind it — and
+  carries the widget across by reference rather than rebuilding it, which is
+  what makes the two surfaces incapable of disagreeing.
+- **Generate the whole report with AI**, on the dashboard generator's own
+  stack. The planner returns an ordered narrative of sections rather than a set
+  of tiles, and says which belong in a table somebody will check a row of; each
+  chosen section then runs the ordinary BI turn. A section that fails or
+  returns no rows is reported with its reason and skipped, never faked.
+- **The preview is the layout.** The designer and the PDF renderer call the
+  same pagination function in the same units; a test builds real PDFs and
+  asserts they agree on the page count for tables of 5, 60 and 200 rows.
+- **Export is vector text**, not an image of a page — headings, paragraphs and
+  table cells stay selectable; only charts are rasterised, from the very nodes
+  the preview shows. Reports are owner-only. One migration.
+- **Fixed: every BI generation traced as "Generic".** `llmJson` never sent the
+  `stage` it was given, so the surface label on `execution_traces` was the
+  fallback for the plan, SQL, chart, narrative and suggestion calls alike.
+
+### Point-in-time training sets
+
+- **A feature view can build a training set that cannot see the future.**
+  Serving asks what an entity's features are now; training has to ask what
+  they were when the label was true, and joining the latest feature row
+  instead is the most expensive mistake in applied ML — the model learns from
+  numbers that did not exist yet, scores beautifully, and fails in production.
+  **Training set** on a view takes a table of labels, the column saying when
+  each was true, and the label column matching each key column, then joins
+  with an `ASOF LEFT JOIN` so every row keeps the features with the greatest
+  feature timestamp at or before its own. Left, because a key whose features
+  start later is still part of the training set. An optional **max feature
+  age** refuses a stale join without dropping the row, and the view's
+  timestamp is never joined in as a feature — a model that trains on the
+  feature clock learns the shape of your ETL schedule. The build reports **how
+  many rows would have differed** under the join written by hand: the leak, as
+  a number, on your own data. A view with no timestamp column cannot build one
+  and says so. No migration.
+
+### Every service survives losing one instance
+
+- **The stateless tiers now ship with two replicas, spread and budgeted.** The
+  web tier already did. The analytics tier (which carries the scheduler), the
+  Office renderer, the JS sandbox and the notebook gateway ran one replica, or
+  two on possibly the same node, and none but the web tier had a
+  `PodDisruptionBudget` — so a node drain or a cluster upgrade could take a
+  whole tier at once. The analytics case was the quiet one: nothing serves
+  traffic there, so scheduled refreshes, ETL schedules and view rebuilds just
+  stopped. Running the sweep on both replicas is safe because each pass is
+  claimed through the `cron_locks` lease with an atomic conditional update.
+- **Compose services are health-checked, not just restarted.** A restart policy
+  sees a process that exits; it cannot see one that is running and wedged,
+  which is the failure an operator actually meets. The app, the lakehouse
+  catalog, the Office renderer and the JS sandbox now each answer for
+  themselves, using the client already in their image rather than a curl they
+  do not ship. The catalog's window is long on purpose: an unclean stop makes
+  Postgres replay its WAL before it accepts connections.
+- **`docs/DEPLOYMENT.md` separates availability from durability** and gives a
+  per-service table: what each service is, what breaks when it is lost, and
+  what to do about it. It is explicit that one host is not highly available,
+  and that three things need a decision you cannot delegate to a manifest —
+  the lakehouse catalog and Supabase belong on managed Postgres, and
+  single-node MinIO is not production object storage. The in-app self-hosting
+  page carries the same guidance. No migration.
+
+### A notebook's model reaches the registry
+
+- **`run.save_model(...)` and `run.register(...)`.** A run could record an
+  artifact's URI and digest, but producing that artifact was the author's
+  problem: write a joblib file in the registry's contract, get it into the
+  lake bucket without the bucket's credentials (a kernel holds none, on
+  purpose), hash it, and only then call `finish`. Nobody did, so
+  notebook-authored models stayed in notebooks. The kernel now sends the
+  bytes to the platform, which writes them beside its own trainer's artifacts
+  and records **the digest it computed from what arrived** — the value
+  inference verifies before loading. `register` then turns the run into a
+  model version by id or by name, creating the model when the name is new,
+  through the same external-registration path: same contract, same audit
+  rows, still a candidate until somebody promotes it. Both work from outside
+  the platform with a user token. One upload is bounded by
+  `ML_ARTIFACT_MAX_MB` (512 MB), editable under Admin → Developer runtime.
+  One migration: `artifact_bytes` and the new setting.
+
+### Clustering and a layout advisor
+
+- **A lakehouse table's files can be rewritten in key order.** Partitioning
+  decides which file a new row goes to; clustering decides the order of what
+  is already there. **Layout** on a table's toolbar shows, from DuckLake's own
+  per-file statistics, how many of the table's files a lookup on each column
+  opens, beside which columns this week's queries filtered on, and advises —
+  cluster by the filtered column whose files overlap, compact small files,
+  rewrite again after new loads. **Rewrite now** ranges rows on the first key
+  at row-count quantiles, one range per target-sized file, sorted by all keys,
+  in one transaction that rolls back whole on failure; a filter on the key
+  then opens only the matching files. **Keep clustered** hands the table to
+  the hourly maintenance pass, which rewrites it when files land and leaves
+  it out of file merging (merging would fold the ranges back together). Up to
+  four keys; the target file size is per table, default
+  `LAKEHOUSE_CLUSTER_FILE_BYTES` (128 MiB), never capped. One migration:
+  `lakehouse_table_layouts`.
+
+### Auto-ingest from object storage
+
+- **A storage prefix can be watched for new files.** An object-storage
+  source read its whole prefix every run, which is right for a file that is
+  replaced and wrong for a landing zone, where every run re-read everything
+  and an append target doubled it. **Only files not loaded before** on the
+  source node lists the prefix and reads only what the engine has not
+  loaded, keeping a small ledger on the cursor (the newest modification time
+  loaded and the keys at that time) that is written only after the load
+  committed. **Files per run** bounds a backlog. The source is drainable, so
+  the pipeline can run continuous — and exactly-once into the lakehouse. A
+  re-uploaded file loads again as a new version; an idle run hands downstream
+  an empty frame of the right shape. Sandbox engine only; the Spark engine
+  refuses it at save, by name. No migration.
+
+### Exactly-once into the lakehouse
+
+- **A continuous pipeline whose targets are all lakehouse tables cannot
+  replay.** Positions were persisted after each tick's load, so a crash in
+  the seconds between the commit and its report replayed one tick's batch —
+  at-least-once, invisible only behind a merge target. Now each tick is one
+  DuckLake transaction: every target's load and the tick's source positions
+  (a hidden `_agentswarms.etl_cursors` table in the same catalog) commit
+  together or not at all, and the next run resumes from the positions that
+  committed with the rows, not from the report. The card says
+  _exactly-once_ beside _continuous_ when a pipeline qualifies; one with a
+  storage, database, HTTP or SaaS target stays at-least-once, since those
+  have no part in the transaction. No migration.
+
+### Delta Sharing: tables for people who are not users
+
+- **Lakehouse tables can be shared outside the platform.** A grant shared a
+  schema with an account; nothing reached an auditor, a partner or a
+  customer's data team who had none. The lakehouse page's new **Shares**
+  dialog bundles tables under a name, with an optional row filter and masked
+  columns per table on top of the table's own policy, and mints a token per
+  recipient — shown once as the profile file their client loads, revocable,
+  optionally bound to an email and expiring. `/api/delta-sharing` serves the
+  read side of the Delta Sharing 1.x protocol, which the `delta-sharing`
+  Python package, Spark and Power BI speak. What a recipient receives is a
+  governed snapshot, never the lake's own Parquet: DuckLake keeps deleted rows
+  in its data files, and a presigned URL bypasses every policy, so each read
+  serves a SELECT through the same rewrite as any reader here, written by the
+  engine to Parquet beside the lake with deletes applied, keyed by the table's
+  file set and the policy so an unchanged table is written once. Files travel
+  as presigned URLs signed for the endpoint recipients reach
+  (`LAKEHOUSE_S3_PUBLIC_ENDPOINT`), valid for `SHARE_URL_EXPIRY_SECONDS`.
+  Every read is audited under the token's label. One migration.
+
+### Envelope encryption: the credential key can live in Vault
+
+- **The key that encrypts every stored credential can come from a KMS.**
+  It was `PROVIDER_CREDS_SECRET`, an environment variable: anyone who could
+  read the process environment had it, nothing logged its use, and revoking
+  it meant editing every host. `KMS_PROVIDER=vault` keeps the key-encrypting
+  key in HashiCorp Vault Transit; a random data key is wrapped by it, stored
+  in a new `encryption_keys` table, and unwrapped once per process start —
+  the app holds a permission to decrypt, not the key, and Vault logs every
+  unwrap. The stored ciphertext does not change, so the switch is a
+  rotation: the env secret stays accepted for reading, everything new goes
+  under the data key, and the existing re-encrypt sweep moves the rows. The
+  default is unchanged — set nothing and it is `PROVIDER_CREDS_SECRET`,
+  byte for byte. The settings card shows the provider, its probe, the data
+  key's fingerprint, and the button that creates or rotates it (a key that
+  does not unwrap to the same bytes is refused before it is stored).
+  `/api/health/ready` reports whether the keyring loaded, and a process that
+  cannot unwrap its data key refuses to start, naming the provider and key.
+  Vault authenticates with a token, a mounted token file, or a Kubernetes
+  service-account login. AWS KMS, GCP KMS, Azure Key Vault and OCI Vault are
+  designed behind the same interface and refused by name until built. One
+  migration.
+
+### SCIM provisioning: joiners and leavers from the directory
+
+- **The identity provider creates, deactivates and groups users.** SSO let
+  people sign in; nothing created them before they did, deactivated them
+  when they left, or kept groups in step, and the README said so under "No
+  SCIM". `/api/scim/v2` is a SCIM 2.0 server now: Users and Groups with
+  GET, POST, PUT, PATCH and DELETE, lookup filters (`userName eq`,
+  `externalId eq`, `displayName eq`), paging, and the discovery endpoints
+  an IdP reads first. A pushed user is created confirmed and passes the
+  invite-only gate; `active: false` applies the same ban the IAM page does,
+  so every session and key stops; a pushed group is an IAM group, so grants
+  and model rules on it apply to whoever the IdP adds. PATCH is honoured in
+  both dialects — Okta's path-less values and Entra's paths. The IdP
+  authenticates with a token minted on the SSO tab's new **Provisioning
+  (SCIM)** card, shown once and stored hashed, with when the IdP last used
+  it. Two rules hold whatever the IdP sends: a superadmin can never be
+  deactivated or deleted over SCIM (403, so a misconfigured push or a
+  leaked token cannot take the last way in), and every write is an audit
+  event under the token's label. Rate limited across tokens
+  (`SCIM_RATE_LIMIT_PER_MIN`). One migration.
+
+### Policies by tag
+
+- **One security rule, applied wherever a tag is.** A policy named one
+  table, so a `pii` column on ten tables meant ten policies and the
+  eleventh shipped unmasked. Columns now carry tags in the Data Catalog's
+  asset drawer (tables already did), both surviving re-crawls, and the
+  lakehouse page's **Tag policies** button holds owner-wide rules: mask
+  every column carrying a tag (blank or scramble), or filter every table
+  carrying one. At read time the rules a table and its columns trigger are
+  folded into the same per-table policy the parser-level rewrite enforces
+  — masks union, filters AND, a blank beats a scramble — so nothing about
+  enforcement changes and a table with no policy of its own still gets one
+  from its tags. A filter rule is checked against every table carrying the
+  tag when saved; the owner is never filtered; a Spark query on a
+  tag-policed table is refused like one on a policed table. One migration.
+
+### Column-level lineage
+
+- **Pipelines and SQL models record which columns fed which.** Lineage
+  was table-level: a run wrote one edge per (source, target) pair, a build
+  one per model ref. A run now reports the columns every node's frame
+  actually had, and the engine traces each target column back to the
+  source columns it came from by what each transform does — renames,
+  derives, aggregates, joins (pandas' `_x`/`_y` read as left and right),
+  unions, selects — while a Python or SQL step is recorded as opaque, every
+  output depending on every input, and the edge says so. A model's build
+  traces each output column of its SELECT through DuckDB's own parse
+  (aliases, functions, CTEs, subqueries, joins, `SELECT *`) to the lakehouse
+  columns it reads, which joins a pipeline's column lineage to the model
+  built on its target. The Data Catalog's asset drawer lists them under
+  Column lineage, per column, upstream and downstream, opaque ones marked
+  `≈`. The first live run found that the table-level rows omitted the new
+  flag, a bulk insert sent null for it beside the column rows that had it,
+  and every edge was refused — silently, because the insert's error was
+  never read. Both writers set it explicitly now, and a refused lineage
+  insert is logged with the pipeline's name. One migration (`exact` on
+  `catalog_lineage`).
+
+### Continuous pipelines: a stream drained by one long-running run
+
+- **A pipeline can run continuously.** Kafka, Kinesis, Pub/Sub, webhook
+  ingest and CDC were read in micro-batches on the scheduler's clock — one
+  run per sixty-second sweep, each paying a sandbox start. Settings →
+  Schedule → **Continuous** keeps one long-running run live: the same
+  compiled program told to loop, draining the source every _poll every_
+  seconds (straight away while a backlog lasts), persisting its positions
+  after every committed load, and reporting rows and ticks the card shows
+  live. The sweep starts a fresh run whenever none is live; a run ends on
+  its own at the rollover (`ETL_CONTINUOUS_ROLLOVER_MINUTES`, default 12 h)
+  and a run that fails outright is restarted after a backoff. Stop on the
+  card cancels the live run. The save refuses a code pipeline or one without
+  a drainable source, forces concurrency off, and chaining does not fire at
+  a rollover. Verified live against the compose Redpanda from the page: a
+  topic fed in bursts landed in a lakehouse table every three seconds, each
+  message once. One migration.
+
+### Distributed SQL: a lakehouse query on the Spark cluster
+
+- **A `SELECT` can run on the Spark engine.** Every lakehouse and BI query
+  ran on DuckDB inside one app worker — fast per core, spilling to disk, but
+  one query never spanned machines, and the Spark engine served pipelines
+  only. When a Spark endpoint or per-job provider is configured, the Query
+  tab offers **Spark cluster** beside the lakehouse engine. The statement
+  is governed exactly as on DuckDB; the catalog's inlined rows are flushed
+  and a snapshot pinned; every table it reads is resolved to that
+  snapshot's data and delete files; a sandbox builds one view per table on
+  the cluster straight from those files (deletes applied by row position,
+  the catalog's internal columns dropped), runs the statement in Spark SQL
+  and posts the rows back to the same grid, badged `spark`. The cluster
+  never opens a catalog session. Mounted schemas, tables under another
+  owner's security policy, encrypted files and every write stay on DuckDB,
+  and the page says why. A query holds its cluster for at most
+  `LAKEHOUSE_SPARK_QUERY_MINUTES` (default 30); the History tab marks Spark
+  answers. Verified live on the compose Spark 4.2 endpoint from the page: a
+  table written, flushed, then edited returned the same rows and aggregates
+  on Spark as on DuckDB, deleted rows absent. One migration.
+
+### One graph from ingest to model
+
+- **A pipeline's success can build SQL models and run ML schedules.**
+  "Run after" chained a pipeline only to another pipeline; SQL models and ML
+  schedules ran on their own clocks beside it. A pipeline now names, in
+  Settings → "After it succeeds, also…", the models to build (every active
+  one, or named ones with their ancestors) and the retrain / batch-predict
+  schedules to run. Both run as the pipeline's owner, are recorded on their
+  own pages with the trigger `chain`, and never rewrite the pipeline's
+  outcome. The save path refuses a model or schedule that is not the
+  owner's, by name. One migration.
+
+### Resilience: a bounded catalog pool, incremental backups, an honest RPO
+
+- **DuckDB extensions are baked into both images.** The first lakehouse
+  request on a fresh container downloaded ~145 MB of extensions and took
+  3.5 minutes before running a query — measured as a chained SQL-model
+  build that took 214 s where the same build takes 7 s warm — and every
+  restart, redeploy and new replica paid it again; offline it failed. The
+  app image installs them at build time under the app user's home, the
+  sandbox image under a read-only directory the generated lakehouse code
+  prefers, so the engine's own INSTALL is instant and `.duckdb.org` is no
+  longer needed on the sandbox egress allow-list.
+- **The app image has a CA certificate bundle.** Found by the bake above:
+  `node:22-slim` ships none, and nothing had noticed because Node carries
+  its own root store, so every `fetch()` the app makes worked. DuckDB's
+  httpfs is native OpenSSL and needs the system bundle — without it every
+  HTTPS request from the lakehouse engine failed with "Problem with the
+  SSL CA cert", which is every cloud bucket (S3, GCS, Azure) and every
+  `read_csv('https://…')`. The local MinIO is plain HTTP, which is how it
+  hid. Verified in the image: an HTTPS read failed before, works after.
+- **The Docker socket proxy has a health check.** Seen live: its HAProxy
+  wedged and every sandbox start failed with "Cannot reach the Docker
+  socket-proxy" while `docker ps` said Up; the state now reads as unhealthy
+  and the runbook names the one-line fix.
+- **A busy Docker daemon no longer reads as stopped services.** Seen live
+  the same day: a run failed with "Cannot reach the Docker socket-proxy …
+  Start the runtime services" while they were running — the proxy's log
+  showed `/_ping` taking 13 s because an image was being built on the same
+  host, and discovery gave up at 2.5 s. The budget is 10 s
+  (`DOCKER_PROXY_PING_TIMEOUT_MS`), and a proxy that accepts and stalls is
+  reported as exactly that, with the fix for a stall.
+- **The lakehouse catalog's connection budget is bounded.** The Postgres
+  pool behind the DuckLake attachment held sessions per app worker with an
+  acquire mode that ignored any limit. The engine now sets
+  `LAKEHOUSE_CATALOG_CONNECTIONS` (default 8) and makes the pool wait rather
+  than open more, so the catalog's `max_connections` has a sizing rule:
+  the limit × workers × replicas, plus one per worker. Measured on the
+  Compose catalog: 32 concurrent queries held 3 sessions unbounded, and
+  stayed at the limit once set.
+- **Backups copy only what is new.** `npm run backup -- --lake-mirror <dir>`
+  keeps one standing mirror of the lake's Parquet and copies only objects it
+  lacks; each backup still names the objects it needs, and the restore drill
+  reads from the mirror. Measured live: the second run copied nothing.
+- **A backup whose catalog points at missing files fails, and says which.**
+  Every data file the catalog still references is looked for in the bucket
+  after the dump.
+- **The docs now state the recovery point and time** per deployment shape,
+  what changes them, and that nothing replicates backups off the host.
+- **The sandbox egress proxy runs two replicas** in the Kubernetes manifest,
+  spread across nodes — it was every sandbox's only way out, and one replica.
+- **The cloud runbooks provision highly-available catalogs** — Multi-AZ RDS,
+  regional Cloud SQL, zone-redundant Azure — where they had provisioned
+  single-instance ones on the production path.
+
+### A Spark engine for pipelines
+
+- **Opt-in per pipeline, the default untouched.** Settings → Engine chooses
+  between the sandbox (pandas — what every pipeline was, byte-for-byte the
+  same program) and a Spark cluster. Same graph, same canvas, same run log
+  and metrics; what changes is where the program executes.
+- **Spark Connect from the sandbox.** The run's sandbox holds only the
+  pure-Python client — no JVM — and drives the cluster over gRPC, so every
+  hardening decision made for the sandbox stands. Storage credentials travel
+  as per-call options rather than on the cluster's shared configuration.
+- **Native where it matters, shared where it doesn't.** Object-storage and
+  JDBC reads and writes, every transform, quality gates and Delta (including
+  MERGE) run on the cluster. CDC, stream drains, webhook ingest, spreadsheets,
+  HTTP fetches, Custom Python, the lakehouse and HTTP/SaaS targets run in the
+  sandbox and are lifted into Spark — each through the pandas compiler's own
+  emitter, so the engines cannot disagree about what a node does.
+- **Same answer on either engine.** pandas' semantics are reproduced on
+  purpose where SQL's differ: null group keys, nulls sorting last, `_x`/`_y`
+  join suffixes, a null failing a range check. Filter and derive expressions
+  keep their pandas spelling and are translated to Spark SQL at save time;
+  what Spark cannot express is refused at save, in words.
+- **Refused at save, not on the cluster:** Iceberg targets, merge into plain
+  files, merge into a database.
+- **Two providers.** `static` points every run at one Spark Connect
+  endpoint — locally, `docker compose --profile spark up -d` gives you a
+  single-host Spark 4.2 server with the S3A, Delta and JDBC connectors on
+  it. `k8s` creates **one cluster per run**: a driver pod that is also that
+  run's Connect endpoint, plus the executors it asks for, sized in the admin
+  form and deleted when the run ends — so a run's size is the node pool
+  rather than one box, and nothing is paid for between runs.
+- **A per-run cluster cannot outlive its run.** Executors are owned by the
+  driver pod, so deleting it removes them; the driver carries a deadline the
+  kubelet enforces even if the app never comes back; and every object is
+  labelled with the run id, so the ETL sweep deletes clusters whose run is
+  over even when nothing points at them. Provisioning takes minutes on a
+  stock image, so the run stays queued while its cluster starts and the
+  orphan reaper waits for it. `deploy/k8s/spark/spark-runtime.yaml` carries
+  the namespace, service account, quota and network policy.
+
+### A transformation layer over the lakehouse
+
+- **SQL models.** A model is one `SELECT` that becomes a lakehouse table.
+  `ref('other')` names another model, which both declares the dependency and
+  resolves to its table, and a build walks the graph in dependency order — so
+  a staging table is always rebuilt before the fact that reads it. The
+  vocabulary is dbt's; the Jinja, macros, seeds and packages are deliberately
+  absent, because the gap being closed is ordered transformation, not a
+  templating language.
+- **A failure stops where it happened.** When a model fails, or a test on it
+  fails at `error` severity, everything downstream is **skipped** rather than
+  rebuilt from data you already know is wrong. That is the whole reason to
+  have a graph rather than a set of independent scheduled queries.
+- **Tests** run against the table a model just wrote: `not_null`, `unique`,
+  `accepted_values`, `range` and `row_count_min`, each at `error` (stop the
+  downstream) or `warn` (record and carry on). A test that cannot run counts
+  as an error, not a pass.
+- **The two layers now point at each other.** A built model, and any lakehouse
+  table, offers **Define metrics on this**, which opens the Semantic Layer
+  editor on that table. The lakehouse is reached as a warehouse connection
+  whose provider is the built-in lakehouse; that connection is not
+  provisioned for anyone, so the editor offers to create it and asks only for
+  a name. This always worked and nothing said so, which is why the two read as
+  two features doing one job rather than two layers of one stack.
+- **The Data & BI rail reads in the order data moves through it**: find it,
+  move it, store it, shape it, define what it means, then use it. Eleven items
+  in no particular order is a list you search rather than read. The docs rail
+  follows the same order, and Integrations and Observability were tidied the
+  same way.
+- Models are built **as their owner**, into a schema that owner owns, with
+  access re-checked at every build rather than trusted from when the model was
+  saved. Every build audits what happened to each model; model-to-model
+  lineage now appears in the Data Catalog beside crawled and ETL edges. Under
+  **Data & BI → SQL Models**.
+
+### Microsoft Teams as an agent channel
+
+- **An agent or the analyst answers in Teams**, configured under
+  **Integrations → Teams**: the bot's Microsoft App id, a client secret, and
+  which agent answers. The turn runs as the bot's owner through the same shared
+  path Slack uses — the same gateway body, IAM model rules, budgets, traces and
+  audit rows. It is not a second way to run an agent.
+- **Inbound requests are verified against Microsoft's published keys.** Slack
+  signs with a shared secret, so verifying is an HMAC; Microsoft signs with a
+  rotating RSA key, so this fetches the key set, picks the key the token names
+  and checks an RS256 signature — never a key the token brought with it, which
+  would verify the attacker's own signature. Then the issuer, the audience
+  (this bot's App id, so another bot's valid Microsoft token is still refused)
+  and **the service URL**: the token says where the bot may reply, and without
+  that check an attacker can make it post the answer, and whatever it read, to
+  a host they control. `alg` is pinned to RS256 rather than read from the
+  token, and every check fails closed.
+- **A single-tenant registration answers its own tenant only.** The token
+  proves Microsoft sent the request; it does not prove which organisation it
+  came from.
+- **It never answers itself.** Teams delivers a bot its own posts, and a bot
+  that answers itself never stops. Reactions, typing and `conversationUpdate`
+  are acknowledged and ignored — none of them is a question — and the mention
+  markup is taken out so the agent is not asked to interpret its own name as
+  part of the question.
+- **The client secret is not optional, and the page says so.** A Slack slash
+  command carries a reply URL that needs no credential; the Bot Framework never
+  sends one, so every answer is posted with a token minted from the secret. A
+  bot without one receives questions and cannot answer them. The secret is
+  written and never read back, an edit that does not mention it keeps the
+  stored one, and a 401 from Teams drops the cached token so a rotated secret
+  recovers on the next turn rather than repeating a stale one.
+- Teams stops waiting after about fifteen seconds and a turn takes 30–95, so
+  the endpoint acknowledges immediately and posts the answer to the
+  conversation when it is ready.
+- `channelTargetMissing` now names the right settings page per channel — it is
+  the message someone reads when the bot cannot answer, and sending a Teams
+  user to the Slack page was the whole failure.
+
+### Reverse ETL into HubSpot and Salesforce
+
+- **A named target, because a 200 is not a success here.** HubSpot and
+  Salesforce answer `200` and report per-record failures inside the body. The
+  generic HTTP target checks the status code, sees 200, and records every row
+  as loaded — so a run that pushed 5,000 contacts and had 4,000 rejected for a
+  missing required property shows in the run history as a complete success, and
+  nobody finds out until somebody asks the CRM why the numbers are wrong. The
+  new **SaaS tool** target reads HubSpot's `numErrors`/`errors` and
+  Salesforce's per-record `success` flag and **fails the run**, naming what was
+  rejected. A Salesforce reply that is not a per-record list at all counts as
+  every record failing, because "the shape was wrong so nothing was checked"
+  must never read as success.
+- **It writes through a connection you already have.** The same HubSpot or
+  Salesforce connection that syncs contacts in pushes them back out, so there
+  is no second copy of the CRM credential to manage. Pick the object and the
+  column that identifies a record — a HubSpot unique property, a Salesforce
+  External ID field — and every other column is sent as a field. It is an
+  upsert, so the same row twice updates rather than duplicates.
+- **Two vendor rules it applies for you.** The batch cap (100 for HubSpot, 200
+  for Salesforce) is enforced here, because exceeding it rejects the whole
+  batch rather than one record and nobody should have to look that number up.
+  And the id column is checked against the frame before the first request,
+  because otherwise every record is rejected one batch at a time.
+- **Read-only stays read-only.** Only HubSpot and Salesforce can be written to;
+  Stripe, Shopify, Jira, Zendesk and Google Sheets remain sources. Creating a
+  charge or an issue from a nightly pipeline is a different kind of decision,
+  and this is not the door for it.
+- **A shared connection can be read from but not written to.** An IAM share
+  grants pulling rows out; pushing records into somebody else's CRM is a bigger
+  step and should be its own grant. Reverse-ETL targets resolve owner-only, and
+  the stored credential is decrypted server-side, injected into the sandbox's
+  environment and added to the run's scrub list.
+- A run blocked by the egress proxy now **names the host** it could not reach
+  instead of leaving a bare 403 to be correlated with a proxy people forget is
+  there.
+
+### Training searches across several sandboxes
+
+- **A job is no longer one container.** A training job tries several
+  algorithms and then tunes the best of them, and it did all of that in one
+  sandbox, one candidate after another. Set **Search workers** under
+  **Admin → Developer runtime** (or `ML_TRAIN_WORKERS`) above 1 and the search
+  is dealt out: worker _w_ of _n_ takes candidates _w_, _w+n_, _w+2n_…, and the
+  job keeps whichever worker's model scored best.
+- **A single model still trains in one container**, and the docs say so in
+  those words. Splitting one fit across machines needs a distributed framework
+  and a cluster; a model that does not fit in one sandbox's memory still does
+  not fit. What this buys is wall-clock on the search, which is where the
+  wizard's time actually goes. Claiming more would be a lie the user discovers
+  at the worst moment.
+- **Three limits bound it and the job takes the smallest.** Only
+  classification and regression enumerate their candidates up front —
+  clustering picks its `k` from the row count and forecasting its methods from
+  the shape of the series, both inside the sandbox, so the server cannot deal
+  out their candidates and those tasks still run in one container. Never more
+  workers than candidates. And never more than the runtime lets one person
+  hold, which is the limit that actually bites: sessions-per-user counts their
+  open notebooks too, so a job takes fewer workers rather than failing to start
+  the extras.
+- **Candidates are dealt round-robin, not in blocks.** The list is ordered
+  cheapest-first, so blocks would hand worker 0 every fast model and the last
+  worker every slow one — and a job takes as long as its slowest worker.
+- **A worker that dies does not lose the job.** Three of four finishing still
+  produces a model: the leaderboard is merged from everyone who reported, each
+  row keeps the worker that ran it (so "why is there no lightgbm row" has an
+  answer), and the version's warnings say how many workers never came back and
+  what the failed ones said. Only an all-workers-failed search fails.
+- **Exactly one worker finalises the job.** The count of finished workers is
+  kept by a database function that appends and counts in a single statement,
+  so of _n_ simultaneous callbacks precisely one sees itself as last. A
+  repeated callback for a worker already recorded matches nothing and does
+  nothing. Cancelling stops every sandbox, and the orphan sweep polls every
+  worker's session rather than the first — with _n_ workers there are _n_
+  callbacks that can be lost.
+- **Ties break on the lowest worker number**, so re-running the same job on the
+  same data picks the same model. A winner that depended on which container
+  answered first would not be reproducible, and reproducibility is most of what
+  the registry is for.
+- The version is written by **one** function whichever way the job trained, so
+  a distributed run cannot record itself differently from a single-container
+  one. A job with one worker is byte-identical to what it was: no shard in the
+  stash, no candidate list in the bundle, the same artifact path.
+
+### Experiments — the twenty runs behind the one version
+
+- **What was tried is now recorded, not just what shipped.** The registry
+  keeps every version with its metrics. What nothing kept was the work before
+  that: the runs in a notebook that led to the one worth keeping, which lived
+  in output cells until somebody re-ran it. Then "why is this the learning
+  rate" had no answer a month later, and a colleague could not see that the
+  obvious idea had been tried and had not worked.
+- **An experiment is a named question; a run is one attempt at it.** Anything
+  that can reach the platform can log one — a notebook with its session token,
+  a script with a user token — through `/api/ml/experiments`. In a notebook
+  the client is already injected: `with agentswarms.start_run("churn-v2",
+params={"lr": 0.01}) as run:`, then `run.log_metric("loss", loss,
+step=epoch)`.
+- **It fails in the right direction.** `start_run` raises if it cannot start,
+  because a run you believe is recording and is not is worse than one that
+  never began. Every later call warns and continues: losing an epoch's metrics
+  is not worth losing the epoch, and a logging call that raises three hours
+  into unattended training is the wrong trade. As a context manager it closes
+  the run whichever way the cell ends, recording the traceback as the failure.
+- **The curve survives and the score stays single.** `log_metric(k, v,
+step=n)` keeps the point as `k@n` and updates the bare `k` to the latest
+  value, so a training loop's history is there without giving up one answer to
+  "what did this run score". The panel draws those points as a sparkline, and
+  marks which parameters actually **differed** between the runs shown — in a
+  list of twenty the constants are noise and the one that moved is the
+  experiment.
+- **A run can become a version.** One that recorded both `artifact_uri` and
+  `artifact_sha256` is registered from its row through the same path an
+  external registration takes: same digest check before inference loads it,
+  same audit trail, same contract. Both fields, because a version whose
+  artifact nobody can verify is not a version. It arrives as a **candidate** —
+  promoting it is a separate, deliberate step, since that is the seam between
+  trying things and shipping one.
+- **Runs are data, not configuration.** Creating an experiment writes an audit
+  row; a metric does not, or a loop logging per epoch would write more audit
+  rows than the audit log is for. The promotion is audited as
+  `ml.experiment.promote`, because that is the moment something becomes
+  servable. Both tables are owner-only under RLS and every write re-checks the
+  caller's id: a run id is a uuid, not a capability. A finished run refuses
+  later writes, so a straggler cannot rewrite the record.
+- Under **ML Models → Experiments**. Nothing is created there: the first
+  `start_run()` call creates its own experiment.
+
+### Feature views — score by key, not by row
+
+- **The caller stops computing features.** A model trained on a table whose
+  columns were built by SQL was scored by POSTing those same column names with
+  values the caller worked out itself, in its own code, months later. Nothing
+  checked that its arithmetic matched the training set's, so the model got
+  numbers of the right shape and the wrong meaning and answered confidently.
+  A **feature view** names a table, the column(s) that identify a row and
+  which columns are features; `/api/ml/predict` then accepts
+  `{"keys": [{"customer_id": "c-1"}]}` and reads the values from the same
+  table training read.
+- **It materialises nothing.** The table is whatever built it, and a
+  SQL model is the natural author: its name is its table, its schedule
+  keeps it fresh, its `unique` test can assert the key and its lineage is
+  already recorded.
+- **It does not guess.** Rows are matched back to keys by key rather than by
+  result order, a key that matches nothing is named in `keys_not_found` rather
+  than filled with nulls, and a key matching two rows is refused unless the
+  view says which column decides the latest. A column list is always sent
+  explicitly, so a column added to the table later cannot silently become a
+  feature the model never trained on.
+- Nothing changes for a model without a view: callers keep sending whole rows.
+  Under **ML Models → Feature views**, attached on the model page.
+
+### Warm inference endpoints
+
+- **A model version can be held in memory instead of started per call.** Every
+  prediction used to start a container, boot Python, import the ML stack,
+  download and digest-check the artifact, score, post back and exit. A
+  **deployment** pays that once. Measured end to end on one row: **1.3 s warm
+  against 27 s cold**, of which the scoring itself is **45 ms either way** —
+  that is the model, and it does not change. What is left is the platform's
+  own book-keeping, which on a laptop talking to a remote database is almost
+  entirely round trips.
+- **The scoring is not a second implementation.** The sandbox loads the same
+  program the batch path runs and calls the same `_predict`, so a warm answer
+  and a cold answer come from the same fitted pipeline and the same
+  digest-verified artifact. Verified live: identical class and identical
+  per-class probabilities to the last digit.
+- **It pins a version.** Promoting a new one marks the endpoint stale and
+  leaves it serving what it was serving, and it refuses to answer for a
+  version it is not holding. If the endpoint is down, loading, or on another
+  version, the prediction falls back to the sandbox — slower, never wrong.
+  Every reply says which path served it.
+- Recorded and audited exactly like a cold prediction. Off by default, stopped
+  when idle unless **Keep warm** is on, and capped per user and per instance,
+  because a held-open scorer costs memory whether or not anyone is scoring.
+  Under **Automation → Warm endpoint** on the model page.
+
+### The AI gateway keeps growing
+
+- **The semantic layer answers over HTTP.** A gateway key with the new
+  `metrics` scope reaches `GET /api/v1/metrics` and
+  `POST /api/v1/metrics/query`: the governed metric definitions, and answers
+  compiled from them, without an agent or a model in between. A key names the
+  semantic models it may read, or reads every one its owner can. The row cap
+  is the instance's, and a truncated answer says so rather than quietly
+  returning a full page — the compiler's own default limit used to make a
+  complete page look like an incomplete one.
+- **A semantic cache in front of the gateway.** A key can switch on a cache
+  that matches on the **meaning** of a question rather than its bytes, so the
+  same question asked twice is answered once. It is **off unless a key turns
+  it on**: a cache that answers a question with a nearly identical question's
+  answer is a correctness risk nobody should inherit by upgrading. An entry
+  belongs to one owner, one target and one system instruction, so no answer
+  crosses a user, an agent, or a differently instructed run of the same
+  agent. A conversation with a history is never cached — "and for Europe?"
+  means nothing without what came before it — and neither is a turn above
+  the temperature ceiling or an answer that reached for a tool, which read
+  something live. Every reply says `X-Gateway-Cache: hit | miss | skip |
+off`, a hit reports zero usage because it spends nothing at the provider,
+  and the owner can see every stored question and empty the cache from the
+  same card. Similarity, lifetime and the temperature ceiling are the
+  instance's to set under **Admin → Developer runtime**.
+
+### Slack talks to agents, not just the analyst
+
+- **A route per slash command.** `/ask` can stay the AI Analyst while
+  `/support` is an agent. A command with no route still reaches the
+  workspace's analyst, so nothing changed for an existing installation until
+  it adds a row.
+- **@mentions and direct messages answered in thread.** A second endpoint
+  (`/api/slack/events`) takes Slack's Events API, verifies the signature over
+  the raw body before parsing anything, acknowledges inside Slack's three
+  seconds, and posts the answer into the question's own thread with the
+  workspace's bot token. Retries are acknowledged and dropped rather than
+  answered three times. Teams is deliberately not here: an Outgoing Webhook
+  must answer in about five seconds and an agent turn takes thirty to ninety.
+
+### The ETL editor stops asking you to type
+
+- **Every source and target is picked from what the platform knows.**
+  Lakehouse sources and targets get hierarchical schema-then-table pickers;
+  the Data Catalog is a source, browsed by catalog, then asset; connections,
+  datasets, pipelines, models and warehouse tables all come from dropdowns.
+  A menu entry now provably produces a node of its own type — a "Lakehouse
+  table" source used to fall through to a Custom Python node.
+- **Icons in the menus**, so a source, a transform and a target read at a
+  glance rather than by reading.
+
+### Fixes
+
+- **The AI Analyst's question box no longer scrolls off the page.** It was the
+  one full-height route that never pinned its height, so the page grew to the
+  length of the whole analysis and the composer sat at the bottom of the
+  document instead of the bottom of the screen. On a real thread it was 12,944
+  pixels down. Every full-height page now takes its height from one place, and
+  that height is measured rather than assumed — the constant each page used to
+  subtract was wrong whenever the session-restore banner was up, and two pages
+  had the wrong constant even without it.
+
+### Getting it running
+
+- **`setup.sh --all` and `setup.ps1 -All` start what `--profile all` starts.**
+  The README called both "everything", and they were not the same: the
+  scripts started three profiles (renderer, JS sandbox, notebook runtime)
+  while Compose's `all` started five, so a scripted install had no lakehouse
+  catalog and no Spark cluster. Both scripts now take `--lakehouse` /
+  `-Lakehouse` and `--spark` / `-Spark`, `--all` includes them, and each says
+  what `.env` still has to name for the service to be used. A test pins the
+  parity. The README, INSTALL and DEPLOYMENT guides describe the five, and
+  the README's feature table and scorecard now carry what landed since 1.4.0:
+  column-level lineage, continuous pipelines, chaining to SQL models and ML,
+  Spark queries, policies by tag, incremental backups; two stale migration
+  counts were corrected.
+- **The sidebar is the whole product in eight groups**, collapsible and
+  remembered per browser, with the group holding the current page opened for
+  you.
+- **Kubernetes runbooks for AWS, GCP, Azure and OCI** — the actual commands
+  for the cluster, the registry, the secrets, the ingress and the
+  certificate on each, plus the seven checks that prove an install works and
+  a table of what to do when one fails. In `docs/DEPLOYMENT.md` and on the
+  in-app Self-hosting page.
+
+---
+
+## 1.4.0 — 2026-09-06
+
+**The platform opens outward: an AI gateway in, Iceberg out, streams and
+scanned documents read, and the data watched.** Ten commits and 96 files
+close the gaps a 2026 buyer would list against the hosted platforms: an
+OpenAI-compatible endpoint that puts your agents and models behind one key,
+data monitors that learn a table's rhythm and open incidents when it breaks,
+AI functions inside SQL, a vision model reading scanned PDFs into knowledge
+bases, Kafka, Kinesis and Pub/Sub as pipeline sources, and Apache Iceberg
+catalogs mounted as lakehouse schemas or written to. Seven migrations — run
+`npx supabase db push` after upgrading (the setup scripts and the Kubernetes
+installer apply them for you).
+
+### The AI gateway
+
+- **One door for every client.** `/api/v1/chat/completions` and
+  `/api/v1/models` speak the OpenAI protocol, so an SDK, an IDE plugin, an
+  evaluation harness or another agent points at `https://<your host>/api/v1`
+  with a **gateway key** and talks to a saved agent — its prompt, tools,
+  knowledge and guardrails — or to a connected model directly. Streaming
+  included; the completion carries the trace id, the fallback model if one
+  was used, the citations and the tool calls the agent made.
+- **Keys reach what their owner could reach by hand.** Minted under
+  **Integrations → LLM Gateway → API access**, a key carries scopes (agents,
+  models), an agent allow-list, `provider/model` patterns, a per-key rate
+  limit, a monthly budget attributed on every trace, and an expiry. Every call
+  runs as the owner under the owner's IAM model rules, budgets, traces and
+  audit trail; a key's configuration changes are audited, its use is traced.
+- **Fallback that never lies mid-answer.** A key's ordered fallback chain, then
+  the instance-wide chain, are tried when a provider fails with 402, 408, 425,
+  429 or a 5xx — never after the first token has been sent.
+
+### Data monitors
+
+- **Standing checks on any table**, under **Data & BI → Data monitors**:
+  freshness, row volume, schema, nulls, uniqueness and custom SQL, on
+  lakehouse tables and connected warehouses alike, hourly, daily, weekly or
+  on a cron expression, claimed by clock so replicas never run one twice.
+- **Baselines instead of thresholds.** A volume check learns the table's rhythm
+  and alerts a configurable number of standard deviations from it; a schema
+  check remembers the columns it saw and names what changed.
+- **Incidents, not log lines.** The first failing run opens an incident and
+  notifies you in-app and on any connected channel; further failures extend
+  it and count occurrences; Acknowledge marks it seen and Resolve closes it by
+  hand. An agent asks `data_health` before it trusts a table.
+
+### AI in SQL
+
+- **Seven functions inside a lakehouse statement**: `ai_complete`,
+  `ai_classify`, `ai_extract`, `ai_sentiment`, `ai_summarize`, `ai_translate`
+  and `ai_filter`, with the model as an optional last argument. A statement
+  runs in two passes — the engine collects the distinct inputs, the model
+  answers them, the engine finishes — so a GROUP BY over a million rows with a
+  hundred distinct categories costs a hundred calls, not a million.
+- **Answers are cached and calls are capped.** A durable cache keyed on the
+  function, the inputs and the model reuses an answer for thirty days; a
+  statement that would exceed the per-statement call cap is refused before
+  the first call, with the count. Every call runs as the user under the IAM
+  model rules and budget, and is traced under **AI SQL**.
+- **A Data Prep step, too.** An **AI column** step in the visual Data Prep
+  studio compiles to the same functions on the lakehouse, so a wrangling flow
+  can classify or extract without leaving the canvas.
+
+### Document intelligence
+
+- **Scanned PDFs and images are read, not skipped.** A PDF whose pages are
+  pictures, and any image file, is rendered in the browser and transcribed by
+  the instance's vision model as the uploading user: the IAM model rules
+  apply, the budget applies, each page leaves a trace under **Document OCR**
+  and each batch a `kb.document.ocr` audit event with the page range, the
+  model and the cost. The document keeps `[page N]` markers so a citation can
+  say where.
+
+### Streaming sources
+
+- **Kafka, Kinesis and Pub/Sub as ETL sources.** A Kafka or Redpanda topic
+  (and Confluent, MSK and Event Hubs), an Amazon Kinesis stream or a Google
+  Pub/Sub subscription is read in micro-batches on the pipeline's own
+  schedule, from where the previous run durably loaded: at-least-once, never
+  lost, with the merge target deduplicating a replayed batch. Offsets per
+  partition and sequence numbers per shard live in the platform's own
+  watermark store; nothing is committed to the broker, and a preview moves
+  nothing.
+- **Credentials by name, hosts by allow-list.** The node names the secrets
+  holding its SASL, AWS or service-account credentials, resolved as the owner
+  at run time; a broker not on the sandbox egress allow-list refuses the run
+  before it starts, naming the host.
+
+### Iceberg interop
+
+- **An Iceberg REST catalog becomes lakehouse schemas.** Register a catalog
+  (Lakekeeper, Polaris, Nessie, Glue, Unity Catalog, Snowflake Open Catalog)
+  under **Lakehouse → Iceberg**, mount a namespace, and its tables are
+  read-only views in a schema with an owner and IAM shares — the statement
+  guard, the listing, BI, the analyst and the agents see them like any other
+  table, and nothing is copied. Refresh brings the views level.
+- **Publish and import.** A lakehouse table is written into a catalog namespace
+  as an Iceberg table, or an Iceberg table is imported as a real DuckLake
+  table; both check ownership and audit the catalog, namespace, table and row
+  count. The catalog is probed before it is saved, attaches when the engine
+  boots, and a dead endpoint is noted on its row and retried on a backoff
+  instead of blocking anyone.
+
+### Also
+
+- **The acknowledgements credit what actually runs**: the Python inside the
+  runtime and document images, the DuckDB extensions, the containers beside
+  the app and the sample datasets' provenance, every claim traced to the code
+  that imports the package and every link fetched.
+
+### Upgrading
+
+```bash
+git pull
+npm install
+npx supabase db push                                 # 7 migrations
+docker compose --profile all up -d --build           # rebuilds the notebook runtime image too
+```
+
+The notebook runtime image gained the Kafka, Kinesis and Pub/Sub clients, so
+rebuild it; `--profile all` does. Nine environment variables are new, all
+optional with working defaults, and every one is also a setting under
+**Admin → Developer**: the gateway's rate limit and fallback chain, the
+monitor sweep size and anomaly sigma, the AI SQL call cap, default model
+and cache lifetime, and the document vision model and page cap. The Iceberg
+features need the engine's `iceberg` extension, which the app installs on
+boot; an instance that cannot download it still runs the lakehouse and says
+the extension is missing where a catalog would be used.
+
+## 1.3.0 — 2026-09-05
+
+**The data half grows up, and gets a machine-learning platform on top.** Sixty-two
+commits and 330 files, the largest release since 1.0. AgentSwarms now ships its
+own lakehouse (DuckDB over Parquet in your bucket, with a transactional
+catalog), ETL pipelines that feed it, no-code machine learning that trains on
+it, and decision provenance that ties every answer to the snapshot it read.
+Around those: web-crawl and Confluence knowledge sources, Jira and Zendesk
+datasets, Azure Blob lakes, local embedding models, a production server that
+uses every core, a Kubernetes path proven on a real cluster, backups that prove
+they restore, and a README half the size. Twenty-seven migrations — run
+`npx supabase db push` after upgrading (the setup scripts and the Kubernetes
+installer apply them for you).
+
+### The lakehouse
+
+- **A columnar warehouse built in.** DuckDB as the engine, a Postgres catalog for
+  transactions, zstd Parquet in your own object storage. Compute is per-request
+  and stateless, so replicas behind a load balancer share storage instead of
+  sharding it, and a losing concurrent commit is retried rather than failed.
+  Browse schemas, tables, columns and snapshots under **Data & BI → Lakehouse**;
+  query with governed SQL or plain language; read any table as of a snapshot.
+- **Warehouse features that matter on one node.** Partitioning for scan pruning,
+  a result cache keyed on the catalog snapshot so a write invalidates it rather
+  than a timer, `EXPLAIN` with rows scanned, materialized views rebuilt on a
+  schedule in one commit, memory limits with spill to disk, and hourly
+  compaction that merges small files and expires old snapshots. Mount a data
+  lake as a read-only schema and join raw Parquet, CSV and JSON in place.
+- **One chokepoint for governance.** Every statement is classified and
+  access-checked before the engine sees it, and row filters and column masks
+  are applied by rewriting the query's parse tree, so a CTE or an alias cannot
+  route around them. The lakehouse registers as a warehouse with no credentials
+  to enter, so BI, the AI Analyst and agents reach it immediately.
+- **It says when its data is gone.** A table whose Parquet no longer exists
+  reported its catalogued row count; it now reports the missing files, and a
+  browse renders what a missing file means instead of a raw S3 404.
+
+### ETL pipelines
+
+- **Move data between systems**, under **Data & BI → ETL Pipelines**: a visual
+  canvas with the compiled Python one toggle away, a full code mode, and AI
+  generate and refine on your own model. Object storage, databases,
+  change-data-capture from Postgres logical slots, HTTP APIs, webhook ingest,
+  the lakehouse and custom Python in; object storage, databases, native
+  Snowflake, BigQuery and Databricks, and the lakehouse out, with replace,
+  append and merge.
+- **Operability from the first run.** Cron schedules with real timezone math, a
+  retry ladder with backoff, overlap guards, run chaining, engine-managed
+  incremental watermarks, per-target schema-drift policy, quality gates that
+  fail, warn or drop rows, per-node data preview, version history with
+  restore, and per-pipeline alert policy. Runs execute on the sandboxed
+  runtime; credentials reach process memory only. Every successful load
+  re-crawls its destination so new tables appear everywhere.
+- **Transforms are configured, not hand-typed.** The visual editor's transform
+  nodes take structured input instead of asking for their own syntax, and a
+  failure in the data stack names what went wrong before it costs a run.
+
+### Machine learning
+
+- **No-code models on lakehouse tables**, under **Data & BI → ML Models**. Pick a
+  table and a goal — predict a column, forecast a series, find groups, find
+  anomalies, recommend items — and a sandboxed trainer profiles the data,
+  prepares it (filters, imputation, encoding, free text as features), tries
+  several algorithms under a time budget with optional hyperparameter search,
+  and keeps the best with its metrics, leaderboard, permutation importance and
+  a passport: lakehouse snapshot, decision id, artifact digest.
+- **A registry, not a notebook.** Versions with candidate, production and
+  archived stages; compare versions side by side; a model card assembled from
+  the registry rows; scheduled retraining that promotes only when better; drift
+  measured against the training distribution on every batch, with an alert
+  above a threshold you set; GPUs requested per training job on Docker or
+  Kubernetes.
+- **Used from everywhere.** Batch predictions written back as lakehouse tables,
+  a try-it panel, the `ml_predict` agent tool with notes that say what each
+  column means, forecasts and forecast-basis alerts on BI dashboards through one
+  shared forecaster, and a scoped public API with per-model `mlk_` keys.
+- **The trainer says when a score could mislead.** Possible leakage (a feature
+  that predicts the target on its own), a lopsided class that makes accuracy a
+  do-nothing baseline, a regression with no signal, a category or time column
+  that would decide a distance alone, an anomaly rate that is a setting, a
+  rating scale used as strength, and forecasts with an incomplete first or last
+  period, empty periods, a one-point holdout or projections below zero. Each
+  warning sits on the version, in the compare view, in the model card and in
+  the agent tool's notes.
+- **A forecast says what a period is.** The period is chosen in the wizard
+  (hourly to quarterly, or inferred), an incomplete last period is dropped, a
+  moving average rivals the flat baseline, and the page, the tool and the API
+  state the period, the aggregation and the method.
+- **Data preparation reaches the lakehouse.** The visual Data Prep studio reads
+  lakehouse tables in place and saves a flow as a lakehouse table (a
+  materialized view on a schedule), which is the way to wrangle a training set.
+
+### Decision provenance
+
+- **One id per answer.** Every chat turn, swarm run and dashboard refresh
+  carries a decision id across the model calls, data reads, cost and approvals
+  it made, plus the lakehouse snapshot it saw, so "where did this number come
+  from?" has one key to assemble.
+- **Take the evidence with you, and check it later.** A signed **Answer
+  Passport** export; **Replay** that re-runs the recorded queries against the
+  original snapshot and against today; and a retention floor so a shorter trace
+  window cannot destroy the evidence.
+- **Replay tells tampering from non-determinism.** It no longer accuses every
+  lakehouse read, measures whether a query answers the same way twice before
+  blaming the record, and answers "does this still hold?" for warehouses that
+  cannot answer "was the record faithful?".
+- **A deleted account cannot rewrite the audit trail.** The hash chain survives
+  user deletion instead of reporting itself broken.
+
+### Knowledge bases and data sources
+
+- **Feed a knowledge base from a website** discovered by sitemap or by following
+  its links, re-checked on a schedule so an edited page is re-embedded and a
+  removed one dropped. No credential needed.
+- **Connect Confluence**, Cloud or Data Center, decided from the host.
+- **See an Azure lake.** Blob Storage and ADLS Gen2 join the S3-compatible
+  stores, with their own signature scheme.
+- **Jira and Zendesk become datasets**, beside Google Sheets, Stripe, Shopify,
+  HubSpot and Salesforce: 29 connectors in all.
+- **Embed with the provider that is connected**, not an operator's OpenAI key,
+  and with local models — Ollama and vLLM at their own vector widths — so an
+  air-gapped install can search its own documents.
+- **Deleting a knowledge base asks first.** Every document, chunk and connected
+  source went on one click; agents wired to the base lost their knowledge in
+  the same instant.
+
+### Governance and security
+
+- **Headless runs read as their owner.** Six reads in the tool registry let a
+  scheduled run see more than the owner could by hand; they are scoped now, and
+  a dashboard's alerts are evaluated as the dashboard's owner.
+- **Agents' warehouse queries are governed and recorded** the way the UI's are:
+  who ran it, against which connection, which tables it touched.
+- **Data Prep sees shared datasets** and bills the warehouse work it runs to the
+  right budget.
+- **A browser cannot switch a destructive button back on.** Every confirmation
+  in the app is enforced server-side.
+
+### Deployment and operations
+
+- **A production server that uses the machine.** `npm start` serves through
+  `server.mjs`, one worker per CPU (`WEB_CONCURRENCY` to override), instead of
+  Vite's single-threaded preview. On an 8-core host SSR went from 19 to 55
+  requests per second.
+- **Kubernetes, proven.** The fully self-hosted path — Supabase as pods, the app,
+  the Office renderer, the JS sandbox, the lakehouse catalog, the cron job —
+  came up on a real cluster, and then on one that is not this laptop; GPU
+  placement and egress for the ML platform included. The runtime doc says
+  plainly that kernel isolation on Kubernetes is the NetworkPolicy.
+- **Spend the machine you bought.** The six compute knobs that lived in three
+  places, two of them constants in TypeScript, are settings under Admin, and
+  the sizing guide says what to set them to for ETL, the lakehouse and ML
+  training.
+- **Backups that prove they restore.** `npm run backup` captures the four
+  stateful things a self-hosted install cannot regenerate — the application
+  database, the lakehouse catalog, the lake bucket, the secrets — and
+  `npm run restore -- <dir> --drill` restores them into a scratch target first.
+- **The egress allow-list is generated, not tracked**, and the Kubernetes proxy
+  config is level with Compose again. CI generates the route tree before
+  type-checking, so it can pass.
+
+### The product's face
+
+- **Session restore**, contributed by @theniteshdev: a tab that closed or
+  crashed mid-work is offered back on the next visit — "We found an unsaved
+  session from your last visit" — with Restore Session and Start Fresh.
+- **The dashboard, the tagline and the README admit the data half.** The
+  landing dashboard counts lakehouse tables, semantic models and dashboards,
+  the tagline reads "unified agentic AI and data platform", and the README is
+  half its previous size with the same screenshots and install guide.
+- **How it is built, in seven chapters** under `docs/engineering/`, and one
+  worked scenario across the whole platform in `docs/END_TO_END_DATA_AND_AI.md`:
+  three systems that disagree about revenue, seven planted defects, and the
+  pipeline, metric, dashboard and policy that catch them.
+
+### Upgrading
+
+```bash
+git pull
+npm install
+npx supabase db push                                 # 27 migrations
+docker compose --profile all up -d --build           # rebuilds the notebook runtime image too
+```
+
+The notebook runtime image gained the machine-learning stack, so rebuild it;
+`--profile all` does. The compose file adds a `lakehouse-catalog` Postgres
+service with its own volume — it is one of the four things `npm run backup`
+captures, so start backing it up. Ten environment variables are new and all
+optional with working defaults: `ETL_TRIGGER_PER_MIN`,
+`PROVENANCE_SIGNING_SECRET` (set it to sign Answer Passports),
+`ML_TRAIN_MAX_ROWS`, `ML_TRAIN_TIME_BUDGET_MINUTES`, `ML_TRAIN_MEM_LIMIT_MB`,
+`ML_MAX_CONCURRENT_TRAININGS_PER_USER`, `ML_PREDICT_MAX_ROWS`,
+`ML_API_RATE_LIMIT_PER_MIN`, `ML_TRAIN_GPUS`, `ML_DRIFT_ALERT_PSI`. The
+generated egress allow-list files are no longer tracked; a working tree that
+showed them as modified will be clean after pulling.
+
+---
+
 ## 1.2.2 — 2026-08-29
 
 **A new default look, and a self-hosted install that actually starts.** Thirty-five

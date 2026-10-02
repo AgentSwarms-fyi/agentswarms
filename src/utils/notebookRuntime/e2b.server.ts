@@ -5,7 +5,12 @@
 // implement create/status/stop/logs against the E2B REST API (or SDK). Until
 // then this backend fails closed with guidance, so selecting backend="e2b"
 // without configuration can't silently no-op.
-import type { KernelSpec, KernelStatus, NotebookOrchestrator } from "./orchestrator";
+import type {
+  KernelSpec,
+  KernelStatus,
+  NotebookOrchestrator,
+  TeardownResult,
+} from "./orchestrator";
 
 export class E2BOrchestrator implements NotebookOrchestrator {
   private guard(): never {
@@ -21,7 +26,7 @@ export class E2BOrchestrator implements NotebookOrchestrator {
   async status(_ref: string): Promise<KernelStatus> {
     this.guard();
   }
-  async stop(_ref: string): Promise<void> {
+  async stop(_ref: string): Promise<TeardownResult> {
     this.guard();
   }
   async logs(_ref: string): Promise<string> {

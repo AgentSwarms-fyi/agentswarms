@@ -3,6 +3,7 @@
 // every model call from execution_traces. Regular users see their own
 // trail; superadmins see all users with emails and can configure the
 // retention window (events are purged hourly past it).
+import { formatUsd } from "@/lib/usd";
 import { useCallback, useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { formatDistanceToNow } from "date-fns";
@@ -20,6 +21,7 @@ import {
   Search,
   Server,
   ShieldCheck,
+  Workflow as WorkflowIcon,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -43,6 +45,7 @@ import {
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/use-auth";
+import { useTokenRef } from "@/hooks/use-token-ref";
 import {
   auditChainVerify,
   auditListEvents,
@@ -87,6 +90,50 @@ const ACTION_META: Record<string, { label: string; className: string }> = {
     label: "API key denied",
     className: "bg-destructive/10 text-destructive",
   },
+  // Orchestration. A workflow starts work across several subsystems on a
+  // schedule or from an API call, which makes "who set this running, and how"
+  // the question an auditor asks first.
+  "workflow.run": {
+    label: "workflow run",
+    className: "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400",
+  },
+  "workflow.run.finished": {
+    label: "workflow finished",
+    className: "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400",
+  },
+  "workflow.run.cancel": {
+    label: "workflow cancelled",
+    className: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
+  },
+  // These three come from the `audit_workflows` DATABASE trigger rather than
+  // from a handler — a direct write to the table cannot dodge them. They are
+  // named here only so the log shows words rather than a slug.
+  "workflow.create": {
+    label: "workflow created",
+    className: "bg-muted text-muted-foreground",
+  },
+  "workflow.update": {
+    label: "workflow edited",
+    className: "bg-muted text-muted-foreground",
+  },
+  "workflow.delete": {
+    label: "workflow deleted",
+    className: "bg-muted text-muted-foreground",
+  },
+  "workflow.trigger_token.rotate": {
+    label: "workflow token minted",
+    className: "bg-muted text-muted-foreground",
+  },
+  "workflow.trigger_token.revoke": {
+    label: "workflow token revoked",
+    className: "bg-muted text-muted-foreground",
+  },
+  // A bearer token refused against a workflow that exists — the same class of
+  // signal as an embed or swarm API key denial, and styled the same way.
+  "workflow.trigger.denied": {
+    label: "workflow trigger denied",
+    className: "bg-destructive/10 text-destructive",
+  },
 };
 
 function actionIcon(action: string) {
@@ -104,6 +151,7 @@ function actionIcon(action: string) {
     case "catalog.crawl":
       return <Radar className="h-3.5 w-3.5" />;
     default:
+      if (action.startsWith("workflow.")) return <WorkflowIcon className="h-3.5 w-3.5" />;
       return <Database className="h-3.5 w-3.5" />;
   }
 }
@@ -113,14 +161,19 @@ function describeDetail(r: AuditRow): string {
   const bits: string[] = [];
   if (typeof d.surface === "string") bits.push(String(d.surface));
   if (typeof d.tokens === "number" && d.tokens > 0) bits.push(`${d.tokens.toLocaleString()} tok`);
-  if (typeof d.cost_usd === "number" && d.cost_usd > 0)
-    bits.push(`$${Number(d.cost_usd).toFixed(4)}`);
+  if (typeof d.cost_usd === "number" && d.cost_usd > 0) bits.push(formatUsd(d.cost_usd));
   if (typeof d.model === "string") bits.push(String(d.model));
   if (Array.isArray(d.tables) && d.tables.length > 0) bits.push(`tables: ${d.tables.join(", ")}`);
   if (typeof d.steps === "number") bits.push(`${d.steps} steps`);
   if (typeof d.rows === "number") bits.push(`${d.rows} rows`);
   if (typeof d.assets === "number") bits.push(`${d.assets} assets`);
   if (typeof d.sql === "string") bits.push(String(d.sql));
+  // Workflow events: how it was started, and how it ended.
+  if (typeof d.trigger === "string") bits.push(`via ${String(d.trigger)}`);
+  if (typeof d.outcome === "string") bits.push(String(d.outcome));
+  if (typeof d.reason === "string") bits.push(String(d.reason));
+  if (typeof d.schedule === "string") bits.push(String(d.schedule));
+  if (Array.isArray(d.kinds) && d.kinds.length > 0) bits.push(d.kinds.join(", "));
   if (d.status === "error") bits.push("ERROR");
   return bits.join(" · ");
 }
@@ -128,6 +181,7 @@ function describeDetail(r: AuditRow): string {
 export function AuditLog() {
   const { session } = useAuth();
   const token = session?.access_token ?? "";
+  const { tokenRef, signedIn } = useTokenRef(token);
   const listFn = useServerFn(auditListEvents);
   const retentionFn = useServerFn(auditSetRetention);
   const verifyFn = useServerFn(auditChainVerify);
@@ -151,6 +205,7 @@ export function AuditLog() {
 
   const load = useCallback(
     async (actionFilter: string) => {
+      const token = tokenRef.current;
       if (!token) return;
       setLoading(true);
       try {
@@ -176,13 +231,16 @@ export function AuditLog() {
         setLoading(false);
       }
     },
-    [token, listFn],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [signedIn, listFn],
   );
 
+  // Reloaded when the filter changes, not when the session refreshes (R125):
+  // that put the saved retention back over a number typed but not yet set.
   useEffect(() => {
     void load(action);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, action]);
+  }, [signedIn, action]);
 
   async function saveRetention() {
     const days = Number(retentionInput);
@@ -288,8 +346,13 @@ export function AuditLog() {
                   else if (res.firstBrokenSeq === null)
                     toast.success(`Chain intact — ${res.checked} events verified`);
                   else
+                    // A known benign cause is named when the evidence fits, so
+                    // the reader chases the right thing. Without it, the only
+                    // reading available is "someone tampered with your log".
                     toast.error(
-                      `Chain BROKEN at sequence ${res.firstBrokenSeq} — an event was altered or removed`,
+                      res.likelyCause
+                        ? `Chain BROKEN at sequence ${res.firstBrokenSeq}. ${res.likelyCause}`
+                        : `Chain BROKEN at sequence ${res.firstBrokenSeq} — an event was altered or removed`,
                       { duration: Infinity },
                     );
                 } finally {

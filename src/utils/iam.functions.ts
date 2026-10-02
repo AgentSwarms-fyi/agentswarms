@@ -5,6 +5,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { generateScimToken, hashScimToken, scimTokenPrefix } from "@/lib/scim";
 import { USER_ATTR_TOKEN_RE } from "@/lib/semanticPolicy";
 import { auditEvent } from "@/utils/audit.server";
 import { isBootstrapAdmin, requireSuperadmin } from "@/utils/iam.server";
@@ -61,7 +62,9 @@ export type IamGrantRow = {
     | "integration"
     | "provider_credential"
     | "warehouse_connection"
-    | "saas_connection";
+    | "saas_connection"
+    | "lakehouse_schema"
+    | "ml_model";
   resource_id: string;
   resource_name: string | null; // null = resource was deleted
   resource_owner_id: string | null;
@@ -85,7 +88,9 @@ export type IamResourceOption = {
     | "provider_credential"
     | "warehouse_connection"
     | "saas_connection"
-    | "ai_analyst";
+    | "ai_analyst"
+    | "lakehouse_schema"
+    | "ml_model";
   id: string;
   name: string;
   owner_user_id: string | null;
@@ -714,6 +719,8 @@ export const iamListGrantableResources = createServerFn({ method: "POST" })
       { data: warehouses },
       { data: saasSources },
       { data: analysts },
+      { data: lakehouseSchemas },
+      { data: mlModels },
     ] = await Promise.all([
       supabaseAdmin.from("knowledge_bases").select("id, name, user_id").order("name"),
       supabaseAdmin
@@ -741,6 +748,8 @@ export const iamListGrantableResources = createServerFn({ method: "POST" })
         .order("name"),
       supabaseAdmin.from("saas_connections").select("id, name, provider, user_id").order("name"),
       supabaseAdmin.from("ai_analysts").select("id, name, user_id").order("name"),
+      supabaseAdmin.from("lakehouse_schemas").select("id, name, user_id").order("name"),
+      supabaseAdmin.from("ml_models").select("id, name, user_id").order("name"),
     ]);
     const resources: IamResourceOption[] = [
       ...(kbs ?? []).map((k) => ({
@@ -815,6 +824,22 @@ export const iamListGrantableResources = createServerFn({ method: "POST" })
         id: a.id,
         name: a.name,
         owner_user_id: a.user_id,
+      })),
+      // Sharing a lakehouse schema shares QUERY + WRITE on its tables; the
+      // engine-side chokepoint enforces it on every statement.
+      ...(lakehouseSchemas ?? []).map((l) => ({
+        resource_type: "lakehouse_schema" as const,
+        id: l.id,
+        name: `${l.name} (lakehouse)`,
+        owner_user_id: l.user_id,
+      })),
+      // Sharing a model conveys the right to predict with it and read its
+      // metrics; retraining, promotion and deletion stay with the owner.
+      ...(mlModels ?? []).map((m) => ({
+        resource_type: "ml_model" as const,
+        id: m.id,
+        name: m.name,
+        owner_user_id: m.user_id,
       })),
     ];
     return { ok: true, resources };
@@ -924,6 +949,15 @@ export const iamListGrants = createServerFn({ method: "POST" })
         { name: `${i.provider || i.name} key`, user_id: i.user_id },
       ]),
     );
+    const mlModelIds = (grants ?? [])
+      .filter((g) => g.resource_type === "ml_model")
+      .map((g) => g.resource_id);
+    const { data: mlRows } = mlModelIds.length
+      ? await supabaseAdmin.from("ml_models").select("id, name, user_id").in("id", mlModelIds)
+      : { data: [] as { id: string; name: string; user_id: string }[] };
+    const mlModelById = new Map(
+      (mlRows ?? []).map((m) => [m.id, { name: m.name, user_id: m.user_id }]),
+    );
     const credById = new Map(
       (credRows ?? []).map((c) => [
         c.id,
@@ -949,7 +983,9 @@ export const iamListGrants = createServerFn({ method: "POST" })
                       ? integrationById.get(g.resource_id)
                       : g.resource_type === "provider_credential"
                         ? credById.get(g.resource_id)
-                        : tableById.get(g.resource_id);
+                        : g.resource_type === "ml_model"
+                          ? mlModelById.get(g.resource_id)
+                          : tableById.get(g.resource_id);
         const rf = g.row_filter as { column?: unknown; values?: unknown } | null;
         return {
           id: g.id,
@@ -986,6 +1022,8 @@ export const iamCreateGrant = createServerFn({ method: "POST" })
           "warehouse_connection",
           "saas_connection",
           "ai_analyst",
+          "lakehouse_schema",
+          "ml_model",
         ]),
         resource_id: z.string().uuid(),
         principal_type: z.enum(["user", "group"]),
@@ -1362,6 +1400,90 @@ export const iamDeleteSsoProvider = createServerFn({ method: "POST" })
       action: "iam.sso.delete",
       resourceType: "sso_provider",
       resourceId: data.provider_id,
+    });
+    return { ok: true };
+  });
+
+// --- SCIM provisioning tokens ----------------------------------------------
+// The IdP pushes users and groups to /api/scim/v2 with one of these as a
+// bearer token. The plaintext is returned once from create and never
+// stored; the list shows a stub and when the IdP last synced.
+
+export type IamScimToken = {
+  id: string;
+  label: string;
+  token_prefix: string;
+  created_at: string;
+  last_used_at: string | null;
+  use_count: number;
+  revoked_at: string | null;
+};
+
+export const iamListScimTokens = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) => z.object({ access_token: z.string().min(1) }).parse(input))
+  .handler(async ({ data }): Promise<IamError | { ok: true; tokens: IamScimToken[] }> => {
+    const guard = await requireSuperadmin(data.access_token);
+    if (!guard.ok) return guard;
+    const { data: rows, error } = await supabaseAdmin
+      .from("iam_scim_tokens")
+      .select("id, label, token_prefix, created_at, last_used_at, use_count, revoked_at")
+      .order("created_at", { ascending: false });
+    if (error) return { ok: false, error: error.message };
+    return {
+      ok: true,
+      tokens: (rows ?? []).map((r) => ({ ...r, use_count: Number(r.use_count ?? 0) })),
+    };
+  });
+
+export const iamCreateScimToken = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z.object({ access_token: z.string().min(1), label: z.string().min(1).max(80) }).parse(input),
+  )
+  .handler(async ({ data }): Promise<IamError | { ok: true; id: string; token: string }> => {
+    const guard = await requireSuperadmin(data.access_token);
+    if (!guard.ok) return guard;
+    const token = generateScimToken();
+    const { data: row, error } = await supabaseAdmin
+      .from("iam_scim_tokens")
+      .insert({
+        label: data.label.trim(),
+        token_hash: await hashScimToken(token),
+        token_prefix: scimTokenPrefix(token),
+        created_by: guard.userId,
+      })
+      .select("id")
+      .single();
+    if (error) return { ok: false, error: error.message };
+    auditEvent({
+      userId: guard.userId,
+      actorEmail: guard.email,
+      action: "iam.scim.token.create",
+      resourceType: "scim_token",
+      resourceId: row.id,
+      resourceName: data.label.trim(),
+    });
+    return { ok: true, id: row.id, token };
+  });
+
+export const iamRevokeScimToken = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z.object({ access_token: z.string().min(1), token_id: z.string().uuid() }).parse(input),
+  )
+  .handler(async ({ data }): Promise<IamError | { ok: true }> => {
+    const guard = await requireSuperadmin(data.access_token);
+    if (!guard.ok) return guard;
+    const { error } = await supabaseAdmin
+      .from("iam_scim_tokens")
+      .update({ revoked_at: new Date().toISOString() })
+      .eq("id", data.token_id)
+      .is("revoked_at", null);
+    if (error) return { ok: false, error: error.message };
+    auditEvent({
+      userId: guard.userId,
+      actorEmail: guard.email,
+      action: "iam.scim.token.revoke",
+      resourceType: "scim_token",
+      resourceId: data.token_id,
     });
     return { ok: true };
   });

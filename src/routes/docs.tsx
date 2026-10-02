@@ -1,6 +1,6 @@
 import { createFileRoute, Outlet, useLocation } from "@tanstack/react-router";
 import { SiteFooter, SiteHeader } from "@/components/SiteChrome";
-import { DocsSidebar, DocsToc, DocsTocCompact } from "@/components/docs/DocsShell";
+import { BackToTop, DocsSidebar, DocsToc, DocsTocCompact } from "@/components/docs/DocsShell";
 
 export const Route = createFileRoute("/docs")({
   head: () => ({
@@ -93,6 +93,7 @@ function DocsLayout() {
       <div className="print:hidden">
         <SiteFooter />
       </div>
+      <BackToTop />
     </div>
   );
 }

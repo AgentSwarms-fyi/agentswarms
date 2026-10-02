@@ -1,0 +1,293 @@
+// ML platform, milestone 2: predictions, data preparation, tuning, the agent
+// tool. Pinned here: the session stash now carries a kind and both routes
+// dispatch on it; the program verifies the artifact digest before scoring;
+// a prediction is a data read with a digest while a failure is not; the
+// output table must be owned; the tool re-derives grants on headless runs.
+import { describe, it, expect } from "vitest";
+import { readFileSync, writeFileSync, mkdtempSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { ML_JOB_KEY, ML_TUNINGS, mlJobStashOf } from "@/utils/ml/types";
+import { TRAIN_PY } from "@/utils/ml/pyTrain";
+import { isDataRead } from "@/utils/provenance/actions";
+
+const REPO = path.resolve(__dirname, "../..");
+const rd = (p: string) => readFileSync(path.join(REPO, p), "utf8");
+const MIGRATION = "supabase/migrations/20260855000000_ml_predictions_prep.sql";
+
+describe("the job stash carries a kind", () => {
+  it("defaults to train and recognises predict", () => {
+    expect(mlJobStashOf({ [ML_JOB_KEY]: { job_id: "a" } })).toEqual({ job_id: "a", kind: "train" });
+    expect(mlJobStashOf({ [ML_JOB_KEY]: { job_id: "b", kind: "predict" } })).toEqual({
+      job_id: "b",
+      kind: "predict",
+    });
+    expect(mlJobStashOf({ [ML_JOB_KEY]: { job_id: "c", kind: "other" } })).toEqual({
+      job_id: "c",
+      kind: "train",
+    });
+  });
+
+  it("both runtime routes dispatch on it", () => {
+    const source = rd("src/routes/api/notebook.runtime.source.ts");
+    const result = rd("src/routes/api/notebook.runtime.result.ts");
+    expect(source).toContain('stash.kind === "predict"');
+    expect(source).toContain("mlPredictBundleFor(stash, claims.sub, session?.inputs)");
+    expect(result).toContain("appendPredictionLogs(mlStash.job_id");
+    expect(result).toContain("finalizePrediction(mlStash.job_id, outcome)");
+    // The training callback also names WHICH search worker reported, and
+    // takes that from the session's own stash rather than the request body,
+    // so a worker cannot claim to be a different one than it started as.
+    expect(result).toContain(
+      "finalizeMlJob(mlStash.job_id, outcome, mlStash.shard, mlStash.phase)",
+    );
+    expect(result).not.toContain("if (false as boolean)");
+  });
+});
+
+describe("the program: preparation, tuning, prediction", () => {
+  it("still cannot break the template literal", () => {
+    expect(TRAIN_PY).not.toContain("`");
+    expect(TRAIN_PY).not.toContain("$" + "{");
+  });
+
+  it("applies the declared preparation", () => {
+    expect(TRAIN_PY).toContain("def _source_sql(cfg):");
+    expect(TRAIN_PY).toContain("' WHERE (' + prep['where'].strip() + ')'");
+    expect(TRAIN_PY).toContain("') AS _prep'");
+    expect(TRAIN_PY).toContain("class_weight=cw");
+    expect(TRAIN_PY).toContain("prep.get('target_clip')");
+    expect(TRAIN_PY).toContain(
+      "OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value=-1)",
+    );
+    expect(TRAIN_PY).toContain("(prep or {}).get('scale', True)");
+  });
+
+  it("tunes the best candidates under the budget and keeps a tuned model only when it wins", () => {
+    // cv=splits, not a fold count of the tuner's own: the search is handed the
+    // SAME splitter the untuned candidates were scored on, so best_score_ and
+    // base_score are the same currency. A tuned model that won by being
+    // measured over 3 folds while its untuned self was measured over one split
+    // would be adopted for the measurement, not the model.
+    expect(TRAIN_PY).toContain("RandomizedSearchCV(pipe, space, n_iter=n_iter, cv=splits");
+    expect(TRAIN_PY).toContain("if _elapsed() > budget * 0.6:");
+    expect(TRAIN_PY).toContain(
+      "better_than_base = score > base_score if higher else score < base_score",
+    );
+    for (const t of ML_TUNINGS) expect(["none", "quick", "thorough"]).toContain(t);
+    // The fold count moved to _cv_plan, so only the trial count is the
+    // tuner's to choose.
+    expect(TRAIN_PY).toContain("n_iter = 6 if mode == 'quick' else 20");
+  });
+
+  it("refuses an artifact whose bytes do not hash to the registry's digest", () => {
+    expect(TRAIN_PY).toContain("def _download_artifact(cfg):");
+    expect(TRAIN_PY).toContain("if sha != cfg['artifact_sha256']:");
+    expect(TRAIN_PY).toContain("Refusing to predict with it");
+  });
+
+  it("prediction re-uses the training feature preparation and writes back through the catalog", () => {
+    // One closure, used for the scored rows AND for the ablated copies an
+    // explanation builds, so an explanation can never be prepared differently
+    // from the prediction it explains.
+    expect(TRAIN_PY).toContain(
+      "return _prepare_x(frame, art['features'], art['dt_cols'], art['num_all'], art['cat'], art.get('text') or [])",
+    );
+    expect(TRAIN_PY).toContain("X = _prep(df)");
+    expect(TRAIN_PY).toContain(
+      "con.execute('CREATE OR REPLACE TABLE ' + fq + ' AS SELECT * FROM _pred')",
+    );
+    expect(TRAIN_PY).toContain("if cfg.get('mode') == 'predict':");
+    expect(TRAIN_PY).toContain("'digest_columns': digest_cols");
+  });
+
+  it("checks its imports before ever calling pip", () => {
+    expect(TRAIN_PY).toContain("def _ensure_packages():");
+    expect(rd("src/utils/ml/train.server.ts")).toContain("return { env, requirements: [] };");
+    expect(rd("src/utils/ml/predict.server.ts")).toContain("return { env, requirements: [] };");
+  });
+
+  it("is valid Python (checked with the interpreter when available)", () => {
+    const probe = spawnSync("python", ["--version"], { encoding: "utf8" });
+    if (probe.status !== 0) return;
+    const dir = mkdtempSync(path.join(tmpdir(), "ml-predict-"));
+    const file = path.join(dir, "train.py");
+    writeFileSync(file, TRAIN_PY + "\n_ML_CONFIG = {}\n");
+    const r = spawnSync(
+      "python",
+      ["-c", "import ast, sys; ast.parse(open(sys.argv[1], encoding='utf-8').read())", file],
+      { encoding: "utf8" },
+    );
+    expect(r.stderr).toBe("");
+    expect(r.status).toBe(0);
+  });
+});
+
+describe("predictions are governed", () => {
+  const migration = rd(MIGRATION);
+  const predict = rd("src/utils/ml/predict.server.ts");
+  const fns = rd("src/utils/ml.functions.ts");
+  // The validation moved into the service both the app and the public API call.
+  const api = rd("src/utils/ml/api.server.ts");
+
+  it("has a table with owner RLS and an owner-of-the-model read policy", () => {
+    expect(migration).toContain("CREATE TABLE public.ml_predictions");
+    expect(migration).toContain('CREATE POLICY "Users manage their own ML predictions"');
+    expect(migration).toContain("m.id = model_id AND m.user_id = auth.uid()");
+    expect(migration).toContain("ADD COLUMN IF NOT EXISTS prep jsonb");
+  });
+
+  it("a successful prediction is a data read with a digest; a failure is not", () => {
+    expect(isDataRead("ml.predict_query")).toBe(true);
+    expect(isDataRead("ml.predict.failed")).toBe(false);
+    expect(isDataRead("ml.predict.cancel")).toBe(false);
+    expect(predict).toContain('action: "ml.predict_query"');
+    expect(predict).toContain("result_digest: digest");
+    expect(predict).toContain("row_cap:");
+    expect(predict).toContain("resultDigest(r.digest_columns, r.digest_rows");
+  });
+
+  it("adopts the caller's decision for an agent turn, mints one otherwise", () => {
+    expect(predict).toContain("const decisionId = args.decisionId ?? row.id;");
+    expect(predict).toContain('const PREDICTION_DECISION_KIND: DecisionKind = "ml_prediction";');
+  });
+
+  it("writes only into a schema the caller owns, never a shared or mounted one", () => {
+    expect(api).toContain("out.user_id !== userId || out.lake_source_id");
+    expect(api).toContain("Predictions can only be written to a lakehouse schema you own");
+    expect(fns).toContain("startBatchPrediction({");
+  });
+
+  it("enforces the operator's prediction row limit before starting a sandbox", () => {
+    expect(api).toContain("if (rows > r.mlPredictMaxRows) {");
+    expect(api).toContain("ML_PREDICT_MAX_ROWS");
+    expect(predict).toContain("export const ML_ROWS_PREDICT_CAP = 200;");
+  });
+
+  it("validates a preparation through the statement guard before training", () => {
+    expect(api).toContain("export async function validateMlPrep(");
+    expect(api).toContain('auditVia: "ml-prep-check"');
+    expect(fns).toContain("validateMlPrep as validatePrep");
+    expect(fns).toContain("if (prep.sql || prep.where) {");
+    expect(fns).toContain("export const mlValidatePrep");
+  });
+
+  it("orphaned prediction runs are swept", () => {
+    expect(rd("src/utils/etl/schedule.server.ts")).toContain("reconcileOrphanedPredictions()");
+  });
+});
+
+describe("the agent tool", () => {
+  const registry = rd("src/utils/tools/registry.server.ts");
+
+  it("is a toolable id, registered only when a model with a production version is usable", () => {
+    expect(registry).toContain('"ml_predict",\n  "memory_remember",');
+    expect(registry).toContain('if (allows("ml_predict")) {');
+    expect(registry).toContain("(m) => m.production_version_id,");
+    expect(registry).toContain('handlers.set("ml_list_models"');
+    expect(registry).toContain('handlers.set("ml_predict"');
+    expect(registry).toContain("enabled.ml = true;");
+    expect(registry).toContain("ml: false,");
+    expect(registry).toContain("ml: boolean;");
+  });
+
+  it("re-derives who may predict from scopeUserId on headless runs", () => {
+    expect(registry).toContain("const mlOwner = ctx.scopeUserId ?? ctx.userId;");
+    expect(registry).toContain("listModelsForUser(c.scopeUserId ?? c.userId)");
+    const headless = rd("src/utils/swarmExecute.server.ts");
+    expect(headless).toContain('"ml_predict",');
+    expect(headless).toContain('"ml_list_models",');
+  });
+
+  it("audits through the prediction service with the turn's decision id", () => {
+    // The scoring lives in runMlPredict now (shared with the canvas's Score
+    // with model node — mlScoreNode.test.ts); the handler hands it the turn's
+    // context, and the function threads the decision id through.
+    expect(registry).toContain('via: "agent_tool"');
+    expect(registry).toContain("decisionId: ctx.decisionId ?? null,");
+    expect(registry).toContain("ml_predict scores rows with a trained model from the registry");
+  });
+
+  it("is offered in the agent form and the swarm node inspector", () => {
+    expect(rd("src/components/agents/AgentForm.tsx")).toContain('id: "ml_predict"');
+    expect(rd("src/components/swarms/NodeInspector.tsx")).toContain('id: "ml_predict"');
+  });
+});
+
+describe("the UI carries the new controls", () => {
+  it("the wizard offers preparation and tuning, and sends them", () => {
+    const wizard = rd("src/routes/_authenticated/ml_.new.tsx");
+    expect(wizard).toContain("<PrepOptions");
+    expect(wizard).toContain("prep: Object.keys(prep).length ? prep : undefined,");
+    expect(wizard).toContain("tuning,");
+  });
+
+  it("the model page has a Predictions tab and tuning on retrain", () => {
+    const detail = rd("src/routes/_authenticated/ml_.$modelId.tsx");
+    expect(detail).toContain('<TabsTrigger value="predictions">Predictions</TabsTrigger>');
+    expect(detail).toContain(
+      "<PredictionsPanel token={token} model={model} versions={versions} shared={shared} />",
+    );
+    expect(detail).toContain("tuning,\n        },");
+  });
+
+  it("the try-it form and batch dialog go through the app's own dialogs", () => {
+    const panel = rd("src/components/ml/PredictionsPanel.tsx");
+    expect(panel).toContain("await confirmAsk(");
+    expect(panel).not.toMatch(/\bwindow\.confirm\(/);
+  });
+});
+
+describe("the agent tool explains what it returns", () => {
+  it("keeps every column a person would ask about, not only the label", () => {
+    const registry = rd("src/utils/tools/registry.server.ts");
+    // The handler is a one-line delegation; the scoring — and the column
+    // list — live in the exported runMlPredict.
+    const start = registry.indexOf("export async function runMlPredict(");
+    const block = registry.slice(start, registry.indexOf("\nexport ", start + 10));
+    for (const col of [
+      '"anomaly_score"',
+      '"distance"',
+      '"scores"',
+      '"cold_start"',
+      '"probability"',
+    ]) {
+      expect(block, col).toContain(col);
+    }
+    expect(block).toContain("...mlPredictionNotes(model.task, version.metrics, predictions),");
+    expect(block).toContain("...versionCaveats(version.warnings),");
+  });
+
+  it("tells the model the category list is a sample, so it passes real values through", () => {
+    const registry = rd("src/utils/tools/registry.server.ts");
+    const start = registry.indexOf('handlers.set("ml_list_models"');
+    const block = registry.slice(start, registry.indexOf('handlers.set("ml_predict"', start));
+    expect(block).toContain("category_count: e.categories?.length,");
+    expect(block).toContain(
+      "pass the real value for any categorical feature, including one not listed",
+    );
+  });
+
+  it("describes the predicted groups from the version's profiles", async () => {
+    const { mlPredictionNotes } = await import("@/utils/tools/registry.server");
+    const notes = mlPredictionNotes(
+      "clustering",
+      {
+        clusters: [
+          { cluster: 0, size: 752, share: 0.8995, profile: { plan: "free", net_usd: 492.29 } },
+          { cluster: 1, size: 84, share: 0.1005, profile: { plan: "enterprise", net_usd: 453.93 } },
+        ],
+      },
+      [{ prediction: 1, distance: 4.9 }],
+    );
+    expect(notes[0]).toContain("distance is how far the row sits");
+    // Only the group that was predicted is described; the other stays out of the model's way.
+    expect(notes.some((n) => n.startsWith("Group 1: 84 training rows (10.1%)"))).toBe(true);
+    expect(notes.some((n) => n.startsWith("Group 0:"))).toBe(false);
+    expect(notes.find((n) => n.startsWith("Group 1"))).toContain("plan enterprise, net_usd 453.93");
+    expect(mlPredictionNotes("anomaly", {}, [])[0]).toContain("above 0 is flagged");
+    expect(mlPredictionNotes("classification", {}, [])[0]).toContain("proba_<class>");
+    expect(mlPredictionNotes("recommendation", {}, [])[0]).toContain("cold_start true");
+  });
+});

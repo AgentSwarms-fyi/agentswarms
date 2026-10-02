@@ -19,7 +19,7 @@ import {
   hashMcpApiKey,
   mcpKeyPrefix,
 } from "@/utils/mcpApps/keys";
-import { MCP_PROTOCOL_VERSION, parseJsonOrSse } from "@/utils/mcpApps/protocol";
+import { MCP_PROTOCOL_VERSION, readRpcBody, rpcFailure } from "@/utils/mcpApps/protocol";
 import { templateById } from "@/lib/mcpTemplates";
 
 type Fail = { ok: false; error: string };
@@ -359,45 +359,58 @@ export const mcpAppTest = createServerFn({ method: "POST" })
       "MCP-Protocol-Version": MCP_PROTOCOL_VERSION,
     };
     const url = `${started.endpoint}${MCP_SERVICE_PATH}`;
-    const init = await fetch(url, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        method: "initialize",
-        params: {
-          protocolVersion: MCP_PROTOCOL_VERSION,
-          capabilities: {},
-          clientInfo: { name: "agentswarms-test-console", version: "1.0.0" },
-        },
-      }),
-      signal: AbortSignal.timeout(20_000),
-    });
-    const sid = init.headers.get("Mcp-Session-Id");
-    await init.text().catch(() => "");
-    const withSession = sid ? { ...headers, "Mcp-Session-Id": sid } : headers;
-    await fetch(url, {
-      method: "POST",
-      headers: withSession,
-      body: JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized", params: {} }),
-      signal: AbortSignal.timeout(10_000),
-    }).catch(() => null);
+    // Every read stops at the answer (R98): a server may keep a request's
+    // stream open after replying, and reading it to the end held this call
+    // until the 60s timer threw, for an answer that took milliseconds.
+    // A throw here also reached the page as a rejection nobody caught, so the
+    // console sat on its spinner for good. Failures are answers now.
+    let step = "initialize";
+    let waited = 20_000;
+    try {
+      const init = await fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: {
+            protocolVersion: MCP_PROTOCOL_VERSION,
+            capabilities: {},
+            clientInfo: { name: "agentswarms-test-console", version: "1.0.0" },
+          },
+        }),
+        signal: AbortSignal.timeout(waited),
+      });
+      const sid = init.headers.get("Mcp-Session-Id");
+      await readRpcBody(init).catch(() => null);
+      const withSession = sid ? { ...headers, "Mcp-Session-Id": sid } : headers;
+      await fetch(url, {
+        method: "POST",
+        headers: withSession,
+        body: JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized", params: {} }),
+        signal: AbortSignal.timeout(10_000),
+      }).catch(() => null);
 
-    const res = await fetch(url, {
-      method: "POST",
-      headers: withSession,
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: 2,
-        method: "tools/call",
-        params: { name: data.tool, arguments: data.args ?? {} },
-      }),
-      signal: AbortSignal.timeout(60_000),
-    });
-    const parsed = parseJsonOrSse(await res.text(), res.headers.get("content-type") ?? "");
-    if (parsed?.error?.message) return { ok: false, error: parsed.error.message };
-    return { ok: true, result: parsed?.result ?? parsed };
+      step = "tools/call";
+      waited = 60_000;
+      const res = await fetch(url, {
+        method: "POST",
+        headers: withSession,
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 2,
+          method: "tools/call",
+          params: { name: data.tool, arguments: data.args ?? {} },
+        }),
+        signal: AbortSignal.timeout(waited),
+      });
+      const parsed = (await readRpcBody(res)).message;
+      if (parsed?.error?.message) return { ok: false, error: parsed.error.message };
+      return { ok: true, result: parsed?.result ?? parsed };
+    } catch (e) {
+      return { ok: false, error: rpcFailure(step, e, waited) };
+    }
   });
 
 // ── Keys and exposure ───────────────────────────────────────────────────────

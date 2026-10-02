@@ -67,7 +67,7 @@ function DataPage() {
       <DocsHeader
         eyebrow="Data & analytics"
         title="Data Catalog & SQL"
-        description="Everything tabular: uploaded files, 22 databases and warehouses, 5 app sources, the catalog that describes them, and the workbench that queries them."
+        description="Everything tabular: uploaded files, 22 databases and warehouses, 17 app sources, the catalog that describes them, and the workbench that queries them."
       />
 
       <P>
@@ -100,7 +100,7 @@ function DataPage() {
             <strong key="c">Connect an app</strong>,
             "Pulled into local datasets on a schedule",
             "As fresh as the sync interval",
-            "Stripe, Shopify, HubSpot, Salesforce, Google Sheets — SaaS tools with no query language of their own.",
+            "Stripe, Shopify, HubSpot, Salesforce, Jira, Zendesk, Google Sheets — SaaS tools with no query language of their own.",
           ],
           [
             <strong key="d">Crawl a bucket</strong>,
@@ -237,7 +237,7 @@ function DataPage() {
         ]}
       />
 
-      <Callout kind="info" title="Nine more databases use exactly the fields above">
+      <Callout kind="info" title="Ten more databases use exactly the fields above">
         Most &ldquo;new databases&rdquo; are not new protocols. Each of these is a first-class entry
         in the picker with its own name, logo and default port, but it speaks a wire protocol we
         already support, so it takes the same fields and shares the same proven driver:
@@ -500,13 +500,24 @@ function DataPage() {
         ]}
       />
 
-      <H3 id="c-other">Object stores and lakehouse catalogs</H3>
+      <H3 id="c-other">Object stores and external table catalogs</H3>
+      <Callout kind="why" title="Three different things are called a catalog">
+        The word does a lot of work in this business, so: the <strong>Data Catalog</strong> is this
+        page — an inventory of every dataset you can reach, with its columns, tags and profile. An{" "}
+        <strong>external table catalog</strong> is somebody else&apos;s metadata service — Iceberg
+        REST, Unity, Polaris, Nessie — which you connect as a source here. And the{" "}
+        <strong>lakehouse catalog</strong> (<C>LAKEHOUSE_CATALOG_URL</C>) is the Postgres the
+        built-in lakehouse keeps its own table manifests and snapshots in; it is machinery, not an
+        inventory, and you never browse it. The first describes data for people; the third is what
+        makes the Parquet in your bucket queryable at all.
+      </Callout>
       <P>
-        S3, Cloudflare R2, MinIO, DigitalOcean Spaces, Backblaze B2, GCS over its S3 API and any
-        other S3-compatible endpoint are added as <strong>catalog sources</strong> through{" "}
-        <strong>Data Catalog → Add source</strong>. A crawl lists the bucket, groups a folder of
-        same-format files into one dataset, and records each file&rsquo;s columns. Iceberg REST and
-        Unity Catalog are connected for metadata only.
+        S3, Cloudflare R2, MinIO, DigitalOcean Spaces, Backblaze B2, GCS over its S3 API, any other
+        S3-compatible endpoint, and Azure Blob Storage / ADLS Gen2 (account key or SAS token) are
+        added as <strong>catalog sources</strong> through <strong>Data Catalog → Add source</strong>
+        . A crawl lists the bucket, groups a folder of same-format files into one dataset, and
+        records each file&rsquo;s columns. Iceberg REST and Unity Catalog are connected for metadata
+        only.
       </P>
       <P>
         <strong>Parquet, CSV, JSON, NDJSON and ORC files are queryable.</strong> Press{" "}
@@ -515,6 +526,11 @@ function DataPage() {
         extension, so <C>data/orders.parquet</C> is <C>orders</C>; a partitioned folder{" "}
         <C>sales/*.parquet</C> is <C>sales</C>. Files in the same bucket can be joined, including
         across formats — a Parquet fact table against a CSV lookup is an ordinary query.
+      </P>
+      <P>
+        In the Workbench, <strong>Run Query</strong> and Ctrl+Enter (⌘+Enter on a Mac) run one query
+        at a time. A second press while one runs is ignored, so a query is never sent, kept in
+        Recent queries, or audited twice for one double press.
       </P>
       <Table
         headers={["Format", "Schema", "Query", "Notes"]}
@@ -674,12 +690,75 @@ function DataPage() {
         self-hosted deployment behind a firewall may not have, so each connector uses the vendor's
         server-to-server credential instead.
       </P>
-      <Callout kind="warn" title="A sync replaces its dataset">
-        That is the right semantic for a source whose rows are edited and deleted in place — an
+      <P>
+        Syncs run on demand or hourly / daily / weekly, and you are notified if one fails or comes
+        back partial.
+      </P>
+
+      <H3 id="apps-incremental">Following a source instead of re-reading it</H3>
+      <P>
+        A sync does one of two things, and the <strong>Streams</strong> button on a connection says
+        which for every stream it syncs.
+      </P>
+      <P>
+        <strong>Full refresh</strong> re-reads the source and replaces the dataset — the right
+        semantic where rows are edited and deleted in place with nothing to filter on, because an
         append would resurrect deleted rows for ever. The previous contents are snapshotted as a
-        restorable version first, so a sync that pulls a truncated source is recoverable. Syncs run
-        on demand or hourly / daily / weekly, and you are notified if one fails or comes back
-        partial.
+        restorable version first, so a sync that pulls a truncated source is recoverable.
+      </P>
+      <P>
+        <strong>Incremental</strong> asks the API for records changed since the last sync and folds
+        them into the dataset by key. Salesforce, Shopify, HubSpot, Jira, ServiceNow and GitHub
+        follow every stream they offer, as do Linear and Asana; Stripe follows its six immutable
+        object types; Zendesk follows tickets and users; Intercom follows contacts and
+        conversations; Freshdesk follows tickets and contacts; Klaviyo and Notion follow everything
+        they offer, and GA4 follows every report on its date. Everything else is a full refresh —
+        Zendesk has no incremental export for organizations, Intercom none for admins, Freshdesk
+        none for companies or agents, and neither a Google Sheets worksheet nor an Airtable table
+        has a timestamp to follow at all.
+      </P>
+      <Callout kind="why" title="GA4 is measured, not fetched">
+        Every other app source syncs records. GA4 has none: you ask for dimensions and metrics over
+        a date range and get aggregated rows back. So a stream is a report, the cursor is a date,
+        and the key is the dimension tuple. GA4 also <strong>restates recent days</strong> as late
+        data arrives, so each run re-reads the previous fortnight and replaces those days — trusting
+        the first figure would leave a dashboard permanently understated with nothing to show for
+        it.
+      </Callout>
+      <Callout kind="warn" title="Each API is asked in its own dialect">
+        Jira and ServiceNow page by offset, so both are ordered oldest-first: newest-first meant a
+        record edited mid-sync shifted every later page down one and a row was skipped per edit.
+        HubSpot&apos;s list endpoint cannot filter by date at all, so following it means searching —
+        and search stops paging at 10,000 results, so the query is reissued from the last timestamp
+        rather than paged further. Zendesk&apos;s export walks a time-ordered log where an empty
+        page is a quiet hour, not the end. Intercom&apos;s cursor is Unix seconds and compares
+        numerically, because as text &ldquo;9…&rdquo; beats &ldquo;10…&rdquo;.
+      </Callout>
+      <Callout kind="why" title="Why some Stripe objects are deliberately not followed">
+        <C>customers</C>, <C>subscriptions</C>, <C>products</C> and <C>prices</C> are edited in
+        place while their <C>created</C> never moves, so following it would miss every edit. They
+        are few enough that re-reading costs little, and correctness is worth more than the saving.
+        Salesforce follows <C>SystemModstamp</C> rather than <C>LastModifiedDate</C> for the same
+        reason: LastModifiedDate reflects user edits only, while SystemModstamp also moves on a
+        merge, a cascade or a bulk update.
+      </Callout>
+      <P>
+        The first pass has no high-water mark, so it reads everything and <strong>replaces</strong>:
+        merging a full read into a stale dataset would leave rows the source has since deleted, for
+        ever. The mark is written only after the rows are committed — advanced first and then lost
+        to a failed sync, the next run would skip that whole window and nothing would say so.
+      </P>
+
+      <H3 id="apps-start-over">Starting a stream over</H3>
+      <P>
+        <strong>Streams → Start over</strong> forgets the high-water mark, so the next sync reads
+        that stream in full. It is the escape hatch for what a cursor cannot see: records the API
+        changed without moving their cursor field, or a backfill predating the connection.
+      </P>
+      <Callout kind="warn" title="Starting over is the owner's to decide">
+        Unlike triggering a sync, it is owner-only and written to the audit log. A full re-read is
+        charged to the owner&apos;s API quota and can take hours on a large account, so somebody the
+        source is shared with cannot spend that on their behalf.
       </Callout>
 
       {/* ── RELIABILITY ── */}
@@ -747,11 +826,15 @@ function DataPage() {
           ],
           [
             "Lineage",
-            "What a dataset came from and what depends on it — prep flows, dashboards, metrics. Check before changing or deleting anything.",
+            "What a dataset came from and what depends on it — prep flows, dashboards, metrics — down to the column: which source columns fed each column of a pipeline's target or a SQL model, with steps the tracer cannot read marked. Check before changing or deleting anything.",
           ],
           [
             "Business glossary",
             'Define terms once ("active customer") and attach them to columns so the definition travels with the data.',
+          ],
+          [
+            "Column tags",
+            "Tag a column pii or a table restricted in the asset drawer, and a lakehouse tag policy masks or filters it everywhere the tag appears — one rule, not one per table.",
           ],
           [
             "Change detection",
@@ -803,7 +886,14 @@ ORDER  BY 1;`}</Code>
         &ldquo;what percentage of total sales does each region account for?&rdquo; could return a
         different answer in the workspace than on a schedule — and did so <em>silently</em>: a
         running total came back as zero for every row rather than erroring. Window functions, CTEs
-        and correlated subqueries all work now, and they behave identically wherever they run.
+        and correlated subqueries all work now, and they behave identically wherever they run. Every
+        engine also runs in <strong>UTC</strong>, whatever your browser&apos;s or the server&apos;s
+        time zone, so <code>current_date</code> and a timestamp cast to a date name the same day in
+        the workbench as on a schedule. Dates and timestamps come back written the same way from
+        both, <code>2022-01-04</code> and <code>2022-01-01 00:00:00</code>, in the results grid and
+        in exports. Both are DuckDB 1.5, the browser&apos;s 1.5.4 and the server&apos;s 1.5.5, and a
+        test holds them to the same line and the same result types, so <code>date_trunc</code> on a
+        timestamp is a timestamp in both, and a chart draws the same axis from either.
       </Callout>
       <H3 id="workbench-first-query">The first query in a session is slower</H3>
       <P>
@@ -816,6 +906,11 @@ ORDER  BY 1;`}</Code>
         <li>
           It starts <strong>as soon as you open a data page</strong>, not when you press Run, so it
           usually finishes while you are still choosing a table.
+        </li>
+        <li>
+          Your datasets are loaded into it the same way. A query run before they are all in waits
+          for them, so it answers over every row rather than the ones loaded so far, and never says
+          a table that is on its way does not exist. Its time includes that wait.
         </li>
         <li>
           It downloads <strong>once per browser</strong>, not per query, per dataset or per tab.
@@ -933,6 +1028,63 @@ ORDER  BY 1;`}</Code>
             "It did arithmetic itself",
             "Enable the calculator tool and set temperature to 0.",
           ],
+        ]}
+      />
+
+      <H2 id="use-cases">Use cases</H2>
+      <H3 id="use-case-warehouse">The production warehouse, handed to the team</H3>
+      <Steps
+        items={[
+          {
+            title: "Integrations → Data Sources → new connection",
+            body: (
+              <>
+                Name it, pick the provider, enter a read-only login, test. The credential is
+                encrypted at rest under <C>PROVIDER_CREDS_SECRET</C> and never shown again.
+              </>
+            ),
+          },
+          {
+            title: "Admin → IAM → Access → share it with a group",
+            body: "The connection runs as its owner; grantees query without ever holding the credential. Rows returned to an agent are capped, so a runaway SELECT * cannot flood a context window.",
+          },
+        ]}
+      />
+      <H3 id="use-case-azure">Catalog an Azure container</H3>
+      <Steps
+        items={[
+          {
+            title: "Data catalog → add a source → Azure Blob Storage / ADLS Gen2",
+            body: "Container, storage account name, and an account key or SAS token.",
+          },
+          {
+            title: "Read in place, or mount",
+            body: (
+              <>
+                Files are read with DuckDB over <C>az://</C>; mount the container into the lakehouse
+                as a read-only source when agents should query it with SQL.
+              </>
+            ),
+          },
+        ]}
+      />
+      <H3 id="use-case-jira">Ask an agent about Jira, or Zendesk</H3>
+      <Steps
+        items={[
+          {
+            title: "Integrations → Apps → Jira",
+            body: (
+              <>
+                Site URL, account email, API token, optional project keys. Each project becomes a
+                stream (<C>issues:KEY</C>) that syncs into a local table on a schedule. Zendesk
+                works the same way and exposes tickets, users and organizations.
+              </>
+            ),
+          },
+          {
+            title: "Give an agent the synced tables as a source",
+            body: "Which open bugs in PROJ are older than thirty days? The answer comes from your copy of the data, on your schedule, with the same provenance as any other read.",
+          },
         ]}
       />
 

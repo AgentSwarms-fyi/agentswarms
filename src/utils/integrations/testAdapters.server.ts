@@ -12,6 +12,7 @@
 // client routes, so it dynamic-imports this one inside handlers (same pattern
 // it already used for the SSRF guard).
 
+import { formatUsd } from "@/lib/usd";
 import { safeFetch } from "@/utils/ssrfGuard.server";
 
 export type TestResult =
@@ -216,7 +217,7 @@ async function testOpenRouter(cfg: Record<string, string>): Promise<TestResult> 
       data?: { label?: string; usage?: number; limit?: number | null };
     } | null;
     const label = j?.data?.label ? ` (${j.data.label})` : "";
-    const usage = typeof j?.data?.usage === "number" ? ` — used $${j.data.usage.toFixed(4)}` : "";
+    const usage = typeof j?.data?.usage === "number" ? ` — used ${formatUsd(j.data.usage)}` : "";
     return { ok: true, detail: `Authenticated with OpenRouter${label}${usage}` };
   }
   const upstream = await extractUpstreamError(r);

@@ -1,0 +1,849 @@
+# The optional services, as their own Deployments.
+#
+# Each of these is a separate container in Compose behind a profile, and each
+# becomes its own Deployment + Service here — the app finds them by service
+# name, so the addresses below match the Compose defaults and need no extra
+# configuration. Apply only the ones whose feature you want:
+#
+#   kubectl apply -f deploy/k8s/app/services.yaml
+#
+# The notebook runtime is NOT here: it needs a namespace, RBAC, a quota and a
+# NetworkPolicy of its own, and lives in deploy/k8s/notebooks/.
+#
+# WHAT EACH ONE COSTS YOU IF IT IS ABSENT — none of them break the platform:
+#
+#   docgen           Deep-mode PowerPoint / Word / Excel export. Without it,
+#                    Agent Chat falls back to the in-browser builder.
+#   js-sandbox       Function and custom-component nodes in DEPLOYED and
+#                    SCHEDULED swarm runs. Without it those nodes are
+#                    canvas-only.
+#   lakehouse-catalog  The lakehouse. Without it the Lakehouse page says it is
+#                    not configured rather than half-working.
+#
+# ── ADD THESE TO THE SECRET BEFORE APPLYING ─────────────────────────────────
+#
+# docker-compose fills several variables with `${VAR:-default}`. Kubernetes has
+# no equivalent, so a Secret built from a .env that relies on those defaults is
+# simply missing them, and the pod fails with
+# `couldn't find key … in Secret` — which names the key but not the reason.
+#
+#   INTERNAL_RUN_SECRET         js-sandbox. Compose defaults it to the
+#                               service-role key; set it explicitly here.
+#   LAKEHOUSE_CATALOG_PASSWORD  the catalog. Compose defaults it to
+#                               "change-me". There is deliberately no default
+#                               here: silently standing up a database on a
+#                               well-known password is worse than not starting.
+#
+# DOCGEN_TOKEN and OPENROUTER_API_KEY are marked optional below, so their
+# absence degrades a feature rather than stopping a pod.
+---
+# ── Office renderer ─────────────────────────────────────────────────────────
+# Stateless and bursty: it renders a document and forgets it.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agentswarms-docgen
+  namespace: agentswarms
+  labels:
+    app.kubernetes.io/name: agentswarms
+    app.kubernetes.io/component: docgen
+spec:
+  # Stateless, so two costs little and removes a whole class of outage: with
+  # one replica every Office export fails for as long as the pod is restarting
+  # or its node is draining.
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agentswarms
+      app.kubernetes.io/component: docgen
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: agentswarms
+        app.kubernetes.io/component: docgen
+    spec:
+      automountServiceAccountToken: false
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: agentswarms
+              app.kubernetes.io/component: docgen
+      securityContext:
+        # Meets the `baseline` Pod Security Standard. It cannot meet
+        # `restricted`, which also demands runAsNonRoot — see the note on the
+        # container below. On a cluster that enforces `restricted` namespace-
+        # wide, this is the one pod that needs the image fixed first, or its
+        # own namespace at `baseline`.
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: docgen
+          image: agentswarms/docgen:latest
+          # REQUIRED, not decoration: a `:latest` tag defaults to
+          # imagePullPolicy: Always, so Kubernetes ignores the image you built
+          # locally and tries Docker Hub — ImagePullBackOff on a cluster where
+          # the image was sitting there all along. Pin a digest or a real
+          # version tag when you publish to a registry.
+          imagePullPolicy: IfNotPresent
+          # NOTE: this image currently runs as root, so no runAsNonRoot here —
+          # asserting it would leave the pod in CreateContainerConfigError.
+          # Fixing the image is tracked; until then the container at least
+          # drops capabilities and cannot escalate.
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+          ports:
+            - name: http
+              containerPort: 8099
+          env:
+            # LibreOffice renders into a temp directory, so no read-only root
+            # filesystem here without mapping every path it uses.
+            - name: DOCGEN_TOKEN
+              valueFrom:
+                secretKeyRef: { name: agentswarms-env, key: DOCGEN_TOKEN, optional: true }
+            - name: OPENROUTER_API_KEY
+              valueFrom:
+                secretKeyRef: { name: agentswarms-env, key: OPENROUTER_API_KEY, optional: true }
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { cpu: "1", memory: 2Gi }
+          livenessProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 20
+            failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: docgen
+  namespace: agentswarms
+spec:
+  selector:
+    app.kubernetes.io/name: agentswarms
+    app.kubernetes.io/component: docgen
+  ports:
+    - name: http
+      port: 8099
+      targetPort: http
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: agentswarms-docgen
+  namespace: agentswarms
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agentswarms
+      app.kubernetes.io/component: docgen
+---
+# ── JS sandbox ──────────────────────────────────────────────────────────────
+# This one runs USER-SUPPLIED JavaScript, so it gets the strictest posture in
+# the file: non-root (which its image already is), read-only root filesystem,
+# no capabilities, no privilege escalation, and — below — a NetworkPolicy that
+# denies it egress entirely.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agentswarms-js-sandbox
+  namespace: agentswarms
+  labels:
+    app.kubernetes.io/name: agentswarms
+    app.kubernetes.io/component: js-sandbox
+spec:
+  # Stateless per call — it runs a snippet and forgets it — so two replicas
+  # keep every JavaScript tool call working through a restart or a drain.
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agentswarms
+      app.kubernetes.io/component: js-sandbox
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: agentswarms
+        app.kubernetes.io/component: js-sandbox
+    spec:
+      automountServiceAccountToken: false
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: agentswarms
+              app.kubernetes.io/component: js-sandbox
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: js-sandbox
+          image: agentswarms/js-sandbox:latest
+          # See the note on docgen: `:latest` implies Always, which breaks a
+          # locally-built image.
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          ports:
+            - name: http
+              containerPort: 8091
+          env:
+            - name: PORT
+              value: "8091"
+            # The app signs its calls with this; the sandbox refuses anything
+            # unsigned. Same value both sides.
+            - name: INTERNAL_RUN_SECRET
+              valueFrom:
+                secretKeyRef: { name: agentswarms-env, key: INTERNAL_RUN_SECRET }
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { cpu: "1", memory: 512Mi }
+          livenessProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 20
+            failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: js-sandbox
+  namespace: agentswarms
+spec:
+  selector:
+    app.kubernetes.io/name: agentswarms
+    app.kubernetes.io/component: js-sandbox
+  ports:
+    - name: http
+      port: 8091
+      targetPort: http
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: agentswarms-js-sandbox
+  namespace: agentswarms
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agentswarms
+      app.kubernetes.io/component: js-sandbox
+---
+# Untrusted code should not be able to reach anything. Ingress from the app
+# only; egress denied outright — the sandbox has no legitimate reason to open a
+# connection, so this is the network equivalent of its 2-second timeout.
+#
+# Requires a CNI that enforces NetworkPolicy (Calico, Cilium, most managed
+# clusters). Docker Desktop's default CNI does NOT, so this is inert there —
+# check before relying on it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: js-sandbox-isolation
+  namespace: agentswarms
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: agentswarms
+      app.kubernetes.io/component: js-sandbox
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: agentswarms
+      ports:
+        - protocol: TCP
+          port: 8091
+  egress: []
+---
+# ── Lakehouse catalog ───────────────────────────────────────────────────────
+# A StatefulSet, not a Deployment: this holds the DuckLake catalog — schemas,
+# table manifests and snapshots — and it is the one piece of the lakehouse whose
+# loss cannot be recovered from object storage. A Deployment with an emptyDir
+# would lose every table definition on reschedule while the Parquet sat there
+# intact and unreadable.
+#
+# IN PRODUCTION, PREFER MANAGED POSTGRES. Point LAKEHOUSE_CATALOG_URL at RDS /
+# Cloud SQL / Supabase and delete this section. Running your own database is a
+# backup and upgrade commitment, and this one is small enough that the managed
+# option costs little.
+apiVersion: v1
+kind: Service
+metadata:
+  name: lakehouse-catalog
+  namespace: agentswarms
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: agentswarms
+    app.kubernetes.io/component: lakehouse-catalog
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: lakehouse-catalog
+  namespace: agentswarms
+  labels:
+    app.kubernetes.io/name: agentswarms
+    app.kubernetes.io/component: lakehouse-catalog
+spec:
+  serviceName: lakehouse-catalog
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agentswarms
+      app.kubernetes.io/component: lakehouse-catalog
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: agentswarms
+        app.kubernetes.io/component: lakehouse-catalog
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        # The official postgres image starts as root and drops to uid 999
+        # itself. Pinning the user here keeps the data directory's ownership
+        # right across restarts.
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        # runAsNonRoot and seccompProfile are what the `restricted` Pod
+        # Security Standard requires on top of the above. Clusters that enforce
+        # it — a common default on managed platforms — reject the pod at
+        # admission without them, and the message names the policy, not the
+        # field. uid 999 is already non-root, so this asserts what is true.
+        runAsNonRoot: true
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: postgres
+          image: postgres:16
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: lakehouse_catalog
+            - name: POSTGRES_USER
+              value: lakehouse
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: agentswarms-env, key: LAKEHOUSE_CATALOG_PASSWORD }
+            # Postgres refuses to initialise into a non-empty directory, and a
+            # mounted volume has lost+found in it.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { cpu: "2", memory: 2Gi }
+          readinessProbe:
+            exec: { command: ["pg_isready", "-U", "lakehouse", "-d", "lakehouse_catalog"] }
+            periodSeconds: 10
+          livenessProbe:
+            exec: { command: ["pg_isready", "-U", "lakehouse", "-d", "lakehouse_catalog"] }
+            periodSeconds: 20
+            failureThreshold: 5
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 10Gi
+---
+# ── Online feature store (optional: only when FEATURE_STORE_URL names it) ────
+# Valkey, holding a feature view's latest row per key so a prediction answers
+# in milliseconds instead of paying the lakehouse's per-statement cost.
+#
+# ONE REPLICA, AND NO VOLUME, BOTH DELIBERATE. Nothing in here is a source of
+# truth: every key is a copy of a row the lakehouse already holds, and every
+# miss, stale entry or unreachable server falls back to reading it. Losing this
+# pod costs latency until a refresh refills it and costs nothing else, which is
+# why it needs neither a PodDisruptionBudget nor a PersistentVolumeClaim — and
+# why an emptyDir would be a liability rather than a help, since a restored
+# cache the lake never had is worse than an empty one.
+#
+# To share one store across several app replicas, this is already it: the
+# Service below is what FEATURE_STORE_URL should name. For a store that
+# survives its own restart, point that variable at a managed valkey/redis and
+# delete this section.
+apiVersion: v1
+kind: Service
+metadata:
+  name: valkey
+  namespace: agentswarms
+  labels:
+    app.kubernetes.io/name: agentswarms
+    app.kubernetes.io/component: feature-store
+spec:
+  selector:
+    app.kubernetes.io/name: agentswarms
+    app.kubernetes.io/component: feature-store
+  ports:
+    - name: resp
+      port: 6379
+      targetPort: resp
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agentswarms-valkey
+  namespace: agentswarms
+  labels:
+    app.kubernetes.io/name: agentswarms
+    app.kubernetes.io/component: feature-store
+spec:
+  replicas: 1
+  strategy:
+    # Recreate, not RollingUpdate: two pods would each hold half the keys
+    # behind one Service, so a lookup's answer would depend on which one it
+    # reached. Correct either way — a miss falls back — but it would make the
+    # hit rate look inexplicable during every deploy.
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agentswarms
+      app.kubernetes.io/component: feature-store
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: agentswarms
+        app.kubernetes.io/component: feature-store
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: valkey
+          image: valkey/valkey:8.1-alpine
+          args:
+            - valkey-server
+            - --save
+            - ""
+            - --appendonly
+            - "no"
+            - --maxmemory
+            - "256mb"
+            # LRU rather than noeviction: a full store that refuses writes
+            # fails a refresh, while one that drops its coldest keys serves
+            # what it has and sends the rest to the lakehouse.
+            - --maxmemory-policy
+            - allkeys-lru
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          ports:
+            - name: resp
+              containerPort: 6379
+          livenessProbe:
+            tcpSocket: { port: resp }
+            initialDelaySeconds: 5
+            periodSeconds: 20
+          readinessProbe:
+            # The server's own client, so "ready" means "answers commands"
+            # rather than "has an open socket".
+            exec: { command: ["valkey-cli", "ping"] }
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          resources:
+            requests: { cpu: "50m", memory: "128Mi" }
+            # A little above maxmemory, which bounds the DATA rather than the
+            # process: the allocator and the client buffers live on top of it.
+            limits: { cpu: "500m", memory: "384Mi" }
+---
+# ── Qdrant vector store (optional: only when VECTOR_STORE=qdrant) ────────────
+# THREE NODES, and the number is the point.
+#
+# One Qdrant node is a vector index with an outage in it. Three, with a
+# replication factor of two, is one that survives losing a node and survives a
+# rolling node drain — which on a managed cluster happens on somebody else's
+# schedule, not yours.
+#
+# Two settings have to agree or the extra replicas are decoration:
+#
+#   * `replicas: 3` here places the nodes;
+#   * `QDRANT_REPLICATION` on the APP decides how many copies of each shard
+#     Qdrant keeps, and it is read when the collection is FIRST CREATED.
+#
+# A collection created while that said 1 keeps one copy per shard however many
+# nodes join later. Set QDRANT_REPLICATION=2 in the agentswarms-env secret
+# BEFORE the first document is indexed. Admin → Developer runtime → AI services reports
+# the replication the collection ACTUALLY has, so a mismatch is visible rather
+# than assumed; the repair is to drop the collection and Re-index, which costs
+# nothing because Postgres still holds every chunk.
+#
+# Delete this whole section if you use pgvector, which is the default.
+apiVersion: v1
+kind: Service
+metadata:
+  name: qdrant-headless
+  namespace: agentswarms
+  labels:
+    app.kubernetes.io/name: agentswarms
+    app.kubernetes.io/component: qdrant
+spec:
+  # Headless, and load-bearing: cluster members find each other by the stable
+  # per-pod DNS name a headless service publishes. A ClusterIP here would
+  # round-robin the peer traffic and no node would ever form a cluster.
+  clusterIP: None
+  # A joining peer has to be reachable BEFORE it is ready, because becoming
+  # ready is what joining accomplishes.
+  publishNotReadyAddresses: true
+  selector:
+    app.kubernetes.io/name: agentswarms
+    app.kubernetes.io/component: qdrant
+  ports:
+    - name: http
+      port: 6333
+      targetPort: http
+    - name: grpc
+      port: 6334
+      targetPort: grpc
+    - name: p2p
+      port: 6335
+      targetPort: p2p
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: qdrant
+  namespace: agentswarms
+  labels:
+    app.kubernetes.io/name: agentswarms
+    app.kubernetes.io/component: qdrant
+spec:
+  # What the app talks to: QDRANT_URL=http://qdrant:6333. Any node answers any
+  # request — it forwards internally to whichever holds the shard — so a plain
+  # ClusterIP across all three is both the load balancer and the failover.
+  selector:
+    app.kubernetes.io/name: agentswarms
+    app.kubernetes.io/component: qdrant
+  ports:
+    - name: http
+      port: 6333
+      targetPort: http
+    - name: grpc
+      port: 6334
+      targetPort: grpc
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: agentswarms-qdrant
+  namespace: agentswarms
+spec:
+  # TWO, not one. Qdrant's cluster state is Raft: two of three is the quorum,
+  # and a drain that took it down to one would leave the survivor unable to
+  # accept a write it cannot reach consensus on.
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agentswarms
+      app.kubernetes.io/component: qdrant
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: qdrant
+  namespace: agentswarms
+  labels:
+    app.kubernetes.io/name: agentswarms
+    app.kubernetes.io/component: qdrant
+spec:
+  serviceName: qdrant-headless
+  replicas: 3
+  # OrderedReady, the default, stated because it matters here: each node joins
+  # the Raft cluster and becomes ready before the next one starts, so three
+  # pods coming up at once cannot each decide they are the first.
+  podManagementPolicy: OrderedReady
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agentswarms
+      app.kubernetes.io/component: qdrant
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: agentswarms
+        app.kubernetes.io/component: qdrant
+    spec:
+      automountServiceAccountToken: false
+      # Three replicas on one node is one node's worth of availability.
+      # ScheduleAnyway rather than DoNotSchedule so a two-node cluster runs
+      # three pods instead of leaving one Pending for ever.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: agentswarms
+              app.kubernetes.io/component: qdrant
+      securityContext:
+        # The image starts as root and its storage directory is root-owned; the
+        # PVC mounted over that path is not, so fsGroup is what makes the volume
+        # writable by the non-root user this pod actually runs as. Without it
+        # the pod starts and then cannot write a single point.
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        runAsNonRoot: true
+        seccompProfile: { type: RuntimeDefault }
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: qdrant
+          image: qdrant/qdrant:v1.12.4
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+          workingDir: /qdrant
+          # Pod 0 forms the cluster; every other pod joins it. Both pass their
+          # OWN address as --uri, which is how a peer rescheduled onto another
+          # node is still recognised as the same member: the name is the
+          # StatefulSet's stable DNS entry, not the pod IP.
+          #
+          # Pod 0 does NOT re-bootstrap on restart — it reads the cluster it
+          # already belongs to out of its volume — which is what makes this
+          # safe to run on every start rather than once.
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -e
+              PEER="http://${HOSTNAME}.qdrant-headless:6335"
+              if [ "${HOSTNAME##*-}" = "0" ]; then
+                exec ./qdrant --uri "$PEER"
+              fi
+              exec ./qdrant --bootstrap "http://qdrant-0.qdrant-headless:6335" --uri "$PEER"
+          ports:
+            - name: http
+              containerPort: 6333
+            - name: grpc
+              containerPort: 6334
+            - name: p2p
+              containerPort: 6335
+          env:
+            - name: QDRANT__CLUSTER__ENABLED
+              value: "true"
+            - name: QDRANT__CLUSTER__P2P__PORT
+              value: "6335"
+            # OPTIONAL, and it has to be. A key set to the EMPTY string turns
+            # API-key auth ON with an empty key, and every request without one
+            # is then rejected — a cluster that refuses to work and blames your
+            # credentials for it. `optional: true` omits the variable when the
+            # secret has no such key, which leaves auth off. Set it, and set
+            # QDRANT_API_KEY on the app to the same value.
+            - name: QDRANT__SERVICE__API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: agentswarms-env
+                  key: QDRANT__SERVICE__API_KEY
+                  optional: true
+          volumeMounts:
+            - name: storage
+              mountPath: /qdrant/storage
+          resources:
+            # An HNSW index wants RAM, and wanting it somewhere that is not your
+            # database's buffer pool is the whole reason to run this. Size the
+            # limit to the index: roughly 4 bytes × 1536 dimensions × chunks,
+            # plus the graph on top.
+            requests: { cpu: 250m, memory: 1Gi }
+            limits: { cpu: "2", memory: 4Gi }
+          # /readyz means "in the cluster and able to serve"; /livez only means
+          # the process is up. Using the second for both would keep sending
+          # traffic to a node that is still catching up.
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            httpGet: { path: /livez, port: http }
+            periodSeconds: 20
+            failureThreshold: 5
+          startupProbe:
+            httpGet: { path: /livez, port: http }
+            periodSeconds: 5
+            # Loading a large index off disk is minutes, not seconds, and a
+            # liveness probe that fires during it restarts the pod for ever.
+            failureThreshold: 60
+  volumeClaimTemplates:
+    - metadata:
+        name: storage
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 20Gi
+---
+# ── Object store for the lakehouse ───────────────────────────────────────────
+# The catalog above records which Parquet files make up a table; the files
+# themselves live here. Both are installed, because a catalog with nowhere to
+# write is a lakehouse that fails on its first table.
+#
+# Replace it with the object store you already run — S3, GCS, R2, a MinIO
+# cluster — by pointing LAKEHOUSE_S3_ENDPOINT / _KEY_ID / _SECRET in the
+# agentswarms-env secret at that instead and deleting this section. One node
+# is not high availability; for that, run MinIO's own operator or a managed
+# bucket. What it IS, is a lakehouse that works the minute the install ends.
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+  namespace: agentswarms
+  labels:
+    app.kubernetes.io/name: agentswarms
+    app.kubernetes.io/component: object-store
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: agentswarms
+    app.kubernetes.io/component: object-store
+  ports:
+    - name: s3
+      port: 9000
+      targetPort: s3
+    - name: console
+      port: 9001
+      targetPort: console
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: minio
+  namespace: agentswarms
+  labels:
+    app.kubernetes.io/name: agentswarms
+    app.kubernetes.io/component: object-store
+spec:
+  serviceName: minio
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agentswarms
+      app.kubernetes.io/component: object-store
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: agentswarms
+        app.kubernetes.io/component: object-store
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        # The PVC is created by the cluster as root; fsGroup is what makes it
+        # writable by the unprivileged user the container runs as.
+        fsGroup: 1000
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: minio
+          image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+          args: ["server", "/data", "--console-address", ":9001"]
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef: { name: agentswarms-env, key: LAKEHOUSE_S3_KEY_ID }
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: agentswarms-env, key: LAKEHOUSE_S3_SECRET }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+          ports:
+            - name: s3
+              containerPort: 9000
+            - name: console
+              containerPort: 9001
+          livenessProbe:
+            httpGet: { path: /minio/health/live, port: s3 }
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          readinessProbe:
+            httpGet: { path: /minio/health/ready, port: s3 }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests: { cpu: "100m", memory: "256Mi" }
+            limits: { cpu: "2", memory: "2Gi" }
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 50Gi
+---
+# The bucket. Nothing in the app creates it, and a missing bucket surfaces as a
+# write error on the first table — a poor way to learn that a step was skipped.
+# A Job rather than an initContainer: it runs once per install, not per pod
+# restart, and its completion is visible in `kubectl get jobs`.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minio-bucket
+  namespace: agentswarms
+  labels:
+    app.kubernetes.io/name: agentswarms
+    app.kubernetes.io/component: object-store
+spec:
+  backoffLimit: 6
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: agentswarms
+        app.kubernetes.io/component: object-store
+    spec:
+      restartPolicy: OnFailure
+      automountServiceAccountToken: false
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: mc
+          image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
+          env:
+            - name: S3_KEY_ID
+              valueFrom:
+                secretKeyRef: { name: agentswarms-env, key: LAKEHOUSE_S3_KEY_ID }
+            - name: S3_SECRET
+              valueFrom:
+                secretKeyRef: { name: agentswarms-env, key: LAKEHOUSE_S3_SECRET }
+          command: ["/bin/sh", "-c"]
+          args:
+            - >
+              until mc alias set lake http://minio:9000 "$S3_KEY_ID" "$S3_SECRET"; do
+                echo "waiting for minio"; sleep 3;
+              done &&
+              mc mb --ignore-existing lake/lakehouse &&
+              echo "bucket lakehouse ready"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: "50m", memory: "64Mi" }
+            limits: { cpu: "500m", memory: "256Mi" }

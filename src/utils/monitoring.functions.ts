@@ -1,7 +1,7 @@
 // Monitoring — service health probes and hardware utilisation.
 //
 // Superadmin-only: this reports infrastructure detail (hostnames, container
-// limits, which optional services exist) that ordinary users have no reason
+// limits, which services are running) that ordinary users have no reason
 // to see.
 //
 // Both functions are read-only and best-effort. A probe that fails is a
@@ -10,8 +10,18 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSuperadmin } from "@/utils/iam.server";
-import { SERVICE_CATALOGUE, type ServiceProbe, type SystemMetrics } from "@/lib/serviceHealth";
+import {
+  SERVICE_CATALOGUE,
+  schedulerProbe,
+  type ServiceProbe,
+  type SystemMetrics,
+} from "@/lib/serviceHealth";
+
+// When this process started: a scheduler that has never passed is fine for
+// the first minutes after boot and a failure after that.
+const BOOTED_AT = Date.now();
 import { resolveInternalOrigin } from "@/utils/internalOrigin.server";
+import { appRole } from "@/utils/appRole";
 
 const PROBE_TIMEOUT_MS = 2500;
 
@@ -20,8 +30,6 @@ async function probeOne(entry: (typeof SERVICE_CATALOGUE)[number]): Promise<Serv
     id: entry.id,
     label: entry.label,
     purpose: entry.purpose,
-    profile: entry.profile,
-    optional: entry.optional,
   };
   let lastEndpoint: string | null = null;
   // Distinguish "the name did not resolve" (we are outside the Compose
@@ -37,6 +45,30 @@ async function probeOne(entry: (typeof SERVICE_CATALOGUE)[number]): Promise<Serv
     const url = `${candidate}${entry.path}`;
     lastEndpoint = candidate;
     const started = Date.now();
+    if (entry.expect === "tcp-open") {
+      // No protocol above TCP to speak (Postgres et al) — an accepted
+      // connection is the whole health claim.
+      try {
+        const { connect } = await import("node:net");
+        const target = new URL(candidate);
+        await new Promise<void>((resolvePromise, reject) => {
+          const sock = connect({ host: target.hostname, port: Number(target.port || 5432) }, () => {
+            sock.end();
+            resolvePromise();
+          });
+          sock.setTimeout(PROBE_TIMEOUT_MS, () => {
+            sock.destroy();
+            reject(new Error("timeout"));
+          });
+          sock.on("error", reject);
+        });
+        return { ...base, status: "up", latencyMs: Date.now() - started, endpoint: candidate };
+      } catch (e) {
+        const msg = (e as Error).message ?? String(e);
+        if (/ENOTFOUND|EAI_AGAIN|timeout/i.test(msg)) networkNameUnreachable = true;
+        continue;
+      }
+    }
     try {
       const res = await fetch(url, { signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) });
       const latencyMs = Date.now() - started;
@@ -122,9 +154,9 @@ async function probeOne(entry: (typeof SERVICE_CATALOGUE)[number]): Promise<Serv
     status: "down",
     latencyMs: null,
     endpoint: lastEndpoint,
-    message: entry.optional
-      ? `Not answering. Start it with \`docker compose --profile ${entry.profile} up -d\` if you want it.`
-      : "Not answering.",
+    // Every service ships with every install, so this is an outage rather
+    // than a service somebody chose not to start: say what brings it back.
+    message: `Not answering. \`docker compose up -d\` starts it; \`docker compose logs ${entry.id}\` says why it stopped.`,
   };
 }
 
@@ -134,7 +166,7 @@ export const serviceHealth = createServerFn({ method: "POST" })
     const guard = await requireSuperadmin(data.access_token);
     if (!guard.ok) throw new Error(guard.error);
 
-    // The app itself and the database are not optional, so they get bespoke
+    // The app itself and the database are probed differently, so they get bespoke
     // probes rather than catalogue entries.
     const appProbe = async (): Promise<ServiceProbe> => {
       const started = Date.now();
@@ -147,8 +179,6 @@ export const serviceHealth = createServerFn({ method: "POST" })
           id: "app",
           label: "Application server",
           purpose: "Serves the UI, the API and every background schedule.",
-          profile: null,
-          optional: false,
           status: res.ok && body?.status === "ok" ? "up" : "degraded",
           latencyMs: Date.now() - started,
           endpoint: resolveInternalOrigin(),
@@ -158,8 +188,6 @@ export const serviceHealth = createServerFn({ method: "POST" })
           id: "app",
           label: "Application server",
           purpose: "Serves the UI, the API and every background schedule.",
-          profile: null,
-          optional: false,
           status: "degraded",
           latencyMs: null,
           endpoint: resolveInternalOrigin(),
@@ -184,8 +212,6 @@ export const serviceHealth = createServerFn({ method: "POST" })
           id: "database",
           label: "Supabase",
           purpose: "Postgres, authentication, storage and vector search.",
-          profile: null,
-          optional: false,
           status: res.ok ? "up" : "degraded",
           latencyMs: Date.now() - started,
           endpoint: url,
@@ -196,8 +222,6 @@ export const serviceHealth = createServerFn({ method: "POST" })
           id: "database",
           label: "Supabase",
           purpose: "Postgres, authentication, storage and vector search.",
-          profile: null,
-          optional: false,
           status: "down",
           latencyMs: null,
           endpoint: url ?? null,
@@ -206,9 +230,21 @@ export const serviceHealth = createServerFn({ method: "POST" })
       }
     };
 
+    // The scheduler is a service like the others: it lives in this process,
+    // so its probe is the last pass it ran, not a port.
+    const scheduler = async (): Promise<ServiceProbe> => {
+      const { getLastCronPass } = await import("@/utils/bi/refresh.server");
+      return schedulerProbe({
+        last: getLastCronPass(),
+        now: new Date(),
+        bootedAt: BOOTED_AT,
+        inProcessDisabled: /^(1|true|yes)$/i.test(process.env.DISABLE_INPROCESS_SCHEDULER ?? ""),
+      });
+    };
     const [app, db, ...rest] = await Promise.all([
       appProbe(),
       dbProbe(),
+      scheduler(),
       ...SERVICE_CATALOGUE.map(probeOne),
     ]);
     return { services: [app, db, ...rest], checkedAt: new Date().toISOString() };
@@ -308,6 +344,8 @@ export const systemMetrics = createServerFn({ method: "POST" })
     const load = os.loadavg() as [number, number, number];
     return {
       hostname: os.hostname(),
+      role: appRole(),
+      workers: Number(process.env.AGENTSWARMS_WORKERS) || 1,
       platform: `${os.type()} ${os.release()} (${os.arch()})`,
       nodeVersion: process.version,
       uptimeSeconds: process.uptime(),

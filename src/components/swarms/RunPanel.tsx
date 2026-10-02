@@ -2,6 +2,7 @@
 // Supports two layouts:
 //   - "side"   → tall right-rail panel (legacy)
 //   - "bottom" → wide horizontal dock at the bottom of the canvas (default in-canvas)
+import { formatUsd } from "@/lib/usd";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -443,13 +444,13 @@ function UsageMeter({ usage }: { usage: UsageSummary }) {
   return (
     <div
       className="flex items-center gap-2 rounded-md border border-border/50 bg-background/60 px-2 py-1 text-[10px] tabular-nums"
-      title={`Live usage across ${usage.nodes} node${usage.nodes === 1 ? "" : "s"}\nInput: ${usage.tokensIn.toLocaleString()} tokens\nOutput: ${usage.tokensOut.toLocaleString()} tokens\nEstimated cost: $${usage.costUsd.toFixed(4)} (models without a known price contribute $0)`}
+      title={`Live usage across ${usage.nodes} node${usage.nodes === 1 ? "" : "s"}\nInput: ${usage.tokensIn.toLocaleString()} tokens\nOutput: ${usage.tokensOut.toLocaleString()} tokens\nEstimated cost: ${formatUsd(usage.costUsd)} (models without a known price contribute $0)`}
     >
       <span className="text-muted-foreground">{usage.total.toLocaleString()} tok</span>
       <span className="text-muted-foreground/70">
         ↑{usage.tokensIn.toLocaleString()} ↓{usage.tokensOut.toLocaleString()}
       </span>
-      <span className="text-emerald-400">~${usage.costUsd.toFixed(4)}</span>
+      <span className="text-emerald-400">{formatUsd(usage.costUsd, { approx: true })}</span>
     </div>
   );
 }

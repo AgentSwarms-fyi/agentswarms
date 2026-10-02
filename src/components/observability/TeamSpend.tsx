@@ -2,6 +2,7 @@
 // down by user and by IAM group so operators can see who is spending
 // what. Aggregation runs server-side over execution_traces (superadmin
 // gate); renders nothing for regular users.
+import { formatUsd } from "@/lib/usd";
 import { useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
@@ -175,7 +176,7 @@ export function TeamSpend() {
                       {fmtTokens(u.tokens)}
                     </TableCell>
                     <TableCell className="text-right text-xs font-medium tabular-nums">
-                      ${u.cost.toFixed(4)}
+                      {formatUsd(u.cost)}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -210,7 +211,7 @@ export function TeamSpend() {
                       {g.calls.toLocaleString()}
                     </TableCell>
                     <TableCell className="text-right text-xs font-medium tabular-nums">
-                      ${g.cost.toFixed(4)}
+                      {formatUsd(g.cost)}
                     </TableCell>
                   </TableRow>
                 ))}

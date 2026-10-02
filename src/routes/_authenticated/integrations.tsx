@@ -17,6 +17,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { WarehousesTab } from "@/components/integrations/WarehousesTab";
 import { SaasSourcesTab } from "@/components/integrations/SaasSourcesTab";
 import { SlackTab } from "@/components/integrations/SlackTab";
+import { TeamsTab } from "@/components/integrations/TeamsTab";
 import { Badge } from "@/components/ui/badge";
 import {
   Select,
@@ -33,6 +34,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { confirmAsk } from "@/components/ui/confirm-dialog";
 import {
   Zap,
   Cloud,
@@ -63,6 +65,7 @@ import {
 import { saveProviderCredential } from "@/utils/providers/credentials.functions";
 import { detectOllama } from "@/utils/providers/ollama.functions";
 import { invalidateOllamaModels } from "@/hooks/use-ollama-models";
+import { GatewayApiCard } from "@/components/gateway/GatewayApiCard";
 
 // Providers we can live-test against the real upstream API.
 // bedrock/azure/vertex/oci use signed requests and live in the encrypted
@@ -828,22 +831,50 @@ function IntegrationsPage() {
   }
 
   async function disconnectProvider(providerId: string) {
+    // The key itself is gone after this — it is stored encrypted and never
+    // shown again, so there is nothing to copy back out afterwards.
+    if (
+      !(await confirmAsk({
+        title: `Disconnect ${providerId}?`,
+        body: "The stored key is deleted, not disabled. Agents and gateway routes using this provider stop working until you paste a key in again — and the old one cannot be read back.",
+        actionLabel: "Disconnect",
+      }))
+    )
+      return;
     if (ENCRYPTED_PROVIDERS.has(providerId)) {
       const encId = toEncryptedProviderId(providerId);
       if (!encId) return;
       // Delete the encrypted credential row entirely — there is no "is_active"
       // flag in provider_credentials, only presence/absence.
-      await supabase.from("provider_credentials").delete().eq("provider", encId);
+      // FOUND FROM THE UI (R69). This dropped the delete's error, so a
+      // disconnect whose request failed said "Provider disconnected" and then
+      // reloaded the list with the provider still connected.
+      const { error } = await supabase.from("provider_credentials").delete().eq("provider", encId);
+      if (error) {
+        toast.error("Could not disconnect the provider", {
+          description: `${error.message}. The key is still stored and the provider is still connected.`,
+        });
+        return;
+      }
       toast.success("Provider disconnected");
       loadIntegrations();
       return;
     }
     const existing = integrations.find((i) => i.provider === providerId);
     if (existing) {
-      await supabase
+      // The same for a provider stored on the integrations row (R69): the
+      // OpenRouter disconnect took this path, said "Provider disconnected"
+      // over a rejected update, and reloaded the list still connected.
+      const { error } = await supabase
         .from("integrations")
         .update({ is_active: false, config: {} })
         .eq("id", existing.id);
+      if (error) {
+        toast.error("Could not disconnect the provider", {
+          description: `${error.message}. The provider is still connected.`,
+        });
+        return;
+      }
       toast.success("Provider disconnected");
       loadIntegrations();
     }
@@ -1089,7 +1120,16 @@ function IntegrationsPage() {
   async function disconnectNotifChannel(kind: string) {
     const existing = integrations.find((i) => i.type === "notification" && i.provider === kind);
     if (!existing) return;
-    await supabase.from("integrations").update({ is_active: false }).eq("id", existing.id);
+    const { error } = await supabase
+      .from("integrations")
+      .update({ is_active: false })
+      .eq("id", existing.id);
+    if (error) {
+      toast.error("Could not disconnect the channel", {
+        description: `${error.message}. The channel is still connected.`,
+      });
+      return;
+    }
     toast.success("Channel disconnected");
     loadIntegrations();
   }
@@ -1153,11 +1193,18 @@ function IntegrationsPage() {
                 surfaces — but opposite directions. Notifications posts OUT to
                 a webhook; this authenticates an inbound caller. */}
             <TabsTrigger value="slack">Slack</TabsTrigger>
+            {/* Beside Slack for the same reason: the other inbound chat
+                surface, authenticated a completely different way. */}
+            <TabsTrigger value="teams">Teams</TabsTrigger>
             <TabsTrigger value="n8n">n8n Workflows</TabsTrigger>
           </TabsList>
 
           <TabsContent value="slack" className="space-y-4">
             <SlackTab />
+          </TabsContent>
+
+          <TabsContent value="teams" className="space-y-4">
+            <TeamsTab />
           </TabsContent>
 
           <TabsContent value="warehouses" className="space-y-4">
@@ -1398,6 +1445,8 @@ function IntegrationsPage() {
                 </Button>
               </CardContent>
             </Card>
+
+            {session?.access_token ? <GatewayApiCard token={session.access_token} /> : null}
           </TabsContent>
 
           <TabsContent value="websearch" className="space-y-4">

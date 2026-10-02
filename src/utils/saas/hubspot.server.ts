@@ -7,7 +7,7 @@
 // once, and scoped to exactly the objects it may read.
 
 import { flattenRecord } from "./flatten";
-import type { SaasConfig, SaasStream } from "./types";
+import type { IncrementalSpec, SaasConfig, SaasStream } from "./types";
 import { connectorFetch } from "@/utils/http/connectorFetch.server";
 
 const API = "https://api.hubapi.com";
@@ -38,10 +38,21 @@ const STREAMS: Record<string, { label: string; object: string }> = {
   products: { label: "Products", object: "products" },
 };
 
-async function hubspotFetch<T>(cfg: HubspotCfg, path: string, params: URLSearchParams): Promise<T> {
+async function hubspotFetch<T>(
+  cfg: HubspotCfg,
+  path: string,
+  params: URLSearchParams,
+  body?: unknown,
+): Promise<T> {
   const url = `${API}${path}${params.toString() ? `?${params}` : ""}`;
   const res = await connectorFetch(url, {
-    headers: { Authorization: `Bearer ${cfg.access_token}`, Accept: "application/json" },
+    method: body === undefined ? "GET" : "POST",
+    headers: {
+      Authorization: `Bearer ${cfg.access_token}`,
+      Accept: "application/json",
+      ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+    },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     signal: AbortSignal.timeout(60_000),
   });
   if (res.status === 401) {
@@ -102,15 +113,44 @@ type ObjectPage = {
   paging?: { next?: { after?: string } };
 };
 
+/**
+ * HubSpot's search endpoint pages to 10,000 results and no further.
+ *
+ * Past that it stops returning a cursor, so a naive follower would silently
+ * stop at ten thousand records. The way through is to re-issue the search
+ * from the last timestamp seen rather than trying to page further, which is
+ * what `fetchHubspotRows` does when it hits this.
+ */
+const SEARCH_WINDOW = 10_000;
+
+/**
+ * Every CRM object carries `hs_lastmodifieddate`, and the row it produces
+ * carries `updated_at` from the record's own `updatedAt`.
+ *
+ * The two are the same instant; the FILTER uses HubSpot's property name and
+ * the CURSOR uses the flattened column name, because that is where the runner
+ * reads the high-water mark back from.
+ */
+export function hubspotIncremental(streamId: string): IncrementalSpec | null {
+  if (!STREAMS[streamId]) return null;
+  return { cursorField: "updated_at", primaryKey: "id", compare: "iso" };
+}
+
 export async function* fetchHubspotRows(
   cfg: SaasConfig,
   streamId: string,
+  since?: string,
 ): AsyncGenerator<Record<string, unknown>> {
   const stream = STREAMS[streamId];
   if (!stream) throw new Error(`HubSpot: unknown object "${streamId}"`);
   const c = cfg as HubspotCfg;
 
   const props = await propertyNames(c, stream.object);
+  const at = since ? new Date(since) : null;
+  if (at && !Number.isNaN(at.getTime())) {
+    yield* searchHubspotRows(c, stream.object, props, at);
+    return;
+  }
   let after: string | undefined;
 
   for (;;) {
@@ -141,5 +181,86 @@ export async function* fetchHubspotRows(
     const next = page.paging?.next?.after;
     if (!next) return;
     after = next;
+  }
+}
+
+/**
+ * Follow one object type through the search endpoint.
+ *
+ * The list endpoint used above cannot filter by date at all, so following a
+ * source means searching. Two things make that awkward and both are handled
+ * here rather than left to bite later:
+ *
+ *  - Search returns at most 10,000 results per query. When one is exhausted
+ *    the search is REISSUED from the last timestamp seen instead of paging on,
+ *    because the cursor simply stops past that ceiling.
+ *  - `GTE` is inclusive, so the record on the boundary comes back each time.
+ *    That is deliberate — it is folded away by its id — but it also means a
+ *    window that returns ONLY the boundary record has made no progress, and
+ *    continuing would loop for ever. That case ends the stream.
+ */
+async function* searchHubspotRows(
+  cfg: HubspotCfg,
+  object: string,
+  props: string[],
+  from: Date,
+): AsyncGenerator<Record<string, unknown>> {
+  let windowStart = from.getTime();
+  for (;;) {
+    let after: string | undefined;
+    let seen = 0;
+    let newest = windowStart;
+    for (;;) {
+      const page = await hubspotFetch<ObjectPage>(
+        cfg,
+        `/crm/v3/objects/${object}/search`,
+        new URLSearchParams(),
+        {
+          filterGroups: [
+            {
+              filters: [
+                {
+                  propertyName: "hs_lastmodifieddate",
+                  operator: "GTE",
+                  value: String(windowStart),
+                },
+              ],
+            },
+          ],
+          // Ascending, so the window can be advanced from the last row.
+          sorts: [{ propertyName: "hs_lastmodifieddate", direction: "ASCENDING" }],
+          properties: props,
+          limit: PAGE_SIZE,
+          ...(after ? { after } : {}),
+        },
+      );
+      const rows = page.results ?? [];
+      if (rows.length === 0) return;
+
+      for (const r of rows) {
+        const updated = r.updatedAt ?? null;
+        const t = updated ? Date.parse(updated) : NaN;
+        if (Number.isFinite(t) && t > newest) newest = t;
+        yield flattenRecord({
+          id: r.id ?? null,
+          created_at: r.createdAt ?? null,
+          updated_at: updated,
+          archived: r.archived ?? false,
+          ...(r.properties ?? {}),
+        });
+      }
+      seen += rows.length;
+
+      const next = page.paging?.next?.after;
+      if (!next || seen >= SEARCH_WINDOW) break;
+      after = next;
+    }
+
+    // Nothing moved: every record in this window shares the boundary
+    // timestamp, so reissuing would return the same page for ever.
+    if (newest <= windowStart) return;
+    // Under the ceiling means the window was exhausted, not truncated.
+    if (seen < SEARCH_WINDOW) return;
+    windowStart = newest;
   }
 }

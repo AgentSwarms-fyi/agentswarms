@@ -26,6 +26,9 @@ const routeOf = (file) =>
       file
         .replace(/^docs\./, "")
         .replace(/\.tsx$/, "")
+        // docs.ml_.training.tsx is /docs/ml/training: the underscore is
+        // TanStack's "do not nest under docs.ml" escape, not part of the path.
+        .replace(/_\./g, ".")
         .replace(/\./g, "/");
 
 /** Strip JSX/entities from a heading so the index holds what a reader sees. */

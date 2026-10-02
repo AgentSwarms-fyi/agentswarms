@@ -31,6 +31,11 @@ import { parseModelChoice } from "@/utils/providers/modelChoice";
 import { llmJsonServer } from "@/utils/bi/llmJson.server";
 import { runLocalSqlForUser } from "@/utils/bi/refresh.server";
 import { runSemanticQuery } from "@/utils/semantic/query.server";
+import {
+  forecastForAnalyst,
+  scorableModelsForUser,
+  scoreRowsForAnalyst,
+} from "@/utils/ml/scoreRows.server";
 import type { DatasetMeta, QueryResult } from "@/lib/sqlEngine";
 import type { SemanticQuery } from "@/lib/semanticLayer";
 
@@ -45,7 +50,7 @@ export type AnalystRunOutcome =
 export async function loadEmbeddedAnalyst(analystId: string, ownerId: string) {
   const { data } = await supabaseAdmin
     .from("ai_analysts")
-    .select("id, user_id, name, model, source")
+    .select("id, user_id, name, model, source, ml_model_names")
     .eq("id", analystId)
     .maybeSingle();
   // The embed key names an owner; an analyst belonging to someone else must
@@ -240,6 +245,13 @@ export async function runAnalystTurnServer(args: {
       execute: executor.execute,
       dialect: executor.dialect,
       llm,
+      // Scored steps score as the OWNER too — the same models the owner's own
+      // analyst may name, through the same helper the browser path reaches.
+      models: await scorableModelsForUser(args.ownerId, analyst.ml_model_names).catch(() => []),
+      scoreRows: (req) =>
+        scoreRowsForAnalyst({ userId: args.ownerId, allow: analyst.ml_model_names, ...req }),
+      forecast: (req) =>
+        forecastForAnalyst({ userId: args.ownerId, allow: analyst.ml_model_names, ...req }),
       // Governed steps still compile — under the OWNER's id, so their row
       // filters and column masks are applied exactly as they are in the app.
       runSemantic: async (query: SemanticQuery) => {
@@ -255,6 +267,7 @@ export async function runAnalystTurnServer(args: {
           rows: res.rows as Record<string, unknown>[],
           rollup: res.rollup,
           access_note: res.access_note,
+          truncated: res.truncated,
         };
       },
       onUpdate: (t) => args.onUpdate?.(t),

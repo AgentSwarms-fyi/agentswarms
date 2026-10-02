@@ -3,6 +3,7 @@
 //
 // Built-ins are shipped in src/lib/promptLibrary.ts and cannot be removed.
 // User prompts are persisted to public.user_prompts (RLS: owner-only).
+import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
@@ -163,7 +164,7 @@ function PromptsPage() {
   }
 
   async function deletePrompt(id: string) {
-    if (!confirm("Delete this prompt? This cannot be undone.")) return;
+    if (!(await confirmAsk({ title: "Delete this prompt? This cannot be undone." }))) return;
     const { error } = await supabase.from("user_prompts").delete().eq("id", id);
     if (error) {
       toast.error(error.message);

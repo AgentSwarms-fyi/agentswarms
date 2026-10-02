@@ -2,6 +2,7 @@
 // Owners compose widgets (manual SQL charts, AI-generated visuals, markdown
 // text), arrange them on the grid, refresh data snapshots and publish.
 // Users the project is shared with (IAM grants) get a read-only view.
+import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
@@ -109,6 +110,7 @@ import {
   saveDashboardVersion,
   syncWidgetResults,
   snapshotRows,
+  widgetForLiveResult,
   widgetRowCap,
   touchDashboardView,
   updateDashboard,
@@ -125,6 +127,8 @@ import {
   type BiWidgetSource,
   type BiWidgetTheme,
 } from "@/lib/biDashboards";
+import { restateWidgetNote } from "@/lib/biTitleClaims";
+import { restateWidgetNarrative } from "@/lib/biNumericClaims";
 import { isAggregatableChart } from "@/lib/biAggregate";
 import { exportDashboardPdf } from "@/lib/biPdf";
 import { BiDeckDialog } from "@/components/bi/BiDeckDialog";
@@ -244,9 +248,15 @@ function BiPageTabs({
                 type="button"
                 className="text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
                 title="Delete page"
-                onClick={(e) => {
+                onClick={async (e) => {
                   e.stopPropagation();
-                  if (window.confirm(`Delete "${p.name}" and its widgets? This can't be undone.`)) {
+                  if (
+                    await confirmAsk({
+                      title: `Delete "${p.name}" and its widgets?`,
+                      body: "This cannot be undone.",
+                      actionLabel: "Delete",
+                    })
+                  ) {
                     onDelete(p.id);
                   }
                 }}
@@ -298,6 +308,7 @@ function BiProjectPage() {
 
   // Connected data (owner only — viewers render snapshots).
   const [datasets, setDatasets] = useState<DatasetMeta[]>([]);
+  const [datasetsError, setDatasetsError] = useState<string | null>(null);
   const [semantics, setSemantics] = useState<Map<string, SemanticEntry>>(new Map());
   const [metrics, setMetrics] = useState<SavedMetric[]>([]);
   const [warehouses, setWarehouses] = useState<WarehouseConnectionSummary[]>([]);
@@ -540,6 +551,7 @@ function BiProjectPage() {
       try {
         const tables = await hydrateFromSupabase();
         setDatasets(tables);
+        setDatasetsError(null);
         const [sem, mets] = await Promise.all([
           loadSemantics(tables.map((d) => d.id)),
           loadSavedMetrics(),
@@ -548,6 +560,7 @@ function BiProjectPage() {
         setMetrics(mets);
       } catch (e) {
         toast.error(`Could not load local datasets: ${(e as Error).message}`);
+        setDatasetsError((e as Error).message);
       }
       listPrepFlows()
         .then((fs) =>
@@ -661,6 +674,7 @@ function BiProjectPage() {
     () => ({
       userId: user?.id ?? null,
       datasets,
+      datasetsError,
       preparedTables,
       model: biModel,
       onModelChange: setBiModel,
@@ -677,6 +691,7 @@ function BiProjectPage() {
     [
       user?.id,
       datasets,
+      datasetsError,
       preparedTables,
       biModel,
       semantics,
@@ -945,16 +960,28 @@ function BiProjectPage() {
             filters: orig.source.filters,
             compare: orig.source.compare,
             params,
-            limit: 100,
+            // The widget's own cap, not 100: the scheduled refresh keeps up to
+            // widgetRowCap() rows, and a parameter change must not quietly
+            // shrink the widget to a tenth of that.
+            limit: widgetRowCap(),
           },
         },
-      })) as { columns: string[]; rows: Record<string, unknown>[]; sql: string };
+      })) as {
+        columns: string[];
+        rows: Record<string, unknown>[];
+        sql: string;
+        truncated?: boolean;
+      };
       replaceWidget({
         ...orig,
         source: { ...orig.source, params },
         sql: res.sql,
         columns: res.columns,
         rows: snapshotRows(res.rows),
+        // The runner says whether it cut the result; before, this re-run
+        // kept whatever `truncated` the widget had, over rows it had just
+        // replaced.
+        truncated: res.truncated ?? false,
         refreshed_at: new Date().toISOString(),
       });
       setParamsWidget(null);
@@ -976,14 +1003,39 @@ function BiProjectPage() {
       try {
         const res = await runSql(w.source ?? { kind: "local" }, w.sql!);
         const idx = next.findIndex((x) => x.id === w.id);
+        const rows = snapshotRows(res.rows);
+        const capped = res.capped || res.rows.length > widgetRowCap();
+        // Same restatement the scheduled refresh does. Both paths replace the
+        // rows, so both have to re-check whatever sentence was counting them —
+        // one of the two doing it would just make the widget's caveat depend
+        // on which button the owner pressed.
+        const restated = restateWidgetNote({
+          title: next[idx].title,
+          sql: w.sql,
+          chart: next[idx].chart,
+          reconcile_note: next[idx].reconcile_note,
+          rows,
+          truncated: capped,
+        });
+        // Same check the scheduled refresh runs, for the same reason both run
+        // the note restatement: a caveat that depends on which button was
+        // pressed is not a caveat.
+        const staleProse = restateWidgetNarrative({
+          narrative: next[idx].narrative,
+          columns: res.columns,
+          rows,
+          truncated: capped,
+        });
         next[idx] = {
           ...next[idx],
+          ...(restated ? { title: restated.title, reconcile_note: restated.reconcile_note } : {}),
+          ...(staleProse ? { narrative: undefined } : {}),
           columns: res.columns,
-          rows: snapshotRows(res.rows),
+          rows,
           // Carry the engine's own verdict. Refreshing used to clear nothing
           // and set nothing, so a widget that came back capped was stored as
           // complete and lost its badge.
-          truncated: res.capped || res.rows.length > widgetRowCap(),
+          truncated: capped,
           refreshed_at: new Date().toISOString(),
         };
       } catch (e) {
@@ -1022,6 +1074,9 @@ function BiProjectPage() {
         sql: w.sql,
         columns: w.columns ?? [],
         rows: w.rows,
+        // Without this the card cannot tell a whole result from the first
+        // page of one, and says "the total" about a prefix.
+        truncated: w.truncated,
         model: biModel ?? undefined,
       });
       const widget: BiWidget = {
@@ -1236,11 +1291,12 @@ function BiProjectPage() {
         const live = directRows.get(w.id);
         if (live && live !== "loading" && live !== "error") {
           // Carry truncation through so a live result that hit the row ceiling
-          // gets the same "Partial" badge a capped snapshot does.
-          return [
-            w.id,
-            { ...w, columns: live.columns, rows: live.rows, truncated: live.truncated },
-          ] as const;
+          // gets the same "Partial" badge a capped snapshot does — and derive
+          // the two SENTENCES from the live rows rather than the snapshot's.
+          // A direct widget draws a result its stored rows know nothing about,
+          // so the refresh-time restatements never reach it: the card could
+          // read "The data has 3 rows, not 5." above five live bars.
+          return [w.id, widgetForLiveResult(w, live)] as const;
         }
         return [w.id, w] as const;
       }
@@ -1261,7 +1317,7 @@ function BiProjectPage() {
   return (
     // Bounded to the viewport (same pattern as /data-sql) so the canvas and
     // the builder pane scroll independently instead of the whole page.
-    <div className="flex h-[calc(100vh-3.5rem)] flex-col overflow-hidden">
+    <div className="flex h-canvas flex-col overflow-hidden">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 border-b border-border bg-background px-3 py-2">
         <Button
           asChild

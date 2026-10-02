@@ -1,3 +1,4 @@
+import { formatUsd } from "@/lib/usd";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
@@ -16,6 +17,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import { formatNumber, type MlToolData } from "@/lib/mlToolResult";
 import {
   Send,
   Download,
@@ -85,10 +87,12 @@ import { planDocument } from "@/lib/docGen/plan";
 import { encodeModelChoice, isBiCompatProvider } from "@/utils/providers/modelChoice";
 import { gatherDocContext } from "@/utils/docGen.functions";
 import { toast } from "sonner";
+import { confirmAsk } from "@/components/ui/confirm-dialog";
 import {
   ModelFallbackDialog,
   type FallbackChoice,
 } from "@/components/playground/ModelFallbackDialog";
+import { classifyChatFailure, type ChatFailureReason } from "@/lib/chatFailure";
 import { TemplateTour, type TourSignals } from "@/components/playground/TemplateTour";
 import { SkillSampleTour } from "@/components/playground/SkillSampleTour";
 import { ensureSampleAgentsForUser } from "@/lib/sampleAgentsWithSkills";
@@ -137,7 +141,15 @@ type Source = {
   snippet?: string;
   tool?: string;
 };
-type Message = { id: string; role: string; content: string; created_at: string; metadata?: any };
+type Message = {
+  id: string;
+  role: string;
+  content: string;
+  created_at: string;
+  metadata?: any;
+  /** Why this message could not be saved to the conversation, when it could not. */
+  unsaved?: string;
+};
 
 // Hoisted to module scope so helper components (AttachmentChips, ToolEventsPanel)
 // can share the exact same shape as the playground component's state.
@@ -146,7 +158,16 @@ type PendingDoc = { kind: "doc"; name: string; text: string };
 type PendingAttachment = PendingImage | PendingDoc;
 type ToolUiEvent =
   | { type: "tool_call"; name: string; args: string; id: string }
-  | { type: "tool_result"; name: string; id: string; ok: boolean; preview: string };
+  | {
+      type: "tool_result";
+      name: string;
+      id: string;
+      ok: boolean;
+      preview: string;
+      // The ML tools' result as a table / model list / error, built server-side
+      // from the full JSON (the preview is a 400-char slice). Absent otherwise.
+      data?: MlToolData;
+    };
 
 // Image models can fail mid-conversation when the context grows past their
 // token budget — Gemini image models are especially prone to this. When that
@@ -180,10 +201,28 @@ function PlaygroundPage() {
   const { user } = useAuth();
   const { agentId } = Route.useSearch();
   const [agents, setAgents] = useState<Agent[]>([]);
+  // Why the agent list is empty when its read failed; bumping the attempt
+  // reads it again.
+  const [agentsError, setAgentsError] = useState<string | null>(null);
+  const [agentsAttempt, setAgentsAttempt] = useState(0);
   const [selectedAgent, setSelectedAgent] = useState<string>("");
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConvo, setActiveConvo] = useState<string>("");
   const [messages, setMessages] = useState<Message[]>([]);
+  // Whether the lists on screen belong to the selection on screen. FOUND FROM
+  // THE SURVEY (R88), the shape R76 fixed on Knowledge Bases: neither list was
+  // cleared when its key changed, so the previous agent's conversations and
+  // the previous conversation's messages stayed under the new name until the
+  // next read landed — and STAYED there when it failed, because the failure
+  // path returns after its toast. A read that comes back for a selection no
+  // longer on screen is dropped.
+  const [convosLoaded, setConvosLoaded] = useState(false);
+  // Why no conversation could be started for this agent (R206). Without one the
+  // message box is disabled, so the page says so and offers to try again.
+  const [convoError, setConvoError] = useState<string | null>(null);
+  const [messagesLoaded, setMessagesLoaded] = useState(false);
+  const convoReq = useRef(0);
+  const messageReq = useRef(0);
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
   // Visual BI answers: session state seeded from the agent's saved setting.
@@ -239,6 +278,39 @@ function PlaygroundPage() {
   // loaded fresh from loadMessages() already carry their real id, so a miss
   // here just falls back to the message's own id (see resolveDbId).
   const dbIdMap = useRef(new Map<string, string>());
+
+  /**
+   * Insert one message row and remember its real id.
+   *
+   * FOUND FROM THE UI. Every insert on this page dropped its error, so a
+   * message whose save failed stayed on screen exactly like one that was
+   * saved — and was gone after a reload, with nothing ever said. The
+   * document path already warned ("built, but not saved"); this is the
+   * same warning for every message. The on-screen message is marked, the
+   * bubble says it will not survive a reload, and a toast says why.
+   */
+  async function persistMessage(
+    localId: string,
+    row: {
+      conversation_id: string;
+      user_id: string;
+      role: string;
+      content: string;
+      metadata?: Json;
+    },
+  ): Promise<string | null> {
+    const { data, error } = await supabase.from("messages").insert(row).select("id").single();
+    if (error || !data?.id) {
+      const why = error?.message ?? "no id came back from the insert";
+      setMessages((prev) => prev.map((m) => (m.id === localId ? { ...m, unsaved: why } : m)));
+      toast.warning("This message was not saved to the conversation", {
+        description: `${why}. It will not be here after a reload.`,
+      });
+      return null;
+    }
+    dbIdMap.current.set(localId, data.id);
+    return data.id;
+  }
 
   // Aborts the in-flight /api/chat stream when the user hits "Stop".
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -324,10 +396,14 @@ function PlaygroundPage() {
         console.warn("[playground] sample-agent seed failed:", err);
       }
       if (cancelled) return;
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("agents")
         .select("id, name, llm_provider, llm_model, system_prompt, tools");
-      if (cancelled || !data) return;
+      if (cancelled) return;
+      // FOUND IN R191: a failed read left an empty picker under a pulsing
+      // "Pick an agent to begin", pointing at a list with nothing in it.
+      setAgentsError(error ? error.message : null);
+      if (error || !data) return;
       setAgents(data as Agent[]);
       if (agentId && data.find((a) => a.id === agentId)) {
         setSelectedAgent(agentId);
@@ -338,14 +414,24 @@ function PlaygroundPage() {
     return () => {
       cancelled = true;
     };
-  }, [agentId]);
+  }, [agentId, agentsAttempt]);
 
   useEffect(() => {
-    if (selectedAgent) loadConversations();
+    if (!selectedAgent) return;
+    // The previous agent's conversations are not this agent's (R88).
+    convoReq.current += 1;
+    setConversations([]);
+    setConvosLoaded(false);
+    loadConversations();
   }, [selectedAgent]);
 
   useEffect(() => {
-    if (activeConvo) loadMessages();
+    if (!activeConvo) return;
+    // The previous conversation's messages are not this conversation's (R88).
+    messageReq.current += 1;
+    setMessages([]);
+    setMessagesLoaded(false);
+    loadMessages();
   }, [activeConvo]);
 
   useEffect(() => {
@@ -380,37 +466,65 @@ function PlaygroundPage() {
   }, [selectedAgent]);
 
   async function loadConversations() {
-    const { data } = await supabase
+    const req = convoReq.current;
+    const { data, error } = await supabase
       .from("conversations")
       .select("*")
       .eq("agent_id", selectedAgent)
       .order("updated_at", { ascending: false });
+    if (req !== convoReq.current) return; // another agent was picked meanwhile
+    // A failed read used to be an empty list — and an empty list creates a
+    // fresh "New Chat", so a network blip could bury the real conversations
+    // under a new one. A read that fails is said, and creates nothing.
+    if (error) {
+      toast.error("Could not load this agent's conversations", { description: error.message });
+      setConvosLoaded(true);
+      return;
+    }
+    setConvosLoaded(true);
     if (data) {
       setConversations(data);
       if (data.length > 0) {
         if (!activeConvo) setActiveConvo(data[0].id);
       } else if (user && selectedAgent) {
-        // Auto-create a first conversation so the input is usable
-        const { data: newConvo } = await supabase
+        // Auto-create a first conversation so the input is usable.
+        // FOUND IN R206: a failed insert was dropped, and the page stood with
+        // its message box disabled under "Ask a question, share a task".
+        const { data: newConvo, error: insertError } = await supabase
           .from("conversations")
           .insert({ user_id: user.id, agent_id: selectedAgent, title: "New Chat" })
           .select()
           .single();
-        if (newConvo) {
-          setConversations([newConvo as Conversation]);
-          setActiveConvo(newConvo.id);
-          setMessages([]);
+        if (insertError || !newConvo) {
+          const why = insertError?.message ?? "no conversation came back";
+          setConvoError(why);
+          toast.error("Could not start a conversation", { description: why });
+          return;
         }
+        setConvoError(null);
+        setConversations([newConvo as Conversation]);
+        setActiveConvo(newConvo.id);
+        setMessages([]);
       }
     }
   }
 
   async function loadMessages() {
-    const { data } = await supabase
+    const req = messageReq.current;
+    const { data, error } = await supabase
       .from("messages")
       .select("*")
       .eq("conversation_id", activeConvo)
       .order("created_at", { ascending: true });
+    if (req !== messageReq.current) return; // another conversation was picked
+    // A failed read used to leave whatever was on screen, or nothing, with
+    // no word — an empty conversation that is not empty.
+    if (error) {
+      toast.error("Could not load this conversation's messages", { description: error.message });
+      setMessagesLoaded(true);
+      return;
+    }
+    setMessagesLoaded(true);
     if (data) setMessages(data as Message[]);
   }
 
@@ -425,11 +539,18 @@ function PlaygroundPage() {
       })
       .select()
       .single();
-    if (data) {
-      setActiveConvo(data.id);
-      setMessages([]);
-      loadConversations();
+    // FOUND IN R206: New Chat read `error` and never looked at it, so a failed
+    // insert did nothing at all.
+    if (error || !data) {
+      const why = error?.message ?? "no conversation came back";
+      setConvoError(why);
+      toast.error("Could not start a new chat", { description: why });
+      return;
     }
+    setConvoError(null);
+    setActiveConvo(data.id);
+    setMessages([]);
+    loadConversations();
   }
 
   async function renameConversation(id: string, title: string) {
@@ -444,7 +565,33 @@ function PlaygroundPage() {
   }
 
   async function deleteConversation(id: string) {
-    await supabase.from("conversations").delete().eq("id", id);
+    // The trash icon sits one row away from the chat you are working in, and
+    // it used to delete on the first click. `messages.conversation_id` is
+    // ON DELETE CASCADE, so that click takes the whole transcript with it —
+    // every prompt, every answer, every step of whatever you were in the
+    // middle of — and there is no undo, no trash and no export on the way out.
+    // A misclick during a session is unrecoverable, which is the one case that
+    // earns a question.
+    const title = conversations.find((c) => c.id === id)?.title ?? "this chat";
+    if (
+      !(await confirmAsk({
+        title: `Delete "${title}"?`,
+        body: "Every message in this chat goes with it. This cannot be undone.",
+        actionLabel: "Delete chat",
+      }))
+    )
+      return;
+    // FOUND FROM THE UI (R72). The four deletes on this page dropped their
+    // error: a message deleted over a rejected request left the screen and
+    // was back on the next reload, and so was a chat. A delete that fails is
+    // undone on screen and said.
+    const { error } = await supabase.from("conversations").delete().eq("id", id);
+    if (error) {
+      toast.error("Could not delete the chat", {
+        description: `${error.message}. It is still here.`,
+      });
+      return;
+    }
     if (activeConvo === id) {
       setActiveConvo("");
       setMessages([]);
@@ -469,7 +616,7 @@ function PlaygroundPage() {
         ok: false;
         status: number;
         errorMessage: string;
-        reason: "rate_limit" | "credits" | "error";
+        reason: ChatFailureReason;
       }
   > {
     if (!user || !activeConvo) {
@@ -620,18 +767,13 @@ function PlaygroundPage() {
               durationMs: Date.now() - startedAt,
               traceId: null,
             });
-            const { data: insertedBi } = await supabase
-              .from("messages")
-              .insert({
-                conversation_id: activeConvo,
-                user_id: user.id,
-                role: "assistant",
-                content,
-                metadata: meta as unknown as Json,
-              })
-              .select("id")
-              .single();
-            if (insertedBi?.id) dbIdMap.current.set(assistantId, insertedBi.id);
+            await persistMessage(assistantId, {
+              conversation_id: activeConvo,
+              user_id: user.id,
+              role: "assistant",
+              content,
+              metadata: meta as unknown as Json,
+            });
             if (opts.isFirstUserMessage && lastUserMsg) {
               await supabase
                 .from("conversations")
@@ -671,8 +813,10 @@ function PlaygroundPage() {
         const errText = await resp.text();
         rawResponseText = errText;
         let errMsg = `Request failed (${resp.status})`;
+        let errBody: unknown = null;
         try {
           const j = JSON.parse(errText);
+          errBody = j;
           // Prefer the human-readable message (e.g. IAM model_not_allowed).
           if (j?.message) errMsg = j.message;
           else if (j?.error) errMsg = j.error;
@@ -689,16 +833,9 @@ function PlaygroundPage() {
           durationMs: Date.now() - startedAt,
           traceId,
         });
-        let reason: "rate_limit" | "credits" | "error";
-        if (resp.status === 429) {
-          reason = "rate_limit";
-        } else if (resp.status === 402 || /credit|payment required|insufficient/i.test(errMsg)) {
-          reason = "credits";
-        } else if (/rate limit|too many requests/i.test(errMsg)) {
-          reason = "rate_limit";
-        } else {
-          reason = "error";
-        }
+        // A budget cap or a model rule is the platform's refusal, not the
+        // provider's: no fallback model helps, and the provider did not say it.
+        const reason = classifyChatFailure(resp.status, errBody, errMsg);
         if (reason === "error") {
           errMsg = `${provider}: ${errMsg}`;
         }
@@ -837,23 +974,16 @@ function PlaygroundPage() {
         };
       }
 
-      const { data: insertedAssistant } = await supabase
-        .from("messages")
-        .insert({
-          conversation_id: activeConvo,
-          user_id: user.id,
-          role: "assistant",
-          content: assistantContent,
-          metadata: {
-            ...(citations.length > 0 ? { citations } : {}),
-            ...(sources.length > 0 ? { sources } : {}),
-          },
-        })
-        .select("id")
-        .single();
-      if (insertedAssistant?.id) {
-        dbIdMap.current.set(assistantId, insertedAssistant.id);
-      }
+      await persistMessage(assistantId, {
+        conversation_id: activeConvo,
+        user_id: user.id,
+        role: "assistant",
+        content: assistantContent,
+        metadata: {
+          ...(citations.length > 0 ? { citations } : {}),
+          ...(sources.length > 0 ? { sources } : {}),
+        } as unknown as Json,
+      });
 
       // (Visual BI answers are produced up-front by the BI-first branch above;
       // reaching here means either BI is off or the question wasn't answerable
@@ -886,23 +1016,16 @@ function PlaygroundPage() {
           traceId,
         });
         if (assistantContent) {
-          const { data: insertedAssistant } = await supabase
-            .from("messages")
-            .insert({
-              conversation_id: activeConvo,
-              user_id: user.id,
-              role: "assistant",
-              content: assistantContent,
-              metadata: {
-                ...(citations.length > 0 ? { citations } : {}),
-                ...(sources.length > 0 ? { sources } : {}),
-              },
-            })
-            .select("id")
-            .single();
-          if (insertedAssistant?.id) {
-            dbIdMap.current.set(assistantId, insertedAssistant.id);
-          }
+          await persistMessage(assistantId, {
+            conversation_id: activeConvo,
+            user_id: user.id,
+            role: "assistant",
+            content: assistantContent,
+            metadata: {
+              ...(citations.length > 0 ? { citations } : {}),
+              ...(sources.length > 0 ? { sources } : {}),
+            } as unknown as Json,
+          });
         } else {
           setMessages((prev) => prev.filter((m) => m.id !== assistantId));
         }
@@ -1180,18 +1303,13 @@ function PlaygroundPage() {
       };
       setMessages((prev) => [...prev, docPrompt]);
       if (activeConvo && user) {
-        const { data: insertedPrompt } = await supabase
-          .from("messages")
-          .insert({
-            conversation_id: activeConvo,
-            user_id: user.id,
-            role: "user",
-            content: p,
-            metadata: { docRequest: fmt } as unknown as Json,
-          })
-          .select("id")
-          .single();
-        if (insertedPrompt?.id) dbIdMap.current.set(docPrompt.id, insertedPrompt.id);
+        await persistMessage(docPrompt.id, {
+          conversation_id: activeConvo,
+          user_id: user.id,
+          role: "user",
+          content: p,
+          metadata: { docRequest: fmt } as unknown as Json,
+        });
         // Doc-gen never went through the normal reply path, so a conversation
         // that only ever generated documents stayed titled "New Chat".
         if (isFirstDocMessage) {
@@ -1235,17 +1353,12 @@ function PlaygroundPage() {
             .map((a) => (a.kind === "image" ? `📎 image: ${a.name}` : `📎 document: ${a.name}`))
             .join("\n")
         : "";
-    const { data: insertedUser } = await supabase
-      .from("messages")
-      .insert({
-        conversation_id: activeConvo,
-        user_id: user.id,
-        role: "user",
-        content: userMsg + attachmentSummary,
-      })
-      .select("id")
-      .single();
-    if (insertedUser?.id) dbIdMap.current.set(tempUserMsg.id, insertedUser.id);
+    await persistMessage(tempUserMsg.id, {
+      conversation_id: activeConvo,
+      user_id: user.id,
+      role: "user",
+      content: userMsg + attachmentSummary,
+    });
 
     await runAndHandleFallback({ historySnapshot, isFirstUserMessage: isFirstMessage });
   }
@@ -1274,10 +1387,20 @@ function PlaygroundPage() {
     if (idx === -1) return;
     const historySnapshot = messages.slice(0, idx);
     const dbId = resolveDbId(assistantMsgId);
+    const before = messages;
     setMessages(historySnapshot);
     setToolEvents([]);
     setMemoryUsed(null);
-    await supabase.from("messages").delete().eq("id", dbId);
+    const { error } = await supabase.from("messages").delete().eq("id", dbId);
+    if (error) {
+      // The old reply is still stored; a fresh one on top would leave both
+      // after a reload. Put the old one back and stop.
+      setMessages(before);
+      toast.error("Could not regenerate the reply", {
+        description: `${error.message}. The previous reply could not be removed, so it stands.`,
+      });
+      return;
+    }
     await runAndHandleFallback({
       historySnapshot,
       isFirstUserMessage: historySnapshot.length === 1,
@@ -1305,32 +1428,44 @@ function PlaygroundPage() {
       created_at: new Date().toISOString(),
     };
     const historySnapshot = [...beforeHistory, editedMsg];
+    const before = messages;
     setMessages(historySnapshot);
     setToolEvents([]);
     setMemoryUsed(null);
 
     if (toRemoveDbIds.length > 0) {
-      await supabase.from("messages").delete().in("id", toRemoveDbIds);
+      const { error } = await supabase.from("messages").delete().in("id", toRemoveDbIds);
+      if (error) {
+        // The messages after the edit are still stored; resending on top of
+        // them would leave both threads after a reload. Restore and stop.
+        setMessages(before);
+        toast.error("Could not resend the edited message", {
+          description: `${error.message}. The conversation is unchanged.`,
+        });
+        return;
+      }
     }
-    const { data: insertedUser } = await supabase
-      .from("messages")
-      .insert({
-        conversation_id: activeConvo,
-        user_id: user.id,
-        role: "user",
-        content: trimmed,
-      })
-      .select("id")
-      .single();
-    if (insertedUser?.id) dbIdMap.current.set(editedMsg.id, insertedUser.id);
+    await persistMessage(editedMsg.id, {
+      conversation_id: activeConvo,
+      user_id: user.id,
+      role: "user",
+      content: trimmed,
+    });
 
     await runAndHandleFallback({ historySnapshot, isFirstUserMessage: isFirstMessage });
   }
 
   async function deleteMessage(id: string) {
     const dbId = resolveDbId(id);
+    const before = messages;
     setMessages((prev) => prev.filter((m) => m.id !== id));
-    await supabase.from("messages").delete().eq("id", dbId);
+    const { error } = await supabase.from("messages").delete().eq("id", dbId);
+    if (error) {
+      setMessages(before);
+      toast.error("Could not delete the message", {
+        description: `${error.message}. It is still in the conversation.`,
+      });
+    }
   }
 
   const currentAgent = agents.find((a) => a.id === selectedAgent);
@@ -1408,7 +1543,7 @@ function PlaygroundPage() {
   };
 
   return (
-    <div className="flex h-[calc(100vh-3rem)] w-full overflow-hidden">
+    <div className="flex h-canvas w-full overflow-hidden">
       {/* Mobile sidebar trigger */}
       <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
         <SheetContent side="left" className="w-72 p-0">
@@ -1476,16 +1611,29 @@ function PlaygroundPage() {
                 ))}
               </SelectContent>
             </Select>
-            {!selectedAgent && (
-              <div
-                className="flex animate-pulse items-center gap-1.5 rounded-full border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-amber-600 dark:text-amber-400"
-                title="Pick the agent you want to chat with from the dropdown"
+            {agentsError ? (
+              // Only a mark here: with the inspector open this bar is ~330px
+              // wide, and the picker takes 170 of it. The message and Try
+              // again are in the middle of the page.
+              <span
+                className="grid h-6 w-6 shrink-0 place-items-center rounded-full border border-destructive/40 bg-destructive/10 text-destructive"
+                title={`Your agents could not be read: ${agentsError}`}
               >
-                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                <span className="hidden whitespace-nowrap text-[11px] font-medium sm:inline">
-                  Pick an agent to begin
-                </span>
-              </div>
+                <AlertTriangle className="h-3.5 w-3.5" />
+                <span className="sr-only">Agents not read</span>
+              </span>
+            ) : (
+              !selectedAgent && (
+                <div
+                  className="flex animate-pulse items-center gap-1.5 rounded-full border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-amber-600 dark:text-amber-400"
+                  title="Pick the agent you want to chat with from the dropdown"
+                >
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                  <span className="hidden whitespace-nowrap text-[11px] font-medium sm:inline">
+                    Pick an agent to begin
+                  </span>
+                </div>
+              )
             )}
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
@@ -1534,19 +1682,56 @@ function PlaygroundPage() {
           <div className="pointer-events-none absolute -top-24 left-1/2 h-64 w-[36rem] -translate-x-1/2 rounded-full bg-primary/5 blur-3xl" />
           <ScrollArea className="relative h-full w-full [&>[data-radix-scroll-area-viewport]>div]:!block [&>[data-radix-scroll-area-viewport]]:!w-full">
             <div className="mx-auto w-full min-w-0 max-w-3xl space-y-6 px-4 py-8">
-              {messages.length === 0 && !thinking && (
+              {messages.length === 0 && !messagesLoaded && !thinking && activeConvo && (
+                <div
+                  role="status"
+                  className="flex flex-col items-center justify-center py-24 text-center text-sm text-muted-foreground"
+                >
+                  Loading this conversation…
+                </div>
+              )}
+
+              {messages.length === 0 && (messagesLoaded || !activeConvo) && !thinking && (
                 <div className="flex flex-col items-center justify-center py-24 text-center">
                   <div className="mb-5 grid h-16 w-16 place-items-center rounded-2xl bg-gradient-to-br from-primary to-nexus-glow text-primary-foreground shadow-lg shadow-primary/20">
                     <Bot className="h-8 w-8" />
                   </div>
                   <h2 className="text-2xl font-semibold tracking-tight">
-                    {currentAgent ? `Chat with ${currentAgent.name}` : "Select an agent to start"}
+                    {currentAgent
+                      ? `Chat with ${currentAgent.name}`
+                      : agentsError
+                        ? "Your agents could not be read"
+                        : "Select an agent to start"}
                   </h2>
                   <p className="mt-1.5 max-w-sm text-sm text-muted-foreground">
-                    {currentAgent
-                      ? "Ask a question, share a task, or try a starter below."
-                      : "Choose an agent from the top bar, then send your first message."}
+                    {currentAgent && !activeConvo && convoError
+                      ? `A conversation could not be started, so there is nowhere to write yet: ${convoError.replace(/[.!?]?\s*$/, ".")}`
+                      : currentAgent
+                        ? "Ask a question, share a task, or try a starter below."
+                        : agentsError
+                          ? `So there is nothing to pick yet: ${agentsError.replace(/[.!?]?\s*$/, ".")}`
+                          : "Choose an agent from the top bar, then send your first message."}
                   </p>
+                  {!currentAgent && agentsError && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="mt-4"
+                      onClick={() => setAgentsAttempt((n) => n + 1)}
+                    >
+                      Try again
+                    </Button>
+                  )}
+                  {currentAgent && !activeConvo && convoError && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="mt-4"
+                      onClick={() => void createConversation()}
+                    >
+                      Try again
+                    </Button>
+                  )}
                   {currentAgent && activeConvo && (
                     <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
                       {STARTER_PROMPTS.map((p) => (
@@ -1881,6 +2066,181 @@ function InspectorPanel({
   );
 }
 
+/**
+ * An ML tool's result as a person reads it: a prediction table with the key
+ * columns first, the model and version above it, what was not found and
+ * where the features came from beside it; the model list; or the error.
+ * Built server-side from the full JSON (src/lib/mlToolResult.ts) — the
+ * 400-char preview cut a prediction off mid-probability.
+ */
+function MlToolResultView({ data }: { data: MlToolData }) {
+  const label = (
+    <p className="text-[9px] uppercase tracking-wider text-muted-foreground mb-1">Result</p>
+  );
+  if (data.kind === "error") {
+    return (
+      <div>
+        {label}
+        <p className="text-[11px] text-destructive break-words">{data.error}</p>
+      </div>
+    );
+  }
+  if (data.kind === "models") {
+    return (
+      <div>
+        <p className="text-[9px] uppercase tracking-wider text-muted-foreground mb-1">
+          {data.models.length} model{data.models.length === 1 ? "" : "s"}
+        </p>
+        <ul className="space-y-1">
+          {data.models.map((m) => (
+            <li key={m.name} className="text-[10px] leading-snug break-words">
+              <span className="font-mono">{m.name}</span>
+              <span className="text-muted-foreground">
+                {" · "}
+                {m.task}
+                {m.target ? ` → ${m.target}` : ""}
+                {m.version !== null ? ` · v${m.version}` : ""}
+                {m.metric ? ` · ${m.metric}` : ""}
+                {m.feature_view ? ` · by key: ${m.feature_view.key_columns.join(" + ")}` : ""}
+              </span>
+              {m.health && (
+                <span
+                  className={
+                    /alert|degraded|suspiciously/.test(m.health)
+                      ? "text-amber-400"
+                      : "text-muted-foreground"
+                  }
+                >
+                  {" · "}
+                  {/alert|degraded|suspiciously/.test(m.health) ? "⚠ " : ""}
+                  {m.health}
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      </div>
+    );
+  }
+  const cell = (v: unknown): string =>
+    v === null || v === undefined
+      ? "—"
+      : typeof v === "number"
+        ? formatNumber(v)
+        : typeof v === "object"
+          ? JSON.stringify(v)
+          : String(v);
+  const missing = data.keys_not_found.length;
+  return (
+    <div className="space-y-1.5">
+      {label}
+      <p className="text-[10px] leading-snug break-words">
+        <span className="font-mono">{data.model}</span>
+        <span className="text-muted-foreground">
+          {data.version !== null ? ` · v${data.version}` : ""}
+          {` · ${data.task}`}
+          {data.algorithm ? ` · ${data.algorithm}` : ""}
+        </span>
+      </p>
+      <div className="flex flex-wrap gap-1">
+        <Badge variant="outline" className="text-[9px]">
+          {data.forecast.length > 0
+            ? `${data.forecast.length} period${data.forecast.length === 1 ? "" : "s"}`
+            : `${data.row_count} row${data.row_count === 1 ? "" : "s"}`}
+        </Badge>
+        {data.features_served_from && (
+          <Badge variant="outline" className="text-[9px]">
+            features from {data.features_served_from}
+            {data.feature_view ? ` · ${data.feature_view}` : ""}
+          </Badge>
+        )}
+        {missing > 0 && (
+          <Badge variant="outline" className="text-[9px] border-amber-400/40 text-amber-400">
+            {missing} key{missing === 1 ? "" : "s"} not found
+          </Badge>
+        )}
+      </div>
+      {data.forecast.length > 0 ? (
+        <div className="max-h-48 overflow-auto rounded border border-border/60 bg-background/40">
+          <table className="w-full text-[10px] font-mono">
+            <thead>
+              <tr>
+                {["period", "yhat", "lo", "hi"].map((c) => (
+                  <th
+                    key={c}
+                    className="px-1.5 py-1 text-left font-medium text-muted-foreground whitespace-nowrap"
+                  >
+                    {c}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {data.forecast.map((p, i) => (
+                <tr key={p.period + i} className="border-t border-border/40">
+                  <td className="px-1.5 py-0.5 whitespace-nowrap">{p.period}</td>
+                  <td className="px-1.5 py-0.5 whitespace-nowrap">{formatNumber(p.yhat)}</td>
+                  <td className="px-1.5 py-0.5 whitespace-nowrap">{cell(p.lo)}</td>
+                  <td className="px-1.5 py-0.5 whitespace-nowrap">{cell(p.hi)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : data.rows.length > 0 ? (
+        <div className="max-h-48 overflow-auto rounded border border-border/60 bg-background/40">
+          <table className="w-full text-[10px] font-mono">
+            <thead>
+              <tr>
+                {data.columns.map((c) => (
+                  <th
+                    key={c}
+                    className="px-1.5 py-1 text-left font-medium text-muted-foreground whitespace-nowrap"
+                  >
+                    {c}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {data.rows.map((row, i) => (
+                <tr key={i} className="border-t border-border/40">
+                  {data.columns.map((c) => (
+                    <td key={c} className="px-1.5 py-0.5 whitespace-nowrap">
+                      {cell(row[c])}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="text-[10px] text-muted-foreground">No rows scored.</p>
+      )}
+      {missing > 0 && (
+        <p className="text-[10px] text-muted-foreground break-words">
+          Not found: {data.keys_not_found.join(", ")}
+        </p>
+      )}
+      {(data.warnings.length > 0 || data.notes.length > 0) && (
+        <ul className="space-y-0.5 max-h-24 overflow-auto">
+          {data.warnings.map((w, i) => (
+            <li key={`w${i}`} className="text-[10px] text-amber-400 break-words">
+              {w}
+            </li>
+          ))}
+          {data.notes.map((n, i) => (
+            <li key={`n${i}`} className="text-[10px] text-muted-foreground break-words">
+              {n}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function ToolEventsPanel({ events, thinking }: { events: ToolUiEvent[]; thinking: boolean }) {
   // Pair tool_call with its matching tool_result by id so the user sees
   // input + output side by side as the loop progresses.
@@ -1971,15 +2331,19 @@ function ToolEventsPanel({ events, thinking }: { events: ToolUiEvent[]; thinking
                       {prettyArgs || "(none)"}
                     </pre>
                   </div>
-                  {r && (
-                    <div>
-                      <p className="text-[9px] uppercase tracking-wider text-muted-foreground mb-1">
-                        Result preview
-                      </p>
-                      <pre className="text-[10px] font-mono whitespace-pre-wrap break-all bg-background/40 rounded p-1.5 max-h-32 overflow-auto">
-                        {r.preview || "(empty)"}
-                      </pre>
-                    </div>
+                  {r?.data ? (
+                    <MlToolResultView data={r.data} />
+                  ) : (
+                    r && (
+                      <div>
+                        <p className="text-[9px] uppercase tracking-wider text-muted-foreground mb-1">
+                          Result preview
+                        </p>
+                        <pre className="text-[10px] font-mono whitespace-pre-wrap break-all bg-background/40 rounded p-1.5 max-h-32 overflow-auto">
+                          {r.preview || "(empty)"}
+                        </pre>
+                      </div>
+                    )
                   )}
                 </div>
               </div>
@@ -2189,6 +2553,10 @@ type TraceRow = {
 function RealExecutionTrace({ traceId, thinking }: { traceId: string | null; thinking: boolean }) {
   const [trace, setTrace] = useState<TraceRow | null>(null);
   const [loading, setLoading] = useState(false);
+  // The last read's error. "Trace not recorded" is a claim about the server,
+  // so it is only made when the reads worked and found no row.
+  const [readError, setReadError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   // Poll the execution_traces table by trace_id (set as the row's `id`).
   // The chat route generates the UUID and writes the row when the LLM call
@@ -2202,10 +2570,11 @@ function RealExecutionTrace({ traceId, thinking }: { traceId: string | null; thi
     let attempts = 0;
     setLoading(true);
     setTrace(null);
+    setReadError(null);
 
     const tick = async () => {
       attempts += 1;
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("execution_traces")
         .select("*")
         .eq("id", traceId)
@@ -2213,9 +2582,14 @@ function RealExecutionTrace({ traceId, thinking }: { traceId: string | null; thi
       if (cancelled) return;
       if (data) {
         setTrace(data as TraceRow);
+        setReadError(null);
         setLoading(false);
         return;
       }
+      // FOUND IN R191: eight refused reads ended in "Trace not recorded · The
+      // request may have failed before the trace row was written." for a
+      // request that had answered and whose trace was in the table.
+      setReadError(error ? error.message : null);
       if (attempts < 8) {
         setTimeout(tick, 750);
       } else {
@@ -2226,7 +2600,7 @@ function RealExecutionTrace({ traceId, thinking }: { traceId: string | null; thi
     return () => {
       cancelled = true;
     };
-  }, [traceId]);
+  }, [traceId, attempt]);
 
   if (!traceId && !thinking) {
     return (
@@ -2246,6 +2620,27 @@ function RealExecutionTrace({ traceId, thinking }: { traceId: string | null; thi
         <Activity className="h-8 w-8 text-primary/60 mb-3 animate-pulse" />
         <p className="text-sm font-medium text-muted-foreground">Recording trace…</p>
         <p className="text-xs text-muted-foreground/70 mt-1 font-mono break-all">{traceId}</p>
+      </div>
+    );
+  }
+
+  if (!trace && readError) {
+    return (
+      <div className="h-full rounded-lg border border-border bg-background/60 flex flex-col items-center justify-center text-center p-6">
+        <AlertTriangle className="h-8 w-8 text-destructive/70 mb-3" />
+        <p className="text-sm font-medium text-muted-foreground">Trace not read</p>
+        <p className="text-xs text-muted-foreground/70 mt-1">
+          The trace could not be read, so this says nothing about whether it was recorded:{" "}
+          {readError}
+        </p>
+        <Button
+          variant="outline"
+          size="sm"
+          className="mt-3 h-7 text-xs"
+          onClick={() => setAttempt((n) => n + 1)}
+        >
+          Try again
+        </Button>
       </div>
     );
   }
@@ -2291,7 +2686,7 @@ function RealExecutionTrace({ traceId, thinking }: { traceId: string | null; thi
         <div className="p-3 space-y-3 text-xs">
           <div className="grid grid-cols-2 gap-2">
             <Stat label="Latency" value={`${trace.latency_ms} ms`} />
-            <Stat label="Cost" value={`$${Number(trace.cost_usd).toFixed(6)}`} />
+            <Stat label="Cost" value={formatUsd(trace.cost_usd)} />
             <Stat label="Tokens in" value={String(trace.tokens_in)} />
             <Stat label="Tokens out" value={String(trace.tokens_out)} />
           </div>
@@ -2578,6 +2973,15 @@ function MessageBubble({
           <p className="text-xs font-medium text-muted-foreground">
             {isUser ? "You" : "Assistant"}
           </p>
+          {message.unsaved ? (
+            <span
+              className="text-[11px] text-amber-600 dark:text-amber-400"
+              title={message.unsaved}
+              role="status"
+            >
+              not saved — it will not be here after a reload
+            </span>
+          ) : null}
           {/* Hover-revealed action row — hidden while a response is streaming
               so actions can't target a message mid-turn. */}
           {!disabled && (
@@ -2675,7 +3079,7 @@ function notifyDeepFallback() {
   // an info toast reads as "fine" to someone wondering why Deep changed nothing.
   toast.warning("Deep mode unavailable — built in the browser instead", {
     description:
-      "This document is identical to Browser · fast. Start the renderer with `docker compose --profile docgen up -d --build`.",
+      "This document is identical to Browser · fast. Start the renderer with `docker compose up -d --build`.",
     duration: 12000,
   });
 }
@@ -2692,7 +3096,16 @@ async function buildPptxDoc(
   const fill = await materializePptxWithBI(plan, { model });
   // A deck where half the queries failed looked identical to one where they all
   // worked — the slides just quietly lost their charts.
-  if (fill.visuals > 0 && fill.filled < fill.visuals) {
+  if (fill.error) {
+    // A deck built over a failed read: the charts fall back to bullets, and
+    // this is the only place that says why. Before, it said nothing — the
+    // warning below needs visuals > 0, and a failed read reported 0.
+    toast.error(`Charts could not be filled — ${fill.error}`, {
+      description:
+        "The deck was built with its chart slides falling back to text. Check the data connection and generate it again.",
+      duration: 12000,
+    });
+  } else if (fill.visuals > 0 && fill.filled < fill.visuals) {
     toast.warning(`${fill.filled} of ${fill.visuals} visuals could be filled with your data`, {
       description:
         "The rest could not be answered from the connected tables — those slides fall back to text or a table.",

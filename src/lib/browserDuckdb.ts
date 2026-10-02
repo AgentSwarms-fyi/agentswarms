@@ -42,7 +42,8 @@
 // merely loads a page that could run one.
 import type * as duckdb from "@duckdb/duckdb-wasm";
 
-import { toJsValue } from "@/lib/duckdbValues";
+import { arrowTemporalKind, ENGINE_TIME_ZONE, formatTemporal, toJsValue } from "@/lib/duckdbValues";
+import { holdQueriesUntil, waitForLoads } from "@/lib/queryGate";
 import { assertLocalReadOnlySql } from "@/lib/sqlSafety";
 import type { ColumnDef } from "@/lib/datasetParse";
 
@@ -181,6 +182,14 @@ function init(): Promise<Handle> {
       });
     });
     const conn = await db.connect();
+    // FOUND IN R195: this engine took the viewer's time zone (ICU reads it
+    // from the browser: "Etc/GMT-4" here) while the server engine runs in UTC.
+    // So `current_date`, `now()` and anything cast through TIMESTAMPTZ landed
+    // on a different day in the Workbench than in a scheduled refresh or an
+    // agent's sql_query over the same data — one query, two answers. Both run
+    // in UTC now. Without ICU there is no setting to change and TIMESTAMPTZ
+    // is already UTC, so a failure here is not an error.
+    await conn.query(`SET TimeZone = '${ENGINE_TIME_ZONE}'`).catch(() => undefined);
     setStatus({ phase: "ready" });
     return { db, conn, worker };
   })();
@@ -261,12 +270,17 @@ async function materialise(conn: duckdb.AsyncDuckDBConnection, table: BrowserDuc
  * Called by the hydration path in lib/sqlEngine. Replacing a table drops and
  * recreates it, so a re-hydration after an upload cannot leave stale rows.
  */
-export async function registerBrowserTables(tables: BrowserDuckTable[]): Promise<void> {
-  const { conn } = await init();
-  for (const t of tables) {
-    await materialise(conn, t);
-    registered.add(t.name);
-  }
+export function registerBrowserTables(tables: BrowserDuckTable[]): Promise<void> {
+  const load = (async () => {
+    const { conn } = await init();
+    for (const t of tables) {
+      await materialise(conn, t);
+      registered.add(t.name);
+    }
+  })();
+  // A query waits for this, so it never reads a table half filled (R210).
+  holdQueriesUntil(load);
+  return load;
 }
 
 export function isBrowserTableRegistered(name: string): boolean {
@@ -296,15 +310,27 @@ export type BrowserQueryResult = {
  */
 export async function runBrowserSql(sql: string): Promise<BrowserQueryResult> {
   const safe = assertLocalReadOnlySql(sql);
+  // FOUND IN R210: a query that came in while a table was being filled read
+  // the rows inserted so far (count(*) 6000 of 9,994), and one that came in
+  // before it was created said it did not exist. Loads in flight go first.
+  await waitForLoads();
   const { conn } = await init();
   const table = await conn.query(safe);
-  const columns = table.schema.fields.map((f) => f.name);
+  const fields = table.schema.fields;
+  const columns = fields.map((f) => f.name);
+  // DATE and TIMESTAMP arrive from Arrow as epoch milliseconds; the server
+  // engine writes them as text, and so does this one now (R197).
+  const kinds = fields.map((f) => arrowTemporalKind(f.type));
   const rows: Record<string, unknown>[] = [];
   for (const row of table.toArray()) {
     const obj: Record<string, unknown> = {};
     // Arrow rows expose columns as properties; toJsValue is shared with the
     // server engine so BigInt and DECIMAL land the same way on both.
-    for (const name of columns) obj[name] = toJsValue((row as Record<string, unknown>)[name]);
+    columns.forEach((name, i) => {
+      const raw = (row as Record<string, unknown>)[name];
+      const kind = kinds[i];
+      obj[name] = kind && typeof raw === "number" ? formatTemporal(raw, kind) : toJsValue(raw);
+    });
     rows.push(obj);
   }
   return { columns, rows };

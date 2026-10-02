@@ -18,31 +18,25 @@ import {
   type ServiceStatus,
 } from "@/lib/serviceHealth";
 
-const tone = (status: ServiceStatus, optional: boolean) => statusTone({ status, optional });
+const tone = (status: ServiceStatus) => statusTone({ status });
 
 describe("statusTone", () => {
-  it("does NOT raise an alarm for an optional service that was never started", () => {
-    // A red "Down" on a profile the operator chose not to enable is how a
-    // status page teaches people to ignore it.
-    const t = tone("down", true);
-    expect(t.tone).toBe("muted");
-    expect(t.label).toBe("Not running");
-  });
-
-  it("DOES raise an alarm when a required service is down", () => {
-    const t = tone("down", false);
+  it("calls a service that is not answering DOWN, because every service ships", () => {
+    // It used to read "Not running" in grey for anything behind a compose
+    // profile, which was right when a service could legitimately never have
+    // been started. There are no profiles now: grey there would make a real
+    // outage look deliberate.
+    const t = tone("down");
     expect(t.tone).toBe("critical");
     expect(t.label).toBe("Down");
   });
 
-  it("flags a degraded service regardless of whether it is optional", () => {
-    expect(tone("degraded", true).tone).toBe("warn");
-    expect(tone("degraded", false).tone).toBe("warn");
+  it("flags a degraded service", () => {
+    expect(tone("degraded").tone).toBe("warn");
   });
 
-  it("marks a healthy service green either way", () => {
-    expect(tone("up", true).tone).toBe("ok");
-    expect(tone("up", false).tone).toBe("ok");
+  it("marks a healthy service green", () => {
+    expect(tone("up").tone).toBe("ok");
   });
 });
 
@@ -52,7 +46,7 @@ describe("unreachable is not the same as down", () => {
     // outside Compose cannot probe it — and reported it as DOWN while it was
     // running perfectly. One false row is enough to make the whole page
     // untrustworthy.
-    const t = tone("unreachable", true);
+    const t = tone("unreachable");
     expect(t.tone).toBe("muted");
     expect(t.label).toMatch(/can.t check/i);
   });
@@ -113,32 +107,24 @@ describe("formatUptime", () => {
 });
 
 describe("service catalogue", () => {
-  it("covers every optional container service in docker-compose", () => {
-    const compose = readFileSync(resolve("docker-compose.yml"), "utf-8");
-    // Services declared with a profile are the optional ones an operator can
-    // forget to start — exactly what this page exists to report on.
-    // Split into service blocks FIRST. A single multi-line regex happily ran
-    // from one service's name to a LATER service's `profiles:` line, which
-    // made the always-on `agentswarms` service look optional.
-    const servicesSection = compose.slice(
-      compose.indexOf("\nservices:"),
-      compose.indexOf("\nnetworks:"),
-    );
-    const withProfiles = servicesSection
-      .split(/\n(?= {2}[a-z][a-z0-9-]*:\n)/)
-      .map((block) => ({
-        name: block.match(/^\s*([a-z][a-z0-9-]*):/)?.[1],
-        optional: /\n\s+profiles: \[/.test(block),
-      }))
-      .filter((b) => b.name && b.optional)
-      .map((b) => b.name as string);
+  it("covers every container service in docker-compose", () => {
+    // Every service starts with every install, so the status page must be able
+    // to speak about all of them: a service nobody can see the state of is one
+    // whose outage is found by a user instead.
+    const compose = yaml.load(readFileSync(resolve("docker-compose.yml"), "utf-8")) as {
+      services: Record<string, unknown>;
+    };
+    // Two helpers never run: one builds the kernel image, one creates the
+    // bucket and exits. Nothing to monitor.
+    const ONE_SHOT = new Set(["notebook-runtime-image", "minio-init"]);
+    // The app probes itself under "app", not its compose name.
+    const SELF = new Set(["agentswarms"]);
+    const expected = Object.keys(compose.services).filter((n) => !ONE_SHOT.has(n) && !SELF.has(n));
     const monitored = new Set(SERVICE_CATALOGUE.map((s) => s.id));
-    // The build-only helper never runs, so it is deliberately not monitored.
-    const expected = withProfiles.filter((n) => n !== "notebook-runtime-image");
     for (const name of expected) {
       expect(monitored.has(name as never), `${name} is not in the monitoring catalogue`).toBe(true);
     }
-    expect(expected.length).toBeGreaterThanOrEqual(4);
+    expect(expected.length).toBeGreaterThanOrEqual(9);
   });
 
   it("tries the in-network name before the published loopback port", () => {
@@ -149,17 +135,19 @@ describe("service catalogue", () => {
     }
   });
 
-  it("names a real compose profile for every optional service", () => {
-    // Parsed, not string-matched: a service may sit in several profiles (each
-    // also carries `all`), so the bracket formatting is not the claim here.
+  it("knows which services publish a host port, so a host-run app is not lied to", () => {
+    // `hostPublished: false` is what produces "Can't check from here" instead
+    // of a false "down" when the app runs outside the compose network. Every
+    // service publishes on loopback now for --dev, so the flag has to match
+    // the compose file rather than the memory of when it did not.
     const compose = yaml.load(readFileSync(resolve("docker-compose.yml"), "utf-8")) as {
-      services: Record<string, { profiles?: string[] }>;
+      services: Record<string, { ports?: string[] }>;
     };
-    const declared = new Set(Object.values(compose.services).flatMap((s) => s.profiles ?? []));
     for (const s of SERVICE_CATALOGUE) {
-      if (!s.optional) continue;
-      expect(s.profile, `${s.id} has no profile`).toBeTruthy();
-      expect([...declared], `profile ${s.profile} is not in compose`).toContain(s.profile);
+      const svc = compose.services[s.id];
+      if (!svc) continue; // app and database are not compose services by that name
+      const published = (svc.ports ?? []).length > 0;
+      expect(s.hostPublished, `${s.id}: hostPublished should be ${published}`).toBe(published);
     }
   });
 });

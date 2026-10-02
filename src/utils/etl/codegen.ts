@@ -1,0 +1,2144 @@
+// Visual ETL graph → Python compiler.
+//
+// The graph is a DAG (Glue-style): any number of sources, transforms that can
+// join and branch, any number of targets. Pure module — the canvas uses it for
+// the live code preview, the server compiles on save so `source_code` is
+// always the executable truth, and the tests exercise it directly.
+//
+// Every user-authored string that reaches the generated Python goes through
+// pyStr()/pyIdent() — the same discipline the agent/swarm exporters learned
+// the hard way. A pipeline graph can arrive from anywhere (a shared catalog
+// source name, an imported definition), so a column name is an injection
+// surface exactly as much as a swarm label was.
+//
+// The generated script's contract with the batch runner:
+//   - top-level code does no work (imports only);
+//   - `entrypoint(inputs)` performs the run and returns a JSON-able metrics
+//     dict, which lands in etl_runs.metrics;
+//   - credentials come only from environment variables the sandbox fetched
+//     over HTTP at start — per-node names derived by envKey(); the code never
+//     contains a credential.
+
+// ── Graph model ─────────────────────────────────────────────────────────────
+
+export type SourceFileFormat = "csv" | "tsv" | "json" | "jsonl" | "parquet" | "xlsx";
+export type TargetFileFormat = "parquet" | "csv" | "jsonl";
+
+/**
+ * What dlt NAMES the files it writes, per loader format.
+ *
+ * Not the same as the format: dlt gzips text output, so a jsonl target leaves
+ * `<load>.jsonl.gz` behind and a csv target `<load>.csv.gz`. The run reports
+ * one of these globs as its target's fqn, catalog lineage joins on that string,
+ * and the crawler derives the same glob from the keys it actually lists — so
+ * all three have to agree or the lineage edge points at nothing. Measured
+ * against dlt 1.30.0 rather than assumed.
+ */
+export const DLT_FILE_EXT: Record<TargetFileFormat, string> = {
+  parquet: "parquet",
+  csv: "csv.gz",
+  jsonl: "jsonl.gz",
+};
+
+import {
+  isStreamSource,
+  streamSourcePython,
+  validateStreamSource,
+  type StreamSourceConfig,
+} from "@/utils/etl/streaming";
+import {
+  catalogAssetLineage,
+  isCatalogAsset,
+  unwrapSourceConfig,
+  type CatalogAssetSourceConfig,
+} from "@/utils/etl/catalogAsset";
+import {
+  SAAS_TARGETS,
+  batchSizeFor,
+  endpointPath,
+  methodFor,
+  validateSaasTarget,
+  type SaasTargetConfig,
+  type SaasTargetVendor,
+} from "@/lib/saasTargets";
+import { continuousWrapper, isAutoIngest } from "./continuous";
+
+export type EtlSourceConfig =
+  | StreamSourceConfig
+  | CatalogAssetSourceConfig
+  | {
+      type: "object_storage";
+      /** Catalog storage source supplying credentials (resolved server-side). */
+      catalog_source_id?: string;
+      /** Key or glob within the bucket, e.g. raw/orders/*.csv */
+      path: string;
+      format: SourceFileFormat;
+      /** Engine-managed incremental: only rows with cursor_column above the
+       *  stored watermark survive; the engine persists the new maximum after
+       *  each durable load. */
+      incremental?: { cursor_column: string };
+      /** Auto-ingest: read only files not loaded before. A ledger of the
+       *  newest modification time loaded, and the keys at that time, rides
+       *  the engine cursor, so the prefix is listed but only new files are
+       *  read. Makes the source drainable, and so continuous-eligible. */
+      new_files_only?: boolean;
+      /** The most files one run (one tick) reads; the rest wait for the next. */
+      max_files_per_run?: number;
+    }
+  | {
+      type: "database";
+      /** Warehouse connection supplying credentials (resolved server-side). */
+      connection_id?: string;
+      /** Cached at selection time so the compiler can pick the right driver. */
+      provider?: string;
+      /** cdc: Postgres logical replication (wal2json slot, batch-consumed). */
+      mode: "table" | "query" | "cdc";
+      /** The picked schema, kept apart so the picker can restore it; `table` is schema-qualified once both are picked. */
+      schema?: string;
+      table?: string;
+      query?: string;
+      /** cdc only: full table read on first run (slot created first, so no gap). */
+      initial_snapshot?: boolean;
+      /** Engine-managed incremental — pushed down as a WHERE on the cursor. */
+      incremental?: { cursor_column: string };
+    }
+  | { type: "http_api"; url: string; records_path?: string }
+  | {
+      /** Rows pushed to /api/etl/ingest under the trigger token; drained here. */
+      type: "ingest";
+    }
+  | { type: "python"; code: string }
+  | {
+      /** A dataset already on the platform: uploaded, prep-flow output, or synced from a SaaS connector. */
+      type: "platform_dataset";
+      table_id: string;
+      /** Display + lineage label; the id is what is fetched. */
+      table_name?: string;
+    }
+  | {
+      /** The built-in lakehouse, read through its own engine in the sandbox. */
+      type: "lakehouse";
+      schema: string;
+      mode: "table" | "query";
+      table?: string;
+      query?: string;
+    };
+
+export type QualityCheck =
+  | "not_null"
+  | "unique"
+  | "range"
+  | "regex"
+  | "allowed_values"
+  | "row_count_min";
+
+export type QualityRule = {
+  check: QualityCheck;
+  /** Every check but row_count_min targets a column. */
+  column?: string;
+  min?: number;
+  max?: number;
+  pattern?: string;
+  values?: string[];
+  /** fail aborts the run, warn logs and continues, drop removes offending rows. */
+  severity: "fail" | "warn" | "drop";
+};
+
+export type EtlTransformConfig =
+  | { type: "filter"; expr: string }
+  | { type: "select"; columns: string[] }
+  | { type: "rename"; mapping: Record<string, string> }
+  | { type: "derive"; column: string; expr: string }
+  | { type: "dedupe"; columns?: string[] }
+  | { type: "limit"; n: number }
+  | { type: "sort"; by: string[]; descending?: boolean }
+  | { type: "aggregate"; group_by: string[]; aggs: { column: string; fn: AggFn; as: string }[] }
+  | { type: "fill_nulls"; value: string; columns?: string[] }
+  | { type: "drop_nulls"; columns?: string[] }
+  | {
+      type: "join";
+      how: "inner" | "left" | "right" | "outer";
+      left_on: string[];
+      right_on: string[];
+      left_node?: string;
+    }
+  | { type: "union" }
+  | { type: "sql"; query: string }
+  | { type: "python"; code: string }
+  | { type: "quality_gate"; rules: QualityRule[] };
+
+export type EtlTargetConfig =
+  | {
+      /**
+       * Reverse ETL into a SaaS tool, through a connection that already
+       * exists. Named rather than a URL because these APIs answer 200 and
+       * report per-record failures in the body — see @/lib/saasTargets.
+       */
+      type: "saas";
+      /** The SaaS connection to write through; credentials stay server-side. */
+      connection_id?: string;
+      vendor?: "hubspot" | "salesforce";
+      object?: string;
+      /** Column identifying a record — the vendor's unique/external id field. */
+      id_column?: string;
+      /** Columns sent as fields; empty = every column but the id column. */
+      columns?: string[];
+      batch_size?: number;
+    }
+  | {
+      type: "object_storage";
+      catalog_source_id?: string;
+      dataset: string;
+      table: string;
+      format: TargetFileFormat;
+      /** Open-table formats on top of the bucket; plain files when absent. */
+      table_format?: "none" | "delta" | "iceberg";
+      write_mode: "replace" | "append" | "merge";
+      primary_key?: string[];
+      /** evolve (default) loads whatever arrives; warn logs drift; strict aborts. */
+      schema_policy?: "evolve" | "warn" | "strict";
+    }
+  | {
+      type: "database";
+      connection_id?: string;
+      provider?: string;
+      /** Target schema/dataset name. */
+      dataset: string;
+      table: string;
+      write_mode: "replace" | "append" | "merge";
+      primary_key?: string[];
+      /** evolve (default) loads whatever arrives; warn logs drift; strict aborts. */
+      schema_policy?: "evolve" | "warn" | "strict";
+    }
+  | {
+      /** Load into the built-in lakehouse — ACID, snapshotted, catalogued. */
+      type: "lakehouse";
+      schema: string;
+      table: string;
+      write_mode: "replace" | "append" | "merge";
+      primary_key?: string[];
+    }
+  | {
+      /** Reverse ETL: push rows into an external API in JSON batches. */
+      type: "http_api";
+      url: string;
+      method?: "POST" | "PUT" | "PATCH";
+      /** Env var carrying a bearer token — bind one via a secret in Settings. */
+      auth_env?: string;
+      /** A secret (Settings → Secrets) holding the bearer token; resolved as the owner at run start. */
+      auth_secret?: string;
+      batch_size?: number;
+      /** Wrap each batch as {<wrap_key>: rows}; bare array when empty. */
+      wrap_key?: string;
+    };
+
+export type EtlNode = {
+  /** Stable short id (n1, n2, …) — also the basis of its env-var names. */
+  id: string;
+  kind: "source" | "transform" | "target";
+  label?: string;
+  config: EtlSourceConfig | EtlTransformConfig | EtlTargetConfig;
+  /** Canvas position; the compiler ignores it. */
+  position?: { x: number; y: number };
+};
+
+export type EtlEdge = { id: string; from: string; to: string };
+
+export type EtlGraph = { nodes: EtlNode[]; edges: EtlEdge[] };
+
+export const AGG_FNS = [
+  "sum",
+  "mean",
+  "min",
+  "max",
+  "count",
+  "nunique",
+  "median",
+  "first",
+  "last",
+] as const;
+export type AggFn = (typeof AGG_FNS)[number];
+
+// ── Database provider families ──────────────────────────────────────────────
+// Mirrors PROVIDER_FAMILY in warehouse/types.ts, restricted to what a sandbox
+// can reach over a plain SQLAlchemy URL. Redshift (IAM Data API), Snowflake
+// (token-only PAT), BigQuery, Databricks, Trino, Athena, Oracle and ClickHouse
+// authenticate in ways a URL cannot carry — those refuse at save time with a
+// message, rather than failing inside a container.
+
+const DB_FAMILY: Record<string, "postgres" | "mysql" | "tds"> = {
+  postgres: "postgres",
+  cockroachdb: "postgres",
+  timescaledb: "postgres",
+  alloydb: "postgres",
+  greenplum: "postgres",
+  yugabytedb: "postgres",
+  mysql: "mysql",
+  mariadb: "mysql",
+  singlestore: "mysql",
+  starrocks: "mysql",
+  doris: "mysql",
+  planetscale: "mysql",
+  sqlserver: "tds",
+  azure_synapse: "tds",
+};
+
+export function dbFamily(provider: string | undefined): "postgres" | "mysql" | "tds" | null {
+  return provider ? (DB_FAMILY[provider] ?? null) : null;
+}
+
+/**
+ * Warehouses loaded through dlt's NATIVE destinations (bulk staging, not
+ * row-by-row SQLAlchemy inserts). Targets only: reading still goes through
+ * the SQL families above or object storage.
+ */
+const NATIVE_WAREHOUSE_TARGETS = ["snowflake", "bigquery", "databricks"] as const;
+
+export function nativeWarehouseTarget(
+  provider: string | undefined,
+): (typeof NATIVE_WAREHOUSE_TARGETS)[number] | null {
+  return (NATIVE_WAREHOUSE_TARGETS as readonly string[]).includes(provider ?? "")
+    ? (provider as (typeof NATIVE_WAREHOUSE_TARGETS)[number])
+    : null;
+}
+
+/** Driver packages a family needs inside the sandbox. */
+const FAMILY_DRIVER: Record<"postgres" | "mysql" | "tds", string> = {
+  postgres: "psycopg2-binary",
+  mysql: "pymysql",
+  tds: "pymssql",
+};
+
+// ── String hygiene ──────────────────────────────────────────────────────────
+
+/**
+ * The spelling a run parameter takes in a node's field: `{{params.NAME}}`.
+ *
+ * Optionally with a default: `{{params.day|2026-01-01}}`. A parameter with no
+ * value and no default compiles to the empty string rather than raising, so a
+ * pipeline whose schedule supplies nothing still runs — the same field then
+ * reads exactly as it did before parameters existed.
+ */
+const PARAM_RE = /\{\{\s*params\.([A-Za-z_][A-Za-z0-9_]*)\s*(?:\|([^}]*))?\}\}/g;
+
+/** True when a field carries at least one parameter reference. */
+export function hasParams(s: string): boolean {
+  PARAM_RE.lastIndex = 0;
+  return PARAM_RE.test(String(s ?? ""));
+}
+
+/**
+ * A field as a Python EXPRESSION, with `{{params.x}}` resolved at run time.
+ *
+ * Returns a plain literal when there is nothing to substitute, so the emitted
+ * program is unchanged for the overwhelming majority of nodes.
+ *
+ * WHY THIS EXISTS. `entrypoint(inputs)` received the run's parameters, passed
+ * them to `_tick(inputs)`, and `_tick` never read them. Nothing in a visual
+ * pipeline could see a parameter, and nothing said so: the Run-with-parameters
+ * dialog calls itself "the backfill door" and "the standard way to backfill a
+ * window or rerun one partition", and the documentation described backfills as
+ * parameterised runs. Re-running July 3-9 started a run, reported success, and
+ * read exactly what the pipeline always reads.
+ */
+export function pyTemplate(s: string): string {
+  const raw = String(s ?? "");
+  if (!hasParams(raw)) return pyStr(raw);
+  const parts: string[] = [];
+  let last = 0;
+  PARAM_RE.lastIndex = 0;
+  for (let m = PARAM_RE.exec(raw); m; m = PARAM_RE.exec(raw)) {
+    if (m.index > last) parts.push(pyStr(raw.slice(last, m.index)));
+    parts.push(`_param(${pyStr(m[1]!)}, ${pyStr(m[2] ?? "")})`);
+    last = m.index + m[0].length;
+  }
+  if (last < raw.length) parts.push(pyStr(raw.slice(last)));
+  return `(${parts.join(" + ")})`;
+}
+
+/** Python string literal — single-quoted, everything meaningful escaped. */
+export function pyStr(s: string): string {
+  return (
+    "'" +
+    String(s)
+      .replace(/\\/g, "\\\\")
+      .replace(/'/g, "\\'")
+      .replace(/\r/g, "\\r")
+      .replace(/\n/g, "\\n")
+      // NUL would truncate the literal in CPython; strip without a
+      // control-char regex (no-control-regex).
+      .split("\u0000")
+      .join("") +
+    "'"
+  );
+}
+
+const IDENT_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/**
+ * Identifier position (dataset/table names, merge keys). Refusing beats
+ * sanitising: a silently rewritten table name would load data somewhere the
+ * user did not name.
+ */
+export function pyIdent(s: string, what: string): string {
+  if (!IDENT_RE.test(s)) {
+    throw new Error(
+      `${what} must be a valid identifier (letters, digits, _): got ${JSON.stringify(s)}`,
+    );
+  }
+  return s;
+}
+
+/** Env-var stem for a node: n3 → ETL_N3. Node ids are compiler-issued. */
+export function envKey(nodeId: string): string {
+  const clean = nodeId.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+  if (!clean) throw new Error(`Node id ${JSON.stringify(nodeId)} cannot name env variables`);
+  return `ETL_${clean}`;
+}
+
+export function indent(code: string, pad: string): string {
+  return code
+    .split("\n")
+    .map((l) => (l.trim() ? pad + l : l))
+    .join("\n");
+}
+
+// ── Validation + ordering ───────────────────────────────────────────────────
+
+type Analysis = {
+  order: EtlNode[];
+  incoming: Map<string, string[]>; // nodeId -> upstream ids, edge order preserved
+};
+
+export function analyzeGraph(graph: EtlGraph): Analysis {
+  const nodes = graph.nodes ?? [];
+  const edges = graph.edges ?? [];
+  if (!nodes.length) throw new Error("The pipeline is empty — add a source and a target");
+
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  if (byId.size !== nodes.length) throw new Error("Duplicate node ids in the graph");
+  for (const e of edges) {
+    if (!byId.has(e.from) || !byId.has(e.to)) throw new Error("An edge references a missing node");
+  }
+
+  const incoming = new Map<string, string[]>(nodes.map((n) => [n.id, []]));
+  const outgoing = new Map<string, string[]>(nodes.map((n) => [n.id, []]));
+  for (const e of edges) {
+    incoming.get(e.to)!.push(e.from);
+    outgoing.get(e.from)!.push(e.to);
+  }
+
+  const name = (n: EtlNode) => n.label || n.id;
+  const sources = nodes.filter((n) => n.kind === "source");
+  const targets = nodes.filter((n) => n.kind === "target");
+  if (!sources.length) throw new Error("Add at least one source node");
+  if (!targets.length) throw new Error("Add at least one target node");
+
+  for (const n of nodes) {
+    const ins = incoming.get(n.id)!.length;
+    const outs = outgoing.get(n.id)!.length;
+    if (n.kind === "source" && ins > 0) throw new Error(`Source "${name(n)}" cannot have inputs`);
+    if (n.kind === "source" && outs === 0) throw new Error(`Source "${name(n)}" is not connected`);
+    // AUTO-INGEST AND A ROW CURSOR CANNOT SHARE A NODE.
+    //
+    // They are two different cursors competing for one slot. Auto-ingest
+    // persists a JSON ledger ({mtime, keys, columns}); the row cursor
+    // persists a scalar high-water mark; both write `_watermarks[node]` and
+    // both read ETL_<NODE>_CURSOR. The row cursor is emitted second, so it
+    // overwrites the ledger — and the NEXT run feeds a date or a number to
+    // `json.loads`, which raises inside the sandbox.
+    //
+    // Run one looked perfect. Run two died with a Python JSON error nobody
+    // could map back to "you turned on two switches", and the persisted
+    // cursor was left wrong in a way the pipeline could not recover from
+    // without someone deleting the etl_pipeline_state row by hand.
+    //
+    // Refused rather than merged: `etl_pipeline_state.cursor_value` is capped
+    // at 512 characters, so a ledger of any size would be truncated into
+    // invalid JSON even if the two were given an envelope to share. Making
+    // this combination genuinely work needs its own state slot and a wider
+    // column, which is a change to storage rather than to codegen.
+    if (n.kind === "source" && isAutoIngest(n.config)) {
+      const cur = (n.config as { incremental?: { cursor_column?: string } }).incremental
+        ?.cursor_column;
+      if (cur) {
+        throw new Error(
+          `Source "${name(n)}" uses auto-ingest AND an incremental cursor on "${cur}". ` +
+            `They are two cursors for one source and overwrite each other — the pipeline would ` +
+            `fail on its second run. Keep auto-ingest to load only new FILES, or clear it and ` +
+            `use the cursor to load only new ROWS.`,
+        );
+      }
+    }
+    if (n.kind === "target" && ins !== 1)
+      throw new Error(`Target "${name(n)}" needs exactly one input`);
+    if (n.kind === "target" && outs > 0) throw new Error(`Target "${name(n)}" cannot have outputs`);
+    if (n.kind === "transform") {
+      const t = n.config as EtlTransformConfig;
+      if (t.type === "join" && ins !== 2)
+        throw new Error(`Join "${name(n)}" needs exactly two inputs (has ${ins})`);
+      if (t.type === "union" && ins < 2)
+        throw new Error(`Union "${name(n)}" needs at least two inputs`);
+      if (t.type !== "join" && t.type !== "union" && ins !== 1)
+        throw new Error(`Transform "${name(n)}" needs exactly one input (has ${ins})`);
+      if (outs === 0) throw new Error(`Transform "${name(n)}" is not connected to anything`);
+    }
+  }
+
+  // Kahn's algorithm; leftovers mean a cycle.
+  const degree = new Map(nodes.map((n) => [n.id, incoming.get(n.id)!.length]));
+  const queue = nodes.filter((n) => degree.get(n.id) === 0).map((n) => n.id);
+  const order: EtlNode[] = [];
+  while (queue.length) {
+    const id = queue.shift()!;
+    order.push(byId.get(id)!);
+    for (const next of outgoing.get(id)!) {
+      degree.set(next, degree.get(next)! - 1);
+      if (degree.get(next) === 0) queue.push(next);
+    }
+  }
+  if (order.length !== nodes.length) throw new Error("The graph contains a cycle");
+
+  return { order, incoming };
+}
+
+// ── Per-node code ───────────────────────────────────────────────────────────
+
+const READERS: Record<SourceFileFormat, string> = {
+  csv: "pd.read_csv(f)",
+  tsv: "pd.read_csv(f, sep='\\t')",
+  json: "pd.read_json(f)",
+  jsonl: "pd.read_json(f, lines=True)",
+  parquet: "pd.read_parquet(f)",
+  xlsx: "pd.read_excel(f)",
+};
+
+/** A source node's config as the compiler sees it: a catalog asset is what it resolved to. */
+function effectiveConfig(n: EtlNode): Record<string, unknown> {
+  const c = n.config as { type?: string };
+  if (n.kind === "source" && isCatalogAsset(c)) {
+    return unwrapSourceConfig(c) as unknown as Record<string, unknown>;
+  }
+  return c as Record<string, unknown>;
+}
+
+/** The same, without refusing an asset that was never resolved - for feature detection. */
+function effectiveType(n: EtlNode): string | undefined {
+  const c = n.config as { type?: string };
+  return isCatalogAsset(c) ? c.resolved?.type : c.type;
+}
+
+/**
+ * A source node nobody finished configuring is refused BY NAME, at compile.
+ *
+ * Found by leaving a Platform dataset node's picker untouched: the graph
+ * saved, the run started, and it died inside the sandbox with
+ *
+ *   requests.exceptions.HTTPError: 404 Client Error: for url:
+ *   http://agentswarms:8080/api/notebook/runtime/source
+ *
+ * — the app's own internal API, named as if it were the problem, with nothing
+ * to connect it back to the node or to the field that was never filled in.
+ * Targets have had this for as long as they have had `pyIdent` ("Lakehouse
+ * table must be a valid identifier … got ''") and a bucket check that names
+ * the node; sources had it only where a field happened to be run through one
+ * of those.
+ *
+ * The rule is the same for every kind: say which node, and which field.
+ */
+export function assertSourceConfigured(node: EtlNode, c: EtlSourceConfig): void {
+  const who = `Source "${node.label || node.id}"`;
+  const blank = (v: unknown) => typeof v !== "string" || !v.trim();
+  if (c.type === "platform_dataset" && blank(c.table_id)) {
+    throw new Error(`${who} has no dataset picked`);
+  }
+  if (c.type === "object_storage" && blank(c.path)) {
+    throw new Error(`${who} has no file or folder picked`);
+  }
+  if (c.type === "http_api" && blank(c.url)) {
+    throw new Error(`${who} needs a URL`);
+  }
+  if (c.type === "python" && blank(c.code)) {
+    throw new Error(`${who} has no code`);
+  }
+  if (c.type === "lakehouse" && c.mode === "table" && (blank(c.schema) || blank(c.table))) {
+    throw new Error(`${who} has no lakehouse table picked`);
+  }
+  // NOT a missing connection: `resolveRunEnv` already refuses that by name
+  // ("Node \"X\" has no connection selected") for sources AND targets, before
+  // a container starts. Adding a second, differently-worded refusal here would
+  // be two messages for one mistake — the same reason stream sources are left
+  // to their own validator.
+  if (c.type === "database" && c.mode === "table" && blank(c.table)) {
+    throw new Error(`${who} has no table picked`);
+  }
+  if (c.type === "database" && c.mode === "query" && blank(c.query)) {
+    throw new Error(`${who} has no query`);
+  }
+}
+
+export function sourceFn(node: EtlNode): string {
+  const c = node.config as EtlSourceConfig;
+  // A catalog asset is read as the source it resolved to when it was picked.
+  if (isCatalogAsset(c)) {
+    return sourceFn({ ...node, config: unwrapSourceConfig(c) as EtlSourceConfig });
+  }
+  assertSourceConfigured(node, c);
+  const key = envKey(node.id);
+  const head = `def _src_${node.id}():`;
+  if (isStreamSource(c)) {
+    const bad = validateStreamSource(c);
+    if (bad) throw new Error(`Stream source "${node.label || node.id}": ${bad}`);
+    return streamSourcePython(node.id, key, c);
+  }
+  if (c.type === "lakehouse") {
+    const schema = pyIdent(c.schema, "Lakehouse schema");
+    const sql =
+      c.mode === "table"
+        ? `SELECT * FROM "${schema}"."${pyIdent(c.table ?? "", "Lakehouse table")}"`
+        : (c.query ?? "");
+    if (!sql.trim()) throw new Error(`Lakehouse source "${node.label || node.id}" has no query`);
+    return [
+      head,
+      `    # Built-in lakehouse: columnar read straight into a frame.`,
+      `    con = _lakehouse_con()`,
+      `    try:`,
+      `        return con.execute(${pyStr(sql)}).df()`,
+      `    finally:`,
+      `        con.close()`,
+    ].join("\n");
+  }
+  if (c.type === "ingest") {
+    return [
+      head,
+      `    # Streamed rows: drain the pipeline's ingest staging over the`,
+      `    # session's own channel. Rows the previous run durably loaded (id`,
+      `    # <= the engine cursor) are deleted server-side first; everything`,
+      `    # newer comes back — the CDC consume/peek shape, same guarantees.`,
+      `    global _ingest_last_${node.id}`,
+      `    import requests`,
+      `    resp = requests.post(`,
+      `        os.environ['AGENTSWARMS_ORIGIN'].rstrip('/') + '/api/notebook/runtime/source',`,
+      `        json={`,
+      `            'part': 'etl_ingest',`,
+      `            'cursor': os.environ.get('${envKey(node.id)}_CURSOR'),`,
+      `            'consume': os.environ.get('AGENTSWARMS_ETL_PREVIEW') != '1',`,
+      `        },`,
+      `        headers={'Authorization': 'Bearer ' + os.environ.get('AGENTSWARMS_TOKEN', '')},`,
+      `        timeout=300,`,
+      `    )`,
+      `    resp.raise_for_status()`,
+      `    _payload = resp.json()`,
+      `    _ingest_last_${node.id} = _payload.get('max_id')`,
+      `    print('[etl] ingest: ' + str(len(_payload['rows'])) + ' streamed row(s)')`,
+      `    return pd.DataFrame(_payload['rows'])`,
+    ].join("\n");
+  }
+  if (c.type === "platform_dataset") {
+    return [
+      head,
+      `    # Platform dataset: served by the app over the sandbox's own session`,
+      `    # token, so ownership is enforced server-side and nothing is signed.`,
+      `    import requests`,
+      `    resp = requests.post(`,
+      `        os.environ['AGENTSWARMS_ORIGIN'].rstrip('/') + '/api/notebook/runtime/source',`,
+      `        json={'part': 'etl_dataset', 'table_id': ${pyStr(c.table_id)}},`,
+      `        headers={'Authorization': 'Bearer ' + os.environ.get('AGENTSWARMS_TOKEN', '')},`,
+      `        timeout=300,`,
+      `    )`,
+      `    resp.raise_for_status()`,
+      `    _payload = resp.json()`,
+      `    if _payload.get('truncated'):`,
+      `        print('[etl] WARN dataset ${pyStr(c.table_name ?? c.table_id).slice(1, -1)} truncated to ' + str(len(_payload['rows'])) + ' row(s)')`,
+      `    return pd.DataFrame(_payload['rows'])`,
+    ].join("\n");
+  }
+  if (c.type === "object_storage") {
+    return [
+      head,
+      `    import fsspec`,
+      `    fs = fsspec.filesystem(`,
+      `        's3',`,
+      `        key=os.environ.get('${key}_ACCESS_KEY_ID', ''),`,
+      `        secret=os.environ.get('${key}_SECRET_ACCESS_KEY', ''),`,
+      `        endpoint_url=os.environ.get('${key}_ENDPOINT_URL') or None,`,
+      `    )`,
+      `    base = os.environ['${key}_BUCKET'].rstrip('/')`,
+      `    path = ${pyTemplate(c.path)}.lstrip('/')`,
+      ...(c.new_files_only
+        ? [
+            // Auto-ingest. The ledger is small on purpose: the newest
+            // modification time loaded plus the keys stamped with that exact
+            // time, so a listing decides "new" without a growing manifest. A
+            // file uploaded again later carries a newer time and loads again
+            // as a new version — a merge target with keys makes that
+            // idempotent. The columns ride along so an idle tick can hand
+            // downstream an empty frame of the right shape.
+            `    global _files_last_${node.id}`,
+            `    import json as _json`,
+            `    _cur = _json.loads(os.environ.get('${key}_CURSOR') or '{}')`,
+            `    _mark = str(_cur.get('mtime') or '')`,
+            `    _seen = set(_cur.get('keys') or [])`,
+            // fsspec keeps a directory cache per filesystem instance, and the
+            // instance itself is cached by its arguments — in a continuous
+            // run every tick would see the first tick's listing and a file
+            // that landed later would never be new. List fresh each time.
+            `    fs.invalidate_cache()`,
+            // `compression='infer'`: this product's own object-storage
+            // target writes `.jsonl.gz` and `.csv.gz` (dlt gzips text output),
+            // so a pipeline reading what another pipeline wrote is the common
+            // case, not an exotic one. Without it pandas gets gzip bytes and
+            // the run dies with `UnicodeDecodeError: ... byte 0x8b`. Verified
+            // a no-op on uncompressed files.
+            `    _listing = fs.glob(f"{base}/{path}", detail=True)`,
+            `    if not isinstance(_listing, dict):`,
+            `        _listing = {k: fs.info(k) for k in (_listing or [])}`,
+            `    _entries = []`,
+            `    for _k, _info in _listing.items():`,
+            `        if (_info or {}).get('type') == 'directory':`,
+            `            continue`,
+            `        _lm = (_info or {}).get('LastModified') or (_info or {}).get('mtime')`,
+            `        _mt = _lm.isoformat() if hasattr(_lm, 'isoformat') else str(_lm or '')`,
+            `        _entries.append((_mt, _k))`,
+            `    _entries.sort()`,
+            `    _new = [(m, k) for (m, k) in _entries if m > _mark or (m == _mark and k not in _seen)]`,
+            `    _max = max(1, int(${Math.max(1, Math.floor(c.max_files_per_run ?? 500))}))`,
+            `    _new = _new[:_max]`,
+            `    print('[etl] auto-ingest: ' + str(len(_entries)) + ' file(s) listed, ' + str(len(_new)) + ' new')`,
+            `    keys = [k for (m, k) in _new]`,
+            `    frames = []`,
+            `    for k in keys:`,
+            `        with fs.open(k, 'rb', compression='infer') as f:`,
+            `            frames.append(${READERS[c.format]})`,
+            `    if frames:`,
+            `        out = pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]`,
+            `        _top = max(m for (m, k) in _new)`,
+            `        _keys = sorted([k for (m, k) in _new if m == _top] + (sorted(_seen) if _top == _mark else []))`,
+            `        _files_last_${node.id} = _json.dumps({'mtime': _top, 'keys': _keys, 'columns': [str(c) for c in out.columns]})`,
+            `    else:`,
+            `        out = pd.DataFrame(columns=[str(c) for c in (_cur.get('columns') or [])])`,
+            `        _files_last_${node.id} = None`,
+          ]
+        : [
+            `    keys = [p for p in fs.glob(f"{base}/{path}")] or [f"{base}/{path}"]`,
+            `    frames = []`,
+            `    for k in keys:`,
+            `        with fs.open(k, 'rb', compression='infer') as f:`,
+            `            frames.append(${READERS[c.format]})`,
+            `    out = pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]`,
+          ]),
+      ...(c.incremental?.cursor_column
+        ? [
+            `    # Engine-managed incremental: rows at or below the stored`,
+            `    # watermark were loaded by an earlier run. Files are still`,
+            `    # read in full (object stores cannot push a row filter down),`,
+            `    # so keep incremental storage sources on partitioned paths.`,
+            `    cursor = os.environ.get('${key}_CURSOR')`,
+            `    if cursor:`,
+            `        # Compared in the COLUMN's own type. As text, a numeric`,
+            `        # watermark of 9 hides every row from 10 up — and the run`,
+            `        # reports success, so the loss is silent.`,
+            `        _col = out[${pyStr(c.incremental.cursor_column)}]`,
+            `        try:`,
+            `            _cur = pd.Series([cursor]).astype(_col.dtype).iloc[0]`,
+            `        except Exception:`,
+            `            _cur, _col = str(cursor), _col.astype(str)`,
+            `        out = out[_col > _cur]`,
+          ]
+        : []),
+      `    return out`,
+    ].join("\n");
+  }
+  if (c.type === "database" && c.mode === "cdc") {
+    const table = (c.table ?? "").replace(/[^A-Za-z0-9_.]/g, "");
+    const snapshot = c.initial_snapshot !== false;
+    return [
+      head,
+      `    # Log-based CDC: a wal2json logical slot is peeked (never consumed`,
+      `    # blind) each run; what the PREVIOUS run durably loaded — its LSN`,
+      `    # rides the engine cursor — is consumed first. Crash between peek`,
+      `    # and load re-reads the same changes: at-least-once, never lost.`,
+      `    global _cdc_last_${node.id}`,
+      `    import json as _json`,
+      `    import sqlalchemy as sa`,
+      `    engine = sa.create_engine(os.environ['${key}_URL'])`,
+      `    slot = os.environ.get('${key}_SLOT', 'aswarm_${node.id.toLowerCase().replace(/[^a-z0-9_]/g, "")}')`,
+      `    consumed = os.environ.get('${key}_CURSOR')`,
+      `    rows = []`,
+      `    with engine.connect().execution_options(isolation_level='AUTOCOMMIT') as con:`,
+      `        exists = con.execute(sa.text("SELECT 1 FROM pg_replication_slots WHERE slot_name = :s"), {'s': slot}).scalar()`,
+      // A PREVIEW MUST NOT CREATE THE SLOT OR TAKE THE SNAPSHOT.
+      //
+      // Previewing is how anyone checks a source's columns before wiring the
+      // rest of the graph, and the natural order is: add the CDC source,
+      // press Preview data, then build and run. Without this guard the
+      // preview created the slot and consumed the initial snapshot into a
+      // throwaway container. The first REAL run then found the slot already
+      // there, skipped the snapshot branch, peeked only the changes since the
+      // preview, and SUCCEEDED having loaded none of the table's existing
+      // rows. The mirror was silently missing all of its history, and nothing
+      // in the run log said so.
+      //
+      // The ingest source and the Pub/Sub ack already guard on this variable;
+      // CDC was the one that was missed.
+      `        if not exists and os.environ.get('AGENTSWARMS_ETL_PREVIEW') == '1':`,
+      `            print('[etl] cdc: preview only — slot not created, no snapshot taken')`,
+      `            return pd.DataFrame(columns=['_cdc_action', '_cdc_deleted', '_cdc_lsn'])`,
+      `        if not exists:`,
+      `            con.execute(sa.text("SELECT pg_create_logical_replication_slot(:s, 'wal2json')"), {'s': slot})`,
+      `            print('[etl] cdc: created slot ' + slot)`,
+      ...(snapshot
+        ? [
+            `            snap = pd.read_sql(sa.text(${pyStr(`SELECT * FROM ${table}`)}), con)`,
+            `            snap['_cdc_action'] = 'I'`,
+            `            snap['_cdc_deleted'] = False`,
+            `            snap['_cdc_lsn'] = '0/0'`,
+            `            print('[etl] cdc: initial snapshot ' + str(len(snap)) + ' row(s)')`,
+            `            _cdc_last_${node.id} = None`,
+            `            return snap`,
+          ]
+        : []),
+      `        elif consumed:`,
+      `            con.execute(sa.text("SELECT count(*) FROM pg_logical_slot_get_changes(:s, CAST(:lsn AS pg_lsn), NULL, 'format-version', '2', 'add-tables', :t)"), {'s': slot, 'lsn': consumed, 't': ${pyStr(table)}})`,
+      `        res = con.execute(sa.text("SELECT lsn::text, data FROM pg_logical_slot_peek_changes(:s, NULL, NULL, 'format-version', '2', 'add-tables', :t)"), {'s': slot, 't': ${pyStr(table)}})`,
+      `        last = None`,
+      `        for lsn, data in res:`,
+      `            ch = _json.loads(data)`,
+      `            last = lsn`,
+      `            if ch.get('action') not in ('I', 'U', 'D'):`,
+      `                continue`,
+      `            cols = ch.get('columns') or ch.get('identity') or []`,
+      `            row = {c['name']: c['value'] for c in cols}`,
+      `            row['_cdc_action'] = ch['action']`,
+      `            row['_cdc_deleted'] = ch['action'] == 'D'`,
+      `            row['_cdc_lsn'] = lsn`,
+      `            rows.append(row)`,
+      `    _cdc_last_${node.id} = last`,
+      `    print('[etl] cdc: ' + str(len(rows)) + ' change(s) from slot ' + slot)`,
+      `    return pd.DataFrame(rows, columns=(list(rows[0].keys()) if rows else ['_cdc_action', '_cdc_deleted', '_cdc_lsn']))`,
+    ].join("\n");
+  }
+  if (c.type === "database") {
+    const sql = c.mode === "table" ? `SELECT * FROM ${c.table ?? ""}` : (c.query ?? "");
+    if (c.incremental?.cursor_column) {
+      // Pushed-down incremental: the base query becomes a subquery filtered on
+      // the cursor. The cursor VALUE rides a bind parameter; the column name
+      // is the user's own identifier against their own database.
+      const col = c.incremental.cursor_column;
+      return [
+        head,
+        `    import sqlalchemy as sa`,
+        `    engine = sa.create_engine(os.environ['${key}_URL'])`,
+        `    base_sql = ${pyStr(sql)}`,
+        `    cursor = os.environ.get('${key}_CURSOR')`,
+        `    with engine.connect() as conn:`,
+        `        if cursor:`,
+        `            wrapped = f"SELECT * FROM ({base_sql}) _inc WHERE ${col.replace(/[^A-Za-z0-9_."]/g, "")} > :cursor"`,
+        `            return pd.read_sql(sa.text(wrapped), conn, params={'cursor': cursor})`,
+        `        return pd.read_sql(sa.text(base_sql), conn)`,
+      ].join("\n");
+    }
+    return [
+      head,
+      `    import sqlalchemy as sa`,
+      `    engine = sa.create_engine(os.environ['${key}_URL'])`,
+      `    with engine.connect() as conn:`,
+      `        return pd.read_sql(sa.text(${pyStr(sql)}), conn)`,
+    ].join("\n");
+  }
+  if (c.type === "http_api") {
+    const dig = (c.records_path ?? "")
+      .split(".")
+      .filter(Boolean)
+      .map((part) => `    data = data[${pyStr(part)}]`)
+      .join("\n");
+    return [
+      head,
+      `    import requests`,
+      `    resp = requests.get(${pyTemplate(c.url)}, timeout=60)`,
+      `    resp.raise_for_status()`,
+      `    data = resp.json()`,
+      dig,
+      `    return pd.DataFrame(data)`,
+    ]
+      .filter(Boolean)
+      .join("\n");
+  }
+  return [head, indent(c.code, "    ") || "    return []"].join("\n");
+}
+
+const QUALITY_CHECKS: QualityCheck[] = [
+  "not_null",
+  "unique",
+  "range",
+  "regex",
+  "allowed_values",
+  "row_count_min",
+];
+
+/** Human-readable rule name, embedded in logs, metrics and error messages. */
+export function ruleDesc(r: QualityRule): string {
+  if (r.check === "row_count_min") return `row_count_min(${r.min ?? 0})`;
+  return `${r.check}(${r.column ?? "?"})`;
+}
+
+/** The boolean violation mask for a column rule. Nulls violate range/regex. */
+function ruleMask(r: QualityRule): string {
+  const col = `df[${pyStr(r.column ?? "")}]`;
+  switch (r.check) {
+    case "not_null":
+      return `${col}.isna()`;
+    case "unique":
+      return `df.duplicated(subset=[${pyStr(r.column ?? "")}], keep=False)`;
+    case "range": {
+      const lo = r.min != null && Number.isFinite(r.min) ? Number(r.min) : null;
+      const hi = r.max != null && Number.isFinite(r.max) ? Number(r.max) : null;
+      if (lo != null && hi != null) return `~${col}.between(${lo}, ${hi})`;
+      if (lo != null) return `~(${col} >= ${lo})`;
+      if (hi != null) return `~(${col} <= ${hi})`;
+      throw new Error("Range rule needs a min, a max, or both");
+    }
+    case "regex":
+      return `~${col}.astype("string").str.fullmatch(${pyStr(r.pattern ?? "")}, na=False)`;
+    case "allowed_values":
+      return `~${col}.isin([${(r.values ?? []).map((v) => pyStr(v)).join(", ")}])`;
+    default:
+      throw new Error(`Unknown quality check "${r.check}"`);
+  }
+}
+
+/**
+ * A quality gate compiles into a function: rules run in order over the frame,
+ * every rule's outcome is appended to the run-level _quality metric, and the
+ * severity decides what a violation does — abort, log, or drop the rows.
+ */
+function gateFn(node: EtlNode): string {
+  const c = node.config as Extract<EtlTransformConfig, { type: "quality_gate" }>;
+  const label = (node.label ?? node.id).replace(/[\r\n]/g, " ");
+  const rules = c.rules ?? [];
+  if (!rules.length) throw new Error(`Quality gate "${label}" has no rules`);
+  const lines = [`def _gate_${node.id}(df):`];
+  rules.forEach((r, i) => {
+    if (!QUALITY_CHECKS.includes(r.check))
+      throw new Error(`Unknown quality check "${r.check}" in gate "${label}"`);
+    if (r.check !== "row_count_min" && !r.column)
+      throw new Error(`Rule ${ruleDesc(r)} in gate "${label}" needs a column`);
+    const desc = ruleDesc(r);
+    let sev = r.severity === "drop" || r.severity === "warn" ? r.severity : "fail";
+    // "DROP BAD ROWS" MEANS NOTHING FOR A ROW COUNT — a frame that is too
+    // short has no offending rows to remove, and the only answers left are
+    // abort or carry on. The generated code already aborted; what it also did
+    // was write `severity: 'drop'` into the run's _quality metric, so the
+    // record of a gate that failed the run said it had dropped rows. The
+    // editor offered the option, so the reader had every reason to believe it.
+    if (r.check === "row_count_min" && sev === "drop") sev = "fail";
+    if (r.check === "row_count_min") {
+      const min = Math.max(0, Math.floor(r.min ?? 0));
+      lines.push(
+        `    _n${i} = ${min} - int(len(df)) if len(df) < ${min} else 0`,
+        `    _quality.append({'gate': ${pyStr(label)}, 'rule': ${pyStr(desc)}, 'violations': _n${i}, 'severity': ${pyStr(sev)}, 'rows': int(len(df))})`,
+        `    if _n${i}:`,
+        // A short frame has no rows to drop; anything but warn aborts.
+        ...(sev === "warn"
+          ? [
+              `        print(f"[quality] WARN {${pyStr(desc)}}: {int(len(df))} row(s), need ${min}")`,
+            ]
+          : [
+              `        raise RuntimeError(f"Quality gate {${pyStr(label)}}: {${pyStr(desc)}} failed — {int(len(df))} row(s), need ${min}")`,
+            ]),
+      );
+      return;
+    }
+    lines.push(
+      `    _m${i} = ${ruleMask(r)}`,
+      `    _n${i} = int(_m${i}.sum())`,
+      `    _quality.append({'gate': ${pyStr(label)}, 'rule': ${pyStr(desc)}, 'violations': _n${i}, 'severity': ${pyStr(sev)}, 'rows': int(len(df))})`,
+      `    if _n${i}:`,
+    );
+    if (sev === "fail") {
+      lines.push(
+        `        raise RuntimeError(f"Quality gate {${pyStr(label)}}: {${pyStr(desc)}} failed for {_n${i}} row(s)")`,
+      );
+    } else if (sev === "drop") {
+      lines.push(
+        `        print(f"[quality] DROP {${pyStr(desc)}}: removing {_n${i}} row(s)")`,
+        `        df = df[~_m${i}].reset_index(drop=True)`,
+      );
+    } else {
+      lines.push(`        print(f"[quality] WARN {${pyStr(desc)}}: {_n${i}} row(s) violate")`);
+    }
+  });
+  lines.push(`    return df`);
+  return lines.join("\n");
+}
+
+/**
+ * `_empty(df)` for the emitted program: a read that returned NO ROWS.
+ *
+ * A step that names a column cannot run when the column is not there, and a
+ * source with nothing to return does not always carry the payload's columns.
+ * A Kafka source with no new messages returns its FIVE metadata columns and
+ * zero rows (`_stream_topic`, `_stream_partition`, `_stream_offset`,
+ * `_stream_key`, `_stream_timestamp`), so `df.query("status == 'paid'")`
+ * raises `KeyError: 'status'` — and a caught-up stream pipeline failed on
+ * every quiet tick: on a schedule, a failure every interval; on a continuous
+ * pipeline, every rollover.
+ *
+ * The first attempt at this guard tested for "no rows AND no columns", which
+ * is what a bare `pd.DataFrame()` looks like. It did not fire, because those
+ * five metadata columns are columns. Row count is the honest test: with no
+ * rows, a row-wise step's answer is no rows whatever its expression mentions.
+ *
+ * The lakehouse target has skipped empty batches since it shipped, and its own
+ * comment names the case ("a stream with nothing new"). The steps between the
+ * source and the target had not.
+ */
+export function emptyGuardFn(): string {
+  return [
+    `def _empty(df):`,
+    `    # No rows: a row-wise step's answer is no rows, whatever columns its`,
+    `    # expression names. A source that read nothing may still carry some`,
+    `    # columns (a stream's metadata) but never the ones the step wants.`,
+    `    return len(df.index) == 0`,
+  ].join("\n");
+}
+
+/**
+ * The sandbox-side lakehouse attach. Credentials arrive as env (resolved
+ * server-side, never in code text) exactly like every other connector; the
+ * engine here is the SAME DuckLake catalog the app uses, so a pipeline's
+ * writes are ordinary ACID commits other readers see immediately.
+ */
+export function lakehouseAttachFn(): string {
+  return [
+    `def _lakehouse_con():`,
+    `    import duckdb`,
+    `    # Extensions. The runtime image ships them under /opt/agentswarms/`,
+    `    # duckdb-ext, read-only, so nothing is downloaded at run time and an`,
+    `    # air-gapped sandbox works; LOAD needs only to read them. An image built`,
+    `    # without them falls back to installing into ~/.local — the one path`,
+    `    # that is both writable and executable: HOME is read-only and /tmp is`,
+    `    # mounted noexec, so a .so there downloads fine but cannot be mapped.`,
+    `    _baked = '/opt/agentswarms/duckdb-ext'`,
+    `    if os.path.isdir(_baked):`,
+    `        con = duckdb.connect(config={'extension_directory': _baked})`,
+    `    else:`,
+    `        _ext = os.path.join(os.path.expanduser('~'), '.local', 'duckdb')`,
+    `        os.makedirs(_ext, exist_ok=True)`,
+    `        con = duckdb.connect(config={'home_directory': _ext, 'extension_directory': _ext})`,
+    `        con.execute("INSTALL ducklake; INSTALL postgres; INSTALL httpfs;")`,
+    `    con.execute("LOAD ducklake; LOAD postgres; LOAD httpfs;")`,
+    `    _ep = os.environ.get('ETL_LAKEHOUSE_S3_ENDPOINT')`,
+    `    _sec = ["TYPE s3", "KEY_ID '" + os.environ['ETL_LAKEHOUSE_S3_KEY_ID'] + "'",`,
+    `            "SECRET '" + os.environ['ETL_LAKEHOUSE_S3_SECRET'] + "'",`,
+    `            "URL_STYLE '" + os.environ.get('ETL_LAKEHOUSE_S3_URL_STYLE', 'path') + "'",`,
+    `            "USE_SSL " + os.environ.get('ETL_LAKEHOUSE_S3_USE_SSL', 'false')]`,
+    `    if _ep:`,
+    `        _sec.append("ENDPOINT '" + _ep + "'")`,
+    `    con.execute("CREATE OR REPLACE SECRET lh (" + ", ".join(_sec) + ")")`,
+    `    con.execute(`,
+    `        "ATTACH 'ducklake:postgres:" + os.environ['ETL_LAKEHOUSE_CATALOG'] +`,
+    `        "' AS lake (DATA_PATH '" + os.environ['ETL_LAKEHOUSE_DATA_URL'] + "')"`,
+    `    )`,
+    `    # Make 'lake' the current catalog so schema.table resolves the way it`,
+    `    # does everywhere else in the product.`,
+    `    con.execute("USE lake")`,
+    `    return con`,
+    ``,
+  ].join("\n");
+}
+
+/** The expression list for pandas named aggregation. */
+function aggArgs(aggs: { column: string; fn: AggFn; as: string }[]): string {
+  return aggs
+    .map((a) => {
+      if (!AGG_FNS.includes(a.fn)) throw new Error(`Unknown aggregate function "${a.fn}"`);
+      return `${pyIdent(a.as, "Aggregate output name")}=(${pyStr(a.column)}, ${pyStr(a.fn)})`;
+    })
+    .join(", ");
+}
+
+/**
+ * The same rule as `assertSourceConfigured`, for the steps in between.
+ *
+ * Each of these reaches pandas as an expression that cannot work, and fails
+ * in pandas' vocabulary rather than the canvas's: `df.query('')` is
+ * "expr cannot be an empty string", `sort_values([])` is
+ * "Length of ascending (1) != length of by (0)", `groupby([])` is
+ * "No group keys passed!", and a join with no right keys is
+ * "len(right_on) must equal len(left_on)". None of them says which of the ten
+ * nodes on the canvas it means.
+ *
+ * Only the fields whose emptiness makes the step IMPOSSIBLE are refused. A
+ * rename with no pairs, a dedupe with no columns and a fill with no columns
+ * all have a defined meaning — no-op, every column, every column — and are
+ * left alone; refusing them would be inventing a rule.
+ */
+export function assertTransformConfigured(node: EtlNode, c: EtlTransformConfig): void {
+  const who = `Transform "${node.label || node.id}"`;
+  const blank = (v: unknown) => typeof v !== "string" || !v.trim();
+  const empty = (v: unknown) => !Array.isArray(v) || v.length === 0;
+  if (c.type === "filter" && blank(c.expr)) throw new Error(`${who} has no filter expression`);
+  if (c.type === "select" && empty(c.columns)) throw new Error(`${who} has no columns selected`);
+  if (c.type === "derive" && blank(c.column)) throw new Error(`${who} has no column name`);
+  if (c.type === "derive" && blank(c.expr)) throw new Error(`${who} has no expression`);
+  if (c.type === "sort" && empty(c.by)) throw new Error(`${who} has no columns to sort by`);
+  if (c.type === "aggregate" && empty(c.group_by))
+    throw new Error(`${who} has no group-by columns`);
+  if (c.type === "aggregate" && empty(c.aggs)) throw new Error(`${who} has no aggregations`);
+  if (c.type === "join" && (empty(c.left_on) || empty(c.right_on))) {
+    throw new Error(`${who} needs a key column on both sides`);
+  }
+  if (c.type === "sql" && blank(c.query)) throw new Error(`${who} has no query`);
+}
+
+function transformExpr(node: EtlNode, ins: string[]): string {
+  const c = node.config as EtlTransformConfig;
+  assertTransformConfigured(node, c);
+  const f = (id: string) => `f_${id}`;
+  const one = f(ins[0]);
+  switch (c.type) {
+    case "filter":
+      return `${one}.query(${pyTemplate(c.expr)})`;
+    case "select":
+      return `${one}[[${c.columns.map((x) => pyStr(x)).join(", ")}]]`;
+    case "rename": {
+      const pairs = Object.entries(c.mapping)
+        .map(([a, b]) => `${pyStr(a)}: ${pyStr(b)}`)
+        .join(", ");
+      return `${one}.rename(columns={${pairs}})`;
+    }
+    case "derive":
+      return `${one}.assign(**{${pyStr(c.column)}: ${one}.eval(${pyStr(c.expr)})})`;
+    case "dedupe":
+      return c.columns?.length
+        ? `${one}.drop_duplicates(subset=[${c.columns.map((x) => pyStr(x)).join(", ")}]).reset_index(drop=True)`
+        : `${one}.drop_duplicates().reset_index(drop=True)`;
+    case "limit":
+      return `${one}.head(${Math.max(0, Math.floor(c.n))})`;
+    case "sort":
+      return `${one}.sort_values([${c.by.map((x) => pyStr(x)).join(", ")}], ascending=${c.descending ? "False" : "True"}).reset_index(drop=True)`;
+    case "aggregate":
+      return `${one}.groupby([${c.group_by.map((x) => pyStr(x)).join(", ")}], dropna=False).agg(${aggArgs(c.aggs)}).reset_index()`;
+    case "fill_nulls": {
+      const raw = c.value ?? "";
+      const num = Number(raw);
+      const lit = raw !== "" && Number.isFinite(num) ? String(num) : pyStr(raw);
+      return c.columns?.length
+        ? `${one}.fillna({${c.columns.map((x) => `${pyStr(x)}: ${lit}`).join(", ")}})`
+        : `${one}.fillna(${lit})`;
+    }
+    case "drop_nulls":
+      return c.columns?.length
+        ? `${one}.dropna(subset=[${c.columns.map((x) => pyStr(x)).join(", ")}]).reset_index(drop=True)`
+        : `${one}.dropna().reset_index(drop=True)`;
+    case "join": {
+      // Left side: explicit choice, else the first incoming edge.
+      const left = c.left_node && ins.includes(c.left_node) ? c.left_node : ins[0];
+      const right = ins.find((x) => x !== left) ?? ins[1];
+      return `${f(left)}.merge(${f(right)}, how=${pyStr(c.how)}, left_on=[${c.left_on.map((x) => pyStr(x)).join(", ")}], right_on=[${c.right_on.map((x) => pyStr(x)).join(", ")}])`;
+    }
+    case "union":
+      return `pd.concat([${ins.map((x) => f(x)).join(", ")}], ignore_index=True)`;
+    case "sql":
+      return `_sql_over(${one}, ${pyTemplate(c.query)})`;
+    case "python":
+      return `_fn_${node.id}(${one})`;
+    case "quality_gate":
+      return `_gate_${node.id}(${one})`;
+  }
+}
+
+/**
+ * The request body for one batch, as a Python expression over `_chunk`.
+ *
+ * Each vendor has its own envelope, and the id column is lifted out of the
+ * fields: HubSpot names it `idProperty`/`id`, Salesforce puts it beside the
+ * record's `attributes`. Both take `allOrNone: false` semantics — a batch is
+ * not rolled back for one bad record, which is why reading the per-record
+ * result below is not optional.
+ */
+function saasBodyExpr(cfg: SaasTargetConfig, idCol: string): string {
+  const id = pyStr(idCol);
+  if (cfg.vendor === "hubspot") {
+    return (
+      `{'inputs': [{'idProperty': ${id}, 'id': _r.get(${id}), ` +
+      `'properties': {_k: _r.get(_k) for _k in _cols if _r.get(_k) is not None}} for _r in _chunk]}`
+    );
+  }
+  return (
+    `{'allOrNone': False, 'records': [dict({'attributes': {'type': ${pyStr(cfg.object ?? "")}}, ` +
+    `${id}: _r.get(${id})}, **{_k: _r.get(_k) for _k in _cols if _r.get(_k) is not None}) for _r in _chunk]}`
+  );
+}
+
+/**
+ * Read the per-record outcome of one batch.
+ *
+ * Mirrors `readFailures` in @/lib/saasTargets, which is the tested statement
+ * of the same contract — the TypeScript one cannot run in the sandbox and the
+ * Python one cannot run in a unit test, so both exist and a test pins that
+ * they branch on the same fields.
+ */
+function saasFailureLines(cfg: SaasTargetConfig): string[] {
+  if (cfg.vendor === "salesforce") {
+    return [
+      `        if isinstance(_payload, list):`,
+      `            for _r in _payload:`,
+      `                if not (isinstance(_r, dict) and _r.get('success')):`,
+      `                    _failed += 1`,
+      `                    _e = ((_r or {}).get('errors') or [{}])[0]`,
+      `                    if len(_why) < 3:`,
+      `                        _why.append(str(_e.get('message') or 'rejected'))`,
+      `        else:`,
+      // Not an array at all means the request was rejected wholesale. Counting
+      // that as zero failures is exactly the silent success this target exists
+      // to prevent.
+      `            _failed += len(_chunk)`,
+      `            _why.append('Salesforce did not return a per-record result')`,
+    ];
+  }
+  return [
+    `        if isinstance(_payload, dict):`,
+    `            _errs = _payload.get('errors') or []`,
+    `            _n = _payload.get('numErrors')`,
+    `            if _n is None:`,
+    `                _res = _payload.get('results')`,
+    `                _n = len(_errs) if _errs else (max(0, len(_chunk) - len(_res)) if isinstance(_res, list) else 0)`,
+    `            if _n:`,
+    `                _failed += int(_n)`,
+    `                for _e in _errs[:3]:`,
+    `                    if len(_why) < 3:`,
+    `                        _why.append(str((_e or {}).get('message') or 'rejected'))`,
+  ];
+}
+
+export function targetBlock(node: EtlNode, input: string, cdcInput = false): string {
+  const c = node.config as EtlTargetConfig;
+  if (c.type === "lakehouse") {
+    const schema = pyIdent(c.schema, "Lakehouse schema");
+    const table = pyIdent(c.table, "Lakehouse table");
+    const fq = `"${schema}"."${table}"`;
+    if (c.write_mode === "merge" && !c.primary_key?.length) {
+      throw new Error(`Merge into "${node.label || node.id}" needs primary key columns`);
+    }
+    const load =
+      c.write_mode === "replace"
+        ? [`        con.execute('CREATE OR REPLACE TABLE ${fq} AS SELECT * FROM _src')`]
+        : c.write_mode === "append"
+          ? [
+              // An empty batch (a stream with nothing new, a filter that kept
+              // nothing) loads nothing and must not shape the table: an empty
+              // frame carries only the columns the source could name. BY NAME
+              // keeps a batch honest when its columns arrive in another order.
+              `        if len(_src):`,
+              `            con.execute('CREATE TABLE IF NOT EXISTS ${fq} AS SELECT * FROM _src WHERE false')`,
+              `            con.execute('INSERT INTO ${fq} BY NAME SELECT * FROM _src')`,
+            ]
+          : [
+              // Upsert: delete the incoming keys, then insert — one transaction,
+              // so a reader never sees the gap between the two. Inside an
+              // exactly-once tick the shared transaction already covers both.
+              `        if len(_src):`,
+              `            con.execute('CREATE TABLE IF NOT EXISTS ${fq} AS SELECT * FROM _src WHERE false')`,
+              `            if _own:`,
+              `                con.execute('BEGIN TRANSACTION')`,
+              `            con.execute(${pyStr(
+                `DELETE FROM ${fq} WHERE (${(c.primary_key ?? [])
+                  .map((k) => `"${pyIdent(k, "Primary key column")}"`)
+                  .join(", ")}) IN (SELECT ${(c.primary_key ?? [])
+                  .map((k) => `"${pyIdent(k, "Primary key column")}"`)
+                  .join(", ")} FROM _src)`,
+              )})`,
+              `            con.execute('INSERT INTO ${fq} BY NAME SELECT * FROM _src')`,
+              `            if _own:`,
+              `                con.execute('COMMIT')`,
+            ];
+    return [
+      `    # target ${node.id}: lakehouse → ${schema}.${table} (${c.write_mode})`,
+      `    _src = ${input}`,
+      // An exactly-once tick holds one open transaction on `_tick_con` and
+      // every lakehouse target loads through it; otherwise the target opens
+      // and closes a connection of its own, as it always did.
+      `    _own = globals().get('_tick_con') is None`,
+      `    con = _lakehouse_con() if _own else _tick_con`,
+      `    try:`,
+      `        con.register('_src', _src)`,
+      ...load,
+      `    finally:`,
+      `        if _own:`,
+      `            con.close()`,
+      `    _loads.append({'node': '${node.id}', 'target': '${schema}.${table}', 'fqn': '${schema}.${table}', 'rows': int(len(${input})), 'load_id': None})`,
+    ].join("\n");
+  }
+  if (c.type === "saas") {
+    const cfg = c as unknown as SaasTargetConfig;
+    const problem = validateSaasTarget(cfg);
+    if (problem) throw new Error(`SaaS target "${node.label || node.id}": ${problem}`);
+    const spec = SAAS_TARGETS[cfg.vendor as SaasTargetVendor];
+    const batch = batchSizeFor(cfg);
+    const stem = envKey(node.id);
+    const idCol = (cfg.id_column ?? "").trim();
+    const fields = (cfg.columns ?? []).filter((x) => x !== idCol);
+    return [
+      `    # target ${node.id}: reverse ETL → ${spec.label} ${cfg.object}`,
+      `    import requests`,
+      // The host is the tenant's own — HubSpot is fixed, a Salesforce org lives
+      // at its My Domain — and both arrive resolved as the pipeline's owner.
+      `    _base = os.environ['${stem}_BASE'].rstrip('/')`,
+      `    _url = _base + ${pyStr(endpointPath(cfg))}`,
+      `    _hdrs = {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + os.environ['${stem}_TOKEN']}`,
+      `    _df = ${input}`,
+      `    if ${pyStr(idCol)} not in _df.columns:`,
+      // Refused before the first request: without it every record would be
+      // rejected one batch at a time, which is a slow way to learn this.
+      `        raise RuntimeError(${pyStr(`${spec.label} target needs a "${idCol}" column to identify records; the frame has: `)} + ', '.join(map(str, _df.columns)))`,
+      fields.length
+        ? `    _cols = [_c for _c in [${fields.map((f) => pyStr(f)).join(", ")}] if _c in _df.columns]`
+        : `    _cols = [_c for _c in _df.columns if _c != ${pyStr(idCol)}]`,
+      `    _records = json.loads(_df.to_json(orient='records', date_format='iso'))`,
+      `    _sent, _failed, _why = 0, 0, []`,
+      `    for _i in range(0, len(_records), ${batch}):`,
+      `        _chunk = _records[_i:_i + ${batch}]`,
+      `        _body = ${saasBodyExpr(cfg, idCol)}`,
+      `        _resp = requests.request(${pyStr(methodFor(cfg))}, _url, json=_body, headers=_hdrs, timeout=120)`,
+      // A transport-level failure fails the run the ordinary way — except for
+      // the one that is nearly always the egress proxy rather than the API. A
+      // 403 whose body is not JSON did not come from a JSON API, and naming
+      // the proxy saves an hour spent looking at CRM permissions.
+      `        if _resp.status_code >= 400:`,
+      `            _hint = ''`,
+      `            if _resp.status_code == 403 and 'json' not in (_resp.headers.get('content-type') or ''):`,
+      `                _hint = ' (this looks like the egress proxy, not ${spec.label}: add ' + _base.split('//')[-1].split('/')[0] + ' to the allow-list under Admin -> Developer runtime)'`,
+      `            raise RuntimeError(${pyStr(`${spec.label} `)} + str(_resp.status_code) + _hint + ': ' + _resp.text[:300])`,
+      `        try:`,
+      `            _payload = _resp.json()`,
+      `        except Exception:`,
+      `            _payload = None`,
+      ...saasFailureLines(cfg),
+      `        _sent += len(_chunk)`,
+      `        print(${pyStr(`[etl] ${spec.label} ${cfg.object}: `)} + str(_sent) + '/' + str(len(_records)) + ' record(s) sent')`,
+      // The whole point: a 200 that rejected records is a failed run.
+      `    if _failed:`,
+      `        raise RuntimeError(${pyStr(`${spec.label} rejected `)} + str(_failed) + ' of ' + str(len(_records)) + ' record(s): ' + '; '.join(_why[:3]))`,
+      `    _loads.append({'node': '${node.id}', 'target': ${pyStr(`${spec.label}:${cfg.object}`)}, 'fqn': ${pyStr(`saas:${cfg.vendor}:${cfg.object}`)}, 'rows': int(len(${input})), 'load_id': None})`,
+    ].join("\n");
+  }
+  if (c.type === "http_api") {
+    const method = c.method === "PUT" || c.method === "PATCH" ? c.method : "POST";
+    const batch = Math.min(5000, Math.max(1, Math.floor(c.batch_size ?? 500)));
+    const wrap = (c.wrap_key ?? "").trim();
+    if (!c.url?.trim()) throw new Error(`HTTP target "${node.label || node.id}" needs a URL`);
+    return [
+      `    # target ${node.id}: reverse ETL → ${method} ${c.url}`,
+      `    import requests`,
+      `    _hdrs = {'Content-Type': 'application/json'}`,
+      // A secret picked on the node arrives as <STEM>_AUTH_TOKEN, resolved as
+      // the owner at run start; the older env-var binding still works.
+      ...(c.auth_secret
+        ? [
+            `    if os.environ.get('${envKey(node.id)}_AUTH_TOKEN'):`,
+            `        _hdrs['Authorization'] = 'Bearer ' + os.environ['${envKey(node.id)}_AUTH_TOKEN']`,
+          ]
+        : c.auth_env
+          ? [
+              `    if os.environ.get(${pyStr(c.auth_env)}):`,
+              `        _hdrs['Authorization'] = 'Bearer ' + os.environ[${pyStr(c.auth_env)}]`,
+            ]
+          : []),
+      `    _records = json.loads(${input}.to_json(orient='records', date_format='iso'))`,
+      `    _sent = 0`,
+      `    for _i in range(0, len(_records), ${batch}):`,
+      `        _chunk = _records[_i:_i + ${batch}]`,
+      wrap ? `        _body = {${pyStr(wrap)}: _chunk}` : `        _body = _chunk`,
+      `        _resp = requests.request(${pyStr(method)}, ${pyStr(c.url)}, json=_body, headers=_hdrs, timeout=120)`,
+      `        _resp.raise_for_status()`,
+      `        _sent += len(_chunk)`,
+      `        print('[etl] http target: ' + str(_sent) + '/' + str(len(_records)) + ' row(s) sent')`,
+      `    _loads.append({'node': '${node.id}', 'target': ${pyStr(c.url)}, 'fqn': ${pyStr(`http:${c.url}`)}, 'rows': int(len(${input})), 'load_id': None})`,
+    ].join("\n");
+  }
+  const key = envKey(node.id);
+  const dataset = pyIdent(c.dataset, "Target dataset");
+  const table = pyIdent(c.table, "Target table");
+  if (c.write_mode === "merge" && !c.primary_key?.length) {
+    throw new Error(`Merge on target "${node.label || node.id}" needs primary key columns`);
+  }
+  const tableFormat =
+    c.type === "object_storage" && (c.table_format === "delta" || c.table_format === "iceberg")
+      ? c.table_format
+      : null;
+  const resourceArgs = [
+    `        name='${table}',`,
+    // Open-table formats: dlt's filesystem destination writes a Delta table
+    // (delta-rs) or an Iceberg table (pyiceberg) instead of loose files.
+    ...(tableFormat ? [`        table_format='${tableFormat}',`] : []),
+    // A merge target fed by CDC applies the log correctly: latest event per
+    // key wins (dedup on LSN, descending) and delete events delete the row.
+    ...(cdcInput && c.write_mode === "merge"
+      ? [
+          `        columns={'_cdc_lsn': {'dedup_sort': 'desc'}, '_cdc_deleted': {'hard_delete': True}},`,
+        ]
+      : []),
+    c.write_mode === "merge"
+      ? // Delta only implements the upsert merge strategy — and upsert is also
+        // what makes the hard_delete hint actually delete rows.
+        `        write_disposition={'disposition': 'merge'${tableFormat === "delta" ? ", 'strategy': 'upsert'" : ""}},\n        primary_key=[${(c.primary_key ?? []).map((k) => pyStr(k)).join(", ")}],`
+      : `        write_disposition=${pyStr(c.write_mode)},`,
+  ].join("\n");
+
+  const policy =
+    c.schema_policy === "warn" || c.schema_policy === "strict" ? c.schema_policy : "evolve";
+  const driftLines = [
+    // The frame's schema, captured for every target: metrics.schemas answers
+    // "what shape did this run load" even when no policy is set.
+    `    _schemas['${node.id}'] = {str(c): str(t) for c, t in zip(${input}.columns, ${input}.dtypes)}`,
+    ...(policy !== "evolve"
+      ? [
+          `    _prev_raw = os.environ.get('${envKey(node.id)}_SCHEMA')`,
+          `    if _prev_raw:`,
+          `        _prev = json.loads(_prev_raw)`,
+          `        _cur = _schemas['${node.id}']`,
+          `        _added = sorted(c for c in _cur if c not in _prev)`,
+          `        _removed = sorted(c for c in _prev if c not in _cur)`,
+          `        _retyped = sorted(f"{c}: {_prev[c]} -> {_cur[c]}" for c in _cur if c in _prev and _prev[c] != _cur[c])`,
+          `        if _added or _removed or _retyped:`,
+          `            _parts = []`,
+          `            if _added: _parts.append('added ' + ', '.join(_added))`,
+          `            if _removed: _parts.append('removed ' + ', '.join(_removed))`,
+          `            if _retyped: _parts.append('retyped ' + ', '.join(_retyped))`,
+          `            _msg = 'schema drift on ${dataset}.${table}: ' + '; '.join(_parts)`,
+          ...(policy === "strict"
+            ? [`            raise RuntimeError('[schema] ' + _msg)`]
+            : [`            print('[schema] WARN ' + _msg)`]),
+        ]
+      : []),
+  ].join("\n");
+
+  const native = c.type === "database" ? nativeWarehouseTarget(c.provider) : null;
+  const dest =
+    c.type === "object_storage"
+      ? [
+          `    dest = filesystem(`,
+          `        bucket_url=os.environ['${key}_BUCKET_URL'],`,
+          `        credentials={`,
+          `            'aws_access_key_id': os.environ.get('${key}_ACCESS_KEY_ID', ''),`,
+          `            'aws_secret_access_key': os.environ.get('${key}_SECRET_ACCESS_KEY', ''),`,
+          `            'endpoint_url': os.environ.get('${key}_ENDPOINT_URL') or None,`,
+          `        },`,
+          `    )`,
+        ].join("\n")
+      : native
+        ? [
+            // The engine hands over one JSON env var per native target:
+            // {'credentials': ..., 'kwargs': {...}} shaped for the destination.
+            `    _dc = json.loads(os.environ['${key}_DEST_CREDS'])`,
+            `    dest = dlt.destinations.${native}(credentials=_dc['credentials'], **_dc.get('kwargs', {}))`,
+          ].join("\n")
+        : `    dest = sqlalchemy_dest(os.environ['${key}_URL'])`;
+
+  const run =
+    c.type === "object_storage"
+      ? tableFormat
+        ? `    info = pipe.run(resource, loader_file_format='parquet')`
+        : `    info = pipe.run(resource, loader_file_format=${pyStr(c.format)})`
+      : `    info = pipe.run(resource)`;
+
+  const cdcDeltaApply =
+    cdcInput && c.write_mode === "merge" && tableFormat === "delta"
+      ? [
+          // dlt's delta upsert has no hard-delete path (checked: its merge
+          // builder only ever update/inserts), so delete events land as rows
+          // flagged _cdc_deleted — this transactional delete applies them.
+          `    from dlt.common.libs.deltalake import get_delta_tables`,
+          `    get_delta_tables(pipe, '${table}')['${table}'].delete("_cdc_deleted = true")`,
+          `    print('[etl] cdc: applied hard deletes to ${dataset}.${table}')`,
+        ].join("\n")
+      : null;
+
+  return [
+    driftLines,
+    `    # target ${node.id}: ${c.type === "object_storage" ? "object storage" : "database"} → ${dataset}.${table}`,
+    dest,
+    `    pipe = dlt.pipeline(pipeline_name='${dataset}_${table}', destination=dest, dataset_name='${dataset}')`,
+    `    resource = dlt.resource(`,
+    `        ${input}.to_dict('records'),`,
+    resourceArgs,
+    `    )`,
+    run,
+    ...(cdcDeltaApply ? [cdcDeltaApply] : []),
+    `    _loads.append({'node': '${node.id}', 'target': '${dataset}.${table}', 'fqn': ${
+      c.type === "object_storage"
+        ? tableFormat === "iceberg"
+          ? `'${dataset}/${table}/data/*.parquet'`
+          : tableFormat === "delta"
+            ? `'${dataset}/${table}/*.parquet'`
+            : `'${dataset}/${table}/*.${DLT_FILE_EXT[c.format]}'`
+        : `'${dataset}.${table}'`
+    }, 'rows': int(len(${input})), 'load_id': str(info.loads_ids[0]) if info.loads_ids else None})`,
+  ].join("\n");
+}
+
+// ── Compile ─────────────────────────────────────────────────────────────────
+
+/**
+ * What each source reads, the way lineage records it. Shared by both
+ * compilers, so a Spark run and a pandas run of one graph record the same
+ * upstream names.
+ */
+/** The label a source node gets in catalog lineage: what it actually is. */
+export function lineageSourceOf(n: EtlNode): string {
+  const c = n.config as {
+    type: string;
+    path?: string;
+    table?: string;
+    table_id?: string;
+    table_name?: string;
+    schema?: string;
+    mode?: string;
+    url?: string;
+  };
+  if (isCatalogAsset(c)) return catalogAssetLineage(c as CatalogAssetSourceConfig);
+  if (c.type === "object_storage") return c.path ?? "";
+  if (c.type === "database")
+    return c.mode === "table"
+      ? (c.table ?? "")
+      : c.mode === "cdc"
+        ? `cdc:${c.table ?? ""}`
+        : "sql-query";
+  if (c.type === "http_api") return c.url ?? "";
+  if (c.type === "platform_dataset") return `platform:${c.table_name ?? c.table_id ?? ""}`;
+  if (c.type === "ingest") return "webhook-ingest";
+  if (c.type === "kafka") return `kafka:${(c as { topic?: string }).topic ?? ""}`;
+  if (c.type === "kinesis") return `kinesis:${(c as { stream?: string }).stream ?? ""}`;
+  if (c.type === "pubsub") return `pubsub:${(c as { subscription?: string }).subscription ?? ""}`;
+  if (c.type === "lakehouse") return `lakehouse:${c.schema ?? ""}${c.table ? `.${c.table}` : ""}`;
+  return "python";
+}
+
+export function lineageSourcesOf(order: EtlNode[]): string[] {
+  return order
+    .filter((n) => n.kind === "source")
+    .map(lineageSourceOf)
+    .filter(Boolean);
+}
+
+export function compileGraph(graph: EtlGraph): string {
+  const { order, incoming } = analyzeGraph(graph);
+
+  const needsSql = order.some(
+    (n) => n.kind === "transform" && (n.config as EtlTransformConfig).type === "sql",
+  );
+  const pyFns = order.filter(
+    (n) => n.kind === "transform" && (n.config as EtlTransformConfig).type === "python",
+  );
+  const hasDbTarget = order.some(
+    (n) => n.kind === "target" && (n.config as EtlTargetConfig).type === "database",
+  );
+  const hasStorageTarget = order.some(
+    (n) => n.kind === "target" && (n.config as EtlTargetConfig).type === "object_storage",
+  );
+
+  // Refuse unsupported database providers at compile time, not in a container.
+  for (const n of order) {
+    const c = effectiveConfig(n) as {
+      type?: string;
+      provider?: string;
+      mode?: string;
+      table?: string;
+    };
+    if (c.type !== "database") continue;
+    if (n.kind === "source" && c.mode === "cdc") {
+      if (dbFamily(c.provider) !== "postgres")
+        throw new Error(
+          `CDC source "${n.label || n.id}" needs a PostgreSQL-family connection — logical replication is what feeds it.`,
+        );
+      if (!c.table?.trim())
+        throw new Error(`CDC source "${n.label || n.id}" needs a table (schema.table)`);
+    }
+    if (!c.provider) continue;
+    const okAsTarget = n.kind === "target" && nativeWarehouseTarget(c.provider) !== null;
+    if (!dbFamily(c.provider) && !okAsTarget) {
+      throw new Error(
+        n.kind === "target"
+          ? `Connection provider "${c.provider}" is not supported as a pipeline target in this release. ` +
+              `Supported: PostgreSQL, MySQL and SQL Server families, plus Snowflake, BigQuery and Databricks.`
+          : `Connection provider "${c.provider}" is not supported as a pipeline source in this release. ` +
+              `Supported: PostgreSQL, MySQL and SQL Server families. Stage through object storage instead.`,
+      );
+    }
+  }
+
+  const lines: string[] = [
+    `# Generated by the AgentSwarms pipeline builder. Edits here are overwritten`,
+    `# on the next visual save — switch the pipeline to code mode to make this`,
+    `# file the source of truth.`,
+    `import json`,
+    `import os`,
+    ``,
+    `import pandas as pd`,
+    ``,
+  ];
+
+  if (needsSql) {
+    lines.push(
+      ``,
+      `def _sql_over(df, query):`,
+      `    # SQL step: the incoming frame is table 't'.`,
+      `    #`,
+      `    # DuckDB directly, not through ibis. ibis 12.0.0 against the`,
+      `    # image's pandas 3 fails inside create_table with`,
+      `    # "Parser Error: syntax error at end of input", so a SQL step could`,
+      `    # not run AT ALL on a fresh sandbox — and the requirement was`,
+      `    # unpinned, so every new run pulled whatever ibis had just released.`,
+      `    # duckdb registers a frame natively, is the engine the lakehouse`,
+      `    # already uses, and ships in the runtime image: this removes a`,
+      `    # dependency rather than pinning one.`,
+      `    import duckdb`,
+      `    con = duckdb.connect()`,
+      `    con.register('t', df)`,
+      `    return con.sql(query).df()`,
+      ``,
+    );
+  }
+  for (const n of pyFns) {
+    const c = n.config as Extract<EtlTransformConfig, { type: "python" }>;
+    lines.push(``, `def _fn_${n.id}(df):`, indent(c.code, "    "), `    return df`, ``);
+  }
+  if (order.some((n) => effectiveType(n) === "lakehouse")) {
+    lines.push(``, lakehouseAttachFn());
+  }
+  const gates = order.filter(
+    (n) => n.kind === "transform" && (n.config as { type?: string }).type === "quality_gate",
+  );
+  if (gates.length) {
+    // Rule outcomes accumulate here and surface as the run's `quality` metric.
+    lines.push(``, `_quality = []`);
+    for (const n of gates) lines.push(``, gateFn(n), ``);
+  }
+  for (const n of order.filter((x) => x.kind === "source")) {
+    lines.push(``, sourceFn(n), ``);
+  }
+  for (const n of order.filter(
+    (x) => x.kind === "source" && (x.config as { mode?: string }).mode === "cdc",
+  )) {
+    lines.push(`_cdc_last_${n.id} = None`);
+  }
+  for (const n of order.filter(
+    (x) => x.kind === "source" && (x.config as { type?: string }).type === "ingest",
+  )) {
+    lines.push(`_ingest_last_${n.id} = None`);
+  }
+  for (const n of order.filter((x) => x.kind === "source" && isStreamSource(x.config))) {
+    lines.push(`_stream_last_${n.id} = None`);
+  }
+  for (const n of order.filter((x) => x.kind === "source" && isAutoIngest(x.config))) {
+    lines.push(`_files_last_${n.id} = None`);
+  }
+
+  const incremental = order.filter(
+    (n) =>
+      n.kind === "source" &&
+      ((n.config as { incremental?: { cursor_column?: string } }).incremental?.cursor_column ||
+        (n.config as { mode?: string }).mode === "cdc" ||
+        (n.config as { type?: string }).type === "ingest" ||
+        // A storage prefix watched for new files keeps its ledger the same way.
+        isAutoIngest(n.config) ||
+        // A stream node reports its positions the same way.
+        isStreamSource(n.config)),
+  );
+  const cdcNodes = order.filter(
+    (n) => n.kind === "source" && (n.config as { mode?: string }).mode === "cdc",
+  );
+
+  // Upstream descriptors for catalog lineage: close enough to the crawler's
+  // asset fqns that storage-to-storage flows connect end to end, and honest
+  // labels (url, table, "python") where no asset exists to point at.
+  const lineageSources = lineageSourcesOf(order);
+
+  // The per-tick body. The wrapper appended below defines `entrypoint`: once
+  // through for an ordinary run, a loop for a continuous one.
+  // The run's parameters, published where every source function can see them.
+  // Source functions are module-level (`def _src_n1()`), so a closure over
+  // `inputs` would not reach them — hence a module global set once per tick.
+  lines.push(
+    ``,
+    `_PARAMS = {}`,
+    ``,
+    `def _param(name, default=''):`,
+    `    # One run parameter, as text. Missing and None both read as the default.`,
+    `    v = _PARAMS.get(name)`,
+    `    # A key present but null must fall back too: a schedule that passes`,
+    `    # {"day": null} means "no value", not "the empty string".`,
+    `    return str(default) if v is None else str(v)`,
+  );
+  lines.push(``, emptyGuardFn());
+  lines.push(``, `def _tick(inputs=None):`);
+  lines.push(`    global _PARAMS`, `    _PARAMS = dict(inputs or {})`);
+  if (incremental.length) lines.push(`    _watermarks = {}`);
+  lines.push(`    _cols = {}`);
+  for (const n of order) {
+    const ins = incoming.get(n.id)!;
+    if (n.kind === "source") {
+      lines.push(`    f_${n.id} = _src_${n.id}()`);
+      lines.push(
+        `    if not isinstance(f_${n.id}, pd.DataFrame):`,
+        `        f_${n.id} = pd.DataFrame(f_${n.id})`,
+      );
+      if ((n.config as { type?: string }).type === "ingest") {
+        lines.push(
+          `    if _ingest_last_${n.id} is not None:`,
+          `        _watermarks['${n.id}'] = str(_ingest_last_${n.id})`,
+        );
+      }
+      if ((n.config as { mode?: string }).mode === "cdc") {
+        // The source fn stashes the last peeked LSN; reporting it as the
+        // watermark is what lets the NEXT run consume up to it.
+        lines.push(
+          `    if _cdc_last_${n.id}:`,
+          `        _watermarks['${n.id}'] = _cdc_last_${n.id}`,
+        );
+      }
+      if (isStreamSource(n.config)) {
+        // The next positions per partition / shard, persisted only when the
+        // run's load commits - so a failed run re-reads the same messages.
+        lines.push(
+          `    if _stream_last_${n.id}:`,
+          `        _watermarks['${n.id}'] = _stream_last_${n.id}`,
+        );
+      }
+      if (isAutoIngest(n.config)) {
+        // The file ledger: reported only when files were read, so an idle
+        // tick keeps the previous position.
+        lines.push(
+          `    if _files_last_${n.id}:`,
+          `        _watermarks['${n.id}'] = _files_last_${n.id}`,
+        );
+      }
+      const inc = (n.config as { incremental?: { cursor_column?: string } }).incremental;
+      if (inc?.cursor_column) {
+        // Report the new high-water mark; on an empty read, report nothing so
+        // the engine keeps the previous cursor.
+        lines.push(
+          `    if len(f_${n.id}):`,
+          `        _watermarks['${n.id}'] = str(f_${n.id}[${pyStr(inc.cursor_column)}].max())`,
+        );
+      }
+    } else if (n.kind === "transform") {
+      // Two exceptions, both because the step's answer to "no rows" is not
+      // the compiler's to decide:
+      //   UNION — `pd.concat` already keeps the branch that DID have rows;
+      //   PYTHON — the author's own code may build rows out of nothing.
+      const kind_ = (n.config as { type?: string }).type;
+      if (kind_ === "union" || kind_ === "python") {
+        lines.push(`    f_${n.id} = ${transformExpr(n, ins)}`);
+      } else {
+        // The input's columns are the best-known schema, so the skip keeps
+        // them: `iloc[0:0]` is no rows with the shape intact, which cascades
+        // through the rest of the graph and lets the target's own empty-batch
+        // skip do its job.
+        lines.push(
+          `    if ${ins.map((i) => `_empty(f_${i})`).join(" or ")}:`,
+          `        f_${n.id} = f_${ins[0]}.iloc[0:0]`,
+          `    else:`,
+          `        f_${n.id} = ${transformExpr(n, ins)}`,
+        );
+      }
+    }
+  }
+
+  // dlt is imported only when a target actually loads through it — a
+  // lakehouse- or HTTP-only pipeline neither installs nor imports it.
+  // Every frame's columns, for column-level lineage: what each node actually
+  // produced, so the tracer works from observed shapes, not the graph's hopes.
+  for (const n of order.filter((x) => x.kind !== "target")) {
+    lines.push(`    _cols['${n.id}'] = [str(_c) for _c in f_${n.id}.columns]`);
+  }
+  if (hasStorageTarget || hasDbTarget) lines.push(``, `    import dlt`);
+  if (hasStorageTarget) lines.push(`    from dlt.destinations import filesystem`);
+  if (hasDbTarget) lines.push(`    from dlt.destinations import sqlalchemy as sqlalchemy_dest`);
+  lines.push(`    _loads = []`);
+  lines.push(`    _schemas = {}`);
+  for (const n of order.filter((x) => x.kind === "target")) {
+    const inputId = incoming.get(n.id)![0];
+    const inputNode = order.find((x) => x.id === inputId);
+    const cdcInput = (inputNode?.config as { mode?: string } | undefined)?.mode === "cdc";
+    lines.push(``, targetBlock(n, `f_${inputId}`, cdcInput));
+  }
+
+  lines.push(
+    ``,
+    `    metrics = {`,
+    `        'rows_loaded': sum(l['rows'] for l in _loads),`,
+    `        'targets': _loads,`,
+    `        'schemas': _schemas,`,
+    `        'columns': _cols,`,
+    `        'lineage_sources': ${JSON.stringify(lineageSources)},`.replace(/"/g, "'"),
+    ...(order.some(
+      (n) => n.kind === "transform" && (n.config as { type?: string }).type === "quality_gate",
+    )
+      ? [`        'quality': _quality,`]
+      : []),
+    ...(incremental.length ? [`        'watermarks': _watermarks,`] : []),
+    `    }`,
+    `    print('[etl] ' + json.dumps(metrics))`,
+    `    return metrics`,
+  );
+  lines.push(
+    ``,
+    continuousWrapper(Object.fromEntries(incremental.map((n) => [n.id, envKey(n.id)]))),
+  );
+  return lines.join("\n") + "\n";
+}
+
+// ── Node preview ────────────────────────────────────────────────────────────
+
+/** Source-row cap for previews: enough to make transforms meaningful. */
+const PREVIEW_SAMPLE_ROWS = 500;
+/** Rows actually returned to the panel. */
+const PREVIEW_RESULT_ROWS = 50;
+
+/**
+ * Compile a PREVIEW script: run the pipeline's ancestors of one node on
+ * sampled data and return that node's frame (a target previews its input)
+ * as {columns, rows} — no dlt, no writes, no watermark movement. The full
+ * graph is validated first so a preview never "works" on a graph that can't
+ * save.
+ */
+export function compilePreview(graph: EtlGraph, nodeId: string): string {
+  const { order, incoming } = analyzeGraph(graph);
+  const selected = order.find((n) => n.id === nodeId);
+  if (!selected) throw new Error("Node not found in this graph");
+
+  // The frame to show: a target shows what would be loaded into it.
+  const frameNode = selected.kind === "target" ? (incoming.get(selected.id) ?? [])[0] : selected.id;
+  if (!frameNode) throw new Error("This target has no input to preview yet");
+
+  // Ancestors of the frame node, selected included.
+  const keep = new Set<string>([frameNode]);
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const id of [...keep]) {
+      for (const up of incoming.get(id) ?? []) {
+        if (!keep.has(up)) {
+          keep.add(up);
+          grew = true;
+        }
+      }
+    }
+  }
+  const slice = order.filter((n) => keep.has(n.id));
+
+  const needsSql = slice.some(
+    (n) => n.kind === "transform" && (n.config as EtlTransformConfig).type === "sql",
+  );
+  const pyFns = slice.filter(
+    (n) => n.kind === "transform" && (n.config as EtlTransformConfig).type === "python",
+  );
+  const gates = slice.filter(
+    (n) => n.kind === "transform" && (n.config as { type?: string }).type === "quality_gate",
+  );
+
+  const lines: string[] = [
+    `# Preview build: sampled sources, no loads. Generated per request.`,
+    `import json`,
+    `import os`,
+    ``,
+    `import pandas as pd`,
+    ``,
+  ];
+  if (needsSql) {
+    lines.push(
+      ``,
+      `def _sql_over(df, query):`,
+      `    # DuckDB directly: ibis 12 fails on pandas 3 inside create_table.`,
+      `    import duckdb`,
+      `    con = duckdb.connect()`,
+      `    con.register('t', df)`,
+      `    return con.sql(query).df()`,
+      ``,
+    );
+  }
+  for (const n of pyFns) {
+    const c = n.config as Extract<EtlTransformConfig, { type: "python" }>;
+    lines.push(``, `def _fn_${n.id}(df):`, indent(c.code, "    "), `    return df`, ``);
+  }
+  // A lakehouse source's reader calls _lakehouse_con(), so the preview must
+  // emit that helper too. Without it the preview died with a NameError while
+  // the same graph ran fine as a pipeline — the preview is a SECOND compiler
+  // over the same nodes, and anything the source functions depend on has to be
+  // emitted by both.
+  if (slice.some((n) => effectiveType(n) === "lakehouse")) {
+    lines.push(``, lakehouseAttachFn());
+  }
+  if (gates.length) {
+    lines.push(``, `_quality = []`);
+    for (const n of gates) lines.push(``, gateFn(n), ``);
+  }
+  for (const n of slice.filter((x) => x.kind === "source")) {
+    lines.push(``, sourceFn(n), ``);
+  }
+
+  // The steps below guard on `_empty`, so the preview has to emit it as well:
+  // the preview is a second compiler over the same nodes.
+  lines.push(``, emptyGuardFn());
+
+  lines.push(``, `def entrypoint(inputs):`);
+  for (const n of slice) {
+    const ins = incoming.get(n.id)!.filter((x) => keep.has(x));
+    if (n.kind === "source") {
+      lines.push(`    f_${n.id} = _src_${n.id}().head(${PREVIEW_SAMPLE_ROWS})`);
+    } else if (n.kind === "transform") {
+      // Two exceptions, both because the step's answer to "no rows" is not
+      // the compiler's to decide:
+      //   UNION — `pd.concat` already keeps the branch that DID have rows;
+      //   PYTHON — the author's own code may build rows out of nothing.
+      const kind_ = (n.config as { type?: string }).type;
+      if (kind_ === "union" || kind_ === "python") {
+        lines.push(`    f_${n.id} = ${transformExpr(n, ins)}`);
+      } else {
+        // The input's columns are the best-known schema, so the skip keeps
+        // them: `iloc[0:0]` is no rows with the shape intact, which cascades
+        // through the rest of the graph and lets the target's own empty-batch
+        // skip do its job.
+        lines.push(
+          `    if ${ins.map((i) => `_empty(f_${i})`).join(" or ")}:`,
+          `        f_${n.id} = f_${ins[0]}.iloc[0:0]`,
+          `    else:`,
+          `        f_${n.id} = ${transformExpr(n, ins)}`,
+        );
+      }
+    }
+  }
+  // Every ancestor frame already exists here, so reporting each one's columns
+  // costs nothing and lets ONE preview fill the column pickers for the whole
+  // chain — otherwise configuring a transform means previewing its parent
+  // first, which is backwards.
+  const framed = slice.filter((n) => n.kind !== "target").map((n) => n.id);
+  lines.push(
+    `    _pv = f_${frameNode}.head(${PREVIEW_RESULT_ROWS})`,
+    `    _by_node = {}`,
+    ...framed.map((id) => `    _by_node['${id}'] = [str(c) for c in f_${id}.columns]`),
+    `    preview = {`,
+    `        'columns': [{'name': str(c), 'type': str(t)} for c, t in zip(_pv.columns, _pv.dtypes)],`,
+    `        'rows': json.loads(_pv.to_json(orient='records', date_format='iso')),`,
+    `        'total_sampled': int(len(f_${frameNode})),`,
+    `        'columns_by_node': _by_node,`,
+    `    }`,
+    `    print('[etl] preview: ' + str(len(_pv)) + ' row(s), ' + str(len(_pv.columns)) + ' column(s)')`,
+    `    return {'preview': preview}`,
+  );
+  return lines.join("\n") + "\n";
+}
+
+/** What a preview run needs installed — the load-side packages stay out. */
+export function previewRequirementsFor(graph: EtlGraph): string {
+  return requirementsFor(graph)
+    .split("\n")
+    .filter((l) => !l.startsWith("dlt"))
+    .join("\n");
+}
+
+// ── Requirements ────────────────────────────────────────────────────────────
+
+export function requirementsFor(graph: EtlGraph): string {
+  const reqs = new Set<string>(["pandas", "pyarrow"]);
+  let anyDlt = false;
+  for (const n of graph.nodes ?? []) {
+    const c = (
+      n.kind === "source" && isCatalogAsset(n.config as { type?: string })
+        ? ((n.config as CatalogAssetSourceConfig).resolved ?? {})
+        : n.config
+    ) as { type?: string; format?: string; provider?: string };
+    if (n.kind === "source") {
+      if (c.type === "object_storage") {
+        reqs.add("s3fs");
+        if (c.format === "xlsx") reqs.add("openpyxl");
+      }
+      if (c.type === "http_api") reqs.add("requests");
+      if (c.type === "platform_dataset") reqs.add("requests");
+      if (c.type === "ingest") reqs.add("requests");
+      if (c.type === "lakehouse") reqs.add("duckdb>=1.4");
+      if (c.type === "database") {
+        reqs.add("sqlalchemy");
+        const fam = dbFamily(c.provider);
+        if (fam) reqs.add(FAMILY_DRIVER[fam]);
+      }
+    }
+    if (n.kind === "transform" && c.type === "sql") reqs.add("duckdb>=1.4");
+    if (n.kind === "target" && (c.type === "http_api" || c.type === "saas")) {
+      reqs.add("requests");
+      continue;
+    }
+    if (n.kind === "target" && c.type === "lakehouse") {
+      reqs.add("duckdb>=1.4");
+      continue;
+    }
+    if (n.kind === "target") {
+      anyDlt = true;
+      if (c.type === "object_storage") {
+        reqs.add("dlt[filesystem]>=1.3");
+        const tf = (c as { table_format?: string }).table_format;
+        if (tf === "delta") reqs.add("dlt[deltalake]>=1.3");
+        if (tf === "iceberg") reqs.add("dlt[pyiceberg]>=1.3");
+      }
+      if (c.type === "database") {
+        const native = nativeWarehouseTarget(c.provider);
+        if (native) {
+          reqs.add(`dlt[${native}]>=1.3`);
+        } else {
+          reqs.add("dlt[sqlalchemy]>=1.3");
+          const fam = dbFamily(c.provider);
+          if (fam) reqs.add(FAMILY_DRIVER[fam]);
+        }
+      }
+    }
+  }
+  // The dlt fallback exists for graphs whose targets the compiler cannot see
+  // (code mode). A graph with targets that need NO dlt — lakehouse, HTTP —
+  // must not pay for a large install it never imports.
+  const hasNonDltTarget = (graph.nodes ?? []).some(
+    (n) =>
+      n.kind === "target" &&
+      ["lakehouse", "http_api", "saas"].includes((n.config as { type?: string }).type ?? ""),
+  );
+  if (!anyDlt && !hasNonDltTarget) reqs.add("dlt[filesystem]>=1.3");
+  return [...reqs].sort().join("\n");
+}
+
+// ── Starters ────────────────────────────────────────────────────────────────
+
+/**
+ * Accept any stored graph shape. Pipelines saved before the canvas existed
+ * used a linear {source, steps, destination}; they convert to an equivalent
+ * chain so an old pipeline opens on the canvas instead of crashing it.
+ */
+export function normalizeGraph(raw: unknown): EtlGraph | null {
+  if (!raw || typeof raw !== "object") return null;
+  const g = raw as Record<string, unknown>;
+  if (Array.isArray(g.nodes) && Array.isArray(g.edges)) {
+    // Graphs written by scripts or the API often carry bare {from, to} edges;
+    // the editor's schema wants stable ids, so synthesize the missing ones.
+    for (const e of g.edges as { id?: string; from?: string; to?: string }[]) {
+      if (!e.id) e.id = `e_${e.from}_${e.to}`;
+    }
+    return raw as EtlGraph;
+  }
+
+  if (g.source && g.destination) {
+    const legacySteps = Array.isArray(g.steps) ? (g.steps as Record<string, unknown>[]) : [];
+    const src = g.source as Record<string, unknown>;
+    const dst = g.destination as Record<string, unknown>;
+    const nodes: EtlNode[] = [
+      {
+        id: "n1",
+        kind: "source",
+        label: "Source",
+        // Old shape used kind:"object_store"; new uses type:"object_storage".
+        config: {
+          ...src,
+          type:
+            src.kind === "object_store" ? "object_storage" : ((src.kind as string) ?? "http_api"),
+          kind: undefined,
+        } as unknown as EtlSourceConfig,
+        position: { x: 80, y: 160 },
+      },
+      ...legacySteps.map(
+        (step, i): EtlNode => ({
+          id: `n${i + 2}`,
+          kind: "transform",
+          label: (step.kind as string) ?? "step",
+          config: { ...step, type: step.kind, kind: undefined } as unknown as EtlTransformConfig,
+          position: { x: 80 + 220 * (i + 1), y: 160 },
+        }),
+      ),
+      {
+        id: `n${legacySteps.length + 2}`,
+        kind: "target",
+        label: "Target",
+        config: {
+          ...dst,
+          type: "object_storage",
+          kind: undefined,
+        } as unknown as EtlTargetConfig,
+        position: { x: 80 + 220 * (legacySteps.length + 1), y: 160 },
+      },
+    ];
+    const edges: EtlEdge[] = nodes
+      .slice(0, -1)
+      .map((n, i) => ({ id: `e${i + 1}`, from: n.id, to: nodes[i + 1].id }));
+    return { nodes, edges };
+  }
+  return null;
+}
+
+/** A minimal two-node starter graph for a new visual pipeline. */
+export function starterGraph(): EtlGraph {
+  return {
+    nodes: [
+      {
+        id: "n1",
+        kind: "source",
+        label: "API source",
+        config: { type: "http_api", url: "https://api.example.com/items", records_path: "" },
+        position: { x: 80, y: 160 },
+      },
+      {
+        id: "n2",
+        kind: "target",
+        label: "Storage target",
+        config: {
+          type: "object_storage",
+          dataset: "etl",
+          table: "items",
+          format: "parquet",
+          write_mode: "replace",
+        },
+        position: { x: 520, y: 160 },
+      },
+    ],
+    edges: [{ id: "e1", from: "n1", to: "n2" }],
+  };
+}
+
+/** Starter template for a code-mode pipeline. */
+export function codeTemplate(): string {
+  return [
+    `# AgentSwarms ETL pipeline.`,
+    `#`,
+    `# Contract:`,
+    `#   - define entrypoint(inputs) and return a JSON-able metrics dict;`,
+    `#   - destination credentials arrive as environment variables:`,
+    `#       ETL_DEST_BUCKET_URL, ETL_DEST_ENDPOINT_URL,`,
+    `#       ETL_DEST_ACCESS_KEY_ID, ETL_DEST_SECRET_ACCESS_KEY`,
+    `#   - packages listed under Settings -> Requirements are pip-installed`,
+    `#     before this script runs.`,
+    `import json`,
+    `import os`,
+    ``,
+    `import pandas as pd`,
+    ``,
+    ``,
+    `def entrypoint(inputs=None):`,
+    `    df = pd.DataFrame([{'id': 1, 'name': 'example'}])`,
+    ``,
+    `    import dlt`,
+    `    from dlt.destinations import filesystem`,
+    ``,
+    `    dest = filesystem(`,
+    `        bucket_url=os.environ['ETL_DEST_BUCKET_URL'],`,
+    `        credentials={`,
+    `            'aws_access_key_id': os.environ.get('ETL_DEST_ACCESS_KEY_ID', ''),`,
+    `            'aws_secret_access_key': os.environ.get('ETL_DEST_SECRET_ACCESS_KEY', ''),`,
+    `            'endpoint_url': os.environ.get('ETL_DEST_ENDPOINT_URL') or None,`,
+    `        },`,
+    `    )`,
+    `    pipe = dlt.pipeline(pipeline_name='my_pipeline', destination=dest, dataset_name='etl')`,
+    `    info = pipe.run(df.to_dict('records'), table_name='example', loader_file_format='parquet')`,
+    ``,
+    `    metrics = {'rows_loaded': int(len(df)), 'load_id': str(info.loads_ids[0]) if info.loads_ids else None}`,
+    `    print('[etl] ' + json.dumps(metrics))`,
+    `    return metrics`,
+  ].join("\n");
+}

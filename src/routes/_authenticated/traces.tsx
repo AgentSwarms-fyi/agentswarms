@@ -1,3 +1,4 @@
+import { formatUsd } from "@/lib/usd";
 import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { traceCountHeadline, windowComplete } from "@/lib/traceWindow";
@@ -30,7 +31,17 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Search, ScrollText, ChevronLeft, ChevronRight, Wrench, BookOpen } from "lucide-react";
+import {
+  Search,
+  ScrollText,
+  ChevronLeft,
+  ChevronRight,
+  Wrench,
+  BookOpen,
+  Download,
+  RotateCcw,
+} from "lucide-react";
+import { toast } from "sonner";
 import { EmptyState } from "@/components/ui/empty-state";
 import { format } from "date-fns";
 import { supabase } from "@/integrations/supabase/client";
@@ -40,6 +51,14 @@ import {
   getExecutionTraces,
   type ExecutionTraceRow,
 } from "@/utils/traceLog.functions";
+import {
+  getDecision,
+  getPassportForDecision,
+  replayDecision,
+  type DecisionChain,
+} from "@/utils/provenance.functions";
+import { isDataRead } from "@/utils/provenance/actions";
+import type { ReplayResult } from "@/utils/provenance/replay.server";
 
 export const Route = createFileRoute("/_authenticated/traces")({
   component: TracesPage,
@@ -53,6 +72,9 @@ function TracesPage() {
   const { user, session } = useAuth();
   const fetchTraces = useServerFn(getExecutionTraces);
   const fetchTraceDetail = useServerFn(getExecutionTraceDetail);
+  const fetchDecision = useServerFn(getDecision);
+  const fetchPassport = useServerFn(getPassportForDecision);
+  const runReplay = useServerFn(replayDecision);
   const [traces, setTraces] = useState<Trace[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -64,6 +86,32 @@ function TracesPage() {
   const [selected, setSelected] = useState<Trace | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
+  // "Where did this come from?" — everything the decision touched, keyed by
+  // the id stamped on this trace. Loaded per selection, never blocks the sheet.
+  const [chain, setChain] = useState<DecisionChain | null>(null);
+  // Counted with the SAME predicate the passport uses, so the screen and the
+  // exported document can never disagree about how many reads there were.
+  const readCount = chain?.events.filter((e) => isDataRead(e.action)).length ?? 0;
+  const [replay, setReplay] = useState<ReplayResult | null>(null);
+  const [replaying, setReplaying] = useState(false);
+  useEffect(() => {
+    const id = selected?.decision_id;
+    setChain(null);
+    setReplay(null);
+    if (!id) return;
+    let live = true;
+    fetchDecision({ data: { decisionId: id } })
+      .then((c) => {
+        if (live) setChain(c);
+      })
+      .catch(() => {
+        if (live) setChain(null);
+      });
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected?.decision_id]);
   const [loadError, setLoadError] = useState<string | null>(null);
   // The exact row count for the active range. The fetch is capped (PostgREST
   // max-rows), so without this the header presents the loaded window as the
@@ -466,7 +514,7 @@ function TracesPage() {
                             : undefined
                         }
                       >
-                        ${amount.toFixed(4)}
+                        {formatUsd(amount)}
                         {unpriced ? "+?" : ""}
                       </span>
                     );
@@ -545,7 +593,7 @@ function TracesPage() {
                       value={
                         selected.pricing_missing === "true" && Number(selected.cost_usd) === 0
                           ? "unpriced"
-                          : `$${Number(selected.cost_usd).toFixed(4)}`
+                          : formatUsd(selected.cost_usd)
                       }
                     />
                   </div>
@@ -562,6 +610,244 @@ function TracesPage() {
                     <Section title="Prompt">
                       <div className="bg-muted/40 rounded-md p-3 text-xs whitespace-pre-wrap break-words">
                         {selected.prompt}
+                      </div>
+                    </Section>
+                  )}
+
+                  {chain && (
+                    <Section title="Provenance">
+                      <div className="space-y-2 text-xs">
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                          <span className="font-mono text-muted-foreground">
+                            decision {chain.decision.id.slice(0, 8)}
+                          </span>
+                          <span className="rounded bg-muted px-1.5 py-0.5">
+                            {chain.decision.kind.replace("_", " ")}
+                          </span>
+                          {chain.reproducible ? (
+                            <span
+                              className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-emerald-700 dark:text-emerald-400"
+                              title="The lakehouse snapshot this answer saw is recorded; its queries can be re-run against it."
+                            >
+                              reproducible · snapshot {chain.decision.lakehouse_snapshot_id}
+                            </span>
+                          ) : (
+                            <span
+                              className="rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-700 dark:text-amber-400"
+                              title="No lakehouse snapshot was recorded, so this answer is recorded but cannot be re-run as of that moment."
+                            >
+                              recorded, not reproducible
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-muted-foreground">
+                            {chain.traces.length} model turn
+                            {chain.traces.length === 1 ? "" : "s"} · {readCount} data read
+                            {readCount === 1 ? "" : "s"}
+                          </span>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-6 px-2 text-[11px]"
+                            onClick={async () => {
+                              try {
+                                const p = await fetchPassport({
+                                  data: { decisionId: chain.decision.id },
+                                });
+                                if (!p) return toast.error("Passport unavailable");
+                                // The SIGNED bytes are what gets saved, with the
+                                // signature beside them — a recipient must be able
+                                // to verify without this instance re-deriving
+                                // anything, so the canonical form is the artifact.
+                                const file = JSON.stringify(
+                                  {
+                                    passport: JSON.parse(p.canonical),
+                                    signature: p.signature,
+                                    algorithm: p.algorithm,
+                                    canonical: p.canonical,
+                                  },
+                                  null,
+                                  2,
+                                );
+                                const url = URL.createObjectURL(
+                                  new Blob([file], { type: "application/json" }),
+                                );
+                                const a = document.createElement("a");
+                                a.href = url;
+                                a.download = `answer-passport-${chain.decision.id.slice(0, 8)}.json`;
+                                a.click();
+                                URL.revokeObjectURL(url);
+                                toast.success(
+                                  p.signature
+                                    ? "Passport downloaded (signed)"
+                                    : "Passport downloaded (unsigned)",
+                                );
+                              } catch (e) {
+                                toast.error((e as Error).message);
+                              }
+                            }}
+                          >
+                            <Download className="mr-1 h-3 w-3" /> Passport
+                          </Button>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-6 px-2 text-[11px]"
+                            disabled={replaying || readCount === 0}
+                            onClick={async () => {
+                              setReplaying(true);
+                              try {
+                                const r = await runReplay({
+                                  data: { decisionId: chain.decision.id },
+                                });
+                                setReplay(r);
+                                if (!r) toast.error("Replay unavailable");
+                                else if (r.summary.unfaithful > 0)
+                                  toast.error(
+                                    `${r.summary.unfaithful} read(s) do not match the record`,
+                                  );
+                                else if (r.summary.nondeterministic > 0)
+                                  toast.warning(
+                                    `${r.summary.nondeterministic} read(s) use a query that does not answer the same way twice`,
+                                  );
+                                else if (r.summary.movedSince > 0)
+                                  toast.warning(
+                                    `${r.summary.movedSince} read(s) return different data today`,
+                                  );
+                                else if (r.summary.replayed > 0)
+                                  toast.success("Replayed — the data still matches");
+                                else toast.info("Nothing on this decision could be replayed");
+                              } catch (e) {
+                                toast.error((e as Error).message);
+                              } finally {
+                                setReplaying(false);
+                              }
+                            }}
+                          >
+                            <RotateCcw className="mr-1 h-3 w-3" />
+                            {replaying ? "Replaying…" : "Replay reads"}
+                          </Button>
+                          <span className="text-[10px] text-muted-foreground">
+                            re-runs the recorded queries — against the original snapshot, and
+                            against today
+                          </span>
+                        </div>
+                        {replay && (
+                          <div className="space-y-1 rounded-md border border-dashed p-2">
+                            {replay.reads.map((r) => (
+                              <div key={r.eventId} className="text-[11px]">
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="font-mono font-semibold">{r.action}</span>
+                                  {r.asOf?.matchesRecord === true && (
+                                    <span className="text-green-600 dark:text-green-500">
+                                      matches the record
+                                    </span>
+                                  )}
+                                  {r.asOf?.matchesRecord === false && (
+                                    <span className="font-semibold text-destructive">
+                                      does NOT match the record
+                                    </span>
+                                  )}
+                                  {r.asOf?.nondeterministic && (
+                                    <span className="text-amber-600 dark:text-amber-500">
+                                      query is not deterministic — cannot be checked
+                                    </span>
+                                  )}
+                                  {r.asOf?.matchesRecord === null &&
+                                    !r.asOf.error &&
+                                    !r.asOf.nondeterministic && (
+                                      <span className="text-muted-foreground">
+                                        re-ran; nothing to compare against
+                                      </span>
+                                    )}
+                                  {/* No as-of run can mean two different things: the
+                                      read could not run at all, or it ran against
+                                      today only because its store keeps no history.
+                                      Calling the second "not replayable" would hide a
+                                      check that did happen. */}
+                                  {!r.asOf && r.current && (
+                                    <span className="text-muted-foreground">
+                                      checked against today only
+                                    </span>
+                                  )}
+                                  {!r.asOf && !r.current && (
+                                    <span className="text-muted-foreground">not replayable</span>
+                                  )}
+                                </div>
+                                {r.current?.matchesRecord === false &&
+                                  !r.current.nondeterministic && (
+                                    <div className="text-amber-600 dark:text-amber-500">
+                                      returns different data today than when the answer was given
+                                    </div>
+                                  )}
+                                {r.current?.matchesRecord === true && (
+                                  <div className="text-muted-foreground">
+                                    unchanged since the answer was given
+                                  </div>
+                                )}
+                                {/* Only when the fingerprint itself is the obstacle. A
+                                    non-deterministic query also leaves this null, and
+                                    saying "older format" about a current-format digest
+                                    would be simply untrue. */}
+                                {r.current?.matchesRecord === null &&
+                                  !r.current.error &&
+                                  !r.current.nondeterministic &&
+                                  r.recordedDigest !== null &&
+                                  !r.recordedDigest.startsWith("v1:") && (
+                                    <div className="text-muted-foreground">
+                                      the fingerprint recorded for this read is in an older format,
+                                      so today&rsquo;s result cannot be compared to it
+                                    </div>
+                                  )}
+                                {(r.reason || r.current?.error) && (
+                                  <div className="text-muted-foreground">
+                                    {r.reason ?? r.current?.error}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {chain.events.length > 0 && (
+                          <div className="space-y-1">
+                            {chain.events.map((e) => {
+                              const d = (e.detail ?? {}) as Record<string, unknown>;
+                              const tables = Array.isArray(d.tables) ? (d.tables as string[]) : [];
+                              return (
+                                <div key={e.id} className="rounded-md bg-muted/40 p-2">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="font-mono font-semibold">
+                                      {e.action}
+                                      {!isDataRead(e.action) && (
+                                        <span className="ml-1 font-sans text-[10px] font-normal text-muted-foreground">
+                                          (not a data read)
+                                        </span>
+                                      )}
+                                    </span>
+                                    <span className="text-muted-foreground">
+                                      {e.resource_name ?? e.resource_type ?? ""}
+                                    </span>
+                                  </div>
+                                  {(tables.length > 0 || typeof d.via === "string") && (
+                                    <div className="mt-0.5 text-[10px] text-muted-foreground">
+                                      {tables.length > 0 && <>tables: {tables.join(", ")}</>}
+                                      {tables.length > 0 && typeof d.via === "string" && " · "}
+                                      {typeof d.via === "string" && <>via {d.via}</>}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                        {readCount === 0 && (
+                          <div className="text-muted-foreground">
+                            No data reads were recorded for this decision.
+                          </div>
+                        )}
                       </div>
                     </Section>
                   )}
@@ -584,20 +870,47 @@ function TracesPage() {
                   {Array.isArray(selected.tool_calls) && selected.tool_calls.length > 0 && (
                     <Section title={`Tool Calls (${selected.tool_calls.length})`}>
                       <div className="space-y-1.5">
-                        {selected.tool_calls.map((tc: any, i: number) => (
-                          <div
-                            key={i}
-                            className="flex items-start gap-2 bg-muted/40 rounded-md p-2"
-                          >
-                            <Wrench className="h-3.5 w-3.5 text-amber-500 mt-0.5 shrink-0" />
-                            <div className="min-w-0 flex-1">
-                              <p className="text-xs font-mono font-semibold break-all">{tc.name}</p>
-                              <pre className="text-[10px] text-muted-foreground font-mono mt-0.5 whitespace-pre-wrap break-all">
-                                {JSON.stringify(tc.arguments, null, 2)}
-                              </pre>
+                        {selected.tool_calls.map((tc: any, i: number) => {
+                          // Two shapes: the agent loop's events — a `tool_call`
+                          // with a JSON `args` string, then a `tool_result` with
+                          // `ok` and a preview — and older rows that kept
+                          // `arguments` as an object.
+                          const isResult = tc?.type === "tool_result";
+                          const body = isResult
+                            ? String(tc.preview ?? "")
+                            : tc?.arguments !== undefined
+                              ? JSON.stringify(tc.arguments, null, 2)
+                              : typeof tc?.args === "string"
+                                ? tc.args
+                                : "";
+                          return (
+                            <div
+                              key={i}
+                              className="flex items-start gap-2 bg-muted/40 rounded-md p-2"
+                            >
+                              <Wrench
+                                className={`h-3.5 w-3.5 mt-0.5 shrink-0 ${
+                                  isResult
+                                    ? tc.ok
+                                      ? "text-emerald-500"
+                                      : "text-destructive"
+                                    : "text-amber-500"
+                                }`}
+                              />
+                              <div className="min-w-0 flex-1">
+                                <p className="text-xs font-mono font-semibold break-all">
+                                  {tc?.name}
+                                  {isResult ? (tc.ok ? " · result" : " · failed") : ""}
+                                </p>
+                                {body && (
+                                  <pre className="text-[10px] text-muted-foreground font-mono mt-0.5 whitespace-pre-wrap break-all">
+                                    {body}
+                                  </pre>
+                                )}
+                              </div>
                             </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </Section>
                   )}

@@ -450,6 +450,9 @@ export type SqlDialect =
   /** Local columnar engine. ANSI on every axis that matters here: double-quoted
    *  identifiers, no backslash escapes, standard DATE_TRUNC and an ESCAPE clause. */
   | "duckdb"
+  /** The built-in lakehouse: DuckDB over real DATE/TIMESTAMP columns, so the
+   *  ANSI defaults apply and date arithmetic needs no TRY_CAST. */
+  | "lakehouse"
   | "postgres"
   | "mysql"
   | "snowflake"
@@ -835,6 +838,8 @@ function dateAddExpr(sql: string, n: number, unit: DateAddUnit, dialect: SqlDial
       // are ISO TEXT typed by inference, so one unparseable value must become
       // NULL rather than abort the query.
       return `(TRY_CAST(${sql} AS DATE) + INTERVAL ${n} ${U})`;
+    case "lakehouse":
+      return `(CAST(${sql} AS DATE) + INTERVAL ${n} ${U})`;
     case "postgres":
     case "redshift":
       return `(CAST(${sql} AS DATE) + INTERVAL '${n} ${unit}')`;
@@ -3071,4 +3076,35 @@ export function formatSemanticCatalog(
     })
     .join("\n\n")
     .concat(grainNote);
+}
+
+/**
+ * How many rows a semantic query fetches, and where the result is cut.
+ *
+ * The cap is the smallest of the query's own limit and the caller's row
+ * budget (DEFAULT_LIMIT when neither is given), never above MAX_LIMIT - 1;
+ * the fetch is one row PAST it. That one row is what tells "exactly cap rows"
+ * from "more than cap rows". The old runner fetched AT the cap and could not
+ * tell, so a result that stopped at the cap was presented as the whole —
+ * "100 row(s)" on the Semantics page over 9,994 groups, a dashboard widget
+ * re-run to 100 rows with no Partial badge, an analyst step marked
+ * `capped: false` over a thousand of many more (R61).
+ */
+export function semanticFetchPlan(
+  queryLimit: number | undefined,
+  maxRows: number | undefined,
+): { cap: number; fetch: number } {
+  const given = [queryLimit, maxRows].filter(
+    (n): n is number => typeof n === "number" && Number.isFinite(n) && n > 0,
+  );
+  const wanted = given.length > 0 ? Math.min(...given) : DEFAULT_LIMIT;
+  const cap = Math.max(1, Math.min(MAX_LIMIT - 1, Math.floor(wanted)));
+  return { cap, fetch: cap + 1 };
+}
+
+/** Cut a fetched result at the cap, and say whether anything was cut. */
+export function semanticTrim<T>(rows: T[], cap: number): { rows: T[]; truncated: boolean } {
+  return rows.length > cap
+    ? { rows: rows.slice(0, cap), truncated: true }
+    : { rows, truncated: false };
 }

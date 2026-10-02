@@ -19,7 +19,7 @@ Highest priority first. The first layer that answers wins.
 | #   | Layer                 | Where                                     | What it means                                          |
 | --- | --------------------- | ----------------------------------------- | ------------------------------------------------------ |
 | 1   | **Provider-reported** | `src/utils/observability/providerCost.ts` | The provider told us what **this call** cost.          |
-| 2   | Operator override     | `priceResolver.ts`                        | A rate an admin set by hand.                           |
+| 2   | Operator override     | `priceResolver.ts`                        | Built, but nothing populates it — see below.           |
 | 3   | Synced catalog        | `priceTable.generated.ts`                 | Vendored public price data.                            |
 | 4   | Bundled table         | `pricing.ts`                              | Defaults shipped with the app.                         |
 | 5   | Self-hosted           | `priceResolver.ts`                        | Ollama / vLLM on your own hardware — a **known** zero. |
@@ -30,8 +30,14 @@ Highest priority first. The first layer that answers wins.
 Layers 2–4 all answer _"what is the rate for this model"_ — they are estimates
 of a price list. Layer 1 answers a different and strictly better question:
 _"what was this call charged"_, computed by the party doing the billing. An
-override exists because the public sheet may not match your negotiated rate; a
-reported cost **is** your negotiated rate, already applied.
+override would exist because the public sheet may not match your negotiated
+rate; a reported cost **is** your negotiated rate, already applied.
+
+**The override layer is not reachable today.** The resolver honours it and the
+tests exercise it, but there is no overrides table, no loader and no admin
+surface, so in a running instance the map is always empty and layer 2 never
+fires. An operator whose negotiated rate differs from the public sheet cannot
+correct it yet.
 
 ### Which providers report cost
 
@@ -113,6 +119,28 @@ The call is recorded with real tokens, `cost_usd = 0`, and
 
 So the fix for a page full of `unpriced` is `npm run prices:refresh`, and the
 next cron pass corrects the history.
+
+### How a cost is written
+
+Every page writes a cost through `src/lib/usd.ts formatUsd`:
+
+| Figure | Written as |
+| --- | --- |
+| None | `—` |
+| Zero | `$0.00` |
+| From $1 | two decimals (`$1,234.57`) |
+| From a cent | four decimals (`$0.0123`) |
+| Under a cent | two significant digits (`$0.0000046`) |
+
+A priced call never reads as free. Before R202, a Gemini 2.5 Flash call of 7 tokens in and 1 out
+($0.0000046) read `~$0.0000` in Prompt Compare, beside its note that ~$0 means no known price,
+and `$0.0000` in Traces, the same as a free model's calls. Totals and budgets may still show
+whole cents. `tests/unit/usdFormat.test.ts` fails on a cost written with 3 to 8 places anywhere
+else in `src`.
+
+The stored figure has six places (`NUMERIC(10,6)` on `execution_traces.cost_usd`), so that call
+is kept as $0.000005. Prompt Compare shows the stream's own $0.0000046, and Traces shows the
+stored $0.000005.
 
 ---
 

@@ -6,7 +6,7 @@
 // no benefit at this shape of use.
 
 import { flattenRecord } from "./flatten";
-import type { SaasConfig, SaasStream } from "./types";
+import type { IncrementalSpec, SaasConfig, SaasStream } from "./types";
 import { connectorFetch } from "@/utils/http/connectorFetch.server";
 
 /**
@@ -99,9 +99,24 @@ export async function listShopifyStreams(cfg: SaasConfig): Promise<SaasStream[]>
   return Object.entries(STREAMS).map(([id, s]) => ({ id, label: s.label }));
 }
 
+/**
+ * Every Shopify resource here carries `updated_at` and the REST list
+ * endpoints all accept `updated_at_min`, so all five can be followed.
+ *
+ * `price_rules` is included even though it changes rarely: the cost of
+ * following something static is one request that returns nothing, while the
+ * cost of NOT following something that turns out to be busy is re-reading it
+ * for ever.
+ */
+export function shopifyIncremental(streamId: string): IncrementalSpec | null {
+  if (!STREAMS[streamId]) return null;
+  return { cursorField: "updated_at", primaryKey: "id", compare: "iso" };
+}
+
 export async function* fetchShopifyRows(
   cfg: SaasConfig,
   streamId: string,
+  since?: string,
 ): AsyncGenerator<Record<string, unknown>> {
   const stream = STREAMS[streamId];
   if (!stream) throw new Error(`Shopify: unknown resource "${streamId}"`);
@@ -110,6 +125,16 @@ export async function* fetchShopifyRows(
 
   const first = new URL(`https://${shop}/admin/api/${API_VERSION}/${stream.path}.json`);
   first.searchParams.set("limit", String(PAGE_SIZE));
+  // `updated_at_min` is INCLUSIVE, which is what we want: the record whose
+  // timestamp is exactly the stored mark comes back again and is folded away
+  // by its id, rather than being dropped at the boundary.
+  //
+  // Re-parsed rather than passed through, so a stored cursor that is not a
+  // date cannot become part of the query string.
+  const at = since ? new Date(since) : null;
+  if (at && !Number.isNaN(at.getTime())) {
+    first.searchParams.set("updated_at_min", at.toISOString());
+  }
   // Orders default to open-only, which quietly excludes everything archived —
   // the majority of any real store's history.
   if (streamId === "orders" || streamId === "draft_orders") {

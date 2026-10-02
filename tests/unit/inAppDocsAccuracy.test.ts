@@ -40,7 +40,11 @@ function envVarsInCode(): Set<string> {
           /process\.env\.([A-Z][A-Z0-9_]{2,})/g,
           /process\.env\[["']([A-Z][A-Z0-9_]{2,})["']\]/g,
           /import\.meta\.env\.([A-Z][A-Z0-9_]{2,})/g,
-          /env(?:Int|Bool|Num|Str)\(\s*["']([A-Z][A-Z0-9_]{2,})["']/g,
+          // Any envInt/envNum/envBool/envStr reader, including a suffixed
+          // variant (envNumZeroOk, for a knob whose zero is a real setting).
+          // Pinned to the exact names made the check miss a variable that IS
+          // read and report it as dead, which is the one wrong answer here.
+          /env(?:Int|Bool|Num|Str)[A-Za-z]*\(\s*["']([A-Z][A-Z0-9_]{2,})["']/g,
           /\benv\.([A-Z][A-Z0-9_]{2,})/g,
         ]) {
           for (const m of src.matchAll(re)) out.add(m[1]);
@@ -81,6 +85,17 @@ describe("no page promises a setting the code does not read", () => {
   /** Read by a sibling service rather than the app — still real settings. */
   const EXTERNAL_READERS = new Set(["HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"]);
 
+  /**
+   * Settings the COMPOSE FILE reads, which the app never sees: they configure
+   * a bundled container. Read from docker-compose.yml rather than listed, so
+   * removing the service removes the exemption with it.
+   */
+  const composeReads = new Set(
+    [...readFileSync("docker-compose.yml", "utf8").matchAll(/\$\{([A-Z][A-Z0-9_]{2,})[:}]/g)].map(
+      (m) => m[1],
+    ),
+  );
+
   it("found the declared settings", () => {
     expect(declared.length).toBeGreaterThan(50);
   });
@@ -88,7 +103,9 @@ describe("no page promises a setting the code does not read", () => {
   it("declares only settings something actually reads", () => {
     // A variable in .env.example that nothing reads is an operator setting it
     // and believing it took effect.
-    const dead = declared.filter((v) => !code.has(v) && !EXTERNAL_READERS.has(v)).sort();
+    const dead = declared
+      .filter((v) => !code.has(v) && !EXTERNAL_READERS.has(v) && !composeReads.has(v))
+      .sort();
     expect(dead, `declared in .env.example but read by nothing: ${dead.join(", ")}`).toEqual([]);
   });
 
@@ -105,7 +122,7 @@ describe("no page promises a setting the code does not read", () => {
     // from its table row into surrounding prose within this same section. That
     // survives, and it should — the setting is still documented where someone
     // would look. Removing it from the page altogether is caught.
-    const selfHosting = readFileSync("src/routes/docs.self-hosting.tsx", "utf8");
+    const selfHosting = readFileSync("src/routes/docs.self-hosting_.configuration.tsx", "utf8");
     const reference = selfHosting.slice(
       selfHosting.indexOf('id="env"'),
       selfHosting.indexOf('id="recipes"'),
@@ -132,7 +149,15 @@ describe("limits are described with the scope they actually have", () => {
     // otherwise tells an operator to divide their intended ceiling by the
     // instance count.
     const offenders = DOC_PAGES.filter((f) => {
-      const src = readFileSync(f, "utf8");
+      // Saying a limit is NOT per process is the correct thing to say, and the
+      // phrase this guard looks for appears in it. Strip the explicit
+      // negations first so a page that gets it right is not reported for
+      // getting it wrong; anything still claiming per-process is a real
+      // offender.
+      const src = readFileSync(f, "utf8").replace(
+        /(?:globally |global,? )?rather than per[- ]process|not per[- ]process/gi,
+        "",
+      );
       // WAREHOUSE_* concurrency genuinely is per-instance, so a page may say so
       // as long as it is talking about that.
       const claims = /per process|per-process|per application process|N times the/i.test(src);
@@ -163,7 +188,16 @@ describe("every internal link goes somewhere", () => {
     for (const f of readdirSync("src/routes")) {
       if (!f.endsWith(".tsx")) continue;
       const base = f.replace(/\.tsx$/, "");
-      if (base.startsWith("docs.")) add("/docs/" + base.slice(5).replace(/^index$/, ""));
+      // docs.ml_.training.tsx is /docs/ml/training: the `_` escapes the dot so
+      // the page is a sibling route, not one nested inside docs.ml.tsx.
+      if (base.startsWith("docs."))
+        add(
+          "/docs/" +
+            base
+              .slice(5)
+              .replace(/^index$/, "")
+              .replace(/_\./g, "/"),
+        );
       else if (!base.startsWith("_") && !base.startsWith("api.")) add("/" + base);
     }
     for (const dir of ["src/routes/_authenticated"]) {
@@ -215,7 +249,7 @@ describe("every internal link goes somewhere", () => {
 });
 
 describe("the configuration recipes are usable", () => {
-  const selfHosting = readFileSync("src/routes/docs.self-hosting.tsx", "utf8");
+  const selfHosting = readFileSync("src/routes/docs.self-hosting_.configuration.tsx", "utf8");
 
   it("covers the deployment shapes an operator actually has", () => {
     // A reference table lists every knob; it does not tell you which ones go
@@ -456,51 +490,52 @@ describe("the account page's deletion promise matches the schema", () => {
   });
 });
 
-describe("the dashboard page lists the swarms the dashboard actually features", () => {
-  // All four names on this page were wrong. Two were templates that do not
-  // exist at all ("Stock Investment CIO", "Graph RAG Researcher"), one existed
-  // but was not featured, and one was a wrong name for a real featured
-  // template. It is the second fabricated list found on these pages, so it is
-  // read from the source of truth from now on.
+describe("the dashboard page describes the dashboard that exists", () => {
+  // This block used to pin the four swarm templates the dashboard featured
+  // against the four the documentation named, because all four names on the
+  // page had been wrong: two were templates that did not exist at all, one
+  // existed but was not featured, and one was a wrong name for a real one.
+  //
+  // The dashboard no longer features swarm templates — the section was 577px
+  // of static content in front of the live figures, and it moved into the
+  // first-run checklist. So the list to check against is gone, and pinning it
+  // would pin a fiction. What replaces it is the same idea applied to what the
+  // page does show: every section the documentation claims must exist.
   const page = readFileSync("src/routes/docs.dashboard.tsx", "utf8");
   const dashboard = readFileSync("src/routes/_authenticated/dashboard.tsx", "utf8");
-  const templates = readFileSync("src/lib/swarmTemplates.ts", "utf8");
 
-  const featuredIds = (() => {
-    const block = dashboard.slice(
-      dashboard.indexOf("const FEATURED_SWARM_IDS = ["),
-      dashboard.indexOf("]", dashboard.indexOf("const FEATURED_SWARM_IDS = [")),
-    );
-    return [...block.matchAll(/"([a-z-]+)"/g)].map((m) => m[1]);
-  })();
-
-  const titleFor = (id: string) => {
-    const at = templates.indexOf(`id: "${id}"`);
-    return at === -1 ? null : (templates.slice(at).match(/title: "([^"]+)"/)?.[1] ?? null);
-  };
-
-  it("found the featured list to check against", () => {
-    expect(featuredIds.length).toBeGreaterThan(2);
+  it("no longer documents a featured-swarm row the page does not have", () => {
+    expect(dashboard).not.toContain("SWARM_TEMPLATES");
+    expect(page).not.toContain('id="featured-swarms"');
+    expect(page).not.toContain("Workspace stats");
   });
 
-  it("names every featured template, by its real title", () => {
-    for (const id of featuredIds) {
-      const title = titleFor(id);
-      expect(title, `template ${id} is featured but has no title`).toBeTruthy();
-      expect(page, `featured swarm "${title}" is missing from the page`).toContain(title!);
+  it("documents each panel the page actually renders", () => {
+    for (const [heading, component] of [
+      ["status", "<StatusBand"],
+      ["figures", "<KpiTile"],
+      ["activity", "<ActivityChart"],
+      ["running", "<PlatformSurface"],
+      ["spend", "<SpendPanel"],
+    ] as const) {
+      expect(page, `the docs have no "${heading}" section`).toContain(`id="${heading}"`);
+      expect(dashboard, `the page does not render ${component}`).toContain(component);
     }
   });
 
-  it("names no template that is not featured", () => {
-    // The page said "Earnings Call Analyst Desk", which is a real template and
-    // is not on the dashboard — a reader would look for it and not find it.
-    const featuredTitles = new Set(featuredIds.map(titleFor).filter(Boolean) as string[]);
-    const section = page.slice(page.indexOf('id="featured-swarms"'), page.indexOf('id="stats"'));
-    const allTitles = [...templates.matchAll(/^\s{4}title: "([^"]+)"/gm)].map((m) => m[1]);
-    const wrong = allTitles.filter((t) => !featuredTitles.has(t) && section.includes(t));
-    expect(wrong, `named in the featured section but not featured: ${wrong.join(", ")}`).toEqual(
-      [],
-    );
+  it("names the attention chips the page can actually raise", () => {
+    // The chips are the part a reader will go looking for, and each one is a
+    // real query on the page. A documented chip the code cannot produce is the
+    // same class of error as the fabricated template names.
+    for (const chip of [
+      "sources not syncing",
+      "warehouses unreachable",
+      "open data incidents",
+      "SQL models failing",
+    ]) {
+      expect(page, `the docs omit the "${chip}" chip`).toContain(chip);
+      expect(dashboard, `the page cannot raise "${chip}"`).toContain(chip);
+    }
   });
 });
 

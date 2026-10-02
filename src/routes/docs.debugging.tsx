@@ -89,6 +89,71 @@ function DebuggingDoc() {
         ]}
       />
 
+      <H2 id="provenance">Where did this answer come from?</H2>
+      <P>
+        Every trace carries a <strong>decision id</strong>: its own id for a standalone chat turn,
+        the run id for a node inside a swarm run. The same id is stamped on every data read a tool
+        made on that answer&rsquo;s behalf, so the trace sheet&rsquo;s <strong>Provenance</strong>{" "}
+        section can list them: which warehouse, which tables, and whether an agent tool did the
+        reading.
+      </P>
+      <Callout kind="info" title="Reproducible, or only recorded">
+        The decision also records which <strong>lakehouse snapshot</strong> was current when it
+        began. The lakehouse can re-run a query as of that snapshot, so an answer marked{" "}
+        <em>reproducible</em> can be asked again against the data exactly as it was. An answer
+        marked <em>recorded, not reproducible</em> touched no lakehouse (or the snapshot could not
+        be read) — the chain is still complete, but the numbers cannot be regenerated as of that
+        moment. The distinction is shown rather than hidden, because it is exactly what an auditor
+        would test.
+      </Callout>
+      <P>
+        <strong>Passport</strong> downloads the whole chain as a portable JSON document — the
+        decision and its snapshot, every model turn, every data read with the tables it touched, and
+        notes stating what it does and does not establish. Set <C>PROVENANCE_SIGNING_SECRET</C> and
+        it is signed with HMAC-SHA256 over canonical bytes (sorted keys, stable output) so a
+        recipient can verify it without this instance. Leave it unset and the signature is{" "}
+        <C>null</C> and the document says so — an unsigned document that looked signed would be
+        worse than none.
+      </P>
+      <P>
+        <strong>Replay reads</strong> re-runs the decision's recorded queries and answers two
+        separate questions. Against the snapshot that was in force at the time, the result{" "}
+        <em>must</em> match the fingerprint recorded when the answer was given — a mismatch means
+        the record and the data disagree. Against today's data, a mismatch simply means the world
+        moved on, which is what someone acting on an old answer needs to know. Reads that cannot be
+        checked — no query text recorded, or a store with no snapshot history — say so rather than
+        passing quietly. A read whose store keeps no snapshot history — an external Postgres, say —
+        is re-run against today only and labelled as such: that shows whether the answer still
+        holds, without claiming to have verified the record. A read whose fingerprint is missing, or
+        recorded in a format this build cannot reproduce, is reported as unknown rather than as
+        verified or as tampering — an alarm nobody can substantiate is worse than no alarm.
+      </P>
+      <P>
+        A mismatch is measured, not assumed. If the as-of run differs from the record, the same
+        query runs again against the same unchanged snapshot: two runs that disagree with{" "}
+        <em>each other</em> prove the query is non-deterministic — <C>random()</C>, <C>now()</C>, an
+        unordered <C>LIMIT</C> — and the read is reported as unable to be checked rather than as a
+        disagreement. Only a query that answers consistently and still differs from the record is
+        called a disagreement.
+      </P>
+      <P>
+        Replays run under your own grants and row policies from a read-only attachment: one can
+        never read more than you can, and never writes.
+      </P>
+      <P>
+        <strong>Retention.</strong> A trace or audit row carrying a decision id is evidence, not
+        telemetry, and expires on its own clock: it is kept for at least{" "}
+        <C>provenance_retention_days</C> (183 by default — the EU AI Act Article 26(6) six-month
+        deployer floor) even when the ordinary retention window is shorter. Shortening{" "}
+        <C>trace_retention_days</C> therefore trims noise without emptying the provenance behind an
+        answer. The floor never shortens retention: where the ordinary window is longer, it wins.
+      </P>
+      <P>
+        This is evidence, not compliance — no tool grants that — and it exists only from the day
+        recording began. See <DocLink to="/docs/analytics">Analytics</DocLink> for spend, and{" "}
+        <C>docs/PROVENANCE.md</C> in the repository for the schema and a verification command.
+      </P>
+
       <H2 id="playground-inspector">The playground inspector</H2>
       <P>
         While chatting in the <DocLink to="/docs/playground">Playground</DocLink>, the inspector
@@ -301,6 +366,58 @@ function DebuggingDoc() {
         switching it off for a compliance reason, set a retention window in the same change, or the
         existing rows sit there indefinitely.
       </Callout>
+
+      <H2 id="use-cases">Use cases</H2>
+      <H3 id="use-case-auditor">An auditor asks where a number came from</H3>
+      <Steps
+        items={[
+          {
+            title: "Open the trace under Traces",
+            body: "Its Provenance section lists the decision id, every data read made for the answer — warehouse, tables, whether an agent tool did the reading — and the lakehouse snapshot that was current.",
+          },
+          {
+            title: "Click Passport",
+            body: (
+              <>
+                One JSON document: the decision, its snapshot, every model turn, every read with its
+                result fingerprint, and notes stating what it does and does not establish. The
+                auditor verifies the HMAC-SHA256 signature without this instance, using{" "}
+                <C>PROVENANCE_SIGNING_SECRET</C>. An instance with no secret produces a passport
+                whose signature is <C>null</C> and says so.
+              </>
+            ),
+          },
+        ]}
+      />
+      <H3 id="use-case-old-answer">Someone is about to act on an old answer</H3>
+      <Steps
+        items={[
+          {
+            title: "Use the Replay control on the trace",
+            body: "Each recorded read runs as of the recorded snapshot, where it must reproduce the recorded fingerprint, and against today, where a difference means the data moved on.",
+          },
+          {
+            title: "A mismatch is measured, not assumed",
+            body: (
+              <>
+                The query runs once more against the same snapshot; two runs that disagree with each
+                other prove the query is non-deterministic (<C>random()</C>, <C>now()</C>, an
+                unordered <C>LIMIT</C>) and the read is reported as unable to be checked. Reads with
+                no query text, no snapshot history, or an unrecognised fingerprint format say so
+                rather than passing quietly.
+              </>
+            ),
+          },
+        ]}
+      />
+      <H3 id="use-case-ai-act">Evidence for the EU AI Act</H3>
+      <P>
+        Set <C>trace_retention_days</C> as low as the noise budget wants and leave{" "}
+        <C>provenance_retention_days</C> at 183 or higher: every trace and audit row carrying a
+        decision id is kept for at least that long, whatever the ordinary window says, and the floor
+        never shortens a longer window. Article 26(6) asks deployers of high-risk systems for six
+        months; the default meets it.
+      </P>
 
       <NextPrev current="/docs/debugging" />
     </>

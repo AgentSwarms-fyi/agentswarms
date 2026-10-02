@@ -31,6 +31,7 @@ import {
   Users as UsersIcon,
   Wallet,
   X,
+  Brain,
 } from "lucide-react";
 import { GroupBudgetsTab } from "@/components/admin/GroupBudgetsTab";
 
@@ -93,8 +94,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 
 import { useAuth } from "@/hooks/use-auth";
+import { useTokenRef } from "@/hooks/use-token-ref";
 import { invalidateIamState, useIsSuperadmin } from "@/hooks/use-iam";
 import { clickable } from "@/lib/clickable";
+import { useSingleFlight } from "@/lib/singleFlight";
 import { PROVIDER_LABELS, type ProviderId } from "@/utils/providers/types";
 import {
   iamAddGroupMember,
@@ -105,6 +108,10 @@ import {
   iamDeleteGrant,
   iamDeleteGroup,
   iamDeleteSsoProvider,
+  iamListScimTokens,
+  iamCreateScimToken,
+  iamRevokeScimToken,
+  type IamScimToken,
   iamDeleteUser,
   iamGetSettings,
   iamDeleteUserAttribute,
@@ -132,6 +139,7 @@ import {
   type IamUserRow,
 } from "@/utils/iam.functions";
 import {
+  createKmsDataKey,
   getKeyEncryptionStatus,
   reEncryptCredentials,
   type KeyStatusPayload,
@@ -154,6 +162,7 @@ function AdminIamPage() {
   const { user, session } = useAuth();
   const isSuperadmin = useIsSuperadmin();
   const token = session?.access_token;
+  const { tokenRef, signedIn } = useTokenRef(token);
 
   const listUsers = useServerFn(iamListUsers);
   const listGroups = useServerFn(iamListGroups);
@@ -174,7 +183,10 @@ function AdminIamPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Not keyed on the token (R125): every session refresh reloaded the lists,
+  // and a new rules list reset the model-rules draft being edited.
   const reload = useCallback(() => {
+    const token = tokenRef.current;
     if (!token) return;
     setError(null);
     Promise.all([
@@ -217,12 +229,13 @@ function AdminIamPage() {
       })
       .catch((e) => setError(String(e?.message ?? e)))
       .finally(() => setLoading(false));
-  }, [token, listUsers, listGroups, listRules, listGrants, listResources, getSettings, listSso]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signedIn, listUsers, listGroups, listRules, listGrants, listResources, getSettings, listSso]);
 
   useEffect(() => {
-    if (!isSuperadmin || !token) return;
+    if (!isSuperadmin || !signedIn) return;
     reload();
-  }, [isSuperadmin, token, reload]);
+  }, [isSuperadmin, signedIn, reload]);
 
   const userById = useMemo(() => new Map((users ?? []).map((u) => [u.user_id, u])), [users]);
   const groupById = useMemo(() => new Map((groups ?? []).map((g) => [g.id, g])), [groups]);
@@ -1134,19 +1147,28 @@ function AccessTab({
   const [newPattern, setNewPattern] = useState("*");
   const [dirty, setDirty] = useState(false);
 
+  // The draft starts from what is saved for the chosen principal, and starts
+  // again only when that changes (another principal, or its rules saved).
+  // Keyed on the whole rules list, any reload of the page (a share created,
+  // the session refreshed) threw away rules added but not yet saved.
+  const savedRules = useMemo(
+    () =>
+      JSON.stringify(
+        rules
+          .filter((r) => r.principal_type === principalType && r.principal_id === principalId)
+          .map((r) => ({ provider: r.provider, model_pattern: r.model_pattern })),
+      ),
+    [rules, principalType, principalId],
+  );
   useEffect(() => {
     if (!principalId) {
       setDraft([]);
       setDirty(false);
       return;
     }
-    setDraft(
-      rules
-        .filter((r) => r.principal_type === principalType && r.principal_id === principalId)
-        .map((r) => ({ provider: r.provider, model_pattern: r.model_pattern })),
-    );
+    setDraft(JSON.parse(savedRules) as { provider: string; model_pattern: string }[]);
     setDirty(false);
-  }, [principalType, principalId, rules]);
+  }, [principalType, principalId, savedRules]);
 
   // Share builder state: pick the resource TYPE first, then the resource —
   // one flat dropdown across every KB/table/secret/dashboard gets unwieldy.
@@ -1161,7 +1183,9 @@ function AccessTab({
     | "provider_credential"
     | "warehouse_connection"
     | "saas_connection"
-    | "ai_analyst";
+    | "ai_analyst"
+    | "lakehouse_schema"
+    | "ml_model";
   const [shareResourceType, setShareResourceType] = useState<ShareResourceType>("knowledge_base");
   const [shareResourceId, setShareResourceId] = useState("");
   const [sharePrincipalType, setSharePrincipalType] = useState<"group" | "user">("group");
@@ -1196,6 +1220,10 @@ function AccessTab({
     // Sharing an analyst shares its USE, not the owner's data access: the
     // grantee's questions run as them. Their saved analyses stay their own.
     { value: "ai_analyst", label: "🧠 AI analyst" },
+    { value: "lakehouse_schema", label: "🗄️ Lakehouse schema" },
+    // Sharing a model shares predictions with it and its metrics; training,
+    // promotion and deletion stay with the owner.
+    { value: "ml_model", label: "🧪 ML model" },
   ];
   const shareableOfType = resources.filter((r) => r.resource_type === shareResourceType);
 
@@ -1552,6 +1580,8 @@ function AccessTab({
                           <Layers className="h-4 w-4 text-muted-foreground" />
                         ) : g.resource_type === "catalog_source" ? (
                           <FolderTree className="h-4 w-4 text-muted-foreground" />
+                        ) : g.resource_type === "ml_model" ? (
+                          <Brain className="h-4 w-4 text-muted-foreground" />
                         ) : (
                           <DatabaseIcon className="h-4 w-4 text-muted-foreground" />
                         )}
@@ -1760,7 +1790,11 @@ function SettingsTab({
           {Number(retentionDraft) > 0 && (
             <p className="mt-2 text-xs text-muted-foreground">
               Traces and swarm runs older than {retentionDraft} days will be deleted permanently.
-              Audit events are governed separately and are not affected.
+              Audit events are governed separately and are not affected. Traces that form part of a
+              decision&rsquo;s provenance are held longer — for at least{" "}
+              <code className="font-mono">provenance_retention_days</code> (183 by default, the EU
+              AI Act six-month deployer floor) — so shortening this window trims telemetry without
+              destroying the evidence behind an answer.
             </p>
           )}
         </CardContent>
@@ -1802,9 +1836,11 @@ function SettingsTab({
 function CredentialKeyCard({ token }: { token: string }) {
   const statusFn = useServerFn(getKeyEncryptionStatus);
   const rotateFn = useServerFn(reEncryptCredentials);
+  const createKeyFn = useServerFn(createKmsDataKey);
   const [status, setStatus] = useState<KeyStatusPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [creating, setCreating] = useState(false);
 
   const load = useCallback(async () => {
     const res = await statusFn({ data: { access_token: token } });
@@ -1823,18 +1859,41 @@ function CredentialKeyCard({ token }: { token: string }) {
 
   const totals = status?.totals;
   const pending = totals ? totals.onOther + totals.legacy : 0;
+  const kms = status?.kms ?? null;
+  const external = kms?.external ?? null;
+  const externalInUse = !!kms && kms.provider !== "env";
+  const externalName = (id: string) => (id === "vault" ? "Vault Transit" : id.toUpperCase());
+
+  const createKey = async () => {
+    setCreating(true);
+    const t = toast.loading("Creating a data key…");
+    try {
+      const res = await createKeyFn({ data: { access_token: token } });
+      if (!res.ok) return toast.error(res.error, { id: t });
+      toast.success(
+        externalInUse
+          ? `Data key ${res.kid} created and active after the next restart.`
+          : `Data key ${res.kid} wrapped by ${externalName(res.provider)}. Set KMS_PROVIDER="${res.provider}" and restart to switch.`,
+        { id: t, duration: 8000 },
+      );
+      await load();
+    } finally {
+      setCreating(false);
+    }
+  };
 
   return (
     <Card>
       <CardHeader>
         <CardTitle className="text-base">Credential encryption key</CardTitle>
         <CardDescription>
-          Provider keys, warehouse passwords and stored secrets are encrypted with AES-256-GCM under{" "}
-          <code className="text-xs">PROVIDER_CREDS_SECRET</code>. To rotate: put the new secret in{" "}
-          <code className="text-xs">PROVIDER_CREDS_SECRET</code>, move the old one to{" "}
-          <code className="text-xs">PROVIDER_CREDS_SECRET_OLD</code>, restart, then run the sweep
-          below. Both keys decrypt in the meantime, so nothing breaks mid-rotation. Remove the old
-          secret once nothing is left on it.
+          Provider keys, warehouse passwords and stored secrets are encrypted with AES-256-GCM. The
+          key comes from <code className="text-xs">PROVIDER_CREDS_SECRET</code> by default, or from
+          a data key wrapped by an external key provider (
+          <code className="text-xs">KMS_PROVIDER</code>) that never leaves it. To rotate an env
+          secret: put the new one in <code className="text-xs">PROVIDER_CREDS_SECRET</code>, move
+          the old one to <code className="text-xs">PROVIDER_CREDS_SECRET_OLD</code>, restart, then
+          run the sweep below. Both keys decrypt in the meantime, so nothing breaks mid-rotation.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -1844,6 +1903,80 @@ function CredentialKeyCard({ token }: { token: string }) {
           <p className="text-sm text-muted-foreground">Checking…</p>
         ) : (
           <>
+            {kms ? (
+              <div className="space-y-2 rounded-md border border-border/60 p-3 text-sm">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-muted-foreground">Key provider</span>
+                  <Badge variant={externalInUse ? "default" : "secondary"}>
+                    {externalInUse ? externalName(kms.provider) : "env (PROVIDER_CREDS_SECRET)"}
+                  </Badge>
+                  {kms.keyRef ? (
+                    <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
+                      {kms.keyRef}
+                    </code>
+                  ) : null}
+                  {kms.ready ? (
+                    <span className="text-xs text-emerald-600 dark:text-emerald-400">
+                      keyring loaded
+                    </span>
+                  ) : (
+                    <span className="text-xs text-destructive">{kms.error}</span>
+                  )}
+                </div>
+                {kms.activeDek ? (
+                  <p className="text-xs text-muted-foreground">
+                    Data key <code className="font-mono">{kms.activeDek.kid}</code> wrapped by{" "}
+                    {externalName(kms.activeDek.provider)} ({kms.activeDek.keyRef}),{" "}
+                    {formatDistanceToNow(new Date(kms.activeDek.createdAt), { addSuffix: true })}
+                    {kms.retiredDeks > 0
+                      ? `; ${kms.retiredDeks} retired data key${kms.retiredDeks === 1 ? "" : "s"} still accepted for reading`
+                      : ""}
+                    {!externalInUse
+                      ? ` — not in use until KMS_PROVIDER="${kms.activeDek.provider}" is set and the app restarts`
+                      : ""}
+                    .
+                  </p>
+                ) : null}
+                {external ? (
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                    <span className="text-muted-foreground">
+                      {externalName(external.id)} at {external.keyRef}:
+                    </span>
+                    <span
+                      className={
+                        external.probe.ok
+                          ? "text-emerald-600 dark:text-emerald-400"
+                          : "text-destructive"
+                      }
+                    >
+                      {external.probe.detail}
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={creating || !external.probe.ok}
+                      onClick={() => void createKey()}
+                    >
+                      {creating ? (
+                        <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <KeyRound className="mr-1.5 h-3.5 w-3.5" />
+                      )}
+                      {kms.activeDek
+                        ? `Rotate the data key in ${externalName(external.id)}`
+                        : `Create a data key in ${externalName(external.id)}`}
+                    </Button>
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    No external key provider configured. Set{" "}
+                    <code className="font-mono">KMS_KEY_REF</code> and the provider&apos;s variables
+                    (Vault: <code className="font-mono">VAULT_ADDR</code> and a token or Kubernetes
+                    role), restart, and the option to wrap a data key appears here.
+                  </p>
+                )}
+              </div>
+            ) : null}
             <div className="flex flex-wrap items-center gap-2 text-xs">
               <span className="text-muted-foreground">Current key</span>
               <code className="rounded bg-muted px-1.5 py-0.5 font-mono">{status.current}</code>
@@ -2110,6 +2243,8 @@ function SsoTab({
           <CopyField label="Entity ID / Audience" value={entityId} />
         </CardContent>
       </Card>
+
+      <ScimCard token={token} />
 
       <Card>
         <CardHeader>
@@ -2454,6 +2589,182 @@ function AttributesTab({
           </div>
         )}
       </CardContent>
+    </Card>
+  );
+}
+
+// --- SCIM provisioning tokens ---------------------------------------------
+
+function ScimCard({ token }: { token: string }) {
+  const listTokens = useServerFn(iamListScimTokens);
+  const createToken = useServerFn(iamCreateScimToken);
+  const revokeToken = useServerFn(iamRevokeScimToken);
+  const [tokens, setTokens] = useState<IamScimToken[] | null>(null);
+  const [label, setLabel] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [minted, setMinted] = useState<{ label: string; token: string } | null>(null);
+  const [revokeTarget, setRevokeTarget] = useState<IamScimToken | null>(null);
+
+  const baseUrl =
+    typeof window === "undefined" ? "/api/scim/v2" : `${window.location.origin}/api/scim/v2`;
+
+  const load = useCallback(async () => {
+    const res = await listTokens({ data: { access_token: token } });
+    if (res.ok) setTokens(res.tokens);
+    else toast.error(res.error);
+  }, [listTokens, token]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  // R212: the button was disabled={busy}, but Enter in the label field
+  // called mint() with no check, and the label is cleared only after the
+  // await. A double Enter minted two live tokens with one label, and only the
+  // second secret was shown. One guard now covers the button and the key.
+  const mint = useSingleFlight(async () => {
+    const name = label.trim();
+    if (!name) return toast.error("Give the token a label — the IdP application it is for");
+    setBusy(true);
+    try {
+      const res = await createToken({ data: { access_token: token, label: name } });
+      if (!res.ok) return toast.error(res.error);
+      setMinted({ label: name, token: res.token });
+      setLabel("");
+      void load();
+    } finally {
+      setBusy(false);
+    }
+  });
+
+  const revoke = async (t: IamScimToken) => {
+    const res = await revokeToken({ data: { access_token: token, token_id: t.id } });
+    if (!res.ok) return toast.error(res.error);
+    toast.success(`Token "${t.label}" revoked`);
+    setRevokeTarget(null);
+    void load();
+  };
+
+  const live = (tokens ?? []).filter((t) => !t.revoked_at);
+  const revoked = (tokens ?? []).filter((t) => t.revoked_at);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Provisioning (SCIM)</CardTitle>
+        <CardDescription>
+          Let the identity provider create users before they sign in, deactivate them when they
+          leave, and keep groups in step. Okta and Microsoft Entra ID push changes to the base URL
+          below with a token from here. A superadmin can never be deactivated or deleted this way.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <CopyField label="SCIM base URL (Tenant URL / SCIM connector base URL)" value={baseUrl} />
+
+        {minted ? (
+          <div className="space-y-2 rounded-md border border-emerald-500/40 bg-emerald-500/5 p-3">
+            <p className="text-sm">
+              Token for <span className="font-medium">{minted.label}</span> — copy it now; it is not
+              shown again.
+            </p>
+            <CopyField label="Bearer token" value={minted.token} />
+            <Button type="button" variant="outline" size="sm" onClick={() => setMinted(null)}>
+              I have copied it
+            </Button>
+          </div>
+        ) : null}
+
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="min-w-56 flex-1 space-y-1">
+            <Label htmlFor="scim-label" className="text-xs text-muted-foreground">
+              New token label
+            </Label>
+            <Input
+              id="scim-label"
+              value={label}
+              placeholder="Okta production"
+              maxLength={80}
+              onChange={(e) => setLabel(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void mint();
+              }}
+            />
+          </div>
+          <Button size="sm" className="gap-1.5" disabled={busy} onClick={() => void mint()}>
+            <KeyRound className="h-3.5 w-3.5" /> Mint token
+          </Button>
+        </div>
+
+        {tokens === null ? (
+          <p className="text-sm text-muted-foreground">Loading tokens…</p>
+        ) : live.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No provisioning token yet. Mint one, then paste it into the IdP application&apos;s
+            provisioning settings.
+          </p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Label</TableHead>
+                <TableHead>Token</TableHead>
+                <TableHead>Last used by the IdP</TableHead>
+                <TableHead>Requests</TableHead>
+                <TableHead className="w-10" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {live.map((t) => (
+                <TableRow key={t.id}>
+                  <TableCell className="font-medium">{t.label}</TableCell>
+                  <TableCell className="font-mono text-xs">{t.token_prefix}…</TableCell>
+                  <TableCell className="text-xs text-muted-foreground">
+                    {t.last_used_at
+                      ? formatDistanceToNow(new Date(t.last_used_at), { addSuffix: true })
+                      : "never"}
+                  </TableCell>
+                  <TableCell className="text-xs text-muted-foreground">{t.use_count}</TableCell>
+                  <TableCell>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                      aria-label={`Revoke token ${t.label}`}
+                      onClick={() => setRevokeTarget(t)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+        {revoked.length > 0 ? (
+          <p className="text-xs text-muted-foreground">
+            {revoked.length} revoked token{revoked.length === 1 ? "" : "s"} — an IdP still using one
+            gets a 401, and the attempt is audited.
+          </p>
+        ) : null}
+      </CardContent>
+
+      <AlertDialog open={!!revokeTarget} onOpenChange={(o) => !o && setRevokeTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Revoke &quot;{revokeTarget?.label}&quot;?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The identity provider using it stops being able to push users and groups until it is
+              given a new token. Accounts it already created stay as they are.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep it</AlertDialogCancel>
+            <AlertDialogAction onClick={() => revokeTarget && void revoke(revokeTarget)}>
+              Revoke
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   );
 }

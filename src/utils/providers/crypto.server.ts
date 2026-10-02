@@ -1,89 +1,87 @@
 // Server-only AES-256-GCM helpers for encrypting per-user provider credentials.
 // Uses Web Crypto (works in the Worker runtime) — never import this from client code.
 //
-// KEY ROTATION. The app supports more than one credential key at a time so a
-// deployment can rotate the master secret without downtime and without a
-// dangerous cutover:
-//
-//   PROVIDER_CREDS_SECRET       the CURRENT key — everything new is encrypted
-//                               with it.
-//   PROVIDER_CREDS_SECRET_OLD   zero or more PREVIOUS keys (comma-separated),
-//                               still accepted for DECRYPTION while old rows are
-//                               migrated. Remove once nothing is left on them.
+// WHERE THE KEY COMES FROM is the keyring's business (src/utils/kms): with
+// KMS_PROVIDER=env it is SHA-256(PROVIDER_CREDS_SECRET) plus any previous
+// secrets in PROVIDER_CREDS_SECRET_OLD; with an external provider it is a
+// data-encryption key the provider unwraps once per process. This module
+// only knows a current key to write with and a list of keys to read under.
 //
 // Every ciphertext is stamped with a `kid` — a short fingerprint of the key that
-// wrote it. The fingerprint is a DOMAIN-SEPARATED hash of the secret, never the
-// key material itself, so publishing it in the row (and the admin UI) leaks
-// nothing. Decryption picks the key whose kid matches and, failing that, tries
-// every configured key — so blobs written before this scheme existed (no kid)
-// and callers that pass only (ciphertext, iv) keep working unchanged.
+// wrote it. The fingerprint is a DOMAIN-SEPARATED hash, never key material, so
+// publishing it in the row (and the admin UI) leaks nothing. Decryption picks
+// the key whose kid matches and, failing that, tries every configured key — so
+// blobs written before this scheme existed (no kid) and callers that pass only
+// (ciphertext, iv) keep working unchanged.
+import { resolveKeyring, type Keyring } from "@/utils/kms/keyring.server";
 
 const ALGO = "AES-GCM";
-
-// Domain separation: the kid must be independent of the AES key, which is
-// SHA-256(secret). Hashing a prefixed string gives a value that reveals nothing
-// about the key even though it is derived from the same secret.
-const KID_DOMAIN = "agentswarms/creds-kid/v1|";
 
 /** A blob as stored: base64 ciphertext + iv, plus the writing key's fingerprint. */
 export type EncryptedBlob = { ciphertext: string; iv: string; kid?: string };
 
-function bytesToHex(bytes: Uint8Array): string {
-  let s = "";
-  for (let i = 0; i < bytes.length; i++) s += bytes[i].toString(16).padStart(2, "0");
-  return s;
+// The keyring is resolved once per configuration and kept for the process:
+// with an external provider that is the one unwrap call on the startup path,
+// and nothing on the request path. The signature catches an env change
+// (tests rotate by swapping process.env, as an operator would with a restart).
+let cached: { signature: string; keyring: Promise<Keyring> } | null = null;
+let loaderOverride: (() => Promise<Keyring>) | null = null;
+
+function signature(): string {
+  return [
+    process.env.KMS_PROVIDER,
+    process.env.KMS_KEY_REF,
+    process.env.PROVIDER_CREDS_SECRET,
+    process.env.PROVIDER_CREDS_SECRET_OLD,
+  ]
+    .map((v) => v ?? "")
+    .join("|");
 }
 
-function deriveKey(secret: string): Promise<CryptoKey> {
-  const enc = new TextEncoder();
-  return crypto.subtle
-    .digest("SHA-256", enc.encode(secret))
-    .then((hash) =>
-      crypto.subtle.importKey("raw", hash, { name: ALGO }, false, ["encrypt", "decrypt"]),
-    );
+async function keyring(): Promise<Keyring> {
+  if (loaderOverride) return loaderOverride();
+  const sig = signature();
+  if (cached && cached.signature === sig) return cached.keyring;
+  const next = { signature: sig, keyring: resolveKeyring() };
+  cached = next;
+  // A failed load must not be remembered: the next call retries, so a KMS
+  // that was down for a moment does not stay "down" for the process.
+  next.keyring.catch(() => {
+    if (cached === next) cached = null;
+  });
+  return next.keyring;
 }
 
-async function deriveKid(secret: string): Promise<string> {
-  const enc = new TextEncoder();
-  const h = await crypto.subtle.digest("SHA-256", enc.encode(KID_DOMAIN + secret));
-  return bytesToHex(new Uint8Array(h)).slice(0, 12);
+/** Forget the resolved keyring — after a data key is created, or in tests. */
+export function resetKeyringCache(): void {
+  cached = null;
 }
 
-// Derived key + kid are pure functions of the secret string, so memoise by it.
-const keyCache = new Map<string, { key: Promise<CryptoKey>; kid: Promise<string> }>();
-function keyFor(secret: string) {
-  let e = keyCache.get(secret);
-  if (!e) {
-    e = { key: deriveKey(secret), kid: deriveKid(secret) };
-    keyCache.set(secret, e);
-  }
-  return e;
-}
-
-/** The current secret plus any previous secrets still accepted for decryption. */
-function readKeyring(): { current: string; previous: string[] } {
-  const current = process.env.PROVIDER_CREDS_SECRET;
-  if (!current) throw new Error("PROVIDER_CREDS_SECRET is not configured");
-  const previous = (process.env.PROVIDER_CREDS_SECRET_OLD ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .filter((s) => s !== current);
-  return { current, previous };
+/** Tests only: route the keyring through a fake provider and rows. */
+export function __setKeyringLoaderForTests(loader: (() => Promise<Keyring>) | null): void {
+  loaderOverride = loader;
+  cached = null;
 }
 
 /** Fingerprint of the key new ciphertext is written with. */
 export async function currentKid(): Promise<string> {
-  return keyFor(readKeyring().current).kid;
+  return (await keyring()).current.kid;
 }
 
 /** Every key fingerprint the deployment currently accepts (current first). */
 export async function keyringFingerprints(): Promise<{ current: string; previous: string[] }> {
-  const { current, previous } = readKeyring();
-  return {
-    current: await keyFor(current).kid,
-    previous: await Promise.all(previous.map((s) => keyFor(s).kid)),
-  };
+  const k = await keyring();
+  return { current: k.current.kid, previous: k.previous.map((p) => p.kid) };
+}
+
+/** Whether this process can encrypt and decrypt right now — the readiness check. */
+export async function keyringReady(): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    await keyring();
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
 }
 
 function bytesToBase64(bytes: Uint8Array): string {
@@ -100,13 +98,11 @@ function base64ToBytes(b64: string): Uint8Array {
 }
 
 export async function encryptJson(payload: unknown): Promise<EncryptedBlob> {
-  const { current } = readKeyring();
-  const { key, kid } = keyFor(current);
-  const k = await key;
+  const { current } = await keyring();
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const data = new TextEncoder().encode(JSON.stringify(payload));
-  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: ALGO, iv }, k, data));
-  return { ciphertext: bytesToBase64(ct), iv: bytesToBase64(iv), kid: await kid };
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: ALGO, iv }, current.key, data));
+  return { ciphertext: bytesToBase64(ct), iv: bytesToBase64(iv), kid: current.kid };
 }
 
 /**
@@ -121,16 +117,11 @@ export async function decryptJson<T = unknown>(
   iv: string,
   kid?: string,
 ): Promise<T> {
-  const { current, previous } = readKeyring();
-  const secrets = [current, ...previous];
-
-  let ordered = secrets;
-  if (kid) {
-    const preferred: string[] = [];
-    for (const s of secrets) if ((await keyFor(s).kid) === kid) preferred.push(s);
-    if (preferred.length)
-      ordered = [...preferred, ...secrets.filter((s) => !preferred.includes(s))];
-  }
+  const k = await keyring();
+  const entries = [k.current, ...k.previous];
+  const ordered = kid
+    ? [...entries.filter((e) => e.kid === kid), ...entries.filter((e) => e.kid !== kid)]
+    : entries;
 
   const ct = base64ToBytes(ciphertext);
   const ivBytes = base64ToBytes(iv);
@@ -141,13 +132,12 @@ export async function decryptJson<T = unknown>(
   ) as ArrayBuffer;
 
   let lastErr: unknown;
-  for (const s of ordered) {
+  for (const e of ordered) {
     try {
-      const k = await keyFor(s).key;
-      const plain = await crypto.subtle.decrypt({ name: ALGO, iv: ivBuf }, k, ctBuf);
+      const plain = await crypto.subtle.decrypt({ name: ALGO, iv: ivBuf }, e.key, ctBuf);
       return JSON.parse(new TextDecoder().decode(plain)) as T;
-    } catch (e) {
-      lastErr = e;
+    } catch (err) {
+      lastErr = err;
     }
   }
   throw lastErr instanceof Error

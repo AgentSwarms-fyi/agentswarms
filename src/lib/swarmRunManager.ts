@@ -303,6 +303,13 @@ export function cancelRun(runId: string) {
   patch(run, { status: "cancelled", finishedAt: run.view.finishedAt ?? Date.now() });
   emit();
   // Signal + record the cancellation in the DB (best-effort).
+  //
+  // The terminal .then is what ISSUES this. A PostgREST builder is lazy: the
+  // request goes out inside .then(), so discarding one with `void` and no
+  // .then evaluates an object and calls nothing — this row was never written,
+  // so a cancelled run stayed "running" in the database and the flag another
+  // tab watches for was never set. The second handler keeps a network failure
+  // from surfacing as an unhandled rejection, since this is best-effort.
   if (run.view.dbRunId) {
     void supabase
       .from("swarm_runs")
@@ -311,7 +318,11 @@ export function cancelRun(runId: string) {
         status: "cancelled",
         finished_at: new Date().toISOString(),
       })
-      .eq("id", run.view.dbRunId);
+      .eq("id", run.view.dbRunId)
+      .then(
+        () => {},
+        () => {},
+      );
   }
 }
 

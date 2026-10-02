@@ -73,18 +73,53 @@ async def _run(compiled, ns):
     return out
 
 
+def _stream_logs(buf, stop):
+    """Post the captured-so-far output every few seconds while the job runs.
+
+    Long ETL jobs (a pip install alone can take minutes) were a black box
+    until completion; the platform shows these partial posts in the run's
+    Logs dialog. Errors are swallowed: live logs are a convenience, and the
+    final post carries the authoritative copy.
+    """
+    import threading
+
+    last = ""
+    while not stop.wait(5):
+        current = buf.getvalue()
+        if current != last:
+            last = current
+            try:
+                with httpx.Client(timeout=15, trust_env=True) as c:
+                    c.post(
+                        CALLBACK,
+                        json={"partial": True, "logs": current[-190_000:]},
+                        headers=_headers(),
+                    )
+            except Exception:
+                pass
+
+
 def main():
+    import threading
+
     buf = io.StringIO()
     real_stdout = sys.stdout
     sys.stdout = buf
+    stop = threading.Event()
+    streamer = None
+    if CALLBACK:
+        streamer = threading.Thread(target=_stream_logs, args=(buf, stop), daemon=True)
+        streamer.start()
     try:
         code = fetch_source()
         ns = {"__name__": "__main__"}
         compiled = compile(code, "<notebook>", "exec", flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT)
         result = asyncio.run(_run(compiled, ns))
+        stop.set()
         sys.stdout = real_stdout
         post_result("succeeded", result=_jsonable(result), logs=buf.getvalue())
     except Exception:
+        stop.set()
         sys.stdout = real_stdout
         post_result("error", logs=buf.getvalue(), error=traceback.format_exc())
         raise

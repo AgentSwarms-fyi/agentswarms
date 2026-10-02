@@ -47,12 +47,25 @@ describe("an unindexed collection says its retrieval settings are inert", () => 
   });
 
   it("shows the disclosure only when there are documents and none are indexed", () => {
+    // R38 added a third clause: the chunk scan must have seen every row. A
+    // partial scan makes an indexed collection look unindexed, and this panel
+    // is the loudest thing on the page — "nothing here is indexed" over a read
+    // that only saw the first thousand chunks is a worse statement than the one
+    // the panel exists to prevent.
+    //
+    // Matched as a pattern rather than a line: prettier decides where a
+    // three-clause JSX guard wraps, and pinning its whitespace is how this
+    // assertion broke in the first place.
     const tab = retrievalTab();
-    expect(tab).toMatch(/indexCoverage\.total > 0 && indexCoverage\.indexed === 0/);
+    expect(tab).toMatch(
+      /\{chunkCountsWhole &&\s+indexCoverage\.total > 0 &&\s+indexCoverage\.indexed === 0/,
+    );
   });
 
   it("states plainly that the settings are not in effect", () => {
-    expect(retrievalTab()).toMatch(/not in\s+effect/);
+    // \s+ between every word: the sentence wraps wherever the surrounding
+    // indentation puts it, and it has moved twice now.
+    expect(retrievalTab()).toMatch(/not\s+in\s+effect/);
   });
 
   it("offers the way out rather than just naming the problem", () => {
@@ -99,8 +112,15 @@ describe("the premise still holds — settings really do only steer chunks", () 
   });
 
   it("fusion, vector search and chunk-keyword search all read chunks", () => {
-    expect(server).toMatch(/rpc\("match_kb_chunks_v2"/);
+    // Vector search goes through the store seam now; the rows it names are
+    // fetched back from Postgres either way.
+    expect(server).toMatch(/storeFor\(kind, sb\)\.search\(/);
+    expect(server).toMatch(/rpc\("kb_chunks_by_ids"/);
     expect(server).toMatch(/rpc\("keyword_kb_chunks"/);
-    expect(server).toMatch(/fuseHybrid\(vectorScores, keywordScores, retrieval\)/);
+    // `effective` is the collection's settings, except on a turn where the
+    // vector store could not answer — then keyword is the only signal and is
+    // weighted as such, rather than at a semantic weight that would score
+    // every keyword hit zero.
+    expect(server).toMatch(/fuseHybrid\(vectorScores, keywordScores, effective\)/);
   });
 });

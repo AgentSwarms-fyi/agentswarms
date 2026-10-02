@@ -10,6 +10,7 @@
 // The reasoning loop lives in lib/aiAnalyst (tested); this page is the
 // shell: analyst CRUD (RLS owner-only), scope resolution (local DuckDB
 // datasets or one warehouse connection), thread persistence, rendering.
+import { confirmAsk, promptAsk } from "@/components/ui/confirm-dialog";
 import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -29,6 +30,7 @@ import {
   Loader2,
   History,
   MessageSquarePlus,
+  PanelLeft,
   Pencil,
   Play,
   Plus,
@@ -37,6 +39,7 @@ import {
   Sheet,
   Trash2,
   ShieldCheck,
+  Sparkles,
   Users,
   Wrench,
 } from "lucide-react";
@@ -70,8 +73,10 @@ import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/integrations/supabase/client";
 import { clickable } from "@/lib/clickable";
 import {
+  analystModelsAllowed,
   analystNameOnEdit,
   ANALYST_ROW_CAP,
+  describeModelChoice,
   isReasoningModelId,
   modelsUsedIn,
   rerunStep,
@@ -83,6 +88,7 @@ import {
   type AnalystStep,
   type AnalystTurn,
   type GovernedModelFields,
+  type ScorableModel,
 } from "@/lib/aiAnalyst";
 import { analystWorkbook, workbookFilename } from "@/lib/analystExport";
 import { describeLineage, stepLineage } from "@/lib/analystLineage";
@@ -117,6 +123,12 @@ import {
 } from "@/lib/biAgent";
 import { semanticRunQuery } from "@/utils/semantic.functions";
 import {
+  analystForecast,
+  analystScorableModels,
+  analystScoreRows,
+  cellRow,
+} from "@/utils/analystScore.functions";
+import {
   appendWidgetToDashboard,
   listDashboards,
   widgetFromAnalystStep,
@@ -143,6 +155,8 @@ type AnalystRow = {
   name: string;
   model: string;
   source: AnalystSource;
+  /** Predictive models it may use: null = any it can reach, a list = exactly those, [] = none. */
+  ml_model_names: string[] | null;
   created_at: string;
   /** Owner. RLS also returns analysts shared with you, which are not yours. */
   user_id: string;
@@ -202,6 +216,14 @@ function AiAnalystPage() {
   // Compilation happens SERVER-side: that is where the full model, its row
   // filters and its column masks are. The browser only ever sees field names.
   const runSemanticFn = useServerFn(semanticRunQuery);
+  const scorableModelsFn = useServerFn(analystScorableModels);
+  const scoreRowsFn = useServerFn(analystScoreRows);
+  const forecastFn = useServerFn(analystForecast);
+  // Every trained model this user can reach — loaded like the governed
+  // catalog, once a session exists. What a given analyst may use is its own
+  // choice (`scorable`, below): empty means no step can be scored, and the
+  // planner is not told about scoring at all.
+  const [allModels, setAllModels] = useState<ScorableModel[]>([]);
 
   // ── Data the analysts can be scoped to ──────────────────────────────
   const [datasets, setDatasets] = useState<DatasetMeta[]>([]);
@@ -276,7 +298,12 @@ function AiAnalystPage() {
     listWarehousesFn({ data: { access_token: token } }).then((res) => {
       if (res.ok) setWarehouses(res.connections.filter((c) => c.is_active));
     });
-  }, [token, listWarehousesFn]);
+    // A failed read leaves the list empty, which only means "no scored
+    // steps this session" — the analyst still answers, unscored.
+    scorableModelsFn({ data: { accessToken: token } })
+      .then((models) => setAllModels(models))
+      .catch(() => setAllModels([]));
+  }, [token, listWarehousesFn, scorableModelsFn]);
 
   // ── Analysts (RLS owner-only) ───────────────────────────────────────
   const [analysts, setAnalysts] = useState<AnalystRow[] | null>(null);
@@ -293,7 +320,7 @@ function AiAnalystPage() {
       // returns both, and an analyst someone shared with you must not offer
       // rename/edit/delete/share — controls that would fail at the policy and
       // read as a bug rather than as "this one is not yours".
-      .select("id, name, model, source, created_at, user_id")
+      .select("id, name, model, source, ml_model_names, created_at, user_id")
       .order("created_at", { ascending: false })
       .then(({ data, error }) => {
         if (error) {
@@ -308,6 +335,13 @@ function AiAnalystPage() {
   }, [user?.id]);
 
   const selected = analysts?.find((a) => a.id === selectedId) ?? null;
+  // The selected analyst's predictive models — its own choice applied to
+  // everything this user can reach. The server applies the same choice
+  // again when a step scores, so the planner cannot out-argue it.
+  const scorable = useMemo(
+    () => analystModelsAllowed(allModels, selected?.ml_model_names),
+    [allModels, selected?.ml_model_names],
+  );
 
   // ── The selected analyst's thread ───────────────────────────────────
   const [thread, setThread] = useState<ThreadRow | null>(null);
@@ -491,6 +525,32 @@ function AiAnalystPage() {
           // empty catalog — no step could be governed, and nothing would say
           // why.
           catalog,
+          // Trained models the plan may score with, and the scoring itself —
+          // server-side, under this session, like governed compilation.
+          models: scorable,
+          // The ones this analyst could enable but has not, so a question
+          // naming one is answered with the setting, not "no such model".
+          modelsOutsideScope: allModels
+            .filter((m) => !scorable.some((s) => s.name === m.name))
+            .map((m) => m.name),
+          scoreRows: token
+            ? async (req) =>
+                scoreRowsFn({
+                  data: {
+                    accessToken: token,
+                    analystId: selected.id,
+                    model: req.model,
+                    rows: req.rows.map(cellRow),
+                  },
+                })
+            : undefined,
+          // A forecast step: the model's own periods, no SQL — same seam.
+          forecast: token
+            ? async (req) =>
+                forecastFn({
+                  data: { accessToken: token, analystId: selected.id, model: req.model },
+                })
+            : undefined,
           runSemantic: token
             ? async (query) => {
                 const res = await runSemanticFn({ data: { accessToken: token, query } });
@@ -500,6 +560,7 @@ function AiAnalystPage() {
                   rows: res.rows as Record<string, unknown>[],
                   rollup: res.rollup,
                   access_note: res.access_note,
+                  truncated: res.truncated,
                 };
               }
             : undefined,
@@ -605,7 +666,17 @@ function AiAnalystPage() {
         toast.error(`The scenario could not be compiled: ${(e as Error).message}`);
       }
     },
-    [thread, resolveScope, persistTurns, runSemanticFn, token],
+    [
+      thread,
+      resolveScope,
+      persistTurns,
+      runSemanticFn,
+      scoreRowsFn,
+      forecastFn,
+      scorable,
+      allModels,
+      token,
+    ],
   );
 
   /** Record a human verdict on a finished analysis. */
@@ -618,8 +689,22 @@ function AiAnalystPage() {
       // rather than letting the refusal look like a broken button.
       const note =
         state === "wrong"
-          ? (window.prompt("What is wrong with this answer? (required)") ?? "").trim()
-          : (window.prompt("Anything to note about this check? (optional)") ?? "").trim();
+          ? (
+              await promptAsk({
+                title: "What is wrong with this answer?",
+                body: "This is recorded with the check, so say what a reader would need to know.",
+                actionLabel: "Save",
+                input: { placeholder: "What went wrong", required: true },
+              })
+            )?.trim()
+          : (
+              await promptAsk({
+                title: "Anything to note about this check?",
+                body: "Optional.",
+                actionLabel: "Save",
+                input: { placeholder: "Note (optional)" },
+              })
+            )?.trim();
       if (state === "wrong" && !note) {
         toast.error("A flag needs a reason — otherwise the next reader learns nothing from it.");
         return;
@@ -748,10 +833,20 @@ function AiAnalystPage() {
 
   // ── Analyst CRUD ────────────────────────────────────────────────────
   const [createOpen, setCreateOpen] = useState(false);
+  /**
+   * The analyst rail on a phone-width screen: a full-width list behind a
+   * button, closed again by picking an analyst. Measured live at a narrow
+   * window: the rail kept its 256px, the header's six actions never
+   * wrapped, the page container overflowed sideways under overflow-hidden,
+   * and focusing the question box scrolled the rail out of view.
+   */
+  const [railOpen, setRailOpen] = useState(false);
   /** Non-null while the dialog is EDITING that analyst rather than creating. */
   const [editingAnalyst, setEditingAnalyst] = useState<AnalystRow | null>(null);
   const [draftModel, setDraftModel] = useState<string | null>(null);
   const [draftData, setDraftData] = useState("");
+  /** Predictive models: null = any it can reach; a list = exactly those. */
+  const [draftMlModels, setDraftMlModels] = useState<string[] | null>(null);
 
   /** The picker token ("wh:<id>" / "local:<name>" / "local:all") for a source. */
   function dataTokenFor(source: AnalystSource): string {
@@ -763,6 +858,7 @@ function AiAnalystPage() {
     setEditingAnalyst(a);
     setDraftModel(a.model);
     setDraftData(dataTokenFor(a.source));
+    setDraftMlModels(a.ml_model_names ?? null);
     setCreateOpen(true);
   }
 
@@ -775,6 +871,7 @@ function AiAnalystPage() {
     setEditingAnalyst(null);
     setDraftModel(null);
     setDraftData("");
+    setDraftMlModels(null);
     setCreateOpen(true);
   }
 
@@ -790,7 +887,12 @@ function AiAnalystPage() {
         autoNameForOldSource: analystNameFor(editingAnalyst.source, warehouses),
         autoNameForNewSource: analystNameFor(source, warehouses),
       });
-      const patch = { model: draftModel, source: source as never, name };
+      const patch = {
+        model: draftModel,
+        source: source as never,
+        name,
+        ml_model_names: draftMlModels,
+      };
       const { error } = await supabase
         .from("ai_analysts")
         .update(patch)
@@ -808,8 +910,14 @@ function AiAnalystPage() {
     const name = analystNameFor(source, warehouses);
     const { data, error } = await supabase
       .from("ai_analysts")
-      .insert({ user_id: user.id, name, model: draftModel, source: source as never })
-      .select("id, name, model, source, created_at")
+      .insert({
+        user_id: user.id,
+        name,
+        model: draftModel,
+        source: source as never,
+        ml_model_names: draftMlModels,
+      })
+      .select("id, name, model, source, ml_model_names, created_at, user_id")
       .single();
     if (error) return toast.error(error.message);
     const row = { ...data, source: data.source as AnalystSource } as AnalystRow;
@@ -831,7 +939,8 @@ function AiAnalystPage() {
 
   async function deleteAnalyst(id: string) {
     const a = analysts?.find((x) => x.id === id);
-    if (!window.confirm(`Delete ${a?.name ?? "this analyst"} and its analyses?`)) return;
+    if (!(await confirmAsk({ title: `Delete ${a?.name ?? "this analyst"} and its analyses?` })))
+      return;
     const { error } = await supabase.from("ai_analysts").delete().eq("id", id);
     if (error) return toast.error(error.message);
     setAnalysts((cur) => (cur ?? []).filter((x) => x.id !== id));
@@ -923,9 +1032,16 @@ function AiAnalystPage() {
 
   // ── Render ──────────────────────────────────────────────────────────
   return (
-    <div className="flex h-full min-h-0">
-      {/* Analyst rail */}
-      <div className="flex w-64 shrink-0 flex-col border-r border-border">
+    // A pinned height, like every other canvas route — the transcript scrolls
+    // inside it and the composer stays on screen. `h-full` here was height:100%
+    // against an ancestor with only a min-height, so it collapsed to auto and
+    // the whole document grew instead.
+    <div className="h-canvas flex w-full min-h-0 overflow-hidden">
+      {/* Analyst rail: full width behind a toggle on a phone, a fixed rail
+          from md up (narrower below lg so the thread keeps its room). */}
+      <div
+        className={`${railOpen ? "flex w-full" : "hidden"} shrink-0 flex-col border-r border-border md:flex md:w-56 lg:w-64`}
+      >
         <div className="flex items-center justify-between border-b border-border px-3 py-2.5">
           <span className="flex items-center gap-1.5 text-sm font-semibold">
             <BrainCircuit className="h-4 w-4 text-primary" /> AI Analyst
@@ -951,7 +1067,10 @@ function AiAnalystPage() {
                   className={`cursor-pointer p-2.5 transition hover:border-primary/40 ${
                     a.id === selectedId ? "border-primary/60 bg-primary/5" : ""
                   }`}
-                  {...clickable(() => setSelectedId(a.id), `Analyst ${a.name}`)}
+                  {...clickable(() => {
+                    setSelectedId(a.id);
+                    setRailOpen(false);
+                  }, `Analyst ${a.name}`)}
                 >
                   <div className="flex items-start justify-between gap-1">
                     <p className="truncate text-xs font-medium">{a.name}</p>
@@ -1006,6 +1125,11 @@ function AiAnalystPage() {
                   <p className="mt-0.5 flex items-center gap-1 truncate text-[10px] text-muted-foreground">
                     <Database className="h-3 w-3 shrink-0" /> {src.text}
                   </p>
+                  {/* The third choice, beside the other two. */}
+                  <p className="mt-0.5 flex items-center gap-1 truncate text-[10px] text-muted-foreground">
+                    <Sparkles className="h-3 w-3 shrink-0" />{" "}
+                    {describeModelChoice(a.ml_model_names, allModels.length)}
+                  </p>
                 </Card>
               );
             })
@@ -1014,7 +1138,7 @@ function AiAnalystPage() {
       </div>
 
       {/* Analysis pane */}
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className={`${railOpen ? "hidden md:flex" : "flex"} min-w-0 flex-1 flex-col`}>
         {!selected ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
             <BrainCircuit className="h-10 w-10 text-muted-foreground/50" />
@@ -1032,24 +1156,37 @@ function AiAnalystPage() {
           </div>
         ) : (
           <>
-            <div className="flex items-center gap-2 border-b border-border px-4 py-2">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-border px-3 py-2 md:px-4">
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 px-2 md:hidden"
+                onClick={() => setRailOpen(true)}
+                title="Show analysts"
+                aria-label="Show analysts"
+              >
+                <PanelLeft className="h-4 w-4" />
+              </Button>
               {selected.user_id === user?.id ? (
                 <Input
                   key={selected.id}
                   defaultValue={selected.name}
                   onBlur={(e) => void renameAnalyst(selected.id, e.target.value)}
-                  className="h-7 w-56 border-transparent bg-transparent px-1 text-sm font-semibold focus-visible:border-input"
+                  className="h-7 w-40 min-w-0 border-transparent bg-transparent px-1 text-sm font-semibold focus-visible:border-input lg:w-56"
                 />
               ) : (
-                <span className="truncate px-1 text-sm font-semibold">{selected.name}</span>
+                <span className="min-w-0 truncate px-1 text-sm font-semibold">{selected.name}</span>
               )}
-              <Badge variant="secondary" className="max-w-48 truncate font-mono text-[10px]">
+              <Badge
+                variant="secondary"
+                className="hidden max-w-48 truncate font-mono text-[10px] sm:inline-flex"
+              >
                 {selected.model.split("::").pop()}
               </Badge>
-              <span className="min-w-0 truncate text-[11px] text-muted-foreground">
+              <span className="hidden min-w-0 truncate text-[11px] text-muted-foreground xl:inline">
                 {sourceLabel(selected.source, warehouses).text}
               </span>
-              <div className="ml-auto flex items-center gap-1.5">
+              <div className="ml-auto flex flex-wrap items-center gap-1.5">
                 {threads.length > 1 && (
                   <Select
                     value={thread?.id ?? ""}
@@ -1061,7 +1198,10 @@ function AiAnalystPage() {
                       }
                     }}
                   >
-                    <SelectTrigger className="h-7 max-w-52 gap-1 text-xs" title="Past analyses">
+                    <SelectTrigger
+                      className="h-7 max-w-36 gap-1 text-xs lg:max-w-52"
+                      title="Past analyses"
+                    >
                       <History className="h-3.5 w-3.5 shrink-0" />
                       <SelectValue placeholder="Past analyses" />
                     </SelectTrigger>
@@ -1083,7 +1223,8 @@ function AiAnalystPage() {
                   disabled={busy || (!thread && !liveTurn)}
                   title="Start a fresh analysis thread"
                 >
-                  <MessageSquarePlus className="h-3.5 w-3.5" /> New analysis
+                  <MessageSquarePlus className="h-3.5 w-3.5" />
+                  <span className="hidden lg:inline">New analysis</span>
                 </Button>
                 <Button
                   size="sm"
@@ -1093,7 +1234,8 @@ function AiAnalystPage() {
                   disabled={busy || !thread}
                   title="Re-run this analysis's queries on a cadence"
                 >
-                  <CalendarClock className="h-3.5 w-3.5" /> Schedule
+                  <CalendarClock className="h-3.5 w-3.5" />
+                  <span className="hidden lg:inline">Schedule</span>
                 </Button>
                 <Button
                   size="sm"
@@ -1103,7 +1245,8 @@ function AiAnalystPage() {
                   disabled={busy || turnsToRender.length === 0}
                   title="Export the step results as an Excel workbook"
                 >
-                  <Sheet className="h-3.5 w-3.5" /> Export data
+                  <Sheet className="h-3.5 w-3.5" />
+                  <span className="hidden lg:inline">Export data</span>
                 </Button>
                 <Button
                   size="sm"
@@ -1113,7 +1256,8 @@ function AiAnalystPage() {
                   disabled={busy || turnsToRender.length === 0}
                   title="Save this analysis as a PDF"
                 >
-                  <FileDown className="h-3.5 w-3.5" /> Save as PDF
+                  <FileDown className="h-3.5 w-3.5" />
+                  <span className="hidden lg:inline">Save as PDF</span>
                 </Button>
               </div>
             </div>
@@ -1335,6 +1479,85 @@ function AiAnalystPage() {
                 </p>
               )}
             </div>
+            {/* The third choice: which trained models it may score or forecast
+                with. Any it can reach (the default), or exactly the ones ticked —
+                the same allow-list rule as an agent's ML tool, and enforced
+                server-side when a step scores, not only advertised here. */}
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold">Predictive models</Label>
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                Trained models from <strong>ML Models</strong> the analyst may score or forecast
+                with. It chooses among these by the question; a model outside this list is refused
+                even if a plan names it.
+              </p>
+              {allModels.length === 0 ? (
+                <p className="text-[11px] text-muted-foreground">
+                  No trained models with a production version yet — train and promote one under ML
+                  Models.
+                </p>
+              ) : (
+                <div className="space-y-1.5 rounded-md border border-border/50 bg-background/40 p-2">
+                  <label className="flex cursor-pointer items-center gap-2 text-[11px]">
+                    <input
+                      type="radio"
+                      name="analyst-ml-choice"
+                      checked={draftMlModels === null}
+                      onChange={() => setDraftMlModels(null)}
+                    />
+                    Any model it can use ({allModels.length})
+                  </label>
+                  <label className="flex cursor-pointer items-center gap-2 text-[11px]">
+                    <input
+                      type="radio"
+                      name="analyst-ml-choice"
+                      checked={draftMlModels !== null}
+                      onChange={() => setDraftMlModels((cur) => cur ?? [])}
+                    />
+                    Only these
+                  </label>
+                  {draftMlModels !== null && (
+                    <div className="max-h-40 space-y-1 overflow-y-auto pl-5">
+                      {allModels.map((m) => {
+                        const on = draftMlModels.includes(m.name);
+                        const alert = !!m.health && /alert|Decay|Drift/.test(m.health);
+                        return (
+                          <label
+                            key={m.name}
+                            className="flex cursor-pointer items-start gap-2 text-[11px]"
+                            title={m.health ?? undefined}
+                          >
+                            <input
+                              type="checkbox"
+                              className="mt-0.5"
+                              checked={on}
+                              onChange={(e) =>
+                                setDraftMlModels((cur) =>
+                                  e.target.checked
+                                    ? Array.from(new Set([...(cur ?? []), m.name]))
+                                    : (cur ?? []).filter((n) => n !== m.name),
+                                )
+                              }
+                            />
+                            <span className="flex-1 truncate font-mono">{m.name}</span>
+                            <Badge variant="outline" className="text-[9px]">
+                              {m.task}
+                              {m.target ? ` → ${m.target}` : ""}
+                            </Badge>
+                            {alert && <span className="text-[9px] text-amber-500">⚠</span>}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <p className="text-[11px] text-muted-foreground">
+                    {describeModelChoice(draftMlModels, allModels.length)}
+                    {draftMlModels !== null && draftMlModels.length === 0
+                      ? " — tick at least one, or choose any."
+                      : "."}
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
           {editingAnalyst && (thread?.turns?.length ?? 0) > 0 && (
             <p className="rounded-md border border-border/60 bg-muted/40 p-2 text-[11px] leading-relaxed text-muted-foreground">
@@ -1479,6 +1702,30 @@ function TurnView({
                   {s.governed.model}
                 </Badge>
               )}
+              {s.scored && (
+                <Badge
+                  variant="outline"
+                  className="ml-1.5 border-violet-500/40 bg-violet-500/5 text-[9px] text-violet-500"
+                  title={
+                    `${s.scored.task === "forecast" ? "Forecast by" : "Scored by"} the trained model "${s.scored.model}"` +
+                    (s.scored.version !== null ? ` v${s.scored.version}` : "") +
+                    ` (${s.scored.task}${s.scored.algorithm ? `, ${s.scored.algorithm}` : ""}` +
+                    `${s.scored.metric ? `, ${s.scored.metric}` : ""}) — the prediction columns ` +
+                    `are the model's estimates, not observed values. ` +
+                    (s.scored.task === "forecast"
+                      ? "The rows are the model's projected periods with their interval."
+                      : s.scored.keys
+                        ? `Scored by key; the features were read from the model's feature view` +
+                          (s.scored.featuresServedFrom ? ` (${s.scored.featuresServedFrom})` : "") +
+                          "."
+                        : "Scored from the row's own feature columns.") +
+                    (s.scored.health ? ` ${s.scored.health}` : "")
+                  }
+                >
+                  <Sparkles className="mr-0.5 inline h-2.5 w-2.5" />
+                  {s.scored.model}
+                </Badge>
+              )}
             </p>
             {s.status === "done" && s.rows && s.columns && (
               <div className="flex shrink-0 items-center gap-1">
@@ -1563,6 +1810,12 @@ function TurnView({
                 </span>
               </div>
             </div>
+          ) : s.forecast && !s.sql ? (
+            <p className="rounded bg-muted/60 p-2 font-mono text-[10px] leading-relaxed">
+              forecast by the trained model {s.forecast.model}
+              {s.forecast.horizon ? ` · horizon ${s.forecast.horizon}` : ""} — no SQL: the rows are
+              the model&apos;s projected periods
+            </p>
           ) : (
             s.sql && (
               <pre className="overflow-x-auto rounded bg-muted/60 p-2 font-mono text-[10px] leading-relaxed">
@@ -1693,6 +1946,76 @@ function TurnView({
               )}
               {s.governed.accessNote}
             </p>
+          )}
+
+          {/* A scored step's numbers are two kinds: what the query returned
+              and what a model estimated. The badge names the model; this says
+              how many rows it scored, from where, and what it could not find. */}
+          {s.scored && (
+            <p className="text-[10px] leading-relaxed text-muted-foreground">
+              {s.scored.task === "forecast" ? (
+                <>
+                  Forecast {s.scored.rowsScored} {s.scored.forecast?.period ?? "period"}
+                  {s.scored.rowsScored === 1 ? "" : "s"} with <strong>{s.scored.model}</strong>
+                  {s.scored.version !== null ? ` v${s.scored.version}` : ""}
+                  {s.scored.metric ? ` (${s.scored.metric})` : ""}
+                  {s.scored.forecast?.lastObserved
+                    ? `, after the last observed ${s.scored.forecast.period ?? "period"} ${s.scored.forecast.lastObserved}`
+                    : ""}{" "}
+                  — the forecast, lower and upper columns are the model&apos;s projection and its
+                  interval, not observed values.
+                </>
+              ) : (
+                <>
+                  Scored {s.scored.rowsScored}
+                  {(s.rowCount ?? 0) > s.scored.rowsScored ? ` of ${s.rowCount}` : ""} row
+                  {s.scored.rowsScored === 1 ? "" : "s"} with <strong>{s.scored.model}</strong>
+                  {s.scored.version !== null ? ` v${s.scored.version}` : ""}
+                  {s.scored.metric ? ` (${s.scored.metric})` : ""} — the prediction columns are the
+                  model&apos;s estimates, not observed values.
+                  {s.scored.keys && s.scored.featuresServedFrom
+                    ? ` Features read by key from the model's feature view (${s.scored.featuresServedFrom}).`
+                    : ""}
+                  {s.scored.keysNotFound.length > 0
+                    ? ` Not found in the feature view: ${s.scored.keysNotFound.join(", ")}.`
+                    : ""}
+                  {s.scored.ranked
+                    ? ` Ranked by ${s.scored.ranked.by} (${s.scored.ranked.desc ? "highest" : "lowest"} first)` +
+                      (s.scored.ranked.limit
+                        ? `, top ${s.scored.ranked.limit} of the ${s.scored.ranked.of} scored.`
+                        : ".")
+                    : ""}
+                </>
+              )}
+              {s.scored.health ? (
+                <>
+                  {" "}
+                  <span
+                    className={
+                      s.scored.health.includes("alert") ||
+                      s.scored.health.includes("Decay") ||
+                      s.scored.health.includes("Drift")
+                        ? "text-amber-500"
+                        : ""
+                    }
+                  >
+                    {s.scored.health}
+                  </span>
+                </>
+              ) : null}
+            </p>
+          )}
+          {/* What the tool said about the model's columns — class meanings, group
+              profiles, the trainer's warnings. The write-up reads the same notes. */}
+          {s.scored?.notes && s.scored.notes.length > 0 && (
+            <details className="text-[10px] text-muted-foreground">
+              <summary className="cursor-pointer">Model notes ({s.scored.notes.length})</summary>
+              <ul className="mt-1 list-disc space-y-0.5 pl-4">
+                {s.scored.notes.map((n, i) => (
+                  <li key={i}>{n}</li>
+                ))}
+              </ul>
+            </details>
           )}
 
           {/* Where the numbers came from. The tables are read out of the SQL

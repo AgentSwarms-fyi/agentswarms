@@ -26,6 +26,10 @@ export type KernelSpec = {
   image: string;
   cpuLimit: string;
   memLimitMb: number;
+  /** Writable tmpfs per sandbox for ~/.local and ~/work, in MB. */
+  tmpfsMb?: number;
+  /** GPUs to request (Docker device request / nvidia.com/gpu); 0 or absent = none. */
+  gpus?: number;
   /** hard wall-clock ceiling for the sandbox; 0 = none (long-lived services) */
   timeoutSeconds: number;
   /** injected into the container environment (session token, callback URL, proxy…) */
@@ -38,6 +42,16 @@ export type KernelSpec = {
 };
 
 export type KernelState = "starting" | "running" | "succeeded" | "gone" | "error";
+
+/**
+ * What a teardown answers: whether the sandbox is actually gone.
+ *
+ * FOUND FROM THE SURVEY (R93). `stop` used to return void and each backend
+ * swallowed its own failures, so a removal that did not happen looked exactly
+ * like one that did - and the caller went on to write "stopped" over a
+ * container still sitting on the host.
+ */
+export type TeardownResult = { removed: boolean; error?: string };
 
 export type KernelStatus = {
   state: KernelState;
@@ -58,8 +72,12 @@ export interface NotebookOrchestrator {
    * alone cannot tell you which.
    */
   status(ref: string, kind?: KernelKind): Promise<KernelStatus>;
-  /** Best-effort teardown; must not throw if already gone. */
-  stop(ref: string): Promise<void>;
+  /**
+   * Best-effort teardown; must not throw if already gone. It SAYS whether the
+   * sandbox is gone, because a caller about to record the session as stopped
+   * needs to know when that is not true (R93).
+   */
+  stop(ref: string): Promise<TeardownResult>;
   /** Captured stdout/stderr (batch jobs). */
   logs(ref: string): Promise<string>;
 }

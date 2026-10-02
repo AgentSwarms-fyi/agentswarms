@@ -31,6 +31,9 @@ async function requireUser(accessToken: string) {
 }
 
 const ConfigSchema = z.discriminatedUnion("provider", [
+  // The built-in lakehouse needs no credentials — the server stamps the
+  // owner at save time and the engine enforces that user's schema grants.
+  z.object({ provider: z.literal("lakehouse") }),
   z.object({
     provider: z.literal("redshift"),
     region: z.string().min(1),
@@ -219,7 +222,11 @@ export const saveWarehouseConnection = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<{ ok: true; id: string } | { ok: false; error: string }> => {
     try {
       const { sb, userId } = await requireUser(data.access_token);
-      const encrypted = await encryptJson(data.config as WarehouseConfig);
+      const config: WarehouseConfig =
+        data.config.provider === "lakehouse"
+          ? { provider: "lakehouse", user_id: userId }
+          : (data.config as WarehouseConfig);
+      const encrypted = await encryptJson(config);
       const { data: row, error } = await sb
         .from("data_warehouse_connections")
         .upsert(

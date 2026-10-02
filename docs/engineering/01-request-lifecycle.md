@@ -14,7 +14,7 @@ interchangeable.
 
 **Server functions** (`createServerFn`) are typed RPC. You call them from a
 component like a local async function; the framework handles serialisation.
-Around 32 modules under `src/utils/` export them — `src/utils/iam.functions.ts`,
+Around 48 modules under `src/utils/` export them — `src/utils/iam.functions.ts`,
 `src/utils/swarmDeploy.functions.ts` and their siblings, named `*.functions.ts`
 by convention so a grep for the suffix finds the whole RPC surface.
 

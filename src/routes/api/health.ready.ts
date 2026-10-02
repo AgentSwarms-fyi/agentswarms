@@ -5,17 +5,42 @@
 // principally, can it reach its database. A pod that is up but cannot reach
 // Postgres should be pulled from the load-balancer rotation, not sent traffic.
 //
-//   200 { status: "ready",     checks: { db: true } }
-//   503 { status: "not_ready", checks: { db: false }, error?: string }
+//   200 { status: "ready",     checks: { db: true, keys: true } }
+//   503 { status: "not_ready", checks: { db: false, keys: true }, error?: string }
+//
+// `keys` is whether the credential keyring loaded: with an external key
+// provider that is the one unwrap of the data key, on the startup path and
+// cached, so a node whose KMS permission is missing is held out of rotation
+// (and server.mjs refuses to start it) instead of failing every credential
+// read one feature at a time.
 //
 // No auth (infra probe). The DB check is a tiny head-count with a hard timeout,
 // so a hung database makes the probe fail FAST (503) rather than hang the
 // health check itself — which would otherwise look like a liveness failure.
 import { createFileRoute } from "@tanstack/react-router";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { appRole } from "@/utils/appRole";
+import { keyringReady } from "@/utils/providers/crypto.server";
 
 const HEADERS = { "Content-Type": "application/json", "Cache-Control": "no-store" };
 const DB_TIMEOUT_MS = 3000;
+
+// An analytics node answers "no" here ON PURPOSE, so a load balancer stops
+// sending it interactive traffic while /api/health keeps reporting it alive and
+// the orchestrator leaves it running. That is the whole of APP_ROLE=analytics:
+// readiness routes traffic, liveness decides restarts, and the two disagreeing
+// is precisely how you hold a node out of the request path without needing a
+// feature from your load balancer. See src/utils/appRole.ts.
+function analyticsNotReady(): Response {
+  return new Response(
+    JSON.stringify({
+      status: "not_ready",
+      role: "analytics",
+      reason: "APP_ROLE=analytics — this node is held out of the interactive pool by design",
+    }),
+    { status: 503, headers: HEADERS },
+  );
+}
 
 async function dbReachable(): Promise<{ ok: boolean; error?: string }> {
   try {
@@ -39,16 +64,32 @@ export const Route = createFileRoute("/api/health/ready")({
   server: {
     handlers: {
       GET: async () => {
+        // Checked before the database round trip: the answer cannot change, so
+        // probing Postgres every few seconds from a node nobody routes to is
+        // pure load on the one component that is already the fleet's ceiling.
+        if (appRole() === "analytics") return analyticsNotReady();
         const db = await dbReachable();
-        const body = db.ok
-          ? { status: "ready", checks: { db: true } }
-          : { status: "not_ready", checks: { db: false }, error: db.error };
-        return new Response(JSON.stringify(body), { status: db.ok ? 200 : 503, headers: HEADERS });
+        const keys = await keyringReady();
+        const ok = db.ok && keys.ok;
+        const body = ok
+          ? { status: "ready", checks: { db: true, keys: true } }
+          : {
+              status: "not_ready",
+              checks: { db: db.ok, keys: keys.ok },
+              error: [db.ok ? null : db.error, keys.ok ? null : keys.error]
+                .filter(Boolean)
+                .join("; "),
+            };
+        return new Response(JSON.stringify(body), { status: ok ? 200 : 503, headers: HEADERS });
       },
       HEAD: async () => {
+        if (appRole() === "analytics") {
+          return new Response(null, { status: 503, headers: { "Cache-Control": "no-store" } });
+        }
         const db = await dbReachable();
+        const keys = await keyringReady();
         return new Response(null, {
-          status: db.ok ? 200 : 503,
+          status: db.ok && keys.ok ? 200 : 503,
           headers: { "Cache-Control": "no-store" },
         });
       },

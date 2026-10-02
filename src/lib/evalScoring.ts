@@ -276,3 +276,29 @@ export function compareRuns(a: EvalResultLite[], b: EvalResultLite[]): EvalCaseD
   }
   return out;
 }
+
+/** The parts of a run that decide whether two of them can be compared. */
+export type ComparableRun = {
+  id: string;
+  dataset_id: string | null;
+  evaluator?: { kind?: string } | null;
+};
+
+/**
+ * Whether `candidate` can serve as a baseline for `current`.
+ *
+ * Same dataset, same evaluator kind, not itself. The evaluator kind matters as
+ * much as the dataset: a `contains` run scores 0 or 1 and a judge run scores a
+ * continuous 0-1, so a delta between them measures the scale change, not the
+ * swarm.
+ *
+ * A run with no dataset cannot be compared to anything — two runs that both
+ * have `dataset_id: null` are not "on the same dataset", they are each on no
+ * dataset, and pairing them would invent a comparison.
+ */
+export function isComparableRun(candidate: ComparableRun, current: ComparableRun): boolean {
+  if (candidate.id === current.id) return false;
+  if (!candidate.dataset_id || !current.dataset_id) return false;
+  if (candidate.dataset_id !== current.dataset_id) return false;
+  return (candidate.evaluator?.kind ?? null) === (current.evaluator?.kind ?? null);
+}

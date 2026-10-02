@@ -11,9 +11,16 @@
 //                  optionally refreshed on a schedule
 //
 // Every step compiles to one layered read-only SELECT (see lib/dataPrep.ts).
+import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
+import {
+  AI_SQL_DETAIL_LABELS,
+  AI_SQL_FUNCTION_LABELS,
+  AI_SQL_FUNCTIONS,
+  type AiSqlFunction,
+} from "@/utils/aiSql/core";
 import {
   ArrowDown,
   ArrowDownUp,
@@ -49,6 +56,7 @@ import {
   Undo2,
   Wand2,
   X,
+  Sparkles,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -84,6 +92,7 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
+import { useTokenRef } from "@/hooks/use-token-ref";
 import { fmtBiNumber } from "@/components/bi/BiChartRender";
 import {
   addTableToFlow,
@@ -109,7 +118,8 @@ import {
   PREP_TYPE_META,
   incrementalEligibility,
   prepTables,
-  prepWarehouseBinding,
+  prepHasRemoteSources,
+  prepLakehouseBinding,
   removeTableFromFlow,
   savePrepFlow,
   syncColumns,
@@ -141,13 +151,16 @@ import { fetchWarehouseSchema, runWarehouseQuery } from "@/lib/warehouseClient";
 import { listWarehouseConnections } from "@/utils/warehouse.functions";
 import {
   datasetDependents,
+  prepLakehouseTables,
   prepPreview,
+  prepRunToLakehouse,
   prepRunAndSave,
   type DatasetDependents,
   type PrepRunOutcome,
 } from "@/utils/dataPrep.functions";
 import { DeleteDatasetDialog } from "@/components/bi/DeleteDatasetDialog";
 import { clickable } from "@/lib/clickable";
+import { lakeStateOf, saveAsHint } from "@/lib/prepSaveAs";
 import {
   WAREHOUSE_LABELS,
   type WarehouseConnectionSummary,
@@ -168,6 +181,7 @@ const STEP_ICON: Record<PrepStepKind, React.ComponentType<{ className?: string }
   split: Scissors,
   dedupe: Copy,
   replace: Repeat,
+  ai: Sparkles,
 };
 
 const REFRESH_INTERVALS: { minutes: number; label: string }[] = [
@@ -197,8 +211,10 @@ type SetCfg = React.Dispatch<React.SetStateAction<PrepFlowConfig>>;
 export function DataPrepTab() {
   const { user, session } = useAuth();
   const token = session?.access_token ?? null;
+  const { tokenRef } = useTokenRef(token);
 
   const [datasets, setDatasets] = useState<DatasetMeta[] | null>(null);
+  const [datasetsError, setDatasetsError] = useState<string | null>(null);
   const [flows, setFlows] = useState<PrepFlowRow[]>([]);
   const [flowId, setFlowId] = useState<string | null>(null);
   const [flowName, setFlowName] = useState("");
@@ -270,7 +286,7 @@ export function DataPrepTab() {
   const [previewStep, setPreviewStep] = useState<number | null>(null);
   /** Where the last preview ran, and why it didn't fold (when it didn't). */
   const [foldState, setFoldState] = useState<{
-    engine: "local" | "warehouse";
+    engine: "local" | "warehouse" | "lakehouse";
     reason?: string;
   } | null>(null);
   const [preview, setPreview] = useState<PreviewState>({ kind: "empty" });
@@ -285,6 +301,15 @@ export function DataPrepTab() {
   // on screen together and you open the one you want.
   const [localOpen, setLocalOpen] = useState(false);
   const [extOpen, setExtOpen] = useState(true);
+  const [lakeOpen, setLakeOpen] = useState(true);
+  // Lakehouse tables the user may read, and the schemas they may write into.
+  const [lake, setLake] = useState<Awaited<ReturnType<typeof lakeTablesFn>> | null | "error">(null);
+  // Why the lakehouse list could not be read, and a way to read it again (R204).
+  const [lakeError, setLakeError] = useState<string | null>(null);
+  const [lakeAttempt, setLakeAttempt] = useState(0);
+  // Where "Run & save" writes: a local dataset, or a lakehouse table you own.
+  const [outputKind, setOutputKind] = useState<"dataset" | "lakehouse">("dataset");
+  const [outputSchema, setOutputSchema] = useState("");
   const [paletteQuery, setPaletteQuery] = useState("");
   const paletteQ = paletteQuery.trim().toLowerCase();
   const localDatasets = useMemo(
@@ -297,6 +322,32 @@ export function DataPrepTab() {
   // table imports a snapshot as a local dataset and drops it on the canvas.
   const listWarehousesFn = useServerFn(listWarehouseConnections);
   const runPrepFn = useServerFn(prepRunAndSave);
+  const lakeTablesFn = useServerFn(prepLakehouseTables);
+  const runLakeFn = useServerFn(prepRunToLakehouse);
+  useEffect(() => {
+    if (!token) return;
+    setLake(null);
+    setLakeError(null);
+    lakeTablesFn({ data: { accessToken: token } })
+      .then((r) => {
+        setLake(r);
+        const first = r.schemas.find((sch) => sch.writable);
+        if (first) setOutputSchema((prev) => prev || first.name);
+      })
+      .catch((e: unknown) => {
+        setLakeError(e instanceof Error ? e.message : String(e));
+        setLake("error");
+      });
+  }, [token, lakeTablesFn, lakeAttempt]);
+  const lakeFilteredTables = useMemo(
+    () =>
+      lake && lake !== "error"
+        ? lake.tables.filter(
+            (t) => !paletteQ || `${t.schema}.${t.table}`.toLowerCase().includes(paletteQ),
+          )
+        : [],
+    [lake, paletteQ],
+  );
   const previewFn = useServerFn(prepPreview);
   const dependentsFn = useServerFn(datasetDependents);
   const [whConns, setWhConns] = useState<WarehouseConnectionSummary[] | null>(null);
@@ -321,6 +372,24 @@ export function DataPrepTab() {
     const known = new Set(infos.map((i) => i.name));
     for (const [name, binding] of Object.entries(cfg.sources ?? {})) {
       if (known.has(name)) continue;
+      if (binding.kind === "lakehouse") {
+        const t =
+          lake && lake !== "error"
+            ? lake.tables.find((x) => x.schema === binding.schema && x.table === binding.table)
+            : undefined;
+        infos.push({
+          name,
+          columns: (t?.columns ?? []).map((c) => ({
+            name: c.name,
+            type: /int|num|dec|float|double|real|hugeint/i.test(c.type)
+              ? ("number" as const)
+              : /date|time/i.test(c.type)
+                ? ("date" as const)
+                : ("string" as const),
+          })),
+        });
+        continue;
+      }
       const tables = whSchemas[binding.connectionId];
       const t = Array.isArray(tables)
         ? tables.find((x) => `${x.schema}.${x.name}` === binding.ref)
@@ -338,7 +407,7 @@ export function DataPrepTab() {
       });
     }
     return infos;
-  }, [datasets, cfg.sources, whSchemas]);
+  }, [datasets, cfg.sources, whSchemas, lake]);
   const onCanvas = useMemo(() => new Set(prepTables(cfg)), [cfg]);
   const preparedNames = useMemo(
     () => new Set(flows.map((f) => f.output_table_name).filter((n): n is string => Boolean(n))),
@@ -349,9 +418,15 @@ export function DataPrepTab() {
   const reloadDatasets = useCallback(async () => {
     try {
       setDatasets(await hydrateFromSupabase());
+      setDatasetsError(null);
     } catch (e) {
+      // A failed reload is not an empty account: the last good list stays.
+      // A first load that fails says so, instead of the empty-state copy
+      // (which reads as "upload something") or the skeleton (which reads as
+      // "still loading").
       toast.error(`Could not load datasets: ${(e as Error).message}`);
-      setDatasets([]);
+      setDatasetsError((e as Error).message);
+      setDatasets((d) => d ?? []);
     }
   }, []);
 
@@ -423,6 +498,43 @@ export function DataPrepTab() {
   }
 
   /**
+   * Link a lakehouse table into the flow. Nothing is copied: the flow records
+   * the table, every preview and run is one governed query through the
+   * lakehouse statement guard, and the result can be saved back as a
+   * lakehouse table — the ML wizard and agents then see it at once.
+   */
+  function linkLakehouse(t: {
+    schema: string;
+    table: string;
+    columns: { name: string; type: string }[];
+  }) {
+    let name = safeTableName(t.table);
+    if (onCanvas.has(name) || tableInfos.some((i) => i.name === name)) {
+      name = safeTableName(`${t.schema}_${t.table}`);
+    }
+    if (onCanvas.has(name)) return toast.error(`"${name}" is already on the canvas`);
+    const columns = t.columns.map((c) => ({
+      name: c.name,
+      type: /int|num|dec|float|double|real|hugeint/i.test(c.type)
+        ? ("number" as const)
+        : /date|time/i.test(c.type)
+          ? ("date" as const)
+          : ("string" as const),
+    }));
+    setCfg((prev) => {
+      const withSource: PrepFlowConfig = {
+        ...prev,
+        sources: {
+          ...(prev.sources ?? {}),
+          [name]: { kind: "lakehouse", schema: t.schema, table: t.table },
+        },
+      };
+      return addTableToFlow(withSource, { name, columns }, [...tableInfos, { name, columns }]);
+    });
+    toast.success(`Linked ${t.schema}.${t.table} — reads live from the lakehouse`);
+  }
+
+  /**
    * Link a warehouse table LIVE into the flow: no rows are copied, the flow
    * records where the table lives, and the pipeline can then be pushed down
    * into the warehouse instead of dragging the table across the network.
@@ -475,7 +587,7 @@ export function DataPrepTab() {
       // Linked warehouse tables have no local rows, so the preview runs on the
       // server through the SAME folded query the real run uses — what you see
       // is what gets materialised.
-      if (prepWarehouseBinding(effective) && token) {
+      if (prepHasRemoteSources(effective) && token) {
         void (async () => {
           try {
             const res = (await previewFn({
@@ -489,7 +601,7 @@ export function DataPrepTab() {
                   ok: true;
                   columns: string[];
                   rows: Record<string, unknown>[];
-                  engine: "local" | "warehouse";
+                  engine: "local" | "warehouse" | "lakehouse";
                   foldSkipReason?: string;
                 }
               | { ok: false; error: string };
@@ -612,7 +724,10 @@ export function DataPrepTab() {
 
   async function handleDeleteFlow() {
     if (!flowId) return;
-    if (!window.confirm(`Delete flow "${flowName}"? The saved output dataset is kept.`)) return;
+    if (
+      !(await confirmAsk({ title: `Delete flow "${flowName}"? The saved output dataset is kept.` }))
+    )
+      return;
     try {
       await deletePrepFlow(flowId);
       setFlows((prev) => prev.filter((f) => f.id !== flowId));
@@ -630,6 +745,57 @@ export function DataPrepTab() {
     if (!flowName.trim()) return toast.error("Name the flow first");
     const out = safeTableName(outputName.trim() || flowName.trim());
     setRunBusy(true);
+    if (outputKind === "lakehouse") {
+      try {
+        if (!outputSchema) throw new Error("Choose a lakehouse schema you own");
+        if (!prepLakehouseBinding(cfg)) {
+          throw new Error(
+            "Saving to the lakehouse needs every source to be a linked lakehouse table",
+          );
+        }
+        const cfgOut: PrepFlowConfig = {
+          ...cfg,
+          output: { kind: "lakehouse", schema: outputSchema, table: out },
+        };
+        const id = await savePrepFlow({
+          id: flowId,
+          userId: user.id,
+          name: flowName.trim(),
+          cfg: cfgOut,
+        });
+        const result = await runLakeFn({
+          data: {
+            accessToken: token,
+            flowName: flowName.trim(),
+            config: cfgOut as unknown as Record<string, unknown>,
+            schema: outputSchema,
+            table: out,
+          },
+        });
+        if (!result.ok) throw new Error(result.error);
+        await savePrepFlow({
+          id,
+          userId: user.id,
+          name: flowName.trim(),
+          cfg: cfgOut,
+          outputTableId: null,
+          outputTableName: result.tableName,
+          markRun: true,
+        });
+        setFlowId(id);
+        setCfg(cfgOut);
+        setOutputName(out);
+        setFlows(await listPrepFlows());
+        toast.success(
+          `Wrote ${result.tableName}${result.rowCount !== null ? ` (${result.rowCount.toLocaleString()} rows)` : ""} to the lakehouse`,
+        );
+      } catch (e) {
+        toast.error((e as Error).message);
+      } finally {
+        setRunBusy(false);
+      }
+      return;
+    }
     try {
       const id = await savePrepFlow({ id: flowId, userId: user.id, name: flowName.trim(), cfg });
       // Executes on the SERVER against the full stored data (the browser
@@ -702,15 +868,21 @@ export function DataPrepTab() {
     }
   }
 
-  /** Impact list for the delete dialog (server-resolved under the user's JWT). */
+  /**
+   * Impact list for the delete dialog (server-resolved under the user's JWT).
+   * Stable across session refreshes (R125): the dialog reloads it whenever it
+   * changes, which cleared the dataset name being typed to confirm.
+   */
   const loadDependents = useCallback(
     async (tableId: string): Promise<DatasetDependents> => {
+      const token = tokenRef.current;
       if (!token) throw new Error("Not signed in");
       return (await dependentsFn({
         data: { accessToken: token, tableId },
       })) as DatasetDependents;
     },
-    [token, dependentsFn],
+    // tokenRef is the same object for the component's life: listing it reloads nothing.
+    [tokenRef, dependentsFn],
   );
 
   async function confirmDeleteDataset(target: { id: string; name: string }) {
@@ -820,7 +992,10 @@ export function DataPrepTab() {
                 variant="ghost"
                 className="h-6 w-6 p-0"
                 title="Reload tables"
-                onClick={() => void reloadDatasets()}
+                onClick={() => {
+                  void reloadDatasets();
+                  setLakeAttempt((n) => n + 1);
+                }}
               >
                 <RefreshCw className="h-3 w-3" />
               </Button>
@@ -861,7 +1036,7 @@ export function DataPrepTab() {
               Local tables
               {datasets !== null && (
                 <span className="ml-auto rounded-full bg-muted px-1.5 font-medium normal-case tracking-normal tabular-nums">
-                  {localDatasets.length}
+                  {datasetsError && localDatasets.length === 0 ? "—" : localDatasets.length}
                 </span>
               )}
             </button>
@@ -870,6 +1045,16 @@ export function DataPrepTab() {
                 <Skeleton className="h-12 w-full" />
                 <Skeleton className="h-12 w-full" />
               </>
+            ) : datasetsError && localDatasets.length === 0 ? (
+              <p
+                className="py-3 text-center text-xs text-amber-700 dark:text-amber-400"
+                data-testid="prep-tables-error"
+              >
+                Tables could not be loaded: {datasetsError}{" "}
+                <button type="button" className="underline" onClick={() => void reloadDatasets()}>
+                  Retry
+                </button>
+              </p>
             ) : localDatasets.length === 0 ? (
               <p className="py-3 text-center text-xs text-muted-foreground">
                 {paletteQ
@@ -936,6 +1121,83 @@ export function DataPrepTab() {
                   </div>
                 );
               })
+            )}
+
+            {/* ── Lakehouse tables (linked in place, never copied) ── */}
+            <button
+              type="button"
+              onClick={() => setLakeOpen((v) => !v)}
+              aria-expanded={lakeOpen}
+              className="mt-2 flex w-full items-center gap-1.5 rounded-md py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground transition-colors hover:text-foreground"
+            >
+              {lakeOpen ? (
+                <ChevronDown className="h-3 w-3 shrink-0" />
+              ) : (
+                <ChevronRight className="h-3 w-3 shrink-0" />
+              )}
+              Lakehouse tables
+              {lake && lake !== "error" && lake.tables.length > 0 && (
+                <span className="ml-auto rounded-full bg-muted px-1.5 font-medium normal-case tracking-normal tabular-nums">
+                  {lake.tables.length}
+                </span>
+              )}
+            </button>
+            {!lakeOpen ? null : lake === null ? (
+              <Skeleton className="h-9 w-full" />
+            ) : lake === "error" ? (
+              <div className="space-y-1 py-2 text-center text-[11px]">
+                <p className="text-destructive">
+                  Could not list lakehouse tables{lakeError ? `: ${lakeError}` : "."}
+                </p>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-6 text-[11px]"
+                  onClick={() => setLakeAttempt((n) => n + 1)}
+                >
+                  Try again
+                </Button>
+              </div>
+            ) : !lake.enabled ? (
+              <p className="py-2 text-center text-[11px] text-muted-foreground">
+                The lakehouse isn&apos;t configured on this deployment.
+              </p>
+            ) : lakeFilteredTables.length === 0 ? (
+              <p className="py-2 text-center text-[11px] text-muted-foreground">
+                No lakehouse tables you can read.
+              </p>
+            ) : (
+              <div className="rounded-md border border-border/60 px-1.5 py-1">
+                {lakeFilteredTables.slice(0, 300).map((t) => {
+                  const linked = Object.values(cfg.sources ?? {}).some(
+                    (b) => b.kind === "lakehouse" && b.schema === t.schema && b.table === t.table,
+                  );
+                  return (
+                    <div
+                      key={`${t.schema}.${t.table}`}
+                      className="flex w-full items-center gap-1.5 rounded px-1 py-1 hover:bg-muted/50"
+                    >
+                      <Database className="h-2.5 w-2.5 shrink-0 text-muted-foreground" />
+                      <span
+                        className="min-w-0 flex-1 truncate font-mono text-[10px]"
+                        title={`${t.schema}.${t.table} · ${t.columns.length} columns`}
+                      >
+                        {t.schema}.{t.table}
+                      </span>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-5 shrink-0 px-1.5 text-[9px]"
+                        disabled={linked}
+                        onClick={() => linkLakehouse(t)}
+                        title="Link — the flow reads this table in place through the lakehouse guard"
+                      >
+                        {linked ? "linked" : "Link"}
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
             )}
 
             {/* ── External tables (connected databases & warehouses) ── */}
@@ -1085,6 +1347,37 @@ export function DataPrepTab() {
               />
             </div>
             <div className="space-y-1">
+              <Label className="text-xs">Save as</Label>
+              <select
+                className="h-8 rounded-md border bg-background px-2 text-xs"
+                value={outputKind}
+                onChange={(e) => setOutputKind(e.target.value as "dataset" | "lakehouse")}
+                disabled={!lake || lake === "error" || !lake.enabled}
+                title={saveAsHint(lakeStateOf(lake), lakeError)}
+              >
+                <option value="dataset">local dataset</option>
+                <option value="lakehouse">lakehouse table</option>
+              </select>
+            </div>
+            {outputKind === "lakehouse" && lake && lake !== "error" ? (
+              <div className="space-y-1">
+                <Label className="text-xs">Schema</Label>
+                <select
+                  className="h-8 rounded-md border bg-background px-2 text-xs"
+                  value={outputSchema}
+                  onChange={(e) => setOutputSchema(e.target.value)}
+                >
+                  {lake.schemas
+                    .filter((sch) => sch.writable)
+                    .map((sch) => (
+                      <option key={sch.name} value={sch.name}>
+                        {sch.name}
+                      </option>
+                    ))}
+                </select>
+              </div>
+            ) : null}
+            <div className="space-y-1">
               <Label className="text-xs">Output table</Label>
               <Input
                 value={outputName}
@@ -1104,7 +1397,7 @@ export function DataPrepTab() {
               ) : (
                 <Play className="h-3.5 w-3.5" />
               )}
-              Run &amp; save dataset
+              {outputKind === "lakehouse" ? "Run & save to lakehouse" : "Run & save dataset"}
             </Button>
             {flowId && currentFlow?.output_table_id && (
               <Button
@@ -1433,24 +1726,29 @@ export function DataPrepTab() {
               {foldState && (
                 <div
                   className={`flex items-start gap-2 rounded border px-2 py-1.5 ${
-                    foldState.engine === "warehouse"
+                    foldState.engine !== "local"
                       ? "border-emerald-500/40 bg-emerald-500/5"
                       : "border-amber-400/40 bg-amber-400/10"
                   }`}
                 >
                   <Server
                     className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${
-                      foldState.engine === "warehouse" ? "text-emerald-600" : "text-amber-600"
+                      foldState.engine !== "local" ? "text-emerald-600" : "text-amber-600"
                     }`}
                   />
                   <p
                     className={`text-[11px] leading-snug ${
-                      foldState.engine === "warehouse"
+                      foldState.engine !== "local"
                         ? "text-emerald-700 dark:text-emerald-400"
                         : "text-amber-700 dark:text-amber-400"
                     }`}
                   >
-                    {foldState.engine === "warehouse" ? (
+                    {foldState.engine === "lakehouse" ? (
+                      <>
+                        <strong>Runs on the lakehouse</strong> — the whole recipe is one governed
+                        query; only the preview travels, and a lakehouse output copies nothing.
+                      </>
+                    ) : foldState.engine === "warehouse" ? (
                       <>
                         <strong>Pushed down</strong> — the whole pipeline runs inside the warehouse;
                         only the result travels.
@@ -1963,6 +2261,7 @@ function StepCard({
       </div>
       <div className="p-2.5">
         {step.kind === "calc" && <CalcStepEditor step={step} columns={names} onUpdate={onUpdate} />}
+        {step.kind === "ai" && <AiStepEditor step={step} columns={names} onUpdate={onUpdate} />}
         {step.kind === "filter" && (
           <FilterStepEditor step={step} columns={names} onUpdate={onUpdate} />
         )}
@@ -2138,6 +2437,145 @@ function CalcStepEditor({
             </button>
           ))}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function AiStepEditor({
+  step,
+  columns,
+  onUpdate,
+}: {
+  step: Extract<PrepStep, { kind: "ai" }>;
+  columns: string[];
+  onUpdate: (next: PrepStep) => void;
+}) {
+  const ref = useRef<HTMLTextAreaElement | null>(null);
+  const detailLabel = AI_SQL_DETAIL_LABELS[step.fn];
+  const selectClass =
+    "h-7 rounded-md border border-input bg-background px-2 text-[11px] focus:outline-none focus:ring-1 focus:ring-ring";
+  function insertPlaceholder(col: string) {
+    const el = ref.current;
+    const token = `{${col}}`;
+    if (!el) return onUpdate({ ...step, detail: step.detail + token });
+    const start = el.selectionStart ?? step.detail.length;
+    const end = el.selectionEnd ?? step.detail.length;
+    onUpdate({ ...step, detail: step.detail.slice(0, start) + token + step.detail.slice(end) });
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(start + token.length, start + token.length);
+    });
+  }
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <Input
+          value={step.name}
+          onChange={(e) => onUpdate({ ...step, name: e.target.value })}
+          placeholder="column_name"
+          title="The new column"
+          className="h-7 w-44 font-mono text-[11px]"
+        />
+        <select
+          className={selectClass}
+          value={step.fn}
+          title="What the model does"
+          onChange={(e) => onUpdate({ ...step, fn: e.target.value as AiSqlFunction })}
+        >
+          {AI_SQL_FUNCTIONS.map((fn) => (
+            <option key={fn} value={fn}>
+              {AI_SQL_FUNCTION_LABELS[fn]}
+            </option>
+          ))}
+        </select>
+        {step.fn !== "ai_complete" && (
+          <select
+            className={selectClass}
+            value={step.column}
+            title="The column the model reads"
+            onChange={(e) => onUpdate({ ...step, column: e.target.value })}
+          >
+            {!columns.includes(step.column) && <option value="">Pick a column…</option>}
+            {columns.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        )}
+      </div>
+      {step.fn === "ai_complete" ? (
+        <div className="space-y-1">
+          <Textarea
+            ref={ref}
+            value={step.detail}
+            onChange={(e) => onUpdate({ ...step, detail: e.target.value })}
+            placeholder="Write a one-line tagline for the {plan} plan sold in {region}"
+            className="min-h-[56px] text-[11px]"
+            spellCheck={false}
+          />
+          {columns.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {columns.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  title={`Insert {${c}}`}
+                  onClick={() => insertPlaceholder(c)}
+                  className="rounded border border-border/60 bg-background px-1.5 py-0.5 font-mono text-[10px] hover:border-primary/50 hover:bg-primary/5"
+                >
+                  {`{${c}}`}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : step.fn === "ai_summarize" ? (
+        <div className="flex items-center gap-2">
+          <Label className="text-[11px]">{detailLabel}</Label>
+          <Input
+            type="number"
+            min={1}
+            value={step.maxWords ?? ""}
+            onChange={(e) =>
+              onUpdate({ ...step, maxWords: e.target.value === "" ? null : Number(e.target.value) })
+            }
+            placeholder="40"
+            className="h-7 w-24 text-[11px]"
+          />
+        </div>
+      ) : step.fn === "ai_sentiment" ? null : (
+        <div className="flex items-center gap-2">
+          <Label className="shrink-0 text-[11px]">{detailLabel}</Label>
+          <Input
+            value={step.detail}
+            onChange={(e) => onUpdate({ ...step, detail: e.target.value })}
+            placeholder={
+              step.fn === "ai_classify"
+                ? "americas, emea, apac"
+                : step.fn === "ai_extract"
+                  ? "first_name, last_name"
+                  : step.fn === "ai_translate"
+                    ? "French"
+                    : "looks like a company, not a person"
+            }
+            className="h-7 text-[11px]"
+          />
+        </div>
+      )}
+      <div className="flex flex-wrap items-center gap-2">
+        <Input
+          value={step.model}
+          onChange={(e) => onUpdate({ ...step, model: e.target.value })}
+          placeholder="model (optional): provider/model"
+          title="Leave empty for the instance default (Admin → Developer runtime → AI in SQL)"
+          className="h-7 w-72 font-mono text-[11px]"
+        />
+        <p className="text-[10px] text-muted-foreground">
+          One model call per distinct input; answers are cached. Runs on the lakehouse or the DuckDB
+          local engine; a warehouse flow runs this step locally.
+        </p>
       </div>
     </div>
   );

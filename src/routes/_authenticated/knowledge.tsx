@@ -1,11 +1,15 @@
+import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { listCountLabel, listState } from "@/lib/listState";
 import { useDropzone } from "react-dropzone";
 import { supabase } from "@/integrations/supabase/client";
+import { scanRows } from "@/lib/cursorScan";
 import { useAuth } from "@/hooks/use-auth";
 import { cn } from "@/lib/utils";
 import { clickable } from "@/lib/clickable";
 import { parseFileToText } from "@/lib/fileParsers";
+import { isUploadedFile, kbSourceBadge } from "@/lib/kbSourceLabel";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -51,6 +55,7 @@ import {
   Cloud,
   Clock,
   Lock,
+  AlertTriangle,
 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
@@ -60,11 +65,27 @@ import { KnowledgeGraphTab } from "@/components/knowledge/KnowledgeGraphTab";
 import {
   embedKbDocuments,
   backfillKbEmbeddings,
+  kbEmbedProbe,
   kbEmbedStatus,
 } from "@/utils/tools/kbEmbed.functions";
+import {
+  forgetVectors,
+  saveKbRetrievalSettings,
+  vectorStoreBrief,
+} from "@/utils/vector/vector.functions";
 import { formatDistanceToNow } from "date-fns";
 import { Slider } from "@/components/ui/slider";
-import { type ChunkMode, type RetrievalMode, resolveRetrievalSettings } from "@/lib/kbRag";
+import {
+  type ChunkMode,
+  type RetrievalMode,
+  type VectorStoreChoice,
+  resolveRetrievalSettings,
+} from "@/lib/kbRag";
+
+// Chunks scanned to build the per-document counts. Well past any real
+// collection — the point of the ceiling is that an unbounded client scan
+// cannot be allowed to grow without one, not that it should ever bite.
+const CHUNK_SCAN_MAX = 50_000;
 
 export const Route = createFileRoute("/_authenticated/knowledge")({
   component: KnowledgePage,
@@ -116,56 +137,39 @@ type KbSource = {
   } | null;
 };
 
-type ConnectorKind = "gdrive" | "notion" | "sharepoint" | "dropbox";
-const CONNECTOR_KINDS = new Set<string>(["gdrive", "notion", "sharepoint", "dropbox"]);
+type ConnectorKind = "gdrive" | "notion" | "sharepoint" | "dropbox" | "web" | "confluence";
+const CONNECTOR_KINDS = new Set<string>([
+  "gdrive",
+  "notion",
+  "sharepoint",
+  "dropbox",
+  "web",
+  "confluence",
+]);
 const CONNECTOR_LABELS: Record<ConnectorKind, string> = {
   gdrive: "Google Drive",
   notion: "Notion",
   sharepoint: "SharePoint",
   dropbox: "Dropbox",
+  web: "Website",
+  confluence: "Confluence",
 };
 
-// Vector store providers. The built-in store uses pgvector (1536-dim
-// embeddings via OpenAI's text-embedding-3-small, HNSW cosine index).
-// Documents that haven't been embedded yet fall back to a keyword scan
-// during retrieval so existing data keeps working.
-type VectorStoreField = {
-  key: string;
-  label: string;
-  type: "text" | "password";
-  placeholder?: string;
-};
-type VectorStoreDef = {
-  id: string;
-  name: string;
-  description: string;
-  fields: VectorStoreField[];
-};
-const VECTOR_STORES: VectorStoreDef[] = [
-  {
-    id: "local",
-    name: "Supabase pgvector (default — configured)",
-    description:
-      "Documents are chunked and embedded with the embedding model you select above (OpenAI or Google), truncated to 1536 dims via Matryoshka so all models share one pgvector column with an HNSW cosine index. Retrieval embeds the query with the same model and runs semantic similarity search; any document that hasn't been embedded yet falls back to a keyword scan so nothing goes silent during back-fill.",
-    fields: [],
-  },
-];
-
-// Embedding models available via the server's OPENAI_API_KEY. Both are
-// truncated to 1536 dims via Matryoshka so they land in the same kb_chunks
-// vector space and stay searchable side-by-side. Selecting a different
-// model on an existing KB requires a Re-index.
+// Embedding models, each reached through a provider the user has connected.
+// All are truncated to 1536 dims via Matryoshka so they land in the same
+// kb_chunks vector space and stay searchable side-by-side. Selecting a
+// different model on an existing KB requires a Re-index.
 type EmbeddingModelDef = { value: string; label: string; provider: string };
 const ALL_EMBEDDING_MODELS: EmbeddingModelDef[] = [
   {
     value: "text-embedding-3-small",
-    label: "OpenAI text-embedding-3-small (1536d) — Built-in",
-    provider: "openai_builtin",
+    label: "OpenAI text-embedding-3-small (1536d) — your OpenAI key",
+    provider: "openai",
   },
   {
     value: "text-embedding-3-large",
-    label: "OpenAI text-embedding-3-large (→1536d) — Built-in",
-    provider: "openai_builtin",
+    label: "OpenAI text-embedding-3-large (→1536d) — your OpenAI key",
+    provider: "openai",
   },
   {
     value: "openai/text-embedding-3-small",
@@ -190,7 +194,8 @@ const ALL_EMBEDDING_MODELS: EmbeddingModelDef[] = [
 ];
 
 // Providers whose integrations expose an OpenAI-compatible /embeddings
-// endpoint. "openai_builtin" = the operator's OPENAI_API_KEY (zero config).
+// endpoint. There is no operator-OpenAI-key option: embeddings come from a
+// connected provider, the same place the models do.
 // OpenRouter embedding models, every one probed against the live endpoint and
 // confirmed to return 1536 dimensions — the width of the pgvector column.
 //
@@ -212,11 +217,6 @@ const OPENROUTER_EMBED_MODELS = [
 ];
 
 const EMBED_PROVIDERS: { id: string; label: string; models: string[] }[] = [
-  {
-    id: "openai_builtin",
-    label: "Built-in (operator OpenAI key)",
-    models: ["text-embedding-3-small", "text-embedding-3-large"],
-  },
   {
     id: "openai",
     label: "OpenAI (your integration)",
@@ -258,13 +258,54 @@ function KnowledgePage() {
   const { user } = useAuth();
   const embedFn = useServerFn(embedKbDocuments);
   const embedStatusFn = useServerFn(kbEmbedStatus);
+  const probeFn = useServerFn(kbEmbedProbe);
   const backfillFn = useServerFn(backfillKbEmbeddings);
+  const forgetVectorsFn = useServerFn(forgetVectors);
+  const storeBriefFn = useServerFn(vectorStoreBrief);
+  const saveRetrievalFn = useServerFn(saveKbRetrievalSettings);
+  const [storeBrief, setStoreBrief] = useState<{
+    kind: string;
+    external: boolean;
+    dims: number;
+    externalAvailable: boolean;
+  } | null>(null);
+  useEffect(() => {
+    let live = true;
+    void storeBriefFn({ data: {} })
+      .then((b) => {
+        if (live) setStoreBrief(b);
+      })
+      // A store read-out that cannot load is a missing line of prose, not a
+      // reason to break the settings dialog.
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [storeBriefFn]);
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const [bases, setBases] = useState<KnowledgeBase[]>([]);
   const [selectedBase, setSelectedBase] = useState<KnowledgeBase | null>(null);
   const [docs, setDocs] = useState<KnowledgeDoc[]>([]);
   const [sources, setSources] = useState<KbSource[]>([]);
+  // Why a list could not be read. Each is rendered ahead of its empty state:
+  // a read that failed is not "No knowledge bases yet".
+  const [basesError, setBasesError] = useState<string | null>(null);
+  // FOUND IN R192: until the first read landed the list said "No knowledge
+  // bases yet." (two seconds and more on a slow read) beside "New Knowledge
+  // Base", over an account with a dozen.
+  const [basesLoaded, setBasesLoaded] = useState(false);
+  const [docsError, setDocsError] = useState<string | null>(null);
+  const [sourcesError, setSourcesError] = useState<string | null>(null);
+  // Whether the selected base's lists have been read. FOUND FROM THE UI
+  // (R76): the previous base's twelve documents stayed listed under the next
+  // base's name for the seven seconds its read spent failing, and the tab
+  // kept "Documents (12)" after it had. The lists are cleared the moment a
+  // base is picked, say "loading" until its read lands, and a read that
+  // comes back for a base no longer selected is dropped.
+  const [docsLoaded, setDocsLoaded] = useState(false);
+  const [sourcesLoaded, setSourcesLoaded] = useState(false);
+  const listReq = useRef(0);
   const [createOpen, setCreateOpen] = useState(false);
   const [docOpen, setDocOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -275,6 +316,18 @@ function KnowledgePage() {
   const [viewDoc, setViewDoc] = useState<KnowledgeDoc | null>(null);
   // Per-document indexing status, derived from kb_chunks. Map docId → chunk count.
   const [chunkCounts, setChunkCounts] = useState<Map<string, number>>(new Map());
+  // Whether those counts are the whole story. False when the scan hit its
+  // ceiling or failed — either way the page may not turn them into a verdict
+  // about what is indexed, because a document missing from a partial scan
+  // looks exactly like a document with no chunks.
+  const [chunkCountsWhole, setChunkCountsWhole] = useState(true);
+  const basesState = listState({ loaded: basesLoaded, error: basesError, count: bases.length });
+  const docsState = listState({ loaded: docsLoaded, error: docsError, count: docs.length });
+  const sourcesState = listState({
+    loaded: sourcesLoaded,
+    error: sourcesError,
+    count: sources.length,
+  });
   const [backfilling, setBackfilling] = useState(false);
 
   // Open the Create dialog when navigated to with ?new=1 (Global "+" menu).
@@ -294,12 +347,21 @@ function KnowledgePage() {
   const [docContent, setDocContent] = useState("");
 
   // Vector store settings
-  const [vectorStore, setVectorStore] = useState("local");
   const [embeddingModel, setEmbeddingModel] = useState("text-embedding-3-small");
-  const [embedProvider, setEmbedProvider] = useState("openai_builtin");
+  const [embedProvider, setEmbedProvider] = useState(DEFAULT_EMBED_PROVIDER);
   // Set once the user picks a provider, so the auto-default stops interfering.
   const [embedProviderTouched, setEmbedProviderTouched] = useState(false);
-  const [builtinConfigured, setBuiltinConfigured] = useState<boolean | null>(null);
+  const [anyProviderResolvable, setAnyProviderResolvable] = useState<boolean | null>(null);
+  // Result of actually calling the provider. The store is vector(1536) and
+  // ingest hard-rejects any other width, so "has an embeddings API" is not the
+  // same as "works here" — and which models honour the `dimensions` parameter
+  // cannot be read off a model id. Measured, not predicted.
+  const [probe, setProbe] = useState<{
+    ok: boolean;
+    dims?: number;
+    message?: string;
+  } | null>(null);
+  const [probing, setProbing] = useState(false);
   const [openrouterAvailable, setOpenrouterAvailable] = useState<boolean | null>(null);
   const [customEmbedModel, setCustomEmbedModel] = useState("");
   const [chunkStrategy, setChunkStrategy] = useState("recursive");
@@ -314,14 +376,18 @@ function KnowledgePage() {
   // Retrieval settings belong to the knowledge base, not the document.
   const [retrievalMode, setRetrievalMode] = useState<RetrievalMode>("semantic");
   const [semanticWeight, setSemanticWeight] = useState(0.7);
+  const [vectorStoreChoice, setVectorStoreChoice] = useState<VectorStoreChoice>("default");
+  // What is on the server, so the dialog can say that a change has to move
+  // vectors before it takes effect — the one retrieval setting that is not
+  // free to flip.
+  const [savedVectorStore, setSavedVectorStore] = useState<VectorStoreChoice>("default");
   const [savingRetrieval, setSavingRetrieval] = useState(false);
   const [reindexing, setReindexing] = useState(false);
 
-  // Connected embedding providers. "openai_builtin" is always available —
-  // it's backed by the server's OPENAI_API_KEY, not a per-user integration.
-  const [connectedProviders, setConnectedProviders] = useState<Set<string>>(
-    new Set(["openai_builtin"]),
-  );
+  // Connected embedding providers. Starts empty: nothing is available until
+  // the user connects it, or the operator's OPENROUTER_API_KEY makes OpenRouter
+  // available (reported separately by kbEmbedStatus).
+  const [connectedProviders, setConnectedProviders] = useState<Set<string>>(new Set());
 
   // Multi-file upload state
   const [uploadFiles, setUploadFiles] = useState<{ name: string; content: string; size: number }[]>(
@@ -336,10 +402,8 @@ function KnowledgePage() {
   // OpenRouter while warning that OpenRouter was not connected.
   const providerUsable = useCallback(
     (id: string) =>
-      connectedProviders.has(id) ||
-      (id === "openrouter" && openrouterAvailable === true) ||
-      (id === "openai_builtin" && builtinConfigured !== false),
-    [connectedProviders, openrouterAvailable, builtinConfigured],
+      connectedProviders.has(id) || (id === "openrouter" && openrouterAvailable === true),
+    [connectedProviders, openrouterAvailable],
   );
 
   // How much of the selected base is actually searchable semantically.
@@ -365,21 +429,18 @@ function KnowledgePage() {
       ALL_EMBEDDING_MODELS.filter((m) => providerUsable(m.provider) || m.value === embeddingModel),
     [providerUsable, embeddingModel],
   );
-  const embedProviderOptions = EMBED_PROVIDERS.filter(
-    (p) => p.id === "openai_builtin" || providerUsable(p.id),
-  );
+  const embedProviderOptions = EMBED_PROVIDERS.filter((p) => providerUsable(p.id));
 
-  // Default to OpenRouter when it is connected: it is the provider most
-  // instances already have a key for, so embedding works without a second
-  // account, and it does not share the operator OpenAI key's quota. Falls back
-  // to the built-in key, then to any other connected embedding-capable
+  // Default to OpenRouter when it is available: it is the provider most
+  // instances already have a key for, so embedding works without connecting a
+  // second account. Falls back to any other connected embedding-capable
   // integration. Only ever moves off an untouched default — once the user picks
   // a provider themselves, `embedProviderTouched` stops this from overriding it.
   useEffect(() => {
-    if (embedProviderTouched || embedProvider !== "openai_builtin") return;
+    if (embedProviderTouched) return;
     // Mirrors resolveEmbedTarget on the server: a connected OpenRouter
-    // integration, then the operator's OpenRouter key, then the operator's
-    // OpenAI key. If this order disagreed with the server's, the dialog would
+    // integration, then the operator's OpenRouter key, then any other connected
+    // provider. If this order disagreed with the server's, the dialog would
     // name one provider while ingest quietly used another — and the stamp on
     // each document would be the only evidence.
     const preferred =
@@ -389,15 +450,12 @@ function KnowledgePage() {
       (openrouterAvailable === true
         ? EMBED_PROVIDERS.find((p) => p.id === DEFAULT_EMBED_PROVIDER)
         : undefined) ??
-      (builtinConfigured === false
-        ? EMBED_PROVIDERS.find((p) => p.id !== "openai_builtin" && connectedProviders.has(p.id))
-        : undefined);
+      EMBED_PROVIDERS.find((p) => connectedProviders.has(p.id));
     if (preferred) {
       setEmbedProvider(preferred.id);
       if (preferred.models[0]) setEmbeddingModel(preferred.models[0]);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [builtinConfigured, openrouterAvailable, connectedProviders, embedProviderTouched]);
+  }, [anyProviderResolvable, openrouterAvailable, connectedProviders, embedProviderTouched]);
   const embedModelSuggestions = EMBED_PROVIDERS.find((p) => p.id === embedProvider)?.models ?? [];
   const effectiveEmbedModel = customEmbedModel.trim() || embeddingModel;
   const currentEmbeddingDef = ALL_EMBEDDING_MODELS.find((m) => m.value === embeddingModel);
@@ -410,14 +468,23 @@ function KnowledgePage() {
     loadConnectedProviders();
     embedStatusFn({})
       .then((r) => {
-        setBuiltinConfigured(r.builtinConfigured);
+        setAnyProviderResolvable(r.anyProviderResolvable);
         setOpenrouterAvailable(r.openrouterAvailable);
       })
-      .catch(() => setBuiltinConfigured(null));
+      .catch(() => setAnyProviderResolvable(null));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => {
     if (selectedBase) {
+      // The previous base's rows are not this base's (R76).
+      listReq.current += 1;
+      setDocs([]);
+      setSources([]);
+      setChunkCounts(new Map());
+      setDocsError(null);
+      setSourcesError(null);
+      setDocsLoaded(false);
+      setSourcesLoaded(false);
       loadDocs(selectedBase.id);
       loadSources(selectedBase.id);
     }
@@ -425,7 +492,7 @@ function KnowledgePage() {
 
   async function loadConnectedProviders() {
     if (!user) return;
-    const connected = new Set<string>(["openai_builtin"]);
+    const connected = new Set<string>();
     const { data: integ } = await supabase
       .from("integrations")
       .select("provider, type, is_active")
@@ -456,14 +523,18 @@ function KnowledgePage() {
     // resolveRetrievalSettings pins the weight to 1/0 outside hybrid mode; the
     // slider only means something in hybrid, so keep a usable value otherwise.
     setSemanticWeight(r.mode === "hybrid" ? r.semanticWeight : 0.7);
+    setVectorStoreChoice(r.vectorStore);
+    setSavedVectorStore(r.vectorStore);
   }, [selectedBase]);
 
   async function loadBases() {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("knowledge_bases")
       .select("*")
       .order("created_at", { ascending: false });
+    setBasesError(error ? error.message : null);
     if (data) setBases(data);
+    setBasesLoaded(true);
   }
 
   async function reindexWithCurrentSettings() {
@@ -514,54 +585,107 @@ function KnowledgePage() {
   async function saveRetrievalSettings() {
     if (!selectedBase) return;
     setSavingRetrieval(true);
-    const { error } = await supabase
-      .from("knowledge_bases")
-      .update({
-        retrieval_settings: { mode: retrievalMode, semantic_weight: semanticWeight },
-      })
-      .eq("id", selectedBase.id);
-    setSavingRetrieval(false);
-    if (error) {
-      toast.error(error.message);
-      return;
+    // Through the server rather than a direct update: changing the index means
+    // moving the vectors that are already written, and a browser cannot do
+    // that. Mode and weighting go the same way so there is one saved shape.
+    try {
+      const r = await saveRetrievalFn({
+        data: {
+          knowledgeBaseId: selectedBase.id,
+          mode: retrievalMode,
+          semanticWeight,
+          vectorStore: vectorStoreChoice,
+        },
+      });
+      if (!r.ok) {
+        toast.error(r.error);
+        return;
+      }
+      setSavedVectorStore(vectorStoreChoice);
+      toast.success(
+        r.movedTo
+          ? `Retrieval settings saved \u2014 ${r.moved.toLocaleString()} vector(s) moved into ${r.movedTo}`
+          : "Retrieval settings saved",
+      );
+      loadBases();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not save retrieval settings");
+    } finally {
+      setSavingRetrieval(false);
     }
-    toast.success("Retrieval settings saved");
-    loadBases();
   }
 
   async function loadDocs(kbId: string) {
-    const { data } = await supabase
+    const req = listReq.current;
+    const { data, error } = await supabase
       .from("knowledge_documents")
       .select("*")
       .eq("knowledge_base_id", kbId)
       .order("created_at", { ascending: false });
+    if (req !== listReq.current) return; // another base was picked meanwhile
+    setDocsError(error ? error.message : null);
     if (data) setDocs(data as KnowledgeDoc[]);
+    setDocsLoaded(true);
     await loadChunkCounts(kbId);
   }
 
   async function loadChunkCounts(kbId: string) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: rows } = await (supabase.from("kb_chunks" as any) as any)
-      .select("document_id")
-      .eq("knowledge_base_id", kbId);
-    const counts = new Map<string, number>();
-    ((rows ?? []) as { document_id: string }[]).forEach((r) => {
-      counts.set(r.document_id, (counts.get(r.document_id) ?? 0) + 1);
-    });
-    setChunkCounts(counts);
+    // This was an unbounded `.select("document_id")`, which PostgREST answers
+    // with at most `db-max-rows` — 1,000 on a default Supabase project — and
+    // supabase-js hands back the short page with no error. Chunks are the
+    // numerous thing here: one modest document set passes a thousand of them,
+    // and every document whose chunks landed past the cut then showed an amber
+    // "Pending embedding" badge while being fully indexed, and was counted as
+    // missing by "Indexed N/M" and by "Embed X pending".
+    //
+    // Cursor paging rather than `.range()` on purpose: offset paging that stops
+    // at the first short page is wrong whenever the server's cap is smaller
+    // than the page it was asked for, which is the assumption that produced the
+    // bug in the first place.
+    try {
+      const scan = await scanRows<{ id: string; document_id: string }>(
+        async (after, pageSize) => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          let q = (supabase.from("kb_chunks" as any) as any)
+            .select("id, document_id")
+            .eq("knowledge_base_id", kbId)
+            .order("id", { ascending: true })
+            .limit(pageSize);
+          if (after) q = q.gt("id", after);
+          const { data: rows, error } = await q;
+          if (error) throw new Error(error.message);
+          return (rows ?? []) as { id: string; document_id: string }[];
+        },
+        (r) => r.id,
+        { maxRows: CHUNK_SCAN_MAX },
+      );
+      const counts = new Map<string, number>();
+      scan.rows.forEach((r) => counts.set(r.document_id, (counts.get(r.document_id) ?? 0) + 1));
+      setChunkCounts(counts);
+      setChunkCountsWhole(scan.complete);
+    } catch {
+      // A scan that failed knows nothing, which is not the same as knowing
+      // there are no chunks. Say nothing rather than saying zero.
+      setChunkCounts(new Map());
+      setChunkCountsWhole(false);
+    }
   }
 
   async function loadSources(kbId: string) {
+    const req = listReq.current;
     // Explicit columns — the row also carries encrypted connector credentials,
     // which have no business in a browser even ciphertext-form.
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("kb_sources")
       .select(
         "id, knowledge_base_id, kind, label, status, config, last_synced_at, error, is_sample, created_at, sync_schedule, next_sync_at, access_scope, last_sync_stats",
       )
       .eq("knowledge_base_id", kbId)
       .order("created_at", { ascending: false });
+    if (req !== listReq.current) return; // another base was picked meanwhile
+    setSourcesError(error ? error.message : null);
     if (data) setSources(data as KbSource[]);
+    setSourcesLoaded(true);
   }
 
   // Re-sync a URL or GitHub source via the same ingest endpoint with the
@@ -657,10 +781,38 @@ function KnowledgePage() {
       toast.error("Sample sources can't be removed");
       return;
     }
-    await supabase.from("knowledge_documents").delete().eq("source_id", src.id);
+    // Removing a source CASCADES its documents — every page crawled or synced
+    // from it, and their chunks and vectors. The guard added for deleteBase
+    // sat right next to this one while this deleted more on a single click.
+    if (
+      !(await confirmAsk({
+        title: `Remove "${src.label ?? src.kind}"?`,
+        body: "Every document synced from it goes too, with their chunks and embeddings. Retrieval stops using them at once. This cannot be undone.",
+        actionLabel: "Remove source",
+      }))
+    )
+      return;
+    // Vectors first, while the rows that prove ownership still exist. On the
+    // default pgvector store this is a no-op — the vector is a column on the
+    // chunk and the cascade takes it.
+    await forgetVectorsFn({ data: { sourceIds: [src.id] } }).catch(() => {});
+    // FOUND FROM THE UI (R68). The documents delete here, and the base and
+    // document deletes below, dropped their error and said "Deleted" over a
+    // row that was still there. Each keeps its error now — and says what the
+    // forget above means: the embeddings are gone, the row is not.
+    const { error: docsError } = await supabase
+      .from("knowledge_documents")
+      .delete()
+      .eq("source_id", src.id);
+    if (docsError) {
+      toast.error("Could not remove the source's documents", {
+        description: `${docsError.message}. Their embeddings were already removed — re-index the knowledge base to restore retrieval.`,
+      });
+      return;
+    }
     const { error } = await supabase.from("kb_sources").delete().eq("id", src.id);
     if (error) {
-      toast.error(error.message);
+      toast.error("Could not remove the source", { description: error.message });
       return;
     }
     toast.success("Source removed");
@@ -694,7 +846,27 @@ function KnowledgePage() {
       toast.error("Sample knowledge bases can't be deleted");
       return;
     }
-    await supabase.from("knowledge_bases").delete().eq("id", id);
+    // FOUND FROM THE UI. This deleted a knowledge base -- every document,
+    // chunk and connected source in it -- on one click, with no question
+    // asked. The native-dialog sweep could not see it: it hunts confirm()
+    // calls that exist, not confirmations that never did.
+    const name = target?.name ?? "this knowledge base";
+    if (
+      !(await confirmAsk({
+        title: `Delete "${name}"?`,
+        body: "Every document, chunk and connected source in it is removed. Agents wired to it lose their knowledge. This cannot be undone.",
+        actionLabel: "Delete knowledge base",
+      }))
+    )
+      return;
+    await forgetVectorsFn({ data: { knowledgeBaseIds: [id] } }).catch(() => {});
+    const { error } = await supabase.from("knowledge_bases").delete().eq("id", id);
+    if (error) {
+      toast.error("Could not delete the knowledge base", {
+        description: `${error.message}. Its embeddings were already removed — re-index it to restore retrieval.`,
+      });
+      return;
+    }
     if (selectedBase?.id === id) {
       setSelectedBase(null);
       setDocs([]);
@@ -835,7 +1007,23 @@ function KnowledgePage() {
   } as unknown as Parameters<typeof useDropzone>[0]);
 
   async function deleteDoc(id: string) {
-    await supabase.from("knowledge_documents").delete().eq("id", id);
+    const doc = docs.find((d) => d.id === id);
+    if (
+      !(await confirmAsk({
+        title: `Delete "${doc?.name ?? "this document"}"?`,
+        body: "Its chunks and embeddings go with it, so answers stop citing it. This cannot be undone.",
+        actionLabel: "Delete document",
+      }))
+    )
+      return;
+    await forgetVectorsFn({ data: { documentIds: [id] } }).catch(() => {});
+    const { error } = await supabase.from("knowledge_documents").delete().eq("id", id);
+    if (error) {
+      toast.error("Could not delete the document", {
+        description: `${error.message}. Its embeddings were already removed — re-index the knowledge base to restore retrieval.`,
+      });
+      return;
+    }
     if (selectedBase) loadDocs(selectedBase.id);
     toast.success("Document deleted");
   }
@@ -856,8 +1044,6 @@ function KnowledgePage() {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   }
-
-  const currentVectorStore = VECTOR_STORES.find((v) => v.id === vectorStore);
 
   /**
    * Index / re-index the selected collection.
@@ -922,18 +1108,24 @@ function KnowledgePage() {
       size="sm"
       variant="outline"
       disabled={backfilling}
-      onClick={() => void runIndex(indexCoverage.indexed >= indexCoverage.total)}
+      // Forcing is a full RE-index of everything. Deciding to do that from
+      // counts that may be a prefix is how a partial scan turns into a bill.
+      onClick={() =>
+        void runIndex(chunkCountsWhole && indexCoverage.indexed >= indexCoverage.total)
+      }
     >
       {backfilling ? (
         <Loader2 className="h-3 w-3 mr-1 animate-spin" />
       ) : (
         <RefreshCw className="h-3 w-3 mr-1" />
       )}
-      {indexCoverage.indexed === 0
-        ? `Index ${indexCoverage.total} document${indexCoverage.total === 1 ? "" : "s"}`
-        : indexCoverage.indexed < indexCoverage.total
-          ? `Embed ${indexCoverage.total - indexCoverage.indexed} pending`
-          : "Re-index"}
+      {!chunkCountsWhole
+        ? "Index pending documents"
+        : indexCoverage.indexed === 0
+          ? `Index ${indexCoverage.total} document${indexCoverage.total === 1 ? "" : "s"}`
+          : indexCoverage.indexed < indexCoverage.total
+            ? `Embed ${indexCoverage.total - indexCoverage.indexed} pending`
+            : "Re-index"}
     </Button>
   ) : null;
 
@@ -978,38 +1170,66 @@ function KnowledgePage() {
                     </TabsTrigger>
                   </TabsList>
 
+                  {/*
+                   * READ-ONLY, and that is the honest shape.
+                   *
+                   * This tab used to be a "Vector Store Provider" dropdown
+                   * with one option, backed by a `useState` nothing read and
+                   * nothing saved — a control that looked like a choice and
+                   * was not one. Where vectors are searched is a deployment
+                   * setting (VECTOR_STORE / QDRANT_URL), not a per-collection
+                   * one: splitting it per collection would put one knowledge
+                   * base's vectors in Postgres and another's in Qdrant, and a
+                   * switch would strand half of one in each.
+                   *
+                   * So it says which store this deployment uses, and where to
+                   * change it. Nothing here is sensitive — no endpoint, no
+                   * counts, no key — because any collection owner can open it.
+                   */}
                   <TabsContent value="vectorstore" className="space-y-4 mt-4">
-                    <div className="space-y-2">
-                      <Label>Vector Store Provider</Label>
-                      <Select value={vectorStore} onValueChange={setVectorStore}>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {VECTOR_STORES.map((vs) => (
-                            <SelectItem key={vs.id} value={vs.id}>
-                              <div className="flex items-center gap-2">
-                                <Database className="h-3 w-3" />
-                                {vs.name}
-                              </div>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      {currentVectorStore && (
-                        <p className="text-xs text-muted-foreground">
-                          {currentVectorStore.description}
-                        </p>
-                      )}
+                    <div className="rounded-lg border border-border/60 p-3 space-y-2">
+                      <div className="flex items-center gap-2">
+                        <Database className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-sm font-medium">
+                          {storeBrief?.external
+                            ? `Searched in ${storeBrief.kind}`
+                            : "Searched in Postgres (pgvector)"}
+                        </span>
+                        <Badge variant="secondary" className="text-[10px]">
+                          {storeBrief ? `${storeBrief.dims} dimensions` : "…"}
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {storeBrief?.external ? (
+                          <>
+                            Embeddings are searched in an external{" "}
+                            <strong>{storeBrief.kind}</strong> store. It holds vectors and two ids;
+                            the chunk text, the parent passages and who may read them stay in
+                            Postgres, so keyword search is unaffected and the index can always be
+                            rebuilt.
+                          </>
+                        ) : (
+                          <>
+                            Embeddings live in <strong>Postgres</strong>, in the same rows as the
+                            chunks they belong to. One thing to run, one thing to back up, and the
+                            permission check is the row-level security already protecting those
+                            rows.
+                          </>
+                        )}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        This applies to <strong>every</strong> collection — it is set once for the
+                        deployment, not per knowledge base, because one collection&apos;s vectors
+                        living somewhere else from another&apos;s is a way to strand half of each.
+                        An operator changes it in{" "}
+                        <strong>Admin → Developer runtime → AI services</strong>, which also shows
+                        whether the store is answering and can re-index it.
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        What you set on the other tabs — chunking, the embedding model, retrieval
+                        mode — applies wherever the vectors are searched.
+                      </p>
                     </div>
-                    <Button
-                      onClick={() => {
-                        toast.success("Defaults updated — they apply to documents you add next");
-                        setSettingsOpen(false);
-                      }}
-                    >
-                      Use These Defaults
-                    </Button>
                   </TabsContent>
 
                   <TabsContent value="embedding" className="space-y-4 mt-4">
@@ -1021,6 +1241,7 @@ function KnowledgePage() {
                           setEmbedProvider(v);
                           setEmbedProviderTouched(true);
                           setCustomEmbedModel("");
+                          setProbe(null);
                           const first = EMBED_PROVIDERS.find((p) => p.id === v)?.models[0];
                           if (first) setEmbeddingModel(first);
                         }}
@@ -1032,21 +1253,55 @@ function KnowledgePage() {
                           {embedProviderOptions.map((p) => (
                             <SelectItem key={p.id} value={p.id}>
                               {p.label}
-                              {p.id === "openai_builtin" && builtinConfigured === false
-                                ? " — not configured"
-                                : ""}
                             </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
-                      {embedProvider === "openai_builtin" && builtinConfigured === false && (
+                      {anyProviderResolvable === false && (
                         <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-2 text-xs text-destructive">
                           <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
                           <span>
-                            The operator's OPENAI_API_KEY is not set on this instance, so the
-                            built-in provider can't embed. Connect an embedding-capable provider
-                            under Integrations instead.
+                            No connected provider can embed, so documents are saved with keyword
+                            search only. Connect one with an embeddings API under Integrations.
                           </span>
+                        </div>
+                      )}
+                      <div className="flex items-center gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={probing || !embedProvider}
+                          onClick={async () => {
+                            setProbing(true);
+                            setProbe(null);
+                            try {
+                              const r = await probeFn({
+                                data: {
+                                  provider: embedProvider,
+                                  model: effectiveEmbedModel || undefined,
+                                },
+                              });
+                              setProbe(r);
+                            } catch (e) {
+                              setProbe({ ok: false, message: (e as Error).message });
+                            } finally {
+                              setProbing(false);
+                            }
+                          }}
+                        >
+                          {probing ? "Testing…" : "Test embedding"}
+                        </Button>
+                        {probe?.ok && (
+                          <span className="text-xs text-emerald-600 dark:text-emerald-400">
+                            Works — {probe.dims} dimensions
+                          </span>
+                        )}
+                      </div>
+                      {probe && !probe.ok && (
+                        <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-2 text-xs text-destructive">
+                          <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
+                          <span>{probe.message}</span>
                         </div>
                       )}
                       <p className="text-xs text-muted-foreground">
@@ -1239,24 +1494,26 @@ function KnowledgePage() {
                       </p>
                     ) : (
                       <>
-                        {indexCoverage.total > 0 && indexCoverage.indexed === 0 && (
-                          <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs leading-relaxed">
-                            <p className="font-medium text-foreground">
-                              Nothing in this collection is indexed yet — these settings are not in
-                              effect.
-                            </p>
-                            <p className="mt-1 text-muted-foreground">
-                              All {indexCoverage.total} document
-                              {indexCoverage.total === 1 ? " has" : "s have"} zero chunks, so
-                              searching it falls back to matching words in the raw text. Search
-                              mode, the semantic/keyword balance, parent expansion and Q&amp;A pairs
-                              all operate on chunks, so they change nothing until it is indexed. The
-                              shipped sample collections start this way — indexing them costs
-                              embedding calls, so it is left to you.
-                            </p>
-                            {indexButton && <div className="mt-2">{indexButton}</div>}
-                          </div>
-                        )}
+                        {chunkCountsWhole &&
+                          indexCoverage.total > 0 &&
+                          indexCoverage.indexed === 0 && (
+                            <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs leading-relaxed">
+                              <p className="font-medium text-foreground">
+                                Nothing in this collection is indexed yet — these settings are not
+                                in effect.
+                              </p>
+                              <p className="mt-1 text-muted-foreground">
+                                All {indexCoverage.total} document
+                                {indexCoverage.total === 1 ? " has" : "s have"} zero chunks, so
+                                searching it falls back to matching words in the raw text. Search
+                                mode, the semantic/keyword balance, parent expansion and Q&amp;A
+                                pairs all operate on chunks, so they change nothing until it is
+                                indexed. The shipped sample collections start this way — indexing
+                                them costs embedding calls, so it is left to you.
+                              </p>
+                              {indexButton && <div className="mt-2">{indexButton}</div>}
+                            </div>
+                          )}
                         <div className="space-y-2">
                           <Label>Search Mode</Label>
                           <Select
@@ -1308,6 +1565,55 @@ function KnowledgePage() {
                           </div>
                         )}
 
+                        <div className="space-y-2">
+                          <Label>Vector index</Label>
+                          <Select
+                            value={vectorStoreChoice}
+                            onValueChange={(v) => setVectorStoreChoice(v as VectorStoreChoice)}
+                          >
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="default">
+                                Instance default
+                                {storeBrief ? ` — ${storeBrief.kind}` : ""}
+                              </SelectItem>
+                              <SelectItem value="pgvector">
+                                Postgres (pgvector) &mdash; in this database
+                              </SelectItem>
+                              <SelectItem value="qdrant">
+                                Qdrant &mdash; dedicated vector service
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <p className="text-xs text-muted-foreground">
+                            Where this collection{"\u2019"}s nearest-neighbour search runs. Postgres
+                            keeps the vector on the chunk row, so permissions are the same row
+                            permissions and there is nothing to keep in sync &mdash; the right
+                            answer for most collections. Qdrant holds a copy of the vectors in a
+                            service built for them, which pays off on collections large enough that
+                            the database is the bottleneck. The text, the permissions and the
+                            embeddings stay in Postgres either way.
+                          </p>
+                          {vectorStoreChoice === "qdrant" &&
+                            storeBrief &&
+                            !storeBrief.externalAvailable && (
+                              <p className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs">
+                                Qdrant is not configured on this deployment, so saving this would
+                                leave the collection searching Postgres anyway. Set QDRANT_URL and
+                                restart the app first.
+                              </p>
+                            )}
+                          {vectorStoreChoice !== savedVectorStore && (
+                            <p className="rounded-md border border-sky-500/40 bg-sky-500/10 p-2 text-xs">
+                              Saving moves this collection{"\u2019"}s existing vectors into the new
+                              index and clears the old one. Nothing is re-embedded, so this costs no
+                              model calls &mdash; but it does read every chunk, so a large
+                              collection takes a moment.
+                            </p>
+                          )}
+                        </div>
                         <Button
                           size="sm"
                           disabled={savingRetrieval}
@@ -1317,8 +1623,9 @@ function KnowledgePage() {
                         </Button>
                         <p className="text-xs text-muted-foreground">
                           Applies immediately to every agent and swarm that searches this knowledge
-                          base. No re-embedding needed &mdash; this changes how the existing index
-                          is queried, not how it was built.
+                          base. Nothing here re-embeds anything &mdash; search mode and weighting
+                          change how the existing index is queried, and changing the index moves the
+                          vectors that are already built.
                         </p>
                       </>
                     )}
@@ -1365,15 +1672,21 @@ function KnowledgePage() {
             <div className="flex items-center gap-3">
               <Database className="h-5 w-5 text-primary" />
               <div>
-                <p className="text-sm font-medium">Retrieval: {currentVectorStore?.name}</p>
+                <p className="text-sm font-medium">
+                  Retrieval:{" "}
+                  {storeBrief?.external
+                    ? `vectors searched in ${storeBrief.kind}`
+                    : "vectors searched in Postgres (pgvector)"}
+                </p>
                 <p className="text-xs text-muted-foreground">
-                  Semantic search over pgvector embeddings (HNSW cosine index). Documents that
-                  haven't been embedded yet fall back to a keyword scan.
+                  Semantic search over {storeBrief?.dims ?? 1536}-dimensional embeddings, cosine
+                  distance. The chunk text and its permissions are always in Postgres, so a document
+                  that has not been embedded yet still answers by keyword.
                 </p>
               </div>
             </div>
             <Badge variant="outline" className="border-primary/30 text-primary">
-              Built-in
+              {storeBrief?.external ? storeBrief.kind : "Built-in"}
             </Badge>
           </CardContent>
         </Card>
@@ -1436,11 +1749,20 @@ function KnowledgePage() {
                 )}
               </Card>
             ))}
-            {bases.length === 0 && (
+            {basesState === "error" ? (
+              <p className="text-sm text-destructive py-8 text-center" role="alert">
+                <AlertTriangle className="inline h-4 w-4 mr-1 align-text-bottom" />
+                Could not load your knowledge bases: {basesError}
+              </p>
+            ) : basesState === "loading" ? (
+              <p className="text-sm text-muted-foreground py-8 text-center">
+                Loading your knowledge bases…
+              </p>
+            ) : basesState === "empty" ? (
               <p className="text-sm text-muted-foreground py-8 text-center">
                 No knowledge bases yet.
               </p>
-            )}
+            ) : null}
           </div>
 
           <div className="lg:col-span-2 space-y-4">
@@ -1601,8 +1923,12 @@ function KnowledgePage() {
 
                 <Tabs defaultValue="documents" className="w-full">
                   <TabsList>
-                    <TabsTrigger value="documents">Documents ({docs.length})</TabsTrigger>
-                    <TabsTrigger value="sources">Sources ({sources.length})</TabsTrigger>
+                    <TabsTrigger value="documents">
+                      Documents ({listCountLabel(docsState, docs.length)})
+                    </TabsTrigger>
+                    <TabsTrigger value="sources">
+                      Sources ({listCountLabel(sourcesState, sources.length)})
+                    </TabsTrigger>
                     <TabsTrigger value="graph" className="gap-1">
                       <GitBranch className="h-3 w-3" /> Graph
                     </TabsTrigger>
@@ -1619,6 +1945,16 @@ function KnowledgePage() {
                         // It is a resting state, and it means semantic search
                         // is off, so say that instead of implying it is coming.
                         const none = indexed === 0;
+                        if (!chunkCountsWhole) {
+                          // A bar drawn from a prefix is a measurement, and this
+                          // one would read low. Nothing is a truer picture than
+                          // a wrong fraction.
+                          return (
+                            <p className="mb-3 text-xs text-muted-foreground">
+                              Index coverage could not be read in full for this collection.
+                            </p>
+                          );
+                        }
                         return (
                           <div className="mb-3 flex items-center gap-3">
                             <Progress value={(indexed / total) * 100} className="h-1.5 flex-1" />
@@ -1636,7 +1972,15 @@ function KnowledgePage() {
                           </div>
                         );
                       })()}
-                    {docs.length === 0 ? (
+                    {docsState === "error" ? (
+                      <p className="text-sm text-destructive py-8 text-center" role="alert">
+                        Could not load the documents: {docsError}
+                      </p>
+                    ) : docsState === "loading" ? (
+                      <p className="text-sm text-muted-foreground py-8 text-center" role="status">
+                        Loading documents…
+                      </p>
+                    ) : docs.length === 0 ? (
                       <p className="text-sm text-muted-foreground py-8 text-center">
                         No documents in this knowledge base.
                       </p>
@@ -1644,16 +1988,7 @@ function KnowledgePage() {
                       <div className="space-y-2">
                         {docs.map((doc) => {
                           const sourceForDoc = sources.find((s) => s.id === doc.source_id);
-                          const sourceBadge =
-                            sourceForDoc?.kind === "url"
-                              ? "URL"
-                              : sourceForDoc?.kind === "github"
-                                ? "GitHub"
-                                : sourceForDoc?.kind === "pdf"
-                                  ? "PDF"
-                                  : sourceForDoc?.kind === "csv"
-                                    ? "CSV"
-                                    : "Manual";
+                          const sourceBadge = kbSourceBadge(sourceForDoc);
                           return (
                             <Card
                               key={doc.id}
@@ -1700,6 +2035,20 @@ function KnowledgePage() {
                                               className="text-[10px] px-1 py-0 text-muted-foreground"
                                             >
                                               No text
+                                            </Badge>
+                                          );
+                                        }
+                                        if (!chunkCountsWhole) {
+                                          // "Pending embedding" on a document
+                                          // that is indexed is the whole defect.
+                                          // Absent from a partial scan is not
+                                          // absent from the table.
+                                          return (
+                                            <Badge
+                                              variant="outline"
+                                              className="text-[10px] px-1 py-0 text-muted-foreground"
+                                            >
+                                              Index status unknown
                                             </Badge>
                                           );
                                         }
@@ -1757,7 +2106,15 @@ function KnowledgePage() {
                   </TabsContent>
 
                   <TabsContent value="sources" className="mt-3">
-                    {sources.length === 0 ? (
+                    {sourcesState === "error" ? (
+                      <p className="text-sm text-destructive py-8 text-center" role="alert">
+                        Could not load the sources: {sourcesError}
+                      </p>
+                    ) : sourcesState === "loading" ? (
+                      <p className="text-sm text-muted-foreground py-8 text-center" role="status">
+                        Loading sources…
+                      </p>
+                    ) : sources.length === 0 ? (
                       <div className="text-center py-8 space-y-3">
                         <p className="text-sm text-muted-foreground">
                           No sources yet — add a URL or GitHub repo, upload a file, or connect
@@ -1821,11 +2178,18 @@ function KnowledgePage() {
                                     ? `${(cfg.page_ids?.length ?? 0) + (cfg.database_ids?.length ?? 0)} page/database id(s)`
                                     : src.kind === "sharepoint"
                                       ? cfg.folder_path || cfg.site_id || "Document library"
-                                      : src.kind === "dropbox"
-                                        ? cfg.path || "Entire Dropbox"
-                                        : src.kind === "pdf" || src.kind === "csv"
-                                          ? "Uploaded file"
-                                          : "Manual paste";
+                                      : src.kind === "confluence"
+                                        ? (
+                                            (cfg as { space_keys?: string[] }).space_keys ?? []
+                                          ).join(", ") || "Confluence"
+                                        : src.kind === "web"
+                                          ? ((cfg as { start_urls?: string[] }).start_urls?.[0] ??
+                                            "Website")
+                                          : src.kind === "dropbox"
+                                            ? cfg.path || "Entire Dropbox"
+                                            : isUploadedFile(src)
+                                              ? "Uploaded file"
+                                              : "Manual paste";
                           const docCount = docs.filter((d) => d.source_id === src.id).length;
                           return (
                             <Card key={src.id} className="border-border/50">
@@ -1843,7 +2207,7 @@ function KnowledgePage() {
                                       >
                                         {isConnector
                                           ? CONNECTOR_LABELS[src.kind as ConnectorKind]
-                                          : src.kind}
+                                          : kbSourceBadge(src)}
                                       </Badge>
                                       {isConnector && src.sync_schedule !== "manual" && (
                                         <Badge

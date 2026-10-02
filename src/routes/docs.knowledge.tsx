@@ -23,7 +23,7 @@ export const Route = createFileRoute("/docs/knowledge")({
       {
         name: "description",
         content:
-          "Ingest documents, pages, repositories and connected services (Google Drive, Notion, SharePoint, Dropbox); scheduled sync without re-indexing; chunking, embedding, retrieval and reranking; source-based access control; and how to debug a bad answer.",
+          "Ingest documents, pages, repositories and connected services (Google Drive, Notion, SharePoint, Dropbox, Confluence, a public website); scheduled sync without re-indexing; chunking, embedding, retrieval and reranking; source-based access control; and how to debug a bad answer.",
       },
       { property: "og:title", content: "Knowledge Base — AgentSwarms Documentation" },
       {
@@ -59,18 +59,32 @@ function KnowledgePage() {
         <strong>Add source</strong> covers one-shot ingestion — files, a web page, a repository.{" "}
         <strong>Connect</strong> links an external service that is synced on a schedule and kept
         deduplicated. Both land documents in the same collection and the same retrieval pipeline.
+        Each file added lands with its source or leaves neither: when some do not, the dialog says
+        how many did, names the rest with the reason, and keeps them listed to try again. A source
+        whose document did not land and that could not be taken back is marked as an error in{" "}
+        <em>Sources</em>, not left reading <em>ok</em>. A file that landed but could not be indexed
+        is announced as not fully indexed, with the reason, and is found by keyword only until{" "}
+        <em>Re-index</em> embeds it. An uploaded text file is listed as a file, not as a manual
+        paste.
       </P>
 
       <H3 id="s-file">File upload</H3>
       <P>Accepted extensions, exactly:</P>
       <Code lang="Accepted file types">{`.txt   .md   .markdown   .csv   .tsv   .log
 .html  .htm  .xml        .yaml  .yml  .json
-.rtf   .pdf  .docx`}</Code>
-      <Callout kind="warn" title="A scanned PDF yields nothing">
-        Text is extracted, not OCR'd. A PDF that is images of pages produces zero chunks and the
-        agent will answer from general knowledge with no sign anything is wrong. After uploading,
-        check the document shows a non-zero chunk count — that is the one-second test that catches
-        this.
+.rtf   .pdf  .docx
+.png   .jpg  .jpeg       .webp  .gif`}</Code>
+      <Callout kind="info" title="Scanned PDFs and images are read with a vision model">
+        A PDF with a text layer is extracted in the browser. A PDF whose pages are pictures (fewer
+        than forty characters a page), or an image file, is drawn page by page and read by the
+        instance's vision model — one governed model call per page, as you, so the model rules in
+        IAM, the budget and the audit log (<C>kb.document.ocr</C>, with the pages, the model and the
+        cost) apply. The upload shows the page being read; the document keeps a <C>[page N]</C>{" "}
+        marker per page and records the model and cost in its metadata. The model and the{" "}
+        <strong>Pages per document</strong> limit live under Admin → Developer runtime → Document
+        intelligence (<C>DOCUMENT_VISION_MODEL</C>, <C>DOCUMENT_VISION_MAX_PAGES</C>). A page the
+        model reads as empty is dropped; if every page is, the upload says so instead of adding a
+        document with nothing in it.
       </Callout>
 
       <H3 id="s-url">Web page / crawl</H3>
@@ -99,9 +113,11 @@ function KnowledgePage() {
         file, so it is searchable on the same terms as everything else in the collection.
       </P>
 
-      <H3 id="s-connectors">Connected services — Drive, Notion, SharePoint, Dropbox</H3>
+      <H3 id="s-connectors">
+        Connected services — Drive, Notion, SharePoint, Dropbox, Confluence, Website
+      </H3>
       <P>
-        <strong>Connect</strong> opens a wizard for four providers. Credentials are pasted tokens
+        <strong>Connect</strong> opens a wizard for six providers. Credentials are pasted tokens
         (the platform's BYOK pattern — no OAuth consent screens to register), validated against the
         provider at save time, <strong>encrypted at rest</strong>, and never sent back to the
         browser: editing a source shows empty credential fields, and leaving them empty keeps what
@@ -133,6 +149,18 @@ function KnowledgePage() {
             "Access token, or refresh token + app key/secret for unattended syncs",
             "A folder path (or everything); native content hashes make change detection exact",
             "Yes — file members, best-effort",
+          ],
+          [
+            "Website",
+            "None — a public site",
+            "Pages from the sitemap (lastmod is the change marker), else same-site links followed from the start URL; robots.txt honoured; up to 500 pages",
+            "No — public content",
+          ],
+          [
+            "Confluence",
+            "Cloud: email + API token. Data Center: personal access token — the host decides which",
+            "Every page in the listed spaces; version.number is the change marker; storage-format macros flattened to text",
+            "No — not read",
           ],
         ]}
       />
@@ -218,14 +246,28 @@ question ──▶ embed ──▶ nearest chunks ──▶ pasted into the prom
 
       <H3 id="embedding-provider">Which model does the embedding</H3>
       <P>
-        Set this per collection under <strong>RAG settings → Embedding</strong>.{" "}
-        <strong>OpenRouter is the default</strong> — either through your own integration or, with no
-        integration at all, through the operator's <C>OPENROUTER_API_KEY</C>. That keeps embedding
-        off the OpenAI quota that chat, document generation and retrieval already share; when that
-        quota runs out, knowledge-base search would otherwise go down with it. The operator's OpenAI
-        key is the fallback, and any other connected provider exposing an OpenAI-compatible{" "}
+        Set this per collection under <strong>RAG settings → Embedding</strong>. Embeddings come
+        from a <strong>connected model provider</strong> — the same place your chat models come
+        from. There is no separate embeddings key and no dependency on an OpenAI account.{" "}
+        <strong>OpenRouter is the suggested default</strong>, not a requirement: it works either
+        through your own integration or, with no integration at all, through the operator's{" "}
+        <C>OPENROUTER_API_KEY</C>, so a fresh install gets retrieval for free from the same account
+        that already makes chat work. Any other connected provider exposing an OpenAI-compatible{" "}
         <C>/embeddings</C> endpoint can be selected instead.
       </P>
+      <Callout kind="warn" title="Not every embedding model fits this store">
+        The vector column is fixed at <strong>1536 dimensions</strong> and ingest rejects any other
+        width, so &ldquo;this provider has an embeddings API&rdquo; is not the same as &ldquo;this
+        provider works here&rdquo;. Plenty of good models are natively 768, 1024, 2560 or 4096 and
+        only fit because they honour the OpenAI <C>dimensions</C> parameter — and whether a given
+        one honours it cannot be told from its name.
+        <br />
+        <br />
+        So don&rsquo;t guess: press <strong>Test embedding</strong> beside the picker. It calls the
+        provider once and reports the width it actually returned. Without that check the failure
+        lands at ingest instead, after documents are already saved — and a collection whose
+        embeddings never ran still answers, quietly, using keyword search alone.
+      </Callout>
       <Callout kind="warn" title="Changing the model means re-embedding">
         Vectors from two different models are not comparable — searching model A's chunks with model
         B's query vector does not error, it quietly returns wrong matches. So the provider and model
@@ -235,13 +277,12 @@ question ──▶ embed ──▶ nearest chunks ──▶ pasted into the prom
         existing ones across.
       </Callout>
       <Callout kind="info">
-        The vector store is <strong>Supabase pgvector</strong> — the only option, and already
-        configured; there is nothing to connect and no external vector database to run. Every
-        collection shares one column with an HNSW cosine index, so it is fixed at{" "}
-        <strong>1536 dimensions</strong>. A model must be able to emit that width — the OpenAI{" "}
-        <C>text-embedding-3-*</C> models truncate to any size on request. If a model returns a
-        different width the embed fails with a message saying so rather than writing unusable
-        vectors.
+        Vectors are <strong>1536 dimensions</strong>, wherever they are searched: every collection
+        shares one column with an HNSW cosine index, and an external store is created at the same
+        width. A model must be able to emit it — the OpenAI <C>text-embedding-3-*</C> models
+        truncate to any size on request, and a narrower local model is zero-padded, which is exact
+        for cosine similarity. A model that returns something <em>wider</em> fails the embed with a
+        message saying so rather than writing unusable vectors.
       </Callout>
       <P>
         The OpenRouter default is <C>openai/text-embedding-3-small</C> because it is the{" "}
@@ -270,6 +311,67 @@ question ──▶ embed ──▶ nearest chunks ──▶ pasted into the prom
         model exists. Two NVIDIA nemotron ids used to be offered here and both returned{" "}
         <C>404 No endpoints found</C> — selecting one produced a failed embed with nothing to
         indicate the model had never been available.
+      </P>
+
+      <H3 id="vector-store">Where the vectors are searched</H3>
+      <P>
+        By default, in your own Postgres — <C>kb_chunks.embedding</C> is a pgvector column with an
+        HNSW cosine index, and the permission check is the row-level security already protecting
+        those rows. Nothing to connect, nothing extra to back up, and a collection that cannot
+        half-exist because two systems disagree. For most deployments that is the end of it.
+      </P>
+      <P>
+        A self-hosted deployment can point the vector search at <strong>Qdrant</strong> instead, by
+        setting <C>VECTOR_STORE=qdrant</C> and <C>QDRANT_URL</C>. The reason is{" "}
+        <strong>capacity, not availability</strong>: an HNSW index wants RAM, and by default it
+        wants it from the same instance serving your traces, audit, BI results and every other
+        query. Past a few million chunks it is the largest thing in there, and the only way to feed
+        it is to resize the whole database. Qdrant is a place to put the index that scales — and
+        replicates — on its own. It does <em>not</em> make retrieval survive a Postgres outage:
+        every hit is hydrated from the chunk rows in Postgres, so the database going down takes
+        retrieval with it wherever the vectors live.
+      </P>
+      <P>
+        That setting is the <strong>default for every collection</strong>, not a decision for the
+        whole deployment. <strong>RAG Settings &rarr; Retrieval &rarr; Vector index</strong> sets it
+        per knowledge base, which is usually how to adopt Qdrant at all: the one collection that
+        outgrew Postgres moves, every other one stays where its rows are. A collection pointed at
+        Qdrant on a deployment that has none falls back to Postgres, and the picker says so rather
+        than letting you find out from a server log.
+      </P>
+      <Callout kind="why" title="Changing the index moves the vectors, and costs nothing to do">
+        Saving a new index copies that collection{"\u2019"}s existing vectors into it, then clears
+        the one it left. Nothing is re-embedded — the embeddings are already stored as{" "}
+        <C>kb_chunks.embedding</C> and are read back from there — so the only cost is the time to
+        read every chunk.
+        <br />
+        <br />
+        The order is copy, save, clear, and it is the order because the other one fails badly: a
+        setting saved before the copy finished would leave the collection searching an index it was
+        never written to, which returns nothing and raises nothing. This way a failure leaves the
+        vectors in two stores — disk, not wrong answers — and saving again finishes it.
+      </Callout>
+      <Callout kind="why" title="Qdrant holds vectors and two ids — that is all">
+        The chunk text, the document it came from, the parent passage and who may read it stay in
+        Postgres. So the keyword half of hybrid search is untouched; a Qdrant that loses its volume
+        costs a re-index rather than a restore; and the store cannot leak a document, because what
+        it returns is a list of ids that are then fetched through the caller&apos;s own database
+        client, where row-level security applies a second time.
+      </Callout>
+      <P>
+        <strong>One Qdrant node is not high availability.</strong> A single node is the right shape
+        for a small install, and losing it degrades retrieval to keyword search rather than breaking
+        it — but surviving the loss of a node means a Qdrant cluster with <C>QDRANT_REPLICATION</C>{" "}
+        at 2 or more. <strong>Admin → Developer runtime → AI services</strong> shows which store is
+        in use, whether it is answering, how many vectors it holds against how many chunks the
+        database has, and the replication the collection <em>actually</em> got.
+      </P>
+      <P>
+        That same page has <strong>Re-index</strong>, which drops every vector in the store and
+        writes them back from the chunks. It is the answer to every way an external index can drift
+        — a restored-from-empty volume, a store switched on after documents were already embedded, a
+        delete that happened while it was unreachable. It moves vectors that already exist; it does
+        not re-embed, so a document that was never indexed stays keyword-only until it is.
       </P>
 
       {/* ── RETRIEVAL ── */}
@@ -329,18 +431,16 @@ question ──▶ embed ──▶ nearest chunks ──▶ pasted into the prom
       <P>
         Vector search finds meaning and blurs exact strings; an error code, a part number or a
         surname is exactly the kind of token embeddings smooth away. Keyword search is the opposite.
-        <strong> RAG Settings &rarr; Retrieval</strong> sets which of them runs, per knowledge base.
+        <strong> RAG Settings &rarr; Retrieval</strong> sets which of them runs, per knowledge base.{" "}
+        The same tab chooses the <strong>vector index</strong> that collection is searched in.
       </P>
       <Table
         headers={["Mode", "What runs"]}
         rows={[
-          [
-            "Semantic",
-            "Vector search only. The default, and what every collection did before this existed.",
-          ],
+          ["Semantic", "Vector search only. What every collection did before hybrid existed."],
           [
             "Hybrid",
-            "Vector and Postgres full-text search over the same chunks, merged by weight.",
+            "Vector and Postgres full-text search over the same chunks, merged by weight. The default for a collection that has never saved retrieval settings, weighted 0.7 toward meaning — measured: semantic-only lost exact-term questions to look-alike paragraphs.",
           ],
           ["Keyword", "Full-text search only."],
         ]}
@@ -376,7 +476,31 @@ question ──▶ embed ──▶ nearest chunks ──▶ pasted into the prom
             "top-K",
             "5",
             "1 – 8 (hard cap)",
-            "How many chunks are retrieved and pasted into the prompt. Asking for more than 8 is clamped.",
+            "How many documents are cited per turn. Asking for more than 8 is clamped.",
+          ],
+          [
+            "Chunks per document",
+            "3",
+            "1 – 10 (KB_CHUNKS_PER_DOCUMENT)",
+            "Each cited document carries its best few chunks in reading order — adjacent ones joined, gaps marked with an ellipsis. One chunk was not enough: a policy's table and the prose about it rank separately, and the prose won.",
+          ],
+          [
+            "Characters per chunk",
+            "1,600",
+            "100 – 20,000 (KB_CITATION_CHARS_PER_CHUNK)",
+            "A flat chunk reaches the prompt whole; a default chunk is about 1,024 characters. Parent passages keep their own 4,000-character budget.",
+          ],
+          [
+            "Grounding budget",
+            "12,000 characters",
+            "500 – 1,000,000 (KB_GROUNDING_MAX_CHARS)",
+            "Per turn, across every citation, applied in rank order: a later citation is shortened, then dropped; an earlier one is never trimmed to make room.",
+          ],
+          [
+            "Similarity floor",
+            "0.3",
+            "0 – 1 (KB_MIN_SIMILARITY; 0 = off)",
+            "Below this best-chunk similarity with no keyword hit, the turn is not grounded and the model is told the search found nothing — an off-topic question stops carrying five documents to ignore. Measured with text-embedding-3-small: document questions 0.38–0.75, off-topic 0.10–0.32. Never applied to the kb_search tool.",
           ],
           [
             "Candidate pool (over-fetch)",
@@ -394,7 +518,7 @@ question ──▶ embed ──▶ nearest chunks ──▶ pasted into the prom
             "Snippet radius",
             "280 characters",
             "—",
-            "How much text either side of a match is shown in the citation snippet under the answer.",
+            "Either side of a keyword match in a document that has no embeddings yet — the fallback while indexing is incomplete.",
           ],
         ]}
       />
@@ -842,6 +966,45 @@ Never fill a gap with general knowledge.`}</Code>
           reader sees, so <C>refund-policy-2026.pdf</C> beats <C>final_v3.pdf</C>.
         </li>
       </UL>
+
+      <H2 id="use-cases">Use cases</H2>
+      <H3 id="use-case-docs-site">Index your own documentation site</H3>
+      <Steps
+        items={[
+          {
+            title: "Add Source → Website",
+            body: (
+              <>
+                Give start URLs; optionally a sitemap URL, path prefixes to stay inside such as{" "}
+                <C>/docs</C>, and a page cap (100 by default, 500 at most). No credential is needed.
+              </>
+            ),
+          },
+          {
+            title: "Sync",
+            body: "The crawler honours robots.txt, stays on the same site, prefers the sitemap and otherwise follows links breadth-first. A page version is the sitemap lastmod, else the ETag, else a content hash, so a scheduled sync re-fetches only what changed. A result like 5 documents indexed, 12 skipped by robots.txt is normal for a marketing site — narrow the prefixes to the documentation tree.",
+          },
+        ]}
+      />
+      <H3 id="use-case-confluence">A Confluence space, code blocks intact</H3>
+      <Steps
+        items={[
+          {
+            title: "Add Source → Confluence",
+            body: "Site URL, the space keys to sync, an API token — plus the account email on Confluence Cloud. Cloud and Data Center are told apart from the URL and authenticated accordingly.",
+          },
+          {
+            title: "Pages arrive as text with their code macros preserved",
+            body: "That is what makes a runbook useful to an on-call agent. Restrict retrieval by sharing the knowledge base read-only with the on-call group.",
+          },
+        ]}
+      />
+      <H3 id="use-case-delete">Share it, and delete it safely</H3>
+      <P>
+        Sharing is read-only and done from Admin → IAM → Access. Deleting a knowledge base asks
+        first and names what goes with it — every document, chunk and connected source, and the
+        agents wired to it lose their knowledge. There is no undo, which is why there is a dialog.
+      </P>
 
       <NextPrev current="/docs/knowledge" />
     </>

@@ -54,18 +54,21 @@ function BiPage() {
 
       <H2 id="ai-analyst">AI Analyst — conversational analysis</H2>
       <P>
-        <strong>AI Analyst</strong> (first under Data &amp; BI) is the dedicated ask-anything
-        surface. An analyst is exactly two choices: a <strong>reasoning model</strong> from your
-        connected providers (the dialog suggests reasoning families and nudges you when a pick
-        doesn&apos;t look like one) and <strong>the data</strong> it analyses — local datasets and
-        uploads, one table, or a warehouse connection. Both stay <strong>editable</strong> from the
-        pencil on the analyst&apos;s card, and an edit applies to your next question: earlier
-        analyses are not re-run and each keeps a record of the model that produced it, so an
-        exported report never attributes old numbers to a newly-chosen model. Reasoning models are
-        also given a longer request deadline than chat models, because their time goes on thinking
-        rather than output — sized for chat models, the analyst&apos;s required model class was the
-        one that timed out.
+        <strong>AI Analyst</strong> (under Data &amp; BI) is the dedicated ask-anything surface. An
+        analyst is three choices: a <strong>reasoning model</strong> from your connected providers
+        (the dialog suggests reasoning families and nudges you when a pick doesn&apos;t look like
+        one), <strong>the data</strong> it analyses — local datasets and uploads, one table, or a
+        warehouse connection — and the <strong>predictive models</strong> it may score or forecast
+        with: any model it can use, or exactly the ones you tick. It chooses among them by the
+        question, and a model outside the list is refused even when a plan names it. All three stay{" "}
+        <strong>editable</strong> from the pencil on the analyst&apos;s card, and an edit applies to
+        your next question: earlier analyses are not re-run and each keeps a record of the model
+        that produced it, so an exported report never attributes old numbers to a newly-chosen
+        model. Reasoning models are also given a longer request deadline than chat models, because
+        their time goes on thinking rather than output — sized for chat models, the analyst&apos;s
+        required model class was the one that timed out.
       </P>
+      <H3 id="analyst-governed">Governed steps</H3>
       <P>
         <strong>Governed steps are compiled, not described.</strong> When a step&apos;s numbers come
         from a governed semantic model, the plan names the model, its metrics and its dimensions,
@@ -80,6 +83,71 @@ function BiPage() {
         the result, the step says so in words. Past analyses are all reachable from the picker
         beside <strong>New analysis</strong>.
       </P>
+      <H3 id="analyst-predictions">Predictions from trained models</H3>
+      <P>
+        <strong>Scored steps predict; the analyst never estimates.</strong> When a question asks
+        what <em>will</em> happen, which rows are <em>likely</em> something, or for a predicted
+        value, and a trained model from ML Models is in scope, the plan may add{" "}
+        <C>{'"score": { "model": "<name>" }'}</C> to a step. The step&apos;s SQL selects the
+        entities — the model&apos;s key column(s) when it is bound to a feature view, so the
+        features are read from the view, or its feature columns otherwise — and the model supplies
+        the prediction columns, joined onto the step&apos;s rows (at most fifty, the agent
+        tool&apos;s cap). The step carries a <strong>scored</strong> badge naming the model, and
+        under its table says how many rows were scored, the model&apos;s version and headline
+        metric, where the features came from and which keys were not found. Every name is checked
+        against the models the analyst actually loaded; a step naming anything else is simply not
+        scored. A scoring that fails leaves the rows unscored and says so in the self-check note.
+        The write-up is told which steps were scored and must report predictions as what the model
+        estimates, naming it, never as something observed. A step whose SQL the self-check corrects
+        is scored again on the corrected rows, and its note says so; a step re-run by hand loses its
+        predictions with the badge — they belonged to the old rows — until the question is asked
+        again. A prediction column that collides with one the SQL already returned is kept under a{" "}
+        <C>predicted_</C> prefix, so the model&apos;s numbers are the ones on the table the badge
+        vouches for. The SQL writer is told, in the step&apos;s own goal, that the rows will be
+        scored afterwards and what they must carry — the model&apos;s key column(s) from the source
+        table, at most fifty rows, no stored predictions table and no prediction of its own. And a
+        write-up that comes back as data rather than prose (an object of rows under <C>answer</C>,
+        with <C>caveats</C>) is rendered as a table with its caveats, not reported as &quot;no
+        write-up&quot;. The self-check is told which columns the model added and that they exist in
+        no table — it judges the SQL by the rows it was asked to return, and a correction it writes
+        never selects the model&apos;s columns (live, one did, and died on a binder error); and the
+        contribution and trend arithmetic the check and the write-up are handed reads only the
+        observed columns, never the estimates (live, a table of <C>order_id</C>, <C>prediction</C>,{" "}
+        <C>probability</C> was read as a two-period breakdown by prediction, and the write-up listed
+        the resulting &quot;total change&quot; as a caveat beside the real one). The model&apos;s{" "}
+        <strong>health</strong> rides along: the planner sees each scorable model&apos;s latest
+        drift reading or evaluation verdict, and a scored step&apos;s badge and disclosure say it —
+        {'"open drift alert (PSI 3.291 on 2026-09-14)"'} — so the write-up can warn beside the
+        numbers it cites.
+      </P>
+      <P>
+        <strong>Forecasts, rankings and what a model can say.</strong> A trained{" "}
+        <strong>forecast</strong> model in scope is offered to the planner as a forecast step (
+        <C>{'"forecast": { "model": "<name>", "horizon": N }'}</C>): no SQL — the step&apos;s rows
+        are the model&apos;s projected periods with their interval, the badge says{" "}
+        <strong>forecast by</strong>, and the write-up is told the rows are a projection. A
+        regression model is never a forecast: the planner is told so, and the write-up is told a
+        scored regression step gives one estimate per row and is not a series. The{" "}
+        <strong>most, least or top-N by a model&apos;s output</strong> — most anomalous, most likely
+        enterprise, highest predicted value — is decided by the platform on the scored rows (
+        <C>{'"rank": { "by": "<output column>", "desc": true, "limit": N }'}</C> inside <C>score</C>
+        ), never in SQL, where the column does not exist; the disclosure says &quot;ranked by
+        anomaly_score (highest first), top 10 of the 50 scored&quot;. A step whose goal names a
+        model in scope is scored by it even when the planner forgot the block, because naming the
+        model is the request. The tool&apos;s <strong>model notes</strong> — what each class means,
+        each group&apos;s size and typical row, the trainer&apos;s warnings — travel with the scored
+        step (a collapsible under the disclosure) and into the write-up, so it can describe a group
+        rather than say it was not told. And the analyst refuses rather than improvises: a question
+        naming a model nobody has (&quot;the churn model&quot;) stops and asks, naming the models
+        that exist, instead of scoring with another; rows missing most of a model&apos;s feature
+        columns are not scored, and the missing ones are named; a self-review correction that reads
+        a model&apos;s column is refused in code and the original result stands; a correction that
+        fails says so, and the write-up is told the step did not fail. A scored step&apos;s rows are
+        quoted to the write-up in full (up to the fifty the model scored) — summarised, fifteen
+        scored orders became &quot;order_id total=22104&quot; and a findings table built from it —
+        and an identifier column is never totalled in the facts at all.
+      </P>
+      <H3 id="analyst-what-if">What-if scenarios</H3>
       <P>
         <strong>What-if scenarios</strong> ride the same compiler. A compiled step offers the two
         things that can honestly vary — the model&apos;s <strong>declared parameters</strong> and
@@ -92,6 +160,7 @@ function BiPage() {
         identical query under a &ldquo;scenario&rdquo; heading invites the reader to conclude a
         change was tested and made no difference.
       </P>
+      <H3 id="analyst-verified">Verified answers and the self-check</H3>
       <P>
         <strong>Verified answers.</strong> Mark a finished analysis verified, or flag it wrong with
         a reason — a flag without one leaves the next reader where they started. The verdict records
@@ -109,6 +178,7 @@ function BiPage() {
         Analyses persist per analyst, follow-up questions see the earlier answers, and the whole
         trace exports as a <strong>PDF</strong>.
       </P>
+      <H3 id="analyst-charts">Charts, pinning and computed reasoning</H3>
       <P>
         <strong>Every step that has something to show gets its own chart</strong>, so a three-query
         answer arrives as three visuals rather than one headline picture. Any step can be{" "}
@@ -134,6 +204,7 @@ function BiPage() {
         ways — it <strong>asks before querying</strong>, offering the assumption it would otherwise
         make so accepting takes one click.
       </P>
+      <H3 id="analyst-runs">Concurrency and schedules</H3>
       <P>
         <strong>Steps run concurrently</strong> — a three-query analysis issues its queries at once,
         bounded so one question cannot become everyone&apos;s rate limit. That is safe because no
@@ -157,6 +228,7 @@ function BiPage() {
         rows between runs would invent findings — and says so plainly when nothing changed.{" "}
         <strong>Run now</strong> takes the identical path.
       </P>
+      <H3 id="analyst-sharing">Sharing an analyst</H3>
       <P>
         <strong>Sharing an analyst shares the analyst, not your data access.</strong> Grant it to
         IAM groups and recipients can open it and ask their own questions — but every query they run
@@ -169,6 +241,7 @@ function BiPage() {
         owner-only. A grant is refused outright if the recipients&apos; IAM model rules do not allow
         the analyst&apos;s model.
       </P>
+      <H3 id="analyst-provenance">Provenance and export</H3>
       <P>
         Every step that ran a query carries a <strong>Where these numbers came from</strong>{" "}
         disclosure. The tables it names come from <em>the SQL that actually ran</em>, never from the
@@ -200,7 +273,7 @@ function BiPage() {
           },
           {
             title: "Add a visual",
-            body: "The right-hand builder pane takes your source (table, prepared table, or a governed metric), the fields to plot, and the chart type.",
+            body: "The right-hand builder pane takes your source (table, prepared table, or a governed metric), the fields to plot, the chart type and a title. Until the visual can be added, the line under Add to dashboard says what is still missing: a query to run, the columns to chart, or the title.",
           },
           {
             title: "Or describe it",
@@ -552,7 +625,7 @@ GROUP BY region`}</Code>
             <C key="b">dateGrain</C>,
             "auto | day | week | month | quarter | year",
             "line, area",
-            "Default bucketing; viewers can toggle it.",
+            "Default bucketing; viewers can toggle it. Buckets are UTC, the zone the SQL engines run in: a timestamp written without an offset is read as UTC, so a viewer in any time zone sees the months and days the query returned.",
           ],
           [
             <C key="c">compare</C>,
@@ -569,16 +642,21 @@ GROUP BY region`}</Code>
           [<C key="e">trend</C>, "boolean", "line (single series)", "Linear trend line."],
           [
             <C key="f">forecast</C>,
-            "number of buckets",
+            "number of buckets, or a registry model",
             "line (single series)",
-            "Projects ahead with a ±1.96σ confidence corridor.",
+            "Projects ahead — seasonal exponential smoothing when the history shows a season that beats a straight line, else a linear trend — with a residual band that widens with distance. Or draws a registry forecast model's projection.",
           ],
         ]}
       />
-      <Callout kind="warn" title="A forecast is a straight-line projection">
-        The ±1.96σ corridor is a 95% band around a linear extrapolation, not a model of your
-        business. It is honest about uncertainty and blind to seasonality, launches and price
-        changes. Use it to frame a conversation, never to commit to a number.
+      <Callout kind="warn" title="A projection is not a plan">
+        The built-in forecaster fits the history it is given: exponential smoothing of level, trend
+        and season when at least two full cycles are visible and that fit beats a straight line on
+        the past, a straight line otherwise. Its band is the spread of its own one-step errors,
+        widened with distance. It knows nothing about launches, pricing or anything that has not
+        already happened. The same module projects for the AI Analyst and for forecast alerts, so a
+        chart, its write-up and its alert cannot disagree; a model trained on the ML page can be
+        attached instead, in which case the chart draws that model&apos;s projection from the
+        registry. Use any of them to frame a conversation, never to commit to a number.
       </Callout>
 
       <H3 id="condformat">Conditional formatting (matrix)</H3>
@@ -641,10 +719,210 @@ GROUP BY region`}</Code>
         summarising the whole page.
       </P>
       <Callout kind="warn">
-        Insights are generated from the data actually in the chart, but they are still model output:
-        useful as a first pass, not as a substitute for looking. Treat them as a colleague's first
-        impression.
+        The <em>numbers</em> in an insight are checked (below); the <em>judgement</em> is still
+        model output. &ldquo;Revenue fell 12%&rdquo; is verified against the data.
+        &ldquo;…indicating a demand problem&rdquo; is a colleague&rsquo;s first impression, and
+        should be read as one.
       </Callout>
+
+      <H3 id="verified-figures">Every figure is checked before you see it</H3>
+      <P>
+        This applies to the insight card and to the answer the AI analyst writes under a chart — the
+        two places the product puts numbers into prose.
+      </P>
+      <P>
+        A card that reports a number nobody can check is worse than a card that says nothing. So
+        every numeral written into an insight is matched back against what the query actually
+        returned — a value in a row, a computed total, minimum, maximum or mean, or a
+        category&rsquo;s share. Anything matching nothing is sent back once, with the offending
+        figures named, and whatever survives that is disclosed to you rather than shown quietly.
+      </P>
+      <P>
+        Rounding is allowed for readability, and the tolerance comes from the precision written.{" "}
+        <C>$1.0M</C> is a claim that the value rounds to 1.0M, so it admits fifty thousand either
+        way; <C>410,379.26</C> is held to half a cent. This is why a card will say <C>$837.9k</C>{" "}
+        where you might have written <C>$837k</C> — the underlying value is 837,900, and $837k is a
+        claim it does not meet.
+      </P>
+      <Callout kind="why" title="Where this came from">
+        An insight card once reported regional shares of 48%, 39% and 19%. They sum to 106%, so no
+        denominator makes them true — the model had the rows and did the division itself. The
+        arithmetic is now done before the model writes, and checked after.
+      </Callout>
+
+      <P>
+        Figures the writer was <em>given</em> count as checkable too. An analyst answer is handed a
+        prepared block of computed facts — totals, ranges, how many rows of how many the engine
+        returned — and told to use them. A check that did not admit those would flag the model for
+        doing as it was told, which is the fastest way to make a warning worth ignoring.
+      </P>
+
+      <H3 id="partial-results">A result that is only part of the data says so</H3>
+      <P>
+        If a visual&rsquo;s SQL ends in <C>LIMIT 5</C>, its rows are the top five and not the whole
+        picture. An insight over them is told exactly that, and is barred from stating shares of a
+        total, calling anything 100%, or saying that other categories are absent — because none of
+        those is knowable from a result that was cut short.
+      </P>
+      <P>
+        This is the one failure a check on the wording cannot catch. A card reading &ldquo;AMER
+        accounts for 100% of revenue&rdquo; over a <C>LIMIT 1</C> query is <em>true of its data</em>{" "}
+        and false about the business, and every figure in it verifies.
+      </P>
+
+      <P>
+        There are two ways a result can be part of the data, and only one of them is visible in the
+        SQL. The first is a query that caps <em>itself</em> with a trailing <C>LIMIT</C>. The second
+        is the <strong>snapshot</strong> hitting its row cap while the query had more to give — the
+        query asked for everything and the cap took the tail, so nothing in the SQL says a word
+        about it. On a large table that is the ordinary case rather than an exotic one.
+      </P>
+      <P>
+        Both now reach the insight. Totals are still stated, because they are true of the rows that
+        are there; the shares are withheld, because shares of a fragment are not shares; and the
+        caveat rules out the superlatives a prefix cannot support — <em>the largest region</em>,{" "}
+        <em>no other category</em> — since the rows that would contradict them were never fetched.
+      </P>
+      <P>
+        This one matters more than it looks. The figures in a prefix are real: they are genuinely
+        derivable from the rows the card was given, so the numeric check <em>passes</em> them. A
+        verifier can only compare prose against the data it holds — it cannot know the data is a
+        fragment unless the widget says so, which is why the widget now does.
+      </P>
+
+      <H3 id="title-claims">A title is a claim, and it is checked too</H3>
+      <P>
+        The AI names a visual before it knows what the query will return, and the two drift apart in
+        both directions: a chart called <C>Top 5 Products</C> drawing fourteen bars, or one called{" "}
+        <C>Revenue by Region</C> whose query kept a single row. Both are now reconciled when the
+        visual is generated:
+      </P>
+      <UL>
+        <li>
+          A title promising <strong>top N</strong> over a query that returned more takes the N it
+          promised — but only when the query sorted its rows, since the first five of an unordered
+          result are an arbitrary five.
+        </li>
+        <li>
+          A query that <strong>capped itself</strong> below what its title shows is run again for
+          the number the title names. <C>Top 5 Months by Revenue</C> over a query ending{" "}
+          <C>LIMIT 1</C> is one row of a table that has thirty-six. A category chart narrowed to a
+          single row is re-run without the limit at all — a one-bar bar chart is not a chart, and
+          the title never asked for one.
+        </li>
+        <li>
+          A title promising more rows than exist <strong>says so</strong> — rows cannot be invented.
+          Which sentence you get matters: <em>the data has 3 rows, not 5</em> is written only once
+          the limit that might have been hiding the rest is gone. Until then the note says the{" "}
+          <em>query</em> stopped short, because that is the part that is known to be true.
+        </li>
+      </UL>
+
+      <P>
+        <strong>And the note is re-checked every refresh.</strong> A sentence like{" "}
+        <C>Showing the top 5 of 36.</C> is a claim about one query result, and a refresh replaces
+        that result. Left alone it goes on being displayed — a chart drawing five bars under a title
+        still insisting the data has three rows, which is worse than the silence it replaced,
+        because a reader who checks the caveat against the chart finds the product contradicting
+        itself. So each refresh re-derives the count and rewrites the note, or takes it away when
+        the data has caught up with the title.
+      </P>
+      <P>
+        Three things stop it. A snapshot that hit the row cap has no count to speak of, so the note
+        stands and the <strong>Partial</strong> badge explains the widget instead. A title you have
+        renamed is yours — if the note is no longer the last thing in it, nothing is edited. And a
+        note that is still exactly right is left exactly as it is, so a refresh that changes nothing
+        writes nothing.
+      </P>
+      <P>
+        A widget set to <strong>direct query</strong> draws a live result rather than its stored
+        snapshot, so both sentences are derived per view instead — from the rows actually on screen,
+        including whatever the dashboard's filters narrowed them to. The same card can therefore say
+        different things to two people looking at it through different filters, which is the only
+        honest answer when they are looking at different rows. Nothing is written back: a live
+        result belongs to one view, and persisting it would make one viewer's filter everybody's
+        snapshot.
+      </P>
+
+      <H3 id="chart-fields">A chart names its columns, and those are checked too</H3>
+      <P>
+        A chart says which column is its category and which is its measure. The query that feeds it
+        does not always return them. The clearest case: a query that ends{" "}
+        <C>ORDER BY revenue DESC</C> and never puts <C>revenue</C> in its SELECT list — so the chart
+        drew month labels, no axis, no bars, and no explanation. It looks like a widget still
+        loading, and it never will.
+      </P>
+      <P>
+        The title check cannot see this. It compares a title against a <em>row count</em>, and five
+        rows under a title promising five agree perfectly. Only reading the chart's fields against
+        the query's columns finds it. Three outcomes, in order of confidence:
+      </P>
+      <UL>
+        <li>
+          A missing <strong>series split</strong> is dropped without comment. A chart that cannot
+          find the column it was going to split by is not broken; it is a chart with one series.
+        </li>
+        <li>
+          A missing <strong>measure or category</strong> is re-pointed when exactly one unused
+          column of the right kind could have been meant — a number for a measure, a label for a
+          category, and never a column another field is already drawing. Two candidates is a guess,
+          and a guess drawn as a chart is worse than no chart.
+        </li>
+        <li>
+          Otherwise the widget <strong>shows its rows as a table</strong> and the title says which
+          column is missing. The rows are real and the reader can see them; an empty frame tells
+          them nothing.
+        </li>
+      </UL>
+      <P>
+        Which field has to be a number depends on the chart, not on the field's name: a bar chart's{" "}
+        <C>yField</C> is its measure, a sankey's is a node label, and a heatmap's axes are both
+        categorical with the measure in <C>valueField</C>. Getting that backwards would move a
+        repair onto the wrong column, which is worse than the blank chart it set out to fix.
+      </P>
+
+      <H3 id="stale-prose">Written insight is withdrawn when its figures stop holding</H3>
+      <P>
+        A widget keeps the sentence the AI wrote about it —{" "}
+        <em>"The top region, AMER, generated $25.9k in revenue"</em> — and shows it when you hover
+        the title. A refresh replaces the rows underneath that sentence, which is how prose ends up
+        describing data the widget no longer has, with the figures still in it.
+      </P>
+      <P>
+        Every refresh re-checks those figures against the rows the widget now holds, using the same
+        verifier that checked them when they were written, and no model call. Prose whose numbers
+        still ground is left exactly as it is — which is almost always, because most refreshes
+        return the same rows. Prose that states a figure the data no longer supports is{" "}
+        <strong>withdrawn</strong> rather than corrected: nothing here can rewrite an English
+        sentence truthfully, and no tooltip is better than a confidently wrong one.
+      </P>
+      <P>
+        Two limits, stated rather than hidden. A snapshot that hit the row cap is not checked — the
+        figure may be true of the table and simply not derivable from the part of it kept here, and
+        deleting correct prose on that evidence would be the worse error. And a numeric check has
+        nothing to say about <em>"AMER leads the regions"</em>, which survives AMER falling to
+        third; sentences with no figures in them are left alone rather than deleted on suspicion.
+      </P>
+
+      <H3 id="one-of-many">A single-value card says which row it is showing</H3>
+      <P>
+        A KPI draws the first row of its result and nothing else. When the query returned one row
+        that is the whole truth. When it returned three, the card is showing a third of a breakdown
+        in the type size reserved for a headline — <C>Revenue by Region</C> displaying one region's
+        25,874.92 out of a 51,749.84 total, with nothing on the card saying so.
+      </P>
+      <P>
+        Single-value charts now carry <strong>1 of N rows</strong> under the number whenever their
+        query returned more rows than they draw. It appears only when the value is a{" "}
+        <em>measure</em>: <C>Best Month by Revenue</C> is a KPI over thirty-six ordered rows whose
+        value is a month name, and there row one is the answer. A caveat on that would be noise, and
+        noise is what teaches people to ignore the caveats that matter.
+      </P>
+      <P>
+        It is computed where the number is drawn rather than stored with the widget. A count of rows
+        is exactly the kind of sentence that goes stale when the data changes — this one cannot,
+        because nothing keeps it.
+      </P>
 
       <H3 id="scan">Scan — computed, not generated</H3>
       <P>
@@ -713,6 +991,13 @@ GROUP BY region`}</Code>
         On a self-hosted deployment these need the scheduler running — see{" "}
         <DocLink to="/docs/self-hosting">Install &amp; deploy</DocLink>.
       </P>
+      <P>
+        A rule&apos;s <strong>basis</strong> is either the latest refreshed values (the default) or
+        the <strong>forecast</strong>: the aggregate over the next N projected periods of a
+        single-series line or area widget, from the built-in forecaster or from the registry model
+        attached to the chart. &ldquo;Notify me when projected revenue for the next three months
+        falls below target&rdquo; is a rule, not a glance.
+      </P>
 
       <H2 id="sharing">Sharing, export and embedding</H2>
       <Table
@@ -778,6 +1063,143 @@ GROUP BY region`}</Code>
         of IAM: one unrestricted grant (directly or via any group) makes the whole dashboard
         visible, and a column is hidden only when <em>every</em> applicable grant hides it.
       </P>
+
+      <H2 id="paginated">Paginated reports</H2>
+      <P>
+        A dashboard is a grid you scroll and resize. A <strong>paginated report</strong> is the
+        other shape: a fixed page, a flow of blocks down it, and content that continues onto the
+        next page when the room runs out — the thing a month-end pack, an invoice or a regulatory
+        return has to be, because somebody prints it and the page count matters. Open{" "}
+        <strong>Data &amp; BI → BI Workspace → Reports</strong>.
+      </P>
+      <P>
+        Reports and dashboards share everything below the layout. A report&apos;s chart block{" "}
+        <em>is</em> a dashboard widget — the same query, the same cached rows, the same chart spec
+        and the same renderer — so nothing about a number changes when it moves from a tile to a
+        page.
+      </P>
+
+      <H3 id="report-blocks">Blocks</H3>
+      <FieldList
+        items={[
+          {
+            name: "Heading",
+            body: "Title, section or sub-section. The first two rule off underneath.",
+          },
+          { name: "Text", body: "A paragraph. Wraps to the content width and flows across pages." },
+          { name: "Spacer", body: "Vertical room, in points. 72 points is an inch." },
+          {
+            name: "Page break",
+            body: "Starts the next page. Ignored when the current page is still empty, so a break at the top does not print a blank sheet.",
+          },
+          {
+            name: "Chart",
+            body: "A widget's chart at a height you set. Exported as an image drawn from the same rows the preview shows.",
+          },
+          {
+            name: "Table",
+            body: "A widget's rows, printed. This is the block that continues onto the next page and redraws its header row when it does.",
+          },
+        ]}
+      />
+
+      <Callout kind="why" title="Why the preview is the layout, not a picture of one">
+        The designer&apos;s preview and the PDF renderer call the <em>same</em> pagination function,
+        in the same units, from the same row and header heights. A preview that flowed differently
+        would be a picture of a document nobody receives. A test builds a real PDF and asserts the
+        two agree on the page count for tables of 5, 60 and 200 rows.
+      </Callout>
+
+      <H3 id="report-reuse">Reusing a dashboard&apos;s widgets</H3>
+      <P>
+        <strong>Add from a dashboard</strong> puts a widget you already built onto a page. It comes
+        across whole — its query, its saved rows and its chart spec — so the page cannot disagree
+        with the tile it came from, and you choose whether the page shows the visual or the rows
+        behind it. Widgets from <em>every</em> page of a multi-page dashboard are offered. A widget
+        with no saved snapshot is not offered at all, because it would print an empty box; refresh
+        the dashboard first.
+      </P>
+
+      <H3 id="report-page">Page setup, header and footer</H3>
+      <P>
+        Choose A4, Letter, Legal or A3, portrait or landscape, and a uniform margin. The running{" "}
+        <strong>header</strong> and <strong>footer</strong> each have a left, centre and right slot
+        that accept tokens: <C>{"{{page}}"}</C>, <C>{"{{pages}}"}</C>, <C>{"{{title}}"}</C>,{" "}
+        <C>{"{{date}}"}</C> and <C>{"{{time}}"}</C>. A new report opens with{" "}
+        <C>
+          Page {"{{page}}"} of {"{{pages}}"}
+        </C>{" "}
+        in the footer, because the first thing anybody misses on a printed report is which page they
+        are holding.
+      </P>
+      <P>
+        <strong>The bands are stamped after the layout, not during it.</strong> The total page count
+        is not knowable until the last block has been placed, and a footer that says &ldquo;of
+        3&rdquo; on a four-page report is worse than no footer at all. The date and time are fixed
+        once per export so every page of one file agrees.
+      </P>
+
+      <H3 id="report-tables">How a long table breaks</H3>
+      <P>
+        A table taller than the space left is not clipped and not shunted whole onto the next page.
+        It fills what is there, breaks, and <strong>continues</strong> — with its header row drawn
+        again on every page, because a column of numbers with no heading on page four is unreadable.
+        A table that cannot fit its header plus at least one row starts on the next page instead of
+        stranding a header at the bottom of this one. <strong>Max rows</strong> caps what the block
+        prints; leave it blank to print every row the query returned.
+      </P>
+
+      <H3 id="report-ai">Generating a report with AI</H3>
+      <P>
+        <strong>Generate with AI</strong> runs the dashboard generator&apos;s machinery with one
+        difference of shape. Pick a table, optionally say what the report is for, and the planner
+        returns an ordered <strong>outline</strong> of sections rather than a set of tiles: each
+        section is a heading, the question behind it, whether the answer belongs in a chart or in a
+        table somebody will check a row of, and whether it should start a new page.
+      </P>
+      <Steps
+        items={[
+          {
+            title: "Pick the table",
+            body: "Optionally say what the report is for — the planner writes a different outline for a board pack than for an operations check.",
+          },
+          {
+            title: "Review the planned sections",
+            body: "Each shows its question, whether it will be a chart or a table, and whether it starts a new page. Untick any you don't want.",
+          },
+          {
+            title: "Build",
+            body: "Every section runs the same BI turn a dashboard widget does, and becomes a heading plus a chart or table block.",
+          },
+          {
+            title: "Edit and save",
+            body: "Reorder, retitle, change the page setup and the bands in the designer.",
+          },
+          { title: "Export PDF" },
+        ]}
+      />
+      <P>
+        A section whose query fails or returns no rows is reported with its reason and skipped; the
+        rest of the report is still built. If nothing could be built the dialog stays open with the
+        reasons, rather than handing back an empty document. The planner runs through the same
+        IAM-gated server route as every other BI generation and is traced as{" "}
+        <C>BI Agent: Report outline</C>.
+      </P>
+
+      <H3 id="report-export">Export</H3>
+      <P>
+        <strong>Export PDF</strong> builds a real vector-text PDF: headings, paragraphs and table
+        cells are selectable text, not a screenshot. Only charts are images, rasterised from the
+        nodes the preview is already showing, so the exported chart is the chart you were looking
+        at. A chart with no rows prints a visible <C>[chart unavailable]</C> marker rather than a
+        silent gap.
+      </P>
+
+      <Callout kind="info" title="Reports are owner-only">
+        A report belongs to the account that created it. Unlike dashboards, there is no group share,
+        public link or embed key — send the exported PDF. Name and page setup changes are written to
+        the audit log.
+      </Callout>
 
       <H2 id="lifecycle">Versioning and promotion</H2>
       <UL>
