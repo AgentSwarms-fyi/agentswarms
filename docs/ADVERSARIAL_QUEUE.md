@@ -351,6 +351,9 @@ least twice, not a hypothetical.
      table; `EXPLAIN ANALYZE` reporting a policed table's row counts; catalog crawl counts. The
      owner decided that shared dashboards, semantic models, shared connections and the embedded
      Analyst keep running as their owner: not a defect.
+   - **R226: table functions in a write.** The SQL editor refused a table function in a SELECT
+     and ran the same read inside CREATE TABLE … AS. Found while designing the sandbox gateway,
+     which runs its commits through the engine.
    - **Scoped sandbox credentials** (the owner's decision): ETL and ML sandboxes are to get
      lakehouse credentials scoped to the run instead of the engine's. Until then the server-side
      checks above are the boundary.

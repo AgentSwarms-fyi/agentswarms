@@ -109,6 +109,48 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-02 — A table function inside a write statement
+
+Tests: `tests/unit/lakehouseWriteTableFunctions.test.ts` (4 tests: the table-function list read
+from a real DuckDB in memory with the engine's own query, every write shape scanned with the real
+`calledNames`, and the runner's order). The mutation run caught 5 of 5, and the control survived.
+
+#### R226 · S0 · The SQL editor ran a table function when it sat inside a write
+
+**Found** while designing the sandbox gateway, whose commits run through the engine: the write
+branch of `runLakehouseStatement` imports `writeSubSelect` and never calls it. A SELECT's table
+functions are found in DuckDB's own parse (`json_serialize_sql`) and refused. DuckDB will not
+serialize a write, so a write's reads were checked by `tableRefs`, a text scan that sees only
+`schema.table` names. A table function in a CREATE TABLE … AS, an INSERT … SELECT, or any
+subquery of a write ran with the engine's own access: its files on disk and the lake's storage
+credential, past every grant and policy.
+
+**Proof (before, hot deploy of R225).** In the SQL editor, owner's account, own schema:
+- `SELECT * FROM read_text('/etc/hostname')` → **"read_text() is not available here — query
+  lakehouse tables, or use a lake view for raw files"**;
+- `CREATE TABLE analytics.r226_probe AS SELECT filename, content FROM read_text('/etc/hostname')`
+  → **1 row(s), Count 1**;
+- `SELECT filename, content FROM analytics.r226_probe` → `/etc/hostname`, `24798c87e4c5`: the app
+  container's own host name.
+
+The probe table was dropped. Nothing else was read.
+
+**The fix.** `assertNoTableFunctions` runs last in the write branch, before anything executes and
+after the refusals that need no engine (the first gate caught it ahead of the Iceberg mount's own
+refusal, which a test pins). `calledNames` lists every
+name the statement calls (bare, double-quoted or dotted, outside comments and string literals),
+and each is compared with every table function the engine lists in `duckdb_functions()`, so a
+function an extension adds is covered the day it loads. It fails closed: a failed read of the list
+is not cached and is not "none", and a table that shares a table function's name is refused too.
+Materialized views and SQL models were not affected: both run their SELECT through the AST check
+before building.
+
+**Driven after** (hot deploy of R226): the same CREATE TABLE … AS read answered **"read_text() is
+not available here — query lakehouse tables, or use a lake view for raw files"**, the SELECT's
+message. Ordinary writes still run: `CREATE TABLE analytics.r226_after AS SELECT upper('ok') AS
+note, 1 AS n` and `INSERT INTO analytics.r226_after SELECT 'gen', range FROM range(2, 5)` left 4
+rows (`OK,gen,gen,gen`). The table was dropped.
+
 ### 2026-10-02 — An ETL pipeline's lakehouse nodes, checked by their schema field only
 
 Tests: `tests/unit/etlLakehouseGuard.test.ts` (7 tests, real DuckDB in memory parsing the

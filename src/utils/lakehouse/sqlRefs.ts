@@ -143,6 +143,70 @@ export function blankLiterals(sql: string): string {
   return out;
 }
 
+/**
+ * Every name the statement calls: the identifier, bare or double-quoted,
+ * directly before a "(" outside comments and string literals, lower-cased.
+ * A dotted call (`main.f(`) yields its last part. Over-inclusive on purpose
+ * (`IN (`, a column list) — the caller compares against function names.
+ */
+export function calledNames(sql: string): string[] {
+  const s = stripComments(sql);
+  const out = new Set<string>();
+  let i = 0;
+  let last: string | null = null;
+  while (i < s.length) {
+    const ch = s[i]!;
+    if (ch === "'") {
+      // A string literal: skipped whole, '' included.
+      i++;
+      while (i < s.length && !(s[i] === "'" && s[i + 1] !== "'")) i += s[i] === "'" ? 2 : 1;
+      i++;
+      last = null;
+      continue;
+    }
+    if (ch === "$" && s[i + 1] === "$") {
+      const end = s.indexOf("$$", i + 2);
+      i = end === -1 ? s.length : end + 2;
+      last = null;
+      continue;
+    }
+    if (ch === '"') {
+      let name = "";
+      i++;
+      while (i < s.length) {
+        if (s[i] === '"' && s[i + 1] === '"') {
+          name += '"';
+          i += 2;
+          continue;
+        }
+        if (s[i] === '"') {
+          i++;
+          break;
+        }
+        name += s[i];
+        i++;
+      }
+      last = name.toLowerCase();
+      continue;
+    }
+    if (/[A-Za-z_]/.test(ch)) {
+      let j = i + 1;
+      while (j < s.length && /[A-Za-z0-9_$]/.test(s[j]!)) j++;
+      last = s.slice(i, j).toLowerCase();
+      i = j;
+      continue;
+    }
+    if (/\s/.test(ch)) {
+      i++;
+      continue;
+    }
+    if (ch === "(" && last) out.add(last);
+    last = null;
+    i++;
+  }
+  return [...out];
+}
+
 // Functions whose answer changes between two runs of the same statement.
 const VOLATILE_SQL =
   /\b(now|current_date|current_time|current_timestamp|localtime|localtimestamp|today|get_current_time|get_current_timestamp|transaction_timestamp|random|setseed|uuid|uuidv4|uuidv7|gen_random_uuid)\b/i;

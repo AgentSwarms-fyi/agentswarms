@@ -298,8 +298,11 @@ function LakehouseDocsPage() {
         engine, at one chokepoint. One statement per request, classified select / DML / DDL —
         anything else (<C>ATTACH</C>, <C>COPY</C>, <C>SET</C>, <C>INSTALL</C>, transactions) is
         refused. Every SELECT is parsed to an AST and each table it reads must resolve to a schema
-        you own or hold a grant on; writes must be schema-qualified into an accessible schema. Every
-        statement — refusals included — lands in your query history and the platform audit trail.
+        you own or hold a grant on; writes must be schema-qualified into an accessible schema. Table
+        functions that read files or other systems (<C>read_parquet</C>, <C>read_text</C>,{" "}
+        <C>glob</C>, …) are refused in a write as they are in a SELECT; the generators <C>range</C>{" "}
+        and <C>generate_series</C> work in both. Every statement — refusals included — lands in your
+        query history and the platform audit trail.
       </P>
       <Callout>
         Sharing a lakehouse schema from Admin → IAM grants query <em>and</em> write on its tables.

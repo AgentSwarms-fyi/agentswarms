@@ -32,6 +32,7 @@ import { applyTablePolicies, loadPolicies } from "@/utils/lakehouse/policies.ser
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import {
   blankLiterals,
+  calledNames,
   callsVolatileFunction,
   qualifiedRefs,
   stripComments,
@@ -631,6 +632,68 @@ export function classifyStatement(rawSql: string): Classified {
 
 type AstRef = { catalog: string; schema: string; table: string };
 
+// Pure generators read nothing — refusing them buys no safety and breaks
+// ordinary SQL. Everything that can touch files or foreign systems stays
+// refused (read_parquet, read_csv, read_json, postgres_scan, glob, …).
+const SAFE_TABLE_FUNCTIONS = new Set(["range", "generate_series", "unnest"]);
+
+let tableFunctionNamesCache: Promise<Set<string>> | null = null;
+
+/**
+ * Every table function the engine knows, from the engine itself, so a
+ * function an extension adds is covered the day it loads. The generators
+ * above are left out. A failed read is not cached and is not "none".
+ */
+export async function readTableFunctionNames(c: DuckDBConnection): Promise<Set<string>> {
+  const rows = await (
+    await c.run(
+      "SELECT DISTINCT lower(function_name) FROM duckdb_functions() WHERE function_type IN ('table', 'table_macro')",
+    )
+  ).getRows();
+  const names = new Set(rows.map((r) => String(r[0])));
+  if (!names.size) throw new Error("The engine listed no table functions");
+  for (const safe of SAFE_TABLE_FUNCTIONS) names.delete(safe);
+  return names;
+}
+
+async function tableFunctionNames(): Promise<Set<string>> {
+  tableFunctionNamesCache ??= (async () => {
+    const c = await lakehouseConnection();
+    try {
+      return await readTableFunctionNames(c);
+    } finally {
+      c.closeSync();
+    }
+  })().catch((e) => {
+    tableFunctionNamesCache = null;
+    throw e;
+  });
+  return tableFunctionNamesCache;
+}
+
+/**
+ * Refuse a write statement that calls a table function anywhere in it.
+ *
+ * FOUND IN R226. A SELECT's table functions are found in DuckDB's own parse
+ * and refused, but DuckDB will not serialize a write, so a write's reads were
+ * checked by a text scan that only sees `schema.table` names. A table function
+ * inside a CREATE TABLE … AS, an INSERT … SELECT or a subquery ran with the
+ * engine's own access. Every name the statement calls is compared with every
+ * table function the engine has, which fails closed: a table that happens to
+ * share a table function's name is refused too.
+ */
+export async function assertNoTableFunctions(sql: string): Promise<void> {
+  const called = calledNames(sql);
+  if (!called.length) return;
+  const fns = await tableFunctionNames();
+  const hit = called.find((n) => fns.has(n));
+  if (hit) {
+    throw new Error(
+      `${hit}() is not available here — query lakehouse tables, or use a lake view for raw files`,
+    );
+  }
+}
+
 function walkAst(nodeIn: unknown, refs: AstRef[], ctes: Set<string>, tableFns: string[]): void {
   if (Array.isArray(nodeIn)) {
     for (const item of nodeIn) walkAst(item, refs, ctes, tableFns);
@@ -653,11 +716,7 @@ function walkAst(nodeIn: unknown, refs: AstRef[], ctes: Set<string>, tableFns: s
     const fn = String(
       (node.function as { function_name?: string } | undefined)?.function_name ?? "table function",
     ).toLowerCase();
-    // Pure generators read nothing — refusing them buys no safety and breaks
-    // ordinary SQL. Everything that can touch files or foreign systems stays
-    // refused (read_parquet, read_csv, read_json, postgres_scan, glob, …).
-    const SAFE = new Set(["range", "generate_series", "unnest"]);
-    if (!SAFE.has(fn)) tableFns.push(fn);
+    if (!SAFE_TABLE_FUNCTIONS.has(fn)) tableFns.push(fn);
   }
   for (const value of Object.values(node)) walkAst(value, refs, ctes, tableFns);
 }
@@ -1058,6 +1117,54 @@ function jsValue(v: unknown): LakehouseCell {
  * execution with a row cap and an interrupt-based timeout, audit and history
  * — the single chokepoint every caller (UI, BI, agents, NL2SQL) goes through.
  */
+/**
+ * A SELECT as `userId` may run it: every schema it reads is theirs or shared
+ * with them, and every table it reads under another owner's policy is
+ * rewritten through that policy. Returns the SQL to execute (the statement
+ * itself when no policy applies) and the tables whose policy was applied.
+ *
+ * The one implementation of "what may this user read": the SQL editor runs
+ * through it, and so does a sandbox's read (sandboxLake.server), so the two
+ * cannot drift apart.
+ */
+export async function governSelect(
+  c: DuckDBConnection,
+  userId: string,
+  sql: string,
+  allowed: SchemaRow[],
+): Promise<{ sql: string; policyTables: string[] }> {
+  const schemas = await selectReferencedSchemas(c, sql);
+  assertSchemasAllowed(schemas, allowed);
+
+  // Owners see their own tables whole — a filter they cannot see through
+  // would be impossible to debug. Everyone else reads through the owner's
+  // policy.
+  const foreign = allowed.filter((sch) => sch.user_id !== userId);
+  if (!foreign.length) return { sql, policyTables: [] };
+  const tables = (await selectReferencedTables(c, sql)).filter((t) =>
+    foreign.some((sch) => sch.name.toLowerCase() === t.schema),
+  );
+  const policies = await loadPolicies([...new Set(foreign.map((f) => f.user_id))], tables);
+  if (!policies.size) return { sql, policyTables: [] };
+  const rewrite = await applyTablePolicies(
+    c,
+    stripSqlComments(sql).replace(/;\s*$/, ""),
+    policies,
+    {
+      id: userId,
+      email: await readerEmail(userId),
+    },
+  );
+  // A policy covers a table this statement reads, so a rewrite that replaced
+  // nothing is a statement running unfiltered (R224).
+  if (!rewrite) {
+    throw new Error(
+      "A security policy covers a table this statement reads, but it could not be applied — refused",
+    );
+  }
+  return { sql: rewrite.sql, policyTables: rewrite.applied };
+}
+
 export async function runLakehouseStatement(
   userId: string,
   sql: string,
@@ -1231,6 +1338,9 @@ export async function runLakehouseStatement(
           );
         }
       }
+      // Last, because it asks the engine for its function list: every
+      // refusal above answers without one (R226).
+      await assertNoTableFunctions(sql);
     }
     // Writes get a bounded retry; reads never need one. Each attempt opens a
     // fresh connection so it reads the catalog as it is NOW — retrying on the
@@ -1244,39 +1354,9 @@ export async function runLakehouseStatement(
       // the user actually wrote.
       let effectiveSql = sql;
       if (classified.kind === "select") {
-        const schemas = await selectReferencedSchemas(c, sql);
-        assertSchemasAllowed(schemas, allowed);
-
-        // Owners see their own tables whole — a filter they cannot see
-        // through would be impossible to debug. Everyone else reads through
-        // the owner's policy.
-        const foreign = allowed.filter((sch) => sch.user_id !== userId);
-        if (foreign.length) {
-          const tables = (await selectReferencedTables(c, sql)).filter((t) =>
-            foreign.some((sch) => sch.name.toLowerCase() === t.schema),
-          );
-          const policies = await loadPolicies([...new Set(foreign.map((f) => f.user_id))], tables);
-          if (policies.size) {
-            const rewrite = await applyTablePolicies(
-              c,
-              stripSqlComments(sql).replace(/;\s*$/, ""),
-              policies,
-              {
-                id: userId,
-                email: await readerEmail(userId),
-              },
-            );
-            // A policy covers a table this statement reads, so a rewrite that
-            // replaced nothing is a statement running unfiltered (R224).
-            if (!rewrite) {
-              throw new Error(
-                "A security policy covers a table this statement reads, but it could not be applied — refused",
-              );
-            }
-            effectiveSql = rewrite.sql;
-            policyTables = rewrite.applied;
-          }
-        }
+        const governed = await governSelect(c, userId, sql, allowed);
+        effectiveSql = governed.sql;
+        policyTables = governed.policyTables;
         // Cache lookup happens AFTER the access check, never before: a cached
         // row must not be reachable by someone whose grant was revoked.
         // The result cache is keyed by the CURRENT snapshot, so a historical

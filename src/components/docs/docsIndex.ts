@@ -2322,6 +2322,8 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "count(*)",
       "docs/LAKEHOUSE.md",
       "f1_standings",
+      "generate_series",
+      "glob",
       "iceberg_catalog",
       "internal",
       "lakehouse-catalog:5432",
@@ -2331,6 +2333,9 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "lakehouse.iceberg.refresh",
       "orders",
       "pii",
+      "range",
+      "read_parquet",
+      "read_text",
       "record_count",
       "restricted",
       "spark"

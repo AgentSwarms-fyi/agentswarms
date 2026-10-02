@@ -15,6 +15,21 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-02 — A table function inside a write, ADVERSARIAL_LOG R226
+
+**Why this round exists.** Found while designing the sandbox gateway. The SQL editor, owner's
+account, own schema `analytics`.
+
+Fixtures: none kept. `analytics.r226_probe` and `analytics.r226_after` were dropped.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before (hot deploy of R225) | `SELECT * FROM read_text('/etc/hostname')` | **"read_text() is not available here — query lakehouse tables, or use a lake view for raw files"** |
+| Before | `CREATE TABLE analytics.r226_probe AS SELECT filename, content FROM read_text('/etc/hostname')` | **1 row(s), Count 1** |
+| Before | `SELECT filename, content FROM analytics.r226_probe` | `/etc/hostname`, `24798c87e4c5` (the app container's host name); table dropped |
+| After (hot deploy of R226) | the same CREATE TABLE … AS | **"read_text() is not available here — query lakehouse tables, or use a lake view for raw files"** |
+| After | CREATE TABLE … AS `SELECT upper('ok') AS note, 1 AS n`, then INSERT … `FROM range(2, 5)` | 4 rows, notes `OK,gen,gen,gen`; table dropped |
+
 ## 2026-10-02 — Smoke of the real image after R220 to R224
 
 **Why this round exists.** R220 to R224 had been hot-deployed onto the R219 image. This round

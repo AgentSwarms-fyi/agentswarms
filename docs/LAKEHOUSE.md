@@ -429,6 +429,10 @@ reaches the engine, at one chokepoint (`runLakehouseStatement`):
    …) are refused because the engine-level S3 secret would otherwise let any
    user read any path the deployment can (pure generators like `range` pass).
 3. **Writes must be schema-qualified** and target an accessible schema.
+   A write may not call a table function anywhere in it (R226). DuckDB
+   will not parse a write into an AST, so every name the statement calls is
+   compared with every table function the engine lists in
+   `duckdb_functions()`; the pure generators pass, as they do in a SELECT.
 4. Row caps (10k default) and an interrupt-based timeout bound every query.
 5. **Tables a Sheets table sheet holds** (an uploaded file, rows imported
    from a connection) are read, never changed, here: every write path asks
