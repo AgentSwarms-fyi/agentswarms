@@ -461,7 +461,8 @@ export async function resolveRunEnv(
         "This pipeline uses the lakehouse, but the deployment has no lakehouse configured (LAKEHOUSE_CATALOG_URL).",
       );
     }
-    const allowed = new Set((await accessibleSchemas(pipeline.user_id)).map((sch) => sch.name));
+    const schemaRows = await accessibleSchemas(pipeline.user_id);
+    const allowed = new Set(schemaRows.map((sch) => sch.name));
     const sheetTargets = lakehouseNodes
       .filter((n) => n.kind === "target")
       .map((n) => {
@@ -483,6 +484,30 @@ export async function resolveRunEnv(
         );
       }
     }
+    // A node's schema is only where it starts: its query can name others,
+    // and a shared table can carry its owner's policy (R225).
+    const { lakehouseNodesRefusal } = await import("@/utils/lakehouse/pipelineGuard.server");
+    const refusal = await lakehouseNodesRefusal(
+      pipeline.user_id,
+      schemaRows,
+      lakehouseNodes.map((node) => {
+        const c = effective(node) as {
+          schema?: string;
+          table?: string;
+          mode?: string;
+          query?: string;
+        };
+        return {
+          label: (node as EtlNode).label || node.id,
+          kind: node.kind === "target" ? ("target" as const) : ("source" as const),
+          schema: c.schema ?? "",
+          table: c.table,
+          mode: node.kind === "target" ? "table" : c.mode,
+          query: c.query,
+        };
+      }),
+    );
+    if (refusal) throw new Error(refusal);
     env.ETL_LAKEHOUSE_CATALOG = catalogUrlToLibpq(cfg.catalog);
     env.ETL_LAKEHOUSE_DATA_URL = cfg.dataUrl;
     env.ETL_LAKEHOUSE_S3_KEY_ID = cfg.s3.keyId;

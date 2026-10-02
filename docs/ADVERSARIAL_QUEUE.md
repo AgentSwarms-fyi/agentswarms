@@ -342,6 +342,18 @@ least twice, not a hypothetical.
      table for a non-owner found it; the survey's other findings (it named ETL pipelines and node
      preview first) were lost when the agent's report was cut off, so that survey is to run again
      before this sweep moves on.
+   - **R225: ETL lakehouse nodes.** The survey, re-run, named ETL pipelines first: only each
+     node's `schema` field was checked, so a source query read any schema, and a shared table was
+     read and written past its owner's policy. Fixed on the server; the grantee-side UI proof
+     waits on a second account.
+   - **Next, from the re-run survey (each to be read and proved before fixing):** ML training and
+     prediction over a shared table; materialized views and SQL models that write a policed shared
+     table; `EXPLAIN ANALYZE` reporting a policed table's row counts; catalog crawl counts. The
+     owner decided that shared dashboards, semantic models, shared connections and the embedded
+     Analyst keep running as their owner: not a defect.
+   - **Scoped sandbox credentials** (the owner's decision): ETL and ML sandboxes are to get
+     lakehouse credentials scoped to the run instead of the engine's. Until then the server-side
+     checks above are the boundary.
    - **Next, from the triage, in order of consequence (each to be read and proved before fixing):**
      - **Agent chat** (`routes/api/chat.ts` ~1218): a failed read of the agent enables every
        tool, drops the MCP, SQL and model allow-lists, and turns guardrails to their defaults

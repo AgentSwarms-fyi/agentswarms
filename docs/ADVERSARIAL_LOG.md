@@ -109,6 +109,41 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-02 — An ETL pipeline's lakehouse nodes, checked by their schema field only
+
+Tests: `tests/unit/etlLakehouseGuard.test.ts` (7 tests, real DuckDB in memory parsing the
+queries with the SQL editor's table walk, the owners' policies stubbed). The mutation run caught
+4 of 4, and the control survived.
+
+#### R225 · S1 · A pipeline's lakehouse source read any schema, and shared tables past their policy
+
+**Found** by the lakehouse policy survey, re-run after R224's report was cut off. A pipeline's
+lakehouse nodes run in a sandbox, and before a run or a node preview the server checked one
+thing: that each node's own `schema` field named a schema the pipeline's owner could reach. So:
+- a source in **query mode** ran its SQL as written. A node naming the owner's own schema could
+  query a schema nobody had shared with them;
+- a **shared table** with a row filter or column masks set by its owner was read whole. The
+  policy is applied by the lakehouse engine's query rewrite, which the sandbox does not run;
+- a **target** could write a shared table that the lakehouse keeps read-only for everyone but its
+  owner once a policy covers it.
+
+**Proof.** The grantee side needs a second account. The tests hold it with real DuckDB parsing
+each query: `SELECT * FROM private.salaries` from a node whose schema is `mine` is refused with
+`No access to schema "private"`; `read_parquet('s3://…')` is refused; a table-mode source, a
+query and a target over a shared table with a policy are each refused; the owner's own read and a
+shared table with no policy pass.
+
+**The fix.** `lakehouseNodesRefusal` (`src/utils/lakehouse/pipelineGuard.server.ts`) runs before
+the sandbox is given the catalog's credentials:
+- every schema a source query reads goes through `assertSchemasAllowed`, as the SQL editor's do;
+- the tables each node reads or writes are collected, and a table in a schema another user owns
+  that carries that owner's policy is refused, with a message saying where the policy does hold;
+- the run and the node preview both throw the refusal before `ETL_LAKEHOUSE_CATALOG` is set.
+
+**Still open.** The sandbox holds engine-level catalog and storage credentials, so code that a
+node does not declare (custom Python) is bounded by those credentials, not by these checks. The
+owner chose scoped per-run credentials as the fix; that is the next piece of work.
+
 ### 2026-10-02 — A reader's SUMMARIZE, and the policy that was never loaded
 
 Tests: `tests/unit/lakehouseSummarizePolicy.test.ts` (6 tests, real DuckDB in memory: the table

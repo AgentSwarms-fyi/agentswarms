@@ -245,6 +245,13 @@ function EtlDocsPage() {
         install), runs fail immediately with a message saying exactly that. See{" "}
         <DocLink to="/docs/self-hosting">Install &amp; deploy</DocLink>.
       </Callout>
+      <Callout kind="info" title="A lakehouse node gets the SQL editor's checks">
+        A pipeline runs as its owner. Every schema a lakehouse source&apos;s query reads must be the
+        owner&apos;s or shared with them, whatever schema the node itself names; table functions
+        such as <C>read_parquet()</C> are refused. A shared table under its owner&apos;s row filter
+        or column masks cannot be read or written by a pipeline, because nothing in the sandbox can
+        apply the policy: query it in the Lakehouse, where the policy holds.
+      </Callout>
       <Callout kind="warn" title="Lakehouse targets need the catalog on the kernel's network">
         Because the run happens in a kernel, a pipeline whose target is a lakehouse table attaches
         the catalog from <em>there</em> — and kernels sit on an <C>internal</C> network whose only

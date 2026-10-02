@@ -662,6 +662,27 @@ process memory), destinations and drift baselines are skipped. A broken graph
 fails at the compile step with the compiler's message, before any container
 starts.
 
+## What a lakehouse node may read and write
+
+A pipeline runs as its owner, and its lakehouse nodes get the same checks as
+the owner's queries in the Lakehouse SQL editor. The server makes these checks
+before a run or a node preview starts:
+
+- **Every schema a source query reads** must be the owner's own or shared with
+  them. The node's own schema field is only where the query starts. Table
+  functions such as `read_parquet()` and unqualified table names are refused,
+  as they are in the editor.
+- **A shared table under its owner's row filter or column masks** cannot be
+  read by a pipeline. The policy is applied by the lakehouse engine's query
+  rewrite, and nothing in the sandbox can apply it. Query the table in the
+  Lakehouse, where the policy holds, or ask its owner to publish what you need.
+- **A shared table under a policy is read-only** for everyone but its owner,
+  so a pipeline cannot target it either.
+
+Before R225 only each node's schema field was checked. A query-mode source
+naming the owner's schema could read any schema in the lake, and a shared
+table was read whole, past its owner's policy.
+
 ## Lakehouse targets need the catalog on the kernel network
 
 A pipeline whose target is a lakehouse table attaches DuckLake **from inside the

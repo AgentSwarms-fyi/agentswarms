@@ -1533,6 +1533,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "notebooks",
       "numErrors",
       "raw/orders/*.csv",
+      "read_parquet()",
       "regexp_extract",
       "replace",
       "sc://spark-connect:15002",
