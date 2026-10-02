@@ -400,8 +400,10 @@ function LakehouseDocsPage() {
           in one commit, so readers see the old rows or the new ones; otherwise it stages the new
           table and renames it into place (a reader can miss the table for the moment between the
           two renames, never find it empty), and a swap that fails puts the old table back. Refuse
-          keeps an existing one. Import is the reverse: an Iceberg table copied into a schema you
-          created, as a real lakehouse table.
+          keeps an existing one. Only the owner can publish a table that has a security policy: a
+          reader sees it through the owner&apos;s filter and masks, which an Iceberg copy cannot
+          carry. Import is the reverse: an Iceberg table copied into a schema you created, as a real
+          lakehouse table.
         </li>
         <li>
           <strong>Audited:</strong> catalog definitions through the <C>iceberg_catalog</C> row

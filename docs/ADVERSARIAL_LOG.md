@@ -109,6 +109,57 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-02 — A shared table's policy, left behind on the way out
+
+Tests: `tests/unit/lakehousePolicyFailClosed.test.ts` (10 tests: the real policy loaders against a
+client whose reads fail one table at a time, and the real publish guard).
+`tests/unit/lakehouseAccessCheck.test.ts` now finds Iceberg's schema check in the guard. The
+mutation run caught 4 of 4, and the control survived.
+
+#### R223 · S1 · Iceberg publish copied a shared table past its owner's policy; a failed policy read ran queries unfiltered
+
+**Found** by a triage of the 298 single-row reads, and the list reads, that keep `data` and drop
+`error` (sweep 7, after R222). Two holes in one guard:
+
+- **Iceberg publish.** A schema shared with a reader is read by them through the owner's row
+  filter and column masks: the editor rewrites their SELECT, a write that reads a policed foreign
+  table is refused, and Spark refuses one. `icebergPublish` checked only that the reader could see
+  the schema (`accessibleSchemas`), then copied the raw table with `INSERT ... SELECT` into a
+  catalog the reader owns. Every row, every column unmasked, readable from then on by anything
+  that speaks Iceberg.
+- **The policy reads.** `loadPolicies`, `loadTagPolicies` and `lakehouseAssetTags` (five reads)
+  kept `data` and dropped `error`, and `data ?? []` made a failed read "no policy". Every caller
+  then ran unpoliced: the editor's rewrite, the refusal of a write that copies a policed table, an
+  UPDATE or DELETE by a grantee, Spark, and the Delta Sharing snapshot handed to an external
+  recipient.
+
+**Proof.** This deployment has one account, and these rounds do not create accounts, so the
+grantee side cannot be driven in the UI. The tests hold the defect half, against the real
+functions:
+- with the policy table's read refused, the old loader returned an empty map, where it now throws;
+- a reader of a shared schema whose table has a policy got no refusal, where now the guard refuses
+  them, and the handler asks it before anything is copied.
+
+The UI holds the regression half: the owner still publishes their own table whole.
+
+**The fix.**
+- **`rowsOf`** (`policies.server.ts`) throws on a failed read, so a policy that cannot be read is
+  an error and every caller fails closed.
+- **`icebergPublishRefusal`** (`src/utils/lakehouse/publishGuard.server.ts`): the owner publishes
+  whole; a reader is refused a table under a policy ("…has a security policy set by its owner,
+  which an Iceberg copy cannot carry — only the owner can publish it."), and so is a reader whose
+  policy cannot be read.
+
+**Driven after** (hot deploy of R223): Lakehouse → `analytics.r211_double` → Publish to Iceberg →
+`local_rest`, namespace `r181`, table `r223_owner_publish` → "Published 4 row(s) to
+r181.r223_owner_publish". The first attempt failed in the catalog with SQLITE_BUSY, the dev
+catalog's known lock (memory: restart `aswarm-iceberg-rest`); it went through after the restart.
+
+**Also from the triage, queued:** agent chat taking a failed agent read for "every tool, no
+guardrails"; BI direct query and the semantic layer's share policy losing grant filters on a
+failed group read; SCIM and Admin → IAM skipping the superadmin protection; budget caps; and
+others. The queue's sweep 7 lists them.
+
 ### 2026-10-02 — One failed poll, and a running Spark query is called cancelled
 
 Tests: `tests/unit/sparkQueryPoll.test.ts` (10 tests: the server's read against a failing

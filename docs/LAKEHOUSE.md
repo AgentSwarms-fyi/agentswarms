@@ -277,7 +277,11 @@ comments-and-casing, UNION arm), all of which stayed filtered, plus an
 aggregate over a masked column, which returned no values.
 
 If the rewrite cannot be completed for any reason, the query is **refused**.
-The one failure this must never have is running unfiltered.
+The one failure this must never have is running unfiltered. That includes not
+being able to *read* the policy: a failed read of the table policies, the tag
+policies or the catalog tags they key on is an error, never "no policy" (R223).
+Before R223 those reads dropped their errors, and one failed read ran a
+reader's query unfiltered.
 
 A filter is validated against the real table when you save it, so a typo is
 caught at authoring time rather than by blocking every reader at once.
@@ -530,6 +534,12 @@ the ducklake extension is loaded, as it always is here, and every publish
 failed (R181). Column types are accepted or refused exactly as before
 (`UTINYINT`, `UBIGINT`, `ENUM` and `INTERVAL` are not Iceberg types). A
 publish whose rows do not go in removes the empty table it made.
+
+Only a table's **owner** publishes it whole. A reader of a shared schema reads
+its tables through the owner's row filters and column masks, and an Iceberg
+table cannot carry them, so a reader is refused a table under a policy, as on
+Spark (R223). Before R223 the publish checked only that the reader could see
+the schema, and copied the table unfiltered into a catalog the reader owns.
 
 "Replace" never leaves the name empty (R182); the extension has no `CREATE
 OR REPLACE` for Iceberg. When the catalog's table already has the new

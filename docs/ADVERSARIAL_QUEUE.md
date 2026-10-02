@@ -207,7 +207,11 @@ least twice, not a hypothetical.
    deleted.", and the runtime tab's "this app is probably not …". The
    lakehouse's "it may have been cancelled elsewhere" is R222: a cancelled
    query keeps its row, and the null it answered was a failed read, which
-   stopped the editor watching a Spark query that went on to finish. The four "The lakehouse /
+   stopped the editor watching a Spark query that went on to finish. The
+   other three were read against their conditions (2026-10-02) and left: the
+   integrations fallback is unreachable (every failure path builds a detail),
+   the swarm URL's message hedges one of two real causes (deleted, or not
+   yours), and the runtime tab's reads the configured backend. The four "The lakehouse /
    Qdrant is not configured on this deployment" were checked against their
    conditions: three are the config flag (`listLakehouseTablesForUser`'s
    `enabled`, the store brief's `externalAvailable`). The fourth, BI Data
@@ -325,6 +329,39 @@ least twice, not a hypothetical.
        re-render, a session refresh included.
      - Data monitors (`data-monitors.tsx:624`): choosing "Pick a column…" snaps back to the first
        timestamp column. Minor.
+
+7. **A failed read that fails open** (sweep 7, from 2026-10-02). A Supabase read that keeps
+   `data` and drops `error` sees a failed read as "no row" or "no rows": about 300 single-row
+   reads, and many list reads with `data ?? []`. Most only turn a blip into a wrong "not found".
+   The ones that matter are where "none" lets something through or makes the code write. R222
+   (a running Spark query called cancelled) was the first.
+   - **R223: lakehouse policies.** The policy reads failed open, and Iceberg publish (not a read
+     failure) copied a shared table past its owner's policy.
+   - **Next, from the triage, in order of consequence (each to be read and proved before fixing):**
+     - **Agent chat** (`routes/api/chat.ts` ~1218): a failed read of the agent enables every
+       tool, drops the MCP, SQL and model allow-lists, and turns guardrails to their defaults
+       (off). The swarm embed (`embed.chat.ts` ~205) loses a linked agent's guardrails the same
+       way.
+     - **Grant filters on a failed group read:** BI direct query (`routes/api/bi.direct-query.ts`
+       ~142) and the semantic layer's share policy (`semantic/policy.server.ts` ~65).
+     - **Superadmin protection:** SCIM `assertNotProtected` (`scim.server.ts` ~336) and Admin →
+       IAM ban and delete (`iam.functions.ts` ~241, ~272) skip "demote first" on a failed role
+       read.
+     - **An AI Gateway key** (`gatewayKeys.functions.ts` ~203) saved with no agent restriction
+       when the owner's agents cannot be read.
+     - **SCIM group deprovisioning** (`scim.server.ts` ~542) removes no one when the members
+       cannot be read, and answers 200.
+     - **Budget caps** (`budgetGuard.server.ts`) and **notebook runtime limits**
+       (`notebookRuntime/config.server.ts`) fall back to "no cap" or the permissive defaults.
+     - **ML:** an unpromoted version answering production (`ml/api.server.ts` `pickVersion`), a
+       scheduled retrain auto-promoting (`ml/schedule.server.ts` ~181).
+     - **Destructive on a blip:** the MCP reaper stops every published server
+       (`notebookRuntime/service.server.ts` ~501); the audit purge uses default retention
+       (`audit.server.ts` ~137); a live ETL run is marked failed (`etl/service.server.ts`
+       ~1412); workflow steps fail and re-run (`workflows/adapters.server.ts` ~442).
+     - **Writes on a blip:** saved secrets wiped on edit (`integrations.functions.ts` ~411,
+       `gitExport.functions.ts` ~102); ETL cursors re-read from the start
+       (`etl/service.server.ts` ~417).
 
 ### Sheets (new, 2026-09-25)
 

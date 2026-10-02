@@ -73,7 +73,10 @@ describe("what the callers do with it", () => {
     expect(core).toContain('No access to schema "${schema}"');
     const matviews = readFileSync("src/utils/lakehouse/matviews.server.ts", "utf8");
     expect(matviews).toContain("accessibleSchemas");
-    const iceberg = readFileSync("src/utils/icebergCatalogs.functions.ts", "utf8");
+    // R223 moved Iceberg publish's check into its guard, which also applies
+    // the owner's policy.
+    const iceberg = readFileSync("src/utils/lakehouse/publishGuard.server.ts", "utf8");
     expect(iceberg).toContain("accessibleSchemas");
+    expect(iceberg).toContain('No access to schema "${schema}"');
   });
 });

@@ -15,6 +15,18 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-02 — Iceberg publish by the owner after the policy guard, ADVERSARIAL_LOG R223
+
+**Why this round exists.** Sweep 7. The defect is a grantee's, and this deployment has one
+account, so only the owner's regression half is driven here; the tests hold the grantee half.
+
+Fixtures, **kept**: Iceberg table `r181.r223_owner_publish` (4 rows of `analytics.r211_double`).
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| After (hot deploy of R223) | Lakehouse → `analytics.r211_double` → Publish to Iceberg: `local_rest`, `r181`, `r223_owner_publish`, Publish | No toast; the catalog log showed SQLITE_BUSY (the dev catalog's lock) |
+| After | `docker restart aswarm-iceberg-rest`; Publish again | "Published 4 row(s) to r181.r223_owner_publish"; the catalog logged the commit |
+
 ## 2026-10-02 — A Spark query's poll that fails or comes back empty, ADVERSARIAL_LOG R222
 
 **Why this round exists.** Sweep 3's leftover: "it may have been cancelled elsewhere".

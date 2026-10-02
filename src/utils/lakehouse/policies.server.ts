@@ -33,6 +33,23 @@ const sq = (v: string) => `'${v.replace(/'/g, "''")}'`;
 const qi = (v: string) => `"${v.replace(/"/g, '""')}"`;
 
 /**
+ * The rows of a read, or a throw when the read failed.
+ *
+ * FOUND IN R223: every read here kept `data` and dropped `error`, and a
+ * failed read is `data: null`, which `?? []` made "no policy". A transient
+ * failure therefore ran a non-owner's SELECT unfiltered and unmasked, let a
+ * write copy a policed table, and sent one to Spark or into a Delta Share.
+ * Security fails closed: no policy is assumed that could not be read.
+ */
+function rowsOf<T>(
+  res: { data: T[] | null; error: { message: string } | null },
+  what: string,
+): T[] {
+  if (res.error) throw new Error(`Could not read ${what}: ${res.error.message}`);
+  return res.data ?? [];
+}
+
+/**
  * Policies covering any of these tables, authored by the schema owners.
  * A policy belongs to the owner of the schema; a reader never sees the row,
  * because knowing the filter would tell them exactly what they are denied.
@@ -43,12 +60,15 @@ export async function loadPolicies(
 ): Promise<Map<string, TablePolicy>> {
   const out = new Map<string, TablePolicy>();
   if (!ownerIds.length || !tables.length) return out;
-  const { data } = await supabaseAdmin
-    .from("lakehouse_table_policies")
-    .select("id, user_id, schema_name, table_name, row_filter, masked_columns, mask_style")
-    .in("user_id", ownerIds)
-    .in("schema_name", [...new Set(tables.map((t) => t.schema))]);
-  for (const row of data ?? []) {
+  const policyRows = rowsOf(
+    await supabaseAdmin
+      .from("lakehouse_table_policies")
+      .select("id, user_id, schema_name, table_name, row_filter, masked_columns, mask_style")
+      .in("user_id", ownerIds)
+      .in("schema_name", [...new Set(tables.map((t) => t.schema))]),
+    "the tables' security policies",
+  );
+  for (const row of policyRows) {
     const key = `${String(row.schema_name).toLowerCase()}.${String(row.table_name).toLowerCase()}`;
     if (!tables.some((t) => `${t.schema}.${t.table}` === key)) continue;
     out.set(key, {
@@ -95,11 +115,14 @@ export async function loadPolicies(
 /** Every tag rule these owners wrote. */
 export async function loadTagPolicies(ownerIds: string[]): Promise<TagPolicy[]> {
   if (!ownerIds.length) return [];
-  const { data } = await supabaseAdmin
-    .from("lakehouse_tag_policies")
-    .select("id, tag, scope, mask_style, row_filter")
-    .in("user_id", ownerIds);
-  return (data ?? []).map((r) => ({
+  const rules = rowsOf(
+    await supabaseAdmin
+      .from("lakehouse_tag_policies")
+      .select("id, tag, scope, mask_style, row_filter")
+      .in("user_id", ownerIds),
+    "the tag policies",
+  );
+  return rules.map((r) => ({
     id: r.id,
     tag: r.tag,
     scope: r.scope as "column" | "table",
@@ -130,28 +153,37 @@ export async function lakehouseAssetTags(
   // A warehouse source's provider lives on its connection, not on the source.
   // Seen live: the first check read the source's config and found nothing,
   // so no table was ever tagged and the rules applied to no one.
-  const { data: conns } = await supabaseAdmin
-    .from("data_warehouse_connections")
-    .select("id")
-    .in("user_id", ownerIds)
-    .eq("provider", "lakehouse");
-  const connIds = (conns ?? []).map((c) => c.id);
+  const conns = rowsOf(
+    await supabaseAdmin
+      .from("data_warehouse_connections")
+      .select("id")
+      .in("user_id", ownerIds)
+      .eq("provider", "lakehouse"),
+    "the lakehouse connections tags are read through",
+  );
+  const connIds = conns.map((c) => c.id);
   if (!connIds.length) return out;
-  const { data: sources } = await supabaseAdmin
-    .from("catalog_sources")
-    .select("id")
-    .in("user_id", ownerIds)
-    .eq("kind", "warehouse")
-    .in("connection_id", connIds);
-  const lakeSources = (sources ?? []).map((src) => src.id);
+  const sources = rowsOf(
+    await supabaseAdmin
+      .from("catalog_sources")
+      .select("id")
+      .in("user_id", ownerIds)
+      .eq("kind", "warehouse")
+      .in("connection_id", connIds),
+    "the catalog sources tags are read from",
+  );
+  const lakeSources = sources.map((src) => src.id);
   if (!lakeSources.length) return out;
-  const { data: assets } = await supabaseAdmin
-    .from("catalog_assets")
-    .select("schema_name, name, tags, columns")
-    .in("source_id", lakeSources)
-    .in("schema_name", [...new Set(tables.map((t) => t.schema))])
-    .in("name", [...new Set(tables.map((t) => t.table))]);
-  for (const a of assets ?? []) {
+  const assets = rowsOf(
+    await supabaseAdmin
+      .from("catalog_assets")
+      .select("schema_name, name, tags, columns")
+      .in("source_id", lakeSources)
+      .in("schema_name", [...new Set(tables.map((t) => t.schema))])
+      .in("name", [...new Set(tables.map((t) => t.table))]),
+    "the tables' catalog tags",
+  );
+  for (const a of assets) {
     const key = `${String(a.schema_name ?? "").toLowerCase()}.${String(a.name).toLowerCase()}`;
     if (!tables.some((t) => `${t.schema.toLowerCase()}.${t.table.toLowerCase()}` === key)) continue;
     const cols = Array.isArray(a.columns)
