@@ -203,9 +203,11 @@ least twice, not a hypothetical.
    (the route's `error` code) is evidence, and a status code alone is not.
    Left from the survey, to check each claim against its condition:
    the integrations test's "the request may have been blocked before
-   reaching it" (`integrations.tsx`), the lakehouse's "it may have been
-   cancelled elsewhere", the swarm URL's "It may have been deleted.", and
-   the runtime tab's "this app is probably not …". The four "The lakehouse /
+   reaching it" (`integrations.tsx`), the swarm URL's "It may have been
+   deleted.", and the runtime tab's "this app is probably not …". The
+   lakehouse's "it may have been cancelled elsewhere" is R222: a cancelled
+   query keeps its row, and the null it answered was a failed read, which
+   stopped the editor watching a Spark query that went on to finish. The four "The lakehouse /
    Qdrant is not configured on this deployment" were checked against their
    conditions: three are the config flag (`listLakehouseTablesForUser`'s
    `enabled`, the store brief's `externalAvailable`). The fourth, BI Data

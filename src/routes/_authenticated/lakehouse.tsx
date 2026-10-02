@@ -67,6 +67,7 @@ import {
 } from "@/components/lakehouse/IcebergDialog";
 import { downloadCsv } from "@/lib/exportData";
 import { useSingleFlight } from "@/lib/singleFlight";
+import { pollSparkQuery } from "@/lib/sparkPoll";
 import { matviewBadge } from "@/lib/matviewBadge";
 import { useAuth } from "@/hooks/use-auth";
 import { useTokenRef } from "@/hooks/use-token-ref";
@@ -572,19 +573,12 @@ function QueryTab({
     setSparkJob({ id, startedAt, status: "queued" });
     try {
       // Two seconds between polls: a sandbox takes ~10 s to start and a
-      // query seconds to minutes, so anything tighter is noise.
-      for (;;) {
-        await new Promise((r) => setTimeout(r, 2000));
-        const q = await getSparkFn({ data: { access_token: token, id } });
-        if (!q) throw new Error("The query is gone — it may have been cancelled elsewhere.");
-        setSparkJob({ id, startedAt, status: q.status });
-        if (q.status === "succeeded") return q.result;
-        if (q.status === "cancelled") return null;
-        if (q.status === "failed") {
-          const tail = (q.logs ?? "").trim().split("\n").slice(-6).join("\n");
-          throw new Error((q.error ?? "The query failed on Spark.") + (tail ? `\n\n${tail}` : ""));
-        }
-      }
+      // query seconds to minutes, so anything tighter is noise. A failed poll
+      // is retried; it is not the query ending (R222).
+      return await pollSparkQuery(
+        () => getSparkFn({ data: { access_token: token, id } }),
+        (q) => setSparkJob({ id, startedAt, status: q.status }),
+      );
     } finally {
       setSparkJob(null);
     }

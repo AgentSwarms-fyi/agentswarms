@@ -346,12 +346,17 @@ async function recordHistory(
 }
 
 async function loadOwned(id: string, userId: string) {
-  const { data } = await supabaseAdmin
+  const { data, error } = await supabaseAdmin
     .from("lakehouse_spark_queries")
     .select("*")
     .eq("id", id)
     .eq("user_id", userId)
     .maybeSingle();
+  // R222: a read that failed is not a row that is absent. Returned as null,
+  // the editor's poll took it for a query that had ended ("cancelled
+  // elsewhere") and stopped watching one still running, and Cancel answered
+  // "not cancelled" for a query it never looked at.
+  if (error) throw new Error(`Could not read the Spark query: ${error.message}`);
   return data;
 }
 

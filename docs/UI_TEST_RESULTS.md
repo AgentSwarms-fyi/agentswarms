@@ -15,6 +15,19 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-02 — A Spark query's poll that fails or comes back empty, ADVERSARIAL_LOG R222
+
+**Why this round exists.** Sweep 3's leftover: "it may have been cancelled elsewhere".
+
+Fixtures: none new. The queries ran on R211's `analytics.r211_double` and are in its History.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before (hot deploy of R221) | Lakehouse → Spark cluster → `SELECT n, count(*) AS c FROM analytics.r211_double GROUP BY n ORDER BY n`, Run | Ran; History: 3 rows · 341811 ms (cold sandbox) |
+| Before | The same, with poll 4's id rewritten to a random UUID in flight | Polling stopped; **"The query is gone — it may have been cancelled elsewhere."**; History: **3 rows · 20253 ms**, it finished |
+| After (hot deploy of R222) | The same, with polls 3 and 4 rejected ("Failed to fetch") | Polls 5 and 6 went on; **3 row(s) · 2354 ms**: n 1 → 2, 2 → 1, 3 → 1 |
+| After | The same, with poll 3's id rewritten | **"The server has no record of this query."** |
+
 ## 2026-10-02 — AI docs in the catalog asset drawer, ADVERSARIAL_LOG R221
 
 **Why this round exists.** Sweep 6, from the prop-to-state survey: AI docs refilled the drawer.

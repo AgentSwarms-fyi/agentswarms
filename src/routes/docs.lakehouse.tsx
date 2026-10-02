@@ -430,6 +430,11 @@ function LakehouseDocsPage() {
         the answer), an encrypted lakehouse, and every write. The page names the reason. A query
         holds its cluster for at most <C>LAKEHOUSE_SPARK_QUERY_MINUTES</C> (default 30).
       </Callout>
+      <P>
+        While a Spark query runs the page checks on it every two seconds. A check that fails is
+        tried again; after five failures in a row the page stops waiting and says the query may
+        still be running, and the <strong>History</strong> tab shows it when it ends.
+      </P>
 
       <H2 id="scaling">Scaling and limits</H2>
       <P>

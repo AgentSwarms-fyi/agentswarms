@@ -616,6 +616,14 @@ the page's DuckDB path; a query holds its cluster for at most
 `LAKEHOUSE_SPARK_QUERY_MINUTES` (default 30). The History tab marks Spark
 answers, so a 40-second Spark query is not mistaken for a slow DuckDB one.
 
+The page polls the query every two seconds while it runs. A poll that fails,
+whether the network or the server's read of the query, is retried; after five
+in a row the page stops watching and says the query may still be running, and
+History shows it when it ends. Before R222 the server answered a failed read as
+"no such query", and the page took one such answer for the query having ended:
+it stopped watching and said it "may have been cancelled elsewhere" while the
+query ran on and finished.
+
 Verified live on the compose Spark 4.2 endpoint: a table written, flushed,
 then edited (so it had both a data file and a delete file) returned the same
 rows and aggregates on Spark as on DuckDB, from the page, with the deleted

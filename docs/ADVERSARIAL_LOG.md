@@ -109,6 +109,47 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-02 — One failed poll, and a running Spark query is called cancelled
+
+Tests: `tests/unit/sparkQueryPoll.test.ts` (10 tests: the server's read against a failing
+client, and the editor's wait driven with scripted replies). The mutation run caught 5 of 5, and
+the control survived.
+
+#### R222 · S2 · A failed read stopped the editor watching a Spark query that went on to finish
+
+**Found** picking up sweep 3's leftovers ("a cause named that the evidence cannot support"). The
+Lakehouse editor runs a Spark query by polling its row every two seconds. It took a `null` reply
+for "The query is gone — it may have been cancelled elsewhere." But:
+- a cancelled query keeps its row, with status `cancelled`, which the loop already handles;
+- nothing deletes these rows;
+- `loadOwned` dropped the read's `error`, so a failed read answered `null` too.
+
+So the message's cause was never true. Its only real trigger, a failed read in a run of minutes,
+stopped the editor watching a query that was still running. Cancel used the same read, and
+answered "not cancelled" for a query it never looked at.
+
+In the UI (hot deploy of R221): Lakehouse → engine **Spark cluster** →
+`SELECT n, count(*) AS c FROM analytics.r211_double GROUP BY n ORDER BY n`, Run. One poll's id
+was rewritten in flight to a random UUID, so the server's own lookup found nothing: the same
+`null` a failed read produced. After the 4th poll the editor stopped polling and showed **"The
+query is gone — it may have been cancelled elsewhere."** History then listed the query as
+**3 rows · 20253 ms**: it had finished.
+
+(A first, unforged run had taken 342 s, most of it a cold sandbox and schema inference. It also
+finished.)
+
+**The fix.**
+- **Server:** `loadOwned` throws on a failed read. The editor's poll and Cancel see an error, not
+  an absent query. The sandbox's source route answers it with 503, not an absent query's 404.
+- **Editor:** the wait is `pollSparkQuery` (`src/lib/sparkPoll.ts`). A failed poll is retried.
+  After five in a row it stops and says the query "may still be running; History shows it when it
+  ends". A truly absent query reads "The server has no record of this query.", with no cause.
+
+**Driven after** (hot deploy of R222):
+- **Polls 3 and 4 failed** (rejected in flight as "Failed to fetch"): the editor kept polling and
+  showed **3 row(s)**, with n 1 → 2, 2 → 1, 3 → 1.
+- **Poll 3 forged to a missing id:** "The server has no record of this query."
+
 ### 2026-10-02 — AI docs, and the owner and tags being typed are gone
 
 Tests: `tests/unit/catalogAssetSheetEdits.test.ts` (2 tests). The mutation run caught 1 of 1, and

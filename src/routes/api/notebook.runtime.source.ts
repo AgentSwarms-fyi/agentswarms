@@ -208,10 +208,19 @@ async function handle(request: Request): Promise<Response> {
       } catch {
         /* empty body = default part */
       }
-      const out =
-        part === "etl_env"
-          ? await sq.sparkQueryEnvFor(stash, claims.sub)
-          : await sq.sparkQueryBundleFor(stash, claims.sub);
+      // A failed read of the query row is a 503, not the 404 an absent one
+      // is (R222).
+      let out:
+        | Awaited<ReturnType<typeof sq.sparkQueryEnvFor>>
+        | Awaited<ReturnType<typeof sq.sparkQueryBundleFor>>;
+      try {
+        out =
+          part === "etl_env"
+            ? await sq.sparkQueryEnvFor(stash, claims.sub)
+            : await sq.sparkQueryBundleFor(stash, claims.sub);
+      } catch (e) {
+        return json(503, { error: (e as Error).message });
+      }
       return "error" in out ? json(404, out) : json(200, out);
     }
   }
