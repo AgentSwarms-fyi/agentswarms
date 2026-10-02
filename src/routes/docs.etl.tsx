@@ -282,6 +282,12 @@ function EtlDocsPage() {
         <strong>Spark Connect</strong> — it holds only the pure-Python client, no JVM, so every
         hardening decision made for it stands. Previews always sample in the sandbox.
       </P>
+      <P>
+        The cluster is shared, so storage credentials reach it per read and per write, and each call
+        is served with its own. A SQL step on Spark is one <C>SELECT</C> over its input, the table{" "}
+        <C>t</C>: reading a file in place of a table, or running a statement, is refused when the
+        pipeline is saved. Read storage with a source node.
+      </P>
       <Table
         headers={["On the cluster", "In the sandbox, then lifted into Spark"]}
         rows={[

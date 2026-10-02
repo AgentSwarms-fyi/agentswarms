@@ -84,6 +84,13 @@ A sandbox that holds no catalog string needs none of that.
 | ML training, prediction and warm scoring | Engine credentials, until they move to the gateway |
 | Lakehouse queries on Spark | Engine credentials, until the cluster gets read credentials scoped to the query's files |
 
+Scoped credentials on Spark are only worth anything if the cluster uses the
+credentials a call passes. It did not: Hadoop caches one S3A client per
+bucket per JVM, and the cached client kept the credentials that built it.
+Since R229 every call the generated Spark code makes builds its own client
+(`fs.s3a.impl.disable.cache`), which is what the scoped credentials above will
+rely on.
+
 ## What changed for users
 
 - A pipeline reading a shared table under its owner's row filter or column

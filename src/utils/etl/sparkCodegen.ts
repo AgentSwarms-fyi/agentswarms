@@ -185,6 +185,31 @@ export function sqlDialectRefusal(query: string, label: string): string | null {
 }
 
 /**
+ * A SQL step on Spark is one query over its input frame, `t`, and nothing else.
+ *
+ * FOUND IN R229. Spark SQL reads a file in place of a table
+ * (format.`scheme://bucket/path`), and runs statements as well as queries,
+ * on a cluster every pipeline shares. A step names the frame it was given;
+ * storage is reached through source nodes, whose connections govern it.
+ */
+export function sparkSqlScopeRefusal(query: string, label: string): string | null {
+  const text = sqlWithoutLiterals(query)
+    .replace(/--[^\n]*/g, " ")
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .trim()
+    .replace(/;\s*$/, "");
+  if (!/^(SELECT|WITH|\()/i.test(text) || text.includes(";")) {
+    return `Step "${label}": a SQL step on the Spark engine is one SELECT over its input, the table t.`;
+  }
+  for (const m of text.matchAll(/`([^`]*)`/g)) {
+    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(m[1]!) || m[1]!.startsWith("/")) {
+      return `Step "${label}": a SQL step reads its input, the table t, not files by path — read storage with a source node.`;
+    }
+  }
+  return null;
+}
+
+/**
  * Why this graph cannot run on the Spark engine, or null.
  *
  * Said at save time in the words of the fix, because each of these would
@@ -195,7 +220,9 @@ export function sparkRefusal(graph: EtlGraph): string | null {
     if (n.kind === "transform") {
       const t = n.config as EtlTransformConfig;
       if (t.type === "sql") {
-        const problem = sqlDialectRefusal(t.query ?? "", n.label || n.id);
+        const problem =
+          sparkSqlScopeRefusal(t.query ?? "", n.label || n.id) ??
+          sqlDialectRefusal(t.query ?? "", n.label || n.id);
         if (problem) return problem;
       }
       continue;
@@ -271,6 +298,11 @@ function prelude(): string[] {
     `        'fs.s3a.access.key': os.environ.get('ETL_LAKEHOUSE_S3_KEY_ID', ''),`,
     `        'fs.s3a.secret.key': os.environ.get('ETL_LAKEHOUSE_S3_SECRET', ''),`,
     `        'fs.s3a.aws.credentials.provider': 'org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider',`,
+    `        # R229: a fresh FileSystem for this call. Hadoop caches one per bucket`,
+    `        # per JVM, and a cached one keeps the credentials that built it, so on a`,
+    `        # shared cluster the keys passed here were otherwise ignored after the`,
+    `        # first call: a read with wrong keys succeeded with someone else's.`,
+    `        'fs.s3a.impl.disable.cache': 'true',`,
     `    }`,
     `    _ep = os.environ.get('ETL_LAKEHOUSE_S3_ENDPOINT')`,
     `    if _ep:`,
@@ -297,6 +329,11 @@ function prelude(): string[] {
     `        'fs.s3a.access.key': os.environ.get(stem + '_ACCESS_KEY_ID', ''),`,
     `        'fs.s3a.secret.key': os.environ.get(stem + '_SECRET_ACCESS_KEY', ''),`,
     `        'fs.s3a.aws.credentials.provider': 'org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider',`,
+    `        # R229: a fresh FileSystem for this call. Hadoop caches one per bucket`,
+    `        # per JVM, and a cached one keeps the credentials that built it, so on a`,
+    `        # shared cluster the keys passed here were otherwise ignored after the`,
+    `        # first call: a read with wrong keys succeeded with someone else's.`,
+    `        'fs.s3a.impl.disable.cache': 'true',`,
     `    }`,
     `    _ep = os.environ.get(stem + '_ENDPOINT_URL')`,
     `    if _ep:`,

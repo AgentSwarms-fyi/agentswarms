@@ -150,6 +150,18 @@ pipeline:
 | Every transform: filter, select, rename, derive, join, union, aggregate, sort, dedupe, nulls, limit, SQL | Custom Python (its contract is a whole pandas frame), the lakehouse (DuckLake has no Spark connector), HTTP API and SaaS targets |
 | Quality gates                                                                                            |                                                                                                                                  |
 
+**Credentials on a shared cluster.** Storage credentials reach the cluster per
+read and per write, never in its shared configuration, and each call builds a
+storage client of its own (`fs.s3a.impl.disable.cache`): Hadoop otherwise keeps
+one client per bucket per JVM with the credentials that built it, and later
+calls with other keys were served by it (R229). After upgrading past R229,
+restart Spark Connect once so no client cached before the fix survives.
+
+**A SQL step on Spark** is one `SELECT` (or `WITH`) over its input, the table
+`t`. Spark SQL can also read a file in place of a table and run statements;
+both are refused when the pipeline is saved and when it compiles. Storage is
+read through source nodes, whose connections govern it.
+
 The sandbox-side nodes are bounded by design — a CDC peek, a stream drain, a
 SaaS push — and none of them is where the size problem lives. Each reuses
 the pandas compiler's own emitter for that node, so the two engines cannot

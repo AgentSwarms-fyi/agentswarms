@@ -15,6 +15,21 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-02 — Storage credentials on the shared Spark cluster, ADVERSARIAL_LOG R229
+
+**Why this round exists.** Scoped credentials for Spark first need the cluster to use the
+credentials a call passes.
+
+Fixtures: none new; `r227_gateway` was switched to the Spark engine for one run and back.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before (Spark Connect client on the compose network) | read the lake's files with its keys, then with keys that do not exist | 540 rows, then **540 rows** |
+| Before | the same wrong keys with the cache bypassed on the call | refused, AccessDenied |
+| After (hot deploy, Spark Connect restarted) | Lakehouse → Spark cluster → `SELECT count(*), count(DISTINCT region) FROM analytics.bi_demo_sales` | 108, 3 |
+| After | then wrong keys against the same bucket | **refused**, AccessDenied |
+| After | `r227_gateway` on the Spark engine → Run now | Succeeded, 108 rows; the probe saw the `ETL_LAKEHOUSE_*` names (the Spark target still has them) and the undeclared calls were refused |
+
 ## 2026-10-02 — An ETL sandbox with no lakehouse credential, ADVERSARIAL_LOG R227
 
 **Why this round exists.** The owner chose scoped sandbox credentials. ETL is the first path moved.

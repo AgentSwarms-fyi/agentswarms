@@ -109,6 +109,43 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-02 — Storage credentials on the shared Spark cluster
+
+Tests: `tests/unit/sparkCredentialScope.test.ts` (5 tests: every S3A option set in a compiled
+Spark pipeline and a compiled Spark lakehouse query builds its own client; a SQL step's scope,
+allowed and refused, and refused at compile). The mutation run caught 6 of 6, and the control
+survived.
+
+#### R229 · S1 · The shared Spark cluster served a call with whichever storage credentials it saw first
+
+**Found** designing scoped credentials for Spark. Generated Spark code passes storage credentials
+per read and per write as Hadoop options, so that no key sits in the cluster's shared
+configuration. Hadoop caches one S3A client per bucket per JVM, keyed without the credentials,
+and the cached client keeps the ones that built it.
+
+**Proof (live cluster, `spark-connect` 4.2.0)**, a Spark Connect client reading the lake's
+`analytics/r227_out` files:
+1. with the lake's keys: read, 540 rows;
+2. then with keys that do not exist: **read, 540 rows**;
+3. wrong keys with `fs.s3a.impl.disable.cache=true` on the call: refused, AccessDenied;
+4. the lake's keys with the same flag: read, 540 rows.
+
+So any later call on the cluster to a bucket some earlier call had opened was served with the
+earlier call's keys: a user's storage connection with the lake's, or with another user's.
+
+**The fix.** Every S3A option set the generated code passes (`_lake_s3_options` and `_s3_options`
+in Spark pipelines, `_s3` in Spark lakehouse queries) sets `fs.s3a.impl.disable.cache`, so each
+call is served with its own keys. A SQL step on Spark, which runs on the same cluster, is one
+SELECT over its input `t`: a file read in place of a table and any statement are refused at save
+and at compile (`sparkSqlScopeRefusal`). Restart Spark Connect once after upgrading so no client
+cached before the fix survives.
+
+**Driven after** (hot deploy, Spark Connect restarted): a lakehouse query on the Spark cluster
+from the Lakehouse page answered 108 rows, 3 regions; right after it, the same wrong keys against
+the same bucket were **refused**. `r227_gateway` on the Spark engine succeeded with 108 rows. Its
+probe step reported the `ETL_LAKEHOUSE_*` variables present on that engine, as the status table
+in `docs/SANDBOX_LAKEHOUSE_ACCESS.md` says, and the gateway refusals held.
+
 ### 2026-10-02 — An ETL sandbox with no lakehouse credential
 
 Tests: `tests/unit/sandboxLake.test.ts` (15 tests, real DuckDB: a governed read staged as Parquet

@@ -359,6 +359,9 @@ least twice, not a hypothetical.
      Still to move: the Spark engine's lakehouse target and Spark lakehouse queries (the cluster
      needs storage access: short-lived STS credentials scoped to the run's files, which this
      deployment's MinIO issues), and ML training, prediction and warm scoring.
+   - **R229: the shared Spark cluster reused the first caller's storage credentials.** Fixed;
+     restart Spark Connect after upgrading. The Spark lakehouse target and Spark lakehouse
+     queries still pass the lake's own keys (to the cluster, per call) until they get scoped ones.
    - **Minor, seen on the ETL list:** a pipeline whose only runs were cancelled reads "last run: —
      never ran".
    - **R228: a merge that lost its key emptied the table.** Fixed for the sandbox engine by the

@@ -1513,6 +1513,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "ETL_DEST_SECRET_ACCESS_KEY",
       "ETL_TRIGGER_PER_MIN",
       "Europe/Berlin",
+      "SELECT",
       "SPARK_CONNECT_URL",
       "SPARK_PACKAGES=",
       "_x",
