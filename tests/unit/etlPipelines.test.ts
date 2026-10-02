@@ -555,8 +555,12 @@ describe("lakehouse pipeline nodes", () => {
     const svc = read("src/utils/etl/service.server.ts");
     expect(svc).toContain("accessibleSchemas(pipeline.user_id)");
     expect(svc).toContain("no access to lakehouse schema");
-    // The catalog string carries a password — it must be scrubbed from logs.
-    expect(svc).toContain("secretValues.push(env.ETL_LAKEHOUSE_CATALOG");
+    // The catalog string carries a password, and no sandbox gets one any
+    // more: the app holds the catalog and does the reads and loads itself
+    // (R227, R230). Whatever credential the Spark cluster is given to stage
+    // with is scrubbed from the run's output.
+    expect(svc).not.toContain("env.ETL_LAKEHOUSE_CATALOG =");
+    expect(svc).toContain("secretValues.push(scoped.secretAccessKey, scoped.sessionToken)");
   });
 
   it("lineage names the lakehouse table it read", () => {

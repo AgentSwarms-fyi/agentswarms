@@ -15,6 +15,22 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-03 — The Spark cluster's credentials, scoped to one run, ADVERSARIAL_LOG R230
+
+**Why this round exists.** The second half of the owner's scoped-credentials decision: a sandbox
+holds no lakehouse credential since R227, and the Spark cluster still held the lake's own.
+
+Fixtures kept: `r227_gateway` (left on the sandbox engine), `analytics.r227_out`.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| After (hot deploy) | `r227_gateway` on the Spark engine → Run now | **Failed: "RuntimeError: lakehouse: A load is 1 to 256 staged parts"** — the route dropped the load's `prefix` flag |
+| After (route fixed) | Run now again | Succeeded, 56 s, 108 rows → 1 target |
+| After | the Custom Python probe's log | `ETL_LAKEHOUSE_S3_ENDPOINT, _KEY_ID, _SECRET, _SESSION_TOKEN, _URL_STYLE, _USE_SSL, STAGE_URL` — no `ETL_LAKEHOUSE_CATALOG`; undeclared read, stage and commit each refused by name |
+| After | Lakehouse → **Spark cluster** → `r227_out` vs `bi_demo_sales`, counted and EXCEPTed both ways | 108 rows, 0 extra, 0 missing (so the query path's scoped read credential works too) |
+| After | MinIO, the lake bucket | the run's staged Parquet deleted after the load; Spark's `_SUCCESS` marker and the earlier failed run's parts left for the session sweep |
+| Before (same deploy, first attempt) | Run now, with minting unguarded | nothing happened at all — the pre-flight that fails a start fast has no session, so the mint threw |
+
 ## 2026-10-02 — Storage credentials on the shared Spark cluster, ADVERSARIAL_LOG R229
 
 **Why this round exists.** Scoped credentials for Spark first need the cluster to use the

@@ -289,7 +289,10 @@ describe("compileSparkGraph — sources", () => {
     for (const id of ["h", "c", "l"]) expect(code).toContain(`    f_${id} = _lift(_src_${id}())`);
     expect(code).toContain("_cdc_last_c = None");
     expect(code).toContain("_watermarks['c'] = _cdc_last_c");
-    expect(code).toContain("def _lakehouse_con():");
+    // The lakehouse read is the app's, on either engine (R227).
+    expect(code).toContain("def _lake_read(node_id):");
+    expect(code).toContain("return _lake_read('l')");
+    expect(code).not.toContain("_lakehouse_con");
     expect(code).toContain(
       "f_u = f_h.unionByName(f_c, allowMissingColumns=True).unionByName(f_l, allowMissingColumns=True)",
     );
@@ -677,7 +680,8 @@ describe("compileSparkGraph — targets", () => {
     const code = compileSparkGraph(g);
     expect(code).not.toContain("_pd_t1 = f_s1.toPandas()");
     expect(code).toContain("_pd_t2 = f_s1.toPandas()");
-    expect(code).toContain("def _lakehouse_con():");
+    expect(code).toContain("def _lake_commit(loads, cursors=None):");
+    expect(code).not.toContain("_lakehouse_con");
     expect(code).toContain("# target t1: lakehouse → main.items (replace), written by the cluster");
     assertParsesAsPython(code);
   });
@@ -712,57 +716,57 @@ describe("compileSparkGraph — the lakehouse is written by the cluster", () => 
     }
   });
 
-  it("stages under the lake's own bucket, per run and per node", () => {
-    // Per RUN because a re-run must not write over Parquet an earlier run is
-    // still loading; per NODE because two lakehouse targets in one graph
-    // would otherwise share a prefix and load each other's rows.
+  it("stages into the run's own prefix, which the app gives it", () => {
+    // R230: the staging prefix belongs to the sandbox session, and the
+    // cluster's credentials reach that prefix and nothing else. The program
+    // cannot name it itself, and a batch is a UUID the app will accept.
     const code = compileSparkGraph(linear(CSV_SRC, lakeTarget("append")));
-    expect(code).toContain("_spark_stage/t1/");
-    expect(code).toContain("os.environ.get('ETL_RUN_ID'");
-    expect(code).toContain("os.environ['ETL_LAKEHOUSE_DATA_URL'].rstrip('/')");
-    // Spark writes s3a://, DuckDB reads s3://. Getting that backwards is a
+    expect(code).toContain("os.environ['ETL_LAKEHOUSE_STAGE_URL']");
+    expect(code).toContain("_batch = str(uuid.uuid4())");
+    // Spark writes s3a://; the app reads s3://. Getting that backwards is a
     // scheme error at the far end of a long job.
-    expect(code).toContain("_stage = _lake.replace('s3://', 's3a://', 1)");
-    expect(code).toContain("_q = _lake + '/' + _stage_key + '/*.parquet'");
+    expect(code).toContain(".replace('s3://', 's3a://', 1) + '/' + _batch");
+    expect(code).toContain("_sdf.write.options(**_lake_s3_options()).mode('overwrite').parquet(");
+    // The old prefix was the lake's own data path, which a scoped credential
+    // must not be able to write.
+    expect(code).not.toContain("_spark_stage/");
   });
 
-  it("loads by streaming the files, not by reading them into the driver", () => {
-    const code = compileSparkGraph(linear(CSV_SRC, lakeTarget("replace")));
-    const block = code.slice(code.indexOf("# target t1: lakehouse"));
-    expect(block).toContain("con = _lakehouse_con()");
-    expect(block).toContain(
-      'CREATE OR REPLACE TABLE "analytics"."orders" AS SELECT * FROM read_parquet(',
-    );
-    expect(block).not.toContain("register('_src'");
+  it("asks the app to load the batch, and names no table of its own", () => {
+    for (const mode of ["replace", "append", "merge"]) {
+      const code = compileSparkGraph(
+        linear(CSV_SRC, lakeTarget(mode, mode === "merge" ? ["id"] : undefined)),
+      );
+      const block = code.slice(code.indexOf("# target t1: lakehouse"));
+      expect(block, mode).toContain("_ld = {'id': 't1', 'batch': _batch, 'prefix': True}");
+      expect(block, mode).toContain("_lake_commit([_ld])");
+      // The write mode is the app's to apply, from the run's manifest: the
+      // program carries no SQL, no table name and no catalog.
+      expect(block, mode).not.toMatch(/CREATE|INSERT|DELETE|BEGIN|COMMIT|_lakehouse_con/);
+      assertParsesAsPython(code);
+    }
   });
 
-  it("appends without letting an empty batch shape the table", () => {
-    // read_parquet over a prefix Spark wrote nothing to is an error, not zero
-    // rows — and a stream with nothing new is an ordinary Tuesday.
+  it("sends nothing at all when the batch is empty", () => {
+    // A load over a prefix the executors wrote nothing to is an error, not
+    // zero rows — and a stream with nothing new is an ordinary Tuesday.
     const code = compileSparkGraph(linear(CSV_SRC, lakeTarget("append")));
-    expect(code).toContain("if _n:");
-    expect(code).toContain(`CREATE TABLE IF NOT EXISTS "analytics"."orders"`);
-    expect(code).toContain(
-      `INSERT INTO "analytics"."orders" BY NAME SELECT * FROM read_parquet(' + _qlit + ')`,
-    );
+    const block = code.slice(code.indexOf("# target t1: lakehouse"));
+    const guard = block.indexOf("if _n:");
+    expect(guard).toBeGreaterThan(-1);
+    expect(block.indexOf("_lake_commit([_ld])")).toBeGreaterThan(guard);
+    // …and the row count is still reported, so an empty tick shows as a tick.
+    expect(block).toContain("_loads.append({'node': 't1'");
   });
 
-  it("upserts in one transaction, as the pandas engine does", () => {
-    // A reader must never see the gap between the delete and the insert.
-    const code = compileSparkGraph(linear(CSV_SRC, lakeTarget("merge", ["id", "region"])));
-    const block = code.slice(code.indexOf("# target t1"));
-    const begin = block.indexOf("BEGIN TRANSACTION");
-    const del = block.indexOf('DELETE FROM "analytics"."orders"');
-    const ins = block.indexOf('INSERT INTO "analytics"."orders"');
-    const commit = block.indexOf("COMMIT");
-    expect(begin).toBeGreaterThan(-1);
-    expect(del).toBeGreaterThan(begin);
-    expect(ins).toBeGreaterThan(del);
-    expect(commit).toBeGreaterThan(ins);
+  it("joins an exactly-once tick's commit rather than committing inside it", () => {
+    const code = compileSparkGraph(linear(CSV_SRC, lakeTarget("append")));
+    const from = code.indexOf("# target t1: lakehouse");
+    const block = code.slice(from, code.indexOf("_loads.append({'node': 't1'", from));
     expect(block).toContain(
-      `WHERE ("id", "region") IN (SELECT "id", "region" FROM read_parquet(' + _qlit + ')`,
+      "if globals().get('_tick_loads') is not None:\n            _tick_loads.append(_ld)",
     );
-    assertParsesAsPython(code);
+    expect((block.match(/_lake_commit\(/g) ?? []).length).toBe(1);
   });
 
   it("refuses a merge with no keys rather than writing duplicates", () => {
@@ -786,36 +790,29 @@ describe("compileSparkGraph — the lakehouse is written by the cluster", () => 
     expect(launch).toContain("runId: run.id");
   });
 
-  it("installs the client the cleanup needs", () => {
-    // The pandas compiler asks for s3fs when a graph READS object storage. On
-    // this engine every lakehouse target WRITES it, to clear its staging
-    // prefix — and without the package that cleanup fails on every run with an
-    // ImportError while the bucket grows.
-    // A source that does NOT read object storage, or s3fs is already there for
-    // its own reasons and this test proves nothing — which it did, until a
-    // mutation deleted the line and changed no result.
+  it("needs neither s3fs nor duckdb for the lake any more", () => {
+    // Both were there for work the sandbox no longer does: s3fs to clear the
+    // staging prefix (the app deletes what it loaded) and duckdb to attach the
+    // catalog (the app holds it). A lakehouse SOURCE still reads through the
+    // app, which hands back Parquet, so duckdb stays for that.
     const src = node("s1", "source", { type: "lakehouse", schema: "raw", table: "events" });
-    expect(sparkRequirementsFor(linear(src, lakeTarget("append")))).toMatch(/^s3fs/m);
-    // And it is the TARGET that asks: the same source with a non-lakehouse
-    // target does not need it.
+    expect(sparkRequirementsFor(linear(src, lakeTarget("append")))).not.toMatch(/^s3fs/m);
     expect(sparkRequirementsFor(linear(src, PARQUET_TGT))).not.toMatch(/^s3fs/m);
+    // A graph that really does read object storage still gets it.
+    expect(sparkRequirementsFor(linear(CSV_SRC, PARQUET_TGT))).toMatch(/^s3fs/m);
   });
 
-  it("clears the staging prefix, and never fails the run for failing to", () => {
-    // The load COPIED the rows, so the staged Parquet is rubbish the moment it
-    // commits — left behind it grows the bucket by every run for ever. But the
-    // rows are already committed, so failing to tidy up is not a failed run.
+  it("leaves the staged files to the app, which deletes what it loaded", () => {
+    // The load COPIES the rows, so the staged Parquet is rubbish the moment it
+    // commits. The sandbox used to delete it with its own storage credentials;
+    // a credential scoped to one prefix is not the thing to tidy a bucket
+    // with, and the app already deletes a batch once its load commits
+    // (sandboxLake.server), so there is nothing here to do.
     const code = compileSparkGraph(linear(CSV_SRC, lakeTarget("replace")));
     const block = code.slice(code.indexOf("# target t1"));
-    // fsspec, NOT Hadoop's FileSystem API: under Spark Connect the client has
-    // no JVM gateway, so `_jsc` does not exist and the obvious spelling is
-    // silently skipped on exactly the deployment this engine is for.
-    expect(block).toContain("_fs.rm(_lake + '/' + _stage_key, recursive=True)");
-    expect(block).not.toContain("_jsc");
-    expect(block).toContain("except Exception as _e:");
-    expect(block).toContain("staged files left at");
-    // And the tidy-up comes after the load, not before it.
-    expect(block.indexOf("con.close()")).toBeLessThan(block.indexOf("_fs.rm("));
+    expect(block).not.toMatch(/fsspec|_fs\.rm|_jsc/);
+    const gw = readFileSync("src/utils/lakehouse/sandboxLake.server.ts", "utf8");
+    expect(gw).toContain("args.io?.remove ? args.io.remove(k) : s3DeleteObject(target, k)");
   });
 });
 

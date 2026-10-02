@@ -157,6 +157,13 @@ one client per bucket per JVM with the credentials that built it, and later
 calls with other keys were served by it (R229). After upgrading past R229,
 restart Spark Connect once so no client cached before the fix survives.
 
+**A lakehouse target on this engine** is written by the executors and loaded by
+the app. The cluster gets a credential the object store limits to that run's
+own staging prefix, which expires; the sandbox names the batch and the app
+loads it, so no catalog connection reaches either (R230). A store without STS
+keeps the lakehouse's credentials and logs that it did — see
+[Sandbox lakehouse access](./SANDBOX_LAKEHOUSE_ACCESS.md).
+
 **A SQL step on Spark** is one `SELECT` (or `WITH`) over its input, the table
 `t`. Spark SQL can also read a file in place of a table and run statements;
 both are refused when the pipeline is saved and when it compiles. Storage is

@@ -182,6 +182,12 @@ export async function resolveRunEnv(
      * the run that left it. A compile has no run, and falls back to a clock.
      */
     runId?: string | null;
+    /**
+     * The sandbox session this environment is for, when one exists. The Spark
+     * engine's lakehouse target stages into that session's own prefix, and
+     * its credentials are scoped to it (R230).
+     */
+    sessionId?: string | null;
   },
 ): Promise<{ env: Record<string, string>; secretValues: string[]; lake?: LakeManifest }> {
   const env: Record<string, string> = {};
@@ -514,19 +520,50 @@ export async function resolveRunEnv(
     if (refusal) throw new Error(refusal);
     // What this run may do in the lake, and nothing else (lakeManifest.ts).
     lake = etlLakeManifest(pipeline, graph, { skipTargets: opts?.skipTargets }) ?? undefined;
-    // The Spark engine's lakehouse target is written by the cluster, which
-    // still needs the store's credentials to stage it.
-    if (engineOf(pipeline.engine) === "spark" && lake && Object.keys(lake.writes).length) {
-      env.ETL_LAKEHOUSE_CATALOG = catalogUrlToLibpq(cfg.catalog);
-      env.ETL_LAKEHOUSE_DATA_URL = cfg.dataUrl;
-      env.ETL_LAKEHOUSE_S3_KEY_ID = cfg.s3.keyId;
-      env.ETL_LAKEHOUSE_S3_SECRET = cfg.s3.secret;
+    // The Spark engine's lakehouse target is written by the CLUSTER: its
+    // executors put Parquet in object storage themselves, so there is no app
+    // in the middle the way there is for everything else a sandbox does. What
+    // they get is a credential for this run's staging prefix and nothing else
+    // (R230); the app still does the load, from the batch the sandbox names.
+    //
+    // Only for a real sandbox session. This function is also called to fail a
+    // start fast and to collect the values a run's output must not carry, and
+    // neither has a session: minting a credential for them would issue one per
+    // log read and hand back one the sandbox never had.
+    if (
+      opts?.sessionId &&
+      engineOf(pipeline.engine) === "spark" &&
+      lake &&
+      Object.keys(lake.writes).length
+    ) {
+      const { stagingPrefix } = await import("@/utils/lakehouse/sandboxLake.server");
+      const { assumeScopedCredentials } = await import("@/utils/lakehouse/sts.server");
+      const { lakeTarget } = await import("@/utils/ml/experimentArtifacts.server");
+      const lt = lakeTarget();
+      if (!lt) throw new Error("The lakehouse's data path is not an s3:// URL.");
+      const prefix = `${stagingPrefix(opts.sessionId)}out/`;
+      const scoped = await assumeScopedCredentials({
+        target: lt.target,
+        scope: { write: [prefix] },
+        label: `etl-${pipeline.id.slice(0, 8)}`,
+      });
+      env.ETL_LAKEHOUSE_STAGE_URL = `s3://${lt.bucket}/${prefix}`;
       env.ETL_LAKEHOUSE_S3_URL_STYLE = cfg.s3.urlStyle;
       env.ETL_LAKEHOUSE_S3_USE_SSL = cfg.s3.useSsl ? "true" : "false";
       if (cfg.s3.endpoint) env.ETL_LAKEHOUSE_S3_ENDPOINT = cfg.s3.endpoint;
-      // The catalog string carries the catalog Postgres password; the log
-      // scrubber must erase it wherever a stack trace prints it.
-      secretValues.push(env.ETL_LAKEHOUSE_CATALOG, cfg.s3.secret);
+      if (scoped) {
+        env.ETL_LAKEHOUSE_S3_KEY_ID = scoped.accessKeyId;
+        env.ETL_LAKEHOUSE_S3_SECRET = scoped.secretAccessKey;
+        env.ETL_LAKEHOUSE_S3_SESSION_TOKEN = scoped.sessionToken;
+        secretValues.push(scoped.secretAccessKey, scoped.sessionToken);
+      } else {
+        // No STS on this store: the cluster keeps the lake's own credentials,
+        // and sts.server has said so once. The catalog is still not here —
+        // the load is the app's either way.
+        env.ETL_LAKEHOUSE_S3_KEY_ID = cfg.s3.keyId;
+        env.ETL_LAKEHOUSE_S3_SECRET = cfg.s3.secret;
+        secretValues.push(cfg.s3.secret);
+      }
     }
   }
 
@@ -926,6 +963,7 @@ export async function etlDatasetFor(
 export async function etlEnvFor(
   etlRunId: string,
   userId: string,
+  sessionId?: string,
 ): Promise<
   { env: Record<string, string>; requirements: string[]; lake?: LakeManifest } | { error: string }
 > {
@@ -943,6 +981,7 @@ export async function etlEnvFor(
     .maybeSingle();
   if (!pipeline) return { error: "Pipeline no longer exists" };
   const { env, lake } = await resolveRunEnv(pipeline, {
+    sessionId,
     sparkConnectUrl: run.spark_connect_url,
     requireSparkEndpoint: true,
     // This is the one call that is about to become a running sandbox, so it

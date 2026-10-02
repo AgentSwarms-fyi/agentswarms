@@ -131,12 +131,24 @@ describe("the two engines do not want the same things", () => {
     // whatever the engine — `requirementsFor(graph)`, hard-coded at the
     // onChange — so a Spark pipeline's stored list was the wrong one. Deriving
     // at run time, for the engine the run uses, settles it.
-    const pandas = pipelineRequirements(graph(), "pandas");
-    const spark = pipelineRequirements(graph(), "spark");
-    // A lakehouse target on Spark clears its staging prefix through fsspec;
-    // the pandas engine never asks for s3fs on this graph.
-    expect(spark).toMatch(/^s3fs/m);
-    expect(pandas).not.toMatch(/^s3fs/m);
+    // A storage target shows the difference: the pandas engine loads it with
+    // dlt, and on Spark the executors write it themselves.
+    const g = graph();
+    g.nodes[2]!.config = {
+      type: "object_storage",
+      dataset: "etl",
+      table: "out",
+      format: "parquet",
+      write_mode: "replace",
+    } as EtlGraph["nodes"][number]["config"];
+    const pandas = pipelineRequirements(g, "pandas");
+    const spark = pipelineRequirements(g, "spark");
+    expect(pandas).toMatch(/^dlt/m);
+    expect(spark).not.toMatch(/^dlt/m);
+    // A lakehouse-only graph now asks for the SAME packages on either engine:
+    // the sandbox half does the same work, because the app does the rest
+    // (R227, R230). That is a property worth pinning, not an accident.
+    expect(pipelineRequirements(graph(), "spark")).toBe(pipelineRequirements(graph(), "pandas"));
     // And the SQL step's engine is in the pandas list, where the step runs.
     expect(pandas).toMatch(/duckdb/);
   });

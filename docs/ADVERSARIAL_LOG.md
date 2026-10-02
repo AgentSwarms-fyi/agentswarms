@@ -109,6 +109,69 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-03 — The Spark cluster's credentials, scoped to one run
+
+Tests: `tests/unit/stsScopedCredentials.test.ts` (7: the policy's prefixes, actions and bounded
+listing, the plan's file prefixes, the required-vs-fallback switch), plus the gateway's
+cluster-written loads and the Spark codegen's session-token handling in
+`tests/unit/sandboxLake.test.ts` and `tests/unit/sparkCredentialScope.test.ts`. The mutation runs
+caught 14 of 14 and 1 of 1, and the controls survived.
+
+#### R230 · S1 · The Spark cluster held the lakehouse's own credentials
+
+**Found** as the second half of the owner's decision. A sandbox has held no lakehouse credential
+since R227, but the Spark cluster still had the lake's permanent keys and, for an ETL lakehouse
+target, the catalog's connection string as well: its executors write object storage themselves,
+so there is no app in the middle the way there is for a sandbox.
+
+**The fix.** The cluster gets a credential the STORE limits, minted per run through STS
+AssumeRole with a session policy (`src/utils/lakehouse/sts.server.ts`):
+- an ETL lakehouse target may write, read back and delete under that run's own staging prefix and
+  nothing else; the app loads the batch the sandbox names and deletes what it loaded;
+- a Spark lakehouse query may read the directories of the files its governed plan resolved;
+- listing is bounded to the same prefixes, and nothing is granted on the bucket itself.
+
+Neither path carries the catalog any more. The ETL target's load moved to the gateway, which also
+removed the staging cleanup the sandbox used to do with the lake's keys, and with it the s3fs and
+DuckDB the Spark half needed for the lake: a lakehouse-only pipeline now asks for the same
+packages on either engine.
+
+A store without STS keeps the engine's credentials and says so once per process;
+`LAKEHOUSE_STS_REQUIRED=true` makes it a refusal. The policy is enforced by the store, which was
+checked against this deployment's MinIO before any of this was written (R227's note: a session
+scoped to one prefix read inside it, 200, and was refused outside it, 403).
+
+**Driven after** (hot deploy), `r227_gateway` on the **Spark engine**, `analytics.bi_demo_sales`
+→ `analytics.r227_out`:
+- Succeeded, 41 s, 108 rows → 1 target;
+- the Custom Python probe inside the sandbox listed its lake-related variables as
+  `ETL_LAKEHOUSE_S3_ENDPOINT, _KEY_ID, _SECRET, _SESSION_TOKEN, _URL_STYLE, _USE_SSL, STAGE_URL`
+  — **no `ETL_LAKEHOUSE_CATALOG`**, and a session token, so the credential was a scoped one;
+  its undeclared read, stage and commit were refused by name as before;
+- `r227_out` against the source: 108 rows, 0 extra, 0 missing;
+- that check itself ran **on the Spark cluster** (the result carried the spark badge), so the
+  query path's scoped read credential is in the same proof;
+- in the bucket, the run's staged Parquet was gone after the load; Spark's own `_SUCCESS` marker
+  stays until the session sweep takes the prefix, and the earlier FAILED run's parts stay too,
+  which is what a failed commit should leave.
+
+**Found driving it, twice.**
+- **Every Spark lakehouse run refused to start, silently.** Minting needs the session whose prefix
+  it scopes to, and `resolveRunEnv` is also called with no session: once to fail a start fast, and
+  again on every log read to collect the values the output must not carry. The unguarded mint made
+  the first throw — "Run now" did nothing — and would have made the second issue a credential per
+  log read, one the sandbox never held, so it would have scrubbed nothing. Both are now guarded on
+  the session, and a test pins it.
+- **"A load is 1 to 256 staged parts."** The route rebuilt each load field by field and left
+  `prefix` out, so a cluster-written load — which names its batch rather than its files — fell
+  into the numbered-parts path and asked for zero of them. The unit tests called the gateway
+  directly and never saw the route. Pinned now.
+
+**Also fixed.** A staged file that could not be deleted after its load was swallowed by a bare
+`catch`, so a bucket could grow by every run with nothing to read about why. It warns now, which
+is how the two surviving `_SUCCESS` markers above were confirmed to be the sweep's business
+rather than a failure.
+
 ### 2026-10-02 — Storage credentials on the shared Spark cluster
 
 Tests: `tests/unit/sparkCredentialScope.test.ts` (5 tests: every S3A option set in a compiled

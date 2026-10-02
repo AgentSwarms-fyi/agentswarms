@@ -55,6 +55,7 @@ export const STAGING_ROOT = "_sandbox_staging/";
 export type StagingIo = {
   url: (key: string) => string;
   remove?: (key: string) => Promise<void>;
+  list?: (prefix: string) => Promise<string[]>;
 };
 /** How long a presigned URL lives. A read is fetched at once; a stage is put within a tick. */
 const URL_TTL_SECONDS = 3600;
@@ -211,13 +212,41 @@ export async function lakeRead(args: {
   }
 }
 
-function stagedKeys(sessionId: string, batch: string, parts: number): string[] {
+/** Where one load's files live. The batch is the sandbox's, so it is checked. */
+function batchPrefix(sessionId: string, batch: string): string {
   if (!UUID_RE.test(batch)) throw new Error("Not a staging batch");
+  return `${stagingPrefix(sessionId)}out/${batch.toLowerCase()}/`;
+}
+
+function stagedKeys(sessionId: string, batch: string, parts: number): string[] {
   if (!Number.isInteger(parts) || parts < 1 || parts > MAX_STAGE_PARTS) {
     throw new Error(`A load is 1 to ${MAX_STAGE_PARTS} staged parts`);
   }
-  const base = `${stagingPrefix(sessionId)}out/${batch.toLowerCase()}/`;
+  const base = batchPrefix(sessionId, batch);
   return Array.from({ length: parts }, (_, k) => `${base}${k}.parquet`);
+}
+
+/**
+ * The files of a load the SANDBOX did not name one by one.
+ *
+ * Spark's executors write a directory of part files whose names and number
+ * are the cluster's business, so that load says "the batch" and the app lists
+ * it. The prefix is still the app's: the session is the token's and the batch
+ * must be a UUID, so a listing cannot reach another run's staging.
+ */
+async function listedKeys(
+  target: S3Target,
+  sessionId: string,
+  batch: string,
+  io?: StagingIo,
+): Promise<string[]> {
+  const prefix = batchPrefix(sessionId, batch);
+  const keys = io?.list
+    ? await io.list(prefix)
+    : (await s3ListKeys(target, prefix)).map((k) => k.key);
+  // Spark writes _SUCCESS and, on some stores, hidden checksum files beside
+  // the parts; only the Parquet is data.
+  return keys.filter((k) => k.endsWith(".parquet") && !k.slice(prefix.length).startsWith("."));
 }
 
 /** Presigned PUTs for one declared target's next load. */
@@ -307,20 +336,30 @@ export async function lakeCommit(args: {
   userId: string;
   sessionId: string;
   manifest: LakeManifest;
-  loads: { id: string; batch: string; parts: number }[];
+  loads: { id: string; batch: string; parts?: number; prefix?: boolean }[];
   cursors?: Record<string, string>;
   via: string;
   io?: StagingIo;
 }): Promise<{ loads: { id: string; rows: number }[] }> {
   const { target, bucket } = storage();
   const url = args.io?.url ?? ((key: string) => `s3://${bucket}/${key}`);
-  const plan = args.loads.map((l) => {
+  const plan: { id: string; w: LakeWrite; keys: string[]; src: string }[] = [];
+  for (const l of args.loads) {
     const w = Object.hasOwn(args.manifest.writes, l.id) ? args.manifest.writes[l.id] : null;
     if (!w) throw new Error(`This run declared no lakehouse target "${l.id}"`);
-    const keys = stagedKeys(args.sessionId, l.batch, l.parts);
-    const src = `read_parquet([${keys.map((k) => sq(url(k))).join(", ")}])`;
-    return { id: l.id, w, keys, src };
-  });
+    const keys = l.prefix
+      ? await listedKeys(target, args.sessionId, l.batch, args.io)
+      : stagedKeys(args.sessionId, l.batch, l.parts ?? 0);
+    // A cluster that wrote no part files has nothing to load; the empty-batch
+    // rule is the same one the staged-parts path follows.
+    if (!keys.length) continue;
+    plan.push({
+      id: l.id,
+      w,
+      keys,
+      src: `read_parquet([${keys.map((k) => sq(url(k))).join(", ")}])`,
+    });
+  }
   const cursorEntries = Object.entries(args.cursors ?? {}).filter(([, v]) => v != null);
   if (cursorEntries.length) {
     const c = args.manifest.cursors;
@@ -399,12 +438,19 @@ export async function lakeCommit(args: {
   }
 
   // The rows are committed; the staged copies have served their purpose. A
-  // failed delete leaves rubbish for the sweep, never damage.
+  // failed delete leaves rubbish for the sweep, never damage — but it is said
+  // out loud, because a cleanup that fails quietly is a bucket that grows by
+  // every run and nothing to read about why (R230: it did, and the catch hid
+  // the reason).
   for (const p of plan) {
     for (const k of p.keys) {
-      await (args.io?.remove ? args.io.remove(k) : s3DeleteObject(target, k)).catch(
-        () => undefined,
-      );
+      try {
+        await (args.io?.remove ? args.io.remove(k) : s3DeleteObject(target, k));
+      } catch (e) {
+        console.warn(
+          `[lakehouse] staged file ${k} was loaded but not deleted: ${(e as Error).message}; the session sweep will take it`,
+        );
+      }
     }
   }
   auditEvent({

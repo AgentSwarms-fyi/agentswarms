@@ -9,7 +9,7 @@
 // from a stubbed policy table. What a read returns is read back from the
 // Parquet the app wrote; what a commit did is read back from the tables.
 import { DuckDBInstance, type DuckDBConnection } from "@duckdb/node-api";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -83,9 +83,16 @@ const READER = "reader-2";
 const SID = "0b5f2c1e-7d1a-4c3e-9f00-1234567890ab";
 let instance: DuckDBInstance;
 let dir: string;
+const SEP = path.sep;
+const dir0 = () => dir;
 const io = {
   url: (key: string) => path.join(dir, key).replace(/\\/g, "/"),
   remove: async (key: string) => rmSync(path.join(dir, key), { force: true }),
+  list: async (prefix: string) => {
+    const base = path.join(dir, prefix);
+    if (!existsSync(base)) return [];
+    return readdirSync(base).map((f) => `${prefix}${f}`);
+  },
 };
 
 async function q(sql: string): Promise<unknown[][]> {
@@ -453,5 +460,75 @@ describe("the session channel", () => {
     // Everything after the guard writes: stage and commit sit below it.
     expect(lakePart.indexOf('if (part === "lake_stage")')).toBeGreaterThan(guard);
     expect(lakePart.indexOf('if (part === "lake_commit")')).toBeGreaterThan(guard);
+  });
+});
+
+describe("a load the cluster wrote", () => {
+  // The Spark engine's executors write a directory of part files whose names
+  // and number are the cluster's business, so the load says "this batch" and
+  // the app lists it (R230).
+  const BATCH = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+  const sparkBatch = async (files: Record<string, string>) => {
+    const out = path.join(dir0(), `_sandbox_staging/${SID}/out/${BATCH}`);
+    rmSync(out, { recursive: true, force: true });
+    mkdirSync(out, { recursive: true });
+    for (const [name, select] of Object.entries(files)) {
+      const file = path.join(out, name).split(SEP).join("/");
+      await q(`COPY (${select}) TO '${file}' (FORMAT parquet)`);
+    }
+    return BATCH;
+  };
+  const commitBatch = (batch: string) =>
+    lake.lakeCommit({
+      userId: READER,
+      sessionId: SID,
+      manifest: manifest(),
+      loads: [{ id: "t_append", batch, prefix: true }],
+      via: "test",
+      io,
+    });
+
+  it("loads every part the cluster wrote, and ignores what is not data", async () => {
+    const batch = await sparkBatch({
+      "part-00000.parquet": "SELECT 10 AS id, 'a' AS v",
+      "part-00001.parquet": "SELECT 11 AS id, 'b' AS v",
+      _SUCCESS: "SELECT 1",
+      ".part-00002.parquet.crc": "SELECT 1",
+    });
+    expect(await commitBatch(batch)).toEqual({ loads: [{ id: "t_append", rows: 2 }] });
+    expect(await q("SELECT id, v FROM mine.out WHERE id >= 10 ORDER BY id")).toEqual([
+      [10, "a"],
+      [11, "b"],
+    ]);
+    await q("DELETE FROM mine.out WHERE id >= 10");
+  });
+
+  it("loads nothing when the cluster wrote no parts, rather than failing", async () => {
+    const batch = await sparkBatch({ _SUCCESS: "SELECT 1" });
+    expect(await commitBatch(batch)).toEqual({ loads: [] });
+  });
+
+  it("cannot list another session's staging, whatever batch it names", async () => {
+    for (const bad of ["../../other", "not-a-uuid", "../0b5f2c1e-7d1a-4c3e-9f00-1234567890ab"]) {
+      await expect(commitBatch(bad), bad).rejects.toThrow(/Not a staging batch/);
+    }
+  });
+});
+
+describe("the session channel's commit body", () => {
+  const route = readFileSync("src/routes/api/notebook.runtime.source.ts", "utf8");
+
+  it("carries every field a load has, so a cluster-written one stays one", () => {
+    // FOUND FROM A RUN. The parser rebuilt each load field by field and left
+    // `prefix` out, so a Spark load — which names its batch rather than its
+    // files — fell into the numbered-parts path and failed with "A load is 1
+    // to 256 staged parts". The unit tests called the gateway directly and
+    // never saw it.
+    const fn = route.slice(route.indexOf('if (part === "lake_commit")'));
+    const parse = fn.slice(0, fn.indexOf("const cursors"));
+    for (const field of ["id:", "batch:", "parts:", "prefix:"]) {
+      expect(parse, field).toContain(field);
+    }
+    expect(parse).toContain("prefix: o.prefix === true");
   });
 });

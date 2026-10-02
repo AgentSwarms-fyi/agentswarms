@@ -354,11 +354,11 @@ least twice, not a hypothetical.
    - **R226: table functions in a write.** The SQL editor refused a table function in a SELECT
      and ran the same read inside CREATE TABLE … AS. Found while designing the sandbox gateway,
      which runs its commits through the engine.
-   - **Scoped sandbox credentials** (the owner's decision). R227: an ETL sandbox now holds no
+   - **Scoped sandbox credentials** (the owner's decision). R227: an ETL sandbox holds no
      lakehouse credential; the app reads and loads for it (docs/SANDBOX_LAKEHOUSE_ACCESS.md).
-     Still to move: the Spark engine's lakehouse target and Spark lakehouse queries (the cluster
-     needs storage access: short-lived STS credentials scoped to the run's files, which this
-     deployment's MinIO issues), and ML training, prediction and warm scoring.
+     R230: the Spark cluster's ETL lakehouse target and lakehouse queries now get STS credentials
+     the store limits to one run's prefixes, and no catalog. **Still to move: ML training,
+     prediction and warm scoring**, which keep the engine's credentials.
    - **R229: the shared Spark cluster reused the first caller's storage credentials.** Fixed;
      restart Spark Connect after upgrading. The Spark lakehouse target and Spark lakehouse
      queries still pass the lake's own keys (to the cluster, per call) until they get scoped ones.

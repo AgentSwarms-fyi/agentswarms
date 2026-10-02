@@ -95,10 +95,13 @@ export function signS3Request(args: {
   region: string;
   accessKeyId: string;
   secretAccessKey: string;
+  /** The signing service. "s3" unless this is an STS call (sts.server). */
+  service?: string;
 }): { authorization: string; canonicalQuery: string } {
+  const service = args.service ?? "s3";
   const amzDate = args.headers["x-amz-date"];
   const dateStamp = amzDate.slice(0, 8);
-  const scope = `${dateStamp}/${args.region}/s3/aws4_request`;
+  const scope = `${dateStamp}/${args.region}/${service}/aws4_request`;
 
   const canonicalQuery = Object.keys(args.query)
     .sort()
@@ -123,7 +126,7 @@ export function signS3Request(args: {
   const stringToSign = ["AWS4-HMAC-SHA256", amzDate, scope, sha256Hex(canonicalRequest)].join("\n");
   const kDate = hmac(`AWS4${args.secretAccessKey}`, dateStamp);
   const kRegion = hmac(kDate, args.region);
-  const kService = hmac(kRegion, "s3");
+  const kService = hmac(kRegion, service);
   const kSigning = hmac(kService, "aws4_request");
   const signature = hmac(kSigning, stringToSign).toString("hex");
 

@@ -288,6 +288,13 @@ function EtlDocsPage() {
         <C>t</C>: reading a file in place of a table, or running a statement, is refused when the
         pipeline is saved. Read storage with a source node.
       </P>
+      <P>
+        A <strong>lakehouse target</strong> on this engine is written by the executors and loaded by
+        the app. The cluster is given a credential the object store limits to that run&apos;s own
+        staging prefix, and which expires; no catalog connection reaches the cluster or the sandbox.
+        A store without this capability keeps the lakehouse&apos;s own credentials and records that
+        it did.
+      </P>
       <Table
         headers={["On the cluster", "In the sandbox, then lifted into Spark"]}
         rows={[

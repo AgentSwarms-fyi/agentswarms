@@ -398,26 +398,85 @@ export async function sparkQueryEnvFor(
   if (!row) return { error: "Spark query not found for this session" };
   const cfg = lakehouseConfig();
   if (!cfg) return { error: "The lakehouse is not configured on this deployment." };
-  const { env } = await queryEnv(cfg, row.spark_connect_url);
+  const { env } = await queryEnv(
+    cfg,
+    row.spark_connect_url,
+    (row.tables as SparkQueryTable[] | null) ?? [],
+    row.id,
+  );
   return { env, requirements: [] };
+}
+
+/**
+ * The key prefixes a plan's files live under, for a scoped credential.
+ *
+ * Each table's files, not each file: a policy naming every file would be
+ * enormous for a large table, and the directory is the table's own. Files are
+ * taken as the plan resolved them, so a table whose files sit somewhere other
+ * than the usual layout is still covered exactly.
+ */
+export function planFilePrefixes(bucket: string, tables: SparkQueryTable[]): string[] {
+  const out = new Set<string>();
+  for (const t of tables) {
+    for (const f of [...t.dataFiles, ...t.deleteFiles]) {
+      const m = /^s3a?:\/\/([^/]+)\/(.*)$/.exec(f);
+      // A file outside the lake's own bucket cannot be covered by a policy on
+      // it; the caller falls back rather than issue a credential that cannot
+      // read what the query needs.
+      if (!m || m[1] !== bucket) throw new Error(`"${f}" is not in the lakehouse's bucket`);
+      const dir = m[2]!.replace(/[^/]*$/, "");
+      if (dir) out.add(dir);
+    }
+  }
+  return [...out];
 }
 
 async function queryEnv(
   cfg: NonNullable<ReturnType<typeof lakehouseConfig>>,
   storedUrl: string | null,
+  tables: SparkQueryTable[],
+  queryId: string,
 ): Promise<{ env: Record<string, string>; secretValues: string[] }> {
   const { sparkClusterSettings } = await import("@/utils/etl/sparkCluster.server");
   const { internalAppUrl, noProxyList } = await import("@/utils/notebookRuntime/service.server");
+  // No catalog: the cluster reads the Parquet of one governed snapshot, which
+  // the app resolved before the query was planned. It never attaches DuckLake.
   const env: Record<string, string> = {
-    ETL_LAKEHOUSE_CATALOG: catalogUrlToLibpq(cfg.catalog),
     ETL_LAKEHOUSE_DATA_URL: cfg.dataUrl,
-    ETL_LAKEHOUSE_S3_KEY_ID: cfg.s3.keyId,
-    ETL_LAKEHOUSE_S3_SECRET: cfg.s3.secret,
     ETL_LAKEHOUSE_S3_URL_STYLE: cfg.s3.urlStyle,
     ETL_LAKEHOUSE_S3_USE_SSL: cfg.s3.useSsl ? "true" : "false",
   };
   if (cfg.s3.endpoint) env.ETL_LAKEHOUSE_S3_ENDPOINT = cfg.s3.endpoint;
-  const secretValues = [env.ETL_LAKEHOUSE_CATALOG, cfg.s3.secret];
+  const secretValues: string[] = [];
+  // Read, and only of the files this query reads (R230).
+  const { lakeTarget } = await import("@/utils/ml/experimentArtifacts.server");
+  const { assumeScopedCredentials } = await import("@/utils/lakehouse/sts.server");
+  const lt = lakeTarget();
+  let scoped = null;
+  try {
+    scoped = lt
+      ? await assumeScopedCredentials({
+          target: lt.target,
+          scope: { read: planFilePrefixes(lt.bucket, tables) },
+          label: `lakeq-${queryId.slice(0, 8)}`,
+        })
+      : null;
+  } catch (e) {
+    // A plan whose files a policy cannot name, or a store that refused: the
+    // query still runs, with the engine's credentials, and the reason is in
+    // the log rather than in a failure the user cannot act on.
+    console.warn(`[lakehouse] Spark query ${queryId}: ${(e as Error).message}`);
+  }
+  if (scoped) {
+    env.ETL_LAKEHOUSE_S3_KEY_ID = scoped.accessKeyId;
+    env.ETL_LAKEHOUSE_S3_SECRET = scoped.secretAccessKey;
+    env.ETL_LAKEHOUSE_S3_SESSION_TOKEN = scoped.sessionToken;
+    secretValues.push(scoped.secretAccessKey, scoped.sessionToken);
+  } else {
+    env.ETL_LAKEHOUSE_S3_KEY_ID = cfg.s3.keyId;
+    env.ETL_LAKEHOUSE_S3_SECRET = cfg.s3.secret;
+    secretValues.push(cfg.s3.secret);
+  }
   const s = await sparkClusterSettings();
   const url = s.provider === "k8s" ? storedUrl : s.staticUrl;
   if (url) {
@@ -439,10 +498,30 @@ async function queryEnv(
   return { env, secretValues };
 }
 
+/**
+ * The values a run's output must never carry, WITHOUT minting anything.
+ *
+ * Scrubbing happens on every poll of a live query, so it cannot go through
+ * the env builder: that would issue a scoped credential per log line, and the
+ * one it issued would not be the one the sandbox holds anyway. These are the
+ * deployment's own values, which are what a stack trace can quote.
+ */
+async function staticSecrets(storedUrl: string | null): Promise<string[]> {
+  const cfg = lakehouseConfig();
+  if (!cfg) return [];
+  const out = [cfg.s3.secret, catalogUrlToLibpq(cfg.catalog)];
+  const { sparkClusterSettings } = await import("@/utils/etl/sparkCluster.server");
+  const s = await sparkClusterSettings();
+  const url = s.provider === "k8s" ? storedUrl : s.staticUrl;
+  const token = url ? /[;?&]token=([^;&\s]+)/i.exec(url) : null;
+  if (token) out.push(decodeURIComponent(token[1]));
+  return out.filter(Boolean);
+}
+
 async function scrubFor(row: { spark_connect_url: string | null }, text: string): Promise<string> {
   const cfg = lakehouseConfig();
   if (!cfg) return redactLakehouseSecrets(text);
-  const { secretValues } = await queryEnv(cfg, row.spark_connect_url);
+  const secretValues = await staticSecrets(row.spark_connect_url);
   const { scrubSecrets } = await import("@/utils/etl/service.server");
   return redactLakehouseSecrets(scrubSecrets(text, secretValues));
 }

@@ -116,11 +116,15 @@ async function lakePart(
     }
     if (part === "lake_commit") {
       const loads = (Array.isArray(body.loads) ? body.loads : []).map((l) => {
-        const o = (l ?? {}) as { id?: unknown; batch?: unknown; parts?: unknown };
+        const o = (l ?? {}) as { id?: unknown; batch?: unknown; parts?: unknown; prefix?: unknown };
         return {
           id: typeof o.id === "string" ? o.id : "",
           batch: typeof o.batch === "string" ? o.batch : "",
           parts: typeof o.parts === "number" ? o.parts : 0,
+          // A cluster-written load names its batch, not its files: the app
+          // lists the prefix (R230). Dropping this flag here sent the load
+          // down the numbered-parts path, where it asked for 0 of them.
+          prefix: o.prefix === true,
         };
       });
       const cursors: Record<string, string> = {};
@@ -207,7 +211,7 @@ async function handle(request: Request): Promise<Response> {
       return "error" in out ? json(404, out) : json(200, out);
     }
     if (part === "etl_env") {
-      const out = await etl.etlEnvFor(session.etl_run_id, claims.sub);
+      const out = await etl.etlEnvFor(session.etl_run_id, claims.sub, claims.sid);
       if ("error" in out) return json(404, out);
       const { lake, ...rest } = out;
       return (await pinLake(claims.sid, session.inputs, lake)) ?? json(200, rest);
