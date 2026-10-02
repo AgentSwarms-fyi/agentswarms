@@ -337,6 +337,11 @@ least twice, not a hypothetical.
    (a running Spark query called cancelled) was the first.
    - **R223: lakehouse policies.** The policy reads failed open, and Iceberg publish (not a read
      failure) copied a shared table past its owner's policy.
+   - **R224: SUMMARIZE.** A reader's `SUMMARIZE` named no table, so it loaded no policy and
+     summarised the hidden rows and masked columns. A survey of every path that reads a lakehouse
+     table for a non-owner found it; the survey's other findings (it named ETL pipelines and node
+     preview first) were lost when the agent's report was cut off, so that survey is to run again
+     before this sweep moves on.
    - **Next, from the triage, in order of consequence (each to be read and proved before fixing):**
      - **Agent chat** (`routes/api/chat.ts` ~1218): a failed read of the agent enables every
        tool, drops the MCP, SQL and model allow-lists, and turns guardrails to their defaults

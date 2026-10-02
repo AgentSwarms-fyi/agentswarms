@@ -109,6 +109,55 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-02 — A reader's SUMMARIZE, and the policy that was never loaded
+
+Tests: `tests/unit/lakehouseSummarizePolicy.test.ts` (6 tests, real DuckDB in memory: the table
+walk, the policy rewrite run over a SUMMARIZE, and what comes back). The mutation run caught 3 of
+3, and the control survived.
+
+#### R224 · S1 · A reader's SUMMARIZE ran past the owner's row filter and column masks
+
+**Found** by a survey of every path that reads a lakehouse table for someone who does not own
+it (after R223). Before a reader's statement runs, the lakehouse names the tables it reads and
+loads their owners' policies. `selectReferencedTables` named none for any statement whose first
+word was DESCRIBE, SUMMARIZE or SHOW. For DESCRIBE and SHOW that is right: they return a shape,
+not rows. SUMMARIZE returns min, max, approximate distinct count, average, quartiles and a count
+for every column, so for a reader:
+- no policy was loaded;
+- the statement ran as written, over the rows the filter hides;
+- a masked text column's min and max were two real values.
+
+DuckDB parses SUMMARIZE as a SELECT whose `SHOW_REF` holds the table, so the walk the function
+uses finds it; only the first-word shortcut skipped it.
+
+**Proof.** The grantee side needs a second account, which these rounds do not create. Real DuckDB
+holds it (`analytics`-shaped table, a filter `region = 'EMEA'` and a mask on `email`):
+- `SUMMARIZE sales.orders` as written gives email min `ana@example.com`, max `cy@example.com`,
+  count 3;
+- through the rewrite, which the fix now reaches, it gives min and max NULL and count 1.
+
+The UI shows the root cause from the owner's side. On the R223 deploy, Lakehouse → **Spark
+cluster** → `SUMMARIZE analytics.r211_double` answered **"This statement reads no lakehouse table
+(schema.table), so there is nothing for Spark to do"**. That is the same function telling Spark
+the statement reads nothing that told the policy layer so. On the lakehouse engine, the owner's
+SUMMARIZE showed the `note` column's min and max as real text, what a masked column would have
+shown a reader.
+
+**The fix.**
+- SUMMARIZE names its tables like any SELECT; only DESCRIBE and SHOW skip the walk.
+- A statement that a policy covers, but whose rewrite replaced nothing, is refused instead of run
+  as written.
+- Spark refuses DESCRIBE, SUMMARIZE and SHOW by name ("SUMMARIZE is the lakehouse engine's; Spark
+  SQL has no such statement — run it here"), where SUMMARIZE used to fall into "reads no table".
+
+**Driven after** (hot deploy of R224): the owner's SUMMARIZE on the lakehouse engine returned
+its 2 rows as before. On Spark it read "SUMMARIZE is the lakehouse engine's; Spark SQL has no
+such statement — run it here." The engine picker was set back to Lakehouse engine.
+
+**The survey's report was cut off.** Its first named finding, "ETL pipelines, including run and
+node preview", came without detail, and the agent then stopped on an API error. The queue
+records that the survey is to run again.
+
 ### 2026-10-02 — A shared table's policy, left behind on the way out
 
 Tests: `tests/unit/lakehousePolicyFailClosed.test.ts` (10 tests: the real policy loaders against a

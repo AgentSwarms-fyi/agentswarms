@@ -95,6 +95,17 @@ export async function planSparkQuery(userId: string, sql: string): Promise<Plann
   if (classified.kind !== "select") {
     throw new Error("Only a SELECT can run on Spark — writes stay on the lakehouse engine.");
   }
+  // DuckDB's own statements, which Spark SQL does not have. SUMMARIZE used to
+  // reach the "reads no lakehouse table" refusal below by naming no table;
+  // since R224 it names its table, so say what is actually wrong.
+  const verb = /^\s*(DESCRIBE|SUMMARIZE|SHOW)\b/i.exec(
+    sql.replace(/^\s*(--[^\n]*\n|\/\*[\s\S]*?\*\/)*/g, ""),
+  );
+  if (verb) {
+    throw new Error(
+      `${verb[1].toUpperCase()} is the lakehouse engine's; Spark SQL has no such statement — run it here.`,
+    );
+  }
   const allowed = await accessibleSchemas(userId);
   const c = await lakehouseConnection();
   try {

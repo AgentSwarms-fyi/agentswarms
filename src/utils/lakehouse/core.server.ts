@@ -672,7 +672,14 @@ export async function selectReferencedTables(
   sql: string,
 ): Promise<{ schema: string; table: string }[]> {
   const cleaned = stripSqlComments(sql).replace(/;\s*$/, "");
-  if (/^(DESCRIBE|SUMMARIZE|SHOW)\b/.test(cleaned.slice(0, 20).toUpperCase())) return [];
+  // DESCRIBE and SHOW return a table's shape, never its rows. SUMMARIZE is
+  // not one of them: it reports min, max, distinct counts and quartiles of
+  // every column (R224). Skipped here, a reader's `SUMMARIZE theirs.t` named
+  // no table, so no policy was loaded and it ran over the rows the filter
+  // hides and the columns the masks hide. DuckDB parses it as a SELECT whose
+  // SHOW_REF holds the table, which the walk below finds and the policy
+  // rewrite replaces like any other reference.
+  if (/^(DESCRIBE|SHOW)\b/.test(cleaned.slice(0, 20).toUpperCase())) return [];
   const rows = await (await c.run(`SELECT json_serialize_sql(${sq(cleaned)})`)).getRows();
   const parsed = JSON.parse(String(rows[0][0])) as { error?: boolean };
   if (parsed.error) return [];
@@ -1259,10 +1266,15 @@ export async function runLakehouseStatement(
                 email: await readerEmail(userId),
               },
             );
-            if (rewrite) {
-              effectiveSql = rewrite.sql;
-              policyTables = rewrite.applied;
+            // A policy covers a table this statement reads, so a rewrite that
+            // replaced nothing is a statement running unfiltered (R224).
+            if (!rewrite) {
+              throw new Error(
+                "A security policy covers a table this statement reads, but it could not be applied — refused",
+              );
             }
+            effectiveSql = rewrite.sql;
+            policyTables = rewrite.applied;
           }
         }
         // Cache lookup happens AFTER the access check, never before: a cached

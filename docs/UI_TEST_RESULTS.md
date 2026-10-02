@@ -15,6 +15,20 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-02 — SUMMARIZE on a lakehouse table, ADVERSARIAL_LOG R224
+
+**Why this round exists.** Sweep 7, the lakehouse policy survey. The grantee side needs a
+second account; the tests hold it. Here, the owner's side.
+
+Fixtures: none. Queries ran on `analytics.r211_double`.
+
+| Round | What was driven | What came back |
+| --- | --- | --- |
+| Before (hot deploy of R223) | Lakehouse → Spark cluster → `SUMMARIZE analytics.r211_double` | **"This statement reads no lakehouse table (schema.table), so there is nothing for Spark to do — run it here."** |
+| Before | Lakehouse engine → the same | 2 row(s): `n` 1–3, `note` min "R211 after: one statement, Ctrl+Enter twice", max "smoke 0ed734402123" |
+| After (hot deploy of R224) | Lakehouse engine → the same | 2 row(s), as before (the owner is not filtered) |
+| After | Spark cluster → the same | **"SUMMARIZE is the lakehouse engine's; Spark SQL has no such statement — run it here."**; engine set back to Lakehouse engine |
+
 ## 2026-10-02 — Iceberg publish by the owner after the policy guard, ADVERSARIAL_LOG R223
 
 **Why this round exists.** Sweep 7. The defect is a grantee's, and this deployment has one

@@ -218,9 +218,10 @@ function LakehouseDocsPage() {
         policed table into a subquery that carries the filter and the masks. The rewrite is applied
         to the AST DuckDB itself produced, not to the SQL text — text rewriting can be defeated by
         comments, casing, aliases or a CTE, while the parser sees through all of them. If the
-        rewrite can&apos;t be completed, the query is refused rather than run unfiltered. Filters
-        are checked against the real table when you save, so a typo surfaces then rather than by
-        blocking every reader at once.
+        rewrite can&apos;t be completed, the query is refused rather than run unfiltered. A
+        reader&apos;s <C>SUMMARIZE</C> goes through the same rewrite, so its minimums, maximums and
+        counts are over the rows and values they may see. Filters are checked against the real table
+        when you save, so a typo surfaces then rather than by blocking every reader at once.
       </P>
 
       <H3 id="tag-policies">Policies by tag</H3>

@@ -277,7 +277,16 @@ comments-and-casing, UNION arm), all of which stayed filtered, plus an
 aggregate over a masked column, which returned no values.
 
 If the rewrite cannot be completed for any reason, the query is **refused**.
-The one failure this must never have is running unfiltered. That includes not
+The one failure this must never have is running unfiltered. A rewrite that
+finds a policed table and replaces nothing is refused too (R224).
+
+`SUMMARIZE` is a read like any SELECT: it reports the min, max, distinct
+count and quartiles of every column, so a reader's `SUMMARIZE` goes through
+the same rewrite and summarises only the rows and values they may see.
+`DESCRIBE` and `SHOW` return a table's shape, not its rows, and are not
+rewritten. Before R224 the statement's tables were looked up by its first
+word, and SUMMARIZE named none, so no policy was loaded and a masked column's
+minimum and maximum were two real values. That includes not
 being able to *read* the policy: a failed read of the table policies, the tag
 policies or the catalog tags they key on is an error, never "no policy" (R223).
 Before R223 those reads dropped their errors, and one failed read ran a
