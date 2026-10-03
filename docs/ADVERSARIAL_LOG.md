@@ -109,6 +109,26 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-03 — Smoke of the real image after R234, R235 and R236
+
+No new defect in what was driven. Image `74b4c134725e`, built from `5fd5f316` and started as a real
+container: Admin → IAM renders with its superadmin badge and every request 200; a paused bar race
+survived a Refresh that demonstrably re-ran the query; a guarded agent refused its blocked pattern
+with 422 and, once deleted, the identical request was refused with `agent_not_found`; an Iceberg
+publish landed 4 records in 1 file as the catalog's own metadata reports it; and an ETL run through
+the sandbox gateway loaded its 108 rows in 34 s. One error line in the log, which is the guardrail
+refusal. No staging left in the bucket.
+
+Two of the three rounds in this batch could not be driven here at all, and the reason is the same
+one: this instance has a single account. R235 is about what a grantee sees, and there is no grantee;
+R236's refusal path needs an account to ban or delete that is not the one signed in. Noting it here
+rather than in the round's own entry, because it is a standing limit of this deployment and not a
+fact about those two rounds — a second account would unblock R225, R235 and R236's happy path
+together. Full table in `docs/UI_TEST_RESULTS.md`.
+
+Method note worth keeping: the dist greps now include a deliberately invented string as a negative
+control. "The code is in the image" means nothing from a grep that would have matched anything.
+
 ### 2026-10-03 — R236: the superadmin protection answered "not protected" when it could not tell
 
 **Severity: high.** Three places ask "is this account a superadmin?" immediately before doing

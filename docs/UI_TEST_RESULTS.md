@@ -15,6 +15,38 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-03 — Smoke of the real image after R234, R235 and R236
+
+Image `74b4c134725e`, built with `docker compose build agentswarms` from `5fd5f316` and started with
+`docker compose up -d`. Nothing under `docker/` or `services/` has changed since the previous image,
+so the notebook runtime image is still current — checked, not assumed.
+
+The shipped `dist` was searched for this batch's code before anything was driven: `isProtectedAccount`
+**yes**, `readApplicableGrants` **yes**, `agent_not_found` **yes**, and a deliberately invented string
+`could_not_x` **no** — the negative control, so the greps are known to discriminate rather than
+matching everything.
+
+| What was driven | What came back |
+| --- | --- |
+| Health after `up -d` | healthy, 19 polls |
+| **R236** Admin → IAM | loads; the account's **Superadmin** badge, groups, status, last sign-in and created date all render; every `iam` request 200 |
+| **R233** pause the bar race, then the dashboard's Refresh | stamp **"2h ago" → "just now"**, so the query re-ran; race unchanged — same frame, same bars, button still Play |
+| **R234** `R236 image smoke probe` (input filtering on, pattern `r234-forbidden-token`); send that phrase | **422** "Input was blocked by a prompt-injection guardrail" |
+| **R234** delete it, send the identical message from the chat page still holding its id | **refused**, `agent_not_found`, "…Its guardrails and tool permissions went with it, so the message was not sent." |
+| **Iceberg publish** `analytics.fct_region_revenue` → `local_rest`, `r181`, `smoke_74b4c134725e` | the catalog's own metadata: columns `region, orders, revenue`, one `append` snapshot, **4 records in 1 file** |
+| **R227** `r227_gateway` on the sandbox engine → Run now | Succeeded, 34 s, 108 rows → 1 target |
+| The app's log over the whole smoke | one `"status":"error"` line, which is the guardrail refusal itself (2 ms, 0 output tokens) |
+| MinIO, the lake bucket | **0** objects under any `_sandbox_staging` prefix |
+
+**R235 was not driven, and could not be.** Its subject is what a GRANTEE sees, and this instance has
+exactly one account — Admin → IAM shows it. The same single account is why R236's refusal path could
+not be driven either: the only account available to ban or delete is the signed-in superadmin, which
+"You cannot delete yourself" stops before the protection is consulted. Both rounds are covered
+behaviourally instead, by the real functions against a client whose reads fail one table at a time.
+
+The probe agent was deleted as the last step, which is the step under test. `r181.smoke_74b4c134725e`
+is kept beside the previous image's table.
+
 ## 2026-10-03 — Smoke of the real image after R232, R233 and R234
 
 **Why this round exists.** The three rounds since the last image were proved against a `dist`
