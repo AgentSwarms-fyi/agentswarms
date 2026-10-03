@@ -357,8 +357,10 @@ least twice, not a hypothetical.
    - **Scoped sandbox credentials** (the owner's decision). R227: an ETL sandbox holds no
      lakehouse credential; the app reads and loads for it (docs/SANDBOX_LAKEHOUSE_ACCESS.md).
      R230: the Spark cluster's ETL lakehouse target and lakehouse queries now get STS credentials
-     the store limits to one run's prefixes, and no catalog. **Still to move: ML training,
-     prediction and warm scoring**, which keep the engine's credentials.
+     the store limits to one run's prefixes, and no catalog. R231: ML training, prediction and
+     warm scoring hold nothing either. **Done** — no sandbox on this deployment now holds a
+     lakehouse credential, and the one place that still needs storage access, the Spark cluster,
+     has one the store limits to a single run.
    - **R229: the shared Spark cluster reused the first caller's storage credentials.** Fixed;
      restart Spark Connect after upgrading. The Spark lakehouse target and Spark lakehouse
      queries still pass the lake's own keys (to the cluster, per call) until they get scoped ones.

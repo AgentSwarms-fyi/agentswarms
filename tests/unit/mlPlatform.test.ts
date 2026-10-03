@@ -50,7 +50,7 @@ describe("the trainer program", () => {
   it("defines the entry point and every stage the server relies on", () => {
     for (const fn of [
       "def entrypoint(inputs):",
-      "def _read_frame(con, cfg):",
+      "def _read_frame(cfg):",
       "def _train_tabular(df, cfg, warnings_):",
       "def _train_forecast(df, cfg, warnings_):",
       "def _upload(blob):",
@@ -64,7 +64,11 @@ describe("the trainer program", () => {
     expect(TRAIN_PY).toContain("hashlib.sha256(blob).hexdigest()");
     expect(TRAIN_PY).toContain("os.environ['ML_ARTIFACT_URI']");
     // Sampling above the row limit is declared, and forecasting refuses to sample.
-    expect(TRAIN_PY).toContain("USING SAMPLE reservoir(");
+    // R231: the app samples, over the rows the owner may see, so the
+    // repeatable reservoir a re-run needs lives there now.
+    expect(readFileSync("src/utils/lakehouse/sandboxLake.server.ts", "utf8")).toContain(
+      "USING SAMPLE reservoir(",
+    );
     expect(TRAIN_PY).toContain("'training_sampled': bool(sampled)");
   });
 

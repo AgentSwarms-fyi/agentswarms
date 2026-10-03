@@ -18,6 +18,7 @@
  * Never the other way — a scorer that answered when the model was missing
  * would be worse than a wait.
  */
+import type { LakeManifest } from "@/utils/lakehouse/sandboxLake.server";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { Database } from "@/integrations/supabase/types";
 import { auditEvent } from "@/utils/audit.server";
@@ -66,7 +67,13 @@ export async function mlScoreBundleFor(
   stash: MlScoreStash,
   userId: string,
 ): Promise<
-  { code: string; config: Record<string, unknown>; env: Record<string, string> } | { error: string }
+  | {
+      code: string;
+      config: Record<string, unknown>;
+      env: Record<string, string>;
+      lake: LakeManifest;
+    }
+  | { error: string }
 > {
   const { data: model } = await supabaseAdmin
     .from("ml_models")
@@ -99,20 +106,19 @@ export async function mlScoreBundleFor(
     max_rows: limits.mlPredictMaxRows,
   };
   const { etlPrelude } = await import("@/utils/etl/service.server");
-  const { lakehouseAttachFn } = await import("@/utils/etl/codegen");
+  const { lakeGatewayFn } = await import("@/utils/etl/codegen");
   const { TRAIN_PY } = await import("@/utils/ml/pyTrain");
   const b64 = Buffer.from(JSON.stringify(config), "utf8").toString("base64");
   const code =
     etlPrelude() +
-    lakehouseAttachFn() +
+    lakeGatewayFn() +
     "\n" +
     TRAIN_PY +
     `\n_ML_CONFIG = json.loads(base64.b64decode('${b64}').decode('utf-8'))\n`;
 
-  // The artifact is in the lake bucket, so the scorer needs the credentials
-  // training used. Sent here rather than as container env for the reason the
-  // MCP bundle sends secrets here: a response body is not in `docker inspect`
-  // or a pod spec, so they exist only in the sandbox process's memory.
+  // A scorer holds no storage credential (R231): it asks the app for a URL
+  // to its own model's artifact, and scores rows the caller sends, so it
+  // reads and writes no table at all.
   let env: Record<string, string> = {};
   try {
     const { mlTrainingEnv } = await import("@/utils/ml/train.server");
@@ -120,7 +126,13 @@ export async function mlScoreBundleFor(
   } catch (e) {
     return { error: (e as Error).message };
   }
-  return { code, config, env };
+  const { artifactKeyOf } = await import("@/utils/ml/lakeManifest");
+  const lake = {
+    reads: {},
+    writes: {},
+    artifacts: { get: [artifactKeyOf(version.artifact_uri ?? "")] },
+  };
+  return { code, config, env, lake };
 }
 
 export type MlDeploymentRow = {

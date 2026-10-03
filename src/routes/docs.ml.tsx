@@ -57,7 +57,10 @@ function MlDocsPage() {
         <li>
           <strong>Training</strong> — a four-step wizard drives a batch sandbox of the notebook
           runtime that profiles the table, tries several algorithms under a time budget and keeps
-          the best one with its metrics, leaderboard and feature importance.
+          the best one with its metrics, leaderboard and feature importance. The sandbox holds no
+          lakehouse credential: the app reads the source as the model&apos;s owner, applies the row
+          limit (a sample for a large table, a refusal for a series), loads the scored rows, and
+          signs one URL for the model&apos;s own artifact.
         </li>
         <li>
           <strong>Versions and stages</strong> — each run is a version: candidate, staging,

@@ -15,6 +15,23 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-03 — ML with no lakehouse credential, ADVERSARIAL_LOG R231
+
+**Why this round exists.** The last path still holding the lakehouse's own credentials.
+
+Fixtures kept: `revenue_facts plan classifier` v8 (a candidate, not promoted) and
+`analytics.r231_pred`.
+
+| What was driven | What came back |
+| --- | --- |
+| ML → `revenue_facts plan classifier` → Train new version, max training rows **100** | v8 trained: candidate, random_forest, F1 (macro) 100.0%, **80 rows** |
+| its version note | **"Trained on a 100-row sample of 836 rows."** — the app counted, sampled and reported |
+| MinIO, the lake bucket | `ml-artifacts/<model>/v8/model.joblib`, ~55 KB, written through the presigned PUT |
+| Predictions → Batch prediction, v8, `analytics.revenue_facts` where `region = 'APAC'` → `analytics.r231_pred` | succeeded, 242 rows, 13 s |
+| Lakehouse → the output table | 242 rows, 1 distinct region, `APAC`, 242 scored — the WHERE was applied and every row got a prediction |
+| Audit Log | `ml.train.start` → `lakehouse.sandbox_read analytics.revenue_facts 100 rows` → `ml.train.succeeded`; `ml.predict_query` → `lakehouse.sandbox_read … 242 rows` → `lakehouse.sandbox_commit analytics.r231_pred` |
+| the app's log, and the bucket | no errors, no warnings; no staging prefix left |
+
 ## 2026-10-03 — Smoke of the real image after R225 to R230
 
 **Why this round exists.** Every two or three rounds the committed state is built as a real image

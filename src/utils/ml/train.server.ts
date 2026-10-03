@@ -15,7 +15,9 @@ import { beginDecision, type DecisionKind } from "@/utils/provenance/decision.se
 import { getPlatformResources, getRuntimeSettings } from "@/utils/notebookRuntime/config.server";
 import { refreshSession, startSession, stopSession } from "@/utils/notebookRuntime/service.server";
 import { etlPrelude, scrubSecrets } from "@/utils/etl/service.server";
-import { lakehouseAttachFn } from "@/utils/etl/codegen";
+import { lakeGatewayFn } from "@/utils/etl/codegen";
+import type { LakeManifest } from "@/utils/lakehouse/sandboxLake.server";
+import { mlTrainManifest } from "@/utils/ml/lakeManifest";
 import {
   accessibleSchemas,
   catalogUrlToLibpq,
@@ -86,9 +88,13 @@ export function mlArtifactUri(dataUrl: string, modelId: string, version: number)
 }
 
 /**
- * The environment a training sandbox receives: the lakehouse the app itself
- * uses, gated as the model's OWNER — the sandbox holds engine credentials, so
- * a schema the owner cannot reach must never become reachable by naming it.
+ * The environment a training sandbox receives.
+ *
+ * R231: no lakehouse credential. The app reads the source and signs one URL
+ * for this run's own artifact (sandboxLake.server), so what the sandbox gets
+ * is where its artifact goes and what it may ask for. The schema check stays
+ * here to refuse a model whose source the owner cannot reach before a
+ * container starts; the app checks again on every read.
  */
 export async function mlTrainingEnv(
   model: Pick<MlModelRow, "id" | "user_id" | "source">,
@@ -112,12 +118,6 @@ export async function mlTrainingEnv(
     );
   }
   const env: Record<string, string> = {
-    ETL_LAKEHOUSE_CATALOG: catalogUrlToLibpq(cfg.catalog),
-    ETL_LAKEHOUSE_DATA_URL: cfg.dataUrl,
-    ETL_LAKEHOUSE_S3_KEY_ID: cfg.s3.keyId,
-    ETL_LAKEHOUSE_S3_SECRET: cfg.s3.secret,
-    ETL_LAKEHOUSE_S3_URL_STYLE: cfg.s3.urlStyle,
-    ETL_LAKEHOUSE_S3_USE_SSL: cfg.s3.useSsl ? "true" : "false",
     // Every worker uploads its own model; the job keeps the winner's URI
     // and the losers' blobs are the price of having searched in parallel.
     ML_ARTIFACT_URI: assembled
@@ -129,9 +129,7 @@ export async function mlTrainingEnv(
         ),
     AGENTSWARMS_ML_JOB: "1",
   };
-  if (cfg.s3.endpoint) env.ETL_LAKEHOUSE_S3_ENDPOINT = cfg.s3.endpoint;
-  if (cfg.s3.region) env.ETL_LAKEHOUSE_S3_REGION = cfg.s3.region;
-  return { env, secretValues: [env.ETL_LAKEHOUSE_CATALOG, cfg.s3.secret] };
+  return { env, secretValues: [] };
 }
 
 async function loadJobBundle(jobId: string, userId: string) {
@@ -221,7 +219,7 @@ export async function mlBundleFor(
   const b64 = Buffer.from(JSON.stringify(program), "utf8").toString("base64");
   const code =
     etlPrelude() +
-    lakehouseAttachFn() +
+    lakeGatewayFn() +
     "\n" +
     TRAIN_PY +
     `\n_ML_CONFIG = json.loads(base64.b64decode('${b64}').decode('utf-8'))\n`;
@@ -232,21 +230,39 @@ export async function mlBundleFor(
 export async function mlEnvFor(
   stash: MlJobStash,
   userId: string,
-): Promise<{ env: Record<string, string>; requirements: string[] } | { error: string }> {
+): Promise<
+  { env: Record<string, string>; requirements: string[]; lake?: LakeManifest } | { error: string }
+> {
   const b = await loadJobBundle(stash.job_id, userId);
   if (!b) return { error: "Training job not found for this session" };
   try {
-    const { env } = await mlTrainingEnv(
-      b.model,
-      b.version.version,
+    const shard =
       stash.shards && stash.shards > 1
         ? { index: stash.shard ?? 0, count: stash.shards }
-        : undefined,
-      stash.phase === "assemble",
-    );
+        : undefined;
+    const assembling = stash.phase === "assemble";
+    const { env } = await mlTrainingEnv(b.model, b.version.version, shard, assembling);
+    const cfg = b.version.config as Partial<MlTrainConfig>;
+    const resources = await getPlatformResources();
+    const source = b.model.source as MlSource;
+    // What this job may read, load and write (ml/lakeManifest.ts).
+    const lake = mlTrainManifest({
+      source: { schema: source.schema, table: source.table },
+      prep: (cfg.prep ?? (b.model as { prep?: unknown }).prep ?? null) as never,
+      partitionSql:
+        stash.phase === "parallel_fit" && b.job.parallel_algorithm
+          ? partitionSql(partitionColumns(b.job), stash.shard ?? 0, stash.shards ?? 1)
+          : null,
+      maxRows: cfg.max_rows ?? resources.mlTrainMaxRows,
+      task: b.model.task,
+      artifactUri: env.ML_ARTIFACT_URI,
+      partUris: assembling
+        ? assembleParts(b.job).map((p) => (p as { artifact_uri: string }).artifact_uri)
+        : [],
+    });
     // The program checks its imports and installs the stack only if the image
     // lacks it; sending the list here would cost a pip round-trip every job.
-    return { env, requirements: [] };
+    return { env, requirements: [], lake };
   } catch (e) {
     return { error: (e as Error).message };
   }

@@ -53,9 +53,12 @@ describe("the program: preparation, tuning, prediction", () => {
   });
 
   it("applies the declared preparation", () => {
-    expect(TRAIN_PY).toContain("def _source_sql(cfg):");
-    expect(TRAIN_PY).toContain("' WHERE (' + prep['where'].strip() + ')'");
-    expect(TRAIN_PY).toContain("') AS _prep'");
+    // R231: the prep step's WHERE and its own SQL are applied by the APP, in
+    // the SELECT it declares for the run, so they go through the SQL editor's
+    // checks the way a query typed into it does.
+    const ml = rd("src/utils/ml/lakeManifest.ts");
+    expect(ml).toContain("`${rel} WHERE (${where})`");
+    expect(ml).toContain("`(${prepSql}) AS _prep`");
     expect(TRAIN_PY).toContain("class_weight=cw");
     expect(TRAIN_PY).toContain("prep.get('target_clip')");
     expect(TRAIN_PY).toContain(
@@ -95,17 +98,25 @@ describe("the program: preparation, tuning, prediction", () => {
       "return _prepare_x(frame, art['features'], art['dt_cols'], art['num_all'], art['cat'], art.get('text') or [])",
     );
     expect(TRAIN_PY).toContain("X = _prep(df)");
-    expect(TRAIN_PY).toContain(
-      "con.execute('CREATE OR REPLACE TABLE ' + fq + ' AS SELECT * FROM _pred')",
+    // The scored rows are staged and loaded by the app, which replaces the
+    // table in one transaction (R231). BOTH prediction paths do it: a
+    // recommender writes its top-N table the same way a scorer writes its
+    // scored rows, and a mutation that dropped one of them changed no result
+    // until this counted them.
+    expect((TRAIN_PY.match(/_lake_commit\(\[_lake_stage\('output', out\)\]\)/g) ?? []).length).toBe(
+      2,
     );
+    expect(rd("src/utils/ml/lakeManifest.ts")).toContain('mode: "replace",');
     expect(TRAIN_PY).toContain("if cfg.get('mode') == 'predict':");
     expect(TRAIN_PY).toContain("'digest_columns': digest_cols");
   });
 
   it("checks its imports before ever calling pip", () => {
     expect(TRAIN_PY).toContain("def _ensure_packages():");
-    expect(rd("src/utils/ml/train.server.ts")).toContain("return { env, requirements: [] };");
-    expect(rd("src/utils/ml/predict.server.ts")).toContain("return { env, requirements: [] };");
+    expect(rd("src/utils/ml/train.server.ts")).toContain("return { env, requirements: [], lake };");
+    expect(rd("src/utils/ml/predict.server.ts")).toContain(
+      "return { env, requirements: [], lake };",
+    );
   });
 
   it("is valid Python (checked with the interpreter when available)", () => {

@@ -32,6 +32,7 @@ by the session's own token and scoped to the session's owner). The module is
 | `lake_stage` for a declared target | Returns presigned PUTs under the session's staging prefix. |
 | `lake_commit` of staged loads | Checks each target again (an accessible schema, never a mount, never a table under another owner's policy, never a table a Sheets workbook holds) and loads every staged batch, with the run's cursors, in one transaction. A merge whose rows lack its key is refused. Deletes the staged files once committed. |
 | `lake_cursors` | Returns the cursors that committed with the pipeline's last exactly-once load. |
+| `lake_artifact` of a declared model | A presigned PUT or GET for one model artifact this run named. Asked for when it is needed, because a training job can outlive a URL minted at its start. |
 
 A presigned URL carries its method and key inside the signature: a URL to put
 one staging file cannot read it, write another, or list anything.
@@ -74,6 +75,30 @@ unchanged, but:
 
 A sandbox that holds no catalog string needs none of that.
 
+## ML
+
+A training job, a prediction and a warm scorer are sandboxes like any other,
+so they reach the lake the same way (`src/utils/ml/lakeManifest.ts`):
+
+- **The source SELECT is built by the app**, not by the program. That is what
+  makes it a thing the app decided — and it means a prep step's own SQL now
+  goes through the SQL editor's checks, which it never did while it ran on an
+  engine connection inside the sandbox.
+- **The app counts, samples and refuses.** Training on a sample of a large
+  table is the app's `sampleTo`, using DuckDB's repeatable reservoir so a
+  re-run reads the same rows; a forecast's series is refused over the limit
+  instead, because a sample of a series is not a shorter series; a prediction
+  batch over its limit is refused the same way. All of it counts the rows the
+  OWNER may see, so a policy that hides rows changes the count.
+- **A data-parallel worker's share** is part of the SELECT the app declares
+  for that worker, hashed rather than windowed.
+- **Scored rows** are staged and loaded like any other target.
+- **Model artifacts** travel through `lake_artifact`: one URL, for one key the
+  run declared, for the method it declared. A trainer may write its own and
+  read none; an assemble step reads its workers' and writes the whole; a
+  prediction and a warm scorer read the version they were asked for. A run
+  cannot reach another model's artifact with a URI it made up.
+
 ## Status
 
 | Path | Credentials in the sandbox |
@@ -82,7 +107,7 @@ A sandbox that holds no catalog string needs none of that.
 | ETL, Spark engine: lakehouse sources and cursors | **None** |
 | ETL, Spark engine: lakehouse target (the cluster writes its Parquet) | **A credential scoped to that run's staging prefix**, which expires (R230). No catalog. |
 | Lakehouse queries on Spark | **A read credential scoped to the files the query's plan resolved**, which expires (R230). No catalog. |
-| ML training, prediction and warm scoring | Engine credentials, until they move to the gateway |
+| ML training, prediction and warm scoring | **None** (R231) |
 
 Scoped credentials on Spark are only worth anything if the cluster uses the
 credentials a call passes. It did not: Hadoop caches one S3A client per

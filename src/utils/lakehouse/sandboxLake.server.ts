@@ -62,7 +62,25 @@ const URL_TTL_SECONDS = 3600;
 /** Parts one stage may hand out. A sandbox frame fits in one; Spark writes several. */
 export const MAX_STAGE_PARTS = 256;
 
-export type LakeRead = { label: string; sql: string };
+export type LakeRead = {
+  label: string;
+  sql: string;
+  /**
+   * Read a random sample of this many rows when the source has more.
+   *
+   * ML trains on a sample of a large table, and which rows it got has to be
+   * the same on a re-run, so this is DuckDB's repeatable reservoir sample
+   * rather than a LIMIT. The app counts and decides: the sandbox is told what
+   * it got, and cannot ask for the whole table instead.
+   */
+  sampleTo?: number;
+  /**
+   * Refuse rather than read, when the source has more rows than this. A
+   * forecast's series and a prediction's batch are bounded by a limit the
+   * operator sets, and neither has a meaningful sample.
+   */
+  refuseOver?: { rows: number; message: string };
+};
 export type LakeWriteMode = "append" | "replace" | "upsert";
 export type LakeWrite = {
   label: string;
@@ -77,6 +95,15 @@ export type LakeManifest = {
   writes: Record<string, LakeWrite>;
   /** Exactly-once: the pipeline whose cursors commit with its loads, and the nodes that have one. */
   cursors?: { pipelineId: string; nodes: string[] };
+  /**
+   * The model artifacts this run may write and read, as bucket-relative keys.
+   *
+   * A trainer writes one blob and reads none; an assemble step reads its
+   * workers' and writes the whole; a prediction reads the version it was
+   * asked for. Naming them here is what keeps a sandbox from reaching another
+   * model's artifact with a URL it made up.
+   */
+  artifacts?: { put?: string; get?: string[] };
   /** A preview reads at most this many rows from each source. */
   rowLimit?: number;
 };
@@ -147,7 +174,13 @@ export async function lakeRead(args: {
   id: string;
   via: string;
   io?: StagingIo;
-}): Promise<{ rows: number; files: { get: string; delete: string }[] }> {
+}): Promise<{
+  rows: number;
+  /** Rows the source held before any sampling — what the sandbox reports. */
+  total: number;
+  sampled: boolean;
+  files: { get: string; delete: string }[];
+}> {
   const spec = Object.hasOwn(args.manifest.reads, args.id) ? args.manifest.reads[args.id] : null;
   if (!spec) throw new Error(`This run declared no lakehouse read "${args.id}"`);
   const body = stripSqlComments(spec.sql).replace(/;\s*$/, "");
@@ -163,9 +196,26 @@ export async function lakeRead(args: {
   try {
     const governed = await governSelect(c, args.userId, body, allowed);
     const sql = stripSqlComments(governed.sql).replace(/;\s*$/, "");
+    // A read that is bounded, or sampled, is counted first: both decisions are
+    // the app's, over the governed statement, so a reader sees them applied to
+    // the rows a policy left them rather than to the table.
+    let total = -1;
+    const needsCount = Boolean(spec.refuseOver || (spec.sampleTo && spec.sampleTo > 0));
+    if (needsCount) {
+      total = await withTimeout(c, async () =>
+        Number((await (await c.run(`SELECT count(*) FROM (${sql}) AS _n`)).getRows())[0]?.[0] ?? 0),
+      );
+      if (spec.refuseOver && total > spec.refuseOver.rows) {
+        throw new Error(spec.refuseOver.message.replace("%d", String(total)));
+      }
+    }
+    const sampled = Boolean(spec.sampleTo && spec.sampleTo > 0 && total > spec.sampleTo);
     const limit = args.manifest.rowLimit;
-    const shaped =
-      limit && limit > 0 ? `SELECT * FROM (${sql}) AS _q LIMIT ${Math.floor(limit)}` : sql;
+    const shaped = sampled
+      ? `SELECT * FROM (${sql}) AS _q USING SAMPLE reservoir(${Math.floor(spec.sampleTo!)} ROWS) REPEATABLE (42)`
+      : limit && limit > 0
+        ? `SELECT * FROM (${sql}) AS _q LIMIT ${Math.floor(limit)}`
+        : sql;
     const key = `${stagingPrefix(args.sessionId)}in/${randomUUID()}.parquet`;
     const rows = await withTimeout(c, async () => {
       const res = await c.run(
@@ -186,6 +236,8 @@ export async function lakeRead(args: {
     });
     return {
       rows,
+      total: total < 0 ? rows : total,
+      sampled,
       files: [
         {
           get: presignS3({
@@ -247,6 +299,41 @@ async function listedKeys(
   // Spark writes _SUCCESS and, on some stores, hidden checksum files beside
   // the parts; only the Parquet is data.
   return keys.filter((k) => k.endsWith(".parquet") && !k.slice(prefix.length).startsWith("."));
+}
+
+/** A model artifact's key, as this run declared it, from the URI it asked for. */
+function artifactKey(bucket: string, uri: string): string {
+  const m = /^s3a?:\/\/([^/]+)\/(.+)$/.exec(uri);
+  return m && m[1] === bucket ? m[2]! : uri.replace(/^\/+/, "");
+}
+
+/**
+ * A URL for one model artifact this run declared, and nothing else.
+ *
+ * Asked for when it is needed rather than handed out with the environment: a
+ * training job can run for hours, and a URL minted at the start would have
+ * expired by the time there is a model to write.
+ */
+export function lakeArtifact(args: { manifest: LakeManifest; which: "put" | "get"; uri: string }): {
+  url: string;
+} {
+  const { target, bucket } = storage();
+  const a = args.manifest.artifacts;
+  if (!a) throw new Error("This run declared no model artifacts");
+  const key = artifactKey(bucket, args.uri);
+  const allowed = args.which === "put" ? (a.put ? [a.put] : []) : (a.get ?? []);
+  if (!allowed.includes(key)) {
+    throw new Error(`This run may not ${args.which} the artifact "${key}"`);
+  }
+  return {
+    url: presignS3({
+      target,
+      key,
+      method: args.which === "put" ? "PUT" : "GET",
+      expiresSeconds: URL_TTL_SECONDS,
+      which: "app",
+    }),
+  };
 }
 
 /** Presigned PUTs for one declared target's next load. */

@@ -105,7 +105,10 @@ describe("the threshold reaches the prediction", () => {
     // by then. The output table is CREATE OR REPLACE, so the extra column
     // cannot collide with an existing schema.
     expect(TRAIN_PY).toContain("out['threshold_applied'] = float(thr)");
-    expect(TRAIN_PY).toContain("CREATE OR REPLACE TABLE");
+    // The output table is replaced whole, so the extra column cannot collide
+    // with an existing schema. The app does the replacing now (R231).
+    expect(TRAIN_PY).toContain("_lake_commit([_lake_stage('output', out)])");
+    expect(read("src/utils/ml/lakeManifest.ts")).toContain('mode: "replace",');
   });
 
   it("leaves multiclass and unset models on argmax", () => {

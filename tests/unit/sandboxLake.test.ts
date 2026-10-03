@@ -532,3 +532,148 @@ describe("the session channel's commit body", () => {
     expect(parse).toContain("prefix: o.prefix === true");
   });
 });
+
+describe("a read the app bounds", () => {
+  // ML trains on a sample of a large table and refuses a series that is over
+  // the limit; both are the app's decisions, over the rows the owner may see.
+  const withRead = (read: Record<string, unknown>) =>
+    ({ ...manifest(), reads: { ...manifest().reads, r: read } }) as never;
+
+  it("samples to the declared size, repeatably, and says it did", async () => {
+    const spec = { label: "Orders", sql: "SELECT * FROM sales.orders", sampleTo: 2 };
+    const out = await lake.lakeRead({
+      userId: OWNER,
+      sessionId: SID,
+      manifest: withRead(spec),
+      id: "r",
+      via: "test",
+      io,
+    });
+    expect(out.rows).toBe(2);
+    expect(out.total).toBe(3);
+    expect(out.sampled).toBe(true);
+    // The same rows on a re-run: a model trained twice on "a sample" that
+    // moved would score differently for no reason anyone could find.
+    const first = (await staged(out)).map((r) => r[0]);
+    const again = await lake.lakeRead({
+      userId: OWNER,
+      sessionId: SID,
+      manifest: withRead(spec),
+      id: "r",
+      via: "test",
+      io,
+    });
+    expect((await staged(again)).map((r) => r[0])).toEqual(first);
+  });
+
+  it("does not sample a source that is already within the size", async () => {
+    const out = await lake.lakeRead({
+      userId: OWNER,
+      sessionId: SID,
+      manifest: withRead({ label: "Orders", sql: "SELECT * FROM sales.orders", sampleTo: 50 }),
+      id: "r",
+      via: "test",
+      io,
+    });
+    expect(out).toMatchObject({ rows: 3, total: 3, sampled: false });
+  });
+
+  it("refuses rather than reads when the source is over a hard limit", async () => {
+    await expect(
+      lake.lakeRead({
+        userId: OWNER,
+        sessionId: SID,
+        manifest: withRead({
+          label: "Series",
+          sql: "SELECT * FROM sales.orders",
+          refuseOver: { rows: 2, message: "The series has %d rows, above the 2-row limit." },
+        }),
+        id: "r",
+        via: "test",
+        io,
+      }),
+    ).rejects.toThrow("The series has 3 rows, above the 2-row limit.");
+  });
+
+  it("counts what the READER may see, not what the table holds", async () => {
+    // A policy hides a row from this reader, so the limit and the sample are
+    // over two rows, not three.
+    db.policies = [
+      {
+        id: "p1",
+        user_id: OWNER,
+        schema_name: "sales",
+        table_name: "orders",
+        row_filter: "region = 'EMEA'",
+        masked_columns: [],
+        mask_style: "null",
+      },
+    ];
+    const out = await lake.lakeRead({
+      userId: READER,
+      sessionId: SID,
+      manifest: withRead({ label: "Orders", sql: "SELECT * FROM sales.orders", sampleTo: 50 }),
+      id: "r",
+      via: "test",
+      io,
+    });
+    expect(out.total).toBe(2);
+  });
+});
+
+describe("a model artifact", () => {
+  const m = (artifacts: Record<string, unknown>) => ({ ...manifest(), artifacts }) as never;
+
+  it("is signed for the one key this run declared, for the method it declared", () => {
+    const put = lake.lakeArtifact({
+      manifest: m({ put: "ml-artifacts/m1/v3/model.joblib", get: [] }),
+      which: "put",
+      uri: "s3://lake/ml-artifacts/m1/v3/model.joblib",
+    });
+    const url = new URL(put.url);
+    expect(url.pathname).toBe("/lake/ml-artifacts/m1/v3/model.joblib");
+    expect(url.searchParams.get("X-Amz-Signature")).toBeTruthy();
+  });
+
+  it("cannot be read when only writing was declared, or the other way round", () => {
+    const writeOnly = m({ put: "ml-artifacts/m1/v3/model.joblib", get: [] });
+    expect(() =>
+      lake.lakeArtifact({
+        manifest: writeOnly,
+        which: "get",
+        uri: "s3://lake/ml-artifacts/m1/v3/model.joblib",
+      }),
+    ).toThrow(/may not get/);
+    const readOnly = m({ get: ["ml-artifacts/m1/v3/model.joblib"] });
+    expect(() =>
+      lake.lakeArtifact({
+        manifest: readOnly,
+        which: "put",
+        uri: "s3://lake/ml-artifacts/m1/v3/model.joblib",
+      }),
+    ).toThrow(/may not put/);
+  });
+
+  it("cannot be another model's, whatever URI is asked for", () => {
+    const mine = m({
+      put: "ml-artifacts/m1/v3/model.joblib",
+      get: ["ml-artifacts/m1/v3/model.joblib"],
+    });
+    for (const uri of [
+      "s3://lake/ml-artifacts/m2/v1/model.joblib",
+      "s3://lake/main/analytics/orders/a.parquet",
+      "s3://other/ml-artifacts/m1/v3/model.joblib",
+      "ml-artifacts/m1/v3/../../main/analytics/x.parquet",
+    ]) {
+      expect(() => lake.lakeArtifact({ manifest: mine, which: "get", uri }), uri).toThrow(
+        /may not get/,
+      );
+    }
+  });
+
+  it("is refused outright by a run that declared none", () => {
+    expect(() =>
+      lake.lakeArtifact({ manifest: manifest() as never, which: "get", uri: "s3://lake/x" }),
+    ).toThrow(/declared no model artifacts/);
+  });
+});

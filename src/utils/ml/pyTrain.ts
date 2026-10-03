@@ -115,52 +115,29 @@ def _jsonable_cell(v):
 
 
 # ── Reading the training frame ───────────────────────────────────────────────
-def _source_sql(cfg):
-    src = cfg['source']
-    rel = _q(src['schema']) + '.' + _q(src['table'])
-    prep = cfg.get('prep') or {}
-    if prep.get('sql'):
-        return '(' + prep['sql'].strip().rstrip(';') + ') AS _prep'
-    if prep.get('where'):
-        return rel + ' WHERE (' + prep['where'].strip() + ')'
-    return rel
-
-
-def _read_frame(con, cfg):
-    import pandas as pd
-    body = _source_sql(cfg)
-    total = int(con.execute('SELECT count(*) FROM ' + body).fetchone()[0])
-    max_rows = int(cfg.get('max_rows') or 0)
-    sql = 'SELECT * FROM ' + body
-    sampled = False
-    # A DATA-PARALLEL worker reads only the rows hashed to it. Wrapped rather
-    # than appended, because the body may already carry a WHERE or be a
-    # subquery from the prep step, and 'WHERE a WHERE b' is not a query.
+def _read_frame(cfg):
+    # R231: the app reads the source, as the model's owner, through the same
+    # checks the SQL editor applies — a prep step's own SQL included, which it
+    # never went through while this ran on an engine connection here.
     #
-    # Hashing rather than LIMIT/OFFSET: without an ORDER BY there is no stable
-    # order, DuckDB parallelises the scan, and two containers issuing the same
-    # windowed query can overlap on some rows and miss others. Nothing
-    # downstream would notice — the fit would simply be on the wrong rows, and
-    # the score would look ordinary. Verified against DuckDB: the partitions
-    # cover every row exactly once and are identical from a fresh connection.
+    # The app also decides the sampling and the limit, because what this
+    # container may read has to be a thing the app chose: it counts the rows
+    # the owner may see, samples with the repeatable reservoir a re-run needs,
+    # and refuses a forecast's series that is over the limit rather than
+    # sampling a series, which would not mean anything.
+    #
+    # A DATA-PARALLEL worker's share of the rows is in the declared SELECT for
+    # the same reason — hashed, not windowed: without an ORDER BY there is no
+    # stable order, and two containers issuing the same windowed query can
+    # overlap on some rows and miss others, which nothing downstream would
+    # notice because the fit would simply be on the wrong rows.
+    out = _lake_read_meta('source')
+    df, total, sampled = out['frame'], out['total'], out['sampled']
     part = cfg.get('partition') or {}
     if part.get('sql'):
-        body = '(SELECT * FROM ' + body + ' WHERE ' + part['sql'] + ') AS _part'
-        total = int(con.execute('SELECT count(*) FROM ' + body).fetchone()[0])
-        sql = 'SELECT * FROM ' + body
         _log('worker %s of %s: %d rows hashed to this container'
              % (part.get('index'), part.get('workers'), total))
-    if max_rows and total > max_rows:
-        if cfg['task'] == 'forecast':
-            raise RuntimeError(
-                'The series has %d rows, above the %d-row training limit. Aggregate it to one row '
-                'per period first, or raise the ML training row limit under Admin -> Developer runtime.'
-                % (total, max_rows)
-            )
-        sql += ' USING SAMPLE reservoir(%d ROWS) REPEATABLE (42)' % max_rows
-        sampled = True
-    _log('reading %s (%d rows%s)' % (body[:120], total, ', sampled to %d' % max_rows if sampled else ''))
-    df = con.execute(sql).df()
+    _log('read %d row(s)%s' % (total, ', sampled to %d' % len(df) if sampled else ''))
     for c in (cfg.get('prep') or {}).get('drop_columns') or []:
         if c in df.columns and c != cfg['target_column']:
             df = df.drop(columns=[c])
@@ -1557,15 +1534,15 @@ def _predict_recommendation(art, cfg, warnings_):
     if cfg.get('explain'):
         warnings_.append("A recommender cannot be explained row by row: the answer comes from which items other users chose together, not from this row's columns.")
     inp = cfg['input']
-    con = None
     ucol = art['user_col']
     if inp['kind'] == 'rows':
         df = pd.DataFrame(inp['rows'])
     else:
-        con = _lakehouse_con()
-        rel = _q(inp['schema']) + '.' + _q(inp['table'])
-        body = rel + (' WHERE (' + inp['where'].strip() + ')' if inp.get('where') else '')
-        df = con.execute('SELECT DISTINCT ' + _q(ucol) + ' FROM ' + body).df()
+        # The app reads the batch (R231). Only this column is wanted, and the
+        # duplicates cost nothing to drop here.
+        df = _lake_read('input')
+        if ucol in df.columns:
+            df = df[[ucol]].drop_duplicates()
     if ucol not in df.columns:
         raise RuntimeError('Recommendation input needs the column %s.' % ucol)
     n = int(cfg.get('top_n') or 10)
@@ -1583,12 +1560,11 @@ def _predict_recommendation(art, cfg, warnings_):
     output = cfg.get('output')
     written = None
     if output:
-        con = con or _lakehouse_con()
-        fq = _q(output['schema']) + '.' + _q(output['table'])
-        con.register('_pred', out)
-        con.execute('CREATE OR REPLACE TABLE ' + fq + ' AS SELECT * FROM _pred')
+        # Staged as Parquet and loaded by the app, which replaces the table in
+        # one transaction and checks the target again before it does (R231).
+        _lake_commit([_lake_stage('output', out)])
         written = {'schema': output['schema'], 'table': output['table']}
-        _log('wrote %s (%d rows)' % (fq, len(out)))
+        _log('wrote %s.%s (%d rows)' % (output['schema'], output['table'], len(out)))
     sample_n = len(out) if inp['kind'] == 'rows' else min(len(out), 50)
     cols = [c for c in out.columns]
     sample = [[_jsonable_cell(v) for v in row] for row in out.head(sample_n).itertuples(index=False, name=None)]
@@ -1821,40 +1797,67 @@ def _train_forecast(df, cfg, warnings_):
     }
 
 
-# ── Object storage ───────────────────────────────────────────────────────────
-def _s3fs():
-    import fsspec
-    ep = os.environ.get('ETL_LAKEHOUSE_S3_ENDPOINT') or ''
-    use_ssl = os.environ.get('ETL_LAKEHOUSE_S3_USE_SSL', 'true').lower() != 'false'
-    endpoint_url = None
-    if ep:
-        endpoint_url = ep if (ep.startswith('http://') or ep.startswith('https://')) else (('https://' if use_ssl else 'http://') + ep)
-    style = os.environ.get('ETL_LAKEHOUSE_S3_URL_STYLE', 'path')
-    client_kwargs = {'region_name': os.environ.get('ETL_LAKEHOUSE_S3_REGION') or 'us-east-1'}
-    if endpoint_url:
-        client_kwargs['endpoint_url'] = endpoint_url
-    return fsspec.filesystem(
-        's3',
-        key=os.environ.get('ETL_LAKEHOUSE_S3_KEY_ID', ''),
-        secret=os.environ.get('ETL_LAKEHOUSE_S3_SECRET', ''),
-        client_kwargs=client_kwargs,
-        config_kwargs={'s3': {'addressing_style': 'path' if style == 'path' else 'virtual'}},
-    )
+# ── The lakehouse, through the app ───────────────────────────────────────────
+def _lake_read_meta(node_id):
+    """A declared read, with what the app decided about it.
+
+    The plain _lake_read returns the frame; a trainer also needs to say how
+    many rows the source held and whether it was sampled, and those are the
+    app's answers, not this container's.
+    """
+    import duckdb, requests, shutil, tempfile
+    out = _lake_call('lake_read', {'id': node_id})
+    tmp = tempfile.mkdtemp()
+    try:
+        paths = []
+        for i, f in enumerate(out['files']):
+            path = os.path.join(tmp, str(i) + '.parquet')
+            with requests.get(f['get'], stream=True, timeout=3600) as g:
+                g.raise_for_status()
+                with open(path, 'wb') as fh:
+                    shutil.copyfileobj(g.raw, fh)
+            paths.append(path)
+            try:
+                requests.delete(f['delete'], timeout=60)
+            except Exception:
+                pass
+        con = duckdb.connect()
+        try:
+            frame = con.execute('SELECT * FROM read_parquet(' + _lake_sql_list(paths) + ')').df()
+        finally:
+            con.close()
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    return {'frame': frame, 'total': int(out.get('total') or len(frame)), 'sampled': bool(out.get('sampled'))}
 
 
+def _lake_artifact(which, uri):
+    return _lake_call('lake_artifact', {'which': which, 'uri': uri})['url']
+
+
+# ── Model artifacts ──────────────────────────────────────────────────────────
 def _upload(blob):
-    fs = _s3fs()
+    # R231: no storage credential here. The app signs one URL for this run's
+    # own artifact, asked for at the moment there is a model to write — a
+    # training job can run for hours, and a URL handed out at the start would
+    # have expired by then.
+    import requests
     uri = os.environ['ML_ARTIFACT_URI']
-    with fs.open(uri, 'wb') as f:
-        f.write(blob)
+    r = requests.put(_lake_artifact('put', uri), data=blob, timeout=3600)
+    r.raise_for_status()
     return uri
+
+
+def _fetch_artifact(uri):
+    import requests
+    r = requests.get(_lake_artifact('get', uri), timeout=3600)
+    r.raise_for_status()
+    return r.content
 
 
 def _download_artifact(cfg):
     import joblib
-    fs = _s3fs()
-    with fs.open(cfg['artifact_uri'], 'rb') as f:
-        blob = f.read()
+    blob = _fetch_artifact(cfg['artifact_uri'])
     sha = hashlib.sha256(blob).hexdigest()
     if sha != cfg['artifact_sha256']:
         raise RuntimeError('Artifact digest mismatch: the registry recorded %s but the stored file hashes to %s. Refusing to predict with it.'
@@ -1927,20 +1930,15 @@ def _predict(cfg, warnings_):
     if art.get('task') == 'recommendation':
         return _predict_recommendation(art, cfg, warnings_)
     inp = cfg['input']
-    con = None
     if inp['kind'] == 'rows':
         df = pd.DataFrame(inp['rows'])
         total = len(df)
     else:
-        con = _lakehouse_con()
-        rel = _q(inp['schema']) + '.' + _q(inp['table'])
-        body = rel + (' WHERE (' + inp['where'].strip() + ')' if inp.get('where') else '')
-        total = int(con.execute('SELECT count(*) FROM ' + body).fetchone()[0])
-        max_rows = int(cfg.get('max_rows') or 0)
-        if max_rows and total > max_rows:
-            raise RuntimeError('%d rows to score, above the %d-row prediction limit. Add a WHERE filter, or raise the limit under Admin -> Developer runtime.' % (total, max_rows))
-        _log('reading %s (%d rows)' % (body[:120], total))
-        df = con.execute('SELECT * FROM ' + body).df()
+        # The app reads the batch and enforces the row limit, as the model's
+        # owner and through the owners' policies (R231).
+        out = _lake_read_meta('input')
+        df, total = out['frame'], out['total']
+        _log('read %d row(s) to score' % total)
     if len(df) == 0:
         raise RuntimeError('No rows to score.')
     # Ten rows is the least a distribution can be compared on.
@@ -2040,12 +2038,11 @@ def _predict(cfg, warnings_):
     output = cfg.get('output')
     written = None
     if output:
-        con = con or _lakehouse_con()
-        fq = _q(output['schema']) + '.' + _q(output['table'])
-        con.register('_pred', out)
-        con.execute('CREATE OR REPLACE TABLE ' + fq + ' AS SELECT * FROM _pred')
+        # Staged as Parquet and loaded by the app, which replaces the table in
+        # one transaction and checks the target again before it does (R231).
+        _lake_commit([_lake_stage('output', out)])
         written = {'schema': output['schema'], 'table': output['table']}
-        _log('wrote %s (%d rows)' % (fq, len(out)))
+        _log('wrote %s.%s (%d rows)' % (output['schema'], output['table'], len(out)))
     sample_n = len(out) if inp['kind'] == 'rows' else min(len(out), 50)
     cols = [c for c in out.columns]
     sample = [[_jsonable_cell(v) for v in row] for row in out.head(sample_n).itertuples(index=False, name=None)]
@@ -2083,11 +2080,9 @@ def _assemble(cfg, warnings_):
     parts = cfg.get('parts') or []
     if not parts:
         raise RuntimeError('Nothing to assemble: no worker reported a fitted model.')
-    fs = _s3fs()
     arts = []
     for i, part in enumerate(parts):
-        with fs.open(part['artifact_uri'], 'rb') as f:
-            blob = f.read()
+        blob = _fetch_artifact(part['artifact_uri'])
         sha = hashlib.sha256(blob).hexdigest()
         if sha != part['artifact_sha256']:
             raise RuntimeError('Part %d hashes to %s but was recorded as %s. Refusing to assemble it.'
@@ -2160,8 +2155,7 @@ def entrypoint(inputs):
         _log('done in %.1fs' % _elapsed())
         return result
     _log('job %s: %s on %s.%s -> %s' % (cfg['job_id'][:8], cfg['task'], cfg['source']['schema'], cfg['source']['table'], cfg.get('target_column') or cfg.get('item_column') or '(no target)'))
-    con = _lakehouse_con()
-    df, total, sampled = _read_frame(con, cfg)
+    df, total, sampled = _read_frame(cfg)
     if sampled:
         warnings_.append('Trained on a %d-row sample of %d rows.' % (len(df), total))
     if cfg['task'] == 'forecast':

@@ -17,6 +17,8 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
+import { mlSourceSelect } from "@/utils/ml/lakeManifest";
+
 const rd = (p: string) => readFileSync(p, "utf8");
 const TRAIN = rd("src/utils/ml/train.server.ts");
 const PY = rd("src/utils/ml/pyTrain.ts");
@@ -78,25 +80,52 @@ describe("a worker reads its own rows and nobody else's", () => {
     // LIMIT/OFFSET with no ORDER BY does not promise a stable order, and
     // DuckDB parallelises a scan, so two containers issuing the same windowed
     // query overlap on some rows and miss others. Nothing downstream notices.
-    expect(codeOnly(PY)).toContain("part = cfg.get('partition') or {}");
-    expect(codeOnly(PY)).toContain("WHERE ' + part['sql'] + ') AS _part'");
+    //
+    // R231: the slice is part of the SELECT the APP declares for the worker,
+    // because what a sandbox may read has to be the app's decision. So it is
+    // checked on that SELECT, which is a function rather than a string in a
+    // generated program.
+    const sql = mlSourceSelect({
+      schema: "analytics",
+      table: "facts",
+      partitionSql: 'hash("a") % 3 = 1',
+    });
+    expect(sql).toContain('hash("a") % 3 = 1');
+    expect(sql).not.toMatch(/LIMIT|OFFSET/i);
     expect(codeOnly(PY)).not.toMatch(/LIMIT %d OFFSET %d/);
   });
 
   it("wrapped as a subquery, because the body may already have a WHERE", () => {
     // The prep step can leave the source as `rel WHERE (...)` or as a
     // subquery, and 'WHERE a WHERE b' is not a query.
-    const py = codeOnly(PY);
-    expect(py).toContain("body = '(SELECT * FROM ' + body + ' WHERE '");
+    const withWhere = mlSourceSelect({
+      schema: "analytics",
+      table: "facts",
+      prep: { where: "region = 'EMEA'" },
+      partitionSql: 'hash("a") % 3 = 1',
+    });
+    expect(withWhere).toBe(
+      'SELECT * FROM (SELECT * FROM "analytics"."facts" WHERE (region = \'EMEA\') ' +
+        'WHERE hash("a") % 3 = 1) AS _part',
+    );
+    const withPrepSql = mlSourceSelect({
+      schema: "analytics",
+      table: "facts",
+      prep: { sql: "SELECT * FROM analytics.facts WHERE x > 1" },
+      partitionSql: 'hash("a") % 3 = 1',
+    });
+    expect(withPrepSql).toContain(') AS _prep WHERE hash("a") % 3 = 1) AS _part');
   });
 
-  it("and the row count is re-read for the slice, not inherited", () => {
+  it("and the row count is for the slice, not for the table", () => {
     // The worker must report the rows IT read. Reporting the table's total
-    // would have every worker claim the whole dataset.
-    const py = codeOnly(PY);
-    const block = py.slice(py.indexOf("part = cfg.get('partition')"));
-    expect(block.slice(0, 600)).toContain(
-      "total = int(con.execute('SELECT count(*) FROM ' + body)",
+    // would have every worker claim the whole dataset — so the count the app
+    // runs is over the declared SELECT, the partition predicate included.
+    const gw = rd("src/utils/lakehouse/sandboxLake.server.ts");
+    expect(gw).toContain("`SELECT count(*) FROM (${sql}) AS _n`");
+    // …and the sandbox reports what the app counted, not a number of its own.
+    expect(codeOnly(PY)).toContain(
+      "df, total, sampled = out['frame'], out['total'], out['sampled']",
     );
   });
 
@@ -277,10 +306,13 @@ describe("what the assembled model claims about itself", () => {
     // mid-upload leaves a corrupt file at the path the fallback is about to
     // record the SEARCH's digest for, and every prediction then refuses.
     expect(LIB).toContain("export function assembledArtifactPath(");
+    expect(rd("src/utils/ml/train.server.ts")).toContain(
+      'const assembling = stash.phase === "assemble";',
+    );
     // Asserted on the pieces rather than on one span, so a reflow by the
     // formatter cannot fail a test about where a file is written.
     expect(TRAIN).toContain("assembledArtifactPath(mlArtifactUri(");
-    expect(TRAIN).toContain('stash.phase === "assemble",');
+    expect(TRAIN).toContain("mlTrainingEnv(b.model, b.version.version, shard, assembling)");
     // And the branch is taken on the assemble flag, not on the shard count,
     // which for one container is indistinguishable from a one-worker search.
     const env = TRAIN.slice(TRAIN.indexOf("ML_ARTIFACT_URI:"));

@@ -10,6 +10,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { verifySessionToken } from "@/utils/notebookRuntime/token.server";
+import type { LakeManifest } from "@/utils/lakehouse/sandboxLake.server";
 
 function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -61,9 +62,22 @@ async function mcpAppBundle(appId: string, userId: string): Promise<Response> {
   });
 }
 
-type LakeBody = { id?: unknown; parts?: unknown; loads?: unknown; cursors?: unknown };
+type LakeBody = {
+  id?: unknown;
+  parts?: unknown;
+  loads?: unknown;
+  cursors?: unknown;
+  which?: unknown;
+  uri?: unknown;
+};
 
-const LAKE_PARTS = new Set(["lake_read", "lake_stage", "lake_commit", "lake_cursors"]);
+const LAKE_PARTS = new Set([
+  "lake_read",
+  "lake_stage",
+  "lake_commit",
+  "lake_cursors",
+  "lake_artifact",
+]);
 
 /**
  * Pin what this session may do in the lake, when its environment is resolved:
@@ -106,6 +120,19 @@ async function lakePart(
       return json(
         200,
         await lake.lakeRead({ userId: s.userId, sessionId: s.sessionId, manifest, id, via: s.via }),
+      );
+    }
+    // A URL for one model artifact this run declared. A trainer writes its
+    // own and reads none; an assemble step reads its workers'; a prediction
+    // and a warm scorer read the version they were asked for.
+    if (part === "lake_artifact") {
+      const which = body.which === "put" ? "put" : "get";
+      if (which === "put" && s.readOnly) {
+        return json(403, { error: "A preview reads the lakehouse; it never writes it" });
+      }
+      return json(
+        200,
+        lake.lakeArtifact({ manifest, which, uri: typeof body.uri === "string" ? body.uri : "" }),
       );
     }
     if (s.readOnly)
@@ -229,10 +256,12 @@ async function handle(request: Request): Promise<Response> {
     const serve = await import("@/utils/ml/serve.server");
     const stash = serve.mlScoreStashOf(session?.inputs);
     if (stash) {
-      // One call: the program, its config and the lakehouse credentials the
-      // artifact download needs. A scorer fetches this once, at start.
+      // One call: the program and its config. A scorer fetches this once, at
+      // start, and asks for a URL to its model's artifact when it loads it.
       const out = await serve.mlScoreBundleFor(stash, claims.sub);
-      return "error" in out ? json(404, out) : json(200, out);
+      if ("error" in out) return json(404, out);
+      const { lake, ...rest } = out;
+      return (await pinLake(claims.sid, session?.inputs, lake)) ?? json(200, rest);
     }
   }
 
@@ -287,15 +316,26 @@ async function handle(request: Request): Promise<Response> {
     const stash = ml.mlJobStashOf(session?.inputs);
     if (stash) {
       let part = "";
+      let lakeBody: LakeBody = {};
       try {
-        const body = (await request.json()) as { part?: string };
+        const body = (await request.json()) as { part?: string } & LakeBody;
         part = body?.part ?? "";
+        lakeBody = body ?? {};
       } catch {
         /* empty body = default part */
       }
+      if (LAKE_PARTS.has(part)) {
+        return lakePart(part, lakeBody, {
+          sessionId: claims.sid,
+          userId: claims.sub,
+          inputs: session?.inputs,
+          readOnly: false,
+          via: `ml_${stash.kind ?? "train"}:${stash.job_id}`,
+        });
+      }
       let out:
         | { code: string }
-        | { env: Record<string, string>; requirements: string[] }
+        | { env: Record<string, string>; requirements: string[]; lake?: LakeManifest }
         | { error: string };
       if (stash.kind === "predict") {
         const m = await import("@/utils/ml/predict.server");
@@ -310,7 +350,12 @@ async function handle(request: Request): Promise<Response> {
             ? await m.mlEnvFor(stash, claims.sub)
             : await m.mlBundleFor(stash, claims.sub);
       }
-      return "error" in out ? json(404, out) : json(200, out);
+      if ("error" in out) return json(404, out);
+      if ("lake" in out) {
+        const { lake, ...rest } = out;
+        return (await pinLake(claims.sid, session?.inputs, lake)) ?? json(200, rest);
+      }
+      return json(200, out);
     }
   }
 

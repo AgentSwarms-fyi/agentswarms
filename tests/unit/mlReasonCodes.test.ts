@@ -38,15 +38,24 @@ describe("the training program is internally complete", () => {
     // time, and the failure would have been a NameError inside a sandbox
     // halfway through somebody's batch.
     //
-    // Two names are legitimately absent from TRAIN_PY's own definitions:
-    // _lakehouse_con comes from the prelude train.server.ts prepends, and
+    // The program that RUNS is the prelude the server prepends plus this, so
+    // the definitions are taken from both rather than from an allow-list of
+    // names someone has to remember to update: since R231 the lakehouse calls
+    // come from lakeGatewayFn, and a bundle that forgot to prepend it would
+    // fail here rather than with a NameError inside somebody's batch.
+    const GATEWAY = (() => {
+      const src = readFileSync("src/utils/etl/codegen.ts", "utf8");
+      const from = src.indexOf("export function lakeGatewayFn()");
+      expect(from).toBeGreaterThan(0);
+      return src.slice(from, src.indexOf("\n}", from));
+    })();
     // __import__ is a builtin that happens to start with an underscore.
-    const FROM_PRELUDE = new Set(["_lakehouse_con", "__import__"]);
+    const FROM_PRELUDE = new Set(["__import__"]);
     // Indented defs count: _prep and _label are nested inside _predict, and a
     // pattern anchored to column zero would have reported them missing —
     // a guard that cries wolf gets relaxed, and then it catches nothing.
     const defined = new Set(
-      [...TRAIN_PY.matchAll(/^[ \t]*def (_[A-Za-z0-9_]+)\(/gm)].map((m) => m[1]),
+      [...(TRAIN_PY + GATEWAY).matchAll(/def (_[A-Za-z0-9_]+)\(/g)].map((m) => m[1]),
     );
     const called = new Set(
       [...TRAIN_PY.matchAll(/(?<![A-Za-z0-9_.])(_[A-Za-z0-9_]+)\(/g)].map((m) => m[1]),
@@ -56,6 +65,14 @@ describe("the training program is internally complete", () => {
     // And the guard is guarding something: these two are what it was written
     // for, so their absence must fail here rather than pass quietly.
     expect(defined.has("_reason_codes")).toBe(true);
+    // And every ML bundle really does prepend it.
+    for (const f of [
+      "src/utils/ml/train.server.ts",
+      "src/utils/ml/predict.server.ts",
+      "src/utils/ml/serve.server.ts",
+    ]) {
+      expect(readFileSync(f, "utf8"), f).toContain("lakeGatewayFn() +");
+    }
     expect(defined.has("_reason_frame")).toBe(true);
   });
 });
@@ -118,7 +135,7 @@ describe("the codes become columns of the scored table", () => {
   it("written BEFORE the table is created, not joined back later", () => {
     const predict = TRAIN_PY.slice(TRAIN_PY.indexOf("def _predict(cfg, warnings_):"));
     const wrote = predict.indexOf("out[col] = vals");
-    const created = predict.indexOf("CREATE OR REPLACE TABLE");
+    const created = predict.indexOf("_lake_commit([_lake_stage('output', out)])");
     expect(wrote).toBeGreaterThan(0);
     expect(created).toBeGreaterThan(0);
     expect(wrote).toBeLessThan(created);

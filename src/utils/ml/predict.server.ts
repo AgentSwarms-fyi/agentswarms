@@ -17,7 +17,9 @@ import { getPlatformResources } from "@/utils/notebookRuntime/config.server";
 import { refreshSession, startSession, stopSession } from "@/utils/notebookRuntime/service.server";
 import { ensurePlatformEgress } from "@/utils/notebookRuntime/egressApply.server";
 import { etlPrelude, scrubSecrets } from "@/utils/etl/service.server";
-import { lakehouseAttachFn } from "@/utils/etl/codegen";
+import { lakeGatewayFn } from "@/utils/etl/codegen";
+import type { LakeManifest } from "@/utils/lakehouse/sandboxLake.server";
+import { mlPredictManifest } from "@/utils/ml/lakeManifest";
 import { TRAIN_PY } from "./pyTrain";
 import { mlErrorMessage, mlTrainingEnv } from "./train.server";
 import type { MlModelRow, MlVersionRow } from "./access.server";
@@ -165,7 +167,7 @@ export async function mlPredictBundleFor(
   const b64 = Buffer.from(JSON.stringify(program), "utf8").toString("base64");
   const code =
     etlPrelude() +
-    lakehouseAttachFn() +
+    lakeGatewayFn() +
     "\n" +
     TRAIN_PY +
     `\n_ML_CONFIG = json.loads(base64.b64decode('${b64}').decode('utf-8'))\n`;
@@ -176,14 +178,30 @@ export async function mlPredictBundleFor(
 export async function mlPredictEnvFor(
   stash: MlJobStash,
   userId: string,
-): Promise<{ env: Record<string, string>; requirements: string[] } | { error: string }> {
+): Promise<
+  { env: Record<string, string>; requirements: string[]; lake?: LakeManifest } | { error: string }
+> {
   const b = await loadPredictionBundle(stash.job_id, userId);
   if (!b) return { error: "Prediction run not found for this session" };
   try {
     // Same lakehouse env as training; the program self-installs the ML
     // stack only if the image lacks it, so no pip round-trip here.
     const { env } = await mlTrainingEnv(b.model, b.version.version);
-    return { env, requirements: [] };
+    const limits = await getPlatformResources();
+    const input = b.prediction.input as {
+      kind: string;
+      schema?: string;
+      table?: string;
+      where?: string;
+    };
+    // What this prediction may read, write and load (ml/lakeManifest.ts).
+    const lake = mlPredictManifest({
+      input,
+      output: b.prediction.output as { schema: string; table: string } | null,
+      maxRows: limits.mlPredictMaxRows,
+      artifactUri: b.version.artifact_uri ?? "",
+    });
+    return { env, requirements: [], lake };
   } catch (e) {
     return { error: (e as Error).message };
   }

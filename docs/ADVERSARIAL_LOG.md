@@ -109,6 +109,58 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-03 — ML training, prediction and scoring, with no lakehouse credential
+
+Tests: `tests/unit/mlLakeManifest.test.ts` (10: the SELECT a run reads, sampling against refusing,
+a worker's slice, an assemble step's artifacts, a prediction's read/write/model) and the gateway's
+bounded reads and artifact rules in `tests/unit/sandboxLake.test.ts` (28 in all, real DuckDB). The
+mutation run caught 14 of 14, and the control survived.
+
+#### R231 · S1 · ML sandboxes held the lakehouse's catalog and storage credentials
+
+**Found** as the last of the owner's scoped-credentials decision. ETL lost its credentials in
+R227 and the Spark cluster in R230, but a training job, a prediction and a warm scorer still
+received `ETL_LAKEHOUSE_CATALOG` and the object store's key and secret: they read their source
+over an engine connection, wrote their scored rows the same way, and moved model artifacts with
+an fsspec client built from those keys. A model's own code is generated, but anything else in the
+image ran with the same environment.
+
+**The fix.** The app does all of it (`src/utils/ml/lakeManifest.ts` over sandboxLake.server):
+- the source SELECT is built server-side, which puts a prep step's own SQL through the SQL
+  editor's checks for the first time;
+- the app counts, samples (repeatable reservoir, so a re-run reads the same rows) and refuses —
+  a forecast's series over the limit is refused rather than sampled, and so is a prediction batch
+  — all over the rows the OWNER may see;
+- a data-parallel worker's hashed share is part of the SELECT the app declares for it;
+- scored rows are staged and loaded like any other target;
+- artifacts travel through a new `lake_artifact` call: one URL, one declared key, one method,
+  asked for when it is needed because a training job can outlive a URL minted at its start.
+
+`_lakehouse_con` and `_s3fs` are gone from the ML program entirely.
+
+**Driven after** (hot deploy), on `revenue_facts plan classifier`:
+- **Train new version** with the row limit set to 100: v8 trained, random_forest, F1 100%, and
+  its own note reads **"Trained on a 100-row sample of 836 rows."** — the app counted 836, sampled
+  100, and said so;
+- the v8 artifact is in the lake bucket, ~55 KB, written through the presigned PUT;
+- **Batch prediction** with v8, `analytics.revenue_facts where region = 'APAC'` →
+  `analytics.r231_pred`: succeeded, 242 rows in 13 s;
+- the table: 242 rows, 1 distinct region, that region `APAC`, and all 242 scored — so the WHERE
+  was applied by the app and every row got a prediction;
+- the **Audit Log** shows the app doing the work, attributed to the owner:
+  `ml.train.start` → `lakehouse.sandbox_read analytics.revenue_facts 100 rows` →
+  `ml.train.succeeded`, then `ml.predict_query` →
+  `lakehouse.sandbox_read analytics.revenue_facts 242 rows` →
+  `lakehouse.sandbox_commit analytics.r231_pred`;
+- no errors or warnings in the app log, and the bucket held no staging prefix afterwards.
+
+**A test that got stronger rather than re-anchored.** `mlReasonCodes` checks that every
+underscore-prefixed call in the ML program has a definition — it was written after a patch script
+added calls whose definitions never reached the file. It carried an allow-list of names that come
+from the prelude, which would have grown with this change. It now takes the definitions from the
+prelude's own source as well, and asserts that all three ML bundles prepend it: a bundle that
+forgot `lakeGatewayFn()` fails there instead of with a NameError inside somebody's batch.
+
 ### 2026-10-03 — Smoke of the real image after R225 to R230
 
 No new defect. Image `4c02cc12cc32` was built from `be1407c7` with `docker compose build
