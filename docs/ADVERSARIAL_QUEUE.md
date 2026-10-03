@@ -380,9 +380,15 @@ least twice, not a hypothetical.
      is seven failures → 0, 0, 0, 1. **What to do next, with the evidence already gathered:** that
      file's 101 tests take 8 s in total alone (~70 ms each), so a 20 s kill is ~285× starvation and
      raising the timeout would hide it, not fix it — the ratchet test forbids that on purpose. The
-     lead is `collect 207 s` against `tests 431 s` in the same run: a third of the work is importing
-     modules again in every fork. Measure whether `isolate: false` is safe for a suite that mocks
-     modules per file, or group the heavy engine tests onto one fork. Two earlier write-ups of
+     lead was `collect 207 s` against `tests 431 s` in the same run: a third of the work is importing
+     modules again in every fork. **R240 measured it. `isolate: false` runs in 91 s instead of
+     ~210 s and fails 44 tests across 14 files — and the ones that fail are the fail-closed guards
+     (`requireSuperadmin`, the lakehouse policy, the Iceberg mount, the ETL share guard, the cron
+     pass). Refused: the same leak that reddens them can make one of them PASS when it should
+     fail.** The remaining option, untried and bigger, is to put the three 40 s+ files
+     (`catalogGzipDataset`, `etlSqlStep`, `etlEmptyTick`) in their own vitest project with
+     `singleFork`, so they stop holding a worker each while the rest queues — worth it only if
+     someone shows the import cost actually hurts. Two earlier write-ups of
      this item, both in this file, blamed the wrong thing; the entry below is kept as written so
      the next person can see what a plausible-but-unrefuted explanation looks like.
      `tests/unit/testRunnerParallelism.test.ts` holds the cap.

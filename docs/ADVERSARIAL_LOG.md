@@ -109,6 +109,40 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-03 — R240: `isolate: false` measured, and refused
+
+R237 left one lead: `collect` was 207 s against `tests` 431 s, so a third of the suite's work is
+importing modules again in every fork. The queued instruction was to **measure** whether
+`isolate: false` is safe for a suite that mocks modules per file, rather than guess. Measured:
+
+| | wall time | result |
+| --- | --- | --- |
+| isolated (current) | ~210 s | all 9,199 pass |
+| `--no-isolate` | **91 s** | **44 failures across 14 files**, and 77 tests skipped instead of 40 |
+
+So the prize is real — 2.4× — and it is not available. With one module registry per fork, a
+`vi.mock` from one file reaches the next, and what broke is the part of the suite that matters most:
+
+- `iamPolicyReadFailure > requireSuperadmin, when the role read fails` (R53)
+- `lakehousePolicyFailClosed > a policy that cannot be read is not 'no policy'` (R223)
+- `etlLakehouseGuard > a shared table under its owner's policy is refused to a target` (R225)
+- `icebergMountReadOnly > refuses CREATE TABLE in the mount's schema`
+- `cronPassFailures > fails with the reason instead of running nothing`
+
+Every one of them is a fail-closed guard. **The direction of the leak is the argument, not the
+count.** Forty-four red tests would be a morning's work to chase; the reason not to is that the same
+mechanism can make one of these guards PASS when it should fail, and nothing in a green run would
+say so. This log is a list of defects that were invisible until someone looked — a test suite whose
+security guards depend on file ordering is the same bug one level up.
+
+**Not adopted, and the item closes.** The 20 s timeout stays tight, `maxForks` stays at half the
+cores, and the residual flake stays at roughly one timeout in four full runs, which is visible,
+re-runnable and honest. If the suite's import cost is worth attacking later, the option that does
+not trade correctness is structural — the three heavy files (`catalogGzipDataset` 48 s,
+`etlSqlStep` 42 s, `etlEmptyTick` 41 s) in their own vitest project with `singleFork`, so they stop
+holding a worker each while the rest queues. That is a bigger change than this round wanted, and it
+is worth doing only if someone can show the import cost actually hurts.
+
 ### 2026-10-03 — R239: the last two copies of the access rule, and an empty table that meant nothing of the kind
 
 **Severity: low for exposure, moderate for truthfulness.** R235 fixed the two copies of the
