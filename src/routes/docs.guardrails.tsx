@@ -79,6 +79,14 @@ function GuardrailsPage() {
         public embed needs a deliberate pass through this tab.
       </Callout>
 
+      <Callout kind="why" title="Or the turn does not run">
+        Your guardrails live on the agent row, which the server reads on every message. If that read
+        fails, or the agent has been deleted, the message is refused — 503 or 404, with the reason —
+        rather than answered by a model with no filters in front of it. An agent you deleted stops
+        answering, which is what the delete dialog promises; it does not quietly carry on as a
+        generic assistant.
+      </Callout>
+
       {/* ── FIELD REFERENCE ── */}
       <H2 id="reference">Complete field reference</H2>
 

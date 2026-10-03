@@ -375,10 +375,13 @@ least twice, not a hypothetical.
    - **R228: a merge that lost its key emptied the table.** Fixed for the sandbox engine by the
      gateway; the Spark engine's lakehouse target still runs the bare DELETE until it moves.
    - **Next, from the triage, in order of consequence (each to be read and proved before fixing):**
-     - **Agent chat** (`routes/api/chat.ts` ~1218): a failed read of the agent enables every
-       tool, drops the MCP, SQL and model allow-lists, and turns guardrails to their defaults
-       (off). The swarm embed (`embed.chat.ts` ~205) loses a linked agent's guardrails the same
-       way.
+     - **R234: agent chat and the swarm embed.** Both fixed. A turn that names an agent now
+       runs with that agent's configuration or does not run: 503 `agent_unreadable` when the row
+       could not be read, 404 `agent_not_found` when it is not there — which is also what the
+       delete dialog has always promised. `embed.chat.ts`'s three reads keep their errors; two of
+       them had been answering a failed read with "no longer exists". Proved in the UI with a
+       blocked-pattern guardrail before and after. The gate is
+       `src/utils/agents/agentConfigGate.ts`.
      - **Grant filters on a failed group read:** BI direct query (`routes/api/bi.direct-query.ts`
        ~142) and the semantic layer's share policy (`semantic/policy.server.ts` ~65).
      - **Superadmin protection:** SCIM `assertNotProtected` (`scim.server.ts` ~336) and Admin →

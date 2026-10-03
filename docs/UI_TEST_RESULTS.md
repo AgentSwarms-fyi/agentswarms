@@ -15,6 +15,38 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-03 — R234: an agent's guardrails, before and after its row goes missing
+
+**The fixture.** A real agent, **R234 guardrail probe**, created through Agent Builder → Guardrails
+with *Enable Input Filtering* on, *Max Input Length* 80 and *Blocked Input Patterns* set to the one
+line `r234-forbidden-token`. The card showed the **Guarded** badge. Nothing else was configured —
+no tools, no knowledge base — so the only thing distinguishing it from a bare playground turn was
+the guardrail. It was created, driven and deleted twice: once against the pre-fix bundle and once
+against the fixed one, because the proof is a difference between two runs of the same steps.
+
+Both runs used `agentswarms-share-agentswarms-1` with the round's `dist` swapped in and restarted,
+driven through **Agent Chat** (`/playground?agentId=…`) with the Developer Inspector open, so every
+line below is the panel's own record of the request and the response.
+
+| Step | Pre-fix bundle | Fixed bundle |
+| --- | --- | --- |
+| Send `r234-forbidden-token` while the agent exists | **422** · "Input was blocked by a prompt-injection guardrail. Rephrase and try again." | **422**, identical — the normal path is untouched |
+| Delete the agent in a second tab | the dialog promises "Sites embedding this agent and **API calls that reference it will stop working**" | same dialog |
+| Send the **same message** from the chat page, which still holds the agent's id | **200**, 3978 ms, and the model answered — the guardrail was simply gone | **refused**, 522 ms |
+| What came back on the wire | a completion | `{"error": "agent_not_found", "message": "That agent could not be found for your account — it may have been deleted. Its guardrails and tool permissions went with it, so the message was not sent."}` |
+
+The 200 is the whole finding: same `agentId` in the request body both times, and the only
+difference is that the row behind it could no longer be read.
+
+**What this run does not show.** The tool half of the same defect — an agent's allow-lists
+replaced by the registry's default set — is covered by the gate's unit tests and by reading
+`enabledToolsFromToggles`, not by this run. The inspector's Tools tab stayed on "No tool calls
+yet" throughout, so no claim is made about it here; the model's phrase "in the available
+documents" in the pre-fix answer is its own wording, not evidence of a tool call.
+
+No fixture is left behind: the probe agent was deleted as the last step of each run, which is the
+step under test.
+
 ## 2026-10-03 — R233: a paused bar race, before and after the fix
 
 **Why this round has two runs.** The symptom is a chart that resets, which a screenshot of the

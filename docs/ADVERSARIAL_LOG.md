@@ -109,6 +109,55 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-03 — R234: a chat turn ran without the guardrails its agent was carrying
+
+**Severity: high.** `/api/chat` loads the agent row for the trace label, the built-in tool
+toggles, the per-tool allow-lists (MCP servers, SQL tables, ML models, n8n workflows) **and the
+guardrails**. It read that row with `const { data: a } = await …`, dropping the error, under a
+comment saying the trace label is non-critical.
+
+That comment was true once. It stopped being true when the allow-lists and the guardrails moved
+onto the same read, and the handling never followed — the classic shape this sweep is looking for:
+not a wrong calculation, a sentence that outlived its data. A read that failed left every default
+standing, and both defaults are the permissive end:
+
+- `enabledToolsFromToggles({})` returns `undefined`, which its own doc comment says callers treat
+  as "the registry's default set" — so an agent restricted to two tools got the lot.
+- `parseGuardrails(undefined)` returns `DEFAULT_GUARDRAILS`, where input filtering, output
+  filtering, PII, profanity, content safety, citation checking and the hallucination heuristic are
+  **all off** and every pattern list is empty.
+
+The turn then ran and looked entirely normal. Nothing in the UI, the trace or the logs said the
+agent had been reduced to an unguarded assistant.
+
+**Proved in the UI.** A real agent, `R234 guardrail probe`, with input filtering on and the
+pattern `r234-forbidden-token` blocked. Sending that phrase returned **422, "Input was blocked by
+a prompt-injection guardrail."** The agent was then deleted in a second tab and the identical
+message sent again from the chat page that still held its id: **200, and the model answered.** The
+delete dialog's own words are "Sites embedding this agent and API calls that reference it will
+stop working" — they did not stop; they carried on without the guardrails the agent was deleted
+with. Both runs are in `docs/UI_TEST_RESULTS.md`.
+
+**Fixed** by making the configuration something a turn either has or refuses on. The decision is
+`agentConfigRefusal` in `src/utils/agents/agentConfigGate.ts`, deliberately outside a 2,000-line
+route handler, because that is where this kind of thing goes back to sleep. A failed read, a
+client that could not be built and a read that threw all answer **503 `agent_unreadable`**; a row
+that is simply not there answers **404 `agent_not_found`**, which is a different sentence and
+makes the delete dialog's promise true. After the fix the same deleted-agent request returns
+`{"error":"agent_not_found", …}` on the wire, and a live agent's guardrail still fires.
+
+Two things worth keeping in mind for the next one of these. `failedRead` normalises a thrown cause
+with `||` and not `??`: a client that throws `""` or `0` would otherwise produce a read whose
+error is falsy, which is this very defect in miniature, and a mutant proved the test caught it.
+And the same file's sibling, `embed.chat.ts`, had three reads of the same shape — the embed's own
+agent, its swarm, and a node's linked agent. The first two already refused, but with the sentence
+"The embedded agent no longer exists", which a failed read cannot support and which an owner would
+act on by rebuilding something that was never gone; those now answer 503 with a message that says
+what actually happened. The third failed open exactly like the chat route, silently dropping the
+knowledge base the embed is meant to cite along with the guardrails its publisher set.
+
+Eleven mutants, eleven caught, control survived.
+
 ### 2026-10-03 — R233: a bar race restarted, and un-paused itself, on any dashboard re-render
 
 **Severity: moderate.** `BarRace` (`src/components/bi/BiChartParts.tsx`) built its frames in a

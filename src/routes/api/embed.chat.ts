@@ -29,6 +29,7 @@ import {
   type Citation,
 } from "@/utils/tools/kb.server";
 import { generateEmbedWidget } from "@/utils/embedBi.server";
+import { EMBED_CONFIG_UNREADABLE } from "@/utils/agents/agentConfigGate";
 import {
   applyOutputGuardrails,
   evaluateInputGuardrails,
@@ -120,13 +121,18 @@ async function resolveConfig(
   nodeId: string | undefined,
 ): Promise<{ ok: true; cfg: ResolvedConfig } | { ok: false; status: number; error: string }> {
   if (keyRow.resource_type === "agent") {
-    const { data: agent } = await supabaseAdmin
+    const { data: agent, error: agentErr } = await supabaseAdmin
       .from("agents")
       .select(
         "id, user_id, name, system_prompt, llm_provider, llm_model, temperature, max_tokens, knowledge_base_id, tools",
       )
       .eq("id", keyRow.resource_id)
       .maybeSingle();
+    // R234: a dropped error made this say the agent "no longer exists" when
+    // the truth was that it could not be asked — a sentence the read does not
+    // support, and the one thing an embed's owner would act on by rebuilding
+    // something that was never gone.
+    if (agentErr) return { ok: false, status: 503, error: EMBED_CONFIG_UNREADABLE };
     if (!agent || agent.user_id !== keyRow.user_id) {
       return { ok: false, status: 404, error: "The embedded agent no longer exists." };
     }
@@ -165,11 +171,12 @@ async function resolveConfig(
 
   // swarm node
   if (!nodeId) return { ok: false, status: 400, error: "nodeId is required for swarm embeds." };
-  const { data: swarm } = await supabaseAdmin
+  const { data: swarm, error: swarmErr } = await supabaseAdmin
     .from("swarms")
     .select("id, user_id, name, nodes")
     .eq("id", keyRow.resource_id)
     .maybeSingle();
+  if (swarmErr) return { ok: false, status: 503, error: EMBED_CONFIG_UNREADABLE };
   if (!swarm || swarm.user_id !== keyRow.user_id) {
     return { ok: false, status: 404, error: "The embedded swarm no longer exists." };
   }
@@ -202,11 +209,17 @@ async function resolveConfig(
   let agentGuardrailsRaw: unknown;
   let agentReranker: { provider?: string; model?: string } | undefined;
   if (d.agentId) {
-    const { data: linked } = await supabaseAdmin
+    const { data: linked, error: linkedErr } = await supabaseAdmin
       .from("agents")
       .select("user_id, knowledge_base_id, tools")
       .eq("id", d.agentId)
       .maybeSingle();
+    // R234: this one failed OPEN. The node inherits its knowledge base and its
+    // guardrails baseline from the linked agent, so a failed read answered the
+    // public without the grounding it is meant to cite and without the filters
+    // its publisher set — and said nothing. A row that is genuinely absent, or
+    // owned by someone else, is still a real answer and still skipped below.
+    if (linkedErr) return { ok: false, status: 503, error: EMBED_CONFIG_UNREADABLE };
     if (linked && linked.user_id === keyRow.user_id) {
       agentKbId = linked.knowledge_base_id;
       const t = (linked.tools ?? {}) as {
