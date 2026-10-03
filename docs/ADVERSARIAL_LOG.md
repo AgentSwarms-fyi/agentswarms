@@ -109,6 +109,25 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-03 — Smoke of the real image after R225 to R230
+
+No new defect. Image `4c02cc12cc32` was built from `be1407c7` with `docker compose build
+agentswarms` and started with `docker compose up -d agentswarms`, and the six rounds since the
+last image build were driven on it: R225's node guard refuses an unshared schema by name, R226's
+table-function refusal holds for a write, R227's sandbox reports no lake-related variables at
+all, R230's Spark sandbox reports a scoped session credential and no catalog, the loaded table
+matches its source exactly, and an Iceberg publish lands 4 records the catalog's own metadata
+confirms. The app logged no errors or warnings throughout. Full table in
+`docs/UI_TEST_RESULTS.md`.
+
+Two things this confirmed that earlier rounds had left open:
+- the **session sweep** really does take a dead session's staging. R230 noted leftovers and
+  reasoned they were the sweep's business; the bucket now holds one prefix with one `_SUCCESS`
+  marker, the older ones having been swept, including the failed run's parts.
+- the **runtime image** did not need rebuilding, checked rather than assumed: nothing under
+  `docker/notebook-runtime` has changed since the last image build, and the generated program is
+  served by the app, so an app-only build is the whole change.
+
 ### 2026-10-03 — The Spark cluster's credentials, scoped to one run
 
 Tests: `tests/unit/stsScopedCredentials.test.ts` (7: the policy's prefixes, actions and bounded

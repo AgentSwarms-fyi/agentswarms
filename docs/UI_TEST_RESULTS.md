@@ -15,6 +15,36 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-03 — Smoke of the real image after R225 to R230
+
+**Why this round exists.** Every two or three rounds the committed state is built as a real image
+and driven on it, because a hot deploy swaps `dist` into a container that was built from older
+source and can hide a packaging problem. Six rounds had gone by since the last one.
+
+Image `4c02cc12cc32`, built with `docker compose build agentswarms` from `be1407c7` and started
+with `docker compose up -d agentswarms` — not the dev-loop `dist` swap. The runtime image was not
+rebuilt and did not need to be: nothing under `docker/notebook-runtime` changed since the last
+build (checked with `git diff`, not assumed). Before driving anything, the running container was
+checked for the three rounds' code: `fs.s3a.impl.disable.cache`, `lake_commit` and
+`assumeScopedCredentials` are all in its `/app/dist`.
+
+Fixtures kept: `r227_gateway`, `analytics.r227_out`, and the published
+`r181.smoke_4c02cc12cc32`.
+
+| What was driven | What came back |
+| --- | --- |
+| Health after `up -d` | healthy on the first poll |
+| **R226** Lakehouse → `CREATE TABLE analytics.r230_smoke AS SELECT filename FROM read_text('/etc/hostname')` | **"read_text() is not available here — query lakehouse tables, or use a lake view for raw files"**; no table created |
+| **Iceberg publish** `analytics.fct_region_revenue` → `local_rest`, `r181`, `smoke_4c02cc12cc32` | published; the catalog's own metadata reports columns `region, orders, revenue` and one append snapshot with **4 records in 1 file**, matching the source |
+| **R230** `r227_gateway` on the **Spark engine** → Run now | Succeeded, 1 m 6 s, 108 rows → 1 target |
+| **R230** its probe node, from inside the sandbox | `ETL_LAKEHOUSE_S3_ENDPOINT, _KEY_ID, _SECRET, _SESSION_TOKEN, _URL_STYLE, _USE_SSL, STAGE_URL` — a scoped session credential, **no `ETL_LAKEHOUSE_CATALOG`**; undeclared read, stage and commit each refused by name |
+| **R227** the same pipeline on the **sandbox engine** → Run now | Succeeded, 9 s, 108 rows; its probe reported **"lake-related env names: none"** |
+| The data, after both | `r227_out` 108 rows, 0 extra, 0 missing against `bi_demo_sales` |
+| **R225** source set to SQL query, `SELECT * FROM nobody_shared_this.secrets` → Run now | refused before a run row existed: **"Node "Lakehouse table": No access to schema "nobody_shared_this" — it doesn't exist, or nobody shared it with you"** |
+| The fixture restored to Whole table / `bi_demo_sales` → Run now | Succeeded, 9 s, 108 rows |
+| The app's log, over the whole smoke | no errors and no warnings |
+| MinIO, the lake bucket | one staging prefix left, holding only Spark's own `_SUCCESS` marker: every load's Parquet was deleted, and the session sweep had taken the older prefixes, including the failed run's |
+
 ## 2026-10-03 — The Spark cluster's credentials, scoped to one run, ADVERSARIAL_LOG R230
 
 **Why this round exists.** The second half of the owner's scoped-credentials decision: a sandbox
