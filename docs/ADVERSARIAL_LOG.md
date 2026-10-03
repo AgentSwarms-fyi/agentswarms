@@ -109,6 +109,62 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-03 — R233: a bar race restarted, and un-paused itself, on any dashboard re-render
+
+**Severity: moderate.** `BarRace` (`src/components/bi/BiChartParts.tsx`) built its frames in a
+`useMemo` over the `rows` prop and reset its playback in an effect keyed on that frames array:
+
+```ts
+useEffect(() => {
+  setIdx(0);
+  setPlaying(true);
+}, [frames]);
+```
+
+A dashboard hands its widgets a new `rows` array on every render — changing a filter, a poll, a
+refresh after a write, a session refresh near expiry. Each one produced a new array, so the memo
+rebuilt, so the effect fired: the race jumped back to its first frame for no reason the viewer
+could see, and a race they had **paused** started playing again. The pause is the whole point of
+the control; a chart that overrides it is worse than one without it.
+
+The advance timer had the same key, which is a second symptom with a different shape: its deps
+were `[playing, idx, frames, frameMs]`, so each re-render cleared the pending timeout and started
+a new one. A dashboard re-rendering faster than `frameMs` (1100 ms by default) left the race
+frozen on its first frame while the button said it was playing.
+
+The fix states what the position actually means. `idx` is an index into the frame list, so it
+stays valid exactly as long as that list does — not as long as the array object does. Playback
+moved to `useRacePlayback` (`src/lib/racePlayback.ts`), keyed on the frames' own labels, and the
+timer keyed on the frame count. The same series arriving again changes nothing; a re-aggregation
+that rewrites the numbers under the same periods holds its place; a genuinely different series
+starts from the beginning, playing.
+
+Proved in the UI both ways, because "it stayed put" is only evidence if the same steps moved it
+before: the pre-fix bundle was built and deployed to the container first, and a race paused on 2014
+was **playing again, at 2017** after a plain dashboard Refresh. With the fix, the same Refresh took
+the widget's stamp from "5m ago" to "just now" — the rows did re-arrive — and left the race paused
+on the same frame. Table in `docs/UI_TEST_RESULTS.md`.
+
+This is the fourth of this family after R215, R218 and R219, and the first where the state reset
+was not a form: `tests/unit/useRacePlayback.test.ts` runs the hook under the same minimal React
+stand-in, extended with `useState`, `useMemo` and effect cleanups so a timer can be driven. Five
+mutants caught, control survived.
+
+### 2026-10-03 — R232: `lakehouseAttachFn` deleted
+
+Not a defect in behaviour, so no severity: the removal of a function that builds a DuckLake attach
+out of engine credentials. It was how a sandbox used to reach the lakehouse, and after R227 moved
+ETL to the gateway, R230 the Spark lakehouse target and R231 ML, nothing in `src` called it. Found
+by checking which of R231's code a real image carried — `_lakehouse_con` was absent from
+`/app/dist` entirely, because the bundler had already dropped it.
+
+The two tests that still named it called it themselves, which is why the suite never noticed: a
+test that invokes dead code keeps it alive and proves nothing about the product. One had no
+subject any more and went with it; the other now pins the **absence** across every generated
+program (ETL, Spark, ML, Spark query), so reaching for an attach again fails there rather than
+putting a credential back in a sandbox. The DuckDB extension bake stays, because a notebook may
+use `duckdb` with `httpfs` or `postgres` and that is the user's own code.
+
 ### 2026-10-03 — Smoke of the real image after R231
 
 No new defect in what was driven. Image `036a0cb5b128`, built from `c7b1405e` and started as a

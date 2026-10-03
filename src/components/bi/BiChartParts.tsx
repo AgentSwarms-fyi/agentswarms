@@ -1,7 +1,7 @@
 // Hand-rendered BI visuals that recharts has no primitive for: gauge,
 // heatmap, box-and-whisker plot, and the matrix (pivot) table. All pure
 // SVG/HTML on design tokens, so they follow light/dark themes.
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, Pause, Play } from "lucide-react";
 import {
   fmtBiNumber,
@@ -10,6 +10,7 @@ import {
   type BiFormatOptions,
 } from "@/components/bi/BiChartRender";
 import { condFill } from "@/lib/biChartMath";
+import { useRacePlayback } from "@/lib/racePlayback";
 import type { BiCondFormat, BiNumberFormat } from "@/lib/biAgent";
 
 // Categorical palette shared by the hand-rendered visuals below (kept local to
@@ -691,19 +692,7 @@ export function BarRace({
     }));
   }, [rows, xField, yField, timeField, topN]);
 
-  const [idx, setIdx] = useState(0);
-  const [playing, setPlaying] = useState(true);
-
-  useEffect(() => {
-    setIdx(0);
-    setPlaying(true);
-  }, [frames]);
-
-  useEffect(() => {
-    if (!playing || frames.length <= 1) return;
-    const t = setTimeout(() => setIdx((i) => (i + 1) % frames.length), frameMs);
-    return () => clearTimeout(t);
-  }, [playing, idx, frames, frameMs]);
+  const { idx, playing, setIdx, setPlaying } = useRacePlayback(frames, frameMs);
 
   if (frames.length === 0) return <NoNumericData />;
 

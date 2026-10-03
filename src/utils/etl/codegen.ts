@@ -1091,51 +1091,6 @@ export function lakeGatewayFn(): string {
   ].join("\n");
 }
 
-/**
- * The sandbox-side lakehouse attach, with engine credentials from env. ETL's
- * sandbox engine no longer uses it (lakeGatewayFn); the Spark engine's
- * lakehouse target and the ML programs still do, until they move to the
- * gateway too.
- */
-export function lakehouseAttachFn(): string {
-  return [
-    `def _lakehouse_con():`,
-    `    import duckdb`,
-    `    # Extensions. The runtime image ships them under /opt/agentswarms/`,
-    `    # duckdb-ext, read-only, so nothing is downloaded at run time and an`,
-    `    # air-gapped sandbox works; LOAD needs only to read them. An image built`,
-    `    # without them falls back to installing into ~/.local — the one path`,
-    `    # that is both writable and executable: HOME is read-only and /tmp is`,
-    `    # mounted noexec, so a .so there downloads fine but cannot be mapped.`,
-    `    _baked = '/opt/agentswarms/duckdb-ext'`,
-    `    if os.path.isdir(_baked):`,
-    `        con = duckdb.connect(config={'extension_directory': _baked})`,
-    `    else:`,
-    `        _ext = os.path.join(os.path.expanduser('~'), '.local', 'duckdb')`,
-    `        os.makedirs(_ext, exist_ok=True)`,
-    `        con = duckdb.connect(config={'home_directory': _ext, 'extension_directory': _ext})`,
-    `        con.execute("INSTALL ducklake; INSTALL postgres; INSTALL httpfs;")`,
-    `    con.execute("LOAD ducklake; LOAD postgres; LOAD httpfs;")`,
-    `    _ep = os.environ.get('ETL_LAKEHOUSE_S3_ENDPOINT')`,
-    `    _sec = ["TYPE s3", "KEY_ID '" + os.environ['ETL_LAKEHOUSE_S3_KEY_ID'] + "'",`,
-    `            "SECRET '" + os.environ['ETL_LAKEHOUSE_S3_SECRET'] + "'",`,
-    `            "URL_STYLE '" + os.environ.get('ETL_LAKEHOUSE_S3_URL_STYLE', 'path') + "'",`,
-    `            "USE_SSL " + os.environ.get('ETL_LAKEHOUSE_S3_USE_SSL', 'false')]`,
-    `    if _ep:`,
-    `        _sec.append("ENDPOINT '" + _ep + "'")`,
-    `    con.execute("CREATE OR REPLACE SECRET lh (" + ", ".join(_sec) + ")")`,
-    `    con.execute(`,
-    `        "ATTACH 'ducklake:postgres:" + os.environ['ETL_LAKEHOUSE_CATALOG'] +`,
-    `        "' AS lake (DATA_PATH '" + os.environ['ETL_LAKEHOUSE_DATA_URL'] + "')"`,
-    `    )`,
-    `    # Make 'lake' the current catalog so schema.table resolves the way it`,
-    `    # does everywhere else in the product.`,
-    `    con.execute("USE lake")`,
-    `    return con`,
-    ``,
-  ].join("\n");
-}
-
 /** The expression list for pandas named aggregation. */
 function aggArgs(aggs: { column: string; fn: AggFn; as: string }[]): string {
   return aggs

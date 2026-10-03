@@ -15,6 +15,36 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-03 — R233: a paused bar race, before and after the fix
+
+**Why this round has two runs.** The symptom is a chart that resets, which a screenshot of the
+fixed build cannot show on its own: "it stayed put" only means something if the same steps moved it
+before. So the pre-fix behaviour was built and deployed first, driven, and then the fix was put
+back and the identical steps repeated. Both runs used the same container
+(`agentswarms-share-agentswarms-1`, the round's `dist` swapped in and restarted), the same
+dashboard, the same widget and the same button.
+
+The widget had to be made first, because no sample dashboard carries a bar race. On
+**Global Electricity Transition · Sample** → Chart → **Bar race**, table `global_electricity`,
+`SELECT country, year, solar_twh FROM global_electricity WHERE year >= 2012 ORDER BY year,
+solar_twh DESC` (348 rows · 3 cols), racing category `country`, value `solar_twh`, time/frame
+`year`. Kept as the fixture, titled **Solar race (R233)**.
+
+| What was driven | Pre-fix bundle | Fixed bundle |
+| --- | --- | --- |
+| The race, drawn | playing | playing |
+| **Pause** | pauses; button flips to Play | pauses; button flips to Play |
+| Held for 7 s (six frames at 1100 ms) | — | still on 2014, not advancing |
+| The frame it was paused on | 2014 — World 197.74, Germany 35.45, US 28.92 | World 256.01, China 39.48, US 39.03, Germany 38.08 |
+| **Refresh** (the toolbar's, which re-runs every widget's query) | the widget's stamp refreshes **and the race is playing again** — button reads Pause, animating forward through **2017** | stamp goes **"5m ago" → "just now"**, so the rows really did arrive again, and the race is **unchanged**: button still reads Play, same bars, same frame |
+| Country filter → China, France, Germany (3 selected) | — | race unchanged; note this filter does not reach this widget's rows, which is why Refresh is the step that proves it |
+
+The stamp is what makes the second column evidence rather than an absence: `just now` is the widget
+saying it re-read its data, in the same render pass in which the race did not move.
+
+Console and network were clean across both runs. The dashboard is left as it was found — the
+country filter was not saved as a default and reset on reload — apart from the kept widget.
+
 ## 2026-10-03 — Smoke of the real image after R231
 
 **Why this round exists.** R231 moved ML off the lakehouse credentials, and a hot deploy swaps

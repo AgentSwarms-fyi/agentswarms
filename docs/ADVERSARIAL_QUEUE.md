@@ -323,10 +323,12 @@ least twice, not a hypothetical.
      picked. `tests/unit/userObjectKeySweep.test.ts` reviews the twelve other hooks keyed on it.
    - **R221: the catalog asset sheet.** AI docs replaced the asset object, and the sheet's
      `[asset]` effect refilled the owner and tags being edited.
+   - **R233: the bar-race chart.** The first of this family that was not a form. Playback
+     reset to frame 0 **and forced play** whenever `rows` was a new array, which a dashboard
+     makes on every render — so a paused race un-paused itself. The advance timer was keyed on
+     the same array, so a dashboard re-rendering faster than a frame froze the race while
+     claiming to play. Both now key on the frames themselves (`src/lib/racePlayback.ts`).
    - **Next, from the same survey:**
-     - The bar-race chart (`BiChartParts.tsx` `BarRace`): playback resets to frame 0 and plays
-       whenever `rows` is a new array, which an active dashboard filter makes on every
-       re-render, a session refresh included.
      - Data monitors (`data-monitors.tsx:624`): choosing "Pick a column…" snaps back to the first
        timestamp column. Minor.
 
@@ -364,11 +366,10 @@ least twice, not a hypothetical.
    - **R229: the shared Spark cluster reused the first caller's storage credentials.** Fixed;
      restart Spark Connect after upgrading. The Spark lakehouse target and Spark lakehouse
      queries still pass the lake's own keys (to the cluster, per call) until they get scoped ones.
-   - **Dead code to delete: `lakehouseAttachFn`** (`src/utils/etl/codegen.ts`). Nothing in `src`
-     has called it since R230 and R231 moved the Spark lakehouse target and ML to the gateway —
-     the bundler drops it from `dist`, and only `etlPipelines` and `duckdbExtensions` still name
-     it. It builds a DuckLake attach from engine credentials, so it should go rather than wait to
-     be re-used by accident.
+   - **R232: `lakehouseAttachFn` deleted.** Dead since R230 and R231 moved the Spark lakehouse
+     target and ML to the gateway — the bundler had already dropped it from `dist`, and the only
+     two references left were tests that called it themselves. `duckdbExtensions` now pins the
+     absence of an attach across every generated program instead.
    - **Minor, seen on the ETL list:** a pipeline whose only runs were cancelled reads "last run: —
      never ran".
    - **R228: a merge that lost its key emptied the table.** Fixed for the sandbox engine by the
