@@ -1098,7 +1098,7 @@ export const SWARM_TEMPLATES: SwarmTemplate[] = [
           label: "Geo / ASN enrich",
           avatar: "🌍",
           httpMethod: "GET",
-          httpUrl: "https://ip-api.com/json/{{alert.src_ip}}",
+          httpUrl: "http://ip-api.com/json/{{alert.src_ip}}",
           httpTimeoutMs: 8000,
           inputs: ["alert"],
           outputVar: "geo",
