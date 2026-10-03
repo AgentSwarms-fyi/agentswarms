@@ -1305,6 +1305,11 @@ over the lakehouse). Open from that round, the rest of Row Zero's connected tabl
 - An optimistic switch is a promise about the database (R70): a control
   that flips before the write lands must flip back when it does not, and
   say what the stored state will do — an alert still on will still fire.
+  **R244 adds the half that was unwritten: it must not flip before the
+  reader has AGREED either.** R242's own confirmation landed below the
+  bell's optimistic clear, so Cancel left the panel empty over thirty rows
+  still in the database. `tests/unit/askBeforeOptimism.test.ts` holds the
+  order for every handler that both asks and updates a list.
   **R242 walked the remaining files and the list was stale**: the bell,
   evaluations' two deletes, and Agent Chat's conversation and message
   deletes and updates were all already handled (R71, R72), each checking

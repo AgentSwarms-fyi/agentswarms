@@ -109,6 +109,47 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-04 — R244: the question came one line too late, in R242's own fix
+
+**Severity: moderate. Introduced by the previous round, and found by smoking the image it shipped
+in.** R242 gave the notification bell's "Clear all" a confirmation. The handler already updated the
+screen first and restored on failure, so the question landed below the optimism:
+
+```ts
+const before = items;
+setItems([]);                              // the panel empties here
+if (!(await confirmAsk({…}))) return;      // …and the question comes after
+```
+
+Cancel therefore returned without restoring. Driving the real image: the panel showed **"No
+notifications"** and the bell's badge went blank, while a reload brought back **"(30 unread)"**.
+Nothing was deleted — the data was never at risk — the screen simply said something that was not
+true, which is exactly R70's rule ("an optimistic switch is a promise about the database") broken by
+the fix for it.
+
+**9,209 tests passed over that change.** Every one of them asks WHETHER a control confirms; none
+asked WHEN. `tests/unit/askBeforeOptimism.test.ts` asks when, over the four handlers that both ask
+and update a list, and the mutant that puts the question back below the flip is caught.
+
+Two things about that test are worth keeping:
+
+- Its first version was **defeated by this very fix's comment**. The comment explaining the bug
+  quotes `setItems([])`, the search found that line, and the test reported the flip as happening
+  before the question written above it. It strips comments now: a test about order must read code,
+  not prose about code. A mutant removing the stripper is caught.
+- It pins the other half of R70 at the same time — the restore on failure, and the sentence saying
+  the rows are still there — because a guard that only checks the new half invites the old one to
+  rot.
+
+**The wider point.** R242 widened a sweep that enforced "every delete asks", and the widening was
+right. But the rule it enforces is only half of one: a delete must ask, *and* nothing may be shown
+as done before the reader has agreed. The sweep had no opinion about order, so a conforming fix
+could introduce this. Six mutants, five caught, control survived.
+
+This is the second time in two days that the image smoke caught something a green gate did not —
+R232 found dead code the bundler had already dropped. A gate reads the source; an image is what
+someone actually opens.
+
 ### 2026-10-04 — R243: opening a sample twice, and a test that passed by being broken
 
 **Severity: low.** From the Sheets round's own leftovers: "Opening a sample twice makes two

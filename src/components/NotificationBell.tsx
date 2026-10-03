@@ -96,11 +96,12 @@ export function NotificationBell() {
   }
 
   async function clearAll() {
-    const before = items;
-    setItems([]);
-    // R242: the one exemption in the widened sweep that rested on "it is only
-    // notices" rather than on structure. Asking is a cheaper answer than
-    // arguing, and it leaves every remaining exemption a structural one.
+    // R242 added the question. R244 moved it ABOVE the optimistic clear, where
+    // it belongs: asking after `setItems([])` meant Cancel returned without
+    // restoring, so the panel sat empty — "No notifications" — over thirty
+    // that were still in the database, until a reload. Nothing may be shown as
+    // done before the reader has agreed to it. Found by driving the real image
+    // after a green gate: no test asserted the ORDER of the two.
     if (
       !(await confirmAsk({
         title: "Clear all notifications?",
@@ -109,6 +110,8 @@ export function NotificationBell() {
       }))
     )
       return;
+    const before = items;
+    setItems([]);
     const { error } = await supabase.from("notifications").delete().not("id", "is", null);
     if (error) {
       setItems(before);
