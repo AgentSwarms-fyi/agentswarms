@@ -15,6 +15,33 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-03 — Smoke of the real image after R232, R233 and R234
+
+**Why this round exists.** The three rounds since the last image were proved against a `dist`
+hot-swapped into a running container. This is the committed state built as an image
+(`docker compose build agentswarms` from `c6592999`, started with `docker compose up -d`), so the
+proofs stand on what ships rather than on what was copied in. Nothing under `docker/` or
+`services/` has changed since the previous image, so the notebook runtime image is still current —
+checked rather than assumed, because rebuilding only the app leaves that half stale and silent.
+
+Image `d39419dc1c93`, healthy. The image's own `dist` was checked for the round's code before
+anything was driven: `agent_not_found` and `agent_unreadable` present, `lake_commit` present, and
+**`_lakehouse_con` absent entirely** — R232's deletion, visible in the artefact that ships.
+
+| What was driven | What came back |
+| --- | --- |
+| Health after `up -d` | healthy |
+| **R233** Pause the bar race, then the dashboard's Refresh | stamp moved **"1h ago" → "just now"**, so the query re-ran; the race stayed paused on the same frame, same bars (World 197.74, Germany 35.45) |
+| **R234** `R234 image smoke probe`, input filtering on, pattern `r234-forbidden-token`; send that phrase | **422** "Input was blocked by a prompt-injection guardrail" |
+| **R234** delete that agent, send the identical message from the chat page still holding its id | **refused**: `agent_not_found`, "That agent could not be found for your account — it may have been deleted. Its guardrails and tool permissions went with it, so the message was not sent." |
+| **Iceberg publish** `analytics.fct_region_revenue` → `local_rest`, namespace `r181`, table `smoke_d39419dc1c93` | "Published 4 row(s)"; the catalog's **own metadata** then read columns `region, orders, revenue`, one `append` snapshot, **4 records in 1 file** |
+| **R227** `r227_gateway` on the sandbox engine → Run now | Succeeded, 41 s, 108 rows → 1 target |
+| The app's log over the whole smoke | one `status":"error"` line, which is the guardrail refusal itself (2 ms, 0 output tokens); no unexpected errors or warnings |
+| MinIO, the lake bucket | **0** objects under any `_sandbox_staging` prefix |
+
+The probe agent was deleted as the last step, which is the step under test. The published Iceberg
+table `r181.smoke_d39419dc1c93` and the dashboard widget `Solar race (R233)` are kept.
+
 ## 2026-10-03 — R234: an agent's guardrails, before and after its row goes missing
 
 **The fixture.** A real agent, **R234 guardrail probe**, created through Agent Builder → Guardrails

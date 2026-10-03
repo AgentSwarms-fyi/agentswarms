@@ -109,6 +109,20 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-03 — Smoke of the real image after R232, R233 and R234
+
+No new defect in what was driven. Image `d39419dc1c93`, built from `c6592999` and started as a real
+container: a paused bar race survived a dashboard Refresh that demonstrably re-ran the query (the
+widget's stamp went "1h ago" → "just now"); a guarded agent refused its blocked pattern with 422
+and, once deleted, the identical request was refused with `agent_not_found` instead of being
+answered; an Iceberg publish landed 4 records in 1 file, confirmed against the catalog's own
+metadata rather than the toast; and an ETL run through the sandbox gateway loaded its 108 rows in
+41 s. The app's log carried one error line, which is the guardrail refusal itself. No staging was
+left in the bucket. Full table in `docs/UI_TEST_RESULTS.md`.
+
+Worth recording for the next image check: `_lakehouse_con` is absent from the shipped `dist`
+entirely, which is R232 visible in the artefact rather than in a test.
+
 ### 2026-10-03 — R234: a chat turn ran without the guardrails its agent was carrying
 
 **Severity: high.** `/api/chat` loads the agent row for the trace label, the built-in tool
