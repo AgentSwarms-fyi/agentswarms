@@ -6,8 +6,8 @@
 // direct-query route uses. The pure merge/enforce logic lives in
 // lib/semanticPolicy; this file only fetches.
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { readApplicableGrants } from "@/utils/iam.server";
 import {
-  applicableGrants,
   AttributeRefusalError,
   attributeKeysInGrants,
   policyFromGrants,
@@ -62,30 +62,23 @@ export async function semanticPoliciesFor(
   const out = new Map<string, SemanticAccessPolicy>();
   if (modelIds.length === 0) return out;
 
-  const { data: gm } = await supabaseAdmin
-    .from("iam_group_members")
-    .select("group_id")
-    .eq("user_id", userId);
-  const groupIds = (gm ?? []).map((g) => g.group_id as string);
-
-  const { data: grants, error } = await supabaseAdmin
-    .from("iam_resource_grants")
-    .select("resource_id, principal_type, principal_id, row_filter, column_mask")
-    .eq("resource_type", "semantic_model")
-    .in("resource_id", modelIds);
-  if (error) {
-    // FAIL CLOSED: if the grants cannot be read, a shared model must not run
-    // unrestricted. Callers treat a thrown error as "refuse the query".
-    throw new Error(`Could not load access grants: ${error.message}`);
-  }
+  // FAIL CLOSED, on BOTH reads. The grants read was already guarded here; the
+  // membership read beside it was not, and it carries exactly as much. A
+  // restriction granted to a GROUP applies only when the membership list can
+  // be read, and when it could not, this returned no applicable grant for the
+  // model — which the contract above reads as "no share-level restriction
+  // exists". The viewer kept the access and lost its limits. R235.
+  const mine = await readApplicableGrants(supabaseAdmin, userId, "semantic_model", modelIds);
 
   // Attribute tokens resolve per grant BEFORE the merge — one attributes
   // fetch covers every model in the batch.
-  type FetchedGrant = NonNullable<typeof grants>[number];
+  type FetchedGrant = (typeof mine)[number];
   const allMine = new Map<string, FetchedGrant[]>();
   for (const id of new Set(modelIds)) {
-    const forModel = (grants ?? []).filter((g) => g.resource_id === id);
-    allMine.set(id, applicableGrants(forModel, userId, groupIds));
+    allMine.set(
+      id,
+      mine.filter((g) => g.resource_id === id),
+    );
   }
   const keys = attributeKeysInGrants([...allMine.values()].flat());
   const attrs = await attributesFor(userId, keys);

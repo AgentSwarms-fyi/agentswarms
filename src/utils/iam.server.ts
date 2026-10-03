@@ -226,6 +226,57 @@ export async function modelAccessRefusal(
 }
 import { collapseModelPolicy, isModelAllowed as isModelAllowedShared } from "@/lib/iamRules";
 
+/**
+ * The grants on `resourceIds` that apply to `userId`, directly or through a
+ * group — with BOTH reads checked.
+ *
+ * FOUND IN R235. Four surfaces did these two reads privately and dropped the
+ * errors, and the file that enforces them says why that matters: "Four private
+ * copies of one access rule is what let the snapshot path fail open for
+ * months." Two of the four still failed open. A grants read that failed left
+ * no grants, and no grants means no row filter and no column mask — so BI
+ * direct query ran a grantee's live warehouse query with neither, and the
+ * semantic layer treated a model shared under a restriction as one carrying
+ * none. The groups read matters just as much on its own: a restriction granted
+ * to a group disappears the moment the membership list cannot be read, and the
+ * viewer keeps the access while losing its limits.
+ *
+ * Access and restriction fail closed together or not at all. Callers answer a
+ * throw with a refusal; none of them may read it as "unrestricted".
+ */
+export async function readApplicableGrants(
+  sb: SupabaseClient<Database>,
+  userId: string,
+  resourceType: "bi_dashboard" | "semantic_model" | "data_table",
+  resourceIds: string[],
+): Promise<
+  {
+    resource_id: string;
+    principal_type: string;
+    principal_id: string;
+    row_filter: Database["public"]["Tables"]["iam_resource_grants"]["Row"]["row_filter"];
+    column_mask: unknown;
+  }[]
+> {
+  if (resourceIds.length === 0) return [];
+  const [membershipsRes, grantsRes] = await Promise.all([
+    sb.from("iam_group_members").select("group_id").eq("user_id", userId),
+    sb
+      .from("iam_resource_grants")
+      .select("resource_id, principal_type, principal_id, row_filter, column_mask")
+      .eq("resource_type", resourceType)
+      .in("resource_id", resourceIds),
+  ]);
+  const failed = membershipsRes.error ?? grantsRes.error;
+  if (failed) throw new Error(`could not read access grants: ${failed.message}`);
+  const groupIds = new Set((membershipsRes.data ?? []).map((m) => m.group_id));
+  return (grantsRes.data ?? []).filter(
+    (g) =>
+      (g.principal_type === "user" && g.principal_id === userId) ||
+      (g.principal_type === "group" && groupIds.has(g.principal_id)),
+  );
+}
+
 // Resource ids of `resourceType` the user may read via an IAM grant — directly
 // or through any group they belong to. Mirrors the `has_resource_access` RLS
 // helper, computed explicitly for headless paths where RLS is bypassed (the

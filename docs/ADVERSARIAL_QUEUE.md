@@ -370,6 +370,16 @@ least twice, not a hypothetical.
      target and ML to the gateway — the bundler had already dropped it from `dist`, and the only
      two references left were tests that called it themselves. `duckdbExtensions` now pins the
      absence of an attach across every generated program instead.
+   - **The gate itself is flaky, and the gate is the instrument.** `tests/unit/aiAnalyst.test.ts`
+     ("produces a real multi-page PDF") and `tests/unit/sheetsSamples.test.ts` ("Sales performance
+     2026") fail roughly every other full `npm run check` with **"Test timed out in 20000ms"** —
+     a timeout, never an assertion — and pass together in about 6 seconds when run alone. It cost
+     three gate re-runs on 2026-10-03 alone. Every round in this log depends on reading a green
+     gate from the shell, so an instrument that is wrong half the time is a defect in the method,
+     not an annoyance: the real risk is the day someone reruns a genuine failure until it passes.
+     Both are heavy builders (pdf-lib, a whole sample workbook) competing for the pool. Worth
+     measuring before fixing: whether it is the pool size, those two files' own setup cost, or
+     another file's work landing on the same worker.
    - **Minor, seen on the ETL list:** a pipeline whose only runs were cancelled reads "last run: —
      never ran".
    - **R228: a merge that lost its key emptied the table.** Fixed for the sandbox engine by the
@@ -382,8 +392,17 @@ least twice, not a hypothetical.
        them had been answering a failed read with "no longer exists". Proved in the UI with a
        blocked-pattern guardrail before and after. The gate is
        `src/utils/agents/agentConfigGate.ts`.
-     - **Grant filters on a failed group read:** BI direct query (`routes/api/bi.direct-query.ts`
-       ~142) and the semantic layer's share policy (`semantic/policy.server.ts` ~65).
+     - **R235: grant filters on a failed group read.** Both fixed. BI direct query dropped both
+       reads and ran a grantee's live warehouse query with no row filter and no column mask; the
+       semantic layer had guarded its grants read but not the membership read beside it, so a
+       restriction granted to a GROUP vanished. Both now go through `readApplicableGrants`
+       (`utils/iam.server.ts`), which throws if either read fails. The grantee-side UI proof waits
+       on a second account, as R225's does.
+     - **The same two reads, failing CLOSED, in two more places:** `bi.functions` answers "This
+       dashboard is not shared with you" and `sharedDatasets.server` answers an empty dataset when
+       the membership read fails. Nothing is exposed, so this is a message problem, not a hole —
+       but "not shared with you" is a sentence a failed read cannot support. Move both onto
+       `readApplicableGrants` so all four copies are one.
      - **Superadmin protection:** SCIM `assertNotProtected` (`scim.server.ts` ~336) and Admin →
        IAM ban and delete (`iam.functions.ts` ~241, ~272) skip "demote first" on a failed role
        read.

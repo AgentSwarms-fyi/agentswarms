@@ -109,6 +109,51 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-03 — R235: a grantee kept the access and lost the restrictions
+
+**Severity: high.** Enforcing a share takes two reads — the viewer's group memberships, and the
+grants on the resource. Four surfaces did those two reads privately, and the enforcement file says
+what that habit costs, in a comment written after an earlier incident: *"Four private copies of one
+access rule is what let the snapshot path fail open for months."* R53 guarded the two copies in
+`iam.server`. Two of the others were still open.
+
+**BI direct query** (`routes/api/bi.direct-query.ts`) dropped both errors. An empty grant list is
+not a refusal there: `mergeGrantRowFilters([])` returns `null` and `intersectColumnMasks([])`
+returns `[]`, so the viewer's **live warehouse query** ran with no row filter and no column mask —
+every row and every column the owner can see. The access check above it is an RPC whose failure
+reads as `null`, so access itself fails closed; the viewer was legitimately through the door, and
+only the limits that make that access safe disappeared.
+
+**The semantic layer** (`utils/semantic/policy.server.ts`) had already guarded its grants read, with
+a comment saying exactly why. The membership read beside it was not guarded, and it carries just as
+much: a restriction granted to a GROUP yields no applicable grant when the membership list cannot
+be read, and this function's own contract reads "no applicable grant" as "no share-level
+restriction exists".
+
+The other two copies were checked rather than assumed. `bi.functions` guards its grants read and
+answers "This dashboard is not shared with you" when the list is empty, and `sharedDatasets` returns
+an empty dataset: both fail CLOSED, so neither exposes anything. They are on the queue for their
+message — a failed read answered as "not shared with you" is the milder half of this class — not
+for a hole.
+
+**Fixed** by giving the two reads one guarded home, `readApplicableGrants` in `utils/iam.server.ts`,
+beside `resolveGrantedResourceIds`, which has done it correctly since R53. Either read failing
+throws; BI direct query answers **503** and does not run the query; the semantic layer lets the
+throw reach the caller, which already treats it as "refuse". Access and restriction now fail closed
+together or not at all.
+
+Seven mutants, seven caught, control survived. One is worth recording: a mutant that set the grants
+to `[]` in the catch and left an unreachable `return json(503)` further down **survived** the first
+version of the test, which asserted that a 503 appeared somewhere nearby. The assertion now pins the
+catch block itself — that the refusal is its first act, and that nothing downgrades the grants on
+the way past. A test that looks for a string in a neighbourhood is not testing control flow.
+
+**Not proved in the UI, and why.** The grantee side needs a second account, which is the same
+blocker recorded for R225; the owner side cannot show it, because the whole block is inside
+`if (!isOwner)`. What did run: `semanticTrust`'s differential test, which compiles a grantee's query
+against the real engine and asserts it returns different numbers from the owner's, still passes, as
+do the other 105 tests over these paths.
+
 ### 2026-10-03 — Smoke of the real image after R232, R233 and R234
 
 No new defect in what was driven. Image `d39419dc1c93`, built from `c6592999` and started as a real
