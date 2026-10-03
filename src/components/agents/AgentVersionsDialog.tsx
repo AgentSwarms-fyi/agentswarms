@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
+import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { History, Loader2, RotateCcw, Save, Trash2 } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
@@ -138,8 +139,23 @@ export function AgentVersionsDialog({
   }
 
   async function removeVersion(id: string) {
+    // R242. SwarmVersionsDialog's identical control asks through an
+    // AlertDialog; this one deleted a saved snapshot on the first click. The
+    // same action, one of the two guarded, is the shape R67 named.
+    if (
+      !(await confirmAsk({
+        title: "Delete this version?",
+        body: "The saved snapshot of the agent at that point goes with it. This cannot be undone.",
+        actionLabel: "Delete version",
+      }))
+    )
+      return;
     const { error } = await supabase.from("agent_versions").delete().eq("id", id);
-    if (error) return toast.error("Could not delete the version");
+    if (error) {
+      return toast.error("Could not delete the version", {
+        description: `${error.message}. It is still here.`,
+      });
+    }
     await load();
   }
 

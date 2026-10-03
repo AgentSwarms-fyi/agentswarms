@@ -9,16 +9,42 @@
 // again.
 //
 // So the rule is enforced over the whole directory rather than per feature:
-// every client-side delete in a page either asks through the in-app dialog, or
-// appears below with a reason that is itself checked against the code. The
-// exemption list is the interesting part — it is short, each entry says why,
-// and a wrong reason fails as loudly as a missing confirmation.
+// every client-side delete either asks through the in-app dialog, or appears
+// below with a reason that is itself checked against the code. The exemption
+// list is the interesting part — it is short, each entry says why, and a wrong
+// reason fails as loudly as a missing confirmation.
+//
+// R242 WIDENED THE SWEEP, because it had the same shape as the bug it was
+// written to stop. "The whole directory" was `src/routes/_authenticated` —
+// pages only — and a delete is just as destructive from a dialog in
+// `src/components`. Twelve of them were there, unswept, including a swarm
+// chat transcript deleted on one click by a trash icon one row from the chat
+// you are in: the exact control, with the exact comment explaining why it
+// earns a question, that Agent Chat had already been fixed for in R72. A
+// guard whose scope is narrower than the rule it enforces reads as coverage
+// and is not.
 import { readFileSync, readdirSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-const DIR = "src/routes/_authenticated";
-const rd = (p: string) => readFileSync(`${DIR}/${p}`, "utf8");
+const PAGE_DIR = "src/routes/_authenticated";
+const DIRS = [PAGE_DIR, "src/components"];
+/** A bare name is a page, as it always was; a path is taken as given. */
+const rd = (p: string) => readFileSync(p.includes("/") ? p : `${PAGE_DIR}/${p}`, "utf8");
+
+/** Every .tsx under the swept roots, pages and components alike. */
+function sweptFiles(): string[] {
+  const out: string[] = [];
+  const walk = (dir: string) => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const full = `${dir}/${e.name}`;
+      if (e.isDirectory()) walk(full);
+      else if (e.name.endsWith(".tsx")) out.push(full);
+    }
+  };
+  for (const d of DIRS) walk(d);
+  return out;
+}
 
 /** Deletes that legitimately do not ask, and the reason, and its proof. */
 const EXEMPT: Record<string, { why: string; provenBy: RegExp }> = {
@@ -41,6 +67,32 @@ const EXEMPT: Record<string, { why: string; provenBy: RegExp }> = {
   deleteMessage: {
     why: "one message inside a transcript that stays; the chat itself asks, which is the loss that matters",
     provenBy: /async function deleteConversation/,
+  },
+
+  // ── Found by R242's widened sweep, in src/components ──────────────────────
+  handleDelete: {
+    why: "SwarmGallery: an AlertDialogAction is the only caller, same shape as performDeleteSwarm",
+    provenBy: /onClick=\{\(\) => handleDelete\(s\.id, s\.name\)\}/,
+  },
+  revokeKey: {
+    why: "SwarmDeployDialog: an AlertDialogAction is the only caller",
+    provenBy: /AlertDialogAction[\s\S]{0,400}revokeKey\(/,
+  },
+  remove: {
+    why: "SwarmVersionsDialog: an AlertDialogAction is the only caller. ComponentLibraryDialog's own `remove` asks directly, so both spellings are covered",
+    provenBy: /AlertDialogAction[\s\S]{0,400}remove\(/,
+  },
+  saveCap: {
+    why: "GroupBudgetsTab: not a delete a reader performs — emptying the cap field clears the ceiling, and the row delete IS that save",
+    provenBy: /Empty input clears the ceiling entirely rather than storing 0/,
+  },
+  withdrawSource: {
+    why: "AddSourceDialog: a compensating rollback (R192) — it takes back a source whose document write failed, and marks it when even that fails",
+    provenBy: /The document was not saved: \$\{why\}/,
+  },
+  deleteMemoryItem: {
+    why: "AgentForm: one item inside a memory that stays, and clearing the whole memory asks — the same reasoning as deleteMessage",
+    provenBy: /clearAllMemoryItems[\s\S]{0,600}confirmAsk/,
   },
 };
 
@@ -67,13 +119,24 @@ function bodyOf(file: string, fn: string): string {
   return rest.slice(0, next === -1 ? undefined : next);
 }
 
-const PAGES = readdirSync(DIR).filter((f) => f.endsWith(".tsx"));
+const PAGES = sweptFiles();
 
 describe("every delete in a page asks, or says why not", () => {
   it("finds pages to check, so an empty sweep cannot pass", () => {
     // Mutation-checked: pointing this at an empty directory made the whole
     // file vacuous.
-    expect(PAGES.length).toBeGreaterThan(10);
+    expect(PAGES.length).toBeGreaterThan(40);
+    // Pinned per ROOT, because the pages directory alone already clears any
+    // whole-sweep floor — 47 files — so a sweep that narrowed back to pages
+    // would pass a total count while checking none of the 245 component
+    // files. That is the shape of the bug this file exists to stop, and it
+    // nearly reappeared in the fix for it.
+    const pages = PAGES.filter((f) => f.startsWith("src/routes/_authenticated/"));
+    const components = PAGES.filter((f) => f.startsWith("src/components/"));
+    expect(pages.length, "pages are not being swept").toBeGreaterThan(10);
+    expect(components.length, "components are not being swept").toBeGreaterThan(100);
+    const inComponents = components.flatMap((f) => deletesIn(f)).length;
+    expect(inComponents, "no deletes found in components — the sweep narrowed").toBeGreaterThan(5);
     const total = PAGES.flatMap((p) => deletesIn(p)).length;
     expect(total, "no deletes found — the matcher stopped matching").toBeGreaterThan(10);
   });
@@ -106,7 +169,15 @@ describe("every delete in a page asks, or says why not", () => {
   it("keeps the exemption list short enough to read", () => {
     // If this needs raising, the question to ask is whether the newest entry
     // is really an exception or just an inconvenience.
-    expect(Object.keys(EXEMPT).length).toBeLessThanOrEqual(8);
+    // Raised from 8 to 11 by R242, and the reason matters: the list grew
+    // because the SWEEP grew to cover src/components, not because the standard
+    // slipped. Every entry added is one of the three shapes already accepted
+    // here — an AlertDialog at the call site, a write that is not a delete the
+    // reader performs, or one row inside a container whose own deletion asks.
+    // The one candidate that rested on "it is only notices" was given a
+    // question instead (NotificationBell), which is the answer this cap is
+    // meant to provoke.
+    expect(Object.keys(EXEMPT).length).toBeLessThanOrEqual(11);
   });
 });
 

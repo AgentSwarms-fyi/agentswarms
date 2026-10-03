@@ -61,6 +61,7 @@ import {
   History,
 } from "lucide-react";
 import { toast } from "sonner";
+import { confirmAsk } from "@/components/ui/confirm-dialog";
 
 type ApiKeyRow = {
   id: string;
@@ -395,8 +396,22 @@ export function SwarmDeployDialog({
   };
 
   const deleteSchedule = async (id: string) => {
+    // R242. revokeKey in this same dialog is guarded by an AlertDialog; this
+    // one was not.
+    if (
+      !(await confirmAsk({
+        title: "Delete this schedule?",
+        body: "The swarm stops running on it, and its settings and history are not kept. This cannot be undone.",
+        actionLabel: "Delete schedule",
+      }))
+    )
+      return;
     const { error } = await supabase.from("swarm_schedules").delete().eq("id", id);
-    if (error) return toast.error("Could not delete schedule");
+    if (error) {
+      return toast.error("Could not delete the schedule", {
+        description: `${error.message}. It is still scheduled and will still run.`,
+      });
+    }
     setSchedules((prev) => prev.filter((s) => s.id !== id));
   };
 

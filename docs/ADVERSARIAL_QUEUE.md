@@ -1303,9 +1303,16 @@ over the lakehouse). Open from that round, the rest of Row Zero's connected tabl
 - An optimistic switch is a promise about the database (R70): a control
   that flips before the write lands must flip back when it does not, and
   say what the stored state will do — an alert still on will still fire.
-  The write survey's remaining files: the notification bell, evaluations'
-  two deletes, the swarm chat dialog, the add-source dialog, and Agent
-  Chat's conversation and message deletes and updates.
+  **R242 walked the remaining files and the list was stale**: the bell,
+  evaluations' two deletes, and Agent Chat's conversation and message
+  deletes and updates were all already handled (R71, R72), each checking
+  its error and saying what is still true. The swarm chat dialog was not,
+  and the reason it was missed is the finding — `destructiveActionsAsk`
+  swept `src/routes/_authenticated` only, so twelve deletes in
+  `src/components` had never been checked. The sweep now covers both, five
+  controls gained a question, and every exemption is structural. Pin kept:
+  the floor is asserted per root, because the pages directory alone clears
+  any whole-sweep count.
 - A survey that reads one line at a time misses a statement that spans four
   (R69): the bare `await supabase\n .from(…)\n .update(…)` OpenRouter's
   disconnect takes was not in the write survey's count, and the browser

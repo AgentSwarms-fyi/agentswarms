@@ -109,6 +109,52 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-03 — R242: the guard against one-click deletes only looked at half the product
+
+**Severity: moderate, and the shape is the point.** `tests/unit/destructiveActionsAsk.test.ts`
+exists because finding unguarded deletes one at a time did not work. Its own header says so: a
+guard was written for the knowledge base, and the source delete *right next to it* still went on
+one click. The answer was to enforce the rule over a whole directory instead of per feature.
+
+The directory was `src/routes/_authenticated` — **pages only**. A delete is just as destructive
+from a dialog in `src/components`, and twelve of them were there, never swept.
+
+The one that found it: **the swarm chat dialog deleted a whole transcript on the first click**, from
+a hover-revealed trash icon sitting one row from the chat you are in. Agent Chat's identical control
+was fixed in R72, and the comment written above it then applies word for word here — the row carries
+every prompt and every answer, and `swarm_chats` has no undo, no trash and no export on the way out.
+Two paths to one action, one guarded and one not, which is R67's shape.
+
+**What the widened sweep found**, and what each got:
+
+- **Now ask:** the swarm chat transcript, an agent version (its swarm sibling already asked through
+  an AlertDialog), a scheduled analysis, a BI alert, a BI schedule, a swarm schedule, and clearing
+  every notification.
+- **Exempt, each with a reason the test proves against the code:** three guarded by an
+  `AlertDialogAction` at the call site (swarm gallery, API-key revoke, swarm version), one that is
+  not a delete the reader performs (emptying a budget cap clears the ceiling, and the row delete IS
+  that save), one compensating rollback (R192's `withdrawSource`), and one row inside a container
+  whose own deletion asks (an agent memory item, the same reasoning the existing `deleteMessage`
+  exemption uses).
+
+Five of those deletes also gained the failure sentence the rest of the product uses — what is still
+true when the delete did not happen ("It is still here", "It is still scheduled and will still
+run"), instead of a bare "Could not delete chat".
+
+**The test interrogated me, and it was right to.** Its exemption list is capped, with a comment
+asking whether the newest entry "is really an exception or just an inconvenience". At twelve
+exemptions it went red. One of mine rested on "they are only notices" rather than on structure, so
+that control now asks instead, and the cap moved to eleven with the reason written down: the list
+grew because the SWEEP grew, and every entry left is one of three structural shapes.
+
+**And the fix nearly reproduced the bug.** The floor test counted swept files in total, and the
+pages directory alone holds 47 of them — more than any whole-sweep floor would notice — so a sweep
+narrowed back to pages would have passed while checking none of the 245 component files. The floor
+is now pinned per root, and a mutant that narrows the sweep is caught.
+
+Six mutants caught, control survived. The seventh — removing the exemption cap — survives on
+purpose and is labelled: a cap on judgement cannot defend itself, it only forces the question.
+
 ### 2026-10-03 — R241: "never ran", about a pipeline that ran for 56 minutes
 
 **Severity: moderate.** Two writers stamp a pipeline's last run — the success path and the failure

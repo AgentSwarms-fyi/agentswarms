@@ -5,6 +5,7 @@
 // (server.mjs, R95). It used to be the only thing that did.
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
+import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { Link } from "@tanstack/react-router";
 import { BellRing, CheckCheck, Trash2 } from "lucide-react";
 
@@ -97,6 +98,17 @@ export function NotificationBell() {
   async function clearAll() {
     const before = items;
     setItems([]);
+    // R242: the one exemption in the widened sweep that rested on "it is only
+    // notices" rather than on structure. Asking is a cheaper answer than
+    // arguing, and it leaves every remaining exemption a structural one.
+    if (
+      !(await confirmAsk({
+        title: "Clear all notifications?",
+        body: "Every notification is deleted, read or not. This cannot be undone.",
+        actionLabel: "Clear all",
+      }))
+    )
+      return;
     const { error } = await supabase.from("notifications").delete().not("id", "is", null);
     if (error) {
       setItems(before);
