@@ -119,10 +119,17 @@ export type EtlPipelineSummary = Pick<
 > & { has_trigger_token: boolean };
 
 /**
- * Per pipeline, whether the run behind its `last_run_status` ran something
- * other than what the next run would (R183); null when there is no such run,
- * or its program could not be read. That run is the latest one that
- * finished, which is the one that wrote the status.
+ * Per pipeline, whether the latest run that FINISHED ran something other than
+ * what the next run would (R183); null when there is no such run, or its
+ * program could not be read.
+ *
+ * "Finished" means succeeded or failed, which until R241 was the same set as
+ * "wrote the status", so this said "the run behind its `last_run_status`". A
+ * cancelled run now writes that status too, and a cancelled run may have run
+ * nothing at all — so the two came apart, and the sentence had to pick one.
+ * It compares against the last run that produced a RESULT, because the
+ * question the chip answers is whether the result you are looking at came
+ * from today's program.
  */
 async function lastRunDrift(
   pipelines: {

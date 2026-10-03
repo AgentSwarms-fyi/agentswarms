@@ -405,8 +405,12 @@ least twice, not a hypothetical.
      the day someone re-runs a GENUINE failure until it passes. Worth measuring before fixing —
      pool size, `fileParallelism`, or the per-test 20 s timeout being too tight for a loaded
      worker — and worth fixing before the next heavy test is added.
-   - **Minor, seen on the ETL list:** a pipeline whose only runs were cancelled reads "last run: —
-     never ran".
+   - **R241: the ETL list's "never ran". Fixed.** Not as minor as it was filed: the success and
+     failure paths both stamp the pipeline and both return early for a cancelled run, so nothing
+     stamped it at all. `r227_stream` read "never ran" beside "runtime 7d: 56m 36s" and four
+     cancelled runs that had loaded rows. A cancel now stamps the pipeline — best-effort, after
+     the run's own record, in the house phrasing — and `lastRunDrift`'s contract was reworded,
+     since a cancelled run may have produced no result to compare against.
    - **R228: a merge that lost its key emptied the table.** Fixed for the sandbox engine by the
      gateway; the Spark engine's lakehouse target still runs the bare DELETE until it moves.
    - **Next, from the triage, in order of consequence (each to be read and proved before fixing):**

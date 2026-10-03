@@ -15,6 +15,23 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-03 — R241: a pipeline that ran for 56 minutes, reported as never run
+
+| Step | Pre-fix bundle (what was already on screen) | Fixed bundle |
+| --- | --- | --- |
+| The ETL list, untouched | `r227_stream`: **"never ran"**, `last run: —`, and **`runtime 7d: 56m 36s`** with four run dots | — |
+| The same list, for contrast | `r229_spark`: "never ran", `last run: —`, **"no runs yet"**, no runtime — the page knows the difference everywhere except the sentence | — |
+| `r227_stream` → Runs | four runs, **all Cancelled**: 1m 33s · 1 row, 52m 51s · 0 rows, 44s · 1 row, 1m 28s · 5 rows | — |
+| Cancel a queued run of `r227_gateway` | the card would keep showing the PREVIOUS run | the card reads **Cancelled**, `last run: 10/3/2026, 11:11:53 PM` — the cancel's own time |
+| `r227_gateway` run once more | — | back to **Succeeded**, 108 rows → 1 target; the fixture is as the image smokes expect it |
+
+The before needed nothing staged: it was the owner's own data, and the cause was confirmed in the
+Runs tab rather than assumed.
+
+**Note for anyone re-reading the before:** `r227_stream` no longer shows it. Two runs of it
+succeeded while a cancel was being chased in flight (its runs now finish in 7–8 s), so its card
+reads "Succeeded". Its four cancelled runs are still listed under Runs.
+
 ## 2026-10-03 — R238: a freshness check on a column that is not a timestamp
 
 One monitor, driven across a rebuild, so the two messages below come from the same row and the same

@@ -109,6 +109,50 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-03 — R241: "never ran", about a pipeline that ran for 56 minutes
+
+**Severity: moderate.** Two writers stamp a pipeline's last run — the success path and the failure
+path — and both return early when the run was cancelled, correctly, because a cancel is not a
+failure. Nothing else stamped it. So a cancel left the pipeline's summary untouched, and a pipeline
+whose only runs were cancelled read **"last run: —"** and **"never ran"** on the ETL list.
+
+**The list already contradicted itself on real data, before anything was staged for this round.**
+`r227_stream` read "never ran" beside **"runtime 7d: 56m 36s"** and a row of four run dots, while
+`r229_spark` beside it read "never ran" with "no runs yet" and no runtime. The page distinguishes
+the two cases everywhere except in the sentence. Opening `r227_stream`'s Runs tab showed four runs,
+**every one Cancelled**, which had loaded 1, 0, 1 and 5 rows over 56 minutes.
+
+The giveaway that this was an omission rather than a decision: `RUN_STATUS_STYLE` in `etl.tsx` has
+carried a **`cancelled`** style the whole time. The chip was built to show this state and was never
+given one.
+
+**Fixed** by stamping the pipeline when a run is cancelled, best-effort and after the run's own
+record is written — the order R78 established, since the run is cancelled by the `etl_runs` write
+and the summary is a derived convenience. A failed stamp warns in the house phrasing the other two
+stamps use and does **not** report the cancel as failed: the run is stopped by then, and answering
+`ok: false` would send the operator back to cancel something already stopped.
+
+One consequence had to be chosen rather than inherited. `lastRunDrift`'s doc said it compares
+against "the run behind its `last_run_status`", which was true only while the status could come
+from nothing but a finished run. A cancelled run may have run nothing at all, so the two came apart.
+The query stays on succeeded-or-failed runs and the sentence now says so: the chip answers "is the
+result you are looking at from today's program?", and a cancelled run produced no result to ask
+about.
+
+Seven mutants, seven caught, control survived — including stamping a status the list has no style
+for, and the drift starting to count cancelled runs as results. An existing ratchet counted the
+stamp writes and went red at two-of-three, which is exactly what it was for; it now counts three,
+and the new stamp uses the same wording as the other two.
+
+**Proved in the UI.** Before: the self-contradiction above, on the owner's own pipelines. After:
+cancelling a queued run of `r227_gateway` left the card reading **Cancelled** with the cancel's own
+timestamp, where before it would have kept showing the previous run's. `r227_gateway` was then run
+once more to restore it to Succeeded, since the image smokes use it.
+
+Worth recording for whoever reads the before-shot: driving this round changed `r227_stream`'s card.
+Two runs of it succeeded while I was trying to catch a cancel in flight, so it now reads "Succeeded"
+and no longer shows the contradiction. The four cancelled runs are still in its Runs tab.
+
 ### 2026-10-03 — R240: `isolate: false` measured, and refused
 
 R237 left one lead: `collect` was 207 s against `tests` 431 s, so a third of the suite's work is

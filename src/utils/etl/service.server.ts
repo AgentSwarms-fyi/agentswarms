@@ -2007,7 +2007,7 @@ export async function cancelEtlRun(
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const { data: run, error: readErr } = await supabaseAdmin
     .from("etl_runs")
-    .select("id, user_id, status, session_id")
+    .select("id, user_id, status, session_id, pipeline_id")
     .eq("id", runId)
     .eq("user_id", userId)
     .maybeSingle();
@@ -2029,6 +2029,27 @@ export async function cancelEtlRun(
       error: `The run could not be marked cancelled: ${cancelErr.message}. It is still running — try again.`,
     };
   }
+  // FOUND IN R241. Only the succeeded and failed paths stamped the pipeline,
+  // and both of them return early for a cancelled run — correctly, since a
+  // cancel is not a failure. So nothing wrote the pipeline's last run at all,
+  // and a pipeline whose only runs were cancelled read "last run: —" and
+  // "never ran" on the ETL list. It ran; the operator stopped it. The list's
+  // own RUN_STATUS_STYLE has carried a `cancelled` style the whole time —
+  // the chip was built to show this and was never given it.
+  //
+  // Best effort on purpose: the run IS cancelled by the write above, and
+  // failing to update the summary must not report the cancel as failed.
+  const { error: stampErr } = await supabaseAdmin
+    .from("etl_pipelines")
+    .update({ last_run_at: new Date().toISOString(), last_run_status: "cancelled" })
+    .eq("id", run.pipeline_id);
+  if (stampErr) {
+    // The run is cancelled; the pipeline's badge is not (R78).
+    console.warn(
+      `[etl] pipeline ${run.pipeline_id}: last status could not be stamped cancelled: ${stampErr.message}; the list shows the previous run's until it is`,
+    );
+  }
+
   await releaseRunCluster(runId);
   if (run.session_id) {
     const session = await getSession(userId, run.session_id);
