@@ -370,16 +370,19 @@ least twice, not a hypothetical.
      target and ML to the gateway — the bundler had already dropped it from `dist`, and the only
      two references left were tests that called it themselves. `duckdbExtensions` now pins the
      absence of an attach across every generated program instead.
-   - **The gate itself is flaky, and the gate is the instrument.** `tests/unit/aiAnalyst.test.ts`
-     ("produces a real multi-page PDF") and `tests/unit/sheetsSamples.test.ts` ("Sales performance
-     2026") fail roughly every other full `npm run check` with **"Test timed out in 20000ms"** —
-     a timeout, never an assertion — and pass together in about 6 seconds when run alone. It cost
-     three gate re-runs on 2026-10-03 alone. Every round in this log depends on reading a green
-     gate from the shell, so an instrument that is wrong half the time is a defect in the method,
-     not an annoyance: the real risk is the day someone reruns a genuine failure until it passes.
-     Both are heavy builders (pdf-lib, a whole sample workbook) competing for the pool. Worth
-     measuring before fixing: whether it is the pool size, those two files' own setup cost, or
-     another file's work landing on the same worker.
+   - **The gate itself is flaky, and the gate is the instrument.** Roughly every other full
+     `npm run check` fails with **"Test timed out in 20000ms"** — a timeout, never an assertion —
+     and the file passes in a couple of seconds when run alone. Four re-runs on 2026-10-03 alone.
+     It is **not one fixed set of files**: that day it hit `aiAnalyst` ("produces a real
+     multi-page PDF") and `sheetsSamples` ("Sales performance 2026") three times, then
+     `docsFactCheck` ("the grantable resource types…"), which is a cheap test that reads source
+     files and had never been slow. So the cause is contention, not any one test's own cost —
+     whichever test is unlucky enough to be scheduled beside the heavy builders wears it.
+     Every round in this log depends on reading a green gate from the shell, so an instrument
+     that is wrong half the time is a defect in the method, not an annoyance: the real risk is
+     the day someone re-runs a GENUINE failure until it passes. Worth measuring before fixing —
+     pool size, `fileParallelism`, or the per-test 20 s timeout being too tight for a loaded
+     worker — and worth fixing before the next heavy test is added.
    - **Minor, seen on the ETL list:** a pipeline whose only runs were cancelled reads "last run: —
      never ran".
    - **R228: a merge that lost its key emptied the table.** Fixed for the sandbox engine by the
@@ -403,9 +406,13 @@ least twice, not a hypothetical.
        the membership read fails. Nothing is exposed, so this is a message problem, not a hole —
        but "not shared with you" is a sentence a failed read cannot support. Move both onto
        `readApplicableGrants` so all four copies are one.
-     - **Superadmin protection:** SCIM `assertNotProtected` (`scim.server.ts` ~336) and Admin →
-       IAM ban and delete (`iam.functions.ts` ~241, ~272) skip "demote first" on a failed role
-       read.
+     - **R236: superadmin protection.** Fixed. SCIM's `assertNotProtected` and Admin → IAM's ban
+       and delete each read the superadmin role themselves and dropped the error, so a blip
+       answered "not protected" and the account was deactivated, banned or deleted —
+       `isBootstrapAdmin` dropped its account lookup the same way, so both halves failed open at
+       once. All three now go through `isProtectedAccount` (`utils/iam.server.ts`), which throws;
+       SCIM answers 503 and the IAM actions return `ok: false`. **This closes the sweep-7 triage
+       list.**
      - **An AI Gateway key** (`gatewayKeys.functions.ts` ~203) saved with no agent restriction
        when the owner's agents cannot be read.
      - **SCIM group deprovisioning** (`scim.server.ts` ~542) removes no one when the members

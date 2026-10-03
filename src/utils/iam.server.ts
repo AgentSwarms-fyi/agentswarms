@@ -129,13 +129,44 @@ export async function requireSuperadmin(accessToken: string | undefined): Promis
 export async function isBootstrapAdmin(userId: string): Promise<boolean> {
   const bootstrap = bootstrapAdminEmail();
   if (!bootstrap) return false;
-  const { data } = await supabaseAdmin.auth.admin.getUserById(userId);
+  const { data, error } = await supabaseAdmin.auth.admin.getUserById(userId);
+  // R235's lesson, applied to a protection rather than a restriction: a lookup
+  // that failed used to leave `email` empty, which is not the bootstrap
+  // address, so the account came back unprotected and the caller deleted it.
+  if (error) throw new Error(`could not read the account: ${error.message}`);
   return bootstrapClaimAllowed({
     email: data.user?.email ?? "",
     bootstrapEmail: bootstrap,
     emailConfirmedAt: (data.user as { email_confirmed_at?: string | null } | null)
       ?.email_confirmed_at,
   });
+}
+
+/**
+ * Is this account out of reach of ban, deletion and SCIM deactivation?
+ *
+ * FOUND IN R236. Three callers asked this question with their own `const
+ * { data: role } = await …` and dropped the error, so a failed read answered
+ * "not a superadmin" and the destructive act went ahead: SCIM deactivated or
+ * deleted the account its own message says to demote first, and Admin → IAM
+ * banned or DELETED it. `isBootstrapAdmin` had the same hole one level down —
+ * a failed account lookup left the email empty, which is not the bootstrap
+ * address.
+ *
+ * A protection that cannot be verified is not absent. This throws, and every
+ * caller answers the throw by refusing the act; none of them may read it as
+ * "unprotected". Deletion in particular does not come back.
+ */
+export async function isProtectedAccount(userId: string): Promise<boolean> {
+  const { data: role, error } = await supabaseAdmin
+    .from("user_roles")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("role", "superadmin")
+    .maybeSingle();
+  if (error) throw new Error(`could not read roles: ${error.message}`);
+  if (role) return true;
+  return isBootstrapAdmin(userId);
 }
 
 export type ModelRule = { provider: string; model_pattern: string };

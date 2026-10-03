@@ -277,9 +277,15 @@ describe("the wiring", () => {
     // The last way in must not depend on the IdP being right.
     expect(server).toContain('await assertNotProtected(u.id, "deactivate")');
     expect(server).toContain('await assertNotProtected(u.id, "delete")');
-    expect(server).toContain("isBootstrapAdmin(userId)");
+    // R236: the role read lives in isProtectedAccount now, which throws rather
+    // than reporting an unreadable account as unprotected. SCIM must not do
+    // that read itself again, and must not treat the throw as a "no".
+    expect(server).toContain("isProtectedAccount(userId)");
+    expect(server).not.toMatch(/from\("user_roles"\)/);
     const guard = server.indexOf("async function assertNotProtected");
-    expect(server.slice(guard, guard + 600)).toContain('.eq("role", "superadmin")');
+    const body = server.slice(guard, guard + 900);
+    expect(body).toContain("503");
+    expect(body).toMatch(/Could not check whether this account is protected/);
   });
 
   it("the token is looked up by hash, never stored, and denials are rate limited", () => {

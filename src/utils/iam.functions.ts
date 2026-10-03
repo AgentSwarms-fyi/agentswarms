@@ -8,7 +8,7 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { generateScimToken, hashScimToken, scimTokenPrefix } from "@/lib/scim";
 import { USER_ATTR_TOKEN_RE } from "@/lib/semanticPolicy";
 import { auditEvent } from "@/utils/audit.server";
-import { isBootstrapAdmin, requireSuperadmin } from "@/utils/iam.server";
+import { isBootstrapAdmin, isProtectedAccount, requireSuperadmin } from "@/utils/iam.server";
 
 /**
  * A row-filter value is either a plain literal or a WELL-FORMED attribute
@@ -238,13 +238,20 @@ export const iamSetUserBan = createServerFn({ method: "POST" })
     if (data.user_id === guard.userId) return { ok: false, error: "You cannot ban yourself" };
 
     if (data.banned) {
-      const { data: role } = await supabaseAdmin
-        .from("user_roles")
-        .select("id")
-        .eq("user_id", data.user_id)
-        .eq("role", "superadmin")
-        .maybeSingle();
-      if (role) return { ok: false, error: "Demote this superadmin before banning them" };
+      // R236: this read used to drop its error, so a transient failure answered
+      // "not a superadmin" and banned the account the message says to demote.
+      try {
+        if (await isProtectedAccount(data.user_id)) {
+          return { ok: false, error: "Demote this superadmin before banning them" };
+        }
+      } catch (e) {
+        return {
+          ok: false,
+          error: `Could not check whether this account is protected, so it was not banned: ${
+            e instanceof Error ? e.message : String(e)
+          }`,
+        };
+      }
     }
 
     const { error } = await supabaseAdmin.auth.admin.updateUserById(data.user_id, {
@@ -269,13 +276,19 @@ export const iamDeleteUser = createServerFn({ method: "POST" })
     if (!guard.ok) return guard;
     if (data.user_id === guard.userId) return { ok: false, error: "You cannot delete yourself" };
 
-    const { data: role } = await supabaseAdmin
-      .from("user_roles")
-      .select("id")
-      .eq("user_id", data.user_id)
-      .eq("role", "superadmin")
-      .maybeSingle();
-    if (role) return { ok: false, error: "Demote this superadmin before deleting them" };
+    // R236. Deletion does not come back, so an unverifiable protection refuses.
+    try {
+      if (await isProtectedAccount(data.user_id)) {
+        return { ok: false, error: "Demote this superadmin before deleting them" };
+      }
+    } catch (e) {
+      return {
+        ok: false,
+        error: `Could not check whether this account is protected, so it was not deleted: ${
+          e instanceof Error ? e.message : String(e)
+        }`,
+      };
+    }
 
     const { error } = await supabaseAdmin.auth.admin.deleteUser(data.user_id);
     if (error) return { ok: false, error: error.message };
@@ -321,10 +334,22 @@ export const iamRevokeSuperadmin = createServerFn({ method: "POST" })
     const guard = await requireSuperadmin(data.access_token);
     if (!guard.ok) return guard;
 
-    if (await isBootstrapAdmin(data.user_id)) {
+    try {
+      if (await isBootstrapAdmin(data.user_id)) {
+        return {
+          ok: false,
+          error: "This account is the ADMIN_EMAIL bootstrap superadmin and cannot be demoted",
+        };
+      }
+    } catch (e) {
+      // R236: isBootstrapAdmin throws now rather than reporting an unreadable
+      // account as "not the bootstrap one". A demotion is reversible, but it
+      // is still not something to do on a guess.
       return {
         ok: false,
-        error: "This account is the ADMIN_EMAIL bootstrap superadmin and cannot be demoted",
+        error: `Could not check whether this is the bootstrap superadmin, so it was not demoted: ${
+          e instanceof Error ? e.message : String(e)
+        }`,
       };
     }
 

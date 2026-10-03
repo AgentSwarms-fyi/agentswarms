@@ -26,7 +26,7 @@ import {
   type ScimUserState,
 } from "@/lib/scim";
 import { auditEvent } from "@/utils/audit.server";
-import { isBootstrapAdmin } from "@/utils/iam.server";
+import { isProtectedAccount } from "@/utils/iam.server";
 import { envInt, rateLimitedGlobal } from "@/utils/rateLimit.server";
 
 const BAN_DURATION = "87600h"; // the same ~10 years the IAM page uses
@@ -333,13 +333,22 @@ async function stateOf(u: AdminUser): Promise<ScimUserState> {
 
 /** A superadmin, or the bootstrap admin, is out of SCIM's reach for deactivation and deletion. */
 async function assertNotProtected(userId: string, what: string): Promise<void> {
-  const { data: role } = await supabaseAdmin
-    .from("user_roles")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("role", "superadmin")
-    .maybeSingle();
-  if (role || (await isBootstrapAdmin(userId))) {
+  // R236: the role read used to drop its error, so a transient failure said
+  // "not a superadmin" and SCIM went on to do the thing this function exists to
+  // prevent — on the word of an identity provider, unattended, to the account
+  // that administers the instance.
+  let protectedAccount: boolean;
+  try {
+    protectedAccount = await isProtectedAccount(userId);
+  } catch (e) {
+    throw new ScimError(
+      503,
+      `Could not check whether this account is protected, so SCIM did not ${what} it: ${
+        e instanceof Error ? e.message : String(e)
+      }`,
+    );
+  }
+  if (protectedAccount) {
     throw new ScimError(
       403,
       `This account is a superadmin; SCIM cannot ${what} it. Demote it in IAM first.`,

@@ -109,6 +109,51 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-03 — R236: the superadmin protection answered "not protected" when it could not tell
+
+**Severity: high.** Three places ask "is this account a superadmin?" immediately before doing
+something destructive, and each asked it with its own `const { data: role } = await …`, dropping
+the error:
+
+- **SCIM** (`utils/scim.server.ts`, `assertNotProtected`) — the guard whose own file header says
+  *"One rule runs through all of it: SCIM may never remove the last way in."* A failed read answered
+  "not a superadmin", and SCIM deactivated or **deleted** the account that administers the instance,
+  on the word of an identity provider, unattended, with nobody watching a screen.
+- **Admin → IAM ban**, and **Admin → IAM delete** (`utils/iam.functions.ts`) — "Demote this
+  superadmin before deleting them" skipped, and `auth.admin.deleteUser` called.
+
+`isBootstrapAdmin` had the same hole one level down: it dropped the error from its account lookup,
+so a failed lookup left the email empty, which is not the bootstrap address, and the bootstrap admin
+came back unprotected too. Both halves of the protection failed open on the same kind of blip, which
+is exactly why neither covered for the other.
+
+This is the fourth round of this class, and the pattern is now unmistakable: `requireSuperadmin`, in
+the same file, has been guarded since R53, with the reasoning spelled out directly above it — *"A
+failed read is not 'no role'"*. The guard was written once and the other callers were left asking
+the question themselves.
+
+**Fixed** with `isProtectedAccount` in `utils/iam.server.ts`: one guarded read of the role, the
+bootstrap check behind it, and a throw when either cannot be established. SCIM answers **503** and
+does neither thing; ban and delete return `ok: false` naming what could not be checked. The
+protection is only absent when something actually said so.
+
+Seven mutants, seven caught, control survived — including one that catches the throw and proceeds,
+which is the exact regression this round exists to prevent. The tests assert the effect, not the
+return value: `auth.admin.deleteUser` is a spy, and the refusal cases end with "nothing was
+deleted". One test deliberately deletes an ordinary account to prove the guard refuses the
+unreadable case **without** refusing the normal one — a protection that blocks everything is an
+outage with a tidier message.
+
+Worth recording: the first version of these tests passed for the wrong reason. `isBootstrapAdmin`
+returns early when `ADMIN_EMAIL` is unset, which it is under vitest, so the account-lookup half was
+never reached and the test resolved `false` instead of throwing. The file now sets the variable and
+says why.
+
+**Not proved in the UI:** inducing a failed role read needs fault injection the UI has no way to
+cause, and the normal-path refusal cannot be driven on this instance without a second superadmin —
+the only account to try it on is the one signed in, which "You cannot delete yourself" stops first.
+Admin → IAM was loaded after the change to confirm the surface still works.
+
 ### 2026-10-03 — R235: a grantee kept the access and lost the restrictions
 
 **Severity: high.** Enforcing a share takes two reads — the viewer's group memberships, and the
