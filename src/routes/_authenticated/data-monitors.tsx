@@ -788,7 +788,26 @@ function NewMonitorDialog({
                 <button
                   key={k}
                   type="button"
-                  onClick={() => setKind(k)}
+                  onClick={() => {
+                    setKind(k);
+                    // R238: a column chosen for one check can be meaningless
+                    // for another — `region` is a fine null-rate column and
+                    // not a timestamp. It used to survive the switch, and the
+                    // freshness picker then rendered BLANK, because a
+                    // controlled select whose value matches no option shows
+                    // nothing. Saving was accepted (the config validator only
+                    // checks the column is named, not what it is) and the
+                    // monitor alerted ever after. Dropped only when it is
+                    // genuinely not on offer for the new kind.
+                    if (
+                      k === "freshness" &&
+                      column &&
+                      timestampColumns.length > 0 &&
+                      !timestampColumns.some((c) => c.name === column)
+                    ) {
+                      setColumn("");
+                    }
+                  }}
                   className={cn(
                     "rounded-md border p-2 text-left text-sm transition-colors hover:bg-muted/60",
                     kind === k && "border-primary bg-primary/5",

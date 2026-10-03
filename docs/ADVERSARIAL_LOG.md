@@ -109,6 +109,46 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-03 — R238: a freshness monitor on a text column, blaming the data
+
+**Severity: moderate.** The queue's last sweep-6 row was "choosing 'Pick a column…' snaps back to
+the first timestamp column. Minor." It is real and it is minor — an effect refills the column
+whenever it is empty, so that option does nothing. What it sits next to is not minor.
+
+**Switching the monitor KIND did not clear the column.** `region`, picked for a null-rate check,
+survived a switch to Freshness. The freshness picker lists only timestamp columns, so the select's
+value matched no option and it displayed **"Pick a column…"** — the form said nothing was chosen
+while holding `region`. Saving was accepted, because `validateMonitorConfig` checks that a column is
+NAMED, not what it is. The monitor then ran `max(region)`, got `EMEA`, could not parse it as a date,
+and `ageMinutes` returned null — which `evaluateMonitor` reported as:
+
+> The table has no rows, or the timestamp column is empty.
+
+A sentence the run cannot support. `analytics.revenue_facts` has 836 rows and `region` is 0% null —
+and the **same page** says so, in two other monitors on the same table, three rows below. An
+operator reading that alert goes and looks at data that is fine.
+
+**Both halves are fixed.** `evaluateMonitor` has the `latest` value the runner measured, so it can
+tell the two cases apart and now does: a value that is present but unreadable says so and quotes it
+(truncated at 60 characters), and only a genuinely absent value keeps the old sentence. The form
+drops a column the new kind cannot offer, so the auto-pick fills a valid one — and the snap-back
+row from the queue goes with it, since the placeholder is now reachable only where it means
+something.
+
+The message half matters more than the form half: it covers monitors that already exist, rows
+edited by hand, and warehouse sources where the column types are not known. The form half only
+closes the door this particular monitor came through.
+
+**Proved in the UI both ways**, on one monitor across a rebuild. Pre-fix bundle: Null rate →
+`region` → switch to Freshness → the picker reads "Pick a column…" → Create → the monitor alerts
+with the sentence above. Fix deployed, the same monitor re-run: **"The newest value in this column
+is not a date or time: EMEA. Freshness needs a timestamp column."** Driving the same steps on the
+fixed build now clears `region` and fills `placed_at · DATE`. Seven mutants, seven caught, control
+survived.
+
+Left behind on purpose: the monitor **R238 freshness on a text column**, still alerting, as the
+evidence. It is deliberately broken and safe to delete.
+
 ### 2026-10-03 — R237: the gate was wrong every other run, and the instrument is what every round rests on
 
 **Severity: high, and not in the product.** `npm run check` failed roughly every other run with
@@ -148,6 +188,21 @@ five caught, control survived, including raising it back to the default and swit
 A gate that is wrong half the time is worse than a slow one. Every entry above this line is only as
 good as a green gate read from the shell, and the risk was never the lost minutes — it is the day
 someone re-runs a genuine failure until it passes.
+
+**Corrected the same day, two gates later.** "Fixed" was too strong. A later full run still timed
+one test out — `nl2sqlEval > count-rows` — so the change is a large improvement and not a cure:
+seven failures became zero, zero, zero and then one. The residual is worth stating precisely,
+because the next person will meet it: that file's 101 tests take **8 seconds in total** when run
+alone, about 70 ms each, so a test killed at 20 s was starved by roughly 285×. No per-test budget
+can tell that apart from a hang, which is exactly why the timeout must NOT be raised to cover it —
+`tests/unit/testRunnerParallelism.test.ts` holds that line deliberately, and it argued against me
+when I reached for it.
+
+The number that points at the rest of the problem is in the same run's summary: **`collect`
+207 s** against `tests` 431 s. A third of the suite's work is importing modules, repeatedly, in
+every fork. That is the next thing to measure — whether `isolate: false` is safe for a suite that
+mocks modules per file, or whether the heavy engine tests should share one fork — and it is on the
+queue rather than guessed at here.
 
 ### 2026-10-03 — Smoke of the real image after R234, R235 and R236
 

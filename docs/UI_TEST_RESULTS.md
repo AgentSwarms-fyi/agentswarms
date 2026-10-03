@@ -15,6 +15,27 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-03 — R238: a freshness check on a column that is not a timestamp
+
+One monitor, driven across a rebuild, so the two messages below come from the same row and the same
+data. Both runs used `agentswarms-share-agentswarms-1` with the round's `dist` swapped in.
+
+| Step | Pre-fix bundle | Fixed bundle |
+| --- | --- | --- |
+| New monitor → Lakehouse → `analytics.revenue_facts` → **Null rate** → column `region · VARCHAR` | accepted | accepted |
+| Switch the check to **Freshness** | the column picker reads **"Pick a column…"** while the form still holds `region` | `region` is dropped and **`placed_at · DATE`** is filled in — the form cannot build the broken monitor |
+| Create the monitor (pre-fix only) | created, and alerts at once | — |
+| What the alert says | **"The table has no rows, or the timestamp column is empty."** | after re-running the SAME monitor: **"The newest value in this column is not a date or time: EMEA. Freshness needs a timestamp column."** |
+
+What makes the first message wrong is on the same screen: three rows below, `revenue_facts · nulls
+in region` reads **"0% of region is null"** and `revenue_facts · volume` reads **"836 rows"**. The
+table is full and the column is full.
+
+**Fixture kept:** the monitor `R238 freshness on a text column` (lakehouse · `analytics.revenue_facts`,
+Freshness on `region`, hourly). It is deliberately broken and will keep alerting every hour, so it
+shows up in **Alerting** and **Open incidents** on the Data monitors page — delete it when it is no
+longer wanted.
+
 ## 2026-10-03 — Smoke of the real image after R234, R235 and R236
 
 Image `74b4c134725e`, built with `docker compose build agentswarms` from `5fd5f316` and started with

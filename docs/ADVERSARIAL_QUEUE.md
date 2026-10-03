@@ -329,8 +329,11 @@ least twice, not a hypothetical.
      the same array, so a dashboard re-rendering faster than a frame froze the race while
      claiming to play. Both now key on the frames themselves (`src/lib/racePlayback.ts`).
    - **Next, from the same survey:**
-     - Data monitors (`data-monitors.tsx:624`): choosing "Pick a column…" snaps back to the first
-       timestamp column. Minor.
+     - **R238: data monitors.** The snap-back was real and cosmetic. Beside it: switching the
+       monitor KIND kept a column the new kind cannot use, the picker then displayed "Pick a
+       column…" while holding it, the save was accepted, and the run blamed the data — "The table
+       has no rows" about a table with 836 rows. Both fixed; `evaluateMonitor` now distinguishes an
+       absent value from an unreadable one. **This closes the sweep-6 survey list.**
 
 7. **A failed read that fails open** (sweep 7, from 2026-10-02). A Supabase read that keeps
    `data` and drops `error` sees a failed read as "no row" or "no rows": about 300 single-row
@@ -370,9 +373,16 @@ least twice, not a hypothetical.
      target and ML to the gateway — the bundler had already dropped it from `dist`, and the only
      two references left were tests that called it themselves. `duckdbExtensions` now pins the
      absence of an attach across every generated program instead.
-   - **R237: the flaky gate. Fixed.** It was contention, not any one test: `maxForks` is now half
-     the cores (`vitest.config.ts`), which measured **green and a third faster** than vitest's
-     default — 220 s and 208 s passing against 326 s with seven failures. Two earlier write-ups of
+   - **R237: the flaky gate. Much better, NOT cured.** It was contention, not any one test:
+     `maxForks` is now half the cores (`vitest.config.ts`), which measured **green and a third
+     faster** than vitest's default — 220 s and 208 s passing against 326 s with seven failures.
+     Two gates later one test still timed out (`nl2sqlEval > count-rows`), so the score for the day
+     is seven failures → 0, 0, 0, 1. **What to do next, with the evidence already gathered:** that
+     file's 101 tests take 8 s in total alone (~70 ms each), so a 20 s kill is ~285× starvation and
+     raising the timeout would hide it, not fix it — the ratchet test forbids that on purpose. The
+     lead is `collect 207 s` against `tests 431 s` in the same run: a third of the work is importing
+     modules again in every fork. Measure whether `isolate: false` is safe for a suite that mocks
+     modules per file, or group the heavy engine tests onto one fork. Two earlier write-ups of
      this item, both in this file, blamed the wrong thing; the entry below is kept as written so
      the next person can see what a plausible-but-unrefuted explanation looks like.
      `tests/unit/testRunnerParallelism.test.ts` holds the cap.

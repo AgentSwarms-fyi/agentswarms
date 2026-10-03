@@ -219,6 +219,24 @@ export function evaluateMonitor(args: {
   switch (kind) {
     case "freshness": {
       if (args.value === null) {
+        // FOUND IN R238. The age is null for two different reasons and this
+        // reported both as the first: the column held no value, or it held one
+        // that is not a time. The runner hands us `latest`, so they are
+        // distinguishable — and the difference is the whole of what the reader
+        // should do next. Told "the table has no rows", an operator goes and
+        // looks at a table that is full, and the monitor they built on the
+        // wrong column keeps alerting.
+        const latest = args.latest ?? null;
+        if (latest !== null && latest.trim() !== "") {
+          const shown = latest.length > 60 ? `${latest.slice(0, 60)}…` : latest;
+          return {
+            status: "alert",
+            message:
+              `The newest value in this column is not a date or time: ${shown}. ` +
+              "Freshness needs a timestamp column.",
+            detail: { latest },
+          };
+        }
         return {
           status: "alert",
           message: "The table has no rows, or the timestamp column is empty.",
