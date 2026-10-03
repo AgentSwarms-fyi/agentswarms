@@ -109,6 +109,46 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-03 — R237: the gate was wrong every other run, and the instrument is what every round rests on
+
+**Severity: high, and not in the product.** `npm run check` failed roughly every other run with
+**"Test timed out in 20000ms"** — always a timeout, never an assertion — and the file passed in a
+couple of seconds when run alone. It cost four re-runs in one day.
+
+**Twice I wrote this up wrong, and both wrong versions are the finding.** First as "those two heavy
+test files compete for the pool", naming `aiAnalyst` and `sheetsSamples`. The next failure was
+`docsFactCheck`, which only reads source files and has never been slow — so it was not those two
+files. Then as "it only happens when something heavy runs beside it", which my own notes had said
+for weeks. So the run was repeated with **nothing else running at all**, and it still failed: seven
+tests across four files, `nl2sqlEval` among them, which had never failed before. Both explanations
+had survived because nobody had run the cheap experiment that could refute them.
+
+**Measured** on 8 cores with ~6 GB free, nothing else running:
+
+| forks | wall time | result |
+| --- | --- | --- |
+| default (7 = cores − 1) | 326 s | **7 failures** across 4 files |
+| 4 | 220 s | 576 files, 9,181 tests, all pass |
+| 4 (repeat) | 208 s | all pass |
+
+Halving the parallelism made the suite **green and a third faster**. That is the part worth
+remembering: this was never a speed-for-determinism trade. Each fork carries its own module graph;
+three files (`catalogGzipDataset` 48 s, `etlSqlStep` 42 s, `etlEmptyTick` 41 s) hold workers for
+most of a minute while everything queues behind them; and the contention that creates costs more
+than the extra workers win. The 20-second per-test timeout was never the problem — it was the
+messenger — so it stays.
+
+**Fixed** in `vitest.config.ts`: `maxForks` is half the cores, floored at one, which on a two-core
+CI runner is 1 — the same as vitest's default there, never more. The numbers above are in the
+comment, because the obvious optimisation is to raise it and the measurement says that makes the
+suite slower and wrong. `tests/unit/testRunnerParallelism.test.ts` is the ratchet; five mutants,
+five caught, control survived, including raising it back to the default and switching the pool
+(which silently drops the cap).
+
+A gate that is wrong half the time is worse than a slow one. Every entry above this line is only as
+good as a green gate read from the shell, and the risk was never the lost minutes — it is the day
+someone re-runs a genuine failure until it passes.
+
 ### 2026-10-03 — Smoke of the real image after R234, R235 and R236
 
 No new defect in what was driven. Image `74b4c134725e`, built from `5fd5f316` and started as a real

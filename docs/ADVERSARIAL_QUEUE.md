@@ -370,7 +370,13 @@ least twice, not a hypothetical.
      target and ML to the gateway — the bundler had already dropped it from `dist`, and the only
      two references left were tests that called it themselves. `duckdbExtensions` now pins the
      absence of an attach across every generated program instead.
-   - **The gate itself is flaky, and the gate is the instrument.** Roughly every other full
+   - **R237: the flaky gate. Fixed.** It was contention, not any one test: `maxForks` is now half
+     the cores (`vitest.config.ts`), which measured **green and a third faster** than vitest's
+     default — 220 s and 208 s passing against 326 s with seven failures. Two earlier write-ups of
+     this item, both in this file, blamed the wrong thing; the entry below is kept as written so
+     the next person can see what a plausible-but-unrefuted explanation looks like.
+     `tests/unit/testRunnerParallelism.test.ts` holds the cap.
+   - ~~**The gate itself is flaky, and the gate is the instrument.**~~ Roughly every other full
      `npm run check` fails with **"Test timed out in 20000ms"** — a timeout, never an assertion —
      and the file passes in a couple of seconds when run alone. Four re-runs on 2026-10-03 alone.
      It is **not one fixed set of files**: that day it hit `aiAnalyst` ("produces a real
