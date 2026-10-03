@@ -2,24 +2,42 @@ import { Outlet, Link, createRootRoute, HeadContent, Scripts } from "@tanstack/r
 import { Toaster } from "@/components/ui/sonner";
 import { ConfirmHost } from "@/components/ui/confirm-dialog";
 import { ThemeProvider } from "@/hooks/use-theme";
+import { LayoutPrefsProvider } from "@/hooks/use-layout-prefs";
 import { CookieConsent } from "@/components/CookieConsent";
 import { SchemaHealthGuard } from "@/components/SchemaHealthGuard";
 
-// Runs before React hydrates — sets the theme class from localStorage so the
-// page never flashes the wrong one. Falls back to the app default, which is
-// now "native" (dark chrome, light workspace).
+// Runs before React hydrates — sets the theme class (and accent color, if
+// one is set) from localStorage so the page never flashes the wrong one.
+// Falls back to the app default, which is "native" (dark chrome, light
+// workspace) with no accent override (this app's built-in teal).
 //
-// Kept in sync BY HAND with applyTheme/readInitialTheme in hooks/use-theme:
-// this has to be a string that runs before any bundle loads, so it cannot
-// import them. If the theme list changes, change it here too.
+// Kept in sync BY HAND with applyTheme/applyAccent/readInitialTheme in
+// hooks/use-theme.tsx, ACCENTS included: this has to be a string that runs
+// before any bundle loads, so it cannot import them. If either list changes,
+// change it here too.
 const themeBootScript = `
 (function(){try{
   var t = localStorage.getItem('agentswarms.theme.v2');
+  if (t === 'system') {
+    t = (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+  }
   var d = document.documentElement;
   d.classList.remove('dark','native');
   if (t === 'light') { d.style.colorScheme='light'; }
   else if (t === 'dark') { d.classList.add('dark'); d.style.colorScheme='dark'; }
   else { d.classList.add('native'); d.style.colorScheme='light'; }
+  var a = localStorage.getItem('agentswarms.accent.v1');
+  var accents = {
+    teal: { light: 'oklch(0.52 0.12 205)', dark: 'oklch(0.72 0.13 195)' },
+    blue: { light: 'oklch(0.52 0.12 250)', dark: 'oklch(0.72 0.13 250)' },
+    purple: { light: 'oklch(0.52 0.12 300)', dark: 'oklch(0.72 0.13 300)' },
+    rose: { light: 'oklch(0.55 0.15 20)', dark: 'oklch(0.72 0.13 20)' },
+    amber: { light: 'oklch(0.55 0.14 70)', dark: 'oklch(0.75 0.13 75)' },
+    green: { light: 'oklch(0.52 0.12 145)', dark: 'oklch(0.72 0.13 145)' }
+  };
+  if (a && accents[a]) {
+    d.style.setProperty('--primary', t === 'dark' ? accents[a].dark : accents[a].light);
+  }
 }catch(e){}})();
 `;
 // AgentSwarms - Educational Agentic AI Platform
@@ -177,13 +195,15 @@ function RootShell({ children }: { children: React.ReactNode }) {
 function RootComponent() {
   return (
     <ThemeProvider>
-      <Outlet />
-      <Toaster />
-      {/* Mounted beside the Toaster and for the same reason: asking the user
-          something must not depend on a browser dialog they can switch off. */}
-      <ConfirmHost />
-      <CookieConsent />
-      <SchemaHealthGuard />
+      <LayoutPrefsProvider>
+        <Outlet />
+        <Toaster />
+        {/* Mounted beside the Toaster and for the same reason: asking the user
+            something must not depend on a browser dialog they can switch off. */}
+        <ConfirmHost />
+        <CookieConsent />
+        <SchemaHealthGuard />
+      </LayoutPrefsProvider>
     </ThemeProvider>
   );
 }

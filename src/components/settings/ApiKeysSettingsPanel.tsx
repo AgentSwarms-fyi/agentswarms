@@ -1,0 +1,427 @@
+// A global view over swarm_api_keys — real backend, not mocked. The table
+// itself already exists (supabase/migrations/20260725000000_swarm_deploy.sql)
+// and is per-swarm; SwarmDeployDialog.tsx manages one swarm's keys at a time
+// from inside that swarm's own canvas. This panel lists every key across
+// every swarm the user owns in one place, using the same createSwarmApiKey
+// server function (raw key + webhook secret shown once, hash-only storage)
+// and the same direct-delete revoke RLS already authorizes.
+import { useCallback, useEffect, useState } from "react";
+import { Link } from "@tanstack/react-router";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/use-auth";
+import { createSwarmApiKey } from "@/utils/swarmDeploy.functions";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { KeyRound, Copy, Check, Plus, Trash2, ArrowRight, Cloud } from "lucide-react";
+import { toast } from "sonner";
+
+type ApiKeyRow = {
+  id: string;
+  swarm_id: string;
+  name: string;
+  key_prefix: string;
+  is_active: boolean;
+  last_used_at: string | null;
+  created_at: string;
+  expires_at: string | null;
+};
+
+type SwarmOption = { id: string; name: string };
+
+const EXPIRY_PRESETS: { label: string; days: number }[] = [
+  { label: "30 days", days: 30 },
+  { label: "90 days", days: 90 },
+  { label: "1 year", days: 365 },
+  { label: "Never expires", days: 0 },
+];
+
+function keyExpiryLabel(k: ApiKeyRow): { label: string; expired: boolean } {
+  if (!k.expires_at) return { label: "Never", expired: false };
+  const ms = Date.parse(k.expires_at) - Date.now();
+  if (ms <= 0) return { label: "Expired", expired: true };
+  return { label: `${Math.ceil(ms / 86_400_000)}d left`, expired: false };
+}
+
+function CopyField({ value, label }: { value: string; label: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="space-y-1">
+      <Label className="text-xs">{label}</Label>
+      <div className="flex items-center gap-2">
+        <code className="min-w-0 flex-1 truncate rounded-md border border-border bg-muted/40 px-2 py-1.5 font-mono text-xs">
+          {value}
+        </code>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="h-8 shrink-0 text-xs"
+          onClick={async () => {
+            try {
+              await navigator.clipboard.writeText(value);
+              setCopied(true);
+              toast.success("Copied to clipboard");
+              setTimeout(() => setCopied(false), 1500);
+            } catch {
+              toast.error("Couldn't copy — select and copy manually.");
+            }
+          }}
+        >
+          {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+export function ApiKeysSettingsPanel() {
+  const { user } = useAuth();
+  const [keys, setKeys] = useState<ApiKeyRow[]>([]);
+  const [swarms, setSwarms] = useState<SwarmOption[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const [createOpen, setCreateOpen] = useState(false);
+  const [targetSwarmId, setTargetSwarmId] = useState<string>("");
+  const [keyName, setKeyName] = useState("Production key");
+  const [expiryDays, setExpiryDays] = useState(90);
+  const [creating, setCreating] = useState(false);
+  const [justCreated, setJustCreated] = useState<{
+    raw_key: string;
+    webhook_secret: string | null;
+  } | null>(null);
+
+  const load = useCallback(async () => {
+    if (!user) return;
+    setLoading(true);
+    setLoadError(null);
+    const [swarmsRes, keysRes] = await Promise.all([
+      supabase.from("swarms").select("id, name").order("name", { ascending: true }),
+      supabase
+        .from("swarm_api_keys")
+        .select("id, swarm_id, name, key_prefix, is_active, last_used_at, created_at, expires_at")
+        .order("created_at", { ascending: false }),
+    ]);
+    if (swarmsRes.error || keysRes.error) {
+      setLoadError(swarmsRes.error?.message ?? keysRes.error?.message ?? "Could not load API keys");
+      setLoading(false);
+      return;
+    }
+    setSwarms((swarmsRes.data ?? []) as SwarmOption[]);
+    setKeys((keysRes.data ?? []) as ApiKeyRow[]);
+    if (!targetSwarmId && swarmsRes.data?.[0]) setTargetSwarmId(swarmsRes.data[0].id);
+    setLoading(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const swarmName = (id: string) => swarms.find((s) => s.id === id)?.name ?? "Unknown swarm";
+
+  const handleCreate = async () => {
+    if (!targetSwarmId) {
+      toast.error("Pick a swarm for this key first");
+      return;
+    }
+    setCreating(true);
+    try {
+      const { data: sess } = await supabase.auth.getSession();
+      const token = sess.session?.access_token;
+      if (!token) throw new Error("Not signed in");
+      const res = await createSwarmApiKey({
+        data: {
+          access_token: token,
+          swarm_id: targetSwarmId,
+          name: keyName.trim() || "API key",
+          expires_in_days: expiryDays > 0 ? expiryDays : null,
+        },
+      });
+      if (!res.ok) throw new Error(res.error);
+      setJustCreated({ raw_key: res.raw_key, webhook_secret: res.webhook_secret });
+      setKeyName("Production key");
+      await load();
+      toast.success("API key created — copy it now, it won't be shown again.");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not create key");
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const revokeKey = async (id: string) => {
+    const { error } = await supabase.from("swarm_api_keys").delete().eq("id", id);
+    if (error) return toast.error("Could not revoke key");
+    setKeys((prev) => prev.filter((k) => k.id !== id));
+    toast.success("Key revoked");
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="space-y-3">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h3 className="flex items-center gap-2 text-sm font-medium text-foreground">
+              <KeyRound className="h-4 w-4 text-primary" /> AgentSwarms API keys
+            </h3>
+            <p className="text-xs text-muted-foreground">
+              Run a swarm headlessly via <code className="font-mono">POST /api/swarm/run</code>.
+              Every key belongs to one swarm — pick which one when you create it.
+            </p>
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            className="shrink-0 gap-1.5"
+            onClick={() => {
+              setJustCreated(null);
+              setCreateOpen(true);
+            }}
+            disabled={swarms.length === 0}
+          >
+            <Plus className="h-3.5 w-3.5" /> Generate key
+          </Button>
+        </div>
+
+        {loading ? (
+          <div className="space-y-2">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </div>
+        ) : loadError ? (
+          <p className="text-xs text-destructive">{loadError}</p>
+        ) : keys.length === 0 ? (
+          <p className="rounded-lg border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
+            {swarms.length === 0
+              ? "Create a swarm first — a key deploys one specific swarm."
+              : "No API keys yet."}
+          </p>
+        ) : (
+          <div className="overflow-x-auto rounded-lg border border-border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Swarm</TableHead>
+                  <TableHead>Key</TableHead>
+                  <TableHead>Expires</TableHead>
+                  <TableHead>Last used</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {keys.map((k) => {
+                  const exp = keyExpiryLabel(k);
+                  return (
+                    <TableRow key={k.id}>
+                      <TableCell className="text-sm font-medium">{k.name}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        {swarmName(k.swarm_id)}
+                      </TableCell>
+                      <TableCell>
+                        <code className="font-mono text-xs text-muted-foreground">
+                          {k.key_prefix}
+                        </code>
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant={exp.expired ? "destructive" : "outline"}
+                          className="text-[10px]"
+                        >
+                          {exp.label}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        {k.last_used_at ? new Date(k.last_used_at).toLocaleDateString() : "Never"}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 text-xs text-destructive hover:text-destructive"
+                            >
+                              <Trash2 className="mr-1 h-3.5 w-3.5" /> Revoke
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Revoke "{k.name}"?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Anything still using this key will start failing immediately. This
+                                cannot be undone.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogAction
+                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                onClick={() => void revokeKey(k.id)}
+                              >
+                                Revoke
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+
+        {createOpen && (
+          <div className="space-y-3 rounded-lg border border-primary/30 bg-primary/5 p-4">
+            {justCreated ? (
+              <div className="space-y-3">
+                <p className="text-xs font-medium text-foreground">
+                  Copy this now — it won't be shown again.
+                </p>
+                <CopyField value={justCreated.raw_key} label="API key" />
+                {justCreated.webhook_secret && (
+                  <CopyField value={justCreated.webhook_secret} label="Webhook signing secret" />
+                )}
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setCreateOpen(false);
+                    setJustCreated(null);
+                  }}
+                >
+                  Done
+                </Button>
+              </div>
+            ) : (
+              <>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Swarm</Label>
+                    <Select value={targetSwarmId} onValueChange={setTargetSwarmId}>
+                      <SelectTrigger className="h-9">
+                        <SelectValue placeholder="Pick a swarm" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {swarms.map((s) => (
+                          <SelectItem key={s.id} value={s.id}>
+                            {s.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Name</Label>
+                    <Input
+                      className="h-9"
+                      value={keyName}
+                      onChange={(e) => setKeyName(e.target.value)}
+                      placeholder="Production key"
+                    />
+                  </div>
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <Label className="text-xs">Expires</Label>
+                    <Select
+                      value={String(expiryDays)}
+                      onValueChange={(v) => setExpiryDays(Number(v))}
+                    >
+                      <SelectTrigger className="h-9">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {EXPIRY_PRESETS.map((p) => (
+                          <SelectItem key={p.days} value={String(p.days)}>
+                            {p.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setCreateOpen(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => void handleCreate()}
+                    disabled={creating}
+                  >
+                    {creating ? "Creating…" : "Create key"}
+                  </Button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+        <p className="text-[11px] text-muted-foreground">
+          Approval nodes auto-reject by default on headless runs, and every schedule/rotation option
+          lives in that swarm's own Deploy dialog —{" "}
+          <Link to="/swarms" className="text-primary hover:underline">
+            open a swarm's canvas <ArrowRight className="inline h-3 w-3" />
+          </Link>
+        </p>
+      </div>
+
+      <Separator />
+
+      <div className="rounded-lg border border-border bg-muted/30 p-4">
+        <h3 className="flex items-center gap-2 text-sm font-medium text-foreground">
+          <Cloud className="h-4 w-4 text-primary" /> LLM provider keys
+        </h3>
+        <p className="mt-1 text-xs text-muted-foreground">
+          OpenAI, Anthropic, Gemini and other model provider credentials are managed separately,
+          with per-provider connection status and testing.
+        </p>
+        <Link
+          to="/integrations"
+          className="mt-2 inline-flex items-center gap-1 text-xs text-primary hover:underline"
+        >
+          Manage provider connections <ArrowRight className="h-3 w-3" />
+        </Link>
+      </div>
+    </div>
+  );
+}

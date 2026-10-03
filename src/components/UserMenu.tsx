@@ -1,13 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import {
-  LayoutDashboard,
-  LogOut,
-  PanelLeftClose,
-  PanelLeftOpen,
-  Settings,
-  User as UserIcon,
-} from "lucide-react";
+import { LayoutDashboard, LogOut, Settings, User as UserIcon } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -18,7 +11,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useAuth } from "@/hooks/use-auth";
-import { useSidebar } from "@/components/ui/sidebar";
 import { supabase } from "@/integrations/supabase/client";
 
 type ProfileLite = {
@@ -28,8 +20,6 @@ type ProfileLite = {
 
 export function UserMenu() {
   const { user, signOut } = useAuth();
-  const { state, toggleSidebar } = useSidebar();
-  const sidebarExpanded = state === "expanded";
   const [profile, setProfile] = useState<ProfileLite | null>(null);
 
   useEffect(() => {
@@ -82,22 +72,9 @@ export function UserMenu() {
           </Link>
         </DropdownMenuItem>
         <DropdownMenuItem asChild>
-          <Link to="/account" className="flex items-center gap-2">
-            <Settings className="h-4 w-4" /> Account settings
+          <Link to="/settings" className="flex items-center gap-2">
+            <Settings className="h-4 w-4" /> Settings
           </Link>
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem
-          onClick={toggleSidebar}
-          aria-label={sidebarExpanded ? "Hide sidebar" : "Show sidebar"}
-          className="flex items-center gap-2"
-        >
-          {sidebarExpanded ? (
-            <PanelLeftClose className="h-4 w-4" />
-          ) : (
-            <PanelLeftOpen className="h-4 w-4" />
-          )}
-          {sidebarExpanded ? "Hide Sidebar" : "Show Sidebar"}
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem
