@@ -167,14 +167,60 @@ describe("semanticPoliciesFor, when a read fails", () => {
 describe("the enforcement surfaces read grants one way", () => {
   const DIRECT = readFileSync("src/routes/api/bi.direct-query.ts", "utf8");
   const POLICY = readFileSync("src/utils/semantic/policy.server.ts", "utf8");
+  // R239 brought the last two onto it, so "four private copies" is now one.
+  const BIFN = readFileSync("src/utils/bi.functions.ts", "utf8");
+  const SHARED = readFileSync("src/utils/data/sharedDatasets.server.ts", "utf8");
 
   it.each([
     ["src/routes/api/bi.direct-query.ts", DIRECT],
     ["src/utils/semantic/policy.server.ts", POLICY],
+    ["src/utils/bi.functions.ts", BIFN],
+    ["src/utils/data/sharedDatasets.server.ts", SHARED],
   ])("%s reads no membership list of its own", (_name, src) => {
+    // The membership read is the precise marker: a viewer's groups are only
+    // ever needed to decide which grants apply to them, so a surface that
+    // reads them is deciding access with a copy of the rule.
     expect(src).toContain("readApplicableGrants(");
     expect(src).not.toMatch(/from\("iam_group_members"\)/);
+  });
+
+  it.each([
+    ["src/routes/api/bi.direct-query.ts", DIRECT],
+    ["src/utils/semantic/policy.server.ts", POLICY],
+    ["src/utils/data/sharedDatasets.server.ts", SHARED],
+  ])("%s does not read the grants table either", (_name, src) => {
+    // bi.functions is exempt and stays out of this list on purpose: it is the
+    // owner's SHARING surface, so it lists, inserts and deletes grants. What
+    // it must not do is decide a VIEWER's access with its own copy, which the
+    // membership check above and the refusal test below pin.
     expect(src).not.toMatch(/from\("iam_resource_grants"\)/);
+  });
+
+  it("the dashboard read says what could not be read, not that it is unshared", () => {
+    // R239: the membership read beside the guarded grants read was unguarded,
+    // so a failure of it produced no applicable grant and answered "This
+    // dashboard is not shared with you" — a definite sentence about a question
+    // that was never asked. The reader acts on it by asking for access they
+    // already have.
+    const at = BIFN.indexOf('readApplicableGrants(supabaseAdmin, userId, "bi_dashboard"');
+    expect(at, "bi.functions must go through the shared reader").toBeGreaterThan(-1);
+    const around = BIFN.slice(at, at + 700);
+    expect(around).toMatch(/\} catch \([^)]*\) \{\s*return \{\s*ok: false,/);
+    expect(around).toMatch(/could not read your access/i);
+    // And the "not shared" sentence survives only for a read that SUCCEEDED
+    // and found nothing.
+    const unshared = BIFN.indexOf("This dashboard is not shared with you");
+    expect(unshared).toBeGreaterThan(at);
+  });
+
+  it("a shared dataset re-raises a failed grant read instead of showing an empty table", () => {
+    // An empty dataset is the same screen as "nothing was shared with me".
+    const at = SHARED.indexOf("} catch (e) {");
+    const tail = SHARED.slice(at, at + 900);
+    expect(tail).toMatch(/could not read access grants/i);
+    expect(tail).toContain("throw e;");
+    // The fail-closed default is still there for anything unnamed.
+    expect(tail).toContain("return { columns: [], rows: [] };");
   });
 
   it("direct query refuses with a 503 rather than running unrestricted", () => {

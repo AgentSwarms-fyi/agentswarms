@@ -23,7 +23,7 @@ import {
   sanitizePublicWidgets,
   type WidgetResultRow,
 } from "@/lib/biDashboards";
-import { isModelAllowed } from "@/utils/iam.server";
+import { isModelAllowed, readApplicableGrants } from "@/utils/iam.server";
 import { parseModelChoice } from "@/utils/providers/modelChoice";
 import type { Json } from "@/integrations/supabase/types";
 
@@ -352,22 +352,25 @@ export const biGetSharedWidgetResults = createServerFn({ method: "POST" })
         let mask: string[] = [];
         if (dash.user_id !== userId) {
           // Grants that apply to this caller: their own, plus their groups'.
-          const { data: memberships } = await supabaseAdmin
-            .from("iam_group_members")
-            .select("group_id")
-            .eq("user_id", userId);
-          const groupIds = (memberships ?? []).map((m) => m.group_id);
-          const { data: grants, error: gErr } = await supabaseAdmin
-            .from("iam_resource_grants")
-            .select("principal_type, principal_id, row_filter, column_mask")
-            .eq("resource_type", "bi_dashboard")
-            .eq("resource_id", data.dashboard_id);
-          if (gErr) return { ok: false, error: gErr.message };
-          const applicable = (grants ?? []).filter(
-            (g) =>
-              (g.principal_type === "user" && g.principal_id === userId) ||
-              (g.principal_type === "group" && groupIds.includes(g.principal_id)),
-          );
+          //
+          // R239: the grants read here was already guarded, but the membership
+          // read beside it was not, so a failure of THAT one produced no
+          // applicable grant and answered "This dashboard is not shared with
+          // you" — a definite sentence about a question that was never asked.
+          // The reader acts on it by going to ask for access they already have.
+          let applicable;
+          try {
+            applicable = await readApplicableGrants(supabaseAdmin, userId, "bi_dashboard", [
+              data.dashboard_id,
+            ]);
+          } catch (e) {
+            return {
+              ok: false,
+              error: `Could not read your access to this dashboard, so it was not opened: ${
+                e instanceof Error ? e.message : String(e)
+              }`,
+            };
+          }
           if (applicable.length === 0) {
             return { ok: false, error: "This dashboard is not shared with you" };
           }

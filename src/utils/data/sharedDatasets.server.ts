@@ -50,20 +50,16 @@ export async function restrictSharedDataset(
   try {
     const { applyRowFilters, intersectColumnMasks, mergeGrantRowFilters } =
       await import("@/lib/biDashboards");
-    const [{ data: memberships }, { data: grants }] = await Promise.all([
-      sb.from("iam_group_members").select("group_id").eq("user_id", viewerId),
-      sb
-        .from("iam_resource_grants")
-        .select("principal_type, principal_id, row_filter, column_mask")
-        .eq("resource_type", "data_table")
-        .eq("resource_id", tableId),
-    ]);
-    const groups = new Set((memberships ?? []).map((m) => m.group_id));
-    let mine = (grants ?? []).filter(
-      (g) =>
-        (g.principal_type === "user" && g.principal_id === viewerId) ||
-        (g.principal_type === "group" && groups.has(g.principal_id)),
-    );
+    // R239: the fourth and last private copy of this pair of reads. Both of
+    // them dropped their errors here, and the catch below turns anything
+    // thrown into an EMPTY DATASET — so a blip on either read showed the
+    // viewer a table with no rows, which is the same screen they would see if
+    // the owner had shared nothing. Nothing was exposed, but "there is nothing
+    // here" and "nothing could be read" are different sentences, and only one
+    // of them is true. The reader is the only one who can tell them apart, and
+    // only if we say which.
+    const { readApplicableGrants } = await import("@/utils/iam.server");
+    let mine = await readApplicableGrants(sb, viewerId, "data_table", [tableId]);
     if (mine.length === 0) return { columns: [], rows: [] };
 
     // {{user.<key>}} tokens resolve to THIS viewer's attribute values before
@@ -100,10 +96,15 @@ export async function restrictSharedDataset(
       }),
     };
   } catch (e) {
-    // The attribute refusal carries an instruction ("ask an admin to set your
-    // region") and must reach the viewer; everything else fails closed to an
-    // empty dataset as before.
+    // Two kinds of error must reach the viewer rather than become an empty
+    // table. The attribute refusal carries an instruction ("ask an admin to
+    // set your region"). A failed GRANT READ (R239) carries the only thing
+    // that distinguishes an empty dataset from an unanswered question — shown
+    // as emptiness it reads as "the owner shared nothing with me", which is a
+    // claim this code is in no position to make. Everything else still fails
+    // closed, because a grant we could not apply must not be skipped.
     if (e instanceof Error && e.name === "AttributeRefusalError") throw e;
+    if (e instanceof Error && /could not read access grants/i.test(e.message)) throw e;
     return { columns: [], rows: [] };
   }
 }

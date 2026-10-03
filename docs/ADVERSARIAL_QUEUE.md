@@ -417,11 +417,13 @@ least twice, not a hypothetical.
        restriction granted to a GROUP vanished. Both now go through `readApplicableGrants`
        (`utils/iam.server.ts`), which throws if either read fails. The grantee-side UI proof waits
        on a second account, as R225's does.
-     - **The same two reads, failing CLOSED, in two more places:** `bi.functions` answers "This
-       dashboard is not shared with you" and `sharedDatasets.server` answers an empty dataset when
-       the membership read fails. Nothing is exposed, so this is a message problem, not a hole —
-       but "not shared with you" is a sentence a failed read cannot support. Move both onto
-       `readApplicableGrants` so all four copies are one.
+     - **R239: the same two reads in the last two places. Done.** `bi.functions` answered "This
+       dashboard is not shared with you" and `sharedDatasets.server` answered an empty dataset —
+       the same screen as "nothing was shared with me" — when the membership read failed. Both now
+       go through `readApplicableGrants`, so all four copies of the rule are one function.
+       `bi.functions` keeps "not shared with you" only for a read that succeeded and found nothing;
+       `restrictSharedDataset` re-raises a failed grant read past its fail-closed catch, and still
+       swallows anything it cannot name. The grantee-side UI proof waits on a second account.
      - **R236: superadmin protection.** Fixed. SCIM's `assertNotProtected` and Admin → IAM's ban
        and delete each read the superadmin role themselves and dropped the error, so a blip
        answered "not protected" and the account was deactivated, banned or deleted —

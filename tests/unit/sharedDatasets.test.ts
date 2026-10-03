@@ -32,15 +32,22 @@ type Grant = {
 };
 
 /**
- * A Supabase stand-in shaped like the calls the module makes:
+ * A Supabase stand-in shaped like the calls the module makes, which since R239
+ * go through readApplicableGrants:
  *   from("iam_group_members").select(...).eq(...)
- *   from("iam_resource_grants").select(...).eq(...).eq(...)
+ *   from("iam_resource_grants").select(...).eq(...).in(...)
  * Each link is chainable AND awaitable, because the real builder is.
+ *
+ * `failOn` is a read that REPORTS a failure, the way PostgREST does — an
+ * `error` on the result. `throwOn` is something unexpected blowing up inside
+ * the call. R239 made those two different: the first reaches the viewer, the
+ * second still fails closed.
  */
 function fakeDb(opts: {
   groups?: string[];
   grants?: Grant[];
   throwOn?: "iam_group_members" | "iam_resource_grants";
+  failOn?: "iam_group_members" | "iam_resource_grants";
 }) {
   return {
     from(table: string) {
@@ -51,10 +58,14 @@ function fakeDb(opts: {
         table === "iam_group_members"
           ? (opts.groups ?? []).map((g) => ({ group_id: g }))
           : (opts.grants ?? []);
-      const result = { data, error: null };
+      const result =
+        opts.failOn === table
+          ? { data: null, error: { message: "connection reset" } }
+          : { data, error: null };
       const chain = {
         select: () => chain,
         eq: () => chain,
+        in: () => chain,
         then: (resolve: (v: typeof result) => unknown) => Promise.resolve(result).then(resolve),
       };
       return chain;
@@ -86,14 +97,30 @@ describe("restrictSharedDataset — failing closed", () => {
     expect(out).toEqual({ columns: [], rows: [] });
   });
 
-  it("returns NOTHING when the grants lookup fails", async () => {
-    // An access decision must never default to "allow" because a query broke.
-    const out = await run(fakeDb({ throwOn: "iam_resource_grants" }));
-    expect(out).toEqual({ columns: [], rows: [] });
+  it("TELLS THE CALLER when the grants read fails, instead of showing an empty table", async () => {
+    // R239. An access decision must never default to "allow" because a query
+    // broke — and it must not default to "there is nothing here" either. An
+    // empty dataset is the same screen a viewer sees when nothing was shared
+    // with them, so answering a failed read that way states something this
+    // code cannot know. The caller surfaces the error; the attribute refusal
+    // has reached the viewer the same way since it was added.
+    await expect(run(fakeDb({ failOn: "iam_resource_grants" }))).rejects.toThrow(
+      /could not read access grants/i,
+    );
   });
 
-  it("returns NOTHING when the membership lookup fails", async () => {
-    const out = await run(fakeDb({ throwOn: "iam_group_members" }));
+  it("tells the caller when the MEMBERSHIP read fails too", async () => {
+    // The half that was unguarded before R235: a grant to a group applies only
+    // when the membership list can be read.
+    await expect(run(fakeDb({ failOn: "iam_group_members" }))).rejects.toThrow(
+      /could not read access grants/i,
+    );
+  });
+
+  it("still fails closed when something unexpected blows up", async () => {
+    // The rule that has not changed: an error we cannot name is not a reason
+    // to show rows. Only a read that REPORTED its failure is re-raised.
+    const out = await run(fakeDb({ throwOn: "iam_resource_grants" }));
     expect(out).toEqual({ columns: [], rows: [] });
   });
 

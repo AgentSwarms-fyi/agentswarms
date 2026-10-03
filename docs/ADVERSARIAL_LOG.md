@@ -109,6 +109,48 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-03 — R239: the last two copies of the access rule, and an empty table that meant nothing of the kind
+
+**Severity: low for exposure, moderate for truthfulness.** R235 fixed the two copies of the
+grant-reading pair that failed OPEN and recorded the other two as failing closed — "so this is a
+message problem, not a hole". This is that message problem, and folding all four onto one reader.
+
+**`bi.functions`** guarded its grants read and not the membership read beside it. A failure of that
+one produced no applicable grant, which the code answered with **"This dashboard is not shared with
+you"** — a definite sentence about a question that was never asked. A viewer reading it goes and
+asks for access they already have, and the owner finds nothing wrong.
+
+**`sharedDatasets.server`** dropped both errors, and its catch turns anything thrown into
+`{ columns: [], rows: [] }`. So a blip showed the viewer a table with **no rows** — pixel-identical
+to the screen they would see if the owner had shared nothing with them. Nothing was exposed. But
+"there is nothing here" and "nothing could be read" are different sentences, and the reader is the
+only one who can act on the difference.
+
+Both now call `readApplicableGrants`, so the rule the enforcement file warned about — *"Four private
+copies of one access rule is what let the snapshot path fail open for months"* — is one function.
+`bi.functions` returns `ok: false` naming what could not be read, and keeps "not shared with you"
+for a read that **succeeded** and found nothing. `restrictSharedDataset` re-raises a failed grant
+read past its fail-closed catch, exactly as the attribute refusal has been re-raised since it was
+added, and still swallows anything it cannot name: an error with no name is not a reason to show
+rows.
+
+The ratchet distinguishes the two things a file can do with these tables. No enforcement surface may
+read `iam_group_members` — a viewer's groups are only ever needed to decide what applies to them, so
+reading them is deciding access with a copy of the rule. `bi.functions` is deliberately exempt from
+the stricter half: it is the owner's sharing surface and legitimately lists, inserts and deletes
+grants. What it must not do is judge a viewer with its own copy.
+
+Six mutants, six caught, control survived. The ones worth keeping: a re-raise whose pattern matches
+nothing (so it never fires), and dropping the fail-closed default for unnamed errors.
+
+Two of the existing `sharedDatasets` tests asserted the OLD contract — "returns NOTHING when the
+grants lookup fails" — and were rewritten rather than deleted, because the distinction they now draw
+is the finding: a read that REPORTED its failure reaches the viewer, while something unexpected
+blowing up still fails closed. The test double grew a `failOn` beside its `throwOn` to tell those
+apart, which is the difference the product now draws too.
+
+**Not proved in the UI:** the same blocker as R235 — the grantee side needs a second account.
+
 ### 2026-10-03 — R238: a freshness monitor on a text column, blaming the data
 
 **Severity: moderate.** The queue's last sweep-6 row was "choosing 'Pick a column…' snaps back to
