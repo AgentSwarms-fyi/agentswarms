@@ -140,7 +140,29 @@ function SheetsPage() {
   // A sample workbook, fetched and handed to the import dialog.
   const [sample, setSample] = useState<{ file: File; name: string } | null>(null);
   const [loadingSample, setLoadingSample] = useState<string | null>(null);
+  /** The caller's own workbook made from this sample, if they already have one. */
+  const sampleAlreadyOpen = (title: string) =>
+    (workbooks ?? []).find((w) => w.role === "owner" && w.name === title) ?? null;
+
   const openSample = async (s: SheetsSample) => {
+    // FOUND IN R243. The tile imported every time it was clicked, so a second
+    // click left two workbooks with the same name and no way to tell them
+    // apart in the gallery — the common way to reach that being to click,
+    // look at the sample, come back and click again, having forgotten.
+    // A second copy is a real thing to want, so this asks rather than refuses,
+    // and says where the first one is.
+    const mine = sampleAlreadyOpen(s.title);
+    if (mine) {
+      const ok = await confirmAsk({
+        title: `You already have "${s.title}"`,
+        body: "Importing again makes a second workbook with the same name. The one you have is in your gallery below, with its own edits.",
+        actionLabel: "Import another copy",
+      });
+      if (!ok) {
+        void navigate({ to: "/sheets/$workbookId", params: { workbookId: mine.id } });
+        return;
+      }
+    }
     setLoadingSample(s.file);
     try {
       const res = await fetch(`${SHEETS_SAMPLES_PATH}/${s.file}`);
@@ -422,6 +444,7 @@ function SheetsPage() {
               key={s.file}
               title={loadingSample === s.file ? `Opening ${s.title}…` : s.title}
               detail={s.detail}
+              alreadyOpen={sampleAlreadyOpen(s.title) !== null}
               onClick={() => void openSample(s)}
               art={<SampleArt kind={s.art} />}
             />
@@ -853,11 +876,14 @@ function StartTile({
   detail,
   art,
   onClick,
+  alreadyOpen = false,
 }: {
   title: string;
   detail: string;
   art: React.ReactNode;
   onClick: () => void;
+  /** R243: this sample is already one of the caller's workbooks. */
+  alreadyOpen?: boolean;
 }) {
   return (
     <button
@@ -871,6 +897,13 @@ function StartTile({
       <span className="min-w-0">
         <span className="block font-medium group-hover:text-primary">{title}</span>
         <span className="block text-sm text-muted-foreground">{detail}</span>
+        {alreadyOpen && (
+          // R243: said before the click, not only after it. The tile is the
+          // only place a reader looks before making the second copy.
+          <span className="mt-1 block text-xs text-muted-foreground/80">
+            Already in your workbooks — opens the one you have
+          </span>
+        )}
       </span>
     </button>
   );

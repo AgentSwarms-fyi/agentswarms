@@ -109,6 +109,39 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-04 — R243: opening a sample twice, and a test that passed by being broken
+
+**Severity: low.** From the Sheets round's own leftovers: "Opening a sample twice makes two
+workbooks with the same name. The tile could say that one is already open." It did exactly that —
+the tile imported on every click, so the gallery ended up with two rows carrying the same name, the
+same art and nothing to tell them apart. The way to get there is ordinary: open a sample, look at
+it, come back later and click it again.
+
+Fixed by asking rather than refusing, because a second copy is a real thing to want — the first has
+been written in and a clean one is wanted beside it. Declining **opens the one you already have**
+instead of doing nothing, since a confirm whose cancel is a dead end teaches the reader to click
+through it. The tile says so before the click, which is what the queue asked for, and the match is
+scoped to `role === "owner"`: a workbook *shared* with you under the same name is not yours to
+reopen, and sending someone into another person's copy would be worse than the duplicate.
+
+**The part worth keeping is how the mutation run failed.** The first harness said six of seven
+mutants caught, with one survivor: a bare `return;` in front of the import, which made the guard a
+refusal — my test had asserted the import *text* was present rather than that the function reaches
+it, which is the same weakness R234 and R235 each turned up. So I added a reachability assertion
+counting the early returns before the import.
+
+The next run reported the **control** caught, which voids a run. The assertion's regex had been
+written through a shell heredoc, which swallowed the backslash and left a literal **backspace byte**
+in the file: `/\x08return;/` instead of `/\breturn;/`. It matched nothing, the count was always
+zero, the file always failed — and so every mutant came back "caught", including the ones that
+genuinely were. Six true results and one false one are indistinguishable in that output.
+
+That is the whole reason the control mutant exists, and it is the second time this log has recorded
+it earning its place. A green baseline is not a formality: a test that cannot pass makes a mutation
+run say exactly what you hoped to hear.
+
+Six mutants caught against a verified-green baseline, control survived.
+
 ### 2026-10-03 — R242: the guard against one-click deletes only looked at half the product
 
 **Severity: moderate, and the shape is the point.** `tests/unit/destructiveActionsAsk.test.ts`

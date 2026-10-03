@@ -629,8 +629,10 @@ cell showed nothing, where Excel shows 0), R143 (the samples hid their own figur
 charts). Open from that round:
 
 - ~~Arithmetic over a whole column works on the used rows.~~ Closed by R146.
-- **Opening a sample twice makes two workbooks with the same name.** The tile could say that one is
-  already open.
+- ~~**Opening a sample twice makes two workbooks with the same name.**~~ **R243.** The tile now
+  says so before the click, and clicking a sample you already own asks before importing a second
+  copy — declining opens the one you have. Matched on the caller's OWN workbooks only, since a
+  workbook shared with you under the same name is not yours to reopen.
 - **The Project tracker's "late" rows depend on today** (`TODAY()`), so its red rows and late count
   change from day to day. That is intended for a tracker, but a screenshot from one day will not
   match another.
