@@ -15,6 +15,32 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-03 — Smoke of the real image after R231
+
+**Why this round exists.** R231 moved ML off the lakehouse credentials, and a hot deploy swaps
+`dist` into a container built from older source. This is the committed state as a real image.
+
+Image `036a0cb5b128`, built with `docker compose build agentswarms` from `c7b1405e` and started
+with `docker compose up -d agentswarms`. The runtime image was checked, not assumed: nothing under
+`docker/` or `services/` has changed since the last build. The running container carries the
+round's code (`lake_artifact`, the ML manifest) — and no longer carries `_lakehouse_con` at all,
+which is how the dead-code finding below surfaced.
+
+Fixtures kept: `revenue_facts plan classifier` v9 (a candidate; v7 is still production),
+`analytics.r231_img_pred`, and the published `r181.smoke_036a0cb5b128`.
+
+| What was driven | What came back |
+| --- | --- |
+| Health after `up -d` | healthy, 2 polls |
+| **R231** ML → Train new version, max training rows **250** | the live log read **"[ml] read 836 row(s), sampled to 250"**, then "training on 200 rows, holding back 50"; v9: candidate, logistic_regression, F1 100.0%, 200 rows |
+| MinIO | `ml-artifacts/<model>/v9/` written, through the presigned PUT |
+| **R231** Batch prediction with v9, `analytics.revenue_facts` where `region = 'EMEA'` → `analytics.r231_img_pred` | succeeded, 242 rows, 13 s |
+| Lakehouse → the output table | 242 rows, min and max region both `EMEA`, all 242 scored |
+| **Iceberg publish** `analytics.fct_region_revenue` → `local_rest`, `r181`, `smoke_036a0cb5b128` | the catalog's own metadata: columns `region, orders, revenue`, one append snapshot, **4 records in 1 file** |
+| **R227** `r227_gateway` on the sandbox engine → Run now | Succeeded, 31 s, 108 rows → 1 target |
+| The app's log, over the whole smoke | no errors and no warnings |
+| MinIO, the lake bucket | no staging prefix at all |
+
 ## 2026-10-03 — ML with no lakehouse credential, ADVERSARIAL_LOG R231
 
 **Why this round exists.** The last path still holding the lakehouse's own credentials.

@@ -109,6 +109,23 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-03 — Smoke of the real image after R231
+
+No new defect in what was driven. Image `036a0cb5b128`, built from `c7b1405e` and started as a
+real container: a training job reported "read 836 row(s), sampled to 250" and produced v9 on 200
+rows, its artifact landing through the presigned PUT; a batch prediction with that version wrote
+242 rows, all of the one region asked for and all scored; an Iceberg publish landed 4 records the
+catalog's own metadata confirms; and an ETL run through the gateway still loads its 108. No errors
+or warnings, and no staging left in the bucket. Full table in `docs/UI_TEST_RESULTS.md`.
+
+**Found by the image, not by the tests: `lakehouseAttachFn` is dead code.** Checking which of the
+round's code the container carried showed `_lakehouse_con` absent from `/app/dist` entirely — the
+bundler had dropped it, because after R230 moved the Spark lakehouse target to the gateway and
+R231 moved ML, nothing in `src` calls it any more. Only two tests still reference it. It is a
+function that builds a DuckLake attach from engine credentials, which is exactly the kind of thing
+that gets picked up again by someone adding a feature, so it is on the queue to delete rather than
+left lying around.
+
 ### 2026-10-03 — ML training, prediction and scoring, with no lakehouse credential
 
 Tests: `tests/unit/mlLakeManifest.test.ts` (10: the SELECT a run reads, sampling against refusing,

@@ -364,6 +364,11 @@ least twice, not a hypothetical.
    - **R229: the shared Spark cluster reused the first caller's storage credentials.** Fixed;
      restart Spark Connect after upgrading. The Spark lakehouse target and Spark lakehouse
      queries still pass the lake's own keys (to the cluster, per call) until they get scoped ones.
+   - **Dead code to delete: `lakehouseAttachFn`** (`src/utils/etl/codegen.ts`). Nothing in `src`
+     has called it since R230 and R231 moved the Spark lakehouse target and ML to the gateway —
+     the bundler drops it from `dist`, and only `etlPipelines` and `duckdbExtensions` still name
+     it. It builds a DuckLake attach from engine credentials, so it should go rather than wait to
+     be re-used by accident.
    - **Minor, seen on the ETL list:** a pipeline whose only runs were cancelled reads "last run: —
      never ran".
    - **R228: a merge that lost its key emptied the table.** Fixed for the sandbox engine by the
