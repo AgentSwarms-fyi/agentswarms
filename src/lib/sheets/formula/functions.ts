@@ -350,6 +350,16 @@ const LIBRARY_ARGS: Record<string, LibraryArgs> = {
   "PERCENTILE.INC": FIRST_LIST,
   "PERCENTILE.EXC": FIRST_LIST,
   "QUARTILE.INC": FIRST_LIST,
+  // R258. Each checked against the answer Excel's documentation gives.
+  "QUARTILE.EXC": FIRST_LIST,
+  "PERCENTRANK.INC": FIRST_LIST,
+  "PERCENTRANK.EXC": FIRST_LIST,
+  TRIMMEAN: FIRST_LIST,
+  // From a reference, text is 0 and TRUE 1, as STDEVA (and as Excel's A-functions).
+  AVERAGEA: { lists: fromIndex(0), countAll: true },
+  MAXA: { lists: fromIndex(0), countAll: true },
+  MINA: { lists: fromIndex(0), countAll: true },
+  MMULT: { arrays: () => [0, 1] },
   IRR: FIRST_LIST,
   // Excel's MIRR skips blanks and text in its values, as IRR does (R177).
   MIRR: FIRST_LIST,
@@ -890,6 +900,98 @@ F.ISLOGICAL = isFn((x) => typeof x === "boolean");
 F.ISERROR = isFn((x) => isError(x));
 F.ISERR = isFn((x) => isError(x) && x.err !== "#N/A");
 F.ISNA = isFn((x) => isError(x) && x.err === "#N/A");
+
+// R258. TYPE and ERROR.TYPE read the value itself, errors included, so they
+// cannot go through formula.js (which is handed values, not errors).
+F.TYPE = (args) => {
+  const e = arity(args, 1, 1);
+  if (e) return e;
+  const v = args[0].value();
+  if (isMatrix(v)) return v.length === 1 && v[0].length === 1 ? typeCode(v[0][0]) : 64;
+  return typeCode(v);
+};
+/** Excel's TYPE codes: number (and a blank) 1, text 2, logical 4, error 16. */
+function typeCode(x: Scalar): number {
+  if (isError(x)) return 16;
+  if (typeof x === "string") return 2;
+  if (typeof x === "boolean") return 4;
+  return 1;
+}
+/**
+ * ERROR.TYPE's numbers, from Excel's documentation: 1-7 for the classic
+ * errors, 8 for the one Excel now calls #BUSY! (formerly #GETTING_DATA), 9 and
+ * 14 for #SPILL! and #CALC!. #CYCLE! is this engine's own word and Excel has
+ * no number for it, so it answers #N/A as Excel does for "anything else".
+ */
+const ERROR_TYPE: Partial<Record<ErrorCode, number>> = {
+  "#NULL!": 1,
+  "#DIV/0!": 2,
+  "#VALUE!": 3,
+  "#REF!": 4,
+  "#NAME?": 5,
+  "#NUM!": 6,
+  "#N/A": 7,
+  "#BUSY!": 8,
+  "#SPILL!": 9,
+  "#CALC!": 14,
+};
+F["ERROR.TYPE"] = (args) => {
+  const e = arity(args, 1, 1);
+  if (e) return e;
+  const x = scalarOf(args[0].value());
+  if (!isError(x)) return err("#N/A", "Not an error");
+  return ERROR_TYPE[x.err] ?? err("#N/A", `${x.err} has no ERROR.TYPE number`);
+};
+
+/**
+ * Student's t, as Excel's T.DIST family. FOUND IN R258: formula.js's T.DIST
+ * answers #NUM! for every input - registering it would have shipped a
+ * function that always fails - while its legacy TDIST (an upper tail) is
+ * right, so the family is built on that. The density is the closed form,
+ * through log-gamma so a large df does not overflow.
+ */
+function tUpperTail(x: number, df: number): number {
+  // TDIST takes x >= 0; the tail of a negative x is the mirror image.
+  const t = Number(
+    (formulajs as unknown as { TDIST: (...a: number[]) => unknown }).TDIST(Math.abs(x), df, 1),
+  );
+  return x >= 0 ? t : 1 - t;
+}
+function tArgs(args: Arg[], min: number, max: number): { x: number; df: number } | SheetError {
+  const e = arity(args, min, max);
+  if (e) return e;
+  const x = num(args[0]);
+  if (isError(x)) return x;
+  const d = num(args[1]);
+  if (isError(d)) return d;
+  const df = Math.trunc(d);
+  if (df < 1) return err("#NUM!", "Degrees of freedom must be at least 1");
+  return { x, df };
+}
+F["T.DIST"] = (args) => {
+  const a = tArgs(args, 3, 3);
+  if (isError(a)) return a;
+  const cumulative = toBool(scalarOf(args[2].value()));
+  if (isError(cumulative)) return cumulative;
+  if (cumulative) return 1 - tUpperTail(a.x, a.df);
+  const gl = (formulajs as unknown as { GAMMALN: (n: number) => number }).GAMMALN;
+  const v = a.df;
+  return (
+    (Math.exp(gl((v + 1) / 2) - gl(v / 2)) / Math.sqrt(v * Math.PI)) *
+    Math.pow(1 + (a.x * a.x) / v, -(v + 1) / 2)
+  );
+};
+F["T.DIST.RT"] = (args) => {
+  const a = tArgs(args, 2, 2);
+  if (isError(a)) return a;
+  return tUpperTail(a.x, a.df);
+};
+F["T.DIST.2T"] = (args) => {
+  const a = tArgs(args, 2, 2);
+  if (isError(a)) return a;
+  if (a.x < 0) return err("#NUM!", "T.DIST.2T needs x of 0 or more");
+  return 2 * tUpperTail(a.x, a.df);
+};
 F.ISEVEN = (args) => {
   const n = num(args[0]);
   return isError(n) ? n : Math.trunc(n) % 2 === 0;
@@ -2031,6 +2133,25 @@ export const LIBRARY_NAMES = [
   "UNICODE",
   "FIXED",
   "DOLLAR",
+  // R258: #NAME? on a grid until now. formula.js answers each of these as
+  // Excel's documentation does (sheetsExcelBatch1.test.ts). T.DIST is NOT
+  // here: formula.js answers #NUM! for every input, so it is written below.
+  "AVERAGEA",
+  "MAXA",
+  "MINA",
+  "TRIMMEAN",
+  "MMULT",
+  "QUARTILE.EXC",
+  "PERCENTRANK.INC",
+  "PERCENTRANK.EXC",
+  "BINOM.DIST",
+  "TDIST",
+  "BITAND",
+  "BITOR",
+  "BITXOR",
+  "BITLSHIFT",
+  "BITRSHIFT",
+  "COMPLEX",
 ];
 for (const name of LIBRARY_NAMES) {
   if (F[name]) continue;
@@ -2053,6 +2174,8 @@ const SAME_AS: Record<string, string> = {
   RANK: "RANK.EQ",
   MODE: "MODE.SNGL",
   "FORECAST.LINEAR": "FORECAST",
+  PERCENTRANK: "PERCENTRANK.INC",
+  BINOMDIST: "BINOM.DIST",
 };
 for (const [name, now] of Object.entries(SAME_AS)) if (!F[name] && F[now]) F[name] = F[now];
 

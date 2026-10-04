@@ -180,6 +180,19 @@ const XLFN = new Set([
   "WRAPCOLS",
   "EXPAND",
   "LAMBDA",
+  // R258's functions newer than Excel 2007. Without these a download would
+  // carry them bare and Excel would show #NAME? on open - the gap the
+  // prefix test caught the moment they were registered.
+  "BINOM.DIST",
+  "BITLSHIFT",
+  "BITOR",
+  "BITRSHIFT",
+  "BITXOR",
+  "PERCENTRANK.EXC",
+  "PERCENTRANK.INC",
+  "T.DIST",
+  "T.DIST.2T",
+  "T.DIST.RT",
 ]);
 const XLWS = new Set(["FILTER", "SORT"]);
 

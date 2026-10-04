@@ -15,6 +15,19 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-04 — R258: Excel functions that were #NAME?
+
+Typed into the fixture workbook **R246 last sheet race** (`61e4fe80…`), before on R257's build and
+after on R258 hot-deployed. The formulas were saved before the deploy, so the "after" is the same
+cells recomputed, not new ones.
+
+| Cell | Formula | Before | After | Excel's answer |
+| --- | --- | --- | --- | --- |
+| A2 | `=T.DIST(60,1,TRUE)` | #NAME? | a number too wide for the column (`####`, as Excel shows it) | ½ + atan(60)/π |
+| A3 | `=BITAND(13,25)` | #NAME? | **9** | 9 |
+| A4 | `=PERCENTRANK({13,12,11,8,4,3,2,1,1,1},4)` | #NAME? | **0.555** | 0.555 (5/9, truncated) |
+| A5 | `=ROUND(A2,6)` | — | **0.994695** | 0.994695 |
+
 ## 2026-10-04 — R257: a twelve-hour run with "Duration: 0ms"
 
 Driven on the R179 fixture run `c4ff22a3` ("Approval durability check (schedule)", parked on an

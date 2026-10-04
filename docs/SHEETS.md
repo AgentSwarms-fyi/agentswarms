@@ -82,7 +82,13 @@ Type `=` and a formula, as in Excel. About 240 functions are available:
     and 0. DATEDIF in days is the difference of the serials, so 1900-02-28 to 03-01 is 2 days. A
     table sheet counts its dates the same way.
 - **Statistics:** STDEV, VAR, RANK, MODE, PERCENTILE and QUARTILE, under their old names and new
-  ones; FORECAST(.LINEAR), TREND, GROWTH, FREQUENCY.
+  ones; FORECAST(.LINEAR), TREND, GROWTH, FREQUENCY. Also AVERAGEA, MAXA and MINA (from a range,
+  text counts as 0 and TRUE as 1), TRIMMEAN, QUARTILE.EXC, PERCENTRANK and its .INC and .EXC forms
+  (truncated to three digits, as Excel does: 5 of 9 is 0.555), BINOM.DIST, and the T.DIST family
+  (T.DIST, T.DIST.RT, T.DIST.2T, TDIST).
+- **Matrices, bits and types:** MMULT spills its product; BITAND, BITOR, BITXOR, BITLSHIFT,
+  BITRSHIFT; COMPLEX writes Excel's text form (`3+4i`); TYPE (1 number, 2 text, 4 logical, 16 error,
+  64 array) and ERROR.TYPE (2 for #DIV/0!, 7 for #N/A…).
 - **The long tail** of statistical, financial and engineering functions.
   - CEILING, FLOOR and their .MATH forms land on the multiple a decimal step names
     (`=FLOOR(4.35,0.05)` is 4.35), and a positive number with a negative step is #NUM!, as in

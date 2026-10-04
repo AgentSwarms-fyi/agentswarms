@@ -109,6 +109,42 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-04 — R258: twenty-three Excel functions that were #NAME?, and one that would have been #NUM! for ever
+
+**Severity: moderate (Excel parity).** The Sheets queue's longest-standing row: "formula.js functions
+not registered … each needs checking against Excel's examples first". This is the first batch, and
+the "check first" was the point of it.
+
+Every expected answer is either recomputed from first principles inside the test or taken from the
+worked examples on Microsoft's function pages, so no check rests on a remembered decimal: BINOM.DIST
+is C(10,6)/2^10; a t-distribution with one degree of freedom is the Cauchy distribution, so
+T.DIST(60,1,TRUE) is ½ + atan(60)/π; its density at 8 with 3 df is the closed form; PERCENTRANK is
+"below over n − 1", **truncated** to three digits (5 of 9 is 0.555, not 0.556) as Excel's own example
+shows.
+
+**The check caught one before it shipped.** formula.js's T.DIST answers **#NUM! for every input**,
+including inputs with closed-form answers. Registering it from the library — the way the rest of this
+batch went in — would have turned a #NAME? into a #NUM! that looks like the user's mistake. Its
+legacy TDIST is right, so T.DIST, T.DIST.RT and T.DIST.2T are built on it, with the density through
+log-gamma. And one answer was left **unpinned** on purpose: PERCENTRANK.EXC with a significance of 1,
+where formula.js truncates to 0.3 and I am not certain whether Excel's page says 0.3 or 0.4. That case
+waits for Excel.
+
+**And an older test caught the export.** The moment ten of these were registered,
+`sheetsFilePrefixes.test.ts` failed: functions newer than Excel 2007 must go into a download as
+`_xlfn.BINOM.DIST`, or Excel itself shows #NAME? on open. They are in the export's prefix list now,
+held to XlsxWriter's list as before.
+
+Registered: AVERAGEA, MAXA, MINA, TRIMMEAN, MMULT, QUARTILE.EXC, PERCENTRANK (.INC, .EXC), BINOM.DIST
+(and BINOMDIST), TDIST, T.DIST, T.DIST.RT, T.DIST.2T, BITAND, BITOR, BITXOR, BITLSHIFT, BITRSHIFT,
+COMPLEX, TYPE, ERROR.TYPE. The new test fails 36 of 36 on the old code.
+
+Driven in a workbook: `T.DIST(60,1,TRUE)`, `BITAND(13,25)` and `PERCENTRANK(…,4)` read #NAME?
+before and 0.994695, 9 and 0.555 after. Rows in [UI test results](./UI_TEST_RESULTS.md).
+
+Still open from the row: the database functions (DSUM…), the other distributions, complex
+arithmetic (IMSUM, IMABS…), and VDB, which formula.js does not have.
+
 ### 2026-10-04 — R257: "Duration 0ms" for a run that lasted twelve hours
 
 **Severity: low, but the two pages contradicted each other about the same run.** Open since R179: a

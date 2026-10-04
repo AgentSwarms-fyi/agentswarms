@@ -497,11 +497,16 @@ showing `\u2014` as text). Open, from the first rounds:
   neither was checked in Excel. Settle it in Excel before changing every comparison. Found in
   R175's probe.
 - ~~`=BASE(255,16)` is `ff`.~~ Closed by R176, with DEC2HEX, BIN2HEX and OCT2HEX.
-- **formula.js functions not registered** (about 170; R177 added eight financial ones): MMULT,
-  AVERAGEA, MAXA, MINA, TRIMMEAN, PERCENTRANK, QUARTILE.EXC, TYPE, ERROR.TYPE, the database
-  functions (DSUM…), the distributions (BINOM.DIST, T.DIST…), hyperbolic trigonometry, bitwise and
-  complex-number functions. VDB is in neither. Each needs checking against Excel's examples first.
-- **Excel's 1900 calendar before March 1900**: serials 1 to 60 read a day early here
+- **formula.js functions not registered** (about 170; R177 added eight financial ones).
+  **R258** registered ~~MMULT, AVERAGEA, MAXA, MINA, TRIMMEAN, PERCENTRANK, QUARTILE.EXC, TYPE,
+  ERROR.TYPE, BINOM.DIST, T.DIST~~ and the bitwise functions and COMPLEX, each checked against
+  Excel's documented examples — and found formula.js's T.DIST answers #NUM! for every input, so
+  that family is built on its TDIST. Hyperbolic trigonometry was already in. **Still open:** the
+  database functions (DSUM…), the other distributions, complex arithmetic (IMSUM, IMABS…),
+  PERCENTRANK.EXC's significance argument (Excel's own answer unconfirmed), and VDB, which
+  formula.js does not have.
+- ~~**Excel's 1900 calendar before March 1900**~~ — **fixed by R205**; this row predates it
+  and was never struck (noticed 2026-10-04). Serials 1 to 60 read a day early here
   (`=YEAR(1)` is 1899, `=DATE(1900,2,28)` 60 where Excel says 59), and 0 is 1899-12-30 where Excel
   shows 1900-01-00. Excel counts a 29 February 1900 that never was; from serial 61 on the two agree.
   Found in R173's probe.
