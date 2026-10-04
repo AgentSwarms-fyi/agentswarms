@@ -81,6 +81,7 @@ import {
   type VectorStoreChoice,
   resolveRetrievalSettings,
 } from "@/lib/kbRag";
+import { reportFailure } from "@/lib/silentFailureNet";
 
 // Chunks scanned to build the per-document counts. Well past any real
 // collection — the point of the ceiling is that an unbounded client scan
@@ -730,6 +731,8 @@ function KnowledgePage() {
           loadDocs(selectedBase.id);
           loadSources(selectedBase.id);
         }
+      } catch (e) {
+        reportFailure("sync the source", e);
       } finally {
         setResyncingId(null);
       }
@@ -780,6 +783,8 @@ function KnowledgePage() {
           loadSources(selectedBase.id);
         }
       }
+    } catch (e) {
+      reportFailure("re-sync the source", e);
     } finally {
       setResyncingId(null);
     }

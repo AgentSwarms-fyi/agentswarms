@@ -22,6 +22,7 @@ import { ServerRuntime, type CellRunResult } from "@/lib/serverRuntime";
 import { RuntimeRequired } from "@/components/notebooks/RuntimeRequired";
 import { getSampleNotebook } from "@/lib/sampleNotebooks";
 import type { PyCell } from "@/lib/pythonNotebookTemplate";
+import { reportFailure } from "@/lib/silentFailureNet";
 
 export const Route = createFileRoute("/_authenticated/notebooks/sample/$sampleSlug")({
   component: SampleNotebookPage,
@@ -136,6 +137,8 @@ function SampleNotebookPage() {
       if (error || !data) return toast.error(error?.message ?? "Failed to fork notebook");
       toast.success("Forked — this copy is yours to edit");
       void navigate({ to: "/notebooks/py/$pyNotebookId", params: { pyNotebookId: data.id } });
+    } catch (e) {
+      reportFailure("fork the sample notebook", e);
     } finally {
       setForking(false);
     }

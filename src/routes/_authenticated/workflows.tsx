@@ -117,6 +117,7 @@ import {
   type WorkflowRunDto,
   type WorkflowRowDto,
 } from "@/utils/workflows.functions";
+import { reportFailure } from "@/lib/silentFailureNet";
 
 /** Below this many saved workflows, a search box is furniture rather than help. */
 const WORKFLOW_SEARCH_FROM = 5;
@@ -439,6 +440,8 @@ function WorkflowsPage() {
         toast.success("Saved");
         void reload();
       }
+    } catch (e) {
+      reportFailure("save the workflow", e);
     } finally {
       setSaving(false);
     }
@@ -454,6 +457,8 @@ function WorkflowsPage() {
       const detail = await runGetFn({ data: { accessToken: token, runId: res.runId } });
       if (detail.ok) setOpenRun({ run: detail.run, nodes: detail.nodes });
       void loadRuns(selectedId);
+    } catch (e) {
+      reportFailure("start the run", e);
     } finally {
       setRunning(false);
     }

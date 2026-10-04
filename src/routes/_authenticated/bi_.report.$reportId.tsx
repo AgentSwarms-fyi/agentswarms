@@ -71,6 +71,7 @@ import {
   type ReportBlock,
 } from "@/lib/biReports";
 import { biReportGet, biReportSave } from "@/utils/biReports.functions";
+import { reportFailure } from "@/lib/silentFailureNet";
 
 export const Route = createFileRoute("/_authenticated/bi_/report/$reportId")({
   component: ReportDesigner,
@@ -261,6 +262,8 @@ function ReportDesigner() {
       });
       if (!res.ok) toast.error(res.error);
       else toast.success("Saved");
+    } catch (e) {
+      reportFailure("save the report", e);
     } finally {
       setSaving(false);
     }

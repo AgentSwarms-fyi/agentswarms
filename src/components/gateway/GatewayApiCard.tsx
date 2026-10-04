@@ -32,6 +32,7 @@ import {
   type GatewayKeyListRow,
 } from "@/utils/gatewayKeys.functions";
 import { GATEWAY_KEY_SCOPES, type GatewayKeyScope } from "@/utils/gateway/keys";
+import { reportFailure } from "@/lib/silentFailureNet";
 
 type AgentOption = { id: string; name: string; model: string };
 type CacheEntry = {
@@ -213,6 +214,8 @@ export function GatewayApiCard({ token }: { token: string }) {
       setScopes(["agents"]);
       toast.success("Key created");
       await reload();
+    } catch (e) {
+      reportFailure("create the key", e);
     } finally {
       setBusy(false);
     }
@@ -229,6 +232,8 @@ export function GatewayApiCard({ token }: { token: string }) {
       if (!res.ok) return toast.error(res.error);
       toast.success(on ? `Cache on for ${k.name}` : `Cache off for ${k.name}`);
       await reload();
+    } catch (e) {
+      reportFailure("change the key's cache", e);
     } finally {
       setBusy(false);
     }
@@ -243,6 +248,8 @@ export function GatewayApiCard({ token }: { token: string }) {
         res.cleared === 1 ? "Cleared 1 cached answer" : `Cleared ${res.cleared} cached answers`,
       );
       await reload();
+    } catch (e) {
+      reportFailure("clear the cache", e);
     } finally {
       setBusy(false);
     }
@@ -256,6 +263,8 @@ export function GatewayApiCard({ token }: { token: string }) {
       toast.success(`Revoked ${k.name}`);
       setRevoking(null);
       await reload();
+    } catch (e) {
+      reportFailure("revoke the key", e);
     } finally {
       setBusy(false);
     }

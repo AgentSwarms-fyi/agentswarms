@@ -38,6 +38,7 @@ import {
   type ExperimentRow,
   type RunRow,
 } from "@/utils/mlExperiments.functions";
+import { reportFailure } from "@/lib/silentFailureNet";
 
 function fmt(v: Scalar): string {
   if (v === null || v === undefined) return "—";
@@ -197,6 +198,8 @@ export function ExperimentsPanel({ token }: { token: string }) {
       });
       setSelected(null);
       await load();
+    } catch (e) {
+      reportFailure("delete the experiment", e);
     } finally {
       setBusy(false);
     }
@@ -217,6 +220,8 @@ export function ExperimentsPanel({ token }: { token: string }) {
       if (!res.ok) return toast.error(res.error);
       setRuns((cur) => cur.filter((x) => x.id !== r.id));
       await load();
+    } catch (e) {
+      reportFailure("delete the run", e);
     } finally {
       setBusy(false);
     }
@@ -238,6 +243,8 @@ export function ExperimentsPanel({ token }: { token: string }) {
       });
       const back = await runsFn({ data: { accessToken: token, experimentId: selected! } });
       if (back.ok) setRuns(back.runs);
+    } catch (e) {
+      reportFailure("register the model", e);
     } finally {
       setBusy(false);
     }

@@ -102,6 +102,7 @@ import { diffSemanticDefinitions, type SemanticDefinitionDiff } from "@/lib/sema
 import { DbtImportDialog } from "@/components/semantics/DbtImportDialog";
 import type { Json } from "@/integrations/supabase/types";
 import { listWarehouseConnections, saveWarehouseConnection } from "@/utils/warehouse.functions";
+import { reportFailure } from "@/lib/silentFailureNet";
 
 /**
  * Arriving from a lakehouse table with "Define metrics on this".
@@ -575,6 +576,8 @@ function SemanticsPage() {
       openOnLakehouseTable(lake.id, pendingLakehouse.schema, pendingLakehouse.table);
       setPendingLakehouse(null);
       toast.success("Lakehouse connected");
+    } catch (e) {
+      reportFailure("connect the lakehouse", e);
     } finally {
       setConnecting(false);
     }

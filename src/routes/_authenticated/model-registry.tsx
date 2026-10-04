@@ -42,6 +42,7 @@ import {
 } from "@/utils/modelRegistry.functions";
 import { isProviderSupported, isModelSupported } from "@/lib/providerSupport";
 import { useIsSuperadmin } from "@/hooks/use-iam";
+import { reportFailure } from "@/lib/silentFailureNet";
 
 // Real provider logos (Simple Icons via jsdelivr — open-source SVGs).
 // Anything not listed falls back to the Boxes icon. Slugs match devToSlug
@@ -148,6 +149,8 @@ function ModelRegistryPage() {
       } else {
         toast.error(res.error || "Sync failed");
       }
+    } catch (e) {
+      reportFailure("sync the model registry", e);
     } finally {
       setSyncing(false);
     }

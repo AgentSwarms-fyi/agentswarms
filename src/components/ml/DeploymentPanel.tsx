@@ -38,6 +38,7 @@ import {
   requestsUntilVerdict,
   type MlCanaryTotals,
 } from "@/lib/mlCanary";
+import { reportFailure } from "@/lib/silentFailureNet";
 
 /** The share a canary starts at when somebody picks one without saying. */
 const DEFAULT_SHARE = 5;
@@ -107,15 +108,19 @@ export function DeploymentPanel({
 
   async function deploy() {
     setBusy(true);
+    // Deploying loads the artifact and waits for it, so this is the one
+    // slow button on the page; saying so beats a spinner with no story.
+    // R263: shown before the try, so a rejection can replace it - inside it,
+    // a failed deploy left "Starting the endpoint…" spinning for good.
+    const t = toast.loading("Starting the endpoint and loading the model…");
     try {
-      // Deploying loads the artifact and waits for it, so this is the one
-      // slow button on the page; saying so beats a spinner with no story.
-      const t = toast.loading("Starting the endpoint and loading the model…");
       const res = await deployFn({ data: { accessToken: token, modelId } });
       toast.dismiss(t);
       if (!res.ok) return toast.error(res.error);
       toast.success(`Serving v${res.version}`);
       await load();
+    } catch (e) {
+      reportFailure("deploy the model", e, { id: t });
     } finally {
       setBusy(false);
     }
@@ -128,6 +133,8 @@ export function DeploymentPanel({
       if (!res.ok) return toast.error(res.error);
       toast.success("Endpoint stopped");
       await load();
+    } catch (e) {
+      reportFailure("stop the endpoint", e);
     } finally {
       setBusy(false);
     }
@@ -146,6 +153,8 @@ export function DeploymentPanel({
       // Either way, like every other control here: a refused change must not
       // sit on screen looking as though it took.
       await load();
+    } catch (e) {
+      reportFailure("change the shadow version", e);
     } finally {
       setBusy(false);
     }
@@ -167,6 +176,8 @@ export function DeploymentPanel({
       // actually took effect, and the toast explaining why is gone in four
       // seconds. Snapping back is the only state a reader can trust.
       await load();
+    } catch (e) {
+      reportFailure("update the endpoint", e);
     } finally {
       setBusy(false);
     }

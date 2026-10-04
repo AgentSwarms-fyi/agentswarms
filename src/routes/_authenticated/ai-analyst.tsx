@@ -146,6 +146,7 @@ import {
 import { listWarehouseConnections } from "@/utils/warehouse.functions";
 import { WAREHOUSE_LABELS, type WarehouseTable } from "@/utils/warehouse/types";
 import type { WarehouseConnectionSummary } from "@/utils/warehouse/types";
+import { reportFailure } from "@/lib/silentFailureNet";
 
 export const Route = createFileRoute("/_authenticated/ai-analyst")({
   component: AiAnalystPage,
@@ -757,6 +758,8 @@ function AiAnalystPage() {
         await persistTurns(next, turn.question);
         if (rewritten.error) toast.error(rewritten.error);
         else toast.success("Findings rewritten from the current results.");
+      } catch (e) {
+        reportFailure("rewrite the findings", e);
       } finally {
         setBusy(false);
       }

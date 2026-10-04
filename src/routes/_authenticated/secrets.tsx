@@ -42,6 +42,7 @@ import {
   updateSecret,
   type SecretSummary,
 } from "@/utils/secrets.functions";
+import { reportFailure } from "@/lib/silentFailureNet";
 
 export const Route = createFileRoute("/_authenticated/secrets")({
   head: () => ({
@@ -137,6 +138,8 @@ function SecretsPage() {
       setDescription("");
       setValue("");
       reload();
+    } catch (e) {
+      reportFailure("create the secret", e);
     } finally {
       setBusy(false);
     }
@@ -159,6 +162,8 @@ function SecretsPage() {
       setEditTarget(null);
       setEditValue("");
       reload();
+    } catch (e) {
+      reportFailure("update the secret", e);
     } finally {
       setBusy(false);
     }

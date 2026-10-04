@@ -27,6 +27,7 @@ import {
   nbApiKeysList,
   type NbApiKeyRow,
 } from "@/utils/notebookApiKeys.functions";
+import { reportFailure } from "@/lib/silentFailureNet";
 
 function CopyRow({ text, mono = true }: { text: string; mono?: boolean }) {
   const [copied, setCopied] = useState(false);
@@ -134,6 +135,8 @@ export function PublishNotebookDialog({
       setFresh(res.key);
       setName("");
       load();
+    } catch (e) {
+      reportFailure("publish the notebook", e);
     } finally {
       setBusy(false);
     }

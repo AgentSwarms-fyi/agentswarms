@@ -109,6 +109,39 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-04 — R263: sixty-seven handlers given their own sentence, and two spinners that never stopped
+
+**Severity: moderate.** R245's debt: 67 handlers across 32 files that report a server function's
+`ok: false` and say nothing when it **rejects** — a `finally` with no `catch`. R245's net turned their
+silence into "That did not finish", which is better than nothing and cannot say what failed. Each now
+names its action through one helper, `reportFailure(action, error)` beside the net: "Could not save the
+feature view", "Could not revoke the key", "Could not publish the swarm", with the real message under
+it, and a cancel still quiet. The ratchet that held the count at 67 now holds it at **0**: a new handler
+of that shape fails the gate.
+
+**Two of them were worse than silent.** A handler that shows a *loading* toast before its call must
+replace that toast on failure, or it spins for ever:
+
+- **Deploy a model** showed "Starting the endpoint and loading the model…" *inside* its `try`, where a
+  catch cannot see it. Moved above the `try`; the failure replaces it.
+- **Admin → IAM → Re-encrypt to current key** had **no try at all**, so the sweep — which looks for a
+  `finally` — never counted it. A rejected request left "Re-encrypting stored credentials…" spinning and
+  `busy` set: the button stayed disabled under a spinner until the page was reloaded. Driven: still
+  spinning after 26 seconds, with only the net's generic toast to say anything had happened.
+
+Writing the 67 was scripted from a list of the handlers and what each awaits, with every phrase written
+by hand, and the script asserted each `try` was where the sweep said and was followed by `finally`.
+Its own first guess was wrong once: it gave `stop()` the loading toast of the `deploy()` above it, which
+the typecheck caught. And R245's own test file turned out to import `node:fs` **twice** — a syntax error
+the transpiler forgave — removed here.
+
+Three mutants caught against a verified-green baseline (one handler silent again, a cancel reported,
+the deploy's spinner left running), control survived.
+
+Driven: the re-encrypt request refused in the browser left its spinner and a disabled button for good
+before; after, "Could not re-encrypt the stored credentials" replaced the spinner and the button came
+back. Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-04 — R262: fifty distributions, three wrong answers in the library, and a test that passed by coincidence
 
 **Severity: moderate (Excel parity), and a lesson about the checks themselves.** The last big batch from

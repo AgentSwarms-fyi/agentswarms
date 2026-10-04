@@ -8,6 +8,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { Check, Loader2, Plug2, Trash2, Unplug, X } from "lucide-react";
+import { reportFailure } from "@/lib/silentFailureNet";
 
 // Official provider marks, used nominatively to identify each integration.
 // Sources: Simple Icons (CC0) for Snowflake / Databricks / BigQuery;
@@ -611,6 +612,8 @@ export function WarehousesTab() {
       if (res.ok) toast.success("Connection verified");
       else toast.error(res.error);
       reload();
+    } catch (e) {
+      reportFailure("test the connection", e);
     } finally {
       setTestingId(null);
     }
@@ -639,6 +642,8 @@ export function WarehousesTab() {
           : "Connection removed",
       );
       reload();
+    } catch (e) {
+      reportFailure("remove the connection", e);
     } finally {
       setRemoving(false);
       setConfirmRemove(null);

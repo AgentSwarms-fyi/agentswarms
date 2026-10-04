@@ -46,6 +46,7 @@ import {
   type NbRuntimeState,
   type PreflightCheck,
 } from "@/utils/notebookRuntimeAdmin.functions";
+import { reportFailure } from "@/lib/silentFailureNet";
 
 /**
  * What to say when the schema refuses a save.
@@ -325,6 +326,8 @@ export function RuntimeTab({
       });
       if (!res.ok) return toast.error(res.error);
       setChecks(res.checks);
+    } catch (e) {
+      reportFailure("run the preflight check", e);
     } finally {
       setChecking(false);
     }
@@ -340,6 +343,8 @@ export function RuntimeTab({
       if (!res.ok) return toast.error(res.error);
       setGrantId("");
       load();
+    } catch (e) {
+      reportFailure("add the grant", e);
     } finally {
       setBusyGrant(false);
     }

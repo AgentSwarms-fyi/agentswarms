@@ -274,8 +274,9 @@ least twice, not a hypothetical.
      toast" of 2026-10-01. A sweep for handlers that toast `ok: false` inside a try with no catch
      found **68** of that shape. The publish button now catches and explains (naming where to
      confirm the lock rather than asserting it), and `installSilentFailureNet` is the floor under
-     the rest. `tests/unit/silentFailureNet.test.ts` holds the count at 67 as a debt that may only
-     go down. **Still true and still worth doing:** a catalog on Postgres would not share one file
+     the rest. ~~`tests/unit/silentFailureNet.test.ts` holds the count at 67 as a debt that may only
+     go down.~~ **R263 paid it:** all 67 name their action through `reportFailure` ("Could not save
+     the feature view"), and the ratchet now holds the count at zero. **Still true and still worth doing:** a catalog on Postgres would not share one file
      lock between requests.
 
 5. **A guard only the button honours** (sweep 5, Phase F, from 2026-10-01). A button

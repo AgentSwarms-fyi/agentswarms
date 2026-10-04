@@ -16,11 +16,9 @@
 // rather than silence.
 import { readFileSync, readdirSync } from "node:fs";
 
-import { readFileSync, readdirSync } from "node:fs";
-
 import { describe, expect, it } from "vitest";
 
-import { silentFailureToast } from "@/lib/silentFailureNet";
+import { failureToast, silentFailureToast } from "@/lib/silentFailureNet";
 import { publishFailureHelp } from "@/lib/icebergPublishHelp";
 
 /** A fresh "last thing we said", as the listener keeps one per install. */
@@ -172,15 +170,12 @@ describe("the family this came from", () => {
     return out;
   }
 
-  it("does not grow", () => {
-    // 68 when R245 found them, 67 once the publish button was fixed. This
-    // number is a debt, not a budget: it should only ever go down, and a
-    // handler with its own sentence beats the net every time.
+  it("is gone, and stays gone", () => {
+    // 68 when R245 found them, 67 once the publish button was fixed, and 0
+    // since R263 gave every one its own sentence through reportFailure. A
+    // new handler of this shape fails here: name what it was doing.
     const silent = silentHandlers();
-    expect(
-      silent.length,
-      `now: ${silent.length}\n${silent.slice(0, 5).join("\n")}`,
-    ).toBeLessThanOrEqual(67);
+    expect(silent, `now: ${silent.length}`).toEqual([]);
   });
 
   it("no longer includes the publish handler it was found by", () => {
@@ -194,10 +189,52 @@ describe("the family this came from", () => {
     const inFile = silentHandlers()
       .filter((h) => h.includes("IcebergDialog"))
       .map((h) => Number(h.split(":").pop()));
-    expect(inFile.length, "the other three are still owed a sentence").toBe(3);
+    // Three were still owed a sentence after R245; R263 wrote them.
+    expect(inFile.length, "a handler in this dialog is silent again").toBe(0);
     expect(
       inFile.some((line) => Math.abs(line - publishAt) < 12),
       "the publish handler is silent again",
     ).toBe(false);
+  });
+});
+
+describe("failureToast: a handler names what it was doing (R263)", () => {
+  it("names the action, with the real message under it", () => {
+    expect(failureToast("save the feature view", new Error("connection reset"))).toEqual({
+      title: "Could not save the feature view",
+      description: "connection reset",
+    });
+  });
+
+  it("stays quiet for a cancel, as the net does", () => {
+    const abort = new Error("signal stopped");
+    abort.name = "AbortError";
+    expect(failureToast("save the feature view", abort)).toBeNull();
+  });
+
+  it("says something even when the error says nothing", () => {
+    expect(failureToast("commit", new Error(""))?.description).toMatch(/without saying why/);
+  });
+});
+
+describe("a loading toast is replaced, not left spinning (R263)", () => {
+  it.each([
+    ["src/components/ml/DeploymentPanel.tsx", 'reportFailure("deploy the model", e, { id: t });'],
+    [
+      "src/routes/_authenticated/admin.iam.tsx",
+      'reportFailure("create the data key", e, { id: t });',
+    ],
+    [
+      "src/routes/_authenticated/admin.iam.tsx",
+      'reportFailure("re-encrypt the stored credentials", e, { id: t });',
+    ],
+  ])("%s passes its loading toast to the failure", (path, line) => {
+    expect(readFileSync(path, "utf8")).toContain(line);
+  });
+
+  it("shows the deploy's loading toast before the try, where the catch can see it", () => {
+    const src = readFileSync("src/components/ml/DeploymentPanel.tsx", "utf8");
+    const fn = src.slice(src.indexOf("async function deploy()"));
+    expect(fn.indexOf("const t = toast.loading(")).toBeLessThan(fn.indexOf("try {"));
   });
 });

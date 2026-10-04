@@ -34,6 +34,7 @@ import {
   type MlFairnessRow,
   type MlSensitiveSuggestion,
 } from "@/utils/ml.functions";
+import { reportFailure } from "@/lib/silentFailureNet";
 
 type Group = {
   group: string;
@@ -169,6 +170,8 @@ export function FairnessPanel({
         toast.success(`Compared ${res.checks.length} column(s)`);
         void load();
       }
+    } catch (e) {
+      reportFailure("run the fairness check", e);
     } finally {
       setBusy(null);
     }

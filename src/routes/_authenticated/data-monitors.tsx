@@ -58,6 +58,7 @@ import {
   type MonitorView,
 } from "@/utils/dataMonitors.functions";
 import type { DataIncidentRow, DataMonitorRunRow } from "@/utils/dataMonitors/run.server";
+import { reportFailure } from "@/lib/silentFailureNet";
 
 const searchSchema = z.object({
   source: z.enum(["lakehouse", "warehouse"]).optional(),
@@ -219,6 +220,8 @@ function DataMonitorsPage() {
       if (!r.ok) return toast.error(String(r.error ?? "Failed"));
       done?.(r);
       await reload();
+    } catch (e) {
+      reportFailure("finish that on the monitor", e);
     } finally {
       setBusy(null);
     }

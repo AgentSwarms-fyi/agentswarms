@@ -29,6 +29,7 @@ import {
   mlApiKeysList,
   type MlApiKeyRow,
 } from "@/utils/mlApiKeys.functions";
+import { reportFailure } from "@/lib/silentFailureNet";
 
 const SCOPE_BLURB: Record<MlKeyScope, string> = {
   predict: "score rows, start batch runs",
@@ -129,6 +130,8 @@ export function MlApiKeysDialog({
       setFresh(res.key);
       setName("");
       load();
+    } catch (e) {
+      reportFailure("create the key", e);
     } finally {
       setBusy(false);
     }

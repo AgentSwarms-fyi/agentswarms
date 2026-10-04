@@ -38,6 +38,7 @@ import {
   validateIcebergCatalog,
   type IcebergCatalogConfig,
 } from "@/utils/lakehouse/iceberg";
+import { reportFailure } from "@/lib/silentFailureNet";
 
 /** A schema name for a namespace: ice_<namespace>, made safe. */
 function suggestedSchemaName(namespace: string): string {
@@ -58,6 +59,8 @@ function useCatalogs(token: string, open: boolean) {
       const r = await listFn({ data: { access_token: token } });
       if (r.ok) setCatalogs(r.catalogs);
       else toast.error(r.error);
+    } catch (e) {
+      reportFailure("load the catalogs", e);
     } finally {
       setLoading(false);
     }
@@ -314,6 +317,8 @@ export function IcebergCatalogsDialog({ onChanged }: { onChanged: () => void }) 
                         setForm(defaultIcebergCatalog());
                         setAdding(false);
                         await reload();
+                      } catch (e) {
+                        reportFailure("register the catalog", e);
                       } finally {
                         setBusy(false);
                       }
@@ -397,6 +402,8 @@ export function IcebergCatalogsDialog({ onChanged }: { onChanged: () => void }) 
                     setNamespace("");
                     await reload();
                     onChanged();
+                  } catch (e) {
+                    reportFailure("mount the namespace", e);
                   } finally {
                     setMounting(false);
                   }

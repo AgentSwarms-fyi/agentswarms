@@ -15,6 +15,19 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-04 — R263: a failed re-encryption, before and after
+
+Admin → IAM → Settings → **Re-encrypt to current key**. The button's server-function request was
+refused in the browser, one shot (a wrapped `fetch` rejecting the next `/_serverFn/` call), so nothing
+was re-encrypted either time: the card read "7 encrypted values · 7 on the current key" before and
+after. Before on R262's build, after on R263 hot-deployed.
+
+| | Before | After |
+| --- | --- | --- |
+| The loading toast "Re-encrypting stored credentials…" | **still spinning after 26 seconds** | **replaced** by "Could not re-encrypt the stored credentials" — "Failed to fetch (…)" |
+| The button | **disabled, with its spinner, until a reload** | enabled again, no spinner |
+| What else was said | only the net's generic "That did not finish" | nothing else: the handler's own catch reported it, so the net had nothing to catch |
+
 ## 2026-10-04 — R262: distributions in a workbook
 
 Same fixture workbook, column D, before on R261's build and after on R262 hot-deployed:

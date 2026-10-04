@@ -82,3 +82,35 @@ export function installSilentFailureNet(): () => void {
   window.addEventListener("unhandledrejection", onRejection);
   return () => window.removeEventListener("unhandledrejection", onRejection);
 }
+
+/**
+ * What a handler with its own catch says (R263). The net above is the floor:
+ * it can only say "That did not finish", because it does not know what the
+ * reader was doing. A handler does, so it names the action - "Could not save
+ * the feature view" - with the real message under it. A cancel stays quiet
+ * here too.
+ *
+ * Pure, for the same reason as silentFailureToast: the decision is tested
+ * without a DOM.
+ */
+export function failureToast(action: string, reason: unknown): SilentFailure | null {
+  if (isExpected(reason)) return null;
+  return {
+    title: `Could not ${action}`,
+    description: messageOf(reason).slice(0, 300) || "It failed without saying why. Try again.",
+  };
+}
+
+/**
+ * Report a handler's failure. Pass the id of a loading toast the handler
+ * showed, so the failure replaces it rather than leaving it spinning.
+ */
+export function reportFailure(
+  action: string,
+  reason: unknown,
+  opts: { id?: string | number } = {},
+): void {
+  const said = failureToast(action, reason);
+  if (said) toast.error(said.title, { description: said.description, id: opts.id });
+  else if (opts.id !== undefined) toast.dismiss(opts.id);
+}

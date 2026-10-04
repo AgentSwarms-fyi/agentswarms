@@ -28,6 +28,7 @@ import {
   mlSetOutcomeSource,
   type MlEvaluationRow,
 } from "@/utils/ml.functions";
+import { reportFailure } from "@/lib/silentFailureNet";
 
 const EVALUABLE = new Set(["classification", "regression", "forecast"]);
 
@@ -183,6 +184,8 @@ export function AccuracyPanel({
         toast.success(`Measured ${res.evaluation.matched_rows} rows with an outcome`);
         void load();
       }
+    } catch (e) {
+      reportFailure("measure accuracy", e);
     } finally {
       setBusy(false);
     }

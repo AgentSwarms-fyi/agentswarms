@@ -52,6 +52,7 @@ import {
   auditSetRetention,
   type AuditRow,
 } from "@/utils/audit.functions";
+import { reportFailure } from "@/lib/silentFailureNet";
 
 const ACTION_META: Record<string, { label: string; className: string }> = {
   "model.call": { label: "model call", className: "bg-primary/10 text-primary" },
@@ -355,6 +356,8 @@ export function AuditLog() {
                         : `Chain BROKEN at sequence ${res.firstBrokenSeq} — an event was altered or removed`,
                       { duration: Infinity },
                     );
+                } catch (e) {
+                  reportFailure("verify the audit chain", e);
                 } finally {
                   setVerifying(false);
                 }

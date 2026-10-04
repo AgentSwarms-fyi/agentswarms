@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Loader2, Cloud, FileText, Layers, Box, Globe, BookOpen } from "lucide-react";
+import { reportFailure } from "@/lib/silentFailureNet";
 
 export type ConnectorSourceRow = {
   id: string;
@@ -412,6 +413,8 @@ export function ConnectSourceDialog({
       }
       onSaved();
       onOpenChange(false);
+    } catch (e) {
+      reportFailure("connect the source", e);
     } finally {
       setSaving("idle");
     }

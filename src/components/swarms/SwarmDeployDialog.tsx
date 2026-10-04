@@ -62,6 +62,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { confirmAsk } from "@/components/ui/confirm-dialog";
+import { reportFailure } from "@/lib/silentFailureNet";
 
 type ApiKeyRow = {
   id: string;
@@ -345,6 +346,8 @@ export function SwarmDeployDialog({
       await load();
       onPublishedChange?.();
       toast.success("Published — deployed runs now use this version");
+    } catch (e) {
+      reportFailure("publish the swarm", e);
     } finally {
       setPublishing(false);
     }
@@ -361,6 +364,8 @@ export function SwarmDeployDialog({
       await load();
       onPublishedChange?.();
       toast.success("Unpinned — deployed runs follow the canvas again");
+    } catch (e) {
+      reportFailure("unpin the swarm", e);
     } finally {
       setPublishing(false);
     }

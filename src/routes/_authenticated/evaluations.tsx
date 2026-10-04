@@ -65,6 +65,7 @@ import {
   runEvalCase,
   startEvalRun,
 } from "@/utils/evals.functions";
+import { reportFailure } from "@/lib/silentFailureNet";
 
 export const Route = createFileRoute("/_authenticated/evaluations")({
   component: EvaluationsPage,
@@ -880,6 +881,8 @@ function RunPanel({ run, runs, onChanged }: { run: Run; runs: Run[]; onChanged: 
         }
       };
       await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+    } catch (e) {
+      reportFailure("run the evaluation case", e);
     } finally {
       drivingRef.current = false;
       setDriving(false);

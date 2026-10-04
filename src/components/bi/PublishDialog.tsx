@@ -32,6 +32,7 @@ import {
   biSetReaderModel,
   biSetShares,
 } from "@/utils/bi.functions";
+import { reportFailure } from "@/lib/silentFailureNet";
 
 export function PublishDialog({
   open,
@@ -70,6 +71,8 @@ export function PublishDialog({
       if (!res.ok) return toast.error(res.error);
       onUpdated({ ai_model: model });
       toast.success(model ? "Reader AI model set" : "Reader AI model reset to default");
+    } catch (e) {
+      reportFailure("set the reader model", e);
     } finally {
       setBusyModel(false);
     }
@@ -132,6 +135,8 @@ export function PublishDialog({
       });
       if (!res.ok) return toast.error(res.error);
       toast.success("Group access updated");
+    } catch (e) {
+      reportFailure("update group access", e);
     } finally {
       setBusyShares(false);
     }

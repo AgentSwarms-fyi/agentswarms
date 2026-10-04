@@ -56,6 +56,7 @@ import {
   type SqlModelRunRow,
 } from "@/utils/sqlModels.functions";
 import type { ModelResult, SqlModelRow } from "@/utils/sqlModels/run.server";
+import { reportFailure } from "@/lib/silentFailureNet";
 
 export const Route = createFileRoute("/_authenticated/sql-models")({
   head: () => ({
@@ -329,6 +330,8 @@ function SqlModelsPage() {
       toast.success(draft.id ? `Saved ${draft.name}` : `Created ${draft.name}`);
       await reload();
       setDraft((d) => (d ? { ...d, id: res.id } : d));
+    } catch (e) {
+      reportFailure("save the model", e);
     } finally {
       setBusy(false);
     }
@@ -351,6 +354,8 @@ function SqlModelsPage() {
       }
       setTab("runs");
       await reload();
+    } catch (e) {
+      reportFailure("build the models", e);
     } finally {
       setBusy(false);
     }
@@ -367,6 +372,8 @@ function SqlModelsPage() {
       if (!res.ok) return toast.error(res.error);
       setPreview({ columns: res.columns, rows: res.rows as unknown[][] });
       toast.success(`${res.rows.length} row${res.rows.length === 1 ? "" : "s"}`);
+    } catch (e) {
+      reportFailure("run the preview", e);
     } finally {
       setBusy(false);
     }
@@ -391,6 +398,8 @@ function SqlModelsPage() {
       } else toast.success(`Deleted ${m.name}`);
       setDraft(null);
       await reload();
+    } catch (e) {
+      reportFailure("delete the model", e);
     } finally {
       setBusy(false);
     }
@@ -405,6 +414,8 @@ function SqlModelsPage() {
       if (!res.ok) return toast.error(res.error);
       toast.success(m.is_active ? `Paused ${m.name}` : `Resumed ${m.name}`);
       await reload();
+    } catch (e) {
+      reportFailure("pause or resume the model", e);
     } finally {
       setBusy(false);
     }
