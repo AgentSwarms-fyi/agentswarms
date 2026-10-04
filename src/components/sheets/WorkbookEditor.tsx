@@ -1866,6 +1866,29 @@ export function WorkbookEditor({
     }
   };
 
+  // FOUND IN R246. A workbook with no sheets is not "opening" — it is open
+  // and empty, which two deletes racing each other left a real one on
+  // 2026-10-04. It sat on "Opening…" forever, and every control that could
+  // add a sheet back is below this return, so the workbook could not be
+  // recovered from the UI at all. The engine is built from the loaded tabs,
+  // so its being here with none is exactly the difference between "empty" and
+  // "not loaded yet".
+  if (engine && tabs.length === 0) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
+        <p className="text-sm text-muted-foreground">
+          This workbook has no sheets.
+          {wb.readOnly ? " Its owner can add one." : ""}
+        </p>
+        {!wb.readOnly && (
+          <Button onClick={() => void addSheet()} size="sm">
+            Add a sheet
+          </Button>
+        )}
+      </div>
+    );
+  }
+
   if (!engine || !tabId || !activeTab) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-muted-foreground">

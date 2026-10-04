@@ -169,6 +169,29 @@ export async function isProtectedAccount(userId: string): Promise<boolean> {
   return isBootstrapAdmin(userId);
 }
 
+/** A superadmin role row, whole. */
+export type SuperadminRoleRow = Database["public"]["Tables"]["user_roles"]["Row"];
+
+/**
+ * The account's superadmin role row, every column, or null if it has none.
+ *
+ * R246 needs the whole row to put a demotion back (see lastOneGuard). It
+ * lives here, beside isProtectedAccount, because R236 made this file the one
+ * place that reads `user_roles` for the superadmin role, and a ratchet holds
+ * callers to it. Like isProtectedAccount it throws rather than answer "none"
+ * for a read that failed.
+ */
+export async function readSuperadminRoleRow(userId: string): Promise<SuperadminRoleRow | null> {
+  const { data: row, error } = await supabaseAdmin
+    .from("user_roles")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("role", "superadmin")
+    .maybeSingle();
+  if (error) throw new Error(`Could not read the role: ${error.message}`);
+  return row ?? null;
+}
+
 export type ModelRule = { provider: string; model_pattern: string };
 
 /**

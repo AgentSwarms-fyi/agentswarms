@@ -282,6 +282,10 @@ A sheet tab's menu (the arrow on the tab) renames, duplicates, moves, hides and 
   view moves to the next one showing. Ctrl+Z takes back a Hide or an Unhide, and a hidden sheet
   is never left on screen.
 - A workbook keeps at least one sheet showing, so hiding or deleting the last one is refused.
+  That holds for two deletes arriving at the same moment too: the count that decides is taken
+  after the delete, and a delete that turns out to have taken the last sheet puts it back whole,
+  cells and all, and says so (R246). If a workbook does end up with no sheets, it says that
+  plainly and offers to add one, rather than sitting on "Opening…".
 - Moving a tab passes over the hidden sheets beside it, and Find leaves hidden sheets out, as
   Excel's does.
 - Only grid sheets can be hidden or duplicated for now.

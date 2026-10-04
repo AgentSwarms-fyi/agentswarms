@@ -15,6 +15,33 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-04 — R246: two sheets deleted at the same millisecond
+
+Driven at `http://localhost:8080/sheets`, against the workbook **R246 last sheet race**
+(`61e4fe80-42b1-4248-addc-accc74abcab3`), created for this round with two grid sheets and a marker
+value in each. The fix was hot-deployed into the running container for the "after" half.
+
+**How the race was staged.** The two deletes come from two browser tabs with the same workbook
+open, each using the real tab menu and the real confirmation dialog: one on Sheet1, one on Sheet2.
+Clicking them in turn is not a race, and a plain `setTimeout` is not one either, because a
+background tab's timers are throttled to about a second, wider than the window. So each tab was
+armed with a timer three seconds early that then busy-waits to an exact wall-clock instant before
+clicking its own **Delete sheet**. Both runs read the firing time back from both tabs: the same
+millisecond each time.
+
+| What was driven | Before (`5c0a46c`) | After |
+| --- | --- | --- |
+| Both confirmations fired at one instant (`1791109545000` before, `1791112345000` after) | each tab removed its sheet; the workbook was left with **no sheets** | **both refused**, each toast reading `"Sheet1" was not deleted: A workbook keeps at least one sheet` (and the same for Sheet2) |
+| Reopening the workbook | **"Opening…" forever**: 30+ seconds, no sheet tabs, and no control anywhere to add one, because the `+` is inside the editor that never renders | both sheets are there, and both markers ("SHEET1 AFTER", "SHEET2 AFTER") came back whole with the restored rows |
+| Opening the workbook the "before" run broke, on the fixed build | (the same dead "Opening…") | **"This workbook has no sheets."** with **Add a sheet**; pressing it opened the editor on a new Sheet1. The broken fixture recovered from the UI alone |
+| Deleting one sheet of two, normally | worked | still works: Sheet2 deleted, Sheet1 and its value kept after a reload |
+
+The "after" race landed on the interleaving where both requests count zero and both put their
+sheet back, which is the case `lastOneGuard.test.ts` predicts step for step. Neither caller was told
+its delete worked, and nothing was lost.
+
+**Fixture kept:** the workbook, now one sheet ("SHEET1 AFTER" in A1).
+
 ## 2026-10-04 — R245: the net under the silent handlers, on the deployed build
 
 Commit `348f313c`, built with `npm run build` and hot-deployed into the running container

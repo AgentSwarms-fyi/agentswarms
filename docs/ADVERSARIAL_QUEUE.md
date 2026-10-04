@@ -494,8 +494,13 @@ showing `\u2014` as text). Open, from the first rounds:
 - **TREND, GROWTH, XNPV and XIRR over a range with a blank** still count the blank as 0 (R170
   fixed the rest of the formula.js functions). A list with no numbers is an error, not always
   Excel's code: `=GEOMEAN(A2)` over a blank is #VALUE!, Excel's #NUM!.
-- **Deleting the last two sheets at once:** `sheetsDeleteTab` counts, then
-  deletes, so two concurrent deletes can leave a workbook with none.
+- ~~**Deleting the last two sheets at once:** `sheetsDeleteTab` counts, then deletes, so two
+  concurrent deletes can leave a workbook with none.~~ **Fixed in R246**, and it was worse than
+  this row said: the workbook was left unopenable, because the editor's "Opening…" covers an
+  empty workbook forever and the control that adds a sheet back is behind it. Driven with two
+  browser tabs confirming at the same millisecond. The same shape was found in
+  `iamRevokeSuperadmin`, where it can leave a deployment with no superadmin and no way to make
+  one. Both go through `lastOneGuard` now, and a ratchet holds the shape at zero.
 - **A connection import was not driven:** the account has no database
   connection, and creating one needs a credential typed into the page.
 

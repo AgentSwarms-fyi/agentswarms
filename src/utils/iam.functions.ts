@@ -8,7 +8,14 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { generateScimToken, hashScimToken, scimTokenPrefix } from "@/lib/scim";
 import { USER_ATTR_TOKEN_RE } from "@/lib/semanticPolicy";
 import { auditEvent } from "@/utils/audit.server";
-import { isBootstrapAdmin, isProtectedAccount, requireSuperadmin } from "@/utils/iam.server";
+import {
+  isBootstrapAdmin,
+  isProtectedAccount,
+  readSuperadminRoleRow,
+  requireSuperadmin,
+  type SuperadminRoleRow,
+} from "@/utils/iam.server";
+import { deleteKeepingAtLeastOne } from "@/utils/lastOneGuard";
 
 /**
  * A row-filter value is either a plain literal or a WELL-FORMED attribute
@@ -353,20 +360,51 @@ export const iamRevokeSuperadmin = createServerFn({ method: "POST" })
       };
     }
 
-    const { count } = await supabaseAdmin
-      .from("user_roles")
-      .select("id", { count: "exact", head: true })
-      .eq("role", "superadmin");
-    if ((count ?? 0) <= 1) {
-      return { ok: false, error: "Cannot demote the last superadmin" };
+    // R246: this counted the superadmins and then deleted one, two round
+    // trips apart. Two demotions arriving together both read 2, both passed,
+    // and both deleted — a deployment with no superadmin left, and nobody
+    // able to grant the role back, because granting it is superadmin-gated.
+    // The count that decides is taken after the delete now. It also dropped
+    // the count's own error, so an unreadable table reported the deployment's
+    // last superadmin as a fact; it is read and raised now.
+    let result;
+    try {
+      result = await deleteKeepingAtLeastOne<SuperadminRoleRow>(
+        {
+          read: () => readSuperadminRoleRow(data.user_id),
+          remove: async () => {
+            const { data: rows, error } = await supabaseAdmin
+              .from("user_roles")
+              .delete()
+              .eq("user_id", data.user_id)
+              .eq("role", "superadmin")
+              .select("id");
+            if (error) throw new Error(error.message);
+            return !!rows?.length;
+          },
+          countRemaining: async () => {
+            const { count, error } = await supabaseAdmin
+              .from("user_roles")
+              .select("id", { count: "exact", head: true })
+              .eq("role", "superadmin");
+            if (error) throw new Error(`Could not count the superadmins: ${error.message}`);
+            if (count === null) throw new Error("the superadmins could not be counted");
+            return count;
+          },
+          restore: async (row) => {
+            const { error } = await supabaseAdmin.from("user_roles").insert(row);
+            if (error) throw new Error(error.message);
+          },
+        },
+        {
+          refusal: "Cannot demote the last superadmin",
+          missing: "This account is not a superadmin",
+        },
+      );
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
-
-    const { error } = await supabaseAdmin
-      .from("user_roles")
-      .delete()
-      .eq("user_id", data.user_id)
-      .eq("role", "superadmin");
-    if (error) return { ok: false, error: error.message };
+    if (!result.ok) return result;
     auditEvent({
       userId: guard.userId,
       action: "iam.role.revoke_superadmin",

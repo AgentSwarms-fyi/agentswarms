@@ -109,6 +109,74 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-04 — R246: two guards that count first and write second
+
+**Severity: high.** The queue's Sheets list carried a one-line row from the first rounds:
+"`sheetsDeleteTab` counts, then deletes, so two concurrent deletes can leave a workbook with
+none." It is true, it is worse than it sounds, and it is not alone.
+
+The shape:
+
+```ts
+const { count } = await sb.from(T).select("id", { count: "exact", head: true })…;
+if ((count ?? 0) <= 1) return { ok: false, error: "…keeps at least one…" };
+await sb.from(T).delete().eq("id", id);
+```
+
+The count and the delete are two round trips. Two requests that arrive together both read 2, both
+pass the guard, and both delete. Sweeping for it found **two** instances, and the second is the
+one that matters: `iamRevokeSuperadmin`. Two demotions at the same moment leave a deployment with
+**no superadmin at all**, and granting the role is itself superadmin-gated, so there is nobody
+left who can make one. Unless `ADMIN_EMAIL` is set and the bootstrap promotion runs again, that
+is permanent. The same function also dropped the count's own `error`, so an unreadable
+`user_roles` reported "Cannot demote the last superadmin" as a fact about the data.
+
+**Driven, not argued.** Two browser tabs, each holding the real confirmation dialog over a
+different sheet of a two-sheet workbook, both confirms fired from the page at the same
+millisecond (`1791109545000`, read back from both tabs). The workbook was left with no sheets —
+and it will not open again. The editor's `if (!engine || !tabId || !activeTab)` renders
+"Opening…" forever, and every control that could add a sheet back, including the `+`, is below
+that return. So the queue's row understated it: not "a workbook with none", but a workbook that
+is permanently unopenable, with no path back from the UI.
+
+**The fix is an order, not a lock.** There is no transaction to reach for — these run over
+PostgREST, a statement per request. But a count taken BEFORE the write describes a past the write
+may have changed, while a count taken AFTER it describes the present. So `lastOneGuard` writes
+first, then looks, and puts the row back if looking says it was the one that emptied the table.
+That is only safe because both rows carry their own data — a sheet tab's cells are its own `grid`
+column, a superadmin role is the pair `(user_id, role)` — so the row read before the delete
+restores it whole. A table whose children cascade would need a different answer, and the module
+says so.
+
+It does **not** hold the invariant at every instant: between the second delete and the restore
+the table is briefly empty. Settling at zero was the unrecoverable failure; passing through zero
+is survivable — and only honestly so because of the other half of this round. A workbook with no
+sheets now says it has none and offers to add one, which also recovers any workbook already
+broken this way. `sheetsAddTab` was already happy to add the first sheet to an empty workbook;
+nothing could reach it.
+
+Eight mutants caught against a verified-green baseline, control survived. The ratchet in
+`lastOneGuardWiring.test.ts` holds the count-then-decide shape at **zero**, and two of the
+mutants exist because the first version of that test would have let them through: making the
+empty-workbook branch unreachable left every string it renders in place, and restoring a sheet as
+a husk left `.select("*")` standing. Both are pinned on the thing itself now — the condition, and
+`insert(row)`.
+
+**An earlier round's ratchet caught this one.** The first version read the superadmin's role row
+inside `iamRevokeSuperadmin`, and R236's test — no caller reads `user_roles` for the superadmin role
+privately — failed the gate. That read raised its error, so it was not R236's defect; but the
+answer was to honour the ratchet rather than loosen it. The read now lives in `iam.server.ts` as
+`readSuperadminRoleRow`, beside `isProtectedAccount`, and the ratchet is untouched.
+
+**Proved in the UI, both halves.** On the fixed build the same race, fired at one millisecond from
+two tabs, was refused in both tabs and both sheets came back with their cells; the workbook the
+"before" run had broken opened on "This workbook has no sheets" and recovered through Add a sheet.
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
+**Proved for sheets, argued for IAM.** The superadmin race needs two superadmins to demote and
+this deployment has one account; it is the same blocker as R225, R235 and R239, and it is the
+same statement, on the same helper, with the same tests.
+
 ### 2026-10-04 — R245: sixty-eight buttons that can fail in complete silence
 
 **Severity: high, by breadth.** The queue's open operations row said the publish toast "shows the

@@ -23,7 +23,12 @@ It manages:
 - **Users** — invite by email (Supabase sends the invitation) or create
   accounts with a temporary password; ban/unban; delete; promote additional
   superadmins. The bootstrap superadmin can never be demoted, and the last
-  superadmin is protected.
+  superadmin is protected — including against two demotions arriving at the
+  same moment, which both used to pass a count taken before the delete. The
+  count that decides is taken after it now, and a demotion that turns out to
+  have removed the last superadmin is put back (R246). This matters more here
+  than anywhere else: granting the role is itself superadmin-gated, so a
+  deployment with none has nobody left who can make one.
 - **Groups** — organize users; model rules and resource shares can target a
   whole group at once.
 - **Provisioning** — with SCIM 2.0 the identity provider creates users before

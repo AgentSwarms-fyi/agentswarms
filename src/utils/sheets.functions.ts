@@ -10,7 +10,8 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import type { Json } from "@/integrations/supabase/types";
+import type { Database, Json } from "@/integrations/supabase/types";
+import { deleteKeepingAtLeastOne } from "@/utils/lastOneGuard";
 import { getPlatformResources } from "@/utils/notebookRuntime/config.server";
 import { gridSchema } from "@/utils/sheets/schemas";
 import { takeVersion } from "@/utils/sheets/versions.server";
@@ -85,6 +86,14 @@ export type SheetTabRow = {
   version: number;
   updated_at: string;
 };
+
+/**
+ * Every column of a sheet tab, as the table stores it. SheetTabRow above is
+ * what the client is given; a restore needs the rest too (user_id is NOT
+ * NULL and is not in that shape), so R246 reads the whole row before it
+ * deletes one.
+ */
+type StoredSheetTab = Database["public"]["Tables"]["sheet_tabs"]["Row"];
 
 export type SheetsLimits = {
   maxCells: number;
@@ -503,20 +512,55 @@ export const sheetsDeleteTab = createServerFn({ method: "POST" })
     if (!caller.ok) return caller;
     const got = await requireTab(caller.userId, data.tab_id, "edit");
     if (!got.ok) return got;
-    const { count, error: cErr } = await supabaseAdmin
-      .from("sheet_tabs")
-      .select("id", { count: "exact", head: true })
-      .eq("workbook_id", got.tab.workbook_id);
-    if (cErr) return { ok: false, error: `Could not read the sheets: ${cErr.message}` };
-    if ((count ?? 0) <= 1) return { ok: false, error: "A workbook keeps at least one sheet" };
-    const { data: rows, error } = await supabaseAdmin
-      .from("sheet_tabs")
-      .delete()
-      .eq("id", data.tab_id)
-      .select("id");
-    if (error) return { ok: false, error: `Could not delete the sheet: ${error.message}` };
-    if (!rows?.length) return { ok: false, error: "This sheet no longer exists" };
-    return { ok: true };
+    const workbookId = got.tab.workbook_id;
+    // R246: counting first and deleting second let two deletes arriving
+    // together both pass the "keeps at least one" guard, and a real workbook
+    // was left with no sheets and would not open again. The count that
+    // decides is taken after the delete now; see lastOneGuard.
+    try {
+      return await deleteKeepingAtLeastOne<StoredSheetTab>(
+        {
+          read: async () => {
+            const { data: row, error } = await supabaseAdmin
+              .from("sheet_tabs")
+              .select("*")
+              .eq("id", data.tab_id)
+              .maybeSingle();
+            if (error) throw new Error(`Could not read the sheet: ${error.message}`);
+            return row ?? null;
+          },
+          remove: async () => {
+            const { data: rows, error } = await supabaseAdmin
+              .from("sheet_tabs")
+              .delete()
+              .eq("id", data.tab_id)
+              .select("id");
+            if (error) throw new Error(`Could not delete the sheet: ${error.message}`);
+            return !!rows?.length;
+          },
+          countRemaining: async () => {
+            const { count, error } = await supabaseAdmin
+              .from("sheet_tabs")
+              .select("id", { count: "exact", head: true })
+              .eq("workbook_id", workbookId);
+            if (error) throw new Error(`Could not read the sheets: ${error.message}`);
+            // A dropped count is not "none left": say so rather than guess.
+            if (count === null) throw new Error("the sheets could not be counted");
+            return count;
+          },
+          restore: async (row) => {
+            const { error } = await supabaseAdmin.from("sheet_tabs").insert(row);
+            if (error) throw new Error(error.message);
+          },
+        },
+        {
+          refusal: "A workbook keeps at least one sheet",
+          missing: "This sheet no longer exists",
+        },
+      );
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
   });
 
 export const sheetsReorderTabs = createServerFn({ method: "POST" })
