@@ -2256,6 +2256,177 @@ for (const name of ["DEC2HEX", "BIN2HEX", "OCT2HEX", "BASE"]) {
   };
 }
 
+// ── Database functions (DSUM, DAVERAGE, DGET…) ─────────────────────────────
+//
+// FOUND IN R259. formula.js has these, and they do not read criteria the way
+// Excel does: on Microsoft's own tree example its DSUM of the apple trees'
+// profit was the profit of EVERY tree (502.8, not 225), whichever way the
+// table was handed over, and most of the rest answered wrongly or threw. So
+// they are written here, to Excel's rules for a criteria range:
+//
+//   - the first row of the criteria range names fields of the database (case
+//     does not matter); each row below it is one alternative, and a record
+//     matches if ANY row matches;
+//   - within a row every non-blank cell must match (AND), and a blank cell is
+//     no condition at all;
+//   - a bare text criterion is "begins with" (Dav finds Davolio and David),
+//     "=Dav" is exact, and > < >= <= <> compare, with * ? ~ as wildcards.
+
+type Database = { headers: string[]; rows: Scalar[][] };
+
+/** A header or field label, compared without case. An error in a header names no field. */
+function labelOf(h: Scalar): string {
+  if (h === null || isError(h)) return "";
+  const t = toText(h);
+  return (isError(t) ? "" : t).trim().toLowerCase();
+}
+
+function databaseOf(a: Arg): Database | SheetError {
+  const m = asMatrix(a.value());
+  if (m.length < 1 || !m[0]?.length) return err("#VALUE!", "The database needs a header row");
+  return {
+    headers: m[0].map((h) => labelOf(h)),
+    rows: m.slice(1),
+  };
+}
+
+/** The field argument: a column label (any case) or a 1-based column number. */
+function fieldIndex(db: Database, a: Arg): number | SheetError {
+  const v = scalarOf(a.value());
+  if (isError(v)) return v;
+  if (typeof v === "number") {
+    const k = Math.trunc(v);
+    return k >= 1 && k <= db.headers.length ? k - 1 : err("#VALUE!", `There is no column ${k}`);
+  }
+  const name = labelOf(v);
+  const i = db.headers.indexOf(name);
+  return i >= 0 ? i : err("#VALUE!", `No column is labelled "${v}"`);
+}
+
+/** A criteria-range cell as a predicate; null when it sets no condition. */
+function databaseCriterion(c: Scalar): ((v: Scalar) => boolean) | null {
+  if (c === null || c === "") return null;
+  if (typeof c === "string" && !/^\s*(<=|>=|<>|<|>|=)/.test(c) && parseNumberText(c) === null) {
+    // Bare text: begins with.
+    return makeCriterion(`${c}*`);
+  }
+  return makeCriterion(c);
+}
+
+/** Which records the criteria range selects. */
+function matchingRows(db: Database, a: Arg): Scalar[][] | SheetError {
+  const m = asMatrix(a.value());
+  if (m.length < 2)
+    return err("#VALUE!", "The criteria need a header row and at least one row under it");
+  const cols = m[0].map((h) => db.headers.indexOf(labelOf(h)));
+  const alternatives = m
+    .slice(1)
+    .map((row) =>
+      row.map((cell, j) => ({ col: cols[j], test: databaseCriterion(cell) })).filter((c) => c.test),
+    );
+  return db.rows.filter((rec) =>
+    alternatives.some((conds) =>
+      // A condition under a label the database does not have selects nothing here.
+      // Excel reads such a column as a COMPUTED criterion (a formula), which this
+      // engine does not support; refusing to match is the cautious half of that.
+      conds.every((c) => c.col >= 0 && (c.test as (v: Scalar) => boolean)(rec[c.col] ?? null)),
+    ),
+  );
+}
+
+/** The selected records' values in the field; `field` may be omitted for the counts. */
+function databaseValues(
+  args: Arg[],
+  fieldOptional = false,
+): Scalar[] | { records: number } | SheetError {
+  const e = arity(args, 3, 3);
+  if (e) return e;
+  const db = databaseOf(args[0]);
+  if (isError(db)) return db;
+  const rows = matchingRows(db, args[2]);
+  if (isError(rows)) return rows;
+  if (fieldOptional && args[1].node.k === "empty") return { records: rows.length };
+  const i = fieldIndex(db, args[1]);
+  if (isError(i)) return i;
+  return rows.map((r) => r[i] ?? null);
+}
+
+function numbersOf(vals: Scalar[]): number[] | SheetError {
+  const out: number[] = [];
+  for (const v of vals) {
+    if (isError(v)) return v;
+    if (typeof v === "number") out.push(v);
+  }
+  return out;
+}
+
+const dbNumbers = (args: Arg[]): number[] | SheetError => {
+  const vals = databaseValues(args);
+  if (isError(vals)) return vals;
+  return numbersOf(vals as Scalar[]);
+};
+const variance = (xs: number[], sample: boolean): number | SheetError => {
+  const n = xs.length;
+  if (n === 0 || (sample && n < 2)) return err("#DIV/0!", "Not enough values");
+  const mean = xs.reduce((a, b) => a + b, 0) / n;
+  return xs.reduce((a, b) => a + (b - mean) ** 2, 0) / (sample ? n - 1 : n);
+};
+
+F.DSUM = (args) => {
+  const xs = dbNumbers(args);
+  return isError(xs) ? xs : xs.reduce((a, b) => a + b, 0);
+};
+F.DAVERAGE = (args) => {
+  const xs = dbNumbers(args);
+  if (isError(xs)) return xs;
+  return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : err("#DIV/0!", "No values match");
+};
+F.DMAX = (args) => {
+  const xs = dbNumbers(args);
+  return isError(xs) ? xs : xs.length ? Math.max(...xs) : 0;
+};
+F.DMIN = (args) => {
+  const xs = dbNumbers(args);
+  return isError(xs) ? xs : xs.length ? Math.min(...xs) : 0;
+};
+F.DPRODUCT = (args) => {
+  const xs = dbNumbers(args);
+  return isError(xs) ? xs : xs.length ? xs.reduce((a, b) => a * b, 1) : 0;
+};
+F.DCOUNT = (args) => {
+  const vals = databaseValues(args, true);
+  if (isError(vals)) return vals;
+  if (!Array.isArray(vals)) return vals.records;
+  return vals.filter((v) => typeof v === "number").length;
+};
+F.DCOUNTA = (args) => {
+  const vals = databaseValues(args, true);
+  if (isError(vals)) return vals;
+  if (!Array.isArray(vals)) return vals.records;
+  return vals.filter((v) => v !== null && v !== "").length;
+};
+F.DGET = (args) => {
+  const vals = databaseValues(args);
+  if (isError(vals)) return vals;
+  const list = vals as Scalar[];
+  if (list.length === 0) return err("#VALUE!", "No record matches");
+  if (list.length > 1) return err("#NUM!", "More than one record matches");
+  return list[0];
+};
+for (const [name, sample, root] of [
+  ["DSTDEV", true, true],
+  ["DSTDEVP", false, true],
+  ["DVAR", true, false],
+  ["DVARP", false, false],
+] as const) {
+  F[name] = (args) => {
+    const xs = dbNumbers(args);
+    if (isError(xs)) return xs;
+    const v = variance(xs, sample);
+    return isError(v) ? v : root ? Math.sqrt(v) : v;
+  };
+}
+
 export const FUNCTIONS: Readonly<Record<string, FnImpl>> = F;
 
 /**

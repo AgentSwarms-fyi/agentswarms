@@ -15,6 +15,21 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-04 — R259: DSUM in a workbook
+
+In the fixture workbook **R246 last sheet race**, cell A5, before on R258's build and after on R259
+hot-deployed (the same saved formula, recomputed):
+
+`=DSUM({"Tree","Profit";"Apple",105;"Pear",96;"Apple",75},"Profit",{"Tree";"Apple"})`
+
+| Before | After | By hand |
+| --- | --- | --- |
+| **#NAME?** | **180** | 105 + 75, the two apples |
+
+Registering formula.js's DSUM instead would have shown **0** here, handed the table row by row as
+the engine holds it — or **276**, every row's profit, handed it column by column. Checked by running
+formula.js on these exact rows both ways. Neither is 180, which is why it was written in the engine.
+
 ## 2026-10-04 — R258: Excel functions that were #NAME?
 
 Typed into the fixture workbook **R246 last sheet race** (`61e4fe80…`), before on R257's build and

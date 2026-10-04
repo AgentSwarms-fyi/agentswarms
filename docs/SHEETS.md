@@ -86,6 +86,14 @@ Type `=` and a formula, as in Excel. About 240 functions are available:
   text counts as 0 and TRUE as 1), TRIMMEAN, QUARTILE.EXC, PERCENTRANK and its .INC and .EXC forms
   (truncated to three digits, as Excel does: 5 of 9 is 0.555), BINOM.DIST, and the T.DIST family
   (T.DIST, T.DIST.RT, T.DIST.2T, TDIST).
+- **Database functions:** DSUM, DAVERAGE, DCOUNT, DCOUNTA, DMAX, DMIN, DPRODUCT, DGET, DSTDEV,
+  DSTDEVP, DVAR and DVARP, over a table whose first row names its columns, with a criteria range
+  read as Excel reads one: its first row names fields (in any case), each row under it is one
+  alternative (OR), the cells in a row must all hold (AND), a blank cell is no condition, and bare
+  text means *begins with* (`Ap` finds Apple) while `=Apple` is exact. DGET is #VALUE! when nothing
+  matches and #NUM! when more than one record does. A criteria column whose label is not a field of
+  the table matches nothing: Excel reads such a column as a formula criterion, which is not
+  supported here.
 - **Matrices, bits and types:** MMULT spills its product; BITAND, BITOR, BITXOR, BITLSHIFT,
   BITRSHIFT; COMPLEX writes Excel's text form (`3+4i`); TYPE (1 number, 2 text, 4 logical, 16 error,
   64 array) and ERROR.TYPE (2 for #DIV/0!, 7 for #N/A…).

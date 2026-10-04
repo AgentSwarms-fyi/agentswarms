@@ -109,6 +109,29 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-04 — R259: formula.js's DSUM added up every row, whatever the criteria said
+
+**Severity: moderate (Excel parity — but a wrong total, not a #NAME?, had they been registered).**
+The second batch from the Sheets functions row. Probed first, as R258 taught: formula.js's database
+functions do not read a criteria range as Excel does. On Microsoft's own tree example its DSUM of the
+apple trees' profit was **502.8 — every tree's** — instead of 225, and that was true whichever way the
+table was handed over (row-major threw or gave 0; column-major ignored the criteria); DCOUNT,
+DAVERAGE, DPRODUCT and the spreads were wrong the same way and DGET answered #NUM! for a single
+match. Registering them would have replaced a #NAME? with a plausible, wrong number.
+
+So all twelve are written in the engine, to Excel's rules for a criteria range: its first row names
+fields (any case); each row under it is an alternative (OR); a row's non-blank cells must all hold
+(AND); a blank cell is no condition; bare text is *begins with* and `=text` exact; DGET is #VALUE!
+for no match and #NUM! for several. Every expected answer in `sheetsDatabaseFunctions.test.ts` is
+worked out by hand from the six rows of the table, the arithmetic written beside it. The tests fail
+ten of ten on the old code; six mutants caught against a verified-green baseline (begins-with, OR
+across rows, a blank criterion, DGET's two errors, sample against population, case in labels),
+control survived.
+
+**Not done, and said so in the docs:** a criteria column whose label is not a field of the table.
+Excel reads that as a *computed* criterion (a formula); this engine matches nothing there rather than
+guess.
+
 ### 2026-10-04 — R258: twenty-three Excel functions that were #NAME?, and one that would have been #NUM! for ever
 
 **Severity: moderate (Excel parity).** The Sheets queue's longest-standing row: "formula.js functions
