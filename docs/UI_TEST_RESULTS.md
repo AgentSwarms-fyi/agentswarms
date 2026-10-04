@@ -15,6 +15,23 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-04 — R264: complex numbers in a workbook
+
+Fixture workbook **R246 last sheet race** (`61e4fe80…`), column F, typed on R263's build and
+recomputed after R264 hot-deployed (the same saved formulas):
+
+| Cell | Formula | Before | After | Checked against |
+| --- | --- | --- | --- | --- |
+| F1 | `=IMSUB(5,2)` | **#VALUE!** | **3** | a number is a complex number |
+| F2 | `=IMSQRT("-4")` | #NAME? | **2i** | 2i · 2i = −4, the root with a positive imaginary part |
+| F3 | `=IMLN("-1")` | #NAME? | **3.14159265358979i** | e^(πi) = −1 |
+| F4 | `=IMPRODUCT({"3+4i",5})` | **3+4i**, and **5 spilled into G4** | **15+20i**, nothing in G4 | (3+4i) · 5 |
+| F5 | `=IMARGUMENT("-1")` | **−3.141592654** | **3.141592654** | Excel's angles run over (−π, π] |
+| F6 | `=IMPOWER("-8",1/3)` | **1−1.73205080756888i** | **1+1.73205080756888i** | the principal cube root, at angle π/3 |
+
+F2 and F3 through formula.js, as first registered this round, would have read **−2i** (the wrong
+root) and **0**.
+
 ## 2026-10-04 — R263: a failed re-encryption, before and after
 
 Admin → IAM → Settings → **Re-encrypt to current key**. The button's server-function request was

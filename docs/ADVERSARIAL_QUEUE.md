@@ -507,8 +507,9 @@ showing `\u2014` as text). Open, from the first rounds:
   open:** ~~the other distributions~~ (**R262**: fifty-odd names, three formula.js answers
   replaced — GAMMA, LOGNORMDIST, TINV — and BETADIST written after a test passed by
   coincidence), ~~complex arithmetic (IMSUM, IMABS…)~~ (**R260**: ten
-  registered, written as Excel writes them; IMSQRT left out, formula.js gives sqrt(-4) the wrong
-  sign; IMLN, IMEXP and the trigonometric ones unchecked),
+  registered, written as Excel writes them), ~~IMSQRT, IMLN, IMEXP and the trigonometric ones~~
+  (**R264**: all twenty-five now the engine's own — formula.js threw on a number argument, never
+  opened a range in IMPRODUCT, put −1 at angle −π and took IMLN's angle as atan(y/x)),
   PERCENTRANK.EXC's significance argument (Excel's own answer unconfirmed), and VDB, which
   formula.js does not have.
 - ~~**Excel's 1900 calendar before March 1900**~~ — **fixed by R205**; this row predates it
@@ -516,6 +517,11 @@ showing `\u2014` as text). Open, from the first rounds:
   (`=YEAR(1)` is 1899, `=DATE(1900,2,28)` 60 where Excel says 59), and 0 is 1899-12-30 where Excel
   shows 1900-01-00. Excel counts a 29 February 1900 that never was; from serial 61 on the two agree.
   Found in R173's probe.
+- **Complex functions over a blank** (R264): a blank single argument counts as 0, IMSUM and
+  IMPRODUCT pass over blank cells, `""` is #NUM!, and zero to a power that is not positive is #NUM! —
+  each a reasoned choice, none checked in Excel. So is the last digit of a polar residue:
+  `IMPOWER("i",2)` writes `-1+1.22464679914735E-16i` from JavaScript's sin(π), where Excel's own sine
+  may differ in the fifth digit. Settle in Excel.
 - **Point mode does not write A1#**: clicking a spilled range while typing a formula inserts
   `A1:A3`, fixed to today's size, where Excel inserts `A1#` (R171 added the reference itself). A
   one-cell array answer counts as not spilling; Excel's handling of `=SEQUENCE(1)` then `A1#` was

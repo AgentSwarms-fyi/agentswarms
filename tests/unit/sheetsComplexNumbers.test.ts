@@ -77,8 +77,11 @@ describe("Excel's text, not the library's", () => {
   });
 });
 
-describe("what was left out", () => {
-  it("IMSQRT is not registered: formula.js gives sqrt(-4) the wrong sign", () => {
-    expect(FUNCTION_NAMES).not.toContain("IMSQRT");
+describe("IMSQRT", () => {
+  // Left out here because formula.js gives sqrt(-4) the wrong sign; written
+  // natively in R264 (sheetsComplexFunctions.test.ts).
+  it("is the engine's own, giving the principal root", () => {
+    expect(FUNCTION_NAMES).toContain("IMSQRT");
+    expect(at('=IMSQRT("-4")')).toBe("2i");
   });
 });

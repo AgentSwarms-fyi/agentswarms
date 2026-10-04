@@ -2575,11 +2575,20 @@ for (const [name, sample, root] of [
 // sixteen or seventeen digits ("0.3333333333333333", "-45.99999999999999+
 // 9.000000000000007i") where Excel writes any number as text to fifteen
 // significant digits ("0.333333333333333", "-46+9.00000000000001i"). So the
-// library computes, and this writes the answer the way Excel does.
+// library computed, and a wrapper wrote the answer the way Excel does.
 //
-// Not registered: IMSQRT, whose formula.js answer for -4 has the wrong sign
-// (-2i, where the principal root is 2i), and the transcendental ones (IMLN,
-// IMEXP, IMSIN…), not yet checked.
+// FOUND IN R264, adding the rest of the family: formula.js could not be kept.
+// Its parser calls .substring on its argument, so a NUMBER threw - IMSUB(5,2),
+// IMPOWER(2,2), IMEXP(0) and IMSUB over two number cells were all #VALUE! - and
+// it misread a part written with an exponent, as Excel writes a small or large
+// one: "1E-07", "3E-5i" and "1.5E-07-2i" were #NUM!. Its IMPRODUCT never opened a range:
+// over "3+4i", 5 and a blank it answered "3+4i". Its IMARGUMENT put the negative
+// real axis at -pi, where Excel's range is (-pi, pi]: IMARGUMENT("-1") was
+// -3.14159..., which gave IMSQRT("-4") as -2i and IMPOWER("-8",1/3) as
+// 1-1.732i, both with the wrong sign. And its IMLN, IMLOG10 and IMLOG2 took the
+// angle as atan(y/x), wrong whenever the real part is negative: IMLN("-1") was
+// 0, where it is pi i. So the whole family is written here, on R260's parser
+// and writer.
 
 type Suffix = "i" | "j";
 
@@ -2630,45 +2639,199 @@ function complexText(re: number, im: number, suffix: Suffix): string {
   return `${reText}${im > 0 ? "+" : ""}${imPart}${suffix}`;
 }
 
-/** The functions whose answer is a complex number, so text; the rest answer a number. */
-const COMPLEX_ANSWER = new Set(["IMSUM", "IMSUB", "IMPRODUCT", "IMDIV", "IMCONJUGATE", "IMPOWER"]);
+type Complex = { re: number; im: number };
 
-for (const name of [
-  "IMSUM",
-  "IMSUB",
-  "IMPRODUCT",
-  "IMDIV",
-  "IMCONJUGATE",
-  "IMPOWER",
-  "IMABS",
-  "IMREAL",
-  "IMAGINARY",
-  "IMARGUMENT",
-]) {
-  const lib = fromLibrary(name);
-  if (!lib) continue;
-  F[name] = (args, ctx) => {
-    // Excel refuses to mix "i" and "j" in one calculation.
-    let suffix: Suffix | null = null;
-    for (const a of args) {
-      for (const v of flat(asMatrix(a.value()))) {
-        if (isError(v)) return v;
-        const sx = suffixOf(v);
-        if (sx && suffix && sx !== suffix) return err("#VALUE!", 'Mixes "i" and "j"');
-        suffix = sx ?? suffix;
-      }
-    }
-    const out = lib(args, ctx);
-    // A complex answer is always text in Excel, zero included: formula.js
-    // returned the NUMBER 0 for IMSUB("3+4i","3+4i"), where Excel writes "0".
-    if (typeof out === "number" && COMPLEX_ANSWER.has(name)) {
-      return complexText(out, 0, suffix ?? "i");
-    }
-    if (typeof out !== "string") return out;
-    const z = parseComplexText(out);
-    return z ? complexText(z.re, z.im, suffix ?? "i") : out;
+/**
+ * One complex argument, as Excel reads it: a number, or text such as "3+4i",
+ * "-2j" or "5". A blank is 0; TRUE and FALSE are #VALUE!, and other text is
+ * #NUM!, as Excel's own pages for these functions say.
+ */
+function complexOf(v: Scalar): Complex | SheetError {
+  if (isError(v)) return v;
+  if (v === null) return { re: 0, im: 0 };
+  if (typeof v === "number") return { re: v, im: 0 };
+  if (typeof v === "boolean") return err("#VALUE!", "A complex number cannot be TRUE or FALSE");
+  return parseComplexText(v) ?? err("#NUM!", "Not a complex number such as 3+4i");
+}
+
+/** The suffix an answer takes: its arguments' own, or "i". Excel refuses a mix of "i" and "j". */
+function suffixAcross(values: Scalar[]): Suffix | SheetError {
+  let suffix: Suffix | null = null;
+  for (const v of values) {
+    const sx = suffixOf(v);
+    if (sx && suffix && sx !== suffix) return err("#VALUE!", 'Mixes "i" and "j"');
+    suffix = sx ?? suffix;
+  }
+  return suffix ?? "i";
+}
+
+/** A complex answer as Excel's text, or #NUM! when it divided by zero or overflowed. */
+function complexAnswer(z: Complex | SheetError | null, suffix: Suffix): Value {
+  if (z === null) return err("#NUM!", "Divides by zero");
+  if (isError(z)) return z;
+  if (!Number.isFinite(z.re) || !Number.isFinite(z.im)) return err("#NUM!", "Too large");
+  return complexText(z.re, z.im, suffix);
+}
+
+const cMul = (a: Complex, b: Complex): Complex => ({
+  re: a.re * b.re - a.im * b.im,
+  im: a.re * b.im + a.im * b.re,
+});
+
+/** a / b, or null when b is zero. */
+function cDiv(a: Complex, b: Complex): Complex | null {
+  const den = b.re * b.re + b.im * b.im;
+  if (den === 0) return null;
+  return { re: (a.re * b.re + a.im * b.im) / den, im: (a.im * b.re - a.re * b.im) / den };
+}
+
+const ONE: Complex = { re: 1, im: 0 };
+const cSin = (z: Complex): Complex => ({
+  re: Math.sin(z.re) * Math.cosh(z.im),
+  im: Math.cos(z.re) * Math.sinh(z.im),
+});
+const cCos = (z: Complex): Complex => ({
+  re: Math.cos(z.re) * Math.cosh(z.im),
+  im: 0 - Math.sin(z.re) * Math.sinh(z.im),
+});
+const cSinh = (z: Complex): Complex => ({
+  re: Math.sinh(z.re) * Math.cos(z.im),
+  im: Math.cosh(z.re) * Math.sin(z.im),
+});
+const cCosh = (z: Complex): Complex => ({
+  re: Math.cosh(z.re) * Math.cos(z.im),
+  im: Math.sinh(z.re) * Math.sin(z.im),
+});
+/** The natural logarithm, or null at zero. The angle is atan2's, in (-pi, pi]. */
+const cLn = (z: Complex): Complex | null =>
+  z.re === 0 && z.im === 0
+    ? null
+    : { re: Math.log(Math.hypot(z.re, z.im)), im: Math.atan2(z.im, z.re) };
+const scaled = (z: Complex | null, by: number): Complex | null =>
+  z && { re: z.re / by, im: z.im / by };
+
+/** A function of one complex number with a complex answer. */
+function complexFn(f: (z: Complex) => Complex | SheetError | null): FnImpl {
+  return (args) => {
+    const e = arity(args, 1, 1);
+    if (e) return e;
+    const v = scalarOf(args[0].value());
+    const z = complexOf(v);
+    if (isError(z)) return z;
+    return complexAnswer(f(z), suffixOf(v) ?? "i");
   };
 }
+
+/** A function of one complex number with a number for an answer. */
+function complexPart(f: (z: Complex) => number | SheetError): FnImpl {
+  return (args) => {
+    const e = arity(args, 1, 1);
+    if (e) return e;
+    const z = complexOf(scalarOf(args[0].value()));
+    return isError(z) ? z : f(z);
+  };
+}
+
+/** A function of two complex numbers: IMSUB and IMDIV. */
+function complexPair(f: (a: Complex, b: Complex) => Complex | null): FnImpl {
+  return (args) => {
+    const e = arity(args, 2, 2);
+    if (e) return e;
+    const values = [scalarOf(args[0].value()), scalarOf(args[1].value())];
+    const a = complexOf(values[0]);
+    if (isError(a)) return a;
+    const b = complexOf(values[1]);
+    if (isError(b)) return b;
+    const suffix = suffixAcross(values);
+    return isError(suffix) ? suffix : complexAnswer(f(a, b), suffix);
+  };
+}
+
+/**
+ * IMSUM and IMPRODUCT: every value of every argument, ranges included; a blank
+ * cell is passed over, as SUM and PRODUCT pass it over.
+ */
+function complexFold(start: Complex, step: (acc: Complex, z: Complex) => Complex): FnImpl {
+  return (args) => {
+    const e = arity(args, 1);
+    if (e) return e;
+    const values = args.flatMap((a) => flat(a.value())).filter((v) => v !== null);
+    let acc = start;
+    for (const v of values) {
+      const z = complexOf(v);
+      if (isError(z)) return z;
+      acc = step(acc, z);
+    }
+    const suffix = suffixAcross(values);
+    return isError(suffix) ? suffix : complexAnswer(acc, suffix);
+  };
+}
+
+F.IMSUM = complexFold({ re: 0, im: 0 }, (a, z) => ({ re: a.re + z.re, im: a.im + z.im }));
+F.IMPRODUCT = complexFold(ONE, cMul);
+F.IMSUB = complexPair((a, b) => ({ re: a.re - b.re, im: a.im - b.im }));
+F.IMDIV = complexPair(cDiv);
+F.IMCONJUGATE = complexFn((z) => ({ re: z.re, im: 0 - z.im }));
+F.IMABS = complexPart((z) => Math.hypot(z.re, z.im));
+F.IMREAL = complexPart((z) => z.re);
+F.IMAGINARY = complexPart((z) => z.im);
+F.IMARGUMENT = complexPart((z) =>
+  z.re === 0 && z.im === 0 ? err("#DIV/0!", "Zero has no angle") : Math.atan2(z.im, z.re),
+);
+
+/**
+ * IMPOWER, in polar form as Excel computes it: |z|^n at n times the angle, so
+ * IMPOWER("i",2) keeps a residue of sin(pi) in its imaginary part.
+ */
+F.IMPOWER = (args) => {
+  const e = arity(args, 2, 2);
+  if (e) return e;
+  const v = scalarOf(args[0].value());
+  const z = complexOf(v);
+  if (isError(z)) return z;
+  const n = num(args[1]);
+  if (isError(n)) return n;
+  if (z.re === 0 && z.im === 0) {
+    return n > 0 ? "0" : err("#NUM!", "Zero to a power that is not positive");
+  }
+  const p = Math.pow(Math.hypot(z.re, z.im), n);
+  const t = Math.atan2(z.im, z.re) * n;
+  return complexAnswer({ re: p * Math.cos(t), im: p * Math.sin(t) }, suffixOf(v) ?? "i");
+};
+
+F.IMEXP = complexFn((z) => {
+  const m = Math.exp(z.re);
+  return { re: m * Math.cos(z.im), im: m * Math.sin(z.im) };
+});
+F.IMLN = complexFn(cLn);
+F.IMLOG10 = complexFn((z) => scaled(cLn(z), Math.LN10));
+F.IMLOG2 = complexFn((z) => scaled(cLn(z), Math.LN2));
+F.IMSIN = complexFn(cSin);
+F.IMCOS = complexFn(cCos);
+F.IMTAN = complexFn((z) => cDiv(cSin(z), cCos(z)));
+F.IMCOT = complexFn((z) => cDiv(cCos(z), cSin(z)));
+F.IMSEC = complexFn((z) => cDiv(ONE, cCos(z)));
+F.IMCSC = complexFn((z) => cDiv(ONE, cSin(z)));
+F.IMSINH = complexFn(cSinh);
+F.IMCOSH = complexFn(cCosh);
+F.IMSECH = complexFn((z) => cDiv(ONE, cCosh(z)));
+F.IMCSCH = complexFn((z) => cDiv(ONE, cSinh(z)));
+
+/**
+ * IMSQRT, the principal square root. Excel's root has a non-negative real part
+ * and, on the negative real axis, a positive imaginary one: the square root of
+ * -4 is 2i (formula.js said -2i). Computed the way C's csqrt and Python's
+ * cmath.sqrt compute it, not in polar form, whose cos(pi/2) leaves 1.2E-16 in
+ * the real part of 2i: one part is the root of (|re| + r) / 2, the other found
+ * by dividing, so neither cancels.
+ */
+F.IMSQRT = complexFn((z) => {
+  if (z.re === 0 && z.im === 0) return z;
+  const t = Math.sqrt(Math.abs(z.re) / 2 + Math.hypot(z.re, z.im) / 2);
+  return z.re >= 0
+    ? { re: t, im: z.im / (2 * t) }
+    : { re: Math.abs(z.im) / (2 * t), im: z.im < 0 ? -t : t };
+});
 
 // ── GAMMA and the legacy LOGNORMDIST (R262) ───────────────────────────────
 //

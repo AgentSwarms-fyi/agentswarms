@@ -109,6 +109,51 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-04 — R264: the complex family finished, and the library under it replaced
+
+**Severity: moderate (wrong answers, two of them silent).** The queue's last complex-number row:
+IMSQRT, whose formula.js answer for −4 was −2i, and the fourteen transcendental functions (IMEXP,
+IMLN, IMLOG10, IMLOG2, IMSIN … IMCSCH). A probe checked those fourteen by identity at 3+4i and all
+matched, so they went in through R260's wrapper, with IMSQRT written in the engine. The square root is
+computed as C's `csqrt` computes it, not in polar form: polar leaves cos(π/2)'s 1.2E-16 in the real
+part of `2i`.
+
+**The mutation run found the probe was too narrow.** A mutant survived because no test reached the
+wrapper's number-answer path, and closing that gap meant probing formula.js with plain numbers and
+zero, then reading its source. The library was unsound across the whole family:
+
+- **A number argument threw.** Its parser calls `.substring` on the argument, so `IMSUB(5,2)`,
+  `IMPOWER(2,2)`, `IMCONJUGATE(2)`, `IMEXP(0)` — and IMSUB over two cells holding numbers — were all
+  #VALUE!. It also misread a part written with an exponent, as Excel writes a small or large one:
+  `"1E-07"`, `"3E-5i"`, `"1.5E-07-2i"` were #NUM!.
+- **IMPRODUCT never opened a range.** Over "3+4i", 5 and a blank it answered `3+4i`; in a workbook,
+  `=IMPRODUCT({"3+4i",5})` showed `3+4i` and **spilled the 5 into the next cell**.
+- **The negative real axis was at −π.** Excel's angles run over (−π, π]; `IMARGUMENT("-1")` was
+  −3.14159…, and that one fault is why IMSQRT("−4") was −2i and `IMPOWER("-8",1/3)` was
+  1 − 1.732i, the wrong cube root.
+- **IMLN, IMLOG10 and IMLOG2 took the angle as atan(y/x)**, wrong whenever the real part is negative:
+  `IMLN("-1")` was 0, where it is πi. The probe's single point, 3+4i, sat in the half-plane where
+  atan(y/x) happens to be right.
+- At zero, IMTAN threw where the answer is 0, and IMCSC, IMCOT and IMCSCH threw where a pole is #NUM!;
+  `IMREAL("1")` answered the text "1".
+
+So all twenty-five functions are written in the engine on R260's parser and writer: complex arguments
+are read in one place (a number, or Excel's text; TRUE/FALSE #VALUE! and other text #NUM!, as Excel's
+pages state), angles come from atan2, a division by zero or an overflow is #NUM!, and IMPOWER keeps
+Excel's polar form, so R260's `-46+9.00000000000001i` is unchanged. A blank single argument counts as
+0 and IMSUM/IMPRODUCT pass over blank cells, as SUM and PRODUCT do; Excel's own answer for a blank is
+unconfirmed and queued. The eight complex functions Excel 2013 added carry `_xlfn.` in a download.
+
+Twelve of the new tests fail on the formula.js family, and one more (`IMREAL("1E-07")`) on the exponent
+alone. Eleven mutants caught against a verified-green baseline (a number refused; IMSQRT's lower sign
+and its polar residue; atan(y/x); −π; a blank multiplied as 0; a range not opened; an overflow written
+as text; zero to a positive power refused; a `j` dropped; a missing `_xlfn.`), control survived.
+
+Driven in the fixture workbook, before on R263's build and after on R264 hot-deployed: `IMSUB(5,2)`
+#VALUE! → `3`, `IMPRODUCT({"3+4i",5})` `3+4i` with a stray `5` beside it → `15+20i`, `IMARGUMENT("-1")`
+−3.141592654 → 3.141592654, `IMPOWER("-8",1/3)` 1−1.732…i → 1+1.732…i. Rows in
+[UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-04 — R263: sixty-seven handlers given their own sentence, and two spinners that never stopped
 
 **Severity: moderate.** R245's debt: 67 handlers across 32 files that report a server function's

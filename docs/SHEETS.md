@@ -105,12 +105,16 @@ Type `=` and a formula, as in Excel. About 240 functions are available:
   matches and #NUM! when more than one record does. A criteria column whose label is not a field of
   the table matches nothing: Excel reads such a column as a formula criterion, which is not
   supported here.
-- **Complex numbers:** IMSUM, IMSUB, IMPRODUCT, IMDIV, IMCONJUGATE, IMPOWER, IMABS, IMREAL,
-  IMAGINARY and IMARGUMENT, over Excel's text form (`3+4i`, `2-j`). An answer keeps the suffix its
-  arguments used, a mix of `i` and `j` is #VALUE!, a zero part is dropped and a unit written `i`
-  alone, and every number is written to fifteen significant digits as Excel writes one
-  (`IMDIV("1","3")` is `0.333333333333333`). IMSQRT and the transcendental ones (IMLN, IMEXP,
-  IMSIN…) are not there yet.
+- **Complex numbers:** all twenty-five of Excel's — IMSUM, IMSUB, IMPRODUCT, IMDIV, IMCONJUGATE,
+  IMPOWER, IMSQRT, IMABS, IMREAL, IMAGINARY, IMARGUMENT, IMEXP, IMLN, IMLOG10, IMLOG2, and the
+  trigonometric and hyperbolic ones (IMSIN … IMCSCH) — over Excel's text form (`3+4i`, `2-j`,
+  `1E-07+2i`) or a plain number. An answer keeps the suffix its arguments used, a mix of `i` and `j`
+  is #VALUE!, a zero part is dropped and a unit written `i` alone, and every number is written to
+  fifteen significant digits as Excel writes one (`IMDIV("1","3")` is `0.333333333333333`). Angles
+  are in (−π, π], so the negative real axis is at π: `IMSQRT("-4")` is `2i`, `IMLN("-1")` is
+  `3.14159265358979i`. Text that is not a complex number is #NUM!, TRUE or FALSE #VALUE!, a pole
+  (`IMCOT("0")`) or an overflow #NUM!. IMSUM and IMPRODUCT read ranges and pass over blank cells; a
+  blank single argument counts as 0 (Excel's own answer for a blank is unconfirmed).
 - **Matrices, bits and types:** MMULT spills its product; BITAND, BITOR, BITXOR, BITLSHIFT,
   BITRSHIFT; COMPLEX writes Excel's text form (`3+4i`); TYPE (1 number, 2 text, 4 logical, 16 error,
   64 array) and ERROR.TYPE (2 for #DIV/0!, 7 for #N/A…).

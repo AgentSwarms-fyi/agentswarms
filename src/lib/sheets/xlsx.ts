@@ -224,6 +224,15 @@ const XLFN = new Set([
   "T.INV",
   "T.INV.2T",
   "WEIBULL.DIST",
+  // R264: the complex functions Excel 2013 added.
+  "IMCOSH",
+  "IMCOT",
+  "IMCSC",
+  "IMCSCH",
+  "IMSEC",
+  "IMSECH",
+  "IMSINH",
+  "IMTAN",
 ]);
 const XLWS = new Set(["FILTER", "SORT"]);
 
