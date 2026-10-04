@@ -15,6 +15,29 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-04 — R245: the net under the silent handlers, on the deployed build
+
+Commit `348f313c`, built with `npm run build` and hot-deployed into the running container
+(`docker cp ./dist/. agentswarms-share-agentswarms-1:/app/dist/`, then `docker restart`), driven at
+`http://localhost:8080/dashboard`.
+
+**What this round proves, and what it does not.** `installSilentFailureNet` is a window
+`unhandledrejection` listener, so the honest way to drive it is to produce a rejection nothing
+handles — which is what the 67 remaining handlers do when a server function rejects. Each row below
+was fired from the page and read back from the DOM. The publish button's own catch is a separate
+path and still needs the catalog to hold its SQLite lock; that is recorded as not proved in the
+[Adversarial log](./ADVERSARIAL_LOG.md).
+
+| What was driven | What came back |
+| --- | --- |
+| A rejection nothing handles, worded like the real one: `Error("Failed to commit Iceberg transaction: HTTP 500")` | the toast **"That did not finish"** with the engine's own sentence under it — the case that produced **nothing at all** before this round |
+| An `AbortError` whose message says nothing about aborting: `name = "AbortError"`, message `"signal stopped"` | **no toast.** The quiet path by name alone, which is the half a mutant removed and the first version of the test let through |
+| The same rejection fired twice in one tick | **one** toast: `document.querySelectorAll("[data-sonner-toast]").length` returned `1` |
+
+The second row is the one worth keeping. A net that reports everything is as wrong as one that
+reports nothing: a user who cancels a query would get told their cancellation "did not finish". The
+quiet case was driven deliberately so the proof is not one-sided.
+
 ## 2026-10-04 — Smoke of the real image after R237 to R244
 
 Image `91b65bf26c64`, built from `3fd9bc99` with `docker compose build agentswarms` and started with

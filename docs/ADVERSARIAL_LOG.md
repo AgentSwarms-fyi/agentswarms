@@ -155,10 +155,19 @@ and both were real test gaps rather than equivalent mutants:
   survived, because the assertions checked only the two docker commands. A remedy with nothing to
   explain it is a ritual; the diagnosis is now pinned too.
 
-**Not proved in the UI.** Reproducing it needs the bundled catalog to hold its SQLite lock, which
-the earlier rounds hit by polling the catalog during a publish, and staging that reliably is a
-round of its own. The decision is a pure function with tests; the wiring is pinned by reading the
-root; and the 2026-10-01 run already recorded the symptom this removes.
+**Proved in the UI, on the deployed build.** The net is a window `unhandledrejection` listener, so
+the honest way to drive it is a rejection nothing handles — exactly what the other 67 handlers
+produce. On `348f313c`, hot-deployed: a rejection reading "Failed to commit Iceberg transaction:
+HTTP 500" raised **"That did not finish"** with the engine's own sentence, where before it raised
+nothing; an `AbortError` whose message says nothing about aborting stayed **silent**; the same
+rejection twice produced **one** toast. The quiet case was driven on purpose — a net that reports
+every cancellation is as wrong as one that reports nothing. Rows in
+[UI test results](./UI_TEST_RESULTS.md).
+
+**Still not proved:** the publish button's own catch. Reaching it needs the bundled catalog to hold
+its SQLite lock, which earlier rounds hit by polling the catalog during a publish, and staging that
+reliably is a round of its own. Its message is a pure function with tests, its wiring is pinned by
+reading the dialog, and the 2026-10-01 run already recorded the symptom it removes.
 
 ### 2026-10-04 — Smoke of the real image after R237 to R244
 
