@@ -8,6 +8,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { honorAllowList, type AllowListCheck } from "@/utils/gateway/allowList";
 import { auditEvent } from "@/utils/audit.server";
 import {
   GATEWAY_KEY_SCOPES,
@@ -133,16 +134,55 @@ export const gatewayAgentsList = createServerFn({ method: "POST" })
 
 /**
  * Semantic models named on a key must be ones the owner may read - their own
- * or IAM-granted; anything else is dropped, never stored, so a key can never
- * point at a model its owner could not query by hand.
+ * or IAM-granted - so a key can never point at a model its owner could not
+ * query by hand.
+ *
+ * R247: these used to be FILTERED to the readable ones and the rest dropped.
+ * An empty list means every model, so a list that filtered down to nothing (a
+ * share withdrawn while the form was open) was stored as "all". It is refused
+ * now; see honorAllowList.
  */
-async function accessibleSemanticModelIds(userId: string, ids: string[]): Promise<string[]> {
+async function checkSemanticModelIds(userId: string, ids: string[]): Promise<AllowListCheck> {
+  if (ids.length === 0) return { ok: true, ids: [] };
+  try {
+    const { accessibleSemanticModels } = await import("@/utils/gateway/metrics.server");
+    const { models } = await accessibleSemanticModels(userId);
+    const readable = new Set(models.map((m) => m.id).filter((id): id is string => Boolean(id)));
+    return honorAllowList(ids, readable, "semantic model");
+  } catch (e) {
+    return {
+      ok: false,
+      error: `Could not check the semantic models for this key, so nothing was saved: ${
+        e instanceof Error ? e.message : String(e)
+      }`,
+    };
+  }
+}
+
+/**
+ * Agents named on a key must be the owner's, so a key can never point at
+ * another user's agent.
+ *
+ * R247: this read dropped its error, and a failed read filtered every agent
+ * out — which stored the key as able to call ALL of them. And an agent deleted
+ * while the form was open did the same with no failure at all; that one was
+ * driven in the UI.
+ */
+async function checkAgentIds(userId: string, ids: string[]): Promise<AllowListCheck> {
   const wanted = [...new Set(ids)];
-  if (wanted.length === 0) return [];
-  const { accessibleSemanticModels } = await import("@/utils/gateway/metrics.server");
-  const { models } = await accessibleSemanticModels(userId);
-  const ok = new Set(models.map((m) => m.id).filter(Boolean));
-  return wanted.filter((id) => ok.has(id));
+  if (wanted.length === 0) return { ok: true, ids: [] };
+  const { data: own, error } = await supabaseAdmin
+    .from("agents")
+    .select("id")
+    .eq("user_id", userId)
+    .in("id", wanted);
+  if (error) {
+    return {
+      ok: false,
+      error: `Could not check the agents for this key, so nothing was saved: ${error.message}`,
+    };
+  }
+  return honorAllowList(wanted, new Set((own ?? []).map((a) => a.id)), "agent");
 }
 
 /** The semantic models the caller may read, for the key form's allow-list. */
@@ -196,22 +236,10 @@ export const gatewayKeyCreate = createServerFn({ method: "POST" })
       const caller = await resolveCaller(data.access_token);
       if (!caller.ok) return caller;
       const chain = validChain(data.fallback_models ?? []);
-      // Agents named on the key must be the owner's; anything else is dropped,
-      // not stored, so a key can never point at another user's agent.
-      let agentIds = [...new Set(data.agent_ids ?? [])];
-      if (agentIds.length > 0) {
-        const { data: own } = await supabaseAdmin
-          .from("agents")
-          .select("id")
-          .eq("user_id", caller.userId)
-          .in("id", agentIds);
-        const ownSet = new Set((own ?? []).map((a) => a.id));
-        agentIds = agentIds.filter((id) => ownSet.has(id));
-      }
-      const semanticModelIds = await accessibleSemanticModelIds(
-        caller.userId,
-        data.semantic_model_ids ?? [],
-      );
+      const agents = await checkAgentIds(caller.userId, data.agent_ids ?? []);
+      if (!agents.ok) return agents;
+      const semantic = await checkSemanticModelIds(caller.userId, data.semantic_model_ids ?? []);
+      if (!semantic.ok) return semantic;
       const plaintext = generateGatewayKey();
       const { data: row, error } = await supabaseAdmin
         .from("gateway_keys")
@@ -221,9 +249,9 @@ export const gatewayKeyCreate = createServerFn({ method: "POST" })
           key_hash: await hashGatewayKey(plaintext),
           key_prefix: gatewayKeyPrefix(plaintext),
           scopes: [...new Set(data.scopes)],
-          agent_ids: agentIds,
+          agent_ids: agents.ids,
           model_allow: (data.model_allow ?? []).map((p) => p.trim()).filter(Boolean),
-          semantic_model_ids: semanticModelIds,
+          semantic_model_ids: semantic.ids,
           fallback_models: chain.ok,
           semantic_cache: data.semantic_cache === true,
           rate_limit_per_min: data.rate_limit_per_min ?? null,
@@ -299,10 +327,9 @@ export const gatewayKeyUpdate = createServerFn({ method: "POST" })
       patch.model_allow = data.model_allow.map((p) => p.trim()).filter(Boolean);
     }
     if (data.semantic_model_ids !== undefined) {
-      patch.semantic_model_ids = await accessibleSemanticModelIds(
-        caller.userId,
-        data.semantic_model_ids,
-      );
+      const semantic = await checkSemanticModelIds(caller.userId, data.semantic_model_ids);
+      if (!semantic.ok) return semantic;
+      patch.semantic_model_ids = semantic.ids;
     }
     if (data.semantic_cache !== undefined) patch.semantic_cache = data.semantic_cache;
     if (data.rate_limit_per_min !== undefined) patch.rate_limit_per_min = data.rate_limit_per_min;

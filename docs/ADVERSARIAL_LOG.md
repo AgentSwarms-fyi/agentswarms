@@ -109,6 +109,45 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-04 — R247: a key restricted to one agent, saved as able to call all of them
+
+**Severity: high.** The sweep-7 queue listed "an AI Gateway key saved with no agent restriction
+when the owner's agents cannot be read". Reading it found the failed read was only one way in.
+
+A key's agent list and semantic-model list are allow-lists where **empty means everything** — the
+create dialog says so: "None ticked = every agent you own". The server filtered what was asked for
+down to what the owner may name and stored the result. So any list that filtered down to nothing
+was stored as "all":
+
+- the agents read failing, because `const { data: own } = …` dropped its `error`, and a failed read
+  filters every agent out;
+- **an agent deleted while the dialog was open**, with no failure anywhere;
+- a semantic model whose share was withdrawn — on create, and on **edit**, where the same filter ran.
+
+**Driven, not argued.** A fixture agent, "R247 doomed agent". The create dialog opened with only it
+ticked; the agent deleted from a second tab; Create pressed. The page said **"Key created"** and the
+key list read **"Agents: all"**. That key was revoked at once and was never used. Nothing failed:
+the rule did exactly what it was written to do.
+
+**The statement, not the symptom.** Narrowing was never the danger; widening was, and it only takes
+the *last* permitted id to go. But "some of what you picked was quietly left off" is its own wrong
+answer about a security boundary, so `honorAllowList` (`utils/gateway/allowList.ts`) refuses
+whenever anything picked cannot be honoured, says how many, and gives the true reason — the
+widening one only when it is true. Both lists go through it on create, and the semantic-model list
+on edit. The agents read keeps its error now.
+
+`gatewayMetrics.test.ts` pinned the old filter by name ("Named models are filtered against what the
+owner may read"); its assertions now pin the check, and say why.
+
+Six mutants caught against a verified-green baseline, control survived. The semantic-model widening
+was not driven separately: it is the same function, and withdrawing a share needs a second account.
+
+**Proved in the UI after the fix.** The same drive — one agent ticked, deleted from another tab,
+Create — was refused with "…so nothing was saved: with none left, the key would have reached every
+agent you have", the dialog stayed open and no key was written; with a real agent ticked instead
+the key was created as "Agents: Predictive Analyst". Every key made was revoked unused. Rows in
+[UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-04 — R246: two guards that count first and write second
 
 **Severity: high.** The queue's Sheets list carried a one-line row from the first rounds:

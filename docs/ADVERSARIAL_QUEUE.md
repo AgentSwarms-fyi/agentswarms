@@ -450,8 +450,11 @@ least twice, not a hypothetical.
        once. All three now go through `isProtectedAccount` (`utils/iam.server.ts`), which throws;
        SCIM answers 503 and the IAM actions return `ok: false`. **This closes the sweep-7 triage
        list.**
-     - **An AI Gateway key** (`gatewayKeys.functions.ts` ~203) saved with no agent restriction
-       when the owner's agents cannot be read.
+     - **R247: an AI Gateway key.** Fixed, and the failed read was only one way in. Empty means
+       "every agent", and the server filtered the picked list down to what it could confirm, so
+       an agent deleted while the dialog was open did it with no failure at all — driven: "Key
+       created", "Agents: all". The semantic-model list did the same on create and on edit.
+       `honorAllowList` refuses any list it cannot save as picked.
      - **SCIM group deprovisioning** (`scim.server.ts` ~542) removes no one when the members
        cannot be read, and answers 200.
      - **Budget caps** (`budgetGuard.server.ts`) and **notebook runtime limits**

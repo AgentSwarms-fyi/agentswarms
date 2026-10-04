@@ -15,6 +15,20 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-04 — R247: a key ticked for one agent whose agent was deleted mid-dialog
+
+Driven at `http://localhost:8080/integrations` → LLM Gateway → Create key, with a fixture agent made
+for each half and deleted from a second browser tab while the dialog stayed open with only that
+agent ticked. Nothing failed in either half; the rule did what it was written to do.
+
+| What was driven | Before (`eb989190`) | After |
+| --- | --- | --- |
+| Key "R247 one agent only", ticked for "R247 doomed agent", the agent deleted, then Create | **"Key created"**; the key list read **"Agents: all"** — able to call every agent the account owns | refused: "The agent picked for this key no longer exists or is not yours, so nothing was saved: with none left, the key would have reached every agent you have. Pick again." The dialog stayed open and no key row was written |
+| The same dialog, the deleted agent unticked and "Predictive Analyst" ticked, Create | — | "Key created"; the list reads **"Agents: Predictive Analyst"** |
+
+Both keys that were created were revoked straight away and were never used ("0 · never"). The two
+fixture agents were deleted as part of the drive. Nothing kept.
+
 ## 2026-10-04 — R246: two sheets deleted at the same millisecond
 
 Driven at `http://localhost:8080/sheets`, against the workbook **R246 last sheet race**

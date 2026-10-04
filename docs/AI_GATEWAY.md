@@ -161,6 +161,14 @@ key's allow-list narrows that access and never widens it. Rate limits and
 expiry apply as to any other call; a metrics query makes no model call, so
 budgets are not touched.
 
+**An allow-list is saved as picked, or not at all.** Because an empty list
+means "every agent" (or every model), a key is never saved with less than was
+ticked: if any picked agent or semantic model no longer exists, is not yours,
+or cannot be checked, creating or editing the key is refused and says how
+many, and nothing is written. Before R247 those were dropped and the rest
+saved, so a key whose only picked agent had been deleted while the form was
+open was saved as able to call every agent.
+
 ## Semantic cache
 
 The same question asked twice costs twice. A key can switch on a cache that
