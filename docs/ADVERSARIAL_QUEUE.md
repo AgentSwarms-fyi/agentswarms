@@ -269,10 +269,14 @@ least twice, not a hypothetical.
      first.
    - **Inherent.** IFERROR mixing numbers and text makes a table column text.
    - **R210: a browser query against a table still loading.** It waits for loads now.
-   - **Open, operations.** The Iceberg REST catalog (`aswarm-iceberg-rest`, JDBC on SQLite) once
-     held its database lock in-process until restarted, and every commit failed with
-     SQLite's "database is locked" (2026-10-01). The publish toast shows the HTTP 500 but not the lock. A catalog
-     on Postgres would not share one file lock between requests.
+   - **R245: the publish toast.** Fixed, and what was under it was worse. The handler had a
+     `finally` with no `catch`, so a publish the catalog REJECTED said nothing at all — the "No
+     toast" of 2026-10-01. A sweep for handlers that toast `ok: false` inside a try with no catch
+     found **68** of that shape. The publish button now catches and explains (naming where to
+     confirm the lock rather than asserting it), and `installSilentFailureNet` is the floor under
+     the rest. `tests/unit/silentFailureNet.test.ts` holds the count at 67 as a debt that may only
+     go down. **Still true and still worth doing:** a catalog on Postgres would not share one file
+     lock between requests.
 
 5. **A guard only the button honours** (sweep 5, Phase F, from 2026-10-01). A button
    is `disabled={saving}`, and a keyboard path (Enter, Ctrl+Enter, Shift+Enter) calls the same
@@ -385,7 +389,12 @@ least twice, not a hypothetical.
      ~210 s and fails 44 tests across 14 files — and the ones that fail are the fail-closed guards
      (`requireSuperadmin`, the lakehouse policy, the Iceberg mount, the ETL share guard, the cron
      pass). Refused: the same leak that reddens them can make one of them PASS when it should
-     fail.** The remaining option, untried and bigger, is to put the three 40 s+ files
+     fail.** **2026-10-04 adds a sharper data point.** A run failed on `sheetsSamples`, which
+     carries its OWN 60-second timeout and takes about 20 seconds when run alone: it lost three
+     times its headroom, not a sliver. So whatever starves these workers is not a budget set too
+     tight, and raising budgets would not have saved this one either — which is the argument the
+     ratchet test already makes, now with a second measurement behind it.
+     The remaining option, untried and bigger, is to put the three 40 s+ files
      (`catalogGzipDataset`, `etlSqlStep`, `etlEmptyTick`) in their own vitest project with
      `singleFork`, so they stop holding a worker each while the rest queues — worth it only if
      someone shows the import cost actually hurts. Two earlier write-ups of

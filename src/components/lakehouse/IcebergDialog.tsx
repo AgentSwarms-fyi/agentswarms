@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { Loader2, Snowflake, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
+import { publishFailureHelp } from "@/lib/icebergPublishHelp";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -530,6 +531,17 @@ export function PublishToIcebergDialog({ schema, table }: { schema: string; tabl
                     `Published ${r.rows.toLocaleString()} row(s) to ${namespace}.${name}`,
                   );
                   setOpen(false);
+                } catch (e) {
+                  // R245. This had a `finally` and no `catch`: a publish the
+                  // catalog rejected stopped the spinner and said NOTHING,
+                  // which is the "No toast" recorded on 2026-10-01 over a
+                  // refused commit. A write to someone else's catalog is
+                  // exactly where silence is least affordable — the reader
+                  // cannot tell "it did not happen" from "it happened and the
+                  // dialog is being slow".
+                  toast.error(`Could not publish ${schema}.${table}`, {
+                    description: publishFailureHelp(e),
+                  });
                 } finally {
                   setBusy(false);
                 }

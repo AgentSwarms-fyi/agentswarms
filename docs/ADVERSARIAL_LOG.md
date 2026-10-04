@@ -109,6 +109,57 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-04 — R245: sixty-eight buttons that can fail in complete silence
+
+**Severity: high, by breadth.** The queue's open operations row said the publish toast "shows the
+HTTP 500 but not the lock". Reading the handler to fix the message found something worse underneath
+it:
+
+```ts
+try { const r = await publishFn(…); if (!r.ok) return toast.error(r.error); … }
+finally { setBusy(false); }
+```
+
+A `finally` with no `catch`. A server function that RESOLVES with `ok: false` is reported; one that
+REJECTS stops the spinner, leaves the dialog open and says **nothing**. That is what "No toast" in
+the 2026-10-01 run meant, over a publish the catalog had refused — the round that saw it wrote the
+symptom down and moved on.
+
+**It is a family.** Sweeping for handlers that toast `ok: false` inside a `try` with no `catch` —
+code that plainly intends to report failure and still drops half of it — found **68**, across ML
+panels, IAM, SQL models, the gateway, Sheets version history, swarm deploy and more. A first sweep
+for "try/finally with no catch" found 136, but most of those have a caller that handles rejection;
+narrowing to handlers that already toast one failure mode is what makes the number mean something.
+
+**Fixed in three parts.** The publish button gets a real catch, because a write into someone else's
+catalog is where silence is least affordable: the reader cannot tell "it did not happen" from "it
+happened and the dialog is slow". Its message keeps the engine's own words and adds what that
+shape of failure usually means — modelled on the ETL sandbox's socket-proxy message, which earlier
+the same day diagnosed a real failure correctly and whose remedy worked first time. It does **not**
+claim the SQLite lock as fact: the lock is in the catalog's log, not in the client's error, so it
+says where to confirm it. And `installSilentFailureNet` is the floor under the other 67 — a window
+`unhandledrejection` listener that says "That did not finish" with the real message, firing only
+for rejections nothing else handled, so a handler with its own catch is unaffected.
+
+The ratchet records 67 as a **debt, not a budget**: it may only go down, and each handler that
+earns its own sentence beats the net.
+
+Nine mutants caught against a verified-green baseline, control survived. Two survived the first run
+and both were real test gaps rather than equivalent mutants:
+
+- Deleting the `AbortError` **name** check survived, because both of my abort cases also had
+  "aborted" in their message. Browsers word that differently — "signal is aborted without reason",
+  or a DOMException with no message — so the name is the only reliable half, and the test now has a
+  case that exercises it alone.
+- Deleting the sentence that says the catalog **accepted the request and refused the write**
+  survived, because the assertions checked only the two docker commands. A remedy with nothing to
+  explain it is a ritual; the diagnosis is now pinned too.
+
+**Not proved in the UI.** Reproducing it needs the bundled catalog to hold its SQLite lock, which
+the earlier rounds hit by polling the catalog during a publish, and staging that reliably is a
+round of its own. The decision is a pure function with tests; the wiring is pinned by reading the
+root; and the 2026-10-01 run already recorded the symptom this removes.
+
 ### 2026-10-04 — Smoke of the real image after R237 to R244
 
 No new defect in what was driven, on the second attempt. The image built from `048ee9c3` failed its

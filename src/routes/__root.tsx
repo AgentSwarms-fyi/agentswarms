@@ -1,5 +1,7 @@
 import { Outlet, Link, createRootRoute, HeadContent, Scripts } from "@tanstack/react-router";
 import { Toaster } from "@/components/ui/sonner";
+import { useEffect } from "react";
+import { installSilentFailureNet } from "@/lib/silentFailureNet";
 import { ConfirmHost } from "@/components/ui/confirm-dialog";
 import { ThemeProvider } from "@/hooks/use-theme";
 import { CookieConsent } from "@/components/CookieConsent";
@@ -174,11 +176,21 @@ function RootShell({ children }: { children: React.ReactNode }) {
   );
 }
 
+/**
+ * The last resort under every handler that forgot to catch (R245). Mounted
+ * beside the Toaster because it has nothing to say without one.
+ */
+function SilentFailureNet() {
+  useEffect(() => installSilentFailureNet(), []);
+  return null;
+}
+
 function RootComponent() {
   return (
     <ThemeProvider>
       <Outlet />
       <Toaster />
+      <SilentFailureNet />
       {/* Mounted beside the Toaster and for the same reason: asking the user
           something must not depend on a browser dialog they can switch off. */}
       <ConfirmHost />
