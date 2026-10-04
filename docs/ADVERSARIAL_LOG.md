@@ -109,6 +109,34 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-04 — R254: "leave it blank to keep the saved key", and the key was erased
+
+**Severity: high.** From the sweep-7 "writes on a blip" row: "saved secrets wiped on edit". A blank
+secret field means "keep the stored one", and that promise is kept by merging with the row the save
+reads first. Both saves dropped that read's error.
+
+- **`saveIntegrationForUser`**: with nothing read, there was nothing to merge with. The save fell
+  through to an insert, the unique index refused it, and the `23505` retry **updated the saved row
+  with a config merged with nothing** — blanks where its secrets were. An edit that only renamed an
+  LLM provider erased its API key, and the next model call through it failed with no idea why.
+- **`gitSaveConfig`**: an omitted token keeps `existing.token_enc`. A failed read kept `null`, and
+  the upsert erased the stored token on an edit that only changed the branch.
+
+The `23505` retry was wrong on its own too, with no failed read: it merged with the row it had
+failed to find, not with the row it was about to overwrite, so losing a save race also cost the
+winner's secrets. It merges with the winner's config now. Both reads refuse the save when they
+fail, and say what the refusal saved.
+
+On a type with no singleton fallback — a notification channel — the same failed read did something
+different and quieter: the save inserted a **second channel** beside the real one, with no webhook.
+
+Six tests drive the real save with the real merge (encryption stubbed): the baseline keeps the key,
+each read failing on its own writes nothing, both failing writes nothing, and a lost insert race
+keeps the winner's key — that last one fails on the old code with no failure injected. Four mutants
+caught against a verified-green baseline, control survived. The first run had two survivors, and
+both were test gaps: the "unreadable" test failed both reads at once, so each check hid behind the
+other.
+
 ### 2026-10-04 — R252: years of audit trail deleted on a failed settings read
 
 **Severity: high, and irreversible.** From the sweep-7 "destructive on a blip" row: "the audit purge

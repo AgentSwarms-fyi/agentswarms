@@ -99,11 +99,20 @@ export const gitSaveConfig = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<GitError | { ok: true }> => {
     try {
       const { sb, userId } = await requireUser(data.access_token);
-      const { data: existing } = await sb
+      const { data: existing, error: existingErr } = await sb
         .from("git_export_config")
         .select("token_enc")
         .eq("user_id", userId)
         .maybeSingle();
+      // R254: an omitted token means "keep the saved one", kept by reading it
+      // here. A failed read kept null instead, and the upsert below erased the
+      // stored token on an edit that only changed the branch.
+      if (existingErr) {
+        return {
+          ok: false,
+          error: `Could not read the saved settings, so nothing was saved (the stored token would have been erased): ${existingErr.message}`,
+        };
+      }
 
       let token_enc = existing?.token_enc ?? null;
       if (data.token !== undefined) {

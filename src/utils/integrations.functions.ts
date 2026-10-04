@@ -407,13 +407,25 @@ export async function saveIntegrationForUser(
   // partial unique indexes are the backstop, not the mechanism).
   let targetId: string | null = null;
   let existingConfig: Record<string, unknown> | null = null;
+  // FOUND IN R254. Both reads below dropped their errors. A blank secret
+  // field means "keep the saved one", and that promise is kept by merging with
+  // the row read here; a failed read left nothing to merge with, the save fell
+  // through to an insert, the unique index refused it, and the retry UPDATED
+  // the saved row with blanks where its secrets were. An edit that only
+  // renamed a provider erased its API key. A row that could not be read is not
+  // a row that is not there.
+  const unreadable = (e: { message: string }) => ({
+    ok: false as const,
+    error: `Could not read the saved integration, so nothing was saved (a blank secret field would have erased the stored one): ${e.message}`,
+  });
   if (data.id) {
-    const { data: ex } = await supabaseAdmin
+    const { data: ex, error: exErr } = await supabaseAdmin
       .from("integrations")
       .select("id, config")
       .eq("id", data.id)
       .eq("user_id", userId)
       .maybeSingle();
+    if (exErr) return unreadable(exErr);
     if (ex) {
       targetId = ex.id;
       existingConfig = (ex.config ?? null) as Record<string, unknown> | null;
@@ -426,10 +438,11 @@ export async function saveIntegrationForUser(
       .eq("user_id", userId)
       .eq("type", data.type);
     if (data.type === "llm_provider") q = q.eq("provider", data.provider);
-    const { data: rows } = await q
+    const { data: rows, error: rowsErr } = await q
       .order("is_active", { ascending: false })
       .order("updated_at", { ascending: false })
       .limit(1);
+    if (rowsErr) return unreadable(rowsErr);
     if (rows && rows.length > 0) {
       targetId = rows[0].id;
       existingConfig = (rows[0].config ?? null) as Record<string, unknown> | null;
@@ -474,15 +487,26 @@ export async function saveIntegrationForUser(
       if (ins.error.code === "23505") {
         let rq = supabaseAdmin
           .from("integrations")
-          .select("id")
+          .select("id, config")
           .eq("user_id", userId)
           .eq("type", data.type);
         if (data.type === "llm_provider") rq = rq.eq("provider", data.provider);
-        const { data: winner } = await rq.limit(1).maybeSingle();
+        const { data: winner, error: winnerErr } = await rq.limit(1).maybeSingle();
+        if (winnerErr) return unreadable(winnerErr);
         if (winner) {
+          // R254: the row being updated is the winner's, so a blank secret
+          // keeps the WINNER's saved value. `row` was merged with nothing.
+          const winnerRow = {
+            ...row,
+            config: preserveBlankSecrets(
+              data.type,
+              await encryptIntegrationConfig(data.type, data.config as Record<string, unknown>),
+              (winner.config ?? null) as Record<string, unknown> | null,
+            ),
+          };
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const { error: updErr } = await (supabaseAdmin.from("integrations") as any)
-            .update(row)
+            .update(winnerRow)
             .eq("id", winner.id)
             .eq("user_id", userId);
           if (updErr) return { ok: false, error: updErr.message };

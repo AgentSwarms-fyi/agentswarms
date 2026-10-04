@@ -474,8 +474,8 @@ least twice, not a hypothetical.
        failed `mcp_apps` read made every app look deleted; it reaps none now); ~~the audit purge uses default retention~~
        (R252: a failed retention read deletes nothing now); a live ETL run is marked failed (`etl/service.server.ts`
        ~1412); workflow steps fail and re-run (`workflows/adapters.server.ts` ~442).
-     - **Writes on a blip:** saved secrets wiped on edit (`integrations.functions.ts` ~411,
-       `gitExport.functions.ts` ~102); ETL cursors re-read from the start
+     - **Writes on a blip:** ~~saved secrets wiped on edit~~ (R254, which also found the
+       insert-race retry erased the winner's secrets with no failure at all); ETL cursors re-read from the start
        (`etl/service.server.ts` ~417).
 
 ### Sheets (new, 2026-09-25)
