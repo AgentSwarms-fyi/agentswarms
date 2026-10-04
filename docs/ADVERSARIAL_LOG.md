@@ -109,6 +109,22 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-04 — Smoke of the real image after R237 to R244
+
+No new defect in what was driven, on the second attempt. The image built from `048ee9c3` failed its
+own smoke — the notification bell emptied its panel before the confirmation was answered, which is
+R244 — so the fix was made, re-gated, rebuilt, and `91b65bf26c64` (from `3fd9bc99`) is what was
+driven: the bell keeps its thirty rows through a Cancel, the Sheets tiles say a sample is already
+yours and opening it reopens the one you have, the kept freshness monitor reports the unreadable
+value by name **on its schedule**, an Iceberg publish lands 4 records in 1 file as the catalog's own
+metadata reports it, and an ETL run through the sandbox gateway loads its 108 rows. No errors or
+warnings in the log, no staging left in the bucket. Full table in `docs/UI_TEST_RESULTS.md`.
+
+One thing the smoke found that is not a defect and is worth keeping anyway: the ETL run's first
+attempt failed while the image build was still running, and the message named the two endpoints it
+had tried, offered the right cause ("the Docker daemon is busy (a build or pull in progress?)") and
+gave the exact remedy. The remedy worked. That path had never had a round written about it.
+
 ### 2026-10-04 — R244: the question came one line too late, in R242's own fix
 
 **Severity: moderate. Introduced by the previous round, and found by smoking the image it shipped

@@ -15,6 +15,49 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-04 — Smoke of the real image after R237 to R244
+
+Image `91b65bf26c64`, built from `3fd9bc99` with `docker compose build agentswarms` and started with
+`docker compose up -d`. Nothing under `docker/` or `services/` has changed since the previous image,
+so the notebook runtime image is still current — checked, not assumed.
+
+**This image exists because the previous one failed its own smoke.** The build at `048ee9c3` was
+driven first, and clearing the notification bell showed the panel emptying before the confirmation
+was answered (R244). That was fixed, re-gated and rebuilt, and everything below is the image that
+carries the fix. The shipped `dist` was searched for all six of this batch's markers plus an
+invented string as a negative control: six yes, `could_not_x` no.
+
+| What was driven | What came back |
+| --- | --- |
+| Health after `up -d` | healthy, 31 polls |
+| **R244** bell → Clear → **Cancel** | the list and the badge stay at **"(30 unread)"**, with no reload — the behaviour that was wrong an hour earlier |
+| **R242** the same Clear | asks first: "Clear all notifications? Every notification is deleted, read or not." |
+| **R243** Sheets start tiles | all three samples read **"Already in your workbooks — opens the one you have"**; clicking one asks "You already have …"; **Cancel opened the existing workbook** (`/sheets/66818463…`) and made no duplicate |
+| **R238** the kept monitor, run on its SCHEDULE | **"The newest value in this column is not a date or time: EMEA. Freshness needs a timestamp column."** — so the fix is in the scheduled runner, not only the manual path. Its siblings still read "0% of region is null" and "836 rows" |
+| **R236** Admin → IAM | loads; the account's Superadmin badge, groups, status and dates all render |
+| **Iceberg publish** → `local_rest`, `r181`, `smoke_91b65bf26c64` | the catalog's own metadata: columns `region, orders, revenue`, one `append` snapshot, **4 records in 1 file** |
+| **R227** `r227_gateway` on the sandbox engine | Succeeded, **1m 0s, 108 rows → 1 target** — after the detour below |
+| The app's log over the whole smoke | no errors and no warnings |
+| MinIO, the lake bucket | **0** objects under any `_sandbox_staging` prefix |
+
+**The detour is worth recording, because the product came out of it well.** The first ETL run failed
+to start, and the message said:
+
+> Cannot reach the Docker socket-proxy, so no kernel can be started. The proxy accepted the
+> connection but did not answer: the Docker daemon is busy (a build or pull in progress?) or the
+> proxy has wedged. Try again in a minute; if it persists: `docker compose restart
+> notebook-docker-proxy` (tried `http://notebook-docker-proxy:2375` → no answer within 10 s;
+> `http://127.0.0.1:2375` → fetch failed)
+
+Its hypothesis was correct — the image build was running at that moment — and its remedy worked:
+after `docker compose restart notebook-docker-proxy`, the same pipeline succeeded. A failure that
+names both endpoints it tried, offers the likely cause and gives the command is the standard this
+log keeps asking for, met by a path nobody had written a round about.
+
+**R241's cancel was proved on the previous image** (`0aa79fd1990d`), not this one — the Cancelled run
+of 10/3 23:11:30 is still in `r227_gateway`'s history and its card read Cancelled at the time. It
+was not re-driven here, and saying so is cheaper than implying it was.
+
 ## 2026-10-03 — R241: a pipeline that ran for 56 minutes, reported as never run
 
 | Step | Pre-fix bundle (what was already on screen) | Fixed bundle |
