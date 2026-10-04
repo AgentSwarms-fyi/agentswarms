@@ -109,6 +109,42 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-05 — R271: a kernel that kept its first token, and a Stop that said "stopped" when it was not
+
+**Severity: moderate (a leaked container per failure, and a page that said otherwise).** From the
+queue's R125 sweep. A notebook kernel lives longer than the render that starts it, and both notebook
+pages gave it `() => session?.access_token` — the session of THAT render. The Lakehouse's Spark poll did
+the same with `token`. Driven on image `75718acff78c` with a recorder on `fetch` (it kept a fingerprint
+of each Authorization header, never the token): the kernel started under token `5a54e7eb`, the session
+was made to refresh (to `21d060e5`), and **Stop sent `5a54e7eb`**. That token still worked — it expires
+an hour after it was issued — so the stop went through; after that hour it fails.
+
+And when it fails, nobody heard. `ServerRuntime.stop()` caught the failure, dropped it, and reported
+"stopped". Driven with the stop request refused once: the page read **"Kernel stopped"**, no word, and the
+container **kept running** — "Running kernels" later listed it as ready. Three such stops in this round
+filled the account's three kernel slots, and the next start was refused: "You already have 3 live
+runtime sessions (the per-user limit)." That is the bug's real cost: a few silent failures lock the user
+out of kernels until the reaper's idle TTL.
+
+Now both notebook pages and the Spark poll read the token through `useTokenRef` when they call.
+`stop()` resolves to why the server's stop failed, and reports it through `onStatus` as an "error" —
+"Could not stop the kernel (Failed to fetch). The server stops it once it has been idle for a while." —
+which the page shows as its kernel error and its pill. **The first version still said "Kernel stopped"**:
+the drive showed the websocket's own close, a moment after `stop()`, reporting "stopped" over the error.
+`stop()` now raises a `stopping` flag the close handler respects (pending runs are still failed), found
+by the drive and pinned with a fake socket that closes as a browser's does.
+
+Eight mutants caught against a verified-green baseline (the failure swallowed, stop always null, either
+notebook or the Spark poll capturing the token, the close overruling stop(), the flag not raised, a
+failed stop reported as stopped), control survived. The first gate failed on an older test that pinned
+the poll's exact line with `token` (`lakehouseSparkQuery.test.ts`); it now pins `tokenRef.current`. A
+20 s timeout in `nl2sqlEval` in the same run passed alone (101 tests) and again in the rerun.
+
+Driven on R271 hot-deployed: a kernel started under one token and stopped after a refresh **sent the new
+one**; a refused stop showed "Kernel error" and "Could not stop the kernel (Failed to fetch)…". The
+orphaned kernels the round made — three, then two more — were stopped from **Running kernels**; none is
+left. Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-05 — Smoke of the real image after R256 to R270
 
 Image `75718acff78c`, built from `a6fb565a` with `docker compose build agentswarms` and started with

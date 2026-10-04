@@ -15,6 +15,24 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-05 — R271: a notebook kernel's token, and a Stop that failed
+
+Python notebook **r213 double run**, its counter cell (`n = globals().get("n", 0) + 1`) to start the
+kernel. A recorder on `fetch` kept each `/api/notebook/runtime` call's action and a fingerprint of its
+token. A refresh was forced by setting the stored session's `expires_at` to 20 s away; the client's
+own timer then refreshed it. A failed stop was made by refusing the next `stop` request once in the page.
+
+| Step | Image `75718acff78c` (before) | R271 hot-deployed |
+| --- | --- | --- |
+| Start, refresh the session, **Stop** | started under `5a54e7eb`; session now `21d060e5`; **stop sent `5a54e7eb`** | started under `21d060e5`; session now `8f8805cd`; **stop sent `8f8805cd`** |
+| Start, refuse the stop, **Stop** | pill **"Kernel stopped"**, nothing said; the container still running | pill **"Kernel error"**; "Kernel error: Could not stop the kernel (Failed to fetch). The server stops it once it has been idle for a while." |
+| The next start, three refused stops later | — | refused: "You already have 3 live runtime sessions (the per-user limit)…" |
+| Developer workspace → Running kernels | — | "3 live", each **ready**; each stopped from here — no kernel container left |
+
+The first R271 build showed the error banner but still the pill "Kernel stopped": the websocket's close
+arrived after `stop()` and reported "stopped" over it. Fixed in the same round (the `stopping` flag), and
+the row above is the build with it.
+
 ## 2026-10-05 — Smoke of the real image after R256 to R270
 
 Image `75718acff78c`, built from `a6fb565a` with `docker compose build agentswarms` and started with

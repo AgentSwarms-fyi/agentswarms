@@ -37,6 +37,7 @@ import { MarkdownMessage } from "@/components/playground/MarkdownMessage";
 import { supabase } from "@/integrations/supabase/client";
 import type { Json } from "@/integrations/supabase/types";
 import { useAuth } from "@/hooks/use-auth";
+import { useTokenRef } from "@/hooks/use-token-ref";
 import { useTheme } from "@/hooks/use-theme";
 import { cn } from "@/lib/utils";
 import { ServerRuntime, type CellRunResult, type ServerStatus } from "@/lib/serverRuntime";
@@ -89,6 +90,8 @@ function PyNotebookPage() {
   const { pyNotebookId } = Route.useParams();
   const navigate = useNavigate();
   const { session } = useAuth();
+  // The kernel outlives renders, so it reads the token when it calls (R271).
+  const { tokenRef } = useTokenRef(session?.access_token);
   const { theme } = useTheme();
   const isDark = theme === "dark";
 
@@ -134,7 +137,7 @@ function PyNotebookPage() {
     () => "kernel",
     async (): Promise<ServerRuntime | string> => {
       if (serverRef.current) return serverRef.current;
-      const rt = new ServerRuntime(() => session?.access_token ?? null, pyNotebookId);
+      const rt = new ServerRuntime(() => tokenRef.current || null, pyNotebookId);
       rt.onStatus = (s, msg) => {
         setServerStatus(s);
         if (s === "error" && msg) setRuntimeError(msg);
@@ -157,6 +160,7 @@ function PyNotebookPage() {
     const rt = serverRef.current;
     serverRef.current = null;
     setServerStatus("idle");
+    // A stop that fails reports "error" through onStatus, with the reason.
     await rt?.stop();
   }, []);
 

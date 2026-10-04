@@ -308,7 +308,12 @@ Reuse the existing pieces: `getEffectiveModelRules`/`isModelAllowed` (IAM gate),
 - **Session controls** in the notebook editor header — there is no runtime
   _switcher_, because there is nothing to switch between: a session status pill
   (`starting → ready`), a **Restart kernel** and **Stop** button, and current
-  limits (mem/CPU/timeout).
+  limits (mem/CPU/timeout). A **Stop** the server did not carry out says so —
+  the pill reads "Kernel error" and the page "Could not stop the kernel (…)",
+  since the container is still running until the reaper's idle TTL — rather
+  than "Kernel stopped" (R271). The kernel, a sample's kernel and a Spark
+  query's poll read the session token when they call, so a refresh while they
+  live is used at once.
 - Cell execution goes over the gateway websocket to a server kernel. It is the
   only execution path; the Pyodide one this plan compared it against is gone.
 - **Shift+Enter** is bound in the cell editor's own keymap, at the highest

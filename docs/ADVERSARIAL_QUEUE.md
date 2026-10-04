@@ -581,12 +581,13 @@ to the active cell). Open from that round:
   places lost work and were fixed; the other 93 hooks keyed on the token
   were read and are ratcheted by `tests/unit/tokenReloadSweep.test.ts`.
   Open from that sweep:
-  - **The opposite: a token captured once.** A Python notebook's kernel
+  - ~~**The opposite: a token captured once.** A Python notebook's kernel
     (and a sample notebook's) keeps the session it started with, so after an
     hour its status and stop calls send an expired token and a failed stop is
     swallowed: the kernel container may be left running until the idle
     reaper. The lakehouse's Spark query poll captures the token when the
-    query starts, so a query running across a refresh can fail its polls.
+    query starts, so a query running across a refresh can fail its polls.~~
+    **Fixed in R271**, all three, and the swallowed stop now says so.
   - ~~**Switching workflows drops unsaved edits without asking.** Picking
     another workflow loads it over the open one; there is no "unsaved
     changes" question.~~ **Fixed in R268**, with creating one, and deleting a

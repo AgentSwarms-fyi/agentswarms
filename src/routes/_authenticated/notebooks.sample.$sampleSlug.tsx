@@ -16,6 +16,7 @@ import { MarkdownMessage } from "@/components/playground/MarkdownMessage";
 import { supabase } from "@/integrations/supabase/client";
 import type { Json } from "@/integrations/supabase/types";
 import { useAuth } from "@/hooks/use-auth";
+import { useTokenRef } from "@/hooks/use-token-ref";
 import { useTheme } from "@/hooks/use-theme";
 import { cn } from "@/lib/utils";
 import { ServerRuntime, type CellRunResult } from "@/lib/serverRuntime";
@@ -51,6 +52,8 @@ function SampleNotebookPage() {
   const { sampleSlug } = Route.useParams();
   const navigate = useNavigate();
   const { user, session } = useAuth();
+  // The kernel outlives renders, so it reads the token when it calls (R271).
+  const { tokenRef } = useTokenRef(session?.access_token);
   const { theme } = useTheme();
   const isDark = theme === "dark";
 
@@ -83,7 +86,7 @@ function SampleNotebookPage() {
       // is bundled content with no DB row, so it binds to no notebook (its slug
       // is not a uuid) — cells execute inline over the kernel websocket.
       if (!kernelRef.current) {
-        const rt = new ServerRuntime(() => session?.access_token ?? null, null);
+        const rt = new ServerRuntime(() => tokenRef.current || null, null);
         kernelRef.current = rt;
         try {
           await rt.start();
@@ -103,7 +106,7 @@ function SampleNotebookPage() {
       setOutputs((o) => ({ ...o, [cell.id]: res }));
       return res;
     },
-    [session?.access_token, sampleSlug],
+    [tokenRef, sampleSlug],
   );
 
   const runAll = async () => {

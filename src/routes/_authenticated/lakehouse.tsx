@@ -510,6 +510,8 @@ function QueryTab({
 }) {
   const { session } = useAuth();
   const token = session?.access_token ?? "";
+  // A Spark query can be polled for minutes, across a session refresh (R271).
+  const { tokenRef } = useTokenRef(token);
   const runFn = useServerFn(runLakehouseQuery);
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<LakehouseResult | null>(null);
@@ -576,7 +578,7 @@ function QueryTab({
       // query seconds to minutes, so anything tighter is noise. A failed poll
       // is retried; it is not the query ending (R222).
       return await pollSparkQuery(
-        () => getSparkFn({ data: { access_token: token, id } }),
+        () => getSparkFn({ data: { access_token: tokenRef.current, id } }),
         (q) => setSparkJob({ id, startedAt, status: q.status }),
       );
     } finally {

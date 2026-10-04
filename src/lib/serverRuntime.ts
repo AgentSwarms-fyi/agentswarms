@@ -42,6 +42,9 @@ export class ServerRuntime {
   private connectResolve: (() => void) | null = null;
   private connectReject: ((e: Error) => void) | null = null;
   private runs = new Map<string, PendingRun>();
+  // Set by stop(), which reports the outcome itself; the socket closing after
+  // it must not say "stopped" over an "error" (R271).
+  private stopping = false;
 
   onStatus?: (s: ServerStatus, msg?: string) => void;
 
@@ -146,7 +149,7 @@ export class ServerRuntime {
           this.connectReject = null;
           this.connectResolve = null;
         }
-        this.onStatus?.("stopped", why);
+        if (!this.stopping) this.onStatus?.("stopped", why);
         this.failAll(why);
       };
       setTimeout(() => {
@@ -226,7 +229,16 @@ export class ServerRuntime {
     });
   }
 
-  async stop(): Promise<void> {
+  /**
+   * Stop the kernel: resolves to why the server's stop failed, or null when it
+   * stopped, and reports the same through onStatus — "stopped", or "error" with
+   * what is still true. FOUND IN R271: a failed stop was swallowed and
+   * "stopped" reported all the same, so the page said "Kernel stopped" while
+   * its container ran on until the idle reaper; and the token it sent could be
+   * an hour stale.
+   */
+  async stop(): Promise<string | null> {
+    this.stopping = true;
     try {
       this.ws?.close();
     } catch {
@@ -234,9 +246,22 @@ export class ServerRuntime {
     }
     this.ws = null;
     this.ready = false;
+    let failure: string | null = null;
     if (this.sessionId) {
-      await this.call({ action: "stop", sessionId: this.sessionId }).catch(() => {});
+      try {
+        await this.call({ action: "stop", sessionId: this.sessionId });
+      } catch (e) {
+        failure = e instanceof Error ? e.message : String(e);
+      }
     }
-    this.onStatus?.("stopped");
+    if (failure) {
+      this.onStatus?.(
+        "error",
+        `Could not stop the kernel (${failure}). The server stops it once it has been idle for a while.`,
+      );
+    } else {
+      this.onStatus?.("stopped");
+    }
+    return failure;
   }
 }
