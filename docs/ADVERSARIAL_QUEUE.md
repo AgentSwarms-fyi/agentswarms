@@ -594,11 +594,14 @@ to the active cell). Open from that round:
     the Workflows page by a link or closing the tab drops unsaved edits without
     asking (the editor now knows they are there: `savedForm`).~~ **Fixed in
     R269** with the router's `useBlocker`.
-  - **An in-app link still drops unsaved work on ~~Swarms and~~ Sheets** (found
+  - ~~**An in-app link still drops unsaved work on Swarms and Sheets**~~ (found
     writing R269): both guard the tab with `beforeunload`, neither a router
-    navigation. Sheets saves as it goes, so its window is the save in flight.
-    **Swarms fixed in R270**, which found its tab guard warned on every opened
-    swarm and Fullscreen reloaded the canvas from the database.
+    navigation. **Swarms fixed in R270**, which found its tab guard warned on
+    every opened swarm and Fullscreen reloaded the canvas from the database.
+    **Sheets is not a defect**, driven on image `75718acff78c`: a value typed
+    and committed, then the Dashboard link clicked inside the 1.2 s save
+    debounce, was in the workbook on return. The debounce timer is not cleared
+    when the editor unmounts, so the save still lands after the link.
   - **Not driven in the UI** (the fix is the same line, the test pins it):
     changing an outcome source, a warm deployment's idle time and copies, an
     experiment's description, a connection import's table pick, the BI Git

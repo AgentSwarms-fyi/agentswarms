@@ -15,6 +15,26 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-05 — Smoke of the real image after R256 to R270
+
+Image `75718acff78c`, built from `a6fb565a` with `docker compose build agentswarms` and started with
+`docker compose up -d`. Nothing under `docker/` or `services/`, the Dockerfile or the compose file
+changed since `13d720fe`, so the notebook runtime image is still current — checked with
+`git diff --stat`, not assumed.
+
+| What was driven | What came back |
+| --- | --- |
+| Health after `up -d` | healthy; every worker listening; the log with no error or warning |
+| Shipped code | R256 to R270's runtime strings all in `/app/dist`, the invented control absent |
+| **Iceberg publish** `analytics.fct_region_revenue` → `local_rest`, `r181`, `smoke_75718acff78c` | "Published 4 row(s) to r181.smoke_75718acff78c"; the catalog's own metadata: columns `region, orders, revenue`, one `append` snapshot, **4 records in 1 file** |
+| **Sheets, a link inside the save debounce**: "R270 link check" typed into H6 of the fixture workbook, Enter, the Dashboard link at once | left at once; four seconds later the workbook reopened with **"R270 link check" in H6** — saved after the editor had gone |
+
+The marker check was tried on the hot-deployed container before the image, where every round was
+known to be present. Its first run reported R261 **absent**: the string it picked sits in a `/** */`
+comment, which the build strips. Comments are skipped now; R260, R266 and R267 add no message and are
+matched by a function name the server bundle keeps (`parseComplexText`, `pointedReference`,
+`defaultShift`), R256 by its template literal's fixed text.
+
 ## 2026-10-05 — R270: unsaved edits on the swarm canvas
 
 The **R109 chat echo** swarm (Input → Output, no model call). An edit is " EDITED" typed after its

@@ -109,6 +109,20 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-05 — Smoke of the real image after R256 to R270
+
+Image `75718acff78c`, built from `a6fb565a` with `docker compose build agentswarms` and started with
+`docker compose up -d`; healthy, every worker listening, and a log with no error or warning. Nothing
+under `docker/` or `services/`, the Dockerfile or the compose file changed since the last image, so the
+notebook runtime image is still current (`git diff --stat`). All fifteen rounds' runtime strings are in
+the image's `dist` and the invented control is not; the instrument was checked on the hot-deployed
+container first, where it caught its own fault — R261's first pick was a string inside a `/** */`
+comment, which the build strips — and three rounds that add no message (R260, R266, R267) are matched
+by a function name the server bundle keeps. An Iceberg publish of `analytics.fct_region_revenue` wrote
+4 records in 1 file, read back from the catalog's own metadata. And the queue's Sheets half of "an
+in-app link drops unsaved work" was driven and is not a defect: struck. Rows in
+[UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-05 — R270: a swarm canvas that warned on everything, and lost edits to Fullscreen
 
 **Severity: moderate (lost work, and a warning trained to be ignored).** Queued by R269 as "Swarms guards
