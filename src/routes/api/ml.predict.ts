@@ -95,11 +95,13 @@ export const Route = createFileRoute("/api/ml/predict")({
           typeof body.version_id === "string" && UUID.test(body.version_id)
             ? body.version_id
             : undefined;
-        const version = await pickVersion(
-          auth.model.id,
-          versionId,
-          auth.model.production_version_id,
-        );
+        let version: Awaited<ReturnType<typeof pickVersion>>;
+        try {
+          version = await pickVersion(auth.model.id, versionId, auth.model.production_version_id);
+        } catch (e) {
+          // R251: answered by the version it should be, or not at all.
+          return mlJson({ error: e instanceof Error ? e.message : String(e) }, 503);
+        }
         if (!version) return mlJson({ error: "No trained version to predict with" }, 409);
         if (auth.model.task === "forecast") {
           // Served from the training forecast, like the agent tool: no sandbox.

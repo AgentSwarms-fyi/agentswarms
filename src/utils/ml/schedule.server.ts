@@ -102,8 +102,16 @@ export async function runMlSchedule(
   } else if (!cfg.input || !cfg.output) {
     outcome = { ok: false, error: "The schedule has no input or output table" };
   } else {
-    const version = await pickVersion(model.id, undefined, model.production_version_id);
-    if (!version) {
+    let version: Awaited<ReturnType<typeof pickVersion>> = null;
+    let pickError: string | null = null;
+    try {
+      version = await pickVersion(model.id, undefined, model.production_version_id);
+    } catch (e) {
+      pickError = e instanceof Error ? e.message : String(e);
+    }
+    if (pickError) {
+      outcome = { ok: false, error: pickError };
+    } else if (!version) {
       outcome = { ok: false, error: "No trained version to predict with" };
     } else {
       const started = await startBatchPrediction({
@@ -178,13 +186,25 @@ export async function evaluateScheduledVersions(): Promise<number> {
       .eq("id", s.model_id)
       .maybeSingle();
     if (!model) continue;
-    const { data: incumbent } = model.production_version_id
+    const { data: incumbent, error: incumbentErr } = model.production_version_id
       ? await supabaseAdmin
           .from("ml_model_versions")
           .select("*")
           .eq("id", model.production_version_id)
           .maybeSingle()
-      : { data: null };
+      : { data: null, error: null };
+    // FOUND IN R251. beatsProduction treats "no incumbent" as "nothing to
+    // beat", and a failed read of the incumbent looked exactly like that: a
+    // retrain worse than production was promoted over it, and the schedule was
+    // stamped as judged, so nothing ever looked again. An incumbent that
+    // could not be read is judged on the next sweep instead; this one leaves
+    // the schedule untouched.
+    if (incumbentErr) {
+      console.warn(
+        `[ml-schedule] schedule ${s.id}: production version unreadable, not judged this sweep: ${incumbentErr.message}`,
+      );
+      continue;
+    }
     const better = beatsProduction(model.task, candidate, incumbent);
     let promoted = false;
     let promotionError: string | null = null;

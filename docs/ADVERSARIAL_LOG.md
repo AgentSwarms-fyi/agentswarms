@@ -109,6 +109,33 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-04 — R251: production traffic answered by a version nobody promoted
+
+**Severity: high.** The sweep-7 ML row named two places — "an unpromoted version answering
+production" and "a scheduled retrain auto-promoting" — and they are one statement: a production
+version that could not be read was taken for **no production version**.
+
+- **`pickVersion`** reads the production version, and dropped the read's error. A failed read fell
+  through to the rule for a model with *no* production version — the newest ready one — so a single
+  blip and live prediction traffic, over the API and the batch endpoint, was answered by a version
+  that had never been promoted: possibly worse, possibly trained on different data, and nothing in
+  the response said so.
+- **The retrain judge** read the incumbent the same way. `beatsProduction` treats "no incumbent" as
+  "nothing to beat", so a retrain was promoted over a production version it never compared against,
+  and the schedule was stamped as judged, so nothing ever looked again.
+
+A model **with** a production version is now answered by it or not at all: a failed read throws,
+and so does a pointer to a row that is not there — that cannot be a deletion, because the pointer is
+`ON DELETE SET NULL`, so it is refused rather than guessed at. Both predict routes answer it with a
+503, and the scheduled batch records it as the run's error. The judge skips a candidate whose
+incumbent it could not read and leaves the schedule untouched, so the next sweep judges it properly.
+A model with no production version still gets the newest ready one, as ML.md says.
+
+Five mutants caught against a verified-green baseline, control survived.
+
+Not proved in the UI: each needs a server-side read to fail, and nothing deletes versions, so there
+is no other way to reach the fall-through.
+
 ### 2026-10-04 — R250: the operator's "the cap must hold" honoured on one read out of seven
 
 **Severity: moderate-to-high, for the deployments that asked for it.** The sweep-7 queue said

@@ -467,8 +467,9 @@ least twice, not a hypothetical.
      - **R249: notebook runtime limits.** Fixed, and worse than limits: a failed settings read
        turned the grant check off, so with `NOTEBOOK_RUNTIME_ENABLED` set anyone could start a
        kernel. Fixed together with the reaper row below, which was the same statement.
-     - **ML:** an unpromoted version answering production (`ml/api.server.ts` `pickVersion`), a
-       scheduled retrain auto-promoting (`ml/schedule.server.ts` ~181).
+     - **R251: ML.** Fixed. Both halves read a production version that could not be read as no
+       production version: `pickVersion` fell through to the newest unpromoted version, and the
+       retrain judge compared a candidate with nothing and promoted it.
      - **Destructive on a blip:** ~~the MCP reaper stops every published server~~ (R249: a
        failed `mcp_apps` read made every app look deleted; it reaps none now); the audit purge uses default retention
        (`audit.server.ts` ~137); a live ETL run is marked failed (`etl/service.server.ts`

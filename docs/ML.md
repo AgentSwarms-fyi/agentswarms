@@ -420,6 +420,10 @@ version is promoted, because a model with nothing serving is no use. Pass
 `promote=True` to promote deliberately on a model that already serves
 something.
 
+A model that **has** a production version is answered by that version or not
+at all. If it cannot be read, a prediction is refused with a 503 rather than
+answered by the newest version, which nobody promoted (R251).
+
 Both work from outside the platform with a user token, on the same two
 endpoints: `POST /api/ml/experiments/artifact?run_id=…&name=…&sha256=…` with
 the bytes as the body, then `POST /api/ml/experiments/register`.
@@ -605,7 +609,9 @@ same reaper as ETL pipelines and materialized views:
   or on a cron expression, with its own budget and tuning mode. When
   **promote when better** is on, the new version becomes production the
   moment it is ready if its primary metric beats the incumbent; you are told
-  either way. **An anomaly model is the exception**: its primary metric,
+  either way. If the incumbent cannot be read, the new version is not judged
+  on that sweep but on the next, rather than being compared with nothing and
+  promoted (R251). **An anomaly model is the exception**: its primary metric,
   `anomaly_rate`, is the share of rows the detector flagged — near enough the
   contamination it was given — and describes the fit rather than scoring it, so
   it cannot decide a promotion in either direction. Such a schedule trains and
