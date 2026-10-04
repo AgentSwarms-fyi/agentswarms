@@ -109,6 +109,15 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-04 — Smoke of the real image after R245 to R255
+
+Image `021b027c5acc` from `13d720fe`. All ten rounds' runtime strings are in the shipped `dist` and
+an invented control is not; an Iceberg publish wrote 4 records in 1 file, read back from the
+catalog's own metadata; R246's workbook and R247's keys are as the rounds left them; the log is
+clean. The first marker search reported every round **absent** — Git Bash had rewritten the
+container path — and the known-present markers are what made that a broken instrument rather than
+a broken image. Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-04 — R255: a workflow step failed, and its work started twice, on a failed status read
 
 **Severity: moderate-to-high.** The last sweep-7 row: "workflow steps fail and re-run". `pollNode`

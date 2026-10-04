@@ -15,6 +15,29 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-04 — Smoke of the real image after R245 to R255
+
+Image `021b027c5acc`, built from `13d720fe` with `docker compose build agentswarms` and started with
+`docker compose up -d`. Nothing under `docker/` or `services/`, the Dockerfile or the compose file
+changed in the 12 commits since the last image, so the notebook runtime image is still current —
+checked with `git diff --stat`, not assumed.
+
+**The marker check failed first, and the failure was the instrument.** Searching the container's
+`dist` for one runtime string per round reported all ten **absent**, including R246's and R247's,
+which had been driven in this very container an hour earlier. Git Bash had rewritten `/app/dist`
+into a Windows path before `docker exec` saw it. With `MSYS_NO_PATHCONV=1` all ten were present and
+the invented control string was not. An all-NO result is a broken instrument until shown otherwise,
+which is why the known-present markers are there.
+
+| What was driven | What came back |
+| --- | --- |
+| Health after `up -d` | healthy; 8 workers listening, every scheduler started |
+| Shipped code | R246 to R255's markers all present in `/app/dist`, the control absent |
+| **Iceberg publish** `analytics.fct_region_revenue` → `local_rest`, `r181`, `smoke_021b027c5acc` | "Published 4 row(s) to r181.smoke_021b027c5acc"; the catalog's own metadata: columns `region, orders, revenue`, one `append` snapshot, **4 records in 1 file** |
+| **R246** the fixture workbook | opens on its one sheet with "SHEET1 AFTER"; no "Opening…", no empty state |
+| **R247** LLM Gateway keys | both R247 keys listed as revoked, used "0 · never" |
+| The app's log over the whole smoke | no errors, no warnings, and none of R248 to R255's "could not be read" warnings — no read failed |
+
 ## 2026-10-04 — R247: a key ticked for one agent whose agent was deleted mid-dialog
 
 Driven at `http://localhost:8080/integrations` → LLM Gateway → Create key, with a fixture agent made
