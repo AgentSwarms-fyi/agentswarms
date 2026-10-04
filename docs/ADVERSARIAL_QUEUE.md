@@ -1237,11 +1237,14 @@ over the lakehouse). Open from that round, the rest of Row Zero's connected tabl
   the swarm asked for. Any "first run" branch (`if (rows.length === 0)
   create…`) must be fed from a read whose error was kept. The R109 sweep
   continues from here. In `swarms.tsx`, the switch only ever switched on
-  data, and now says why it did not. `refreshPublished` still drops its
+  data, and now says why it did not. ~~`refreshPublished` still drops its
   error and sets the snapshot to null, which HIDES the "draft ahead of
-  what is live" badge: no write, but a warning silenced by a failed read.
-  `playground.tsx:2509` (an execution trace) and `mcpApps.functions.ts:69`
-  are not yet read. The Recent runs "No runs yet" (R108's note), the
+  what is live" badge~~ — already fixed by R189, which this note
+  predates; checked 2026-10-04. ~~`playground.tsx:2509` (an execution
+  trace)~~ — already fixed by R191. ~~`mcpApps.functions.ts:69`~~ — R256:
+  a failed read answered twelve MCP Builder actions "MCP server not
+  found", and a version restore "Version not found"; both say "could not
+  read" now. The Recent runs "No runs yet" (R108's note), the
   same shape without the write, was closed in R179.
 - A failed read that becomes an empty document becomes a data loss at the
   next save (R109): the swarm chat opened a conversation over

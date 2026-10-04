@@ -66,7 +66,12 @@ async function ownedApp(
   supabase: { from: (t: string) => any },
   appId: string,
 ): Promise<{ ok: true; app: any } | Fail> {
-  const { data } = await supabase.from("mcp_apps").select("*").eq("id", appId).maybeSingle();
+  const { data, error } = await supabase.from("mcp_apps").select("*").eq("id", appId).maybeSingle();
+  // R256: twelve actions start here - deploy, stop, delete, save, approve
+  // tools - and a failed read answered every one of them "MCP server not
+  // found", about a server that was there. It refused, which was right; it
+  // said why wrongly, which sends the reader looking for a deletion.
+  if (error) return { ok: false, error: `Could not read the MCP server: ${error.message}` };
   if (!data) return { ok: false, error: "MCP server not found" };
   return { ok: true, app: data };
 }
@@ -723,12 +728,15 @@ export const mcpAppRestoreVersion = createServerFn({ method: "POST" })
     z.object({ id: z.string().uuid(), version_id: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data, context }): Promise<Fail | { ok: true }> => {
-    const { data: version } = await context.supabase
+    const { data: version, error: versionErr } = await context.supabase
       .from("mcp_app_versions")
       .select("source_code, requirements")
       .eq("id", data.version_id)
       .eq("app_id", data.id)
       .maybeSingle();
+    if (versionErr) {
+      return { ok: false, error: `Could not read that version: ${versionErr.message}` };
+    }
     if (!version) return { ok: false, error: "Version not found" };
 
     // Restores the SOURCE only; the running container keeps serving the old

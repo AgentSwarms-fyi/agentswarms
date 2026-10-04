@@ -109,6 +109,19 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-04 — R256: "MCP server not found", about a server that was there
+
+**Severity: low.** The last unread name in the sweep-6 notes. `ownedApp` starts twelve MCP Builder
+actions — deploy, stop, delete, save, approve tools — and dropped its read's error, so a failed read
+answered every one of them "MCP server not found". Restoring a version did the same with "Version
+not found". Both refused, which was right; both said why wrongly, which sends the reader looking for
+a deletion that never happened. Both say "could not read" now, and a ratchet holds the file at zero
+reads that drop their error. The test fails on the old code and passes on the new.
+
+The same note named two other places as "not yet read". Both had been fixed since — `refreshPublished`
+by R189, the playground's trace poll by R191 — and the note had never been updated. A queue that
+says something is open when it is not costs the next round a reading; the rows say so now.
+
 ### 2026-10-04 — Smoke of the real image after R245 to R255
 
 Image `021b027c5acc` from `13d720fe`. All ten rounds' runtime strings are in the shipped `dist` and
