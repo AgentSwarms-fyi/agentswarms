@@ -109,6 +109,49 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-04 — R250: the operator's "the cap must hold" honoured on one read out of seven
+
+**Severity: moderate-to-high, for the deployments that asked for it.** The sweep-7 queue said
+"budget caps fall back to no cap". Reading the guard found that this is the **documented default**,
+on purpose: a governance feature should not be the reason a legitimate call breaks. That is a
+product decision and it stands. The defect is the switch beside it. `BUDGET_FAIL_CLOSED` is how an
+operator says the cap must hold when a figure cannot be established, and it was honoured on exactly
+one read — month-to-date spend. Every other figure the verdict depends on answered "allowed" when
+its read failed, whatever the switch said:
+
+| Read | What a failure used to mean |
+| --- | --- |
+| the personal cap | "no cap" |
+| a credential's cap, a team's cap | "no cap" |
+| which teams the caller is in | "in no teams" |
+| a team's members | `groupSpend([])`, which is **$0** — "the team spent nothing" |
+| anything that threw, in either function | "allowed" |
+
+The fourth row is this file's own rule — its comments say "null means the figure could not be
+established — not that the team spent nothing" — broken one layer up.
+
+And the refusals that did fire on an unknown figure said "You have reached your monthly AI budget
+($5.00)" about a spend nobody had read. An `unknown` flag now travels with the verdict, and the
+message says the budget could not be checked and that this deployment refuses calls it cannot
+check.
+
+Every unknown goes through `unknownStatus` / `unknownAt`, both of which read the switch, and a
+verdict built on an unknown is not cached — the spend path already refused to remember a blip for a
+minute, and now every path does. Without the switch, behaviour is unchanged: the tests drive every
+read failing in both modes, and the default still lets the call through each time.
+
+`budgetRefusalContract.test.ts` and `budgetSpend.test.ts` pinned the old fail-closed branches by
+their text; they now pin each scope's unknown branch calling a helper, and each helper reading the
+switch.
+
+Seven mutants caught against a verified-green baseline, control survived. One of them exists
+because the first version of the new tests asked every question as a fresh user, so a guessed
+verdict sitting in the minute-long cache was invisible; a test now asks twice as the same user,
+across the read recovering.
+
+Not proved in the UI: each needs a server-side read to fail, and the switch is an environment
+variable on the server.
+
 ### 2026-10-04 — R249: kernels opened to everyone, and every MCP server stopped, on one failed read
 
 **Severity: high.** Two sweep-7 rows turned out to be one statement in one module. "Notebook runtime

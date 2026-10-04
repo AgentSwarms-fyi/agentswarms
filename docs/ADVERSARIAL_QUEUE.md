@@ -460,7 +460,10 @@ least twice, not a hypothetical.
        deactivation left the account active), "not a user" for a failed member lookup, 401 for an
        unreadable token table. All nine are a 503 now, which IdPs retry; a ratchet holds the file
        at zero dropped read errors.
-     - **Budget caps** (`budgetGuard.server.ts`) fall back to "no cap".
+     - **R250: budget caps.** "Falls back to no cap" is the documented default and stays. What
+       was broken is `BUDGET_FAIL_CLOSED`: honoured on the spend read only, while the cap reads,
+       the team reads and both catch-alls answered "allowed" — and a failed members read made a
+       team's spend $0. Every unknown now goes through one helper that reads the switch.
      - **R249: notebook runtime limits.** Fixed, and worse than limits: a failed settings read
        turned the grant check off, so with `NOTEBOOK_RUNTIME_ENABLED` set anyone could start a
        kernel. Fixed together with the reaper row below, which was the same statement.
