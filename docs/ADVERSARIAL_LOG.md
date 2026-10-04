@@ -109,6 +109,35 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-04 — R266: a pointed spill fixed to the size it had that day
+
+**Severity: low (a formula that silently stops following its data).** While typing a formula,
+dragging across a spilled array inserted a plain range: `=SUM(` then a drag over `=SEQUENCE(3)`'s
+three cells wrote `=SUM(G1:G3)`. Excel writes the spill's own reference, `G1#`, so the formula follows
+the array — confirmed by two independent references (Ablebits, XelPlus: "highlight the A1:D10 range
+and Excel will automatically replace [it] with an A1# Spill Range reference"); Microsoft's operator
+page does not describe it. Driven: with the array grown to four values, the pointed `=SUM(G1:G3)` still
+read **6**, missing the fourth.
+
+Now `pointedReference` (in `selection.ts`, beside the other point-mode rule) writes `A1#` when the drag
+covers exactly the array spilled from its top-left cell — dragged in any direction — and a plain range
+for part of a spill, more than it, or a spill that is blocked: the engine keeps an array's size only
+once it has spilled, so a `#SPILL!` anchor or a one-value array has no `A1#` to write. Writing the
+mutants found the function's own single-cell branch redundant (`rangeA1` already writes one cell as
+`A1`) and no test of a drag matching the spill's rows but not its columns; the branch was removed and
+the test added. Five mutants caught against a verified-green baseline (never `#`, columns or rows not
+compared, the spill looked up at the drag's start instead of its top-left, the grid writing the plain
+range again), control survived.
+
+**And R258's open answer was settled.** PERCENTRANK.EXC with a significance of 1 was left unpinned for
+want of Excel's own answer. Excel's page gives `PERCENTRANK.EXC(A2:A10,5.43,1)` as **0.3** — truncated,
+as the default three digits are (0.381) — which is what the engine already answered. Pinned.
+
+Driven in the fixture workbook. Before, on R265's build: the drag wrote `=SUM(G1:G3)`. After, on R266
+hot-deployed: the same drag over four values wrote `=SUM(G1#)` (10), and with the array grown to five it
+read **15** while the old formula beside it stayed at 6; a drag over part of the spill still wrote
+`=SUM(G1:G2)`. Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-04 — R265: VDB, and a branch of the algorithm nothing could reach
 
 **Severity: low (Excel parity).** VDB — depreciation over a span of periods by declining balance,

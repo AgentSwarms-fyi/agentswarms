@@ -15,6 +15,17 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-04 — R266: pointing at a spilled array
+
+Fixture workbook **R246 last sheet race** (`61e4fe80…`). G1 holds `=SEQUENCE(n)`; each formula in
+column I was typed as `=SUM(`, then a mouse drag down column G, then `)`.
+
+| Cell | Typed on | Drag | Written | With G1 `=SEQUENCE(4)` | With G1 `=SEQUENCE(5)` |
+| --- | --- | --- | --- | --- | --- |
+| I1 | R265's build, over 3 values | G1→G3, the whole spill | **`=SUM(G1:G3)`** | **6** — misses the fourth | 6 |
+| I2 | R266 hot-deployed, over 4 values | G1→G4, the whole spill | **`=SUM(G1#)`** | 10 | **15** |
+| I3 | R266 hot-deployed | G1→G2, part of the spill | `=SUM(G1:G2)` | — | 3 |
+
 ## 2026-10-04 — R265: VDB in a workbook
 
 Fixture workbook **R246 last sheet race** (`61e4fe80…`), column H, typed on R264's build and

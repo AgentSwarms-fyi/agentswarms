@@ -201,7 +201,10 @@ While a formula is being typed:
 - The list under the formula bar suggests function names and the workbook's names. Press
   **Tab** to insert one.
 - A hint shows the arguments of the function the caret is in.
-- Clicking or dragging across cells inserts their reference, as Excel's point mode does.
+- Clicking or dragging across cells inserts their reference, as Excel's point mode does. Dragging
+  across the whole of a spilled array inserts its spill reference, `A2#`, so the formula follows the
+  array when it grows or shrinks; part of it is an ordinary range, and a spill that is blocked has
+  no `A2#`.
 
 Open parentheses are closed for you on **Enter**.
 

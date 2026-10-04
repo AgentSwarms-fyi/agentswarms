@@ -20,7 +20,14 @@ import type { CellInput, GridData, WorkbookEngine } from "@/lib/sheets/engine";
 import { AxisGeometry } from "@/lib/sheets/geometry";
 import { autoRowHeights, CELL_PAD_X } from "@/lib/sheets/layout";
 import { expandToMerges, mergeAt, parseMerges } from "@/lib/sheets/merge";
-import { acceptsReference, selRange, startsEdit, type Selection } from "@/lib/sheets/selection";
+import {
+  acceptsReference,
+  pointedReference,
+  selRange,
+  spillExtentIn,
+  startsEdit,
+  type Selection,
+} from "@/lib/sheets/selection";
 import { cssBorder, fontPx, fontStack, INDENT_PX, type Borders } from "@/lib/sheets/style";
 import { cn } from "@/lib/utils";
 import { measureText } from "./measure";
@@ -421,10 +428,7 @@ export function SheetGrid(props: Props) {
           scroll: "none",
         });
       } else if (d.kind === "point") {
-        const ref =
-          hit.row === d.start.row && hit.col === d.start.col
-            ? a1(hit.row, hit.col)
-            : rangeA1(normRange(d.start, hit));
+        const ref = pointedReference(d.start, hit, spillExtentIn(engine, tabId));
         const ins = insertReference(ref, { at: d.at, len: d.len });
         if (ins) drag.current = { ...d, len: ins.len };
       } else if (d.kind === "fill") {

@@ -510,7 +510,8 @@ showing `\u2014` as text). Open, from the first rounds:
   registered, written as Excel writes them), ~~IMSQRT, IMLN, IMEXP and the trigonometric ones~~
   (**R264**: all twenty-five now the engine's own — formula.js threw on a number argument, never
   opened a range in IMPRODUCT, put −1 at angle −π and took IMLN's angle as atan(y/x)),
-  PERCENTRANK.EXC's significance argument (Excel's own answer unconfirmed), and ~~VDB, which
+  ~~PERCENTRANK.EXC's significance argument~~ (**R266**: Excel's page gives
+  `PERCENTRANK.EXC(…,5.43,1)` as 0.3, truncated, which the engine already answered; now pinned), and ~~VDB, which
   formula.js does not have~~ (**R265**, written in the engine; its #NUM! for a salvage above the
   cost follows LibreOffice, not a statement on Excel's page — unconfirmed).
 - ~~**Excel's 1900 calendar before March 1900**~~ — **fixed by R205**; this row predates it
@@ -523,10 +524,11 @@ showing `\u2014` as text). Open, from the first rounds:
   each a reasoned choice, none checked in Excel. So is the last digit of a polar residue:
   `IMPOWER("i",2)` writes `-1+1.22464679914735E-16i` from JavaScript's sin(π), where Excel's own sine
   may differ in the fifth digit. Settle in Excel.
-- **Point mode does not write A1#**: clicking a spilled range while typing a formula inserts
-  `A1:A3`, fixed to today's size, where Excel inserts `A1#` (R171 added the reference itself). A
-  one-cell array answer counts as not spilling; Excel's handling of `=SEQUENCE(1)` then `A1#` was
-  not checked.
+- ~~**Point mode does not write A1#**: clicking a spilled range while typing a formula inserts
+  `A1:A3`, fixed to today's size, where Excel inserts `A1#` (R171 added the reference itself).~~
+  **Fixed in R266**: a drag over exactly a spill writes `A1#`. A one-cell array answer counts as not
+  spilling, so clicking it writes `A1`; Excel's own handling of `=SEQUENCE(1)` then `A1#` is still
+  unchecked.
 - **TREND, GROWTH, XNPV and XIRR over a range with a blank** still count the blank as 0 (R170
   fixed the rest of the formula.js functions). ~~A list with no numbers is an error, not always
   Excel's code: `=GEOMEAN(A2)` over a blank is #VALUE!, Excel's #NUM!.~~ **R261**, and two of

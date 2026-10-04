@@ -117,6 +117,9 @@ describe("Excel's documented answers", () => {
   it("PERCENTRANK.EXC on Excel's example data", () => {
     expect(n("=PERCENTRANK.EXC(G1:G9,7)")).toBe(0.7);
     expect(n("=PERCENTRANK.EXC(G1:G9,5.43)")).toBe(0.381);
+    // Left unpinned in R258; Excel's page says 0.3: one significant digit,
+    // truncated as the default three are (0.381), not rounded to 0.4. (R266)
+    expect(n("=PERCENTRANK.EXC(G1:G9,5.43,1)")).toBe(0.3);
   });
 
   it("BINOM.DIST is the binomial probability", () => {
