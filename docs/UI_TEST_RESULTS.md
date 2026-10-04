@@ -15,6 +15,21 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-05 — R270: unsaved edits on the swarm canvas
+
+The **R109 chat echo** swarm (Input → Output, no model call). An edit is " EDITED" typed after its
+name. "Blocked" is a `beforeunload` event dispatched in the page, which is what a closing tab sends.
+
+| Step | R269's build | R270 hot-deployed |
+| --- | --- | --- |
+| Open the swarm, touch nothing | **blocked**: closing would ask "Leave site?" | not blocked; no note |
+| Click the canvas, select a node, **Run** it ("run complete", output "hello R270") | — | still no note |
+| Edit, then **Fullscreen** | **the name came back as "R109 chat echo"**: reloaded, edit gone | edit, note and run output kept; and kept on leaving fullscreen |
+| Edit, **Gallery** | **left at once**, edit gone | "Discard the changes to "R109 chat echo"? … Leaving the canvas drops them." — **Cancel** kept it |
+| Edit, sidebar **Dashboard** | — | the same question; **Discard changes** left; reopened, the swarm was as saved |
+| Rename " R270", **Save** | — | "Swarm saved", note gone, the name kept on reload; then saved back to "R109 chat echo" |
+| Open the *Approval durability check* template | — | no note, not blocked |
+
 ## 2026-10-05 — R269: leaving the Workflows page with unsaved edits
 
 Workflows page, r184_badge open, " EDITED" typed after its name and not saved, then the sidebar's

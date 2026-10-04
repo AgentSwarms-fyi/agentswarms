@@ -47,6 +47,32 @@ export function serializeGraph(nodes: Node<SwarmNodeData>[], edges: Edge[]) {
   return { cleanNodes, cleanEdges };
 }
 
+/** Objects with their keys in a fixed order, so the order they were built in cannot matter. */
+function sortedKeys(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(sortedKeys);
+  if (v && typeof v === "object") {
+    const out: Record<string, unknown> = {};
+    for (const k of Object.keys(v as Record<string, unknown>).sort()) {
+      out[k] = sortedKeys((v as Record<string, unknown>)[k]);
+    }
+    return out;
+  }
+  return v;
+}
+
+/**
+ * The canvas as Save would write it: its name, and the graph without React
+ * Flow's UI state or a run's, keys in a fixed order. The same string means Save
+ * would change nothing, so the canvas can tell whether anything is unsaved.
+ * Position counts: arranging the canvas is work Save keeps. FOUND IN R270: the
+ * canvas marked itself unsaved on every render that set its nodes, the load
+ * among them, so closing a swarm nobody had touched asked "Leave site?".
+ */
+export function canvasForm(name: string, nodes: Node<SwarmNodeData>[], edges: Edge[]): string {
+  const { cleanNodes, cleanEdges } = serializeGraph(nodes, edges);
+  return JSON.stringify(sortedKeys({ name, nodes: cleanNodes, edges: cleanEdges }));
+}
+
 // Stable fingerprint of the serialized graph — used to skip snapshotting a Save
 // that didn't actually change anything.
 export function graphHash(nodes: Node<SwarmNodeData>[], edges: Edge[]): string {

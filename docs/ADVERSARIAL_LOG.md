@@ -109,6 +109,39 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-05 — R270: a swarm canvas that warned on everything, and lost edits to Fullscreen
+
+**Severity: moderate (lost work, and a warning trained to be ignored).** Queued by R269 as "Swarms guards
+the tab but not a link". Driving it found three faults, each confirmed on R269's build:
+
+- **The tab guard fired on every swarm.** The canvas set `dirtyRef` from an effect on `[nodes, edges,
+  swarmName]`, and the load itself sets the nodes — so a swarm opened and not touched was "unsaved", and
+  a `beforeunload` dispatched on it was blocked. Closing any canvas asked "Leave site?".
+- **Fullscreen reloaded the swarm.** It was a second render tree, so switching unmounted the canvas and
+  opened the swarm afresh from the database: "R109 chat echo EDITED" came back as "R109 chat echo",
+  without a word.
+- **Gallery and the sidebar left without asking**, the edit gone.
+
+Now `canvasForm` (in `swarmVersions.ts`, on the same `serializeGraph` the versions use) writes what Save
+would — the name, the graph without React Flow's UI state or a run's, position included, keys in a
+fixed order — and the canvas records it when a swarm or a template opens and when a save lands (what that
+save sent). **Unsaved changes** shows beside Save while the canvas differs. The router's `useBlocker`
+asks before a link or Gallery leaves, by the saved name, and gives a closing tab the browser's question,
+only while something is unsaved; the hand-written `beforeunload` is gone. Fullscreen is the same tree
+with a different frame. Two handlers in the page, `handleNewSwarm` and `handleLoadTemplate`, are never
+called; left as they are.
+
+Nine mutants caught against a verified-green baseline (the name left out of the form, key order counting,
+React Flow's or a run's state counting, a load or a save not recorded, the blocker on with nothing
+unsaved, no tab question, Fullscreen a second tree again), control survived.
+
+Driven on R270 hot-deployed, on the R109 chat echo fixture: opened, clicked, a node selected and the swarm
+**run** — no note, and `beforeunload` let through; an edit showed the note; Fullscreen and back kept the
+edit, the note and the run's output; Gallery asked, **Cancel** kept everything; the Dashboard link asked,
+**Discard changes** left, and the swarm reopened as saved. A rename **saved** ("Swarm saved", the note
+gone, the name kept on reload), and was saved back. A template opened with no note. Rows in
+[UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-05 — R269: unsaved workflow edits lost to a link or a closed tab
 
 **Severity: moderate (lost work), the half R268 queued.** With "Unsaved changes" showing, the sidebar's
