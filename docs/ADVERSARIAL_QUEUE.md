@@ -518,8 +518,11 @@ showing `\u2014` as text). Open, from the first rounds:
   one-cell array answer counts as not spilling; Excel's handling of `=SEQUENCE(1)` then `A1#` was
   not checked.
 - **TREND, GROWTH, XNPV and XIRR over a range with a blank** still count the blank as 0 (R170
-  fixed the rest of the formula.js functions). A list with no numbers is an error, not always
-  Excel's code: `=GEOMEAN(A2)` over a blank is #VALUE!, Excel's #NUM!.
+  fixed the rest of the formula.js functions). ~~A list with no numbers is an error, not always
+  Excel's code: `=GEOMEAN(A2)` over a blank is #VALUE!, Excel's #NUM!.~~ **R261**, and two of
+  them were numbers rather than codes: STDEV.S and VAR.S of no numbers were 0, HARMEAN(0) was 0.
+  Every code now the one the function's page states; HARMEAN of an empty list and DEVSQ's codes
+  left as they were, unconfirmed.
 - ~~**Deleting the last two sheets at once:** `sheetsDeleteTab` counts, then deletes, so two
   concurrent deletes can leave a workbook with none.~~ **Fixed in R246**, and it was worse than
   this row said: the workbook was left unopenable, because the editor's "Opening…" covers an

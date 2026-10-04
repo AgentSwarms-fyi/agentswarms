@@ -15,6 +15,15 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-04 — R261: zeros that were not answers
+
+Same fixture workbook, column C, before on R260's build and after on R261 hot-deployed:
+
+| Cell | Formula | Before | After | Excel's page |
+| --- | --- | --- | --- | --- |
+| C1 | `=HARMEAN(0)` | **0** | **#NUM!** | "If any data point ≤ 0, HARMEAN returns #NUM!" |
+| C2 | `=STDEV.S(E1:E3)` (three empty cells) | **0** | **#DIV/0!** | a sample spread needs two values |
+
 ## 2026-10-04 — R260: complex numbers in a workbook
 
 Same fixture workbook, column B, before on R259's build and after on R260 hot-deployed:

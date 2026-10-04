@@ -109,6 +109,32 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-04 — R261: a standard deviation of nothing, and it was 0
+
+**Severity: moderate — two wrong numbers, not just wrong codes.** The Sheets queue's row said "a list
+with no numbers is an error, not always Excel's code", naming GEOMEAN. A probe of twenty statistics
+over an empty range, a text cell and a single value found worse than codes:
+
+- **STDEV.S and VAR.S of no numbers were 0**, while one number gave #NUM!. Excel gives #DIV/0! for
+  both: a sample spread needs two values. A 0 standard deviation is read as "these never vary";
+  nobody questions it.
+- **HARMEAN(0) was 0.** Excel's page: any data point of 0 or less is #NUM!.
+
+And the codes: SKEW below three values and KURT below four were #NUM! (Excel: #DIV/0!, both pages say
+so in those words); STDEV.P and VAR.P of nothing #NUM! (#DIV/0!); LARGE, SMALL, PERCENTILE and
+QUARTILE of an empty list #VALUE! (each page: #NUM!); GEOMEAN of nothing #VALUE! (#NUM!); MODE of
+nothing #VALUE! (#N/A). VARP and VARA — VAR.P and VARA under their old and A-function names — were not
+registered at all.
+
+A guard per function, keyed by the count each needs and the code its page states, wraps the library
+before the old names are copied, so STDEV, VAR, MODE, PERCENTILE and QUARTILE get it too. Two codes
+were **left as they were**: HARMEAN of an empty list and DEVSQ's, which I could not confirm. The tests
+fail eight of eight on the old code; six mutants caught against a verified-green baseline, control
+survived.
+
+Driven in a workbook: `HARMEAN(0)` and `STDEV.S` over three empty cells both read **0** before, and
+#NUM! and #DIV/0! after. Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-04 — R260: complex numbers, right sums written the wrong way
 
 **Severity: low-to-moderate (Excel parity).** The third batch from the Sheets functions row. Probed

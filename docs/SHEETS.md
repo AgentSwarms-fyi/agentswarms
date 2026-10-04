@@ -85,7 +85,11 @@ Type `=` and a formula, as in Excel. About 240 functions are available:
   ones; FORECAST(.LINEAR), TREND, GROWTH, FREQUENCY. Also AVERAGEA, MAXA and MINA (from a range,
   text counts as 0 and TRUE as 1), TRIMMEAN, QUARTILE.EXC, PERCENTRANK and its .INC and .EXC forms
   (truncated to three digits, as Excel does: 5 of 9 is 0.555), BINOM.DIST, and the T.DIST family
-  (T.DIST, T.DIST.RT, T.DIST.2T, TDIST).
+  (T.DIST, T.DIST.RT, T.DIST.2T, TDIST). VARP and VARA under their old names.
+  - A statistic with too few numbers answers Excel's error, never a number: a sample STDEV or VAR
+    needs two (#DIV/0!), SKEW three and KURT four (#DIV/0!), a population STDEV or VAR one
+    (#DIV/0!); LARGE, SMALL, PERCENTILE and QUARTILE of an empty list are #NUM!, GEOMEAN of nothing
+    #NUM!, MODE #N/A; HARMEAN of any value of 0 or less is #NUM!.
 - **Database functions:** DSUM, DAVERAGE, DCOUNT, DCOUNTA, DMAX, DMIN, DPRODUCT, DGET, DSTDEV,
   DSTDEVP, DVAR and DVARP, over a table whose first row names its columns, with a criteria range
   read as Excel reads one: its first row names fields (in any case), each row under it is one

@@ -337,6 +337,7 @@ const LIBRARY_ARGS: Record<string, LibraryArgs> = {
   "STDEV.P": EVERY_LIST,
   STDEVP: EVERY_LIST,
   STDEVA: { lists: fromIndex(0), countAll: true },
+  VARA: { lists: fromIndex(0), countAll: true },
   "VAR.S": EVERY_LIST,
   "VAR.P": EVERY_LIST,
   GEOMEAN: EVERY_LIST,
@@ -2153,6 +2154,7 @@ export const LIBRARY_NAMES = [
   "BITLSHIFT",
   "BITRSHIFT",
   "COMPLEX",
+  "VARA",
 ];
 for (const name of LIBRARY_NAMES) {
   if (F[name]) continue;
@@ -2167,6 +2169,65 @@ for (const name of LIBRARY_NAMES) {
  * =STDEV(A1:A9) was #NAME? on a grid while the lakehouse computed it over a
  * table sheet. A listed name that does not register now fails a test.
  */
+/**
+ * How many numbers a statistic needs, and the error Excel gives below that.
+ *
+ * FOUND IN R261. formula.js answered these with a NUMBER where Excel refuses:
+ * STDEV.S and VAR.S of no numbers were 0 (one number gave #NUM!), and
+ * HARMEAN(0) was 0. And it answered the wrong error for the rest: SKEW below
+ * three values and KURT below four were #NUM!, STDEV.P and VAR.P of nothing
+ * #NUM!, LARGE, SMALL, PERCENTILE and QUARTILE of an empty list #VALUE!,
+ * GEOMEAN of one #VALUE!, MODE of one #VALUE!. Each code below is the one
+ * the function's own page in Excel's documentation states.
+ */
+const TOO_FEW: Record<string, [number, ErrorCode]> = {
+  "STDEV.S": [2, "#DIV/0!"],
+  "VAR.S": [2, "#DIV/0!"],
+  STDEVA: [2, "#DIV/0!"],
+  VARA: [2, "#DIV/0!"],
+  "STDEV.P": [1, "#DIV/0!"],
+  "VAR.P": [1, "#DIV/0!"],
+  STDEVP: [1, "#DIV/0!"],
+  SKEW: [3, "#DIV/0!"],
+  KURT: [4, "#DIV/0!"],
+  GEOMEAN: [1, "#NUM!"],
+  "MODE.SNGL": [1, "#N/A"],
+  LARGE: [1, "#NUM!"],
+  SMALL: [1, "#NUM!"],
+  "PERCENTILE.INC": [1, "#NUM!"],
+  "PERCENTILE.EXC": [1, "#NUM!"],
+  "QUARTILE.INC": [1, "#NUM!"],
+  "QUARTILE.EXC": [1, "#NUM!"],
+};
+for (const [name, [min, code]] of Object.entries(TOO_FEW)) {
+  const inner = F[name];
+  const how = LIBRARY_ARGS[name];
+  if (!inner || !how?.lists) continue;
+  F[name] = (args, ctx) => {
+    const lists = how.lists!(args.length)
+      .map((i) => args[i])
+      .filter((a): a is Arg => !!a);
+    const xs = how.countAll ? collectNumbersA(lists) : collectNumbers(lists);
+    if (isError(xs)) return xs;
+    if (xs.length < min) {
+      return err(code, min === 1 ? "There are no numbers" : `It needs at least ${min} numbers`);
+    }
+    return inner(args, ctx);
+  };
+}
+/** HARMEAN: "If any data point is 0 or less, HARMEAN returns #NUM!" — formula.js said 0. */
+{
+  const inner = F.HARMEAN;
+  if (inner) {
+    F.HARMEAN = (args, ctx) => {
+      const xs = collectNumbers(args);
+      if (isError(xs)) return xs;
+      if (xs.some((x) => x <= 0)) return err("#NUM!", "Every value must be above 0");
+      return inner(args, ctx);
+    };
+  }
+}
+
 const SAME_AS: Record<string, string> = {
   STDEV: "STDEV.S",
   VAR: "VAR.S",
@@ -2176,6 +2237,7 @@ const SAME_AS: Record<string, string> = {
   MODE: "MODE.SNGL",
   "FORECAST.LINEAR": "FORECAST",
   PERCENTRANK: "PERCENTRANK.INC",
+  VARP: "VAR.P",
   BINOMDIST: "BINOM.DIST",
 };
 for (const [name, now] of Object.entries(SAME_AS)) if (!F[name] && F[now]) F[name] = F[now];
