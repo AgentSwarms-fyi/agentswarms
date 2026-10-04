@@ -18,11 +18,14 @@ export type ShiftChoice = "right" | "down" | "left" | "up" | "rows" | "cols";
 export function ShiftCellsDialog({
   mode,
   range,
+  initial,
   onCancel,
   onApply,
 }: {
   mode: "insert" | "delete";
   range: string;
+  /** The choice it starts on: defaultShift's, from the selection's shape. */
+  initial: ShiftChoice;
   onCancel: () => void;
   onApply: (c: ShiftChoice) => void;
 }) {
@@ -40,7 +43,7 @@ export function ShiftCellsDialog({
           { c: "rows", label: "Entire row" },
           { c: "cols", label: "Entire column" },
         ];
-  const [choice, setChoice] = useState<ShiftChoice>(options[mode === "insert" ? 1 : 1].c);
+  const [choice, setChoice] = useState<ShiftChoice>(initial);
   return (
     <Dialog open onOpenChange={(o) => !o && onCancel()}>
       <DialogContent

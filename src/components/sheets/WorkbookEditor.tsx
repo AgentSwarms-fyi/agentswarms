@@ -112,6 +112,7 @@ import { useSheetRules } from "./useSheetRules";
 import { ShiftCellsDialog, type ShiftChoice } from "./ShiftCellsDialog";
 import {
   adjustFormulaForShift,
+  defaultShift,
   shiftCellsGrid,
   shiftProblem,
   type ShiftDir,
@@ -2492,6 +2493,7 @@ export function WorkbookEditor({
         <ShiftCellsDialog
           mode={shiftAsk}
           range={describeRange(range)}
+          initial={defaultShift(shiftAsk, range)}
           onCancel={() => {
             setShiftAsk(null);
             afterDialog();

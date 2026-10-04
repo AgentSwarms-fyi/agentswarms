@@ -554,7 +554,8 @@ prompt in the app opened on Cancel). Open from that round:
 - **An in-workbook link does not follow a sheet rename** (`#Sheet1!B6` after
   Sheet1 became Summary). Excel does not either, but a formula does; worth a
   look once links are common.
-- **Frozen panes** are stored (`frozenRows`/`frozenCols`) but not drawn yet.
+- ~~**Frozen panes** are stored (`frozenRows`/`frozenCols`) but not drawn yet.~~ Stale: drawn since
+  R151 (`4c3492a2`, "freeze panes, and charts under the headers"); struck in R267.
 - **Text that runs on crosses a right border**: the border is drawn under the
   overflowing text rather than over it.
 
@@ -568,7 +569,8 @@ download fail). Open from Excel files:
 - **Default font metrics**: an imported sheet's widths were set for Calibri
   11; the grid draws unstyled cells in the app font, a little wider, so a
   label that fits in Excel can clip here.
-- **Defined names** are kept at Excel's value, not computed (no name manager yet).
+- ~~**Defined names** are kept at Excel's value, not computed (no name manager yet).~~ Stale: computed
+  since R148, with the Name box and Data → Names; struck in R267.
 
 Closed with rules (conditional formatting, validation, filter): R119 (`-$350.00`
 typed stayed text), R120 (a session refresh reloaded the workbook and threw
@@ -615,8 +617,10 @@ Open from charts:
 
 Open from insert/delete cells and version history:
 
-- **Insert cells opens on Shift cells down** whatever the selection; Excel
-  picks right for a tall selection and down for a wide one.
+- ~~**Insert cells opens on Shift cells down** whatever the selection; Excel
+  picks right for a tall selection and down for a wide one.~~ **Fixed in R267**, Delete cells too.
+  Microsoft's Range.Insert page says Excel "decides based on the shape of the range"; which way a
+  tall one goes (sideways) is inferred, not stated there.
 - **A version is looked at by opening a copy.** There is no read-only view of
   a version in place, and no comparison of two versions cell by cell.
 - **A restore replaces the sheets with new ids.** Anything that remembers a

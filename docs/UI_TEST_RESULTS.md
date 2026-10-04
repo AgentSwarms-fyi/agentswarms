@@ -15,6 +15,18 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-04 — R267: which way Insert cells starts
+
+Fixture workbook **R246 last sheet race** (`61e4fe80…`). A selection, then the cell menu's
+**Insert cells…**; the checked option read from the dialog.
+
+| Selection | R266's build | R267 hot-deployed |
+| --- | --- | --- |
+| B8:B12 (tall) | **Shift cells down** | **Shift cells right** — and Enter moved a marker typed in C10 to **D10** |
+| B14:D14 (wide) | — | Shift cells down (cancelled) |
+
+The marker stays in D10 in the fixture, beside the five inserted blank cells in B8:B12.
+
 ## 2026-10-04 — R266: pointing at a spilled array
 
 Fixture workbook **R246 last sheet race** (`61e4fe80…`). G1 holds `=SEQUENCE(n)`; each formula in

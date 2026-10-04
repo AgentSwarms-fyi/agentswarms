@@ -300,7 +300,9 @@ the workbook.
 It is one Ctrl+Z. After a cut it is refused, as in Excel: what was cut moves whole.
 
 A cell's menu also has **Insert cells…** and **Delete cells…**, as Excel's: shift the neighbouring
-cells right or down (insert) or left or up (delete), or take whole rows or columns. Only the cells
+cells right or down (insert) or left or up (delete), or take whole rows or columns. The dialog starts
+on the way the selection's shape suggests: sideways for a selection taller than it is wide (B8:B12
+shifts right), up or down otherwise, one cell included. Only the cells
 in the block's rows (or columns) move. Formulas that pointed at a moved cell follow it, and one
 that pointed into deleted cells shows `#REF!`. A range follows when it lies wholly in the rows (or
 columns) that move, so `=SUM(A2:E2)` grows with a cell inserted into row 2, while `=SUM(C1:C9)`

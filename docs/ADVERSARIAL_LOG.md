@@ -109,6 +109,31 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-04 — R267: Insert cells that always pushed the column down, and two rows already done
+
+**Severity: low (a default that does the larger thing).** Insert cells… and Delete cells… always
+started on Shift cells down (or up), whatever was selected, so a column of five cells inserted with
+Enter pushed everything below it in those columns down, where a tall selection is a block to make
+room for sideways. Microsoft's page for Range.Insert says that without a direction Excel "decides
+based on the shape of the range"; the dialog now does too, through `defaultShift` beside the shift
+itself: sideways (right, or left on delete) for a selection taller than it is wide, up or down
+otherwise, one cell and a square included. Which way a tall selection goes is not stated on that
+page; sideways is the reading the queue row recorded and the one that matches a single cell
+starting on down. The dialog's own initial state read `options[mode === "insert" ? 1 : 1]` — a
+condition with no effect — and now takes the choice it is given.
+
+Five mutants caught against a verified-green baseline (a square counted as tall, insert always down,
+delete given insert's choices, the dialog ignoring what it is given, the editor giving the old fixed
+choice), control survived.
+
+**And two queue rows were already done.** "Frozen panes are stored but not drawn yet" has been wrong
+since R151 drew them, and "Defined names are kept at Excel's value, not computed (no name manager
+yet)" since R148 computed them and Data → Names listed them. Struck, with the rounds that closed them.
+
+Driven in the fixture workbook: B8:B12 selected, Insert cells… started on **Shift cells down** on
+R266's build and on **Shift cells right** on R267 hot-deployed; Enter then moved a marker from C10 to
+D10. A wide B14:D14 still started on Shift cells down. Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-04 — R266: a pointed spill fixed to the size it had that day
 
 **Severity: low (a formula that silently stops following its data).** While typing a formula,
