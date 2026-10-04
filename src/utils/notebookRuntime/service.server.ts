@@ -452,7 +452,7 @@ export async function reapSessions(): Promise<number> {
   const nowIso = new Date().toISOString();
   const idleCutoff = new Date(Date.now() - settings.idleTtlMinutes * 60_000).toISOString();
 
-  const [{ data: idle }, { data: expired }] = await Promise.all([
+  const [{ data: idle, error: idleErr }, { data: expired, error: expiredErr }] = await Promise.all([
     supabaseAdmin
       .from("notebook_runtime_sessions")
       .select("*")
@@ -466,6 +466,9 @@ export async function reapSessions(): Promise<number> {
       .lt("expires_at", nowIso),
   ]);
 
+  // A list that could not be read reaps nothing from it; the next pass will.
+  if (idleErr) console.warn(`[runtime] idle kernels not reaped: ${idleErr.message}`);
+  if (expiredErr) console.warn(`[runtime] expired sessions not reaped: ${expiredErr.message}`);
   const byId = new Map<string, SessionRow>();
   for (const r of [...(idle ?? []), ...(expired ?? [])]) byId.set(r.id, r);
   for (const r of await idleServiceSessions()) byId.set(r.id, r);
@@ -526,18 +529,30 @@ async function sweepLakeStaging(): Promise<void> {
  * reuse the single cutoff the notebook query above uses.
  */
 async function idleServiceSessions(): Promise<SessionRow[]> {
-  const { data } = await supabaseAdmin
+  const { data, error } = await supabaseAdmin
     .from("notebook_runtime_sessions")
     .select("*")
     .eq("kind", "service")
     .in("status", [...LIVE]);
+  if (error) {
+    console.warn(`[runtime] idle MCP servers not reaped: sessions unreadable: ${error.message}`);
+    return [];
+  }
   const rows = (data ?? []).filter((r) => r.mcp_app_id);
   if (rows.length === 0) return [];
 
-  const { data: apps } = await supabaseAdmin
+  const { data: apps, error: appsErr } = await supabaseAdmin
     .from("mcp_apps")
     .select("id, keep_warm, idle_ttl_minutes")
     .in("id", Array.from(new Set(rows.map((r) => r.mcp_app_id as string))));
+  // FOUND IN R249. "No app row means the app was deleted" is the rule below,
+  // and a failed read of mcp_apps made it true of EVERY app at once: each
+  // published MCP server was taken for an orphan and stopped, keep_warm ones
+  // included. Unreadable is not deleted; this pass reaps none of them.
+  if (appsErr) {
+    console.warn(`[runtime] idle MCP servers not reaped: apps unreadable: ${appsErr.message}`);
+    return [];
+  }
   const byApp = new Map((apps ?? []).map((a) => [a.id, a]));
 
   const now = Date.now();

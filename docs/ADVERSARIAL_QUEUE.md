@@ -460,12 +460,14 @@ least twice, not a hypothetical.
        deactivation left the account active), "not a user" for a failed member lookup, 401 for an
        unreadable token table. All nine are a 503 now, which IdPs retry; a ratchet holds the file
        at zero dropped read errors.
-     - **Budget caps** (`budgetGuard.server.ts`) and **notebook runtime limits**
-       (`notebookRuntime/config.server.ts`) fall back to "no cap" or the permissive defaults.
+     - **Budget caps** (`budgetGuard.server.ts`) fall back to "no cap".
+     - **R249: notebook runtime limits.** Fixed, and worse than limits: a failed settings read
+       turned the grant check off, so with `NOTEBOOK_RUNTIME_ENABLED` set anyone could start a
+       kernel. Fixed together with the reaper row below, which was the same statement.
      - **ML:** an unpromoted version answering production (`ml/api.server.ts` `pickVersion`), a
        scheduled retrain auto-promoting (`ml/schedule.server.ts` ~181).
-     - **Destructive on a blip:** the MCP reaper stops every published server
-       (`notebookRuntime/service.server.ts` ~501); the audit purge uses default retention
+     - **Destructive on a blip:** ~~the MCP reaper stops every published server~~ (R249: a
+       failed `mcp_apps` read made every app look deleted; it reaps none now); the audit purge uses default retention
        (`audit.server.ts` ~137); a live ETL run is marked failed (`etl/service.server.ts`
        ~1412); workflow steps fail and re-run (`workflows/adapters.server.ts` ~442).
      - **Writes on a blip:** saved secrets wiped on edit (`integrations.functions.ts` ~411,

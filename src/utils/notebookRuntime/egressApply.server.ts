@@ -174,11 +174,22 @@ export async function ensurePlatformEgress(): Promise<EgressApplyResult> {
   }
   let stored: string[] = [];
   try {
-    const { data } = await supabaseAdmin
+    const { data, error } = await supabaseAdmin
       .from("notebook_runtime_settings")
       .select("egress_allowlist")
       .eq("id", true)
       .maybeSingle();
+    // FOUND IN R249. supabase-js returns a failed read rather than throwing
+    // it, so the catch below never saw one: the list came back empty and the
+    // proxy file was REWRITTEN without the operator's hosts, cutting running
+    // notebooks off from them until the next save. Only an absent row means
+    // "the platform hosts alone"; an unreadable one leaves the file as it is.
+    if (error) {
+      return {
+        applied: false,
+        reason: `The egress allowlist was left as it is: the saved list could not be read (${error.message}).`,
+      };
+    }
     stored = (data?.egress_allowlist ?? []) as string[];
   } catch {
     /* no settings row yet: the platform hosts alone */

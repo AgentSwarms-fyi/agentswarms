@@ -346,11 +346,20 @@ function envBool(name: string): boolean | undefined {
  * when a signing secret is also configured (so tokens can be minted).
  */
 export async function getRuntimeSettings(): Promise<RuntimeSettings> {
-  const { data } = await supabaseAdmin
+  const { data, error } = await supabaseAdmin
     .from("notebook_runtime_settings")
     .select("*")
     .eq("id", true)
     .maybeSingle();
+  // FOUND IN R249. Every field below falls back to a default when the row is
+  // absent, which is right for a fresh install and wrong for a read that
+  // failed: `require_grant ?? false` opened server kernels to EVERY user on a
+  // deployment that requires a grant (whenever NOTEBOOK_RUNTIME_ENABLED keeps
+  // the runtime on), and the session limits and idle TTL fell back to the
+  // defaults - which the idle reaper then applied to live kernels. A settings
+  // row that could not be read is not a missing one. Every caller already
+  // handles a throw: session start refuses, and the reaper skips its pass.
+  if (error) throw new Error(`Could not read the developer runtime settings: ${error.message}`);
 
   const envEnabled = envBool("NOTEBOOK_RUNTIME_ENABLED");
   const backend = (process.env.NOTEBOOK_RUNTIME_BACKEND ||

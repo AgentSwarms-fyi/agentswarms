@@ -271,6 +271,13 @@ Some operator defaults are also settable via env: `NOTEBOOK_RUNTIME_ENABLED`, `N
 
 **Env takes precedence over the settings row, not the other way round** (`process.env.NOTEBOOK_RUNTIME_BACKEND || data?.backend || "docker"`). An operator who sets the env var and then edits the admin UI will see the edit ignored, so pick one place per value.
 
+**An unreadable settings row is not a missing one.** The defaults above are
+for a fresh install with no row. If the row exists but cannot be read, the
+runtime refuses to start sessions and the reaper skips its pass, rather than
+falling back: before R249 a failed read turned `require_grant` off (so, with
+`NOTEBOOK_RUNTIME_ENABLED` keeping the runtime on, any user could start a
+kernel) and put the default idle TTL in front of the reaper.
+
 `egress_allowlist` and the session/CPU/memory limits are **database-only**: set those in **Admin → Developer runtime**. In particular there is no `NOTEBOOK_EGRESS_ALLOWLIST` env var. Several other columns on `notebook_runtime_settings` _do_ take an environment fallback — the lakehouse, ML, gateway and document-vision knobs — as the resolution table further down sets out. (`NOTEBOOK_EGRESS_ALLOWLIST_PATH` is a different thing: the path the allowlist is written to _inside_ the egress sidecar.)
 
 `cell_timeout_seconds` is the one exception, and it is easy to trip over: the app reads it from the settings row, but the **websocket gateway enforces it from its own `NOTEBOOK_CELL_TIMEOUT_SECONDS`** (`services/notebook-gateway`, default `120`). They are separate values — change one in the admin UI and the gateway keeps using its own until you set the env var too.
@@ -352,7 +359,7 @@ Kernel containers are **Linux containers** (the frameworks are Linux-first). On 
 ## 10. Scaling & lifecycle
 
 - **Cold start**: container ~1–3 s with a warmed base image; keep a small **warm pool** of idle kernels (optional) for instant attach.
-- **Reaper**: a cron (reuse the existing scheduled-job mechanism) sweeps `notebook_runtime_sessions` for idle/expired sessions and calls `orchestrator.stop`.
+- **Reaper**: a cron (reuse the existing scheduled-job mechanism) sweeps `notebook_runtime_sessions` for idle/expired sessions and calls `orchestrator.stop`. A list it cannot read reaps nothing from that list on that pass. In particular an MCP server with no `mcp_apps` row is treated as orphaned and stopped, so an `mcp_apps` read that fails stops **none** of them (R249: it used to stop every one, `keep_warm` included).
 - **Backpressure**: per-user and per-instance session caps; when at capacity, `start` returns a clear "runtime at capacity" error.
 - **Crash recovery**: orphaned containers (app restarted) are reconciled by matching `container_ref` labels on startup and reaping unknowns.
 

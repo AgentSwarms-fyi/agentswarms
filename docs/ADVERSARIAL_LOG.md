@@ -109,6 +109,44 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-04 — R249: kernels opened to everyone, and every MCP server stopped, on one failed read
+
+**Severity: high.** Two sweep-7 rows turned out to be one statement in one module. "Notebook runtime
+limits fall back to the permissive defaults" and "the MCP reaper stops every published server" are
+both a read of runtime state that failed being taken as a fact about that state.
+
+- **`getRuntimeSettings`** falls back field by field when the row is absent, which is right for a
+  fresh install. A read that failed looked the same. `require_grant ?? false` then switched off the
+  grant check, and wherever `NOTEBOOK_RUNTIME_ENABLED` keeps the runtime on (the documented
+  force-enable path), `canUseRuntime` answered **true for every user**: anyone could start a server
+  kernel on a deployment that requires a grant. The idle TTL fell back to 30 minutes too, and the
+  reaper applied it to live kernels an operator had given 240.
+- **`idleServiceSessions`** has the rule "no `mcp_apps` row means the app was deleted out from under
+  its container: reap it". A failed `mcp_apps` read made that true of **every** app at once, and each
+  published MCP server was stopped, `keep_warm` ones included.
+- **`ensurePlatformEgress`** wrapped its read in a `catch` meant for "no settings row yet", but
+  supabase-js returns a failed read rather than throwing it, so the catch never saw one. The list
+  came back empty and the proxy file was **rewritten** without the operator's hosts, cutting running
+  notebooks off from them until the next save.
+
+`NOTEBOOK_RUNTIME_ENABLED` is not set on this deployment, so here a failed read disabled the runtime
+rather than opening it. The grant bypass is real for the deployments that use the documented switch.
+
+Fixed at the reads: `getRuntimeSettings` throws (every caller already handles it: session start
+refuses, the reaper's two callers catch), a failed `mcp_apps` read reaps none, and egress leaves the
+file alone. A fresh install with no row still gets every default.
+
+The reaper's three *session* reads were already safe, by accident: a failed read is `data: null`,
+which reads as an empty list, which reaps nothing. They keep their errors now and say so in the log,
+but that is a warning, not a fix — and the mutation run agrees. Five mutants caught against a
+verified-green baseline, control survived, and one survived as **equivalent**: deleting the
+`return []` after a failed sessions read changes nothing, because the empty list it falls through to
+returns `[]` on the next line. That was confirmed by applying it and typechecking, not argued.
+
+Not proved in the UI: each needs a server-side read to fail. The tests drive `canUseRuntime` with
+the force-enable variable set against a failing read, and pin the reaper's and the egress file's
+order of checks.
+
 ### 2026-10-04 — R248: a deprovisioning that removed no one and answered 200
 
 **Severity: high.** From the sweep-7 queue: "SCIM group deprovisioning removes no one when the
