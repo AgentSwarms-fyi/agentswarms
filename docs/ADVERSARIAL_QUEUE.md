@@ -1274,9 +1274,12 @@ over the lakehouse). Open from that round, the rest of Row Zero's connected tabl
   "cancelled" belongs to the run, which has its own map. R179 closed the
   rest: Recent runs cancels a parked run on the server, removing its
   checkpoint and closing its pending approval; resume refuses
-  `cancelled`; and a failed load of `swarm_runs` reads as one. Still
+  `cancelled`; and a failed load of `swarm_runs` reads as one. ~~Still
   open: a run cancelled after twelve hours parked shows `12h 19m` as its
-  duration on Recent runs, while Observability shows `0ms`.
+  duration on Recent runs, while Observability shows `0ms`.~~ R257: both
+  were true and only one was a duration — the run page labelled the sum
+  of its steps' latencies "Duration". It shows **Elapsed** and **Step
+  time** now, and the list's column says Step time.
 - Ask what a status word is FOR before trusting it (R90): the swarm resume
   gated on `status === "suspended"`, a word written by a stamp that could
   fail, when the thing a resume needs is the checkpoint. Where a guard and

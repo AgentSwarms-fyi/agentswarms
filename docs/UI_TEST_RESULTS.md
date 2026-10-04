@@ -15,6 +15,18 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-04 — R257: a twelve-hour run with "Duration: 0ms"
+
+Driven on the R179 fixture run `c4ff22a3` ("Approval durability check (schedule)", parked on an
+approval and cancelled), before on image `021b027c5acc` and after on R257 hot-deployed.
+
+| Where | Before | After |
+| --- | --- | --- |
+| Recent runs | "Cancelled · started 4d ago · **12h 19m**" | unchanged — that figure was right |
+| The run's Observability page | "STEPS: 0 · ERRORS: 0 · **DURATION: 0ms**" | "STEPS: 0 · ERRORS: 0 · **ELAPSED: 12h 19m** · **STEP TIME: 0ms**" |
+| The Observability run list | column "Latency": `0ms` | column "**Step time**": `0ms`, its title saying it adds up the steps' working time |
+| A run that worked (`42c935fe`, 3 steps) | — | "ELAPSED: 15s · STEP TIME: 13746ms" |
+
 ## 2026-10-04 — Smoke of the real image after R245 to R255
 
 Image `021b027c5acc`, built from `13d720fe` with `docker compose build agentswarms` and started with

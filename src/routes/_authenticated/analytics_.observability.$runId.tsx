@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { scanRows } from "@/lib/cursorScan";
 import { UNKNOWN_COUNT } from "@/lib/listClaim";
 import { runStepsCaveat } from "@/lib/traceWindow";
+import { formatRunDuration, runElapsedMs } from "@/lib/swarmRunStatus";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -175,6 +176,13 @@ function TraceDetail() {
     : runStepsCaveat({ fetched: steps.length, total: run.step_count });
 
   const startedAt = new Date(run.started_at).getTime();
+  const elapsedMs = runElapsedMs(run.started_at, run.finished_at);
+  const elapsedLabel =
+    elapsedMs !== null
+      ? formatRunDuration(elapsedMs)
+      : run.status === "running"
+        ? "still running"
+        : "not finished";
   const totalDuration = Math.max(
     1,
     run.total_latency_ms || (run.finished_at ? new Date(run.finished_at).getTime() - startedAt : 1),
@@ -215,10 +223,13 @@ function TraceDetail() {
         </p>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-6 gap-2">
+      <div className="grid grid-cols-2 md:grid-cols-7 gap-2">
         <Metric label="Steps" value={String(run.step_count)} />
         <Metric label="Errors" value={String(run.error_count)} />
-        <Metric label="Duration" value={`${run.total_latency_ms}ms`} />
+        {/* R257: start to finish, and the time its steps spent working, are
+            two numbers. This used to show only the second, as "Duration". */}
+        <Metric label="Elapsed" value={elapsedLabel} />
+        <Metric label="Step time" value={`${run.total_latency_ms}ms`} />
         <Metric label="Tokens in" value={run.total_tokens_in.toLocaleString()} />
         <Metric label="Tokens out" value={run.total_tokens_out.toLocaleString()} />
         <Metric label="Cost" value={formatUsd(run.total_cost_usd)} />

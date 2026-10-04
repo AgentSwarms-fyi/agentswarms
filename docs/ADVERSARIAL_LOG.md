@@ -109,6 +109,25 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-04 — R257: "Duration 0ms" for a run that lasted twelve hours
+
+**Severity: low, but the two pages contradicted each other about the same run.** Open since R179: a
+run parked twelve hours on an approval and then cancelled read **"12h 19m"** on Recent runs and
+**"Duration: 0ms"** on its own Observability page. Both numbers were true. Only one was a duration:
+the run page put `total_latency_ms` — the sum of its steps' latencies — under the label "Duration",
+and the run list headed the same figure "Latency". A run that waits on a person can take hours and
+work for none of them, so those are two numbers, answering different questions: how long it took,
+and how long it worked.
+
+The run page now shows **Elapsed** (start to finish, "not finished" or "still running" otherwise)
+beside **Step time**, and the list's column is **Step time**, with a title saying what it adds up.
+Recent runs keeps its figure, which was right. The tests fail six for six on the old code.
+
+Driven on the fixture run `c4ff22a3` ("Approval durability check (schedule)", cancelled in R179):
+before, "DURATION: 0ms" on the run page beside "12h 19m" on Recent runs; after, "ELAPSED: 12h 19m ·
+STEP TIME: 0ms", and a run that worked reads "ELAPSED: 15s · STEP TIME: 13746ms". Rows in
+[UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-04 — R256: "MCP server not found", about a server that was there
 
 **Severity: low.** The last unread name in the sweep-6 notes. `ownedApp` starts twelve MCP Builder
