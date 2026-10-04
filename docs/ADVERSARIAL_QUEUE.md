@@ -471,8 +471,8 @@ least twice, not a hypothetical.
        production version: `pickVersion` fell through to the newest unpromoted version, and the
        retrain judge compared a candidate with nothing and promoted it.
      - **Destructive on a blip:** ~~the MCP reaper stops every published server~~ (R249: a
-       failed `mcp_apps` read made every app look deleted; it reaps none now); the audit purge uses default retention
-       (`audit.server.ts` ~137); a live ETL run is marked failed (`etl/service.server.ts`
+       failed `mcp_apps` read made every app look deleted; it reaps none now); ~~the audit purge uses default retention~~
+       (R252: a failed retention read deletes nothing now); a live ETL run is marked failed (`etl/service.server.ts`
        ~1412); workflow steps fail and re-run (`workflows/adapters.server.ts` ~442).
      - **Writes on a blip:** saved secrets wiped on edit (`integrations.functions.ts` ~411,
        `gitExport.functions.ts` ~102); ETL cursors re-read from the start

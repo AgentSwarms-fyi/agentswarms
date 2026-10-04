@@ -109,6 +109,25 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-04 — R252: years of audit trail deleted on a failed settings read
+
+**Severity: high, and irreversible.** From the sweep-7 "destructive on a blip" row: "the audit purge
+uses default retention". `purgeAuditEvents` read `iam_settings` and dropped the error, so a failed
+read was "no settings": both windows fell back to their defaults, 365 days for ordinary events and
+the 183-day provenance floor. An operator who keeps seven years of audit trail for a regulator, or
+ten years of AI-Act documentation, had every row past those defaults deleted by one blip.
+
+The purge does archive rows to stdout as NDJSON before deleting them, but that only helps where
+something is shipping stdout; PROVENANCE.md's own promise is that the platform will not "destroy
+evidence as a side effect of a setting that never mentioned it", and this was exactly that.
+
+A purge whose window could not be read now deletes nothing and waits for the next interval. A
+deployment that has never set the windows still gets the defaults. Three tests drive the real
+function: the operator's seven-year window, a failed read (no deletes, where there were two), and no
+row at all.
+
+Not proved in the UI: it needs a server-side read to fail, and the purge runs on its own interval.
+
 ### 2026-10-04 — R251: production traffic answered by a version nobody promoted
 
 **Severity: high.** The sweep-7 ML row named two places — "an unpromoted version answering

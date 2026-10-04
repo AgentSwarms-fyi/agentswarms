@@ -216,6 +216,9 @@ those obligations have applied since 2 August 2026. It is a default, not a
 lock — lower it if you are outside that scope, raise it towards Article 18's
 ten-year documentation standard if you need to. What the platform will not do
 is destroy evidence as a side effect of a setting that never mentioned it.
+Nor on a guess: if the retention settings cannot be read, that purge pass
+deletes nothing and the next one tries again (R252). Before that, a failed read
+fell back to 365 and 183 days whatever an operator had set.
 
 The floor never _shortens_ retention. Where the ordinary window is longer, the
 longer window wins — the cutoffs are compared as timestamps and the earlier one
