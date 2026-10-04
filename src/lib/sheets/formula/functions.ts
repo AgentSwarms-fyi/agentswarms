@@ -21,6 +21,7 @@ import {
   isMatrix,
   jsDateToSerial,
   nowSerial,
+  numberText,
   parseNumberText,
   scalarOf,
   serialParts,
@@ -2424,6 +2425,110 @@ for (const [name, sample, root] of [
     if (isError(xs)) return xs;
     const v = variance(xs, sample);
     return isError(v) ? v : root ? Math.sqrt(v) : v;
+  };
+}
+
+// ── Complex numbers (IMSUM, IMPRODUCT, IMDIV…) ─────────────────────────────
+//
+// FOUND IN R260. formula.js has these and gets the arithmetic right where it is
+// exact, but not Excel's text: given "1+2j" and "3+4j" its IMSUM and IMPRODUCT
+// answered with an "i" ("-5+10i" where Excel writes "-5+10j"), a mix of "i"
+// and "j" was added up instead of being #VALUE!, and a result was written to
+// sixteen or seventeen digits ("0.3333333333333333", "-45.99999999999999+
+// 9.000000000000007i") where Excel writes any number as text to fifteen
+// significant digits ("0.333333333333333", "-46+9.00000000000001i"). So the
+// library computes, and this writes the answer the way Excel does.
+//
+// Not registered: IMSQRT, whose formula.js answer for -4 has the wrong sign
+// (-2i, where the principal root is 2i), and the transcendental ones (IMLN,
+// IMEXP, IMSIN…), not yet checked.
+
+type Suffix = "i" | "j";
+
+/** The suffix a complex argument uses, if any; null for a plain number. */
+function suffixOf(v: Scalar): Suffix | null {
+  if (typeof v !== "string") return null;
+  const t = v.trim();
+  const last = t[t.length - 1];
+  return last === "i" || last === "j" ? last : null;
+}
+
+/** Excel's complex text, read back: "3+4i", "-i", "2j", "5". */
+function parseComplexText(text: string): { re: number; im: number } | null {
+  const t = text.trim();
+  if (!t) return null;
+  const last = t[t.length - 1];
+  if (last !== "i" && last !== "j") {
+    const n = Number(t);
+    return Number.isFinite(n) ? { re: n, im: 0 } : null;
+  }
+  const body = t.slice(0, -1);
+  // The sign that starts the imaginary part: the last + or - that is neither
+  // the first character nor an exponent's.
+  let k = -1;
+  for (let i = body.length - 1; i > 0; i--) {
+    const ch = body[i];
+    if ((ch === "+" || ch === "-") && body[i - 1] !== "e" && body[i - 1] !== "E") {
+      k = i;
+      break;
+    }
+  }
+  const reText = k > 0 ? body.slice(0, k) : "";
+  let imText = k > 0 ? body.slice(k) : body;
+  if (imText === "" || imText === "+") imText = "1";
+  else if (imText === "-") imText = "-1";
+  const re = reText === "" ? 0 : Number(reText);
+  const im = Number(imText);
+  return Number.isFinite(re) && Number.isFinite(im) ? { re, im } : null;
+}
+
+/** A complex number as Excel writes it: "8+i", "-46+9.00000000000001i", "2j", "0". */
+function complexText(re: number, im: number, suffix: Suffix): string {
+  const reText = numberText(re);
+  const imText = numberText(im);
+  if (imText === "0") return reText;
+  const imPart = imText === "1" ? "" : imText === "-1" ? "-" : imText;
+  if (reText === "0") return `${imPart}${suffix}`;
+  return `${reText}${im > 0 ? "+" : ""}${imPart}${suffix}`;
+}
+
+/** The functions whose answer is a complex number, so text; the rest answer a number. */
+const COMPLEX_ANSWER = new Set(["IMSUM", "IMSUB", "IMPRODUCT", "IMDIV", "IMCONJUGATE", "IMPOWER"]);
+
+for (const name of [
+  "IMSUM",
+  "IMSUB",
+  "IMPRODUCT",
+  "IMDIV",
+  "IMCONJUGATE",
+  "IMPOWER",
+  "IMABS",
+  "IMREAL",
+  "IMAGINARY",
+  "IMARGUMENT",
+]) {
+  const lib = fromLibrary(name);
+  if (!lib) continue;
+  F[name] = (args, ctx) => {
+    // Excel refuses to mix "i" and "j" in one calculation.
+    let suffix: Suffix | null = null;
+    for (const a of args) {
+      for (const v of flat(asMatrix(a.value()))) {
+        if (isError(v)) return v;
+        const sx = suffixOf(v);
+        if (sx && suffix && sx !== suffix) return err("#VALUE!", 'Mixes "i" and "j"');
+        suffix = sx ?? suffix;
+      }
+    }
+    const out = lib(args, ctx);
+    // A complex answer is always text in Excel, zero included: formula.js
+    // returned the NUMBER 0 for IMSUB("3+4i","3+4i"), where Excel writes "0".
+    if (typeof out === "number" && COMPLEX_ANSWER.has(name)) {
+      return complexText(out, 0, suffix ?? "i");
+    }
+    if (typeof out !== "string") return out;
+    const z = parseComplexText(out);
+    return z ? complexText(z.re, z.im, suffix ?? "i") : out;
   };
 }
 

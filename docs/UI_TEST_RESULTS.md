@@ -15,6 +15,15 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-04 — R260: complex numbers in a workbook
+
+Same fixture workbook, column B, before on R259's build and after on R260 hot-deployed:
+
+| Cell | Formula | Before | After | formula.js alone would say |
+| --- | --- | --- | --- | --- |
+| B1 | `=IMSUM("1+2j","3+4j")` | #NAME? | **4+6j** | 4+6i |
+| B2 | `=IMDIV("1","3")` | #NAME? | **0.333333333333333** (text, fifteen digits) | 0.3333333333333333 |
+
 ## 2026-10-04 — R259: DSUM in a workbook
 
 In the fixture workbook **R246 last sheet race**, cell A5, before on R258's build and after on R259

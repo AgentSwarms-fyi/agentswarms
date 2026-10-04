@@ -94,6 +94,12 @@ Type `=` and a formula, as in Excel. About 240 functions are available:
   matches and #NUM! when more than one record does. A criteria column whose label is not a field of
   the table matches nothing: Excel reads such a column as a formula criterion, which is not
   supported here.
+- **Complex numbers:** IMSUM, IMSUB, IMPRODUCT, IMDIV, IMCONJUGATE, IMPOWER, IMABS, IMREAL,
+  IMAGINARY and IMARGUMENT, over Excel's text form (`3+4i`, `2-j`). An answer keeps the suffix its
+  arguments used, a mix of `i` and `j` is #VALUE!, a zero part is dropped and a unit written `i`
+  alone, and every number is written to fifteen significant digits as Excel writes one
+  (`IMDIV("1","3")` is `0.333333333333333`). IMSQRT and the transcendental ones (IMLN, IMEXP,
+  IMSIN…) are not there yet.
 - **Matrices, bits and types:** MMULT spills its product; BITAND, BITOR, BITXOR, BITLSHIFT,
   BITRSHIFT; COMPLEX writes Excel's text form (`3+4i`); TYPE (1 number, 2 text, 4 logical, 16 error,
   64 array) and ERROR.TYPE (2 for #DIV/0!, 7 for #N/A…).

@@ -503,7 +503,9 @@ showing `\u2014` as text). Open, from the first rounds:
   Excel's documented examples — and found formula.js's T.DIST answers #NUM! for every input, so
   that family is built on its TDIST. Hyperbolic trigonometry was already in. ~~The database
   functions (DSUM…)~~ — **R259**, written in the engine: formula.js's ignore the criteria. **Still
-  open:** the other distributions, complex arithmetic (IMSUM, IMABS…),
+  open:** the other distributions, ~~complex arithmetic (IMSUM, IMABS…)~~ (**R260**: ten
+  registered, written as Excel writes them; IMSQRT left out, formula.js gives sqrt(-4) the wrong
+  sign; IMLN, IMEXP and the trigonometric ones unchecked),
   PERCENTRANK.EXC's significance argument (Excel's own answer unconfirmed), and VDB, which
   formula.js does not have.
 - ~~**Excel's 1900 calendar before March 1900**~~ — **fixed by R205**; this row predates it

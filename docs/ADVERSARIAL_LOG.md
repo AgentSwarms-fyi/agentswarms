@@ -109,6 +109,34 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-04 — R260: complex numbers, right sums written the wrong way
+
+**Severity: low-to-moderate (Excel parity).** The third batch from the Sheets functions row. Probed
+first: formula.js gets exact complex arithmetic right — IMSUM, IMSUB, IMPRODUCT, IMDIV (Excel's own
+example: (5+12i)(10+24i) = −238+240i), IMABS and the parts all matched hand-worked answers — but not
+the text Excel writes them in, and in a spreadsheet the text **is** the value:
+
+- given `"1+2j"` and `"3+4j"`, IMSUM and IMPRODUCT answered with an `i` (`-5+10i` where Excel writes
+  `-5+10j`), while IMSUB and IMCONJUGATE kept the `j` — inconsistent within the library itself;
+- a mix of `i` and `j`, which Excel refuses with #VALUE!, was added up;
+- numbers came out to sixteen or seventeen digits (`0.3333333333333333`,
+  `-45.99999999999999+9.000000000000007i`) where Excel writes any number as text to fifteen
+  significant digits — `0.333333333333333`, `-46+9.00000000000001i`;
+- a zero answer came back as the **number** 0, where Excel's IMSUB always answers text.
+
+So the library computes and the engine writes: the suffix comes from the arguments, a mix is #VALUE!,
+a zero part is dropped, a unit coefficient is `i` alone, and the parts go through the same
+fifteen-digit `numberText` every other number-as-text uses. The tests fail seven of eight on the old
+code (the eighth documents what was left out), and five mutants were caught against a verified-green
+baseline, control survived.
+
+**Left out, on purpose:** IMSQRT, because formula.js gives the square root of −4 as **−2i** where the
+principal root is 2i; and IMLN, IMEXP and the trigonometric functions, whose answers carry
+floating-point residue that has not been checked against Excel's.
+
+Driven in a workbook: `IMSUM("1+2j","3+4j")` and `IMDIV("1","3")` read #NAME? before, and `4+6j`
+and `0.333333333333333` after. Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-04 — R259: formula.js's DSUM added up every row, whatever the criteria said
 
 **Severity: moderate (Excel parity — but a wrong total, not a #NAME?, had they been registered).**
