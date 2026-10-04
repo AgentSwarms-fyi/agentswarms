@@ -608,8 +608,10 @@ to the active cell). Open from that round:
     experiment's description, a connection import's table pick, the BI Git
     sync settings, a typed delete confirmation. Each needs data this account
     does not have.
-  - **The AI analyst's scenario callback** lists unused dependencies and
-    leaves out `catalog`, which it reads: a stale value is possible.
+  - ~~**The AI analyst's scenario callback** lists unused dependencies and
+    leaves out `catalog`, which it reads: a stale value is possible.~~ **Fixed in
+    R272**; not driven (no governed step on a model with parameters in this
+    account).
 - **A filter's criteria stay in Sheets:** the file gets the AutoFilter range
   and the rows it hides, not each column's criteria (ExcelJS writes no
   `filterColumn`), so Excel shows the buttons without the funnels.
@@ -688,8 +690,11 @@ its trial), R139 (View as carried the owner's conversation). Open from that roun
 - **`SHEETS_AI_FILL_MAX_ROWS` is checked by the page, per fill.** The server bounds each call (100
   values) and each person's calls a minute, not a fill's total. A script calling the server
   function directly is bounded only by the rate.
-- **A cost under $0.00005 shows as $0.0000.** About thirty places round costs to four decimals,
-  including the Lakehouse AI-functions badge and Traces. They could say "under $0.0001" instead.
+- ~~**A cost under $0.00005 shows as $0.0000.** About thirty places round costs to four decimals,
+  including the Lakehouse AI-functions badge and Traces. They could say "under $0.0001" instead.~~
+  Stale: R202 put every per-call and per-row cost through `formatUsd` (two significant digits under
+  a cent), the AI-functions badge and Traces included; spend totals and budgets keep whole cents by
+  that round's choice. Struck in R272.
 - **Saving the Developer runtime settings takes about 20 s** when the egress proxy cannot be
   reloaded ("Restarting the proxy returned 500"). The save lands and says so. The wait comes from
   the proxy, not from Sheets.

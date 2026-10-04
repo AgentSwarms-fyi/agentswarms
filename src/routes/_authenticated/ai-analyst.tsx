@@ -669,17 +669,11 @@ function AiAnalystPage() {
         toast.error(`The scenario could not be compiled: ${(e as Error).message}`);
       }
     },
-    [
-      thread,
-      resolveScope,
-      persistTurns,
-      runSemanticFn,
-      scoreRowsFn,
-      forecastFn,
-      scorable,
-      allModels,
-      token,
-    ],
+    // FOUND IN R272: `catalog` was missing (and four values it never reads were
+    // listed), so a thread opened before the catalog arrived kept the empty one:
+    // its model had no parameters, and varying an assumption was "Nothing
+    // changed".
+    [thread, resolveScope, persistTurns, runSemanticFn, catalog, token],
   );
 
   /** Record a human verdict on a finished analysis. */

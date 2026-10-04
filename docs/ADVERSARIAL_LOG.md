@@ -109,6 +109,31 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-05 — R272: a what-if that kept the catalog from before it loaded
+
+**Severity: low (a false refusal, timing-dependent).** From the queue. `runScenarioAt`, the AI Analyst's
+what-if, reads `catalog` to find the step's semantic model and its parameters, but its `useCallback`
+did not list `catalog` — and listed four values it never reads (`scoreRowsFn`, `forecastFn`, `scorable`,
+`allModels`). The catalog loads after several requests on mount; the callback is rebuilt only when the
+thread and the rest change. So a thread whose last change came before the catalog landed kept the
+EMPTY catalog: `catalog.find` found no model, `buildScenario` was handed no parameters, and a what-if
+that varied an assumption was refused, "Nothing changed — a scenario has to vary an assumption or a
+filter value." The dependency list is now exactly what the body reads; it was the page's only
+`react-hooks/exhaustive-deps` warning.
+
+**Not driven.** The account has no analysis step on a governed model with parameters (its threads are
+SQL steps), and making one needs a semantic model with parameters and paid model calls. The test reads
+the callback's source — the dependency list against the names its body uses — as the repo's other
+wiring tests do. Two mutants caught (`catalog` left out again; an unused value listed again), control
+survived.
+
+Of the repo's other twelve `exhaustive-deps` "missing dependency" warnings, two were read and are not
+stale values: the approval inbox's realtime handler calls `amIApprover`, which reads the current user
+and a ref, and the swarm node inspector prunes servers once on open. The rest were not examined.
+
+Also struck from the queue: "A cost under $0.00005 shows as $0.0000" — stale since R202, which put
+every per-call cost through `formatUsd` and kept spend totals in whole cents on purpose.
+
 ### 2026-10-05 — R271: a kernel that kept its first token, and a Stop that said "stopped" when it was not
 
 **Severity: moderate (a leaked container per failure, and a page that said otherwise).** From the
