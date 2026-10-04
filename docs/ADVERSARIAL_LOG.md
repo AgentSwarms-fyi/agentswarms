@@ -109,6 +109,33 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-04 — R265: VDB, and a branch of the algorithm nothing could reach
+
+**Severity: low (Excel parity).** VDB — depreciation over a span of periods by declining balance,
+switching to straight line — was #NAME?: formula.js does not have it. Written in the engine on the
+algorithm LibreOffice uses for Excel's VDB, and checked against what can be worked out rather than
+remembered. While no switch happens, the declining balance from period s to e is
+cost · ((1 − r)^s − (1 − r)^e), r = factor / life; a part period takes its share of that period; a
+whole life depreciates to the salvage value at any factor; and the pieces of a life split at a part
+period add back to cost − salvage, before and after the switch. Microsoft's six examples (1.32, 40.00,
+480.00, 396.31, 311.81, 315.00) all come out of those closed forms; the switch is checked by hand
+(factor 1: 240, 216, then (2400 − 240 − 216 − 300) / 8 = 205.50 a year).
+
+**The mutation run found dead code.** The span helper scaled its last period by a fraction, as
+LibreOffice's does — but every caller passes whole periods (part periods are taken off around it), so
+a mutant there could only survive. Removed. The run also showed `no_switch` with part periods had no
+test; one was added (0.5 · 360 + 306 + 0.5 · 260.10 = 616.05, switching or not).
+
+Nine mutants caught against a verified-green baseline (never switching, no_switch ignored, a factor
+of 1.5 by default, either part period not taken off, declining below salvage, a span past the life,
+either no_switch part period counted whole), control survived. The argument rules — #NUM! for a
+negative number, a factor of 0, a salvage above the cost — follow Excel's page ("all arguments except
+no_switch must be positive") and LibreOffice; the salvage rule is not on Excel's page and is queued
+with the other unconfirmed edges.
+
+Driven in the fixture workbook: three VDB formulas #NAME? on R264's build, **396.3060533**, **205.5**
+and **315** on R265 hot-deployed. Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-04 — R264: the complex family finished, and the library under it replaced
 
 **Severity: moderate (wrong answers, two of them silent).** The queue's last complex-number row:

@@ -2881,6 +2881,117 @@ F.LOGNORMDIST = (args, ctx) => {
   return inner([...args, numberArg(1)], ctx);
 };
 
+// ── VDB (R265) ────────────────────────────────────────────────────────────
+//
+// FOUND IN R265: formula.js has no VDB, so it was #NAME?. Depreciation from
+// one period to another by declining balance at `factor` (2, double, unless
+// given), switching to straight line over what is left once that is larger,
+// unless no_switch is TRUE. A part period takes its share of that period's
+// depreciation, so the pieces of a life always add up to cost - salvage. The
+// algorithm is the one LibreOffice uses for Excel's VDB; every test answer is
+// worked out from closed forms (sheetsVdb.test.ts).
+
+/** One period's double-declining-balance depreciation, never below the salvage value. */
+function ddbPeriod(
+  cost: number,
+  salvage: number,
+  life: number,
+  period: number,
+  factor: number,
+): number {
+  let rate = factor / life;
+  let before: number;
+  if (rate >= 1) {
+    rate = 1;
+    before = period === 1 ? cost : 0;
+  } else {
+    before = cost * Math.pow(1 - rate, period - 1);
+  }
+  const after = cost * Math.pow(1 - rate, period);
+  const d = after < salvage ? before - salvage : before - after;
+  return d < 0 ? 0 : d;
+}
+
+/**
+ * Depreciation over the first `periods` whole periods of an asset with `left`
+ * periods of its life to go, switching to straight line. (Part periods are
+ * taken off by the caller, so this needs no fraction of its own.)
+ */
+function vdbSpan(
+  cost: number,
+  salvage: number,
+  life: number,
+  left: number,
+  periods: number,
+  factor: number,
+): number {
+  let total = 0;
+  let remaining = cost - salvage;
+  let straight: number | null = null;
+  for (let i = 1; i <= periods; i++) {
+    let term: number;
+    if (straight === null) {
+      const d = ddbPeriod(cost, salvage, life, i, factor);
+      const line = remaining / (left - (i - 1));
+      if (line > d) {
+        straight = line;
+        term = line;
+      } else {
+        term = d;
+        remaining -= d;
+      }
+    } else {
+      term = straight;
+    }
+    total += term;
+  }
+  return total;
+}
+
+F.VDB = (args) => {
+  const e = arity(args, 5, 7);
+  if (e) return e;
+  const vals: number[] = [];
+  for (let i = 0; i < 6; i++) {
+    const v = num(args[i], i === 5 ? 2 : undefined);
+    if (isError(v)) return v;
+    vals.push(v);
+  }
+  const noSwitch = bool(args[6], false);
+  if (isError(noSwitch)) return noSwitch;
+  const [cost, salvage, life, start, end, factor] = vals;
+  if (cost < 0 || salvage < 0 || life <= 0 || start < 0 || factor <= 0) {
+    return err("#NUM!", "VDB needs positive numbers");
+  }
+  if (end < start) return err("#NUM!", "The span ends before it starts");
+  if (end > life) return err("#NUM!", "The span ends after the asset's life");
+  if (salvage > cost) return err("#NUM!", "The salvage value is more than the cost");
+  const first = Math.floor(start);
+  const last = Math.ceil(end);
+  if (noSwitch) {
+    let total = 0;
+    for (let i = first + 1; i <= last; i++) {
+      let term = ddbPeriod(cost, salvage, life, i, factor);
+      if (i === first + 1) term *= Math.min(end, first + 1) - start;
+      else if (i === last) term *= end + 1 - last;
+      total += term;
+    }
+    return total;
+  }
+  // The part periods at either end, taken off a span of whole periods.
+  let part = 0;
+  if (start > first) {
+    const value = cost - vdbSpan(cost, salvage, life, life, first, factor);
+    part += (start - first) * vdbSpan(value, salvage, life, life - first, 1, factor);
+  }
+  if (end < last) {
+    const value = cost - vdbSpan(cost, salvage, life, life, last - 1, factor);
+    part += (last - end) * vdbSpan(value, salvage, life, life - last + 1, 1, factor);
+  }
+  const value = cost - vdbSpan(cost, salvage, life, life, first, factor);
+  return vdbSpan(value, salvage, life, life - first, last - first, factor) - part;
+};
+
 export const FUNCTIONS: Readonly<Record<string, FnImpl>> = F;
 
 /**

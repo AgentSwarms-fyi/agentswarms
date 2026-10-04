@@ -510,8 +510,9 @@ showing `\u2014` as text). Open, from the first rounds:
   registered, written as Excel writes them), ~~IMSQRT, IMLN, IMEXP and the trigonometric ones~~
   (**R264**: all twenty-five now the engine's own — formula.js threw on a number argument, never
   opened a range in IMPRODUCT, put −1 at angle −π and took IMLN's angle as atan(y/x)),
-  PERCENTRANK.EXC's significance argument (Excel's own answer unconfirmed), and VDB, which
-  formula.js does not have.
+  PERCENTRANK.EXC's significance argument (Excel's own answer unconfirmed), and ~~VDB, which
+  formula.js does not have~~ (**R265**, written in the engine; its #NUM! for a salvage above the
+  cost follows LibreOffice, not a statement on Excel's page — unconfirmed).
 - ~~**Excel's 1900 calendar before March 1900**~~ — **fixed by R205**; this row predates it
   and was never struck (noticed 2026-10-04). Serials 1 to 60 read a day early here
   (`=YEAR(1)` is 1899, `=DATE(1900,2,28)` 60 where Excel says 59), and 0 is 1899-12-30 where Excel

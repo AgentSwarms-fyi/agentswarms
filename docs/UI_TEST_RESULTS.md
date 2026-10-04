@@ -15,6 +15,17 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-04 — R265: VDB in a workbook
+
+Fixture workbook **R246 last sheet race** (`61e4fe80…`), column H, typed on R264's build and
+recomputed after R265 hot-deployed:
+
+| Cell | Formula | Before | After | Worked out |
+| --- | --- | --- | --- | --- |
+| H1 | `=VDB(2400,300,120,6,18)` | #NAME? | **396.3060533** | 2400 · ((59/60)^6 − (59/60)^18); Microsoft's example says 396.31 |
+| H2 | `=VDB(2400,300,10,2,3,1)` | #NAME? | **205.5** | year 3 switches to straight line: (2400 − 240 − 216 − 300) / 8 |
+| H3 | `=VDB(2400,300,10,0,0.875,1.5)` | #NAME? | **315** | 0.875 of a first year's 2400 · 0.15 |
+
 ## 2026-10-04 — R264: complex numbers in a workbook
 
 Fixture workbook **R246 last sheet race** (`61e4fe80…`), column F, typed on R263's build and

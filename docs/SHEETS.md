@@ -126,6 +126,11 @@ Type `=` and a formula, as in Excel. About 240 functions are available:
   - For loans and investments, beside PMT, IPMT, PPMT, FV, PV, NPER, RATE, NPV, IRR, XNPV and XIRR:
     CUMIPMT and CUMPRINC (interest and principal between two periods), MIRR (which skips blank
     flows, as IRR does), FVSCHEDULE, SYD, ISPMT, PDURATION and RRI.
+  - VDB depreciates from one period to another by declining balance (double, unless a factor is
+    given) and switches to straight line over what is left once that is larger, unless its last
+    argument is TRUE. A part period takes its share of that period, so `=VDB(2400,300,10,0,0.875,1.5)`
+    is 315 and the pieces of a life add up to cost − salvage. A span that ends before it starts or
+    after the life, a negative number, a factor of 0 or a salvage above the cost is #NUM!.
   - They read their arguments as Excel does. In a range, a blank cell is not a 0, and text and TRUE
     are left out, so `=GEOMEAN(A1:A3)` over 1, a blank and 3 is 1.73 and `=NPV(0.1,A1:A3)`
     discounts two payments, not three. STDEVA counts text as 0 and TRUE as 1, and still skips
