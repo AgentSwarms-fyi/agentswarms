@@ -374,7 +374,10 @@ for _stop after quiet_, and reports the new positions - Kafka offsets per
 partition, Kinesis sequence numbers per shard - as its engine-managed
 watermark, the same `etl_pipeline_state` cursor the CDC source uses. The
 cursor is persisted only when the run's load committed, so a run that fails
-after reading re-reads the same messages: **at-least-once, never lost**. No
+after reading re-reads the same messages: **at-least-once, never lost**. A
+cursor that cannot be read is not a missing one: the run does not start, and
+the retry ladder tries again, rather than reading every source from the
+beginning (R253). No
 consumer-group offsets are committed to the broker; the platform is the
 record, and a preview reads without moving anything. Pub/Sub is the
 exception, because it has no replayable position: a message is acknowledged

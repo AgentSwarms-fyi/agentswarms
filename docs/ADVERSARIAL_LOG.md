@@ -109,6 +109,46 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-04 — R253: ETL started from the beginning, failed while running, and logged secrets in clear
+
+**Severity: high.** Two sweep-7 rows, plus one the round turned up that is worse than either.
+
+- **Cursors** (`resolveRunEnv`). An incremental source reads from the cursor in
+  `etl_pipeline_state`. The read dropped its error, so a failed read was no cursor and every
+  incremental source re-read from the beginning, appending everything again to targets that
+  already held it. The run now refuses to start and goes through the retry ladder.
+- **Live runs** (`reconcileOrphanedEtlRuns`). A session that could not be read was "the run's
+  sandbox session no longer exists", and a run still working was finalized as failed — then
+  retried, so a second run started beside the first. It is left alone now and looked at again on
+  the next pass.
+- **Secrets in the logs** (`appendPartialLogs`, `finalizeEtlRun`). Both scrub logs with the secret
+  values `resolveRunEnv` returns, and both answered a failure to get them with "scrub what we
+  can" — which was nothing. `resolveRunEnv` fails not only on a blip but whenever **one secret the
+  pipeline uses is deleted while it runs** ("the secret … is not set for this account"), so deleting
+  one secret wrote the live log, and then stored the final log and the error, with every *other*
+  secret in clear: connection URLs with passwords, API tokens. A partial log that cannot be
+  scrubbed is skipped now, and final output that cannot be scrubbed is withheld with a sentence
+  saying why. A run whose pipeline cannot be read is not finalized on a guess; the reconciler does
+  it from the session later.
+
+The tests pin the order of each check against the code that acts on it; `resolveRunEnv` reaches
+egress, catalog and warehouse code, so a behavioural harness would be mostly mocks. Five mutants
+caught against a verified-green baseline, control survived.
+
+**Not driven in the UI yet — and unlike the rest of this sweep, it can be.** The secrets leak needs
+no failed read: a *visual* pipeline whose nodes carry two node-level secrets (an HTTP target's
+`auth_secret`, say), a Custom Python step that prints one and sleeps, and the other secret deleted
+from Settings while it runs. Pipeline-level bindings will not do, because those are dropped rather
+than fatal. That drive is queued below; it was not run here because a sandbox run beside the gate
+is the known cause of phantom test timeouts.
+
+**One limit, stated rather than fixed.** A pipeline-level binding (`KEY={{secret:NAME}}`) whose
+secret is deleted mid-run is *dropped*, not fatal, so it does not trip the withholding — and its
+own value is then unknown to the scrubber. Deleting a secret from the app does not revoke it at the
+provider, so that value can still be live. Scrubbing it would mean keeping secret values after
+their deletion, which is its own problem; the honest fix is a scrub list captured at run start, and
+that is queued rather than half-done here.
+
 ### 2026-10-04 — R254: "leave it blank to keep the saved key", and the key was erased
 
 **Severity: high.** From the sweep-7 "writes on a blip" row: "saved secrets wiped on edit". A blank
