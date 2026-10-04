@@ -86,6 +86,13 @@ Type `=` and a formula, as in Excel. About 240 functions are available:
   text counts as 0 and TRUE as 1), TRIMMEAN, QUARTILE.EXC, PERCENTRANK and its .INC and .EXC forms
   (truncated to three digits, as Excel does: 5 of 9 is 0.555), BINOM.DIST, and the T.DIST family
   (T.DIST, T.DIST.RT, T.DIST.2T, TDIST). VARP and VARA under their old names.
+  - The distributions and their inverses: EXPON.DIST, POISSON.DIST, WEIBULL.DIST, HYPGEOM.DIST,
+    NEGBINOM.DIST, CHISQ.DIST(.RT) and CHISQ.INV(.RT), GAMMA.DIST and GAMMA.INV, BETA.DIST and
+    BETA.INV, F.DIST(.RT) and F.INV(.RT), LOGNORM.DIST and LOGNORM.INV, T.INV and T.INV.2T,
+    BINOM.INV, CONFIDENCE.NORM and CONFIDENCE.T; GAMMA, GAMMALN(.PRECISE), FISHER, FISHERINV, PHI,
+    GAUSS, STANDARDIZE, COMBINA, PERMUTATIONA; and the pre-2010 names (POISSON, CHIDIST, FDIST,
+    TINV, BETADIST, LOGNORMDIST, CRITBINOM…) with their own arguments — BETADIST takes bounds,
+    LOGNORMDIST is cumulative, FDIST and CHIDIST are the right tail, TINV is two-tailed.
   - A statistic with too few numbers answers Excel's error, never a number: a sample STDEV or VAR
     needs two (#DIV/0!), SKEW three and KURT four (#DIV/0!), a population STDEV or VAR one
     (#DIV/0!); LARGE, SMALL, PERCENTILE and QUARTILE of an empty list are #NUM!, GEOMEAN of nothing

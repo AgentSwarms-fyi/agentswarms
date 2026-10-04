@@ -385,7 +385,27 @@ const LIBRARY_ARGS: Record<string, LibraryArgs> = {
 
 /** Wrap a formula.js function: arguments evaluated eagerly, converted both ways. */
 function fromLibrary(name: string): FnImpl | undefined {
-  const fn = (formulajs as unknown as Record<string, unknown>)[name.replace(/\./g, "")];
+  // R262: the exact Excel name first (formula.js keeps CHISQ.DIST, T.INV.2T,
+  // BINOM.INV and CONFIDENCE.NORM only as CHISQ.DIST and so on, with no
+  // flattened twin), then the flattened one. Measured over all 179 names
+  // registered before this round: where both exist they are the same
+  // function, so nothing that worked changes. NOTE the flattened LEGACY names
+  // are formula.js's MODERN functions under an old spelling - its FDIST is
+  // F.DIST, its TINV is T.INV, its BETADIST takes BETA.DIST's arguments - so
+  // an old Excel name must never be resolved here: give it a SAME_AS or write it.
+  const nested = name
+    .split(".")
+    .reduce<unknown>(
+      (o, k) =>
+        o && (typeof o === "object" || typeof o === "function")
+          ? (o as Record<string, unknown>)[k]
+          : undefined,
+      formulajs,
+    );
+  const fn =
+    typeof nested === "function"
+      ? nested
+      : (formulajs as unknown as Record<string, unknown>)[name.replace(/\./g, "")];
   if (typeof fn !== "function") return undefined;
   const how = LIBRARY_ARGS[name] ?? {};
   return (args) => {
@@ -2155,6 +2175,47 @@ export const LIBRARY_NAMES = [
   "BITRSHIFT",
   "COMPLEX",
   "VARA",
+  // R262: the distributions, each checked against a closed form, an identity
+  // or a round trip (sheetsDistributions.test.ts). GAMMA and the legacy
+  // LOGNORMDIST and TINV are NOT here: formula.js gets those wrong, so they
+  // are written below.
+  "EXPON.DIST",
+  "POISSON.DIST",
+  "WEIBULL.DIST",
+  "HYPGEOM.DIST",
+  "NEGBINOM.DIST",
+  "CHISQ.DIST",
+  "CHISQ.DIST.RT",
+  "CHISQ.INV",
+  "CHISQ.INV.RT",
+  "GAMMA.DIST",
+  "GAMMA.INV",
+  "BETA.DIST",
+  "BETA.INV",
+  "F.DIST",
+  "F.DIST.RT",
+  "F.INV",
+  "F.INV.RT",
+  "LOGNORM.DIST",
+  "LOGNORM.INV",
+  "GAMMALN",
+  "GAMMALN.PRECISE",
+  "FISHER",
+  "FISHERINV",
+  "PHI",
+  "GAUSS",
+  "STANDARDIZE",
+  "COMBINA",
+  "PERMUTATIONA",
+  "T.INV",
+  "T.INV.2T",
+  "BINOM.INV",
+  "CONFIDENCE.NORM",
+  "CONFIDENCE.T",
+  "EXPONDIST",
+  "HYPGEOMDIST",
+  "NEGBINOMDIST",
+  "GAMMADIST",
 ];
 for (const name of LIBRARY_NAMES) {
   if (F[name]) continue;
@@ -2238,6 +2299,21 @@ const SAME_AS: Record<string, string> = {
   "FORECAST.LINEAR": "FORECAST",
   PERCENTRANK: "PERCENTRANK.INC",
   VARP: "VAR.P",
+  // R262: the pre-2010 names, where the arguments are the same.
+  POISSON: "POISSON.DIST",
+  WEIBULL: "WEIBULL.DIST",
+  NORMDIST: "NORM.DIST",
+  CHIDIST: "CHISQ.DIST.RT",
+  FDIST: "F.DIST.RT",
+  CHIINV: "CHISQ.INV.RT",
+  FINV: "F.INV.RT",
+  GAMMAINV: "GAMMA.INV",
+  BETAINV: "BETA.INV",
+  LOGINV: "LOGNORM.INV",
+  // formula.js's own TINV answers -0; T.INV.2T is the same function, right.
+  TINV: "T.INV.2T",
+  CRITBINOM: "BINOM.INV",
+  CONFIDENCE: "CONFIDENCE.NORM",
   BINOMDIST: "BINOM.DIST",
 };
 for (const [name, now] of Object.entries(SAME_AS)) if (!F[name] && F[now]) F[name] = F[now];
@@ -2593,6 +2669,54 @@ for (const name of [
     return z ? complexText(z.re, z.im, suffix ?? "i") : out;
   };
 }
+
+// ── GAMMA and the legacy LOGNORMDIST (R262) ───────────────────────────────
+//
+// FOUND IN R262. formula.js's GAMMA is off in the ninth significant digit -
+// GAMMA(0.5) was 1.7724538559 where the answer is the square root of pi,
+// 1.7724538509 - which shows at a cell's default width. Its GAMMALN is right
+// to the last digit, so GAMMA is exp(GAMMALN), with the reflection formula
+// below 1/2 for negative arguments. And its legacy LOGNORMDIST answered the
+// DENSITY: LOGNORMDIST(4,1.2,0.5) was 0.186 where Excel's old function is
+// cumulative, 0.645, as LOGNORM.DIST(…,TRUE) is.
+
+function gammaOf(x: number): number | SheetError {
+  if (x <= 0 && Number.isInteger(x))
+    return err("#NUM!", "GAMMA is undefined at 0 and the negative whole numbers");
+  const ln = (formulajs as unknown as { GAMMALN: (n: number) => number }).GAMMALN;
+  if (x >= 0.5) return Math.exp(ln(x));
+  // Reflection: Gamma(x) Gamma(1-x) = pi / sin(pi x).
+  return Math.PI / (Math.sin(Math.PI * x) * Math.exp(ln(1 - x)));
+}
+F.GAMMA = (args) => {
+  const e = arity(args, 1, 1);
+  if (e) return e;
+  const x = num(args[0]);
+  if (isError(x)) return x;
+  return gammaOf(x);
+};
+/**
+ * BETADIST(x, alpha, beta, [A], [B]) is BETA.DIST(x, alpha, beta, TRUE, A, B).
+ * formula.js's BETADIST is its BETA.DIST, so its fourth argument is the
+ * cumulative flag: BETADIST(2.5,8,10,1,3) read 1 as "cumulative" and 3 as the
+ * lower bound. (A symmetric case, x = 2 between 1 and 3, happened to come
+ * out right, which is how this nearly shipped.)
+ */
+F.BETADIST = (args, ctx) => {
+  const e = arity(args, 3, 5);
+  if (e) return e;
+  const inner = F["BETA.DIST"];
+  if (!inner) return err("#NAME?");
+  return inner([args[0], args[1], args[2], numberArg(1), ...args.slice(3)], ctx);
+};
+F.LOGNORMDIST = (args, ctx) => {
+  const e = arity(args, 3, 3);
+  if (e) return e;
+  const inner = F["LOGNORM.DIST"];
+  if (!inner) return err("#NAME?");
+  // The old function is the cumulative one: LOGNORM.DIST(x, mean, sd, TRUE).
+  return inner([...args, numberArg(1)], ctx);
+};
 
 export const FUNCTIONS: Readonly<Record<string, FnImpl>> = F;
 

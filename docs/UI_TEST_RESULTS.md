@@ -15,6 +15,20 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-04 — R262: distributions in a workbook
+
+Same fixture workbook, column D, before on R261's build and after on R262 hot-deployed:
+
+| Cell | Formula | Before | After | Checked against |
+| --- | --- | --- | --- | --- |
+| D1 | `=CHISQ.DIST(3,2,TRUE)` | #NAME? | **0.7768698399** | 1 − e^(−1.5): a chi-square with 2 df is an exponential |
+| D2 | `=BETADIST(2.5,8,10,1,3)` | #NAME? | **0.9968992209** | BETA.DIST(0.75,8,10,TRUE) = 0.99689922088 |
+
+Had BETADIST gone in through formula.js, as it first did, D2 would read **0.0402** — its BETADIST
+takes the new function's arguments, reading 1 as the cumulative flag and 3 as the lower bound. The
+first test of it used x = 2, the middle of [1,3], where the misreading happens to give the same
+answer.
+
 ## 2026-10-04 — R261: zeros that were not answers
 
 Same fixture workbook, column C, before on R260's build and after on R261 hot-deployed:

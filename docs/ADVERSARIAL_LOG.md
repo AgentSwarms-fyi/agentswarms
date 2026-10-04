@@ -109,6 +109,48 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-04 — R262: fifty distributions, three wrong answers in the library, and a test that passed by coincidence
+
+**Severity: moderate (Excel parity), and a lesson about the checks themselves.** The last big batch from
+the Sheets functions row: the probability distributions and their inverses, fifty-three names of which
+three were registered. Every one was checked against something computed rather than remembered — a
+closed form (EXPON.DIST is 1 − e^(−λx); a chi-square with 2 df is an exponential; a gamma with shape 1
+too), an identity (BETA.DIST(x,1,1) = x; F.DIST(1,2,2) = ½; LOGNORM.DIST at e^μ is ½), counting
+(HYPGEOM, NEGBINOM), or a **round trip** for the inverses (CHISQ.INV(CHISQ.DIST(3)) = 3 …). Three of
+formula.js's answers failed:
+
+- **GAMMA** was off in the ninth significant digit — GAMMA(0.5) was 1.7724538559 where the answer is
+  √π, 1.7724538509 — which shows at a cell's default width. Its GAMMALN is right, so GAMMA is
+  exp(GAMMALN) with the reflection formula for negatives.
+- **LOGNORMDIST**, the pre-2010 name, answered the **density** (0.186) where Excel's old function is
+  cumulative (0.645).
+- **TINV**, the pre-2010 two-tailed inverse, answered **−0**.
+
+The reason for the last two runs deeper than three functions: **formula.js's flattened legacy names
+are its modern functions under an old spelling.** Its FDIST is F.DIST (left tail), its TINV is T.INV
+(one tail), its BETADIST takes BETA.DIST's arguments. Excel's old FDIST is the right tail and its
+BETADIST takes bounds where the new one takes a flag. So no old Excel name may be resolved through the
+library; each is a SAME_AS onto the modern function with the same arguments, or is written.
+
+**And a test passed by coincidence.** BETADIST went in through the library at first, and its check —
+BETADIST(2,8,10,1,3) against BETA.DIST(0.5,8,10,TRUE) — **passed**: x = 2 sits exactly in the middle of
+[1,3], so the misread arguments landed on the same 0.5. A non-symmetric x (2.5) fails it. It is
+written now, and the test carries both, with the reason.
+
+The lookup itself changed: `fromLibrary` resolves the **exact Excel name first** (CHISQ.DIST, T.INV.2T,
+BINOM.INV and CONFIDENCE.NORM exist in formula.js only under their dotted names), then the flattened
+one. Measured across all 179 names registered before this round, where both exist they are the same
+function, so nothing that worked changed — and all 65 Sheets test files agree. The download prefix test
+then named thirty of these as newer than Excel 2007; they carry `_xlfn.` now.
+
+The new test fails twenty-four of twenty-four on the old code; six mutants caught against a
+verified-green baseline (flattened-only lookup, BETADIST's flag, LOGNORMDIST's density, GAMMA's ninth
+digit, the reflection's sign, TINV's alias), control survived.
+
+Driven in a workbook: `CHISQ.DIST(3,2,TRUE)` and `BETADIST(2.5,8,10,1,3)` read #NAME? before, and
+0.7768698399 and 0.9968992209 after — where formula.js's BETADIST would have shown 0.0402. Rows in
+[UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-04 — R261: a standard deviation of nothing, and it was 0
 
 **Severity: moderate — two wrong numbers, not just wrong codes.** The Sheets queue's row said "a list
