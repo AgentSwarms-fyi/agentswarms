@@ -455,8 +455,11 @@ least twice, not a hypothetical.
        an agent deleted while the dialog was open did it with no failure at all — driven: "Key
        created", "Agents: all". The semantic-model list did the same on create and on edit.
        `honorAllowList` refuses any list it cannot save as picked.
-     - **SCIM group deprovisioning** (`scim.server.ts` ~542) removes no one when the members
-       cannot be read, and answers 200.
+     - **R248: SCIM group deprovisioning.** Fixed, with eight more reads in the same file that
+       answered the IdP with a guess: 404 for a user or group that could not be read (so a
+       deactivation left the account active), "not a user" for a failed member lookup, 401 for an
+       unreadable token table. All nine are a 503 now, which IdPs retry; a ratchet holds the file
+       at zero dropped read errors.
      - **Budget caps** (`budgetGuard.server.ts`) and **notebook runtime limits**
        (`notebookRuntime/config.server.ts`) fall back to "no cap" or the permissive defaults.
      - **ML:** an unpromoted version answering production (`ml/api.server.ts` `pickVersion`), a

@@ -111,11 +111,20 @@ export async function authenticateScim(request: Request): Promise<ScimAuth> {
     };
   }
   const hash = await hashScimToken(raw);
-  const { data: row } = await supabaseAdmin
+  const { data: row, error: tokenErr } = await supabaseAdmin
     .from("iam_scim_tokens")
     .select("id, label, created_by, revoked_at, use_count")
     .eq("token_hash", hash)
     .maybeSingle();
+  // R248: a lookup that failed is not a token that is invalid. A 401 tells
+  // the IdP its credential was revoked, and some disable the app on it; a
+  // 503 is the truth, and they retry it.
+  if (tokenErr) {
+    return {
+      ok: false,
+      response: scimFail(503, `Could not check the provisioning token: ${tokenErr.message}`),
+    };
+  }
   if (!row || row.revoked_at) {
     if (row) {
       auditEvent({
@@ -140,6 +149,16 @@ export async function authenticateScim(request: Request): Promise<ScimAuth> {
     .eq("id", row.id)
     .then(() => undefined);
   return { ok: true, actor: { tokenId: row.id, label: row.label, createdBy: row.created_by } };
+}
+
+/**
+ * A read SCIM could not do. Every answer this file gives an identity provider
+ * is taken as a fact about the directory - "no members", "no such group", "not
+ * a user", "invalid token" - and the IdP acts on it. A read that failed is none
+ * of those; it is a 503, which Okta and Entra retry (R248).
+ */
+function unreadable(what: string, error: { message: string }): ScimError {
+  return new ScimError(503, `Could not read ${what}: ${error.message}`);
 }
 
 function audit(actor: ScimActor, action: string, resource: Record<string, unknown> = {}) {
@@ -193,10 +212,11 @@ type ProfileRow = {
 
 async function profilesFor(userIds: string[]): Promise<Map<string, ProfileRow>> {
   if (!userIds.length) return new Map();
-  const { data } = await supabaseAdmin
+  const { data, error } = await supabaseAdmin
     .from("profiles")
     .select("user_id, display_name, first_name, last_name")
     .in("user_id", userIds);
+  if (error) throw unreadable("profiles", error);
   return new Map((data ?? []).map((p) => [p.user_id, p as ProfileRow]));
 }
 
@@ -205,16 +225,18 @@ async function groupsFor(
 ): Promise<Map<string, { value: string; display: string }[]>> {
   const out = new Map<string, { value: string; display: string }[]>();
   if (!userIds.length) return out;
-  const { data: memberships } = await supabaseAdmin
+  const { data: memberships, error: mErr } = await supabaseAdmin
     .from("iam_group_members")
     .select("user_id, group_id")
     .in("user_id", userIds);
+  if (mErr) throw unreadable("group memberships", mErr);
   const groupIds = [...new Set((memberships ?? []).map((m) => m.group_id))];
   if (!groupIds.length) return out;
-  const { data: groups } = await supabaseAdmin
+  const { data: groups, error: gErr } = await supabaseAdmin
     .from("iam_groups")
     .select("id, name")
     .in("id", groupIds);
+  if (gErr) throw unreadable("groups", gErr);
   const nameOf = new Map((groups ?? []).map((g) => [g.id, g.name]));
   for (const m of memberships ?? []) {
     const list = out.get(m.user_id) ?? [];
@@ -306,7 +328,12 @@ export async function listScimUsers(filter: string | null, baseUrl: string) {
 async function getAuthUser(id: string): Promise<AdminUser> {
   if (!/^[0-9a-f-]{36}$/i.test(id)) throw new ScimError(404, `No user ${id}`);
   const { data, error } = await supabaseAdmin.auth.admin.getUserById(id);
-  if (error || !data.user) throw new ScimError(404, `No user ${id}`);
+  // R248: "No user" only when the lookup says so. GoTrue reports a missing
+  // user AS an error, with status 404; anything else is a lookup that failed,
+  // and a 404 for it would tell the IdP a user it is deactivating is already
+  // gone - so the account stays active.
+  if (error && error.status !== 404) throw unreadable("the account", error);
+  if (!data?.user) throw new ScimError(404, `No user ${id}`);
   return data.user as unknown as AdminUser;
 }
 
@@ -367,11 +394,12 @@ async function writeProfile(userId: string, state: ScimUserState): Promise<void>
     first_name: state.givenName,
     last_name: state.familyName,
   };
-  const { data: existing } = await supabaseAdmin
+  const { data: existing, error: existingErr } = await supabaseAdmin
     .from("profiles")
     .select("id")
     .eq("user_id", userId)
     .maybeSingle();
+  if (existingErr) throw unreadable("the profile", existingErr);
   const { error } = existing
     ? await supabaseAdmin.from("profiles").update(patch).eq("user_id", userId)
     : await supabaseAdmin.from("profiles").insert({ user_id: userId, ...patch });
@@ -548,10 +576,14 @@ async function membersOf(
 ): Promise<Map<string, { value: string; display: string }[]>> {
   const out = new Map<string, { value: string; display: string }[]>();
   if (!groupIds.length) return out;
-  const { data: memberships } = await supabaseAdmin
+  const { data: memberships, error } = await supabaseAdmin
     .from("iam_group_members")
     .select("group_id, user_id")
     .in("group_id", groupIds);
+  // R248: this is the read a PUT or PATCH diffs against to decide who to
+  // REMOVE. Dropping its error made a failed read an empty group, so nobody
+  // was removed and the IdP got a 200 for a deprovisioning that never happened.
+  if (error) throw unreadable("group members", error);
   const userIds = [...new Set((memberships ?? []).map((m) => m.user_id))];
   const profiles = await profilesFor(userIds);
   for (const m of memberships ?? []) {
@@ -618,11 +650,12 @@ export async function listScimGroups(filter: string | null, baseUrl: string) {
 
 async function getGroupRow(id: string): Promise<GroupRow> {
   if (!/^[0-9a-f-]{36}$/i.test(id)) throw new ScimError(404, `No group ${id}`);
-  const { data } = await supabaseAdmin
+  const { data, error } = await supabaseAdmin
     .from("iam_groups")
     .select(GROUP_COLUMNS)
     .eq("id", id)
     .maybeSingle();
+  if (error) throw unreadable("the group", error);
   if (!data) throw new ScimError(404, `No group ${id}`);
   return data as GroupRow;
 }
@@ -664,8 +697,10 @@ async function assertUsersExist(ids: string[]): Promise<void> {
   for (const id of ids) {
     if (!/^[0-9a-f-]{36}$/i.test(id))
       throw new ScimError(400, `Member ${id} is not a user id`, "invalidValue");
-    const { data } = await supabaseAdmin.auth.admin.getUserById(id);
-    if (!data.user) throw new ScimError(400, `Member ${id} is not a user`, "invalidValue");
+    const { data, error } = await supabaseAdmin.auth.admin.getUserById(id);
+    // A failed lookup is not the IdP's mistake; only GoTrue's own 404 is.
+    if (error && error.status !== 404) throw unreadable("a member's account", error);
+    if (!data?.user) throw new ScimError(400, `Member ${id} is not a user`, "invalidValue");
   }
 }
 
@@ -697,7 +732,7 @@ async function writeMembers(
 
 export async function createScimGroup(body: unknown, actor: ScimActor, baseUrl: string) {
   const input = readGroup(body);
-  const { data: clash } = await supabaseAdmin
+  const { data: clash, error: clashErr } = await supabaseAdmin
     .from("iam_groups")
     .select("id")
     .ilike(
@@ -705,6 +740,7 @@ export async function createScimGroup(body: unknown, actor: ScimActor, baseUrl: 
       input.displayName.replace(/[%_]/g, (c) => `\\${c}`),
     )
     .maybeSingle();
+  if (clashErr) throw unreadable("the groups", clashErr);
   if (clash)
     throw new ScimError(409, `A group named ${input.displayName} already exists`, "uniqueness");
   await assertUsersExist(input.members);

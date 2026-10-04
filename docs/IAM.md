@@ -211,12 +211,16 @@ minute.
 | `POST /Groups`, `PATCH` members                 | An IAM group is created or its members changed — grants and model rules on the group apply at once         |
 | `GET /Users?filter=userName eq "…"`             | The lookup IdPs do before creating, so a user who already exists is matched, not duplicated                |
 
-Two rules hold whatever the IdP says. **A superadmin cannot be deactivated
+Three rules hold whatever the IdP says. **A superadmin cannot be deactivated
 or deleted over SCIM** — the request is refused with a 403 the IdP shows its
 admin, so a misconfigured push or a leaked token cannot take the last way in;
-demote the account in IAM first. And every SCIM write is an audit event under
+demote the account in IAM first. Every SCIM write is an audit event under
 the token's label (`scim:<label>`), so the trail says the IdP did it, not a
-person.
+person. And **a read that fails is a 503, never an answer**: the IdP acts on
+"no members", "no such group", "no such user", "not a user" and "invalid
+token", so none of them is ever said about a read that did not happen. Okta
+and Entra retry a 503. Before R248 a failed member read made a group look
+empty, and a push removing someone from it removed no one and returned 200.
 
 The endpoint supports filtering by `userName`, `externalId`, `emails.value`,
 `displayName` and `id` with `eq`, PATCH in both the Okta (path-less) and

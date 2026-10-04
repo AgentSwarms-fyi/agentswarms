@@ -109,6 +109,45 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-04 — R248: a deprovisioning that removed no one and answered 200
+
+**Severity: high.** From the sweep-7 queue: "SCIM group deprovisioning removes no one when the
+members cannot be read, and answers 200". True, and the same mistake was made eight more times in
+the same file.
+
+A PUT or PATCH on a group works out who to remove as `before.filter(m => !after.includes(m))`, and
+`before` came from `membersOf`, which dropped its read error. A failed read made `before` empty, so
+the removal set was empty: the identity provider was told the user had left the group, and every
+grant and model rule the group carries stayed with them. Deprovisioning is the one SCIM call whose
+whole purpose is to take access away, so failing open there is the worst direction available.
+
+**Every answer this file gives is acted on.** The sweep found nine reads that dropped their errors,
+each turning "could not read" into a false statement to the IdP:
+
+| Read | What a failure used to say |
+| --- | --- |
+| a group's members | "this group is empty" — so a removal removed no one |
+| a group's row | 404 "No group" |
+| a user's account | 404 "No user" — so a deactivation (`active: false`) left the account active |
+| a member's account | 400 "is not a user", blaming the IdP |
+| a user's groups, a user's profile | "in no groups", "no name", on every User response |
+| the provisioning token | 401 "Invalid or revoked" — which some IdPs answer by disabling the app |
+| a profile before a write, a name clash on create | "none", followed by a write that then failed |
+
+All nine go through one `unreadable()` now: a 503, which Okta and Entra retry. One subtlety the
+fix had to respect: GoTrue reports a genuinely missing user **as** an error, with status 404, so the
+user lookups split on `error.status`, not on whether there was an error. A ratchet holds the file at
+zero reads that drop their error.
+
+Eight mutants caught against a verified-green baseline, control survived. Two of the nine checks —
+the profile read before a write and the name-clash read — are held only by the ratchet on their
+destructuring; both were followed by a write that failed loudly, so they were the least harmful.
+
+**Not proved in the UI.** Every one of these needs a server-side read to fail, which the browser
+cannot cause (the same limit as R236's SCIM half), and the regression half is an IdP pushing over a
+bearer token rather than a page. The tests drive the real handlers against a database that fails one
+read at a time.
+
 ### 2026-10-04 — R247: a key restricted to one agent, saved as able to call all of them
 
 **Severity: high.** The sweep-7 queue listed "an AI Gateway key saved with no agent restriction
