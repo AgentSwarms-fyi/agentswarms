@@ -434,29 +434,43 @@ export async function pollNode(args: {
     ok: false,
     error: `The ${what} it started is no longer there`,
   });
+  // FOUND IN R255. Every case below answered a failed read with gone(): the
+  // step finished FAILED, the workflow's retry started its target again while
+  // the first run was still going (a second pipeline run into the same
+  // target), and a pending approval read as "no longer there". A status that
+  // could not be read is not settled; the next poll asks again, and the run's
+  // own timeout is the backstop, as it is for a detached step.
+  const unsettled = (e: { message: string }): StepOutcome => {
+    console.warn(
+      `[workflow] ${kind} ${targetRunId}: status could not be read, polling again: ${e.message}`,
+    );
+    return { done: false };
+  };
   // A detached step settles itself; the run's timeout is its backstop.
   if (targetRunId === DETACHED) return { done: false };
 
   switch (kind) {
     case "pipeline": {
-      const { data } = await supabaseAdmin
+      const { data, error } = await supabaseAdmin
         .from("etl_runs")
         .select("status, error")
         .eq("id", targetRunId)
         .eq("user_id", userId)
         .maybeSingle();
+      if (error) return unsettled(error);
       if (!data) return gone("pipeline run");
       if (["queued", "running", "retrying"].includes(data.status)) return { done: false };
       if (data.status === "succeeded") return { done: true, ok: true };
       return { done: true, ok: false, error: data.error ?? `The run ${data.status}` };
     }
     case "sql_models": {
-      const { data } = await supabaseAdmin
+      const { data, error } = await supabaseAdmin
         .from("sql_model_runs")
         .select("status, error")
         .eq("id", targetRunId)
         .eq("user_id", userId)
         .maybeSingle();
+      if (error) return unsettled(error);
       if (!data) return gone("model build");
       return sqlBuildOutcome(data.status, data.error);
     }
@@ -466,24 +480,26 @@ export async function pollNode(args: {
       const mlKind = sep > 0 ? targetRunId.slice(0, sep) : "retrain";
       const refId = sep > 0 ? targetRunId.slice(sep + 1) : targetRunId;
       const table = mlKind === "batch_predict" ? "ml_predictions" : "ml_training_jobs";
-      const { data } = await supabaseAdmin
+      const { data, error } = await supabaseAdmin
         .from(table)
         .select("status, error")
         .eq("id", refId)
         .eq("user_id", userId)
         .maybeSingle();
+      if (error) return unsettled(error);
       if (!data) return gone(mlKind === "batch_predict" ? "prediction" : "training job");
       if (["queued", "running"].includes(data.status)) return { done: false };
       if (data.status === "succeeded") return { done: true, ok: true };
       return { done: true, ok: false, error: data.error ?? `The job ${data.status}` };
     }
     case "notebook": {
-      const { data } = await supabaseAdmin
+      const { data, error } = await supabaseAdmin
         .from("notebook_runtime_sessions")
         .select("status, error")
         .eq("id", targetRunId)
         .eq("user_id", userId)
         .maybeSingle();
+      if (error) return unsettled(error);
       if (!data) return gone("notebook run");
       // The sandbox's own vocabulary: `error`, not `failed`, and `stopped`
       // for a session that was reaped or killed.
@@ -496,12 +512,13 @@ export async function pollNode(args: {
       };
     }
     case "sub_workflow": {
-      const { data } = await supabaseAdmin
+      const { data, error } = await supabaseAdmin
         .from("workflow_runs")
         .select("state, error")
         .eq("id", targetRunId)
         .eq("user_id", userId)
         .maybeSingle();
+      if (error) return unsettled(error);
       if (!data) return gone("workflow run");
       if (data.state === "running") return { done: false };
       if (data.state === "succeeded") return { done: true, ok: true };
@@ -509,12 +526,13 @@ export async function pollNode(args: {
     }
     case "approval": {
       const id = targetRunId.replace(/^approval:/, "");
-      const { data } = await supabaseAdmin
+      const { data, error } = await supabaseAdmin
         .from("approvals")
         .select("status, decided_by")
         .eq("id", id)
         .eq("user_id", userId)
         .maybeSingle();
+      if (error) return unsettled(error);
       if (!data) return gone("approval");
       if (data.status === "pending") return { done: false };
       if (data.status === "approved") return { done: true, ok: true };

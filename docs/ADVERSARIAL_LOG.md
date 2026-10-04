@@ -109,6 +109,23 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-04 — R255: a workflow step failed, and its work started twice, on a failed status read
+
+**Severity: moderate-to-high.** The last sweep-7 row: "workflow steps fail and re-run". `pollNode`
+asks each subsystem whether the work a step started has finished, and answered every failed read —
+pipeline runs, SQL model builds, ML jobs, notebook runs, sub-workflows, approvals — with `gone()`:
+"the run it started is no longer there". The step finished **failed**. The workflow's retry then
+started its target again while the first was still running, so a pipeline loaded the same rows
+twice; and a pending approval read as gone, failing a run that was waiting on a person.
+
+A status that could not be read is "not settled yet" now; the next poll asks again, and the run's
+own timeout is the backstop, as it already was for a detached step. A row that really is gone still
+fails the step. Twelve tests drive the real poller, two per kind. Three mutants caught against a
+verified-green baseline, control survived — including the check cut from a single case.
+
+**This closes the sweep-7 list** that R234 started: every row in it is fixed, and every fix is one
+statement — a read that failed is not a fact about the thing it was reading.
+
 ### 2026-10-04 — R253: ETL started from the beginning, failed while running, and logged secrets in clear
 
 **Severity: high.** Two sweep-7 rows, plus one the round turned up that is worse than either.

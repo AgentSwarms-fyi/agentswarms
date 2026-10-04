@@ -472,7 +472,7 @@ least twice, not a hypothetical.
        retrain judge compared a candidate with nothing and promoted it.
      - **Destructive on a blip:** ~~the MCP reaper stops every published server~~ (R249: a
        failed `mcp_apps` read made every app look deleted; it reaps none now); ~~the audit purge uses default retention~~
-       (R252: a failed retention read deletes nothing now); ~~a live ETL run is marked failed~~ (R253); workflow steps fail and re-run (`workflows/adapters.server.ts` ~442).
+       (R252: a failed retention read deletes nothing now); ~~a live ETL run is marked failed~~ (R253); ~~workflow steps fail and re-run~~ (R255). **Sweep 7 is closed.**
      - **Writes on a blip:** ~~saved secrets wiped on edit~~ (R254, which also found the
        insert-race retry erased the winner's secrets with no failure at all); ~~ETL cursors re-read from the start~~ (R253, which also found
        that deleting one secret mid-run wrote the run's logs with every other secret in clear).

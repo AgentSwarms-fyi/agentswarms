@@ -64,7 +64,8 @@ because it is about the graph rather than about any one system.
 ### Three shapes of work, and why the difference matters
 
 - **Polled** — the subsystem records its own run row, so the step stores that
-  id and reads it back.
+  id and reads it back. A read of it that fails is "not settled yet", and the
+  next poll asks again; only a row that is really gone fails the step (R255).
 - **Immediate** — the work is over before the call returns (a condition, a
   notification, an HTTP request).
 - **Detached** — the call resolves only when the whole job is done, which can
