@@ -15,6 +15,22 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-05 — R268: unsaved workflow edits
+
+Workflows page, the account's three workflows (r184_badge, R96 notebook step, Test). An edit is
+" EDITED" typed after r184_badge's name, never saved. A throwaway workflow, "R268 spare", was created
+and deleted in each half.
+
+| Step | R267's build | R268 hot-deployed |
+| --- | --- | --- |
+| Load the page | — | no "Unsaved changes" note |
+| Rename the spare, then **Save** | — | note shown, then "Saved" and the note gone; the list shows the new name |
+| Edit r184_badge, click R96 | **R96 opened at once; back on r184_badge the edit was gone** | "Discard the changes to "r184_badge"?" — **Cancel** kept "r184_badge EDITED" |
+| Edit r184_badge, New workflow → Create | — | the same question; **Cancel** created nothing (still three workflows) |
+| Edit r184_badge, delete the spare from the list | **the editor emptied, then reopened r184_badge as saved: the edit gone** | "Workflow deleted"; the editor kept "r184_badge EDITED" and its note |
+| Delete the typed text by hand | — | the note went |
+| Edit, click R96, **Discard changes** | — | R96 opened; r184_badge reopened as saved, with no question |
+
 ## 2026-10-04 — R267: which way Insert cells starts
 
 Fixture workbook **R246 last sheet race** (`61e4fe80…`). A selection, then the cell menu's

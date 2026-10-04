@@ -109,6 +109,37 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-05 — R268: unsaved steps replaced without a word, and a delete that emptied the wrong editor
+
+**Severity: moderate (lost work, silently).** The workflow editor kept no record of what was saved, so
+nothing could tell it an edit was pending. Driven on R267's build: with "r184_badge" renamed and not
+saved, clicking another workflow in the list loaded it at once, and going back showed the old name —
+the edit gone, no question asked. Creating a workflow did the same. And reading `removeWorkflow` found
+worse: it deleted whichever row's bin was pressed but **always emptied the editor**, so deleting a
+throwaway workflow while editing r184_badge threw r184_badge's unsaved edits away, and the list's
+reload then opened the first workflow in it.
+
+Now `savedForm` (in `lib/workflows.ts`) writes what Save would send as one string — settings, steps,
+arrows, parameters, not the trigger token, which saves itself — and the editor records it when a
+workflow loads and when a save lands (what that save sent, so an edit made while it was in flight stays
+unsaved). The difference shows as **Unsaved changes** beside Save, with a note that Run now runs the
+saved version. Picking or creating another workflow asks first through the app's own dialog, by the
+name the workflow is saved under (the first version quoted the half-edited name; caught in the drive
+and changed); deleting only empties the editor when the open workflow is the one deleted. Leaving the
+page by a link or closing the tab does not ask yet — queued.
+
+Eleven mutants caught against a verified-green baseline (the steps left out of `savedForm`, the token
+counted, a graph without params unlike one with none, the list or create not asking, a cancel ignored,
+asking with nothing unsaved, any delete emptying the editor, a save not recorded, the edited name in the
+question), control survived. The page has no component tests; the wiring is pinned by reading the
+source, as R246's guard is, and the behaviour by the drive.
+
+Driven on R268 hot-deployed: no note on load; a rename showed the note and **Save** cleared it; with
+r184_badge edited, clicking R96 asked "Discard the changes to "r184_badge"?" and Cancel kept the edit;
+a create asked the same and Cancel made nothing; deleting the throwaway workflow kept r184_badge and its
+edit; deleting the typed text cleared the note; Discard changes opened R96 and left r184_badge as saved.
+The throwaway workflow was created and deleted in the round. Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-04 — R267: Insert cells that always pushed the column down, and two rows already done
 
 **Severity: low (a default that does the larger thing).** Insert cells… and Delete cells… always

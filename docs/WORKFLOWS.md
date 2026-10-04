@@ -187,6 +187,17 @@ ticked and flagged, rather than vanishing from the step that depends on it.
 What stays free text is text that really is text: a SQL statement, a
 notification, a question for a person, a JSON body.
 
+### Unsaved changes
+
+Edits stay in the editor until **Save**, and the editor says so: **Unsaved
+changes** shows beside Save whenever the steps, arrows, parameters or settings
+differ from what was saved, and goes when they match again — undoing an edit by
+hand counts. **Run now** runs the saved version, as its note says. Picking
+another workflow, or creating one, asks first — "Discard the changes to
+"Nightly load"?" — and Cancel keeps them. Deleting a different workflow from the
+list leaves the open one alone (R268); before, it emptied the editor, unsaved
+edits and all. Leaving the page by a link, or closing the tab, does not ask yet.
+
 ## Retries and timeouts
 
 Each step carries `retries` (attempts after the first, up to 10) and

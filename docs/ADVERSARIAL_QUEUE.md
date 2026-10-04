@@ -587,9 +587,12 @@ to the active cell). Open from that round:
     swallowed: the kernel container may be left running until the idle
     reaper. The lakehouse's Spark query poll captures the token when the
     query starts, so a query running across a refresh can fail its polls.
-  - **Switching workflows drops unsaved edits without asking.** Picking
+  - ~~**Switching workflows drops unsaved edits without asking.** Picking
     another workflow loads it over the open one; there is no "unsaved
-    changes" question.
+    changes" question.~~ **Fixed in R268**, with creating one, and deleting a
+    different workflow, which emptied the editor too. **Still open:** leaving
+    the Workflows page by a link or closing the tab drops unsaved edits without
+    asking (the editor now knows they are there: `savedForm`).
   - **Not driven in the UI** (the fix is the same line, the test pins it):
     changing an outcome source, a warm deployment's idle time and copies, an
     experiment's description, a connection import's table pick, the BI Git
