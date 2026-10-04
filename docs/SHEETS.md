@@ -331,6 +331,11 @@ A sheet tab's menu (the arrow on the tab) renames, duplicates, moves, hides and 
   after the delete, and a delete that turns out to have taken the last sheet puts it back whole,
   cells and all, and says so (R246). If a workbook does end up with no sheets, it says that
   plainly and offers to add one, rather than sitting on "Opening…".
+- **Delete** asks first, and says what goes. A grid sheet's cells go with it, and formulas
+  elsewhere that refer to it show #REF!. A table sheet has no cells: only the sheet goes, and the
+  lakehouse table (or the query's tables, or the sheet a pivot sums up) stays; a table Sheets held
+  — rows uploaded or imported into it — can be changed from the Lakehouse again. Formulas and
+  pivots that use a deleted table sheet show an error.
 - Moving a tab passes over the hidden sheets beside it, and Find leaves hidden sheets out, as
   Excel's does.
 - Only grid sheets can be hidden or duplicated for now.

@@ -15,6 +15,16 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-05 — R273: what a sheet's delete confirmation says
+
+Each dialog opened from the sheet tab's menu → Delete, read, and **cancelled**; no sheet was deleted.
+
+| Sheet | R272's build | R273 hot-deployed |
+| --- | --- | --- |
+| "Query" in **R200 table rounding** (a lakehouse query) | "Its cells go with it. Formulas elsewhere that refer to it will show #REF!." | "Only the sheet goes: the lakehouse tables it reads stay. Formulas and pivots that use this sheet will show an error." |
+| "HeldRows" in **R126 held table** (uploaded `held_rows.csv`, held) | — | "Only the sheet goes: the lakehouse table r126_held.held_rows stays. Sheets stops holding the table, so it can be changed from the Lakehouse again. Formulas and pivots that use this sheet will show an error." |
+| "Sheet1" in **R200 table rounding** (grid) | — | unchanged: "Its cells go with it. Formulas elsewhere that refer to it will show #REF!." |
+
 ## 2026-10-05 — R271: a notebook kernel's token, and a Stop that failed
 
 Python notebook **r213 double run**, its counter cell (`n = globals().get("n", 0) + 1`) to start the

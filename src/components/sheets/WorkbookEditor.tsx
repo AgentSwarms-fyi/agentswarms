@@ -96,7 +96,7 @@ import {
   sheetsReorderTabs,
 } from "@/utils/sheets.functions";
 import { selRange, type Selection } from "@/lib/sheets/selection";
-import { shownInstead } from "@/lib/sheets/sheetTabs";
+import { deleteSheetMessage, shownInstead } from "@/lib/sheets/sheetTabs";
 import { LinkDialog } from "./LinkDialog";
 import { NoteDialog } from "./NoteDialog";
 import { PasteSpecialDialog } from "./PasteSpecialDialog";
@@ -1831,7 +1831,7 @@ export function WorkbookEditor({
       return toast.error("Unhide another sheet first: a workbook keeps at least one sheet showing");
     const ok = await confirmAsk({
       title: `Delete "${t.name}"?`,
-      body: "Its cells go with it. Formulas elsewhere that refer to it will show #REF!.",
+      body: deleteSheetMessage(t.kind, wb.tableConfigs[t.id]),
       actionLabel: "Delete sheet",
     });
     afterDialog();

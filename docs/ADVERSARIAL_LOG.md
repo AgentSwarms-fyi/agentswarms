@@ -109,6 +109,33 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-05 — R273: "Its cells go with it", said of a sheet that has none
+
+**Severity: low (a confirmation that misstates what a delete does).** From the queue. Every sheet's
+delete confirmation said "Its cells go with it. Formulas elsewhere that refer to it will show #REF!." A
+table sheet has no cells: its rows are read from the lakehouse, which keeps them, and when Sheets held
+the table — rows uploaded or imported into it — deleting the sheet releases it, so the Lakehouse may
+change it again (`owned.server`: ownership is read from the sheets themselves). Neither was said.
+
+`deleteSheetMessage` (in `sheetTabs.ts`) now says what goes, by the sheet's kind and source: a grid
+sheet's cells, as before; a lakehouse table sheet's "the lakehouse table schema.table stays", plus
+"Sheets stops holding the table, so it can be changed from the Lakehouse again" when it was an upload
+or a warehouse import; a pivot's sheet it sums up; a query's tables. Which error a formula shows once
+its table sheet is gone depends on how it names the table (a bare unknown name is `#NAME?`; the
+column-reference case was not checked), so the message says "will show an error" rather than name one. Five mutants caught against a verified-green baseline (a table sheet told
+its cells go, a catalog table called held, an upload not, a pivot not naming its sheet, the editor's old
+sentence), control survived.
+
+Driven, each dialog opened and **cancelled** — nothing was deleted: on R272's build the "Query" table
+sheet of "R200 table rounding" read "Its cells go with it"; on R273 hot-deployed it reads "Only the sheet
+goes: the lakehouse tables it reads stay…", "HeldRows" in "R126 held table" (uploaded from
+`held_rows.csv`) reads "…the lakehouse table r126_held.held_rows stays. Sheets stops holding the table,
+so it can be changed from the Lakehouse again…", and a grid sheet's is unchanged. Rows in
+[UI test results](./UI_TEST_RESULTS.md).
+
+Also struck: "Editing a sheet as a pivot releases what it held" — the server has refused it since
+R129-R130.
+
 ### 2026-10-05 — R272: a what-if that kept the catalog from before it loaded
 
 **Severity: low (a false refusal, timing-dependent).** From the queue. `runScenarioAt`, the AI Analyst's
