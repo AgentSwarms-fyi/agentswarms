@@ -590,9 +590,14 @@ to the active cell). Open from that round:
   - ~~**Switching workflows drops unsaved edits without asking.** Picking
     another workflow loads it over the open one; there is no "unsaved
     changes" question.~~ **Fixed in R268**, with creating one, and deleting a
-    different workflow, which emptied the editor too. **Still open:** leaving
+    different workflow, which emptied the editor too. ~~**Still open:** leaving
     the Workflows page by a link or closing the tab drops unsaved edits without
-    asking (the editor now knows they are there: `savedForm`).
+    asking (the editor now knows they are there: `savedForm`).~~ **Fixed in
+    R269** with the router's `useBlocker`.
+  - **An in-app link still drops unsaved work on Swarms and Sheets** (found
+    writing R269): both guard the tab with `beforeunload`, neither a router
+    navigation. Sheets saves as it goes, so its window is the save in flight;
+    a swarm's unsaved canvas is the larger one.
   - **Not driven in the UI** (the fix is the same line, the test pins it):
     changing an outcome source, a warm deployment's idle time and copies, an
     experiment's description, a connection import's table pick, the BI Git

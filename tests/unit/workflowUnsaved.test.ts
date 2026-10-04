@@ -81,6 +81,12 @@ describe("the editor", () => {
     expect(src).toContain("workflows.find((w) => w.id === selectedId)?.name");
   });
 
+  it("asks before a link leaves the page, and lets the browser ask before the tab closes (R269)", () => {
+    expect(src).toMatch(
+      /useBlocker\(\{\s*shouldBlockFn: async \(\) => !\(await mayDiscard\("Leaving this page drops them\."\)\),\s*enableBeforeUnload: unsaved,\s*disabled: !unsaved,\s*\}\);/,
+    );
+  });
+
   it("empties the editor only when the open workflow is the one deleted", () => {
     expect(src).toMatch(/if \(w\.id === selectedId\) \{\s*setSelectedId\(null\);/);
   });

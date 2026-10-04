@@ -109,6 +109,30 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-05 — R269: unsaved workflow edits lost to a link or a closed tab
+
+**Severity: moderate (lost work), the half R268 queued.** With "Unsaved changes" showing, the sidebar's
+Dashboard link left the Workflows page at once on R268's build, and the edit went with it; closing or
+reloading the tab did the same. The page now registers the router's `useBlocker` while — and only while
+— something is unsaved: a link asks the question a pick asks ("Discard the changes to "r184_badge"? …
+Leaving this page drops them."), and the blocker's `enableBeforeUnload` gives a closing or reloading
+tab the browser's own question. Swarms and Sheets guard the tab with a hand-written `beforeunload`;
+neither guards an in-app link, which is the next place to look.
+
+Four mutants caught against a verified-green baseline (no tab-close question, the blocker on with
+nothing unsaved, a discard that blocks and a cancel that leaves, no blocker), control survived — all
+against the source, as R268's are.
+
+Driven on R269 hot-deployed. With nothing unsaved the link left at once (no false question). With an
+edit, the link asked; **Cancel** kept the page, the edit and its note; **Discard changes** left for the
+Dashboard. The tab-close half was checked in the page, because the browser pane's own navigation does
+not raise the native prompt: a `beforeunload` event dispatched on the page was let through when nothing
+was unsaved and blocked (`defaultPrevented`) with the edit pending. **One drive did not ask**: the first,
+on the first load after the container restarted, where the edit was not read back before the click.
+The same sequence asked in four repeats, including the full original order, so the likeliest reading
+is that the typing landed before the page hydrated and nothing was unsaved — not confirmed. Rows in
+[UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-05 — R268: unsaved steps replaced without a word, and a delete that emptied the wrong editor
 
 **Severity: moderate (lost work, silently).** The workflow editor kept no record of what was saved, so

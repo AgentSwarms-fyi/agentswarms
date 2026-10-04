@@ -13,7 +13,7 @@
 // wrapped over three lines, pushed the canvas down the screen, and said
 // nothing about which of them belonged together.
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useBlocker } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
@@ -493,6 +493,15 @@ function WorkflowsPage() {
       }),
     );
   }
+
+  // Leaving the page by a link asks as picking another workflow does, and
+  // closing or reloading the tab gets the browser's own question. FOUND IN
+  // R269 (queued by R268): either one dropped unsaved edits without a word.
+  useBlocker({
+    shouldBlockFn: async () => !(await mayDiscard("Leaving this page drops them.")),
+    enableBeforeUnload: unsaved,
+    disabled: !unsaved,
+  });
 
   async function pick(id: string) {
     if (id === selectedId) return;

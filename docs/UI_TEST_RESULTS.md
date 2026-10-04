@@ -15,6 +15,24 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-05 — R269: leaving the Workflows page with unsaved edits
+
+Workflows page, r184_badge open, " EDITED" typed after its name and not saved, then the sidebar's
+**Dashboard** link.
+
+| Step | R268's build | R269 hot-deployed |
+| --- | --- | --- |
+| Nothing unsaved, click Dashboard | — | left at once |
+| Edit, click Dashboard | **left at once** (`/dashboard`): the edit gone | "Discard the changes to "r184_badge"? They are not saved. Leaving this page drops them." |
+| … **Cancel** | — | still on `/workflows`, "r184_badge EDITED", note shown |
+| … **Discard changes** | — | on `/dashboard` |
+| `beforeunload` dispatched in the page | — | not blocked when clean; **blocked** (`defaultPrevented: true`) with the edit pending |
+
+The browser pane's own navigation does not raise the native "Leave site?" prompt, so the tab-close
+half was read from the event, not from a dialog. The first drive on R269 did not ask; it ran on the
+first load after the restart without reading the edit back, and four repeats of the same sequence
+all asked.
+
 ## 2026-10-05 — R268: unsaved workflow edits
 
 Workflows page, the account's three workflows (r184_badge, R96 notebook step, Test). An edit is

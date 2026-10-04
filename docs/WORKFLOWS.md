@@ -196,7 +196,8 @@ hand counts. **Run now** runs the saved version, as its note says. Picking
 another workflow, or creating one, asks first — "Discard the changes to
 "Nightly load"?" — and Cancel keeps them. Deleting a different workflow from the
 list leaves the open one alone (R268); before, it emptied the editor, unsaved
-edits and all. Leaving the page by a link, or closing the tab, does not ask yet.
+edits and all. Leaving the page by a link asks the same question, and closing or
+reloading the tab gets the browser's own "Leave site?" (R269).
 
 ## Retries and timeouts
 
