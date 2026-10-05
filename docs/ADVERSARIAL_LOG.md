@@ -109,6 +109,30 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-05 — R289: two tabs on one workflow, a Save undoing the other's rename
+
+**Severity: high (silent loss of saved work), sweep 9.** `workflowSave` updated the whole workflow over
+whatever was stored. Driven on R288's build with `r184_badge` in two tabs: A renamed it "r184_badge A289"
+and saved ("Saved"); B, opened before, set the timeout to 721 minutes in Settings and saved ("Saved").
+Reloaded, it was "r184_badge" again — A's saved rename gone.
+
+Every writer of `workflows` was read first. Runs write `last_run_*`, the scheduler's claim writes
+`next_run_at`, the trigger token its hash — none touches `updated_at`, and the table has no trigger, so
+only the save moves it and it is the version, as on BI reports (R284). The save takes
+`expectedUpdatedAt`, updates only where it matches, and returns the new one; when nothing matched it
+tells a workflow that moved on (stale) from one that is gone. A test holds `run.server.ts` to never
+writing `updated_at`, so a later change cannot quietly turn every run into a "changed elsewhere". The
+page keeps the version, says "Changed elsewhere, not saved" beside Save with **Reload** (it re-runs the
+load) and **Overwrite with mine**. Nine mutants caught against a verified-green baseline, control
+survived — among them a run that writes `updated_at`.
+
+Driven on R289 hot-deployed, both tabs reloaded: A's two renames saved in turn. B's timeout of 720 was
+refused — "This workflow was changed in another tab or session after this page read it", the chip, still
+"Unsaved changes" (a first Save click landed while the Settings dialog was closing and did nothing; the
+second was refused). The store, read in A: "r184_badge A289b". B's **Overwrite with mine** saved its
+version (the old name, 720 minutes — the workflow as it began); A, then stale, was refused in turn and
+its **Reload** showed "r184_badge" and 720. Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-05 — R288: two tabs on one swarm, a Save undoing the other's rename
 
 **Severity: high (silent loss of saved work), sweep 9.** The canvas saves name, nodes and edges with a

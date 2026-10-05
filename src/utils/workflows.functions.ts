@@ -197,6 +197,11 @@ export const workflowSave = createServerFn({ method: "POST" })
       .object({
         accessToken: z.string().min(1),
         id: z.string().uuid(),
+        // The updated_at this page read or last saved. Only a save sets it
+        // (runs and the scheduler write other columns, and no trigger moves
+        // it), so it is the version: the update lands only on it (R289). Left
+        // out, the save overwrites: "Overwrite with mine".
+        expectedUpdatedAt: z.string().min(1).optional(),
         name: z.string().trim().min(1).max(WORKFLOW_NAME_MAX),
         description: z.string().trim().max(2000).nullable().optional(),
         schedule: z.enum(["manual", "hourly", "daily", "weekly", "cron"]),
@@ -228,65 +233,90 @@ export const workflowSave = createServerFn({ method: "POST" })
       })
       .parse(input),
   )
-  .handler(async ({ data }): Promise<Fail | { ok: true }> => {
-    const userId = await resolveCaller(data.accessToken);
-    const graph: WorkflowGraph = {
-      nodes: data.nodes as WorkflowNode[],
-      edges: data.edges,
-      params: data.params,
-    };
-    const invalid = validateWorkflow({ name: data.name, graph });
-    if (invalid) return { ok: false, error: invalid };
-    if (data.schedule === "cron") {
-      if (!data.cronExpr?.trim()) {
-        return { ok: false, error: "A cron schedule needs an expression" };
+  .handler(
+    async ({ data }): Promise<(Fail & { stale?: boolean }) | { ok: true; updatedAt: string }> => {
+      const userId = await resolveCaller(data.accessToken);
+      const graph: WorkflowGraph = {
+        nodes: data.nodes as WorkflowNode[],
+        edges: data.edges,
+        params: data.params,
+      };
+      const invalid = validateWorkflow({ name: data.name, graph });
+      if (invalid) return { ok: false, error: invalid };
+      if (data.schedule === "cron") {
+        if (!data.cronExpr?.trim()) {
+          return { ok: false, error: "A cron schedule needs an expression" };
+        }
+        try {
+          validateCron(data.cronExpr, data.timezone ?? undefined);
+        } catch (e) {
+          return { ok: false, error: (e as Error).message };
+        }
       }
-      try {
-        validateCron(data.cronExpr, data.timezone ?? undefined);
-      } catch (e) {
-        return { ok: false, error: (e as Error).message };
+
+      // Every target must still be the caller's own. Checked at SAVE as well as
+      // at run, because "it silently stopped running that pipeline" is a much
+      // worse discovery than a refusal at the moment you press Save.
+      const missing = await missingTargets(userId, graph, data.id);
+      if (missing) return { ok: false, error: missing };
+
+      const { nextWorkflowRunAt } = await import("@/utils/workflows/run.server");
+      const reclock = await scheduleDiffers(data.id, data);
+      let q = supabaseAdmin
+        .from("workflows")
+        .update({
+          name: data.name,
+          description: data.description ?? null,
+          graph: graph as unknown as Json,
+          schedule: data.schedule,
+          cron_expr: data.schedule === "cron" ? (data.cronExpr ?? null) : null,
+          timezone: data.timezone ?? null,
+          overlap: data.overlap,
+          notify_on: data.notifyOn,
+          timeout_minutes: data.timeoutMinutes,
+          params: data.params as unknown as Json,
+          is_active: data.isActive,
+          // A schedule that changed needs a new clock; one that did not is left
+          // alone so saving a label does not postpone tonight's run.
+          ...(reclock
+            ? {
+                next_run_at:
+                  data.schedule === "manual"
+                    ? null
+                    : nextWorkflowRunAt(data.schedule, new Date(), data.cronExpr, data.timezone),
+              }
+            : {}),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", data.id)
+        .eq("user_id", userId);
+      if (data.expectedUpdatedAt) q = q.eq("updated_at", data.expectedUpdatedAt);
+      const { data: row, error } = await q.select("id, updated_at").maybeSingle();
+      if (error) return { ok: false, error: error.message };
+      if (!row) {
+        // Nothing matched: the workflow is gone, or it moved on since this page
+        // read it. Only the second is a stale save.
+        if (data.expectedUpdatedAt) {
+          const { data: still, error: stillError } = await supabaseAdmin
+            .from("workflows")
+            .select("id")
+            .eq("id", data.id)
+            .eq("user_id", userId)
+            .maybeSingle();
+          if (stillError) return { ok: false, error: stillError.message };
+          if (still) {
+            return {
+              ok: false,
+              stale: true,
+              error: "This workflow was changed in another tab or session after this page read it",
+            };
+          }
+        }
+        return { ok: false, error: "Workflow not found" };
       }
-    }
-
-    // Every target must still be the caller's own. Checked at SAVE as well as
-    // at run, because "it silently stopped running that pipeline" is a much
-    // worse discovery than a refusal at the moment you press Save.
-    const missing = await missingTargets(userId, graph, data.id);
-    if (missing) return { ok: false, error: missing };
-
-    const { nextWorkflowRunAt } = await import("@/utils/workflows/run.server");
-    const reclock = await scheduleDiffers(data.id, data);
-    const { error } = await supabaseAdmin
-      .from("workflows")
-      .update({
-        name: data.name,
-        description: data.description ?? null,
-        graph: graph as unknown as Json,
-        schedule: data.schedule,
-        cron_expr: data.schedule === "cron" ? (data.cronExpr ?? null) : null,
-        timezone: data.timezone ?? null,
-        overlap: data.overlap,
-        notify_on: data.notifyOn,
-        timeout_minutes: data.timeoutMinutes,
-        params: data.params as unknown as Json,
-        is_active: data.isActive,
-        // A schedule that changed needs a new clock; one that did not is left
-        // alone so saving a label does not postpone tonight's run.
-        ...(reclock
-          ? {
-              next_run_at:
-                data.schedule === "manual"
-                  ? null
-                  : nextWorkflowRunAt(data.schedule, new Date(), data.cronExpr, data.timezone),
-            }
-          : {}),
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", data.id)
-      .eq("user_id", userId);
-    if (error) return { ok: false, error: error.message };
-    return { ok: true };
-  });
+      return { ok: true, updatedAt: String(row.updated_at) };
+    },
+  );
 
 async function scheduleDiffers(
   id: string,

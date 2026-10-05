@@ -15,6 +15,20 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-05 — R289: two tabs on one workflow
+
+Workflows, `r184_badge` (timeout 720 minutes), open in two tabs of the browser pane, A and B, both loaded
+before either save.
+
+| Step | R288's build | R289 hot-deployed |
+| --- | --- | --- |
+| A: renamed, **Save** (after R289, twice in turn) | "Saved" | "Saved" both times, no chip |
+| B: Settings, timeout changed, **Done**, **Save** | "Saved" | "This workflow was changed in another tab or session after this page read it"; "Changed elsewhere, not saved"; still "Unsaved changes" |
+| A: reloaded | **"r184_badge" — A's saved rename gone** | "r184_badge A289b" — B's save refused, not made |
+| B: **Overwrite with mine** | — | "Saved"; "r184_badge", 720 minutes |
+| A: renamed, **Save** | — | refused in turn |
+| A: **Reload** | — | "r184_badge", 720 minutes, no chip |
+
 ## 2026-10-05 — R288: two tabs on one swarm
 
 Agent Swarms, the canvas of "R109 chat echo" (two nodes), open in two tabs of the browser pane, A and B,

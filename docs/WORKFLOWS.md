@@ -199,6 +199,12 @@ list leaves the open one alone (R268); before, it emptied the editor, unsaved
 edits and all. Leaving the page by a link asks the same question, and closing or
 reloading the tab gets the browser's own "Leave site?" (R269).
 
+Save writes only over the version the editor opened. If the workflow was saved
+from another tab or session since, Save is refused — "This workflow was changed
+in another tab or session after this page read it" — and beside Save the editor
+reads "Changed elsewhere, not saved", with **Reload** and **Overwrite with mine**
+(R289). Runs and the scheduler do not count: only a save moves the version.
+
 ## Retries and timeouts
 
 Each step carries `retries` (attempts after the first, up to 10) and

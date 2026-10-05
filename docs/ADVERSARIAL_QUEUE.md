@@ -562,7 +562,9 @@ least twice, not a hypothetical.
      the page compares the stored name, nodes and edges with what it read, then updates on that
      read's `updated_at`), ~~**ETL pipelines**~~ (**R287**: the
      same guard; the returned fingerprint is taken from the row as written, since `alerts` is
-     written only when sent), **workflows**.
+     written only when sent), ~~**workflows**~~ (**R289**: like BI reports — only the save sets
+     `updated_at` and no trigger moves it, so it is the version; a test holds the run code to
+     never writing it).
    - **Budgets** (sweep 8's open note) is the same family inside one tab: its per-keystroke writes
      can land out of order.
 

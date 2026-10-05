@@ -12,7 +12,7 @@
 // working the moment there were more than about six kinds — fifteen buttons
 // wrapped over three lines, pushed the canvas down the screen, and said
 // nothing about which of them belonged together.
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, useBlocker } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
@@ -233,6 +233,12 @@ function WorkflowsPage() {
   // What the open workflow is saved as (savedForm), set when it loads and when
   // a save lands; null while nothing is open.
   const [savedAs, setSavedAs] = useState<string | null>(null);
+  // The version (updated_at) this page read or last saved for the open
+  // workflow (R289, sweep 9). Save lands only on it; refused, the page says so
+  // and offers Reload or Overwrite with mine. A Reload re-runs the load.
+  const versionRef = useRef<string | null>(null);
+  const [stale, setStale] = useState(false);
+  const [loadNonce, setLoadNonce] = useState(0);
   const unsaved = useMemo(
     () => savedAs !== null && savedAs !== savedForm(settings, graph),
     [savedAs, settings, graph],
@@ -337,6 +343,8 @@ function WorkflowsPage() {
       const loadedGraph = autoLayout(
         (w.graph ?? { nodes: [], edges: [] }) as unknown as WorkflowGraph,
       );
+      versionRef.current = w.updated_at || null;
+      setStale(false);
       setSettings(loaded);
       setGraph(loadedGraph);
       setSavedAs(savedForm(loaded, loadedGraph));
@@ -349,7 +357,7 @@ function WorkflowsPage() {
       live = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [getFn, signedIn, selectedId, loadRuns]);
+  }, [getFn, signedIn, selectedId, loadRuns, loadNonce]);
 
   // While a run is live, keep asking. The server nudges the run along on read,
   // so this is what makes a manual run visibly move rather than sit still.
@@ -425,7 +433,7 @@ function WorkflowsPage() {
     }));
   };
 
-  async function save() {
+  async function save(overwrite = false) {
     if (!selectedId) return;
     const invalid = validateWorkflow({ name: settings.name, graph });
     if (invalid) return toast.error(invalid);
@@ -448,10 +456,15 @@ function WorkflowsPage() {
           nodes: graph.nodes,
           edges: graph.edges,
           params: graph.params ?? [],
+          expectedUpdatedAt: overwrite ? undefined : (versionRef.current ?? undefined),
         },
       });
-      if (!res.ok) toast.error(res.error);
-      else {
+      if (!res.ok) {
+        if (res.stale) setStale(true);
+        toast.error(res.error);
+      } else {
+        versionRef.current = res.updatedAt;
+        setStale(false);
         setSavedAs(sent);
         toast.success("Saved");
         void reload();
@@ -707,6 +720,33 @@ function WorkflowsPage() {
                     )}
                     Run now
                   </Button>
+                  {stale && (
+                    <span
+                      className="inline-flex items-center gap-1 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-xs"
+                      title="This workflow was changed in another tab or session, so Save did not write over it."
+                      data-testid="workflow-stale"
+                    >
+                      Changed elsewhere, not saved
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 px-1.5 text-xs"
+                        disabled={saving}
+                        onClick={() => setLoadNonce((n) => n + 1)}
+                      >
+                        Reload
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 px-1.5 text-xs"
+                        disabled={saving}
+                        onClick={() => void save(true)}
+                      >
+                        Overwrite with mine
+                      </Button>
+                    </span>
+                  )}
                   {unsaved && (
                     <span
                       className="text-xs text-amber-600 dark:text-amber-400"
