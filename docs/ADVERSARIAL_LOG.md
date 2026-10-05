@@ -109,6 +109,20 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-05 — R291: a gate failed three times on one test's start-up cost
+
+**Severity: low (a false red in the gate), test infrastructure.** `tests/unit/nl2sqlEval.test.ts` timed out
+at 20 s on its first case, "count-rows", in the full gate after R271, R282 and R290 — each time passing
+alone, each time costing a full rerun. Timed alone, "count-rows" took 916 ms against 12–105 ms for every
+other case: it was the one paying for parsing the sample CSVs and starting the native engine, and under a
+625-file parallel run that one-off cost is what crossed 20 s.
+
+The cost now sits in a `beforeAll` that runs the first question once, with its own 120 s allowance, so
+each case times only its own query: alone, "count-rows" now takes 118 ms, the same as its neighbours.
+No mutation harness: the failure is load-dependent and cannot be made to happen on demand, so the timing
+is the evidence. No UI to drive. The other phantom timeouts seen this session (`etlSparkCodegen` once,
+`sheetsSamples` once) were not examined here; each passed alone.
+
 ### 2026-10-05 — R290: two tabs on one MCP server's source, an autosave undoing the other's
 
 **Severity: high (silent loss of saved work), sweep 9.** The MCP builder autosaves the source and packages
