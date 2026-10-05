@@ -15,6 +15,21 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-05 — R287: two tabs on one ETL pipeline
+
+ETL Pipelines, `r214_after` (timeout 30 minutes), open in two tabs of the browser pane, A and B, both
+loaded before either save.
+
+| Step | R286's build | R287 hot-deployed |
+| --- | --- | --- |
+| A: renamed "r214_after A287", **Save** | "Saved" | "Saved" |
+| A: Settings, timeout 32, **Save** | — | "Saved", no banner — the fingerprint the first save returned matched |
+| B: Settings, timeout changed, **Save** | "Saved" | "This pipeline was changed in another tab or session after this page read it"; the banner |
+| The list, reloaded | **"r214_after" — A's saved rename gone** | "r214_after A287" — B's save refused, not made |
+| B: **Overwrite with mine** | — | "Saved"; "r214_after", timeout 30 |
+| A (opened before that): renamed, **Save** | — | refused in turn |
+| A: **Reload** | — | "r214_after", timeout 30, no banner, Save disabled |
+
 ## 2026-10-05 — R286: two tabs on one semantic model
 
 Semantic Layer, `stg_revenue` (label "stg_revenue", no description), Source & joins, open in two tabs of

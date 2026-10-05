@@ -109,6 +109,32 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-05 — R287: two tabs on one ETL pipeline, a Save undoing the other's rename
+
+**Severity: high (silent loss of saved work), sweep 9.** `saveEtlPipeline` updated the whole pipeline over
+whatever was stored. Driven on R286's build with `r214_after` in two tabs: A renamed it "r214_after A287"
+and saved ("Saved"); B, opened before, set the timeout to 31 minutes on Settings and saved ("Saved"). The
+pipeline list then read "r214_after" — A's saved rename gone.
+
+Runs write `last_run_*` and the schedule writes `next_run_at` on this row, so R285's guard again rather
+than `updated_at`. `etlPipelineDefinition` (`src/lib/etlDefinition.ts`) projects the fields the save writes
+and leaves out run state, the next run, the trigger token and the timestamps. `getEtlPipeline` hands the
+editor its fingerprint; the save, which already read the row to re-arm the clock, now reads all of it,
+returns `{ stale: true }` when the fingerprint no longer matches, updates only on the `updated_at` it read
+and returns the fingerprint of the row as written — read back rather than computed from the payload,
+because `alerts` is written only when sent. The editor keeps the fingerprint, shows the banner with
+**Reload** (which also clears its dirty flag) and **Overwrite with mine**, and **Run now**, which saves
+first, does not run after a refused save (read, not driven). Its Save button was `onClick={save}`, which would have handed the
+click event to the new `overwrite` parameter; it calls `save()` now. The create dialog shares the server
+function and narrows the new result type. Ten mutants caught against a verified-green baseline, control
+survived.
+
+Driven on R287 hot-deployed, both tabs reloaded: A's rename saved, then a timeout of 32 on the fingerprint
+the first save returned — accepted. B's timeout of 30 was refused with the reason and the banner; the
+list then read "r214_after A287". A reopened that version; B's **Overwrite with mine** saved B's version
+(name "r214_after", timeout 30 — the pipeline as it began); A's next rename was refused, and its
+**Reload** showed "r214_after" and 30 with Save disabled. Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-05 — R286: two tabs on one semantic model, a Save undoing the other's
 
 **Severity: high (silent loss of saved work), sweep 9.** `semanticUpsertModel` updated the whole

@@ -23,6 +23,8 @@ import {
 import { compilePipeline, engineOf, pipelineRequirements } from "@/utils/etl/compile";
 import { changedSinceRun } from "@/utils/etl/runDrift";
 import { chainTargetsOf, validateChainTargets } from "@/lib/etlChain";
+import { etlPipelineDefinition } from "@/lib/etlDefinition";
+import { fingerprintOf } from "@/lib/definitionFingerprint";
 import { CONTINUOUS_SCHEDULE, canRunContinuously } from "@/utils/etl/continuous";
 import {
   cancelEtlRun,
@@ -100,6 +102,11 @@ const UpsertSchema = z.object({
   chain_ml_schedules: z.array(z.string().uuid()).max(50).optional(),
   is_active: z.boolean().optional(),
   timeout_minutes: z.number().int().min(1).max(240).optional(),
+  /**
+   * The fingerprint of the definition the editor opened or last saved. Left
+   * out, the save overwrites: "Overwrite with mine" (R287).
+   */
+  expected_fingerprint: z.string().length(64).optional(),
 });
 
 export type EtlPipelineSummary = Pick<
@@ -244,19 +251,28 @@ export const getEtlPipeline = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) =>
     z.object({ access_token: z.string().min(1), id: z.string().uuid() }).parse(input),
   )
-  .handler(async ({ data }): Promise<{ pipeline: Omit<EtlPipelineRow, "trigger_token_hash"> }> => {
-    const userId = await resolveCaller(data.access_token);
-    const { data: row, error } = await supabaseAdmin
-      .from("etl_pipelines")
-      .select("*")
-      .eq("id", data.id)
-      .eq("user_id", userId)
-      .maybeSingle();
-    if (error) throw new Error(error.message);
-    if (!row) throw new Error("Pipeline not found");
-    const { trigger_token_hash: _drop, ...safe } = row;
-    return { pipeline: safe };
-  });
+  .handler(
+    async ({
+      data,
+    }): Promise<{
+      pipeline: Omit<EtlPipelineRow, "trigger_token_hash"> & { fingerprint: string };
+    }> => {
+      const userId = await resolveCaller(data.access_token);
+      const { data: row, error } = await supabaseAdmin
+        .from("etl_pipelines")
+        .select("*")
+        .eq("id", data.id)
+        .eq("user_id", userId)
+        .maybeSingle();
+      if (error) throw new Error(error.message);
+      if (!row) throw new Error("Pipeline not found");
+      const { trigger_token_hash: _drop, ...safe } = row;
+      // With its definition's fingerprint, which a save sends back (R287).
+      return {
+        pipeline: { ...safe, fingerprint: await fingerprintOf(etlPipelineDefinition(safe)) },
+      };
+    },
+  );
 
 /** What a continuous pipeline's card shows while its run is live. */
 export type EtlLiveRun = {
@@ -453,7 +469,10 @@ export const saveEtlPipeline = createServerFn({ method: "POST" })
   .handler(
     async ({
       data,
-    }): Promise<{ id: string; source_code: string; compile_error: string | null }> => {
+    }): Promise<
+      | { id: string; source_code: string; compile_error: string | null; fingerprint: string }
+      | { stale: true; error: string }
+    > => {
       const userId = await resolveCaller(data.access_token);
 
       // Visual pipelines compile on every save. A half-built canvas must still
@@ -567,16 +586,29 @@ export const saveEtlPipeline = createServerFn({ method: "POST" })
       if (data.id) {
         const { data: existing } = await supabaseAdmin
           .from("etl_pipelines")
-          .select("id, schedule, cron_expr, timezone")
+          .select("*")
           .eq("id", data.id)
           .eq("user_id", userId)
           .maybeSingle();
         if (!existing) throw new Error("Pipeline not found");
+        // FOUND IN R287: the save wrote over whatever was stored, so a save
+        // from another tab undid this one's. Runs write this row too, so its
+        // updated_at cannot say who changed it; the definition's fingerprint
+        // can, and the update then lands only on the row read here.
+        if (
+          data.expected_fingerprint &&
+          (await fingerprintOf(etlPipelineDefinition(existing))) !== data.expected_fingerprint
+        ) {
+          return {
+            stale: true,
+            error: "This pipeline was changed in another tab or session after this page read it",
+          };
+        }
         const clockChanged =
           payload.schedule !== existing.schedule ||
           payload.cron_expr !== existing.cron_expr ||
           payload.timezone !== existing.timezone;
-        const { error } = await supabaseAdmin
+        const { data: updated, error } = await supabaseAdmin
           .from("etl_pipelines")
           .update({
             ...payload,
@@ -594,8 +626,16 @@ export const saveEtlPipeline = createServerFn({ method: "POST" })
               : {}),
           })
           .eq("id", data.id)
-          .eq("user_id", userId);
+          .eq("user_id", userId)
+          .eq("updated_at", existing.updated_at)
+          .select("*")
+          .maybeSingle();
         if (error) throw new Error(error.message);
+        if (!updated) {
+          throw new Error(
+            "The pipeline was written to while this save was in progress (a run, or another tab). Nothing was saved; save again.",
+          );
+        }
         auditEvent({
           userId,
           action: "etl.pipeline.update",
@@ -610,7 +650,12 @@ export const saveEtlPipeline = createServerFn({ method: "POST" })
           source_code: payload.source_code,
           requirements: payload.requirements,
         });
-        return { id: data.id, source_code: sourceCode, compile_error: compileError };
+        return {
+          id: data.id,
+          source_code: sourceCode,
+          compile_error: compileError,
+          fingerprint: await fingerprintOf(etlPipelineDefinition(updated)),
+        };
       }
 
       const { data: created, error } = await supabaseAdmin
@@ -624,7 +669,7 @@ export const saveEtlPipeline = createServerFn({ method: "POST" })
             payload.timezone,
           ),
         })
-        .select("id")
+        .select("*")
         .single();
       if (error || !created) throw new Error(error?.message ?? "Failed to create pipeline");
       auditEvent({
@@ -641,7 +686,12 @@ export const saveEtlPipeline = createServerFn({ method: "POST" })
         source_code: payload.source_code,
         requirements: payload.requirements,
       });
-      return { id: created.id, source_code: sourceCode, compile_error: compileError };
+      return {
+        id: created.id,
+        source_code: sourceCode,
+        compile_error: compileError,
+        fingerprint: await fingerprintOf(etlPipelineDefinition(created)),
+      };
     },
   );
 

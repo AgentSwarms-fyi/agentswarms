@@ -782,6 +782,13 @@ to save; **Run now** saves first). Going back to the list, following a link, or
 closing the tab with unsaved edits asks first — "Discard the changes to
 "orders"?" — and Cancel keeps them (R275).
 
+Save writes only over the pipeline the editor opened. If it was saved from
+another tab or session since, Save is refused — "This pipeline was changed in
+another tab or session after this page read it" — and a banner offers **Reload**
+or **Overwrite with mine**; **Run now**, which saves first, does not run then.
+Runs write the same row, so the check compares a fingerprint of the definition
+(`src/lib/etlDefinition.ts`), not the row's `updated_at` (R287).
+
 ## Schema drift
 
 Each target carries a **schema policy**: `evolve` (default — load whatever
