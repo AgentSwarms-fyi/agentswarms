@@ -42,9 +42,50 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { KeyRound, Copy, Check, Plus, Trash2, ArrowRight } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import { KeyRound, Copy, Check, Plus, Trash2, ArrowRight, Settings2 } from "lucide-react";
 import { toast } from "sonner";
-import { API_KEY_CATEGORIES } from "@/lib/apiKeyCategories";
+import { API_KEY_CATEGORIES, type ApiKeyCategoryId } from "@/lib/apiKeyCategories";
+import { ProviderCredentialsPanel } from "@/components/integrations/ProviderCredentialsPanel";
+import { GatewayApiCard } from "@/components/gateway/GatewayApiCard";
+import { MlModelApiKeysPanel } from "@/components/settings/MlModelApiKeysPanel";
+import { SecretsManagerPanel } from "@/components/settings/SecretsManagerPanel";
+import { EmbedSection } from "@/components/embed/EmbedSection";
+import { McpServersPanel } from "@/components/settings/McpServersPanel";
+
+/**
+ * What each category's "Manage" button actually opens, inline, in a Dialog —
+ * the real controls (connect/test/disconnect, create/edit/delete, etc.),
+ * never a navigation. Every one of these is the exact same component its
+ * dedicated page renders, not a second copy of that page's logic.
+ */
+function CategoryPanel({ id }: { id: ApiKeyCategoryId }) {
+  const { session } = useAuth();
+  switch (id) {
+    case "providers":
+      return <ProviderCredentialsPanel />;
+    case "gateway":
+      return session?.access_token ? (
+        <GatewayApiCard token={session.access_token} />
+      ) : (
+        <p className="text-sm text-muted-foreground">Sign in again to manage gateway keys.</p>
+      );
+    case "ml":
+      return <MlModelApiKeysPanel />;
+    case "secrets":
+      return <SecretsManagerPanel />;
+    case "embeds":
+      return <EmbedSection />;
+    case "mcp":
+      return <McpServersPanel />;
+  }
+}
 
 type ApiKeyRow = {
   id: string;
@@ -111,7 +152,13 @@ function CopyField({ value, label }: { value: string; label: string }) {
  * (e.g. a table an older self-hosted deployment hasn't migrated yet) never
  * blocks or blanks out the others, it just shows "—" for that one card.
  */
-function CategoryCard({ category }: { category: (typeof API_KEY_CATEGORIES)[number] }) {
+function CategoryCard({
+  category,
+  onManage,
+}: {
+  category: (typeof API_KEY_CATEGORIES)[number];
+  onManage: () => void;
+}) {
   const [count, setCount] = useState<number | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -150,9 +197,10 @@ function CategoryCard({ category }: { category: (typeof API_KEY_CATEGORIES)[numb
 
   const Icon = category.icon;
   return (
-    <Link
-      to={category.route}
-      className="group flex flex-col gap-2 rounded-lg border border-border p-4 transition-colors hover:border-primary/40 hover:bg-muted/40"
+    <button
+      type="button"
+      onClick={onManage}
+      className="group flex flex-col gap-2 rounded-lg border border-border p-4 text-left transition-colors hover:border-primary/40 hover:bg-muted/40"
     >
       <div className="flex items-start justify-between gap-2">
         <Icon className="h-4 w-4 text-primary" />
@@ -174,9 +222,9 @@ function CategoryCard({ category }: { category: (typeof API_KEY_CATEGORIES)[numb
         <p className="mt-0.5 text-xs text-muted-foreground">{category.description}</p>
       </div>
       <span className="mt-auto flex items-center gap-1 pt-1 text-xs text-primary opacity-0 transition-opacity group-hover:opacity-100">
-        Manage <ArrowRight className="h-3 w-3" />
+        <Settings2 className="h-3 w-3" /> Manage
       </span>
-    </Link>
+    </button>
   );
 }
 
@@ -186,6 +234,9 @@ export function ApiKeysSettingsPanel() {
   const [swarms, setSwarms] = useState<SwarmOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+
+  const [openCategory, setOpenCategory] = useState<ApiKeyCategoryId | null>(null);
+  const activeCategory = API_KEY_CATEGORIES.find((c) => c.id === openCategory) ?? null;
 
   const [createOpen, setCreateOpen] = useState(false);
   const [targetSwarmId, setTargetSwarmId] = useState<string>("");
@@ -487,18 +538,36 @@ export function ApiKeysSettingsPanel() {
         <div>
           <h3 className="text-sm font-medium text-foreground">Everywhere else in AgentSwarms</h3>
           <p className="text-xs text-muted-foreground">
-            Every other credential store in the app, with a live count and a link to where it's
-            actually managed — each of these already has its own full page (connection testing,
-            rotation, domain allow-lists, whatever that category needs), so this isn't a second copy
-            of those forms, just a map to them.
+            Every other credential store in the app, with a live count — click a category to
+            connect, test or revoke its keys right here.
           </p>
         </div>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {API_KEY_CATEGORIES.map((category) => (
-            <CategoryCard key={category.id} category={category} />
+            <CategoryCard
+              key={category.id}
+              category={category}
+              onManage={() => setOpenCategory(category.id)}
+            />
           ))}
         </div>
       </div>
+
+      <Dialog open={openCategory !== null} onOpenChange={(v) => !v && setOpenCategory(null)}>
+        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
+          {activeCategory && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <activeCategory.icon className="h-4 w-4 text-primary" /> {activeCategory.label}
+                </DialogTitle>
+                <DialogDescription>{activeCategory.description}</DialogDescription>
+              </DialogHeader>
+              <CategoryPanel id={activeCategory.id} />
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

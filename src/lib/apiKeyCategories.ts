@@ -1,8 +1,9 @@
 // Every credential/key store in the app, besides swarm_api_keys (which
-// ApiKeysSettingsPanel manages inline — Settings is its only home; every
-// category below already has a full, working management UI elsewhere, so
-// this is a live-count index into those pages, not a second copy of their
-// forms. One list, so "every type of API key in the app" actually means
+// ApiKeysSettingsPanel manages inline directly — Settings is its only home).
+// Each category here gets a live-count card whose "Manage" button opens the
+// exact same panel component its dedicated page renders, in a Dialog, so
+// Settings offers real inline create/edit/revoke controls rather than a
+// link out. One list, so "every type of API key in the app" actually means
 // every one of them, not whichever the last person remembered to add.
 //
 // Deliberately excludes encryption_keys (supabase/migrations/
@@ -12,12 +13,15 @@
 import type { LucideIcon } from "lucide-react";
 import { Boxes, Cloud, KeyRound, Code2, Plug, Server } from "lucide-react";
 
+export type ApiKeyCategoryId = "providers" | "gateway" | "ml" | "secrets" | "embeds" | "mcp";
+
 export type ApiKeyCategory = {
-  id: string;
+  id: ApiKeyCategoryId;
   label: string;
   description: string;
   icon: LucideIcon;
-  /** Where this category's real management UI lives. */
+  /** Where this category's dedicated full page lives (still useful as a
+   * "open as a page" escape hatch from inside its Settings dialog). */
   route: string;
   /** Table this category's live count is read from (RLS already scopes it
    * to the caller, same as every other direct-query table in this app). */
