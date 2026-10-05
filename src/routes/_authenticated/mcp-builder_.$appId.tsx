@@ -50,6 +50,7 @@ import {
 import { BiModelSelect } from "@/components/bi/BiModelSelect";
 import { useTheme } from "@/hooks/use-theme";
 import { useAuth } from "@/hooks/use-auth";
+import { saveFailureText, useSaveBeforeLeave } from "@/hooks/use-save-before-leave";
 import { cn } from "@/lib/utils";
 import { generateMcpServer } from "@/lib/mcpCodegen";
 import { isUnrestrictedKey, toolScopeLabel } from "@/lib/mcpKeyScope";
@@ -141,62 +142,90 @@ function McpAppEditor() {
   const [app, setApp] = useState<App | null>(null);
   const [source, setSource] = useState("");
   const [requirements, setRequirements] = useState("");
-  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
+  const [saveState, setSaveState] = useState<"idle" | "saved">("idle");
   const [deploying, setDeploying] = useState(false);
   const [logs, setLogs] = useState("");
   const [keys, setKeys] = useState<McpKeyRow[]>([]);
   const [versions, setVersions] = useState<McpVersionRow[]>([]);
   const [secrets, setSecrets] = useState<SecretSummary[]>([]);
 
-  const dirtyRef = useRef(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The source as loaded or last saved, so the page can tell what a save still
+  // owes (R280, sweep 8). It was compared with the source as LOADED, so typing
+  // back to that text after a save was never saved, and a bare dirty flag that
+  // any returning save cleared erased an edit typed while the save was out.
+  const [savedAs, setSavedAs] = useState<string | null>(null);
+  const [saving, setSaving] = useState(0);
+  const form = JSON.stringify({ source, requirements });
+  const unsaved = app !== null && savedAs !== null && form !== savedAs;
+  // Read by reload, which keeps the editor's text while anything is unsaved.
+  const unsavedRef = useRef(false);
+  unsavedRef.current = unsaved;
 
-  const reload = useCallback(async () => {
-    const res = await getFn({ data: { id: appId } });
-    if (!res.ok) {
-      toast.error(res.error);
-      return;
-    }
-    setApp(res.app);
-    // Only adopt server text when the user has nothing unsaved, otherwise a
-    // background refresh would silently discard what they are typing.
-    if (!dirtyRef.current) {
-      setSource(res.app.source_code ?? "");
-      setRequirements(res.app.requirements ?? "");
-    }
-  }, [appId, getFn]);
+  const reload = useCallback(
+    async (adopt = false) => {
+      const res = await getFn({ data: { id: appId } });
+      if (!res.ok) {
+        toast.error(res.error);
+        return;
+      }
+      setApp(res.app);
+      // Only adopt server text when the user has nothing unsaved, otherwise a
+      // background refresh would silently discard what they are typing.
+      if (adopt || !unsavedRef.current) {
+        const adopted = {
+          source: res.app.source_code ?? "",
+          requirements: res.app.requirements ?? "",
+        };
+        setSource(adopted.source);
+        setRequirements(adopted.requirements);
+        setSavedAs(JSON.stringify(adopted));
+      }
+    },
+    [appId, getFn],
+  );
 
   useEffect(() => {
     void reload();
   }, [reload]);
 
-  const flush = useCallback(async () => {
-    if (!dirtyRef.current) return;
-    if (timerRef.current) clearTimeout(timerRef.current);
-    setSaveState("saving");
-    const res = await saveFn({ data: { id: appId, source_code: source, requirements } });
-    dirtyRef.current = false;
-    if (!res.ok) {
-      setSaveState("idle");
-      toast.error(res.error);
-      return;
+  // Saves what the editor holds now and records it as saved, once the reply
+  // has no error. An edit typed while it is out stays unsaved.
+  const saveNow = useCallback(async (): Promise<string | null> => {
+    if (!unsaved) return null;
+    const sent = form;
+    setSaving((n) => n + 1);
+    // A save the server's input check refuses rejects rather than returning
+    // { ok: false }; before R280 that left "Saving…" on screen for good.
+    let res: Awaited<ReturnType<typeof saveFn>>;
+    try {
+      res = await saveFn({ data: { id: appId, source_code: source, requirements } });
+    } catch (e) {
+      return saveFailureText(e);
+    } finally {
+      setSaving((n) => n - 1);
     }
+    if (!res.ok) return res.error;
+    setSavedAs(sent);
     setSaveState("saved");
     setTimeout(() => setSaveState("idle"), 1500);
-  }, [appId, requirements, saveFn, source]);
+    return null;
+  }, [unsaved, form, appId, requirements, saveFn, source]);
 
   // Debounced autosave. The editor is the primary surface here, so an explicit
   // save button would be one more thing to forget before pressing Deploy.
   useEffect(() => {
-    if (!app) return;
-    if (source === (app.source_code ?? "") && requirements === (app.requirements ?? "")) return;
-    dirtyRef.current = true;
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => void flush(), 1200);
-    return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-    };
-  }, [source, requirements, app, flush]);
+    if (!unsaved) return;
+    const t = setTimeout(() => {
+      void saveNow().then((error) => {
+        if (error) toast.error(error);
+      });
+    }, 1200);
+    return () => clearTimeout(t);
+  }, [unsaved, saveNow]);
+
+  // FOUND IN R280: the timer above is cleared when the page unmounts, so a link
+  // taken inside the 1.2 s, or after a failed save, dropped the edit.
+  useSaveBeforeLeave({ unsaved, saveNow, name: app?.name ?? "" });
 
   const patch = async (fields: Record<string, unknown>) => {
     const res = await saveFn({ data: { id: appId, ...fields } as never });
@@ -208,7 +237,13 @@ function McpAppEditor() {
   };
 
   const deploy = async () => {
-    await flush();
+    // Deploy runs the saved source, so a source that cannot be saved is not
+    // deployed: the old one would go live under the new one on screen.
+    const unsavedError = await saveNow();
+    if (unsavedError) {
+      toast.error(`Not deployed: the source could not be saved (${unsavedError}).`);
+      return;
+    }
     setDeploying(true);
     const res = await deployFn({ data: { id: appId } });
     setDeploying(false);
@@ -287,7 +322,15 @@ function McpAppEditor() {
         <StatusPill status={app.status} />
         <div className="ml-auto flex items-center gap-2">
           <span className="text-xs text-muted-foreground">
-            {saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved" : ""}
+            {saving > 0 ? (
+              "Saving…"
+            ) : unsaved ? (
+              <span data-testid="mcp-unsaved">Unsaved changes</span>
+            ) : saveState === "saved" ? (
+              "Saved"
+            ) : (
+              ""
+            )}
           </span>
           {app.status === "ready" && (
             <Button
@@ -397,8 +440,8 @@ function McpAppEditor() {
                     toast.error(res.error);
                     return;
                   }
-                  dirtyRef.current = false;
-                  await reload();
+                  // The restored source replaces whatever the editor holds.
+                  await reload(true);
                   toast.success("Source restored — deploy to make it live.");
                 }}
               />

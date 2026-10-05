@@ -15,6 +15,24 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-05 — R280: an MCP app's source and the autosave
+
+MCP Builder, the app "r214 before" (29 lines, no packages, not deployed). A line is added at the end of the
+source with Ctrl+End, Enter and typing; deleted with Backspace.
+
+| Step | R279's build | R280 hot-deployed |
+| --- | --- | --- |
+| Open, touch nothing | — | no note; not blocked |
+| Add `# r280a`, sidebar **Dashboard** at once | **left with no question; gone on reopening** | — |
+| Add `# r280b`, let it save, delete it, reopen | the header said nothing; **`# r280b` back on reopening** | — |
+| Delete the leftover `# r280b` | — | "Unsaved changes", then saved |
+| Add `# r280c`, let it save, delete it, reopen | — | "Unsaved changes" after the delete, then saved; reopened with 29 lines |
+| Add `# r280d`, **Dashboard** at once | — | blocked meanwhile; the link saved and left with no question; there on reopening (then deleted) |
+| A 20,020-character packages list | — | toast "requirements: Too big: expected string to have <=20000 characters"; still "Unsaved changes" |
+| Then **Deploy** | — | "Not deployed: the source could not be saved (requirements: Too big: …)."; still "Not deployed" |
+| Then **Dashboard** | — | "Leave without saving "r214 before"? The latest changes could not be saved: requirements: Too big: … Leaving drops them." — **Cancel** stayed |
+| Packages cleared | — | no note; not blocked; reopened with no packages, 29 lines, not deployed |
+
 ## 2026-10-05 — R279: a Python notebook's edit and the autosave's 1.2 s
 
 Developer workspace, the notebook "r213 double run". An edit is " r279" typed after the title. A failed

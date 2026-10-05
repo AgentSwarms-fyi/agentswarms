@@ -109,6 +109,39 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-05 — R280: an MCP app's source, not saved when typed back to how it loaded
+
+**Severity: moderate (lost work, and a deploy of the wrong source), sweep 8.** The MCP builder saves the
+source and packages list 1.2 s after the last edit. Its "nothing changed" test compared the editor with
+the app as **loaded**, which no save updated; its dirty flag was a bare boolean that any returning save
+cleared; and its timer was cleared on unmount. Driven on R279's build, in the app "r214 before": a line
+`# r280a` added and the Dashboard link clicked at once — no question, gone on reopening; `# r280b` added
+and left to save, then deleted — the header said nothing, and on reopening `# r280b` was back, because
+deleting it returned the editor to the loaded text and so was never sent. From reading, not driven: an
+edit typed while a save was out had its dirty flag cleared by that save's return and was skipped by the
+next timer; a failed save cleared it too, so the next background reload put the server's text over the
+editor; Deploy flushed, and on a failed save deployed the old source anyway; and a save the server's
+input check refused rejected rather than returning `{ ok: false }`, leaving "Saving…" up for good.
+
+Now the page records the source and packages as loaded or as each save sent them, once the reply has no
+error, and a background reload adopts the server's text only when nothing is unsaved (a version restore
+always does). "Unsaved changes" means the editor differs from that record. A refused save is caught,
+counted out and reported in words — `saveFailureText` turns the validator's JSON into "field: reason" —
+and the shared `useSaveBeforeLeave` from R279 saves on a link and asks only if that fails. Deploy saves
+first and stops if it cannot: "Not deployed: the source could not be saved (…)". Thirteen mutants caught
+against a verified-green baseline, control survived.
+
+Driven on R280 hot-deployed: untouched, no note and not blocked; the leftover `# r280b` deleted, the note
+showed and it saved; `# r280c` added, saved, deleted — the note showed, it saved, and reopening found 29
+lines, as loaded; `# r280d` added and the link clicked at once — blocked meanwhile, saved and left with no
+question, there on reopening, then deleted. A real refusal: a 20,020-character packages list (inserted as
+a paste, `execCommand('insertText')`, since the pane has no clipboard) — "requirements: Too big: expected
+string to have <=20000 characters", still "Unsaved changes"; **Deploy** said "Not deployed: the source
+could not be saved (requirements: Too big: …)." and the app stayed "Not deployed"; the Dashboard link
+asked "Leave without saving "r214 before"? The latest changes could not be saved: requirements: Too big: …
+Leaving drops them." — **Cancel** stayed; the list cleared, it saved. The app is back as it was: 29
+lines, no packages, not deployed. Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-05 — R279: a notebook edit, dropped by a link taken before the autosave
 
 **Severity: moderate (lost work), sweep 8.** The Python notebook saves 1.2 s after the last edit, on a

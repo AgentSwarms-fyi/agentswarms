@@ -510,11 +510,9 @@ least twice, not a hypothetical.
    only when that fails.
    - ~~**The Python notebook**~~ (**R279**: a link inside the 1.2 s, after a failed save, and the
      tab).
-   - **An MCP builder app** (`mcp-builder_.$appId.tsx`), from reading it: the same 1.2 s timer
-     cleared on unmount; its "nothing changed" test compares with the source as **loaded**, so
-     typing back to the loaded text after a save is never saved; and `flush` clears the dirty
-     flag when a save returns, erasing an edit typed while that save was in flight. A failed save
-     clears it too, and the next background reload then adopts the server's text over it.
+   - ~~**An MCP builder app**~~ (**R280**: a link inside the 1.2 s, typing back to the loaded text
+     after a save, a dirty flag any returning save cleared, a refused save left on "Saving…", and
+     Deploy going ahead on the old source after a failed save).
    - **The BI dashboard** (`bi_.$dashboardId.tsx`), from reading it: a 700 ms autosave whose timer
      survives unmount, so a link is safe; closing the tab inside it, or after "Save failed", is
      not guarded.

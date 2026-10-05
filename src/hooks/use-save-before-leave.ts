@@ -12,6 +12,30 @@ import { useBlocker } from "@tanstack/react-router";
 import { confirmAsk } from "@/components/ui/confirm-dialog";
 
 /**
+ * A failed save's reason, in words. A server function whose input check fails
+ * rejects with the validator's issues as JSON (R280: a packages list over its
+ * limit); say which field and why instead.
+ */
+export function saveFailureText(e: unknown): string {
+  const message = e instanceof Error ? e.message : String(e);
+  try {
+    const issues: unknown = JSON.parse(message);
+    if (Array.isArray(issues) && issues.length > 0) {
+      return issues
+        .map((issue: { path?: unknown; message?: unknown }) => {
+          const where = Array.isArray(issue.path) ? issue.path.join(".") : "";
+          const why = typeof issue.message === "string" ? issue.message : "";
+          return [where, why].filter(Boolean).join(": ");
+        })
+        .join("; ");
+    }
+  } catch {
+    // Not the validator's JSON: the message is the reason.
+  }
+  return message;
+}
+
+/**
  * Whether to stop a link: save first, and ask only when the save fails.
  * `ask` resolves true to leave anyway.
  */
@@ -23,7 +47,7 @@ export async function holdForSave(
   try {
     error = await saveNow();
   } catch (e) {
-    error = e instanceof Error ? e.message : String(e);
+    error = saveFailureText(e);
   }
   if (error === null) return false;
   return !(await ask(error));
