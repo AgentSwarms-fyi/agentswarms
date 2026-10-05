@@ -666,10 +666,14 @@ export async function resolveRunEnv(
   return { env, secretValues, lake };
 }
 
-/** Replace every secret value with *** before logs are persisted or shown. */
+/**
+ * Replace every secret value with *** before logs are persisted or shown.
+ * Longest first: a value scrubbed after a shorter one it contains would be
+ * left in pieces (R292).
+ */
 export function scrubSecrets(text: string, secretValues: string[]): string {
   let out = text;
-  for (const v of secretValues) {
+  for (const v of [...secretValues].sort((a, b) => b.length - a.length)) {
     if (v && v.length >= 4) out = out.split(v).join("***");
   }
   return out;
@@ -749,6 +753,12 @@ export function etlPrelude(): string {
     `_r.raise_for_status()`,
     `_bundle = _r.json()`,
     `_os.environ.update({k: str(v) for k, v in (_bundle.get('env') or {}).items()})`,
+    `# The secret values handed to this run, kept for as long as it runs: the`,
+    `# batch runner scrubs what it posts with them, so a secret replaced or`,
+    `# deleted mid-run is still scrubbed (R292).`,
+    `_sys._agentswarms_scrub = list(getattr(_sys, '_agentswarms_scrub', None) or []) + [`,
+    `    str(v) for v in (_bundle.get('scrub') or [])`,
+    `]`,
     `_reqs = [r for r in (_bundle.get('requirements') or []) if r.strip()]`,
     `if _reqs:`,
     `    print('[etl] installing ' + str(len(_reqs)) + ' package(s)')`,
@@ -832,7 +842,8 @@ export async function etlPreviewEnvFor(
   stash: EtlPreviewStash,
   userId: string,
 ): Promise<
-  { env: Record<string, string>; requirements: string[]; lake?: LakeManifest } | { error: string }
+  | { env: Record<string, string>; requirements: string[]; scrub: string[]; lake?: LakeManifest }
+  | { error: string }
 > {
   const { data: pipeline } = await supabaseAdmin
     .from("etl_pipelines")
@@ -843,7 +854,7 @@ export async function etlPreviewEnvFor(
   if (!pipeline) return { error: "Pipeline not found for this session" };
   const graph = normalizeGraph(pipeline.graph);
   if (!graph) return { error: "This pipeline has no visual graph to preview" };
-  const { env, lake } = await resolveRunEnv(pipeline, { skipTargets: true });
+  const { env, secretValues, lake } = await resolveRunEnv(pipeline, { skipTargets: true });
   env.AGENTSWARMS_ETL_PREVIEW = "1";
   // A preview samples: the app reads no more than the preview shows.
   if (lake) lake.rowLimit = PREVIEW_SAMPLE_ROWS;
@@ -851,7 +862,9 @@ export async function etlPreviewEnvFor(
     .split("\n")
     .map((l) => l.trim())
     .filter(Boolean);
-  return { env, requirements, lake };
+  // A preview's output is shown from its session row, which nothing on this
+  // side scrubs, so the sandbox scrubs it before posting (R292).
+  return { env, requirements, scrub: secretValues, lake };
 }
 
 /** Streamed-rows drain ceiling per run. */
@@ -968,13 +981,14 @@ export async function etlDatasetFor(
   return { rows, truncated };
 }
 
-/** The "etl_env" part: resolved env + requirements list. */
+/** The "etl_env" part: resolved env, requirements list, and the values to scrub. */
 export async function etlEnvFor(
   etlRunId: string,
   userId: string,
   sessionId?: string,
 ): Promise<
-  { env: Record<string, string>; requirements: string[]; lake?: LakeManifest } | { error: string }
+  | { env: Record<string, string>; requirements: string[]; scrub: string[]; lake?: LakeManifest }
+  | { error: string }
 > {
   const { data: run } = await supabaseAdmin
     .from("etl_runs")
@@ -989,7 +1003,7 @@ export async function etlEnvFor(
     .eq("id", run.pipeline_id)
     .maybeSingle();
   if (!pipeline) return { error: "Pipeline no longer exists" };
-  const { env, lake } = await resolveRunEnv(pipeline, {
+  const { env, secretValues, lake } = await resolveRunEnv(pipeline, {
     sessionId,
     sparkConnectUrl: run.spark_connect_url,
     requireSparkEndpoint: true,
@@ -1013,7 +1027,13 @@ export async function etlEnvFor(
     .split("\n")
     .map((l) => l.trim())
     .filter((l) => l && !l.startsWith("#"));
-  return { env, requirements, lake };
+  // FOUND IN R292. finalizeEtlRun and appendPartialLogs scrub against the
+  // values current when the output arrives: a secret replaced or deleted
+  // mid-run was not on that list, and the value the run printed was stored
+  // in clear. Every value in here is already in env, so the sandbox learns
+  // nothing new; it keeps them for the run's lifetime and scrubs before it
+  // posts.
+  return { env, requirements, scrub: secretValues, lake };
 }
 
 // ── Run lifecycle ───────────────────────────────────────────────────────────
@@ -1445,7 +1465,7 @@ export async function appendPartialLogs(etlRunId: string, logs: string): Promise
   }
   const { error: logErr } = await supabaseAdmin
     .from("etl_runs")
-    .update({ logs: scrubSecrets(logs.slice(-LOG_CAP), secretValues) })
+    .update({ logs: scrubSecrets(logs, secretValues).slice(-LOG_CAP) })
     .eq("id", etlRunId)
     .eq("status", "running");
   if (logErr) {
@@ -1713,7 +1733,7 @@ export async function finalizeEtlRun(
       ? body.logs
         ? WITHHELD
         : ""
-      : scrubSecrets((body.logs ?? "").slice(0, LOG_CAP), secretValues);
+      : scrubSecrets(body.logs ?? "", secretValues).slice(0, LOG_CAP);
   const error = body.error
     ? secretValues === null
       ? `The run ended with an error. ${WITHHELD}`

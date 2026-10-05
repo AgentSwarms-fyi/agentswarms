@@ -109,6 +109,72 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-05 — R292: a secret replaced mid-run was stored in clear; a preview was never scrubbed
+
+**Severity: high (a secret shown in clear), ETL and every batch sandbox.** This closes R253's open note.
+The platform scrubbed a run's output against the values that were current when the output **arrived**,
+in `appendPartialLogs` and `finalizeEtlRun`.
+
+**The before**, driven on the running build:
+
+- **A secret replaced mid-run.** A code pipeline printed a `{{secret:R292_SECRET}}` binding and slept
+  for 45 s. While it slept, the secret was replaced from Secrets → Replace value. The live log had shown
+  `token=***`. The stored log read `token=r292-before-value-AAAA` and
+  `done token=r292-before-value-AAAA`, in clear.
+- **A secret deleted mid-run** leaks the same way. A pipeline-level binding that no longer resolves is
+  dropped, so its value leaves the scrub list. R253 had queued this.
+- **A node preview, worse.** A preview's error and logs are shown from its session row, and nothing
+  scrubbed them. A Custom Python source that printed and then raised the secret showed
+  `printed token=r292-before-value-BBBB` and `RuntimeError: raised token=r292-before-value-BBBB` in the
+  Data preview dialog. That is the secret's **current** value, with no rotation needed.
+
+**The fix is in the sandbox,** which is the one place that knows which values the run was handed:
+
+- `etlEnvFor` and `etlPreviewEnvFor` now return `scrub`, the values they put in the run's env. The
+  sandbox learns nothing new from it.
+- The prelude keeps those values on `sys._agentswarms_scrub` for the run's lifetime.
+- `batch_runner.py` scrubs every post with them: the live logs, the final logs and the error.
+- It also scrubs the traceback it writes to stderr on the way out. That used to be a bare `raise`, which
+  printed it raw into the container's log. The platform reads that log when a result post is lost. The
+  exit status is still 1.
+
+Two smaller defects in the same statement, fixed in both scrubbers:
+
+- **Values were scrubbed in list order.** A value containing a shorter one was left in pieces
+  (`***-AAAA`). Both scrubbers now take the longest value first.
+- **Logs were cut before they were scrubbed.** A value straddling the cut left its end behind. The
+  runner cut the live log, and the platform cut the live log and the final log, before scrubbing. All
+  three now scrub first, then cut.
+
+**The tests** (`etlSandboxScrub.test.ts`) run the real prelude and the real runner under the local
+Python, with httpx replaced by a fake that serves the bundle and records every post.
+
+- **Mutation harness:** 15 mutants caught against a verified-green baseline, and the control survived.
+- **Deploy:** the runtime image `agentswarms/notebook-runtime` was rebuilt, not only the app.
+
+**Still open:** stderr output (the `logging` module's default) is queued.
+
+**The gate.** The first full gate timed out in two files this round did not touch:
+`connectedIntegrations` (27 s against a 20 s limit) and `sheetsSamples` (76 s against 60 s). Alone,
+they took 1.9 s and 2.6 s. Nothing else was running, and the rerun was green.
+
+**The after**, on the rebuilt runtime image and the hot-deployed app:
+
+- **The same run.** The secret's value was `r292-before-value-BBBB` when the run started, and it was
+  replaced with `r292-after-value-CCCC` 15 s in. The run succeeded in 48 s, and the stored log reads
+  `token=***` and `done token=***`.
+- **The same preview.** It showed `printed token=***` and `RuntimeError: raised token=***`. The traceback
+  cites the new runner's line numbers.
+
+**A separate race, now queued.** The first preview after the deploy showed only "Preview failed". The
+app's log has one line for it: `refreshSession` "ended as error" while the result callback's teardown
+was already removing the container (409, "removal ... already in progress"). The preview poller's
+refresh works from the row it read, which still said "running". Its update is not conditional on that
+status, so it can write over the terminal row the callback has just finished. The next preview showed
+the full output.
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-05 — Smoke of the real image after R282 to R291
 
 Image `0371e1da8fd0`, built from `44fee017` with `docker compose build agentswarms` and started with

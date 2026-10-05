@@ -111,6 +111,23 @@ The run sequence:
    replaced wholesale per pipeline so renamed targets never strand old edges);
    notifies the owner on failure.
 
+**Secrets in the output.** Every value the environment hands a run (destination keys, connection URLs,
+`{{secret:NAME}}` bindings, the Spark Connect token) is replaced with `***` in what the run prints, and
+it is done twice. The sandbox does it first. The `etl_env` reply carries the values as `scrub`, the
+prelude keeps them for as long as the run lasts, and the batch runner scrubs the live logs, the final
+logs, the error and the traceback it writes on the way out before it posts any of them. Then the platform
+scrubs again, against the values that are current when the output arrives.
+
+The sandbox's pass is the one that matters in two cases:
+
+- **A secret is replaced or deleted mid-run.** The platform's list no longer has the value the run
+  printed (R292).
+- **A node preview.** Its output is shown from its session row, and nothing else scrubs it.
+
+Both passes take the longest value first, and both scrub a log before cutting it, so neither leaves part
+of a value behind. A runtime image older than R292 ignores `scrub`, so rebuild
+`agentswarms/notebook-runtime` along with the app.
+
 **The runtime must be enabled** (Admin → Developer runtime; its containers start with every install; on
 Compose). Without it, runs fail immediately with a message saying exactly that.
 

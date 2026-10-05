@@ -481,9 +481,22 @@ least twice, not a hypothetical.
        secrets, a Custom Python step printing one and sleeping, the other deleted mid-run. Before
        R253 the Logs dialog showed the printed secret in clear; after, the tick is skipped and the
        final output withheld. Not to be run beside a gate.
-     - **Open, from R253:** a secret deleted mid-run through a pipeline-level binding is dropped,
-       not fatal, so its own value is unknown to the scrubber for the rest of that run. The fix is
-       a scrub list captured at run start and held for the run's lifetime only.
+     - ~~**Open, from R253:** a secret deleted mid-run through a pipeline-level binding is dropped,
+       not fatal, so its own value is unknown to the scrubber for the rest of that run.~~ **R292.**
+       The sandbox now holds the values it was handed and scrubs before posting. The round also found
+       that a value *replaced* mid-run leaked the same way, and that a node preview's output was never
+       scrubbed at all.
+     - **Open, from R292:** what a run writes to stderr (the `logging` module's default) is not
+       captured by the batch runner, so it never reaches the run's logs; it stays in the container's
+       log. That log is read only when a sandbox's result post was lost, and then it is scrubbed only
+       against the current values. Check whether people expect `logging` output in the Logs dialog.
+     - **Open, from R292: a sandbox's result is overwritten by a stale refresh.** Seen once, on the
+       first preview after a deploy. The dialog read only "Preview failed", and the app's log had
+       `refreshSession` "ended as error" while the callback's teardown was already removing the
+       container. `refreshSession` writes its patch with `.eq("id")` alone, working from the row it
+       read, which still said "running". So it can overwrite the terminal row the result callback has
+       just written, including its error and logs. The next preview was fine. To prove: hold the
+       callback's teardown, then poll.
 
 8. **Unsaved work lost without a word** (sweep 8, from 2026-10-05). An editor with an explicit
    Save holds edits in the page, and something replaces or leaves them with no question: picking

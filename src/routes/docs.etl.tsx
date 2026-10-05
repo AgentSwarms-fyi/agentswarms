@@ -237,7 +237,9 @@ function EtlDocsPage() {
         process. The run installs the pipeline&apos;s requirements, fetches its resolved credentials
         over HTTPS into process memory (never container environment variables, never the code text),
         executes <C>entrypoint(inputs)</C>, and reports metrics, logs and status back to the Runs
-        tab. Secret values are scrubbed from captured logs before they are stored.
+        tab. Secret values are scrubbed from captured logs before they are stored, first by the
+        sandbox itself with the values it was handed, so a secret replaced or deleted while the run
+        is going stays scrubbed. A node preview&apos;s output is scrubbed the same way.
       </P>
       <Callout kind="warn" title="The runtime must be enabled">
         Pipelines execute on the Developer-workspace runtime. If an administrator has not enabled it

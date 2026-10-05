@@ -15,6 +15,22 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-05 — R292: a secret replaced mid-run, and a node preview's output
+
+The fixtures are `R292_SECRET` (Secrets), `r292_secret` (a code pipeline with the binding
+`R292_TOKEN={{secret:R292_SECRET}}`, which prints the token, sleeps 45 s and prints it again) and
+`r292_preview` (a visual pipeline whose Custom Python source prints the token and then raises it).
+
+| What was driven | What came back |
+| --- | --- |
+| **Before**, on R291's build: Run now on `r292_secret`, then Replace value on `R292_SECRET` 11 s in | Live log `token=***`; the stored log `token=r292-before-value-AAAA` and `done token=r292-before-value-AAAA`, **in clear** |
+| **Before**: Preview data on `r292_preview`'s Custom Python node | The dialog showed `printed token=r292-before-value-BBBB` and `RuntimeError: raised token=r292-before-value-BBBB`, **the current value in clear** |
+| **After**, on the rebuilt `agentswarms/notebook-runtime` and the deployed app: Run now with the value `…BBBB`, replaced with `r292-after-value-CCCC` 15 s in | Live log `token=***`; the run succeeded in 48 s; the stored log reads `token=***`, `token=***` and `done token=***` |
+| **After**: Preview data on the same node, twice | The first showed only "Preview failed", the separate race queued in the log. The second showed `printed token=***` and `RuntimeError: raised token=***`, with the new runner's line numbers in the traceback |
+| Shipped code | The prelude's `_agentswarms_scrub` is in the deployed server chunk and the invented control is absent; the new image's `batch_runner.py` has `_scrub` and imports httpx 0.28.1 and pandas 3.0.6 |
+
+The fixtures are kept: `R292_SECRET` now holds `r292-after-value-CCCC`, and both pipelines are kept with their runs.
+
 ## 2026-10-05 — Smoke of the real image after R282 to R291
 
 Image `0371e1da8fd0`, built from `44fee017` with `docker compose build agentswarms` and started with

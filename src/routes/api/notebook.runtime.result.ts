@@ -40,9 +40,8 @@ export const Route = createFileRoute("/api/notebook/runtime/result")({
         // Live log streaming: a partial post replaces the run's captured-so-far
         // logs without touching status — the Runs tab polls these while the
         // run executes, so a 20-minute job is not a black box until it ends.
-        // Secret scrubbing happens at finalisation; partial logs are only ever
-        // shown to the owner who could read the sandbox anyway, and the final
-        // write overwrites them scrubbed.
+        // The batch runner scrubs what it posts with the values it was handed
+        // (R292), and appendPartialLogs scrubs again with the current ones.
         if (body.partial) {
           const { data: session } = await supabaseAdmin
             .from("notebook_runtime_sessions")
