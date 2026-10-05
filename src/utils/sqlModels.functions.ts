@@ -15,9 +15,11 @@ import {
   refNames,
   validateModelName,
   validateModelSql,
+  sqlModelDefinition,
   validateTest,
   type SqlModelTest,
 } from "@/lib/sqlModels";
+import { fingerprintOf } from "@/lib/definitionFingerprint";
 import {
   buildSqlModels,
   loadModels,
@@ -40,6 +42,9 @@ export type SqlModelRunRow = {
 };
 
 type Fail = { ok: false; error: string };
+
+/** A model as the list hands it to the editor, with its definition's fingerprint (R285). */
+export type SqlModelListed = SqlModelRow & { fingerprint: string };
 
 async function resolveCaller(accessToken: string): Promise<{ ok: true; userId: string } | Fail> {
   const { data, error } = await supabaseAdmin.auth.getUser(accessToken);
@@ -66,7 +71,7 @@ export const sqlModelsList = createServerFn({ method: "POST" })
       | Fail
       | {
           ok: true;
-          models: SqlModelRow[];
+          models: SqlModelListed[];
           schemas: { name: string; writable: boolean }[];
           /** name -> what it depends on, so the page can draw the graph. */
           deps: Record<string, string[]>;
@@ -94,7 +99,13 @@ export const sqlModelsList = createServerFn({ method: "POST" })
         const gone = refs.filter((r) => !names.has(r));
         if (gone.length) missing[m.name] = gone;
       }
-      return { ok: true, models, schemas, deps, missing };
+      const listed = await Promise.all(
+        models.map(async (m) => ({
+          ...m,
+          fingerprint: await fingerprintOf(sqlModelDefinition(m)),
+        })),
+      );
+      return { ok: true, models: listed, schemas, deps, missing };
     },
   );
 
@@ -122,149 +133,189 @@ export const sqlModelSave = createServerFn({ method: "POST" })
         schedule: z.enum(["manual", "hourly", "daily", "weekly", "cron"]),
         cron_expr: z.string().trim().max(200).nullable().optional(),
         timezone: z.string().trim().max(80).optional(),
+        // The fingerprint of the definition this page opened or last saved.
+        // Left out, the save overwrites: "Overwrite with mine" (R285).
+        expected_fingerprint: z.string().length(64).optional(),
       })
       .parse(input),
   )
-  .handler(async ({ data }): Promise<Fail | { ok: true; id: string }> => {
-    const caller = await resolveCaller(data.access_token);
-    if (!caller.ok) return caller;
+  .handler(
+    async ({
+      data,
+    }): Promise<(Fail & { stale?: boolean }) | { ok: true; id: string; fingerprint: string }> => {
+      const caller = await resolveCaller(data.access_token);
+      if (!caller.ok) return caller;
 
-    const nameError = validateModelName(data.name);
-    if (nameError) return { ok: false, error: nameError };
-    const sqlError = validateModelSql(data.sql);
-    if (sqlError) return { ok: false, error: sqlError };
-    for (const t of data.tests as SqlModelTest[]) {
-      const e = validateTest(t);
-      if (e) return { ok: false, error: e };
-    }
-    if (data.schedule === "cron") {
-      const { validateCron } = await import("@/lib/cron");
+      const nameError = validateModelName(data.name);
+      if (nameError) return { ok: false, error: nameError };
+      const sqlError = validateModelSql(data.sql);
+      if (sqlError) return { ok: false, error: sqlError };
+      for (const t of data.tests as SqlModelTest[]) {
+        const e = validateTest(t);
+        if (e) return { ok: false, error: e };
+      }
+      if (data.schedule === "cron") {
+        const { validateCron } = await import("@/lib/cron");
+        try {
+          validateCron(data.cron_expr ?? "", data.timezone ?? null);
+        } catch (e) {
+          return { ok: false, error: (e as Error).message };
+        }
+      }
+
+      // The target schema must be one the caller owns and can write. Checked
+      // here so a bad target is a sentence in the editor rather than a build
+      // that fails every night.
+      const { accessibleSchemas } = await import("@/utils/lakehouse/core.server");
+      const schema = (await accessibleSchemas(caller.userId)).find(
+        (s) => s.name === data.schema_name,
+      );
+      if (!schema) return { ok: false, error: `No access to schema "${data.schema_name}"` };
+      if (schema.user_id !== caller.userId) {
+        return { ok: false, error: "A model can only be built into a schema you own" };
+      }
+      if (schema.lake_source_id || schema.iceberg_catalog_id) {
+        return { ok: false, error: "Data-lake mounts are read-only" };
+      }
+
+      // A materialized view already owns (schema, table) globally, and a model
+      // writing the same target would fight it every sweep. Refuse the collision
+      // by name instead of letting two schedules overwrite each other.
+      const { data: clash, error: clashErr } = await supabaseAdmin
+        .from("lakehouse_materialized_views")
+        .select("id")
+        .eq("schema_name", data.schema_name)
+        .eq("table_name", data.name)
+        .maybeSingle();
+      // An unreadable answer is not "no clash".
+      if (clashErr) {
+        return {
+          ok: false,
+          error: `Could not check whether ${data.schema_name}.${data.name} is a materialized view: ${clashErr.message}`,
+        };
+      }
+      if (clash) {
+        return {
+          ok: false,
+          error: `${data.schema_name}.${data.name} is already a materialized view. Delete it, or give the model another name.`,
+        };
+      }
+
+      const existing = await loadModels(caller.userId);
+      // FOUND IN R285: the save wrote over whatever was stored, so a save from
+      // another tab undid this one's. Runs write this row too, so its
+      // updated_at cannot say who changed it; the definition's fingerprint can.
+      const stored = data.id ? existing.find((m) => m.id === data.id) : undefined;
+      if (stored && data.expected_fingerprint) {
+        if ((await fingerprintOf(sqlModelDefinition(stored))) !== data.expected_fingerprint) {
+          return {
+            ok: false,
+            stale: true,
+            error: "This model was changed in another tab or session after this page read it",
+          };
+        }
+      }
+      const candidate = {
+        id: data.id ?? "new",
+        name: data.name,
+        schema_name: data.schema_name,
+        sql: data.sql,
+        materialization: data.materialization,
+        tests: data.tests as SqlModelTest[],
+        is_active: data.is_active ?? true,
+      };
+      const others = existing.filter((m) => m.id !== data.id);
+      if (others.some((m) => m.name === data.name)) {
+        return { ok: false, error: `You already have a model called ${data.name}` };
+      }
+
+      // FOUND IN R103. A build runs DROP <the other shape> IF EXISTS on the
+      // target and then CREATE OR REPLACE, and the name IS the target. A model
+      // given the name of a table it never built took that table: stored as a
+      // view, it dropped it outright; stored as a table, it replaced it. The
+      // materialized-view clash above was checked, and an ordinary table was
+      // not. A model keeping the target it already has is rebuilding its own
+      // output. A new model, or one moved to a new name or schema, must find
+      // the name free.
+      const previous = data.id ? existing.find((m) => m.id === data.id) : undefined;
+      const retargeted =
+        !previous || previous.schema_name !== data.schema_name || previous.name !== data.name;
+      if (retargeted) {
+        let taken: boolean;
+        try {
+          const { lakehouseTableExists } = await import("@/utils/lakehouse/core.server");
+          taken = await lakehouseTableExists(data.schema_name, data.name);
+        } catch (e) {
+          return {
+            ok: false,
+            error: `Could not check whether ${data.schema_name}.${data.name} is free: ${(e as Error).message}`,
+          };
+        }
+        if (taken) {
+          return {
+            ok: false,
+            error:
+              `${data.schema_name}.${data.name} already exists, and this model did not build it. ` +
+              `Building the model would replace it${data.materialization === "view" ? " (a view-stored model drops the table first)" : ""}. ` +
+              `Give the model another name, or drop the table first if replacing it is what you mean.`,
+          };
+        }
+      }
       try {
-        validateCron(data.cron_expr ?? "", data.timezone ?? null);
+        buildPlan([...others, candidate]);
       } catch (e) {
         return { ok: false, error: (e as Error).message };
       }
-    }
 
-    // The target schema must be one the caller owns and can write. Checked
-    // here so a bad target is a sentence in the editor rather than a build
-    // that fails every night.
-    const { accessibleSchemas } = await import("@/utils/lakehouse/core.server");
-    const schema = (await accessibleSchemas(caller.userId)).find(
-      (s) => s.name === data.schema_name,
-    );
-    if (!schema) return { ok: false, error: `No access to schema "${data.schema_name}"` };
-    if (schema.user_id !== caller.userId) {
-      return { ok: false, error: "A model can only be built into a schema you own" };
-    }
-    if (schema.lake_source_id || schema.iceberg_catalog_id) {
-      return { ok: false, error: "Data-lake mounts are read-only" };
-    }
-
-    // A materialized view already owns (schema, table) globally, and a model
-    // writing the same target would fight it every sweep. Refuse the collision
-    // by name instead of letting two schedules overwrite each other.
-    const { data: clash, error: clashErr } = await supabaseAdmin
-      .from("lakehouse_materialized_views")
-      .select("id")
-      .eq("schema_name", data.schema_name)
-      .eq("table_name", data.name)
-      .maybeSingle();
-    // An unreadable answer is not "no clash".
-    if (clashErr) {
-      return {
-        ok: false,
-        error: `Could not check whether ${data.schema_name}.${data.name} is a materialized view: ${clashErr.message}`,
+      const patch = {
+        user_id: caller.userId,
+        name: data.name,
+        description: data.description ?? null,
+        schema_name: data.schema_name,
+        sql: data.sql,
+        materialization: data.materialization,
+        tests: data.tests as unknown as Json,
+        tags: data.tags ?? [],
+        is_active: data.is_active ?? true,
+        schedule: data.schedule,
+        cron_expr: data.schedule === "cron" ? (data.cron_expr ?? null) : null,
+        timezone: data.timezone ?? "UTC",
+        next_run_at: nextModelRunAt(data.schedule, new Date(), data.cron_expr, data.timezone),
+        updated_at: new Date().toISOString(),
       };
-    }
-    if (clash) {
-      return {
-        ok: false,
-        error: `${data.schema_name}.${data.name} is already a materialized view. Delete it, or give the model another name.`,
-      };
-    }
-
-    const existing = await loadModels(caller.userId);
-    const candidate = {
-      id: data.id ?? "new",
-      name: data.name,
-      schema_name: data.schema_name,
-      sql: data.sql,
-      materialization: data.materialization,
-      tests: data.tests as SqlModelTest[],
-      is_active: data.is_active ?? true,
-    };
-    const others = existing.filter((m) => m.id !== data.id);
-    if (others.some((m) => m.name === data.name)) {
-      return { ok: false, error: `You already have a model called ${data.name}` };
-    }
-
-    // FOUND IN R103. A build runs DROP <the other shape> IF EXISTS on the
-    // target and then CREATE OR REPLACE, and the name IS the target. A model
-    // given the name of a table it never built took that table: stored as a
-    // view, it dropped it outright; stored as a table, it replaced it. The
-    // materialized-view clash above was checked, and an ordinary table was
-    // not. A model keeping the target it already has is rebuilding its own
-    // output. A new model, or one moved to a new name or schema, must find
-    // the name free.
-    const previous = data.id ? existing.find((m) => m.id === data.id) : undefined;
-    const retargeted =
-      !previous || previous.schema_name !== data.schema_name || previous.name !== data.name;
-    if (retargeted) {
-      let taken: boolean;
-      try {
-        const { lakehouseTableExists } = await import("@/utils/lakehouse/core.server");
-        taken = await lakehouseTableExists(data.schema_name, data.name);
-      } catch (e) {
-        return {
-          ok: false,
-          error: `Could not check whether ${data.schema_name}.${data.name} is free: ${(e as Error).message}`,
-        };
-      }
-      if (taken) {
-        return {
-          ok: false,
-          error:
-            `${data.schema_name}.${data.name} already exists, and this model did not build it. ` +
-            `Building the model would replace it${data.materialization === "view" ? " (a view-stored model drops the table first)" : ""}. ` +
-            `Give the model another name, or drop the table first if replacing it is what you mean.`,
-        };
-      }
-    }
-    try {
-      buildPlan([...others, candidate]);
-    } catch (e) {
-      return { ok: false, error: (e as Error).message };
-    }
-
-    const patch = {
-      user_id: caller.userId,
-      name: data.name,
-      description: data.description ?? null,
-      schema_name: data.schema_name,
-      sql: data.sql,
-      materialization: data.materialization,
-      tests: data.tests as unknown as Json,
-      tags: data.tags ?? [],
-      is_active: data.is_active ?? true,
-      schedule: data.schedule,
-      cron_expr: data.schedule === "cron" ? (data.cron_expr ?? null) : null,
-      timezone: data.timezone ?? "UTC",
-      next_run_at: nextModelRunAt(data.schedule, new Date(), data.cron_expr, data.timezone),
-      updated_at: new Date().toISOString(),
-    };
-    const q = data.id
-      ? supabaseAdmin
+      let q;
+      if (!data.id) q = supabaseAdmin.from("sql_models").insert(patch);
+      else {
+        q = supabaseAdmin
           .from("sql_models")
           .update(patch)
           .eq("id", data.id)
-          .eq("user_id", caller.userId)
-      : supabaseAdmin.from("sql_models").insert(patch);
-    const { data: row, error } = await q.select("id").maybeSingle();
-    if (error) return { ok: false, error: error.message };
-    if (!row) return { ok: false, error: "Model not found" };
-    return { ok: true, id: row.id as string };
-  });
+          .eq("user_id", caller.userId);
+        // The check above read the row; this update lands only on that read, so
+        // a write in between (a build finishing, another tab) is not overwritten.
+        if (stored) q = q.eq("updated_at", stored.updated_at);
+      }
+      const { data: row, error } = await q.select("id").maybeSingle();
+      if (error) return { ok: false, error: error.message };
+      if (!row) {
+        if (stored) {
+          return {
+            ok: false,
+            error:
+              "The model was written to while this save was in progress (a build, or another tab). Nothing was saved; save again.",
+          };
+        }
+        return { ok: false, error: "Model not found" };
+      }
+      return {
+        ok: true,
+        id: row.id as string,
+        fingerprint: await fingerprintOf(
+          sqlModelDefinition({ ...patch, tests: data.tests as SqlModelTest[] }),
+        ),
+      };
+    },
+  );
 
 /**
  * Delete a model's definition. The table it built is left where it is.

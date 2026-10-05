@@ -554,8 +554,11 @@ least twice, not a hypothetical.
      itself — a server-side compare of what the page loaded against what is stored, before the
      update. Without a migration that compare is not atomic; the window is a single request, and
      the queue should say so where it is used:
-     **an MCP builder app**, **SQL models**, **semantic models**, **the swarm canvas**, **ETL
-     pipelines**, **workflows**.
+     **an MCP builder app**, ~~**SQL models**~~ (**R285**: a fingerprint of the stored
+     definition, `src/lib/definitionFingerprint.ts`, checked in the save, which then updates only
+     the row it read — atomic, since the save reads the row first anyway; and the editor's own
+     Pause, undone by the next Save), **semantic models**, **the swarm canvas**, **ETL pipelines**,
+     **workflows**.
    - **Budgets** (sweep 8's open note) is the same family inside one tab: its per-keystroke writes
      can land out of order.
 

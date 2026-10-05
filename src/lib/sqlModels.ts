@@ -411,3 +411,36 @@ export function modelBuildState(m: {
   }
   return "never";
 }
+
+/**
+ * The fields a model's save writes, as they are stored, for its fingerprint
+ * (R285). Run state, the derived next run time and the timestamps are left
+ * out: a build changes those without changing what the model is.
+ */
+export function sqlModelDefinition(m: {
+  name: string;
+  description?: string | null;
+  schema_name: string;
+  sql: string;
+  materialization: Materialization;
+  tests?: SqlModelTest[] | null;
+  tags?: string[] | null;
+  is_active: boolean;
+  schedule: string;
+  cron_expr?: string | null;
+  timezone?: string | null;
+}) {
+  return {
+    name: m.name,
+    description: m.description ?? null,
+    schema_name: m.schema_name,
+    sql: m.sql,
+    materialization: m.materialization,
+    tests: m.tests ?? [],
+    tags: m.tags ?? [],
+    is_active: m.is_active,
+    schedule: m.schedule,
+    cron_expr: m.cron_expr ?? null,
+    timezone: m.timezone ?? "UTC",
+  };
+}

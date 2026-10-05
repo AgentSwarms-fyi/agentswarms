@@ -109,6 +109,40 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-05 — R285: a SQL model's Save undoing another tab's, and the editor's own Pause
+
+**Severity: high (silent loss of saved work, and a paused schedule silently resumed), sweep 9.**
+`sqlModelSave` wrote the whole definition over whatever was stored. Driven on R284's build with
+`r178_after` (`SELECT 1782 AS id`) in two tabs: A changed the SQL to `… -- A285` and saved ("Saved
+r178_after"); B, opened before, set the description to "r285 B" and saved ("Saved r178_after"). Reopened,
+the model had B's description and the old SQL — A's saved SQL gone. The same tab found the same family
+on its own: **Pause** wrote `is_active: false` but left the open draft's `is_active` true, so clearing the
+description and pressing **Save** resumed the model; the button read **Pause** again and nothing said so.
+
+R284's guard does not carry over: builds write this row's run columns and move `updated_at`. So the save
+now compares the definition itself. `src/lib/definitionFingerprint.ts` gives a SHA-256 of canonical JSON
+(keys sorted at every depth, so a `jsonb` round trip that reorders a test's keys reads the same), and
+`sqlModelDefinition` projects exactly the fields the save writes, with its defaults. The list hands each
+model out with that fingerprint; the save, which already reads every model before writing, refuses one
+whose stored definition no longer matches the fingerprint the page sent, and then updates only on the
+`updated_at` it read — so the read, the check and the write are one step, with no migration. A write in
+that instant (a build finishing) leaves nothing to update and the save says to save again. The save
+returns the fingerprint of what it wrote. The page sends its fingerprint, keeps the new one, shows a
+banner with **Reload** (in the page: the fresh list, the model reopened) and **Overwrite with mine**;
+**Pause** and **Resume** now carry the new setting into the open draft, its saved record and its
+fingerprint, leaving other unsaved edits alone. A redundant `undefined` check in the canonical JSON — which
+`JSON.stringify` already leaves out — was dropped before the harness could only fail to kill it. Ten
+mutants caught against a verified-green baseline, control survived; R276's two pins moved to the new
+lines.
+
+Driven on R285 hot-deployed, both tabs reloaded: A saved the SQL, then the description "r285 A2" — the
+second save on the fingerprint the first returned, accepted, so a stored row and the save that wrote it
+fingerprint alike. B's description was refused: "This model was changed in another tab or session after
+this page read it" and the banner; the store, read in A, held both of A's edits. B's **Reload** showed A's
+version with no banner. Then in B: **Pause** ("Paused r178_after"), the SQL and description put back,
+**Save** — accepted, no banner, and the button still **Resume**: the pause kept. **Resume**, and the model
+is as it began: `SELECT 1782 AS id`, no description, active. Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-05 — R284: two tabs on one BI report, a Save undoing the other's blocks
 
 **Severity: high (silent loss of saved work), sweep 9.** `biReportSave` updated the whole report — page,

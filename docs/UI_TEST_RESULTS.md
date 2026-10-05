@@ -15,6 +15,21 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-05 — R285: two tabs on one SQL model, and Pause before Save
+
+SQL Models, `r178_after` (`SELECT 1782 AS id`, no description, active), open in two tabs of the browser
+pane, A and B, both loaded before either save.
+
+| Step | R284's build | R285 hot-deployed |
+| --- | --- | --- |
+| A: SQL → `SELECT 1782 AS id -- A285`, **Save** | "Saved r178_after" | "Saved r178_after" |
+| A: description "r285 A2", **Save** | — | "Saved r178_after" — no banner: the fingerprint the first save returned matched |
+| B: description "r285 B", **Save** | "Saved r178_after" | "This model was changed in another tab or session after this page read it"; the banner |
+| A: reopened | **B's description, the old SQL — A's saved SQL gone** | A's SQL and "r285 A2" — B's save refused, not made |
+| B: **Reload** | — | A's version; no banner |
+| **Pause**, then an edit and **Save** | "Paused", then "Saved" — **the button back to Pause: the model resumed** | "Paused", then "Saved", no banner — the button still Resume: paused |
+| **Resume**; A reopened | — | `SELECT 1782 AS id`, no description, active |
+
 ## 2026-10-05 — R284: two tabs on one BI report
 
 BI Workspace → Reports, "r214 after" (no blocks, margin 40), open in two tabs of the browser pane, A and

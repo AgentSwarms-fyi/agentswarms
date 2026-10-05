@@ -15,7 +15,7 @@ describe("the SQL models editor", () => {
       "const unsaved = draft !== null && savedDraft !== JSON.stringify(draft);",
     );
     expect(src).toMatch(
-      /const openDraft = \(d: Draft \| null\) => \{\s*setDraft\(d\);\s*setSavedDraft\(d \? JSON\.stringify\(d\) : null\);/,
+      /const openDraft = \(d: Draft \| null, fingerprint: string \| null = null\) => \{\s*setDraft\(d\);\s*setSavedDraft\(d \? JSON\.stringify\(d\) : null\);/,
     );
     expect(src).toContain("setSavedDraft(JSON.stringify({ ...draft, id: res.id }));");
   });
@@ -37,7 +37,7 @@ describe("the SQL models editor", () => {
       /if \(!\(await mayDiscard\("Starting a new model replaces"\)\)\) return;\s*setPreview\(null\);\s*openDraft\(emptyDraft\(/,
     );
     expect(src).toMatch(
-      /if \(!\(await mayDiscard\("Opening another model replaces"\)\)\) return;\s*setPreview\(null\);\s*openDraft\(draftOf\(m\)\);/,
+      /if \(!\(await mayDiscard\("Opening another model replaces"\)\)\) return;\s*setPreview\(null\);\s*openDraft\(draftOf\(m\), m\.fingerprint\);/,
     );
     expect(src).toMatch(/if \(await mayDiscard\("Closing the editor drops"\)\) openDraft\(null\);/);
     // Nothing sets a draft behind the record's back.
