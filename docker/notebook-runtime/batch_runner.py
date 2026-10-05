@@ -135,8 +135,15 @@ def main():
     import threading
 
     buf = io.StringIO()
-    real_stdout = sys.stdout
+    real_stdout, real_stderr = sys.stdout, sys.stderr
     sys.stdout = buf
+    # FOUND IN R299. Only stdout was captured. `logging` writes to stderr by
+    # default, and so do warnings and every library that reports through
+    # them: a run's logging.info lines went to the container's log, which is
+    # removed with the container once the result is posted, and the Logs
+    # dialog showed print() alone. stderr joins the same buffer, in order,
+    # and is scrubbed with it.
+    sys.stderr = buf
     stop = threading.Event()
     streamer = None
     if CALLBACK:
@@ -148,11 +155,11 @@ def main():
         compiled = compile(code, "<notebook>", "exec", flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT)
         result = asyncio.run(_run(compiled, ns))
         stop.set()
-        sys.stdout = real_stdout
+        sys.stdout, sys.stderr = real_stdout, real_stderr
         post_result("succeeded", result=_jsonable(result), logs=buf.getvalue())
     except Exception:
         stop.set()
-        sys.stdout = real_stdout
+        sys.stdout, sys.stderr = real_stdout, real_stderr
         error = traceback.format_exc()
         post_result("error", logs=buf.getvalue(), error=error)
         # Not a bare raise: the traceback Python prints on the way out lands

@@ -486,10 +486,9 @@ least twice, not a hypothetical.
        The sandbox now holds the values it was handed and scrubs before posting. The round also found
        that a value *replaced* mid-run leaked the same way, and that a node preview's output was never
        scrubbed at all.
-     - **Open, from R292:** what a run writes to stderr (the `logging` module's default) is not
-       captured by the batch runner, so it never reaches the run's logs; it stays in the container's
-       log. That log is read only when a sandbox's result post was lost, and then it is scrubbed only
-       against the current values. Check whether people expect `logging` output in the Logs dialog.
+     - ~~**Open, from R292:** what a run writes to stderr (the `logging` module's default) is not
+       captured by the batch runner.~~ **R299.** stderr joins stdout in the runner's buffer, so
+       logging, warnings and stderr reach the logs in order, scrubbed.
      - ~~**Open, from R292: a sandbox's result is overwritten by a stale refresh.**~~ **R295.** The
        update now lands only on the status it read, and the caller gets the stored row when the row has
        moved on. The race could not be forced from the UI: 0 of 7 previews hit it again. So the proof

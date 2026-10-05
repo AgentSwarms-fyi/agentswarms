@@ -128,6 +128,11 @@ Both passes take the longest value first, and both scrub a log before cutting it
 of a value behind. A runtime image older than R292 ignores `scrub`, so rebuild
 `agentswarms/notebook-runtime` along with the app.
 
+**What the logs hold.** The logs hold everything the run writes to stdout and stderr, in order and
+scrubbed. That includes `print`, the `logging` module's default handler, warnings, and libraries that
+report through them. Before R299 only stdout was kept. A run's `logging.info` lines went to the container's
+log, which is removed with the container, and the Logs dialog showed `print` alone.
+
 **The runtime must be enabled** (Admin → Developer runtime; its containers start with every install; on
 Compose). Without it, runs fail immediately with a message saying exactly that.
 

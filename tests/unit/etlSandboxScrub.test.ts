@@ -89,12 +89,14 @@ spec = importlib.util.spec_from_file_location("batch_runner", runner_file)
 runner = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(runner)
 runner.STREAM_EVERY = 0.05
+orig_out, orig_err = sys.stdout, sys.stderr
 exit_code = 0
 try:
     runner.main()
 except SystemExit as e:
     exit_code = e.code
-json.dump({"exit": exit_code, "posts": posts}, open(out_file, "w", encoding="utf-8"))
+restored = sys.stdout is orig_out and sys.stderr is orig_err
+json.dump({"exit": exit_code, "posts": posts, "restored": restored}, open(out_file, "w", encoding="utf-8"))
 `;
 
 type Post = { partial?: boolean; status?: string; logs?: string; error?: string | null };
@@ -102,7 +104,7 @@ type Post = { partial?: boolean; status?: string; logs?: string; error?: string 
 function runSandbox(
   userCode: string,
   bundle: { env: Record<string, string>; scrub?: string[] },
-): { exit: number; posts: Post[]; stderr: string } {
+): { exit: number; posts: Post[]; stderr: string; restored: boolean } {
   const dir = mkdtempSync(join(tmpdir(), "etl-scrub-"));
   try {
     writeFileSync(join(dir, "harness.py"), HARNESS, "utf8");
@@ -126,6 +128,7 @@ function runSandbox(
     const out = JSON.parse(readFileSync(join(dir, "out.json"), "utf8")) as {
       exit: number;
       posts: Post[];
+      restored: boolean;
     };
     return { ...out, stderr: res.stderr };
   } finally {
@@ -210,6 +213,48 @@ describe.skipIf(!PY)(
       const partials = posts.filter((p) => p.partial);
       expect(partials.length).toBeGreaterThan(0);
       for (const p of partials) expect(p.logs).not.toContain("AAAA");
+    });
+
+    it("logging, warnings and stderr reach the run's logs, scrubbed (R299)", () => {
+      // FOUND IN R299: only stdout was captured, so these went to the
+      // container's log - removed with the container - and the Logs dialog
+      // showed print() alone.
+      const { posts, restored, exit } = runSandbox(
+        [
+          "import logging, os, sys, warnings",
+          "def entrypoint(inputs=None):",
+          "    print('from print')",
+          "    logging.basicConfig(level=logging.INFO)",
+          "    logging.info('from logging ' + os.environ['R292_TOKEN'])",
+          "    sys.stderr.write('from stderr\\n')",
+          "    warnings.warn('from warnings')",
+          "    return {}",
+          "",
+        ].join("\n"),
+        { env: { R292_TOKEN: VALUE }, scrub: [VALUE] },
+      );
+      const logs = posts.find((p) => p.status === "succeeded")?.logs ?? "";
+      expect(exit).toBe(0);
+      for (const line of [
+        "from print",
+        "INFO:root:from logging ***",
+        "from stderr",
+        "from warnings",
+      ]) {
+        expect(logs).toContain(line);
+      }
+      expect(logs).not.toContain(VALUE);
+      // The runner hands both streams back when it is done.
+      expect(restored).toBe(true);
+    });
+
+    it("an error run hands stderr back before writing its exit traceback", () => {
+      const { stderr, restored } = runSandbox(
+        ["def entrypoint(inputs=None):", "    raise RuntimeError('boom')", ""].join("\n"),
+        { env: {} },
+      );
+      expect(stderr).toContain("RuntimeError: boom");
+      expect(restored).toBe(true);
     });
 
     it("a reply without a scrub list changes nothing (the other sandboxes' env parts)", () => {

@@ -15,6 +15,16 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-06 — R299: stderr in a run's logs
+
+The fixture is `r299_stderr`, a code pipeline. It prints a line, then writes one line each through
+`logging.info` (after `basicConfig(level=INFO)`), `sys.stderr.write` and `warnings.warn`.
+
+| What was driven | What came back |
+| --- | --- |
+| **Before**, on R298's runtime image: Run now, then Logs | Succeeded; the logs held only `r299 from print` |
+| **After**, on the rebuilt `agentswarms/notebook-runtime` (`c36a97397cd9`): Run now, then Logs | Succeeded; `r299 from print`, `INFO:root:r299 from logging`, `r299 from stderr`, `<notebook>:51: UserWarning: r299 from warnings`, in that order |
+
 ## 2026-10-05 — R298: the browser's own sign-in check
 
 A page-side wrapper failed the browser's `GET /auth/v1/user` and nothing else.

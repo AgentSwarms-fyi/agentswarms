@@ -109,6 +109,34 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-06 — R299: a run's logging and warnings never reached its logs
+
+**Severity: medium (a run's own diagnostics lost for good), ETL and every batch sandbox.** R292 queued it.
+The batch runner captured `sys.stdout` alone. Python's `logging` writes to stderr by default, and so do
+warnings and every library that reports through them. So those lines went to the container's log. The
+result callback removes that container once the run reports (R94), so they were lost for good.
+
+**The before**, on R298's build. A code pipeline, `r299_stderr`, printed one line and then wrote one
+each through `logging.info`, `sys.stderr.write` and `warnings.warn`. The run succeeded, and its logs read
+only `r299 from print`.
+
+**The fix.** `batch_runner.py` points `sys.stderr` at the same buffer as `sys.stdout`, so the order is
+kept and R292's scrub covers both. It hands both streams back before posting. On an error it hands them
+back before writing its scrubbed exit traceback, which belongs in the container's log.
+
+**Tests.** The R292 runner harness gained a check that both streams were handed back, and two tests:
+
+- logging, stderr and warnings reach the posted logs, and a secret logged through `logging` is scrubbed;
+- an error run's exit traceback goes to the real stderr.
+
+**Mutation harness:** 3 mutants caught, and the control survived. The runtime image was rebuilt
+(`c36a97397cd9`), and its runner hashes the same as the committed one.
+
+**The after,** the same pipeline again: `r299 from print`, `INFO:root:r299 from logging`, `r299 from
+stderr`, then `<notebook>:51: UserWarning: r299 from warnings`.
+
+**Fixture:** `r299_stderr` is kept. Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-05 — R298: the browser said "Not signed in" when one request failed
 
 **Severity: medium (a refused save; an action that did nothing; a shared dataset read as empty), five
