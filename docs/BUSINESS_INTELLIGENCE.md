@@ -216,7 +216,9 @@ month`, since the rows underneath have no `month` column to filter on.
   fixed-width dumps often pad with it, so it is removed from values and column
   names as each row arrives, and the result says in how many cells ("NUL
   characters removed from 1 cell"). Before R300, one NUL anywhere failed the
-  whole import with "unsupported Unicode escape sequence".
+  whole import with "unsupported Unicode escape sequence". Every other save
+  has the character removed in transit too (R301), so a title, text block or
+  cell holding pasted terminal output saves with the NUL removed.
 - **Data preparation** — a visual prep studio (BI Workspace → Data
   preparation): drag tables onto the canvas to build a join pipeline (left /
   inner / right / full outer, join keys auto-detected from matching column

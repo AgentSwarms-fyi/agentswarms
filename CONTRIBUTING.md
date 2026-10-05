@@ -70,6 +70,11 @@ Please don't open a public issue for security vulnerabilities — see
   ESLint (`npm run lint`) — both are configured in the repo, just run them.
 - Match the conventions of the surrounding code (naming, file
   organization) rather than introducing a new pattern for a single change.
+- A new Supabase client takes its options through `withNulSafeFetch(...)`
+  (`src/integrations/supabase/nulSafeFetch.ts`). That client's writes then never
+  carry a NUL character, which Postgres refuses. A test fails until it does.
+  The two clients under `src/integrations/supabase/` were generated, and have been
+  edited to use it; keep that if they are ever regenerated.
 
 ## Code of Conduct
 

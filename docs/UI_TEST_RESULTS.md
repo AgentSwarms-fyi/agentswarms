@@ -15,6 +15,18 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-06 — R301: a NUL character in an editor's text
+
+The character was set into the field directly, as R279 did.
+
+| What was driven | What came back |
+| --- | --- |
+| **Before**, on R300's build: a new notebook, title `R301 pro\0be` | Toast "Save failed: unsupported Unicode escape sequence"; "Unsaved changes" |
+| **Before**: "r214 after" report, header left band `R301\0band`, then Save (server function, admin client) | Toast "unsupported Unicode escape sequence" |
+| **After**: the same notebook title | "Saved", no toast; after a reload the title reads `R301 probe` |
+| **After**: the same report header, then Save | Toast "Saved"; after a reload the band reads `R301band`, then put back to empty |
+| Fixture | The notebook `R301 probe` is kept |
+
 ## 2026-10-06 — Smoke of the real images after R296 to R300
 
 The app image `7725c7187e5d` was built from `2258fabd` and started with `docker compose up -d`. The runtime

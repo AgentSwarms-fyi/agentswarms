@@ -23,6 +23,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { createClient } from "@supabase/supabase-js";
 import { llmJsonServer } from "@/utils/bi/llmJson.server";
 import { callerFailure, callerFailureStatus } from "@/utils/callerLookup.server";
+import { withNulSafeFetch } from "@/integrations/supabase/nulSafeFetch";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -69,9 +70,13 @@ export const Route = createFileRoute("/api/bi")({
 
         const supabaseUrl = (process.env.SUPABASE_URL || import.meta.env.VITE_SUPABASE_URL)!;
         const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY!;
-        const userClient = createClient(supabaseUrl, supabaseKey, {
-          global: { headers: { Authorization: `Bearer ${token}` } },
-        });
+        const userClient = createClient(
+          supabaseUrl,
+          supabaseKey,
+          withNulSafeFetch({
+            global: { headers: { Authorization: `Bearer ${token}` } },
+          }),
+        );
         const {
           data: { user },
           error: authError,

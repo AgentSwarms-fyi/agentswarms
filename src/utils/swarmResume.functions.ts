@@ -12,6 +12,7 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { resumeSwarmRun } from "@/utils/swarmExecute.server";
 import { resolveInternalOrigin } from "@/utils/internalOrigin.server";
 import { callerFailure } from "@/utils/callerLookup.server";
+import { withNulSafeFetch } from "@/integrations/supabase/nulSafeFetch";
 
 type Fail = { ok: false; error: string };
 
@@ -36,9 +37,13 @@ export const resumeApprovedSwarmRun = createServerFn({ method: "POST" })
         const url = process.env.SUPABASE_URL;
         const key = process.env.SUPABASE_PUBLISHABLE_KEY;
         if (!url || !key) return { ok: false, error: "Server is not configured" };
-        const sb = createClient<Database>(url, key, {
-          global: { headers: { Authorization: `Bearer ${data.access_token}` } },
-        });
+        const sb = createClient<Database>(
+          url,
+          key,
+          withNulSafeFetch({
+            global: { headers: { Authorization: `Bearer ${data.access_token}` } },
+          }),
+        );
         const {
           data: { user },
           error: authError,
@@ -130,9 +135,13 @@ export const cancelParkedSwarmRun = createServerFn({ method: "POST" })
         const url = process.env.SUPABASE_URL;
         const key = process.env.SUPABASE_PUBLISHABLE_KEY;
         if (!url || !key) return { ok: false, error: "Server is not configured" };
-        const sb = createClient<Database>(url, key, {
-          global: { headers: { Authorization: `Bearer ${data.access_token}` } },
-        });
+        const sb = createClient<Database>(
+          url,
+          key,
+          withNulSafeFetch({
+            global: { headers: { Authorization: `Bearer ${data.access_token}` } },
+          }),
+        );
         const {
           data: { user },
           error: authError,

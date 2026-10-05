@@ -17,6 +17,7 @@ import type { AgentCard, A2AMessage, Task } from "@/lib/a2aClient";
 import { assertPublicUrl, safeFetch } from "@/utils/ssrfGuard.server";
 import { resolveSecretRefs } from "@/utils/secrets.server";
 import { CallerCheckFailed, checkFailed } from "@/utils/callerLookup.server";
+import { withNulSafeFetch } from "@/integrations/supabase/nulSafeFetch";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -40,9 +41,13 @@ async function getUserId(request: Request): Promise<string | null | CallerCheckF
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_PUBLISHABLE_KEY;
   if (!url || !key) return null;
-  const sb = createClient<Database>(url, key, {
-    auth: { storage: undefined, persistSession: false, autoRefreshToken: false },
-  });
+  const sb = createClient<Database>(
+    url,
+    key,
+    withNulSafeFetch({
+      auth: { storage: undefined, persistSession: false, autoRefreshToken: false },
+    }),
+  );
   const { data, error } = await sb.auth.getClaims(token);
   const failed = checkFailed(error);
   if (failed) return failed;

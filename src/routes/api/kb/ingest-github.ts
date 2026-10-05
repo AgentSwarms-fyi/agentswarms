@@ -20,6 +20,7 @@ import { embedAndStoreDocuments } from "@/utils/tools/embedding.server";
 import { resolveEmbedArgs } from "@/utils/tools/embedTarget.server";
 import { reconcileSourceDocuments, type IncomingDoc } from "@/utils/kb/reconcileDocs.server";
 import { callerFailure, callerFailureStatus } from "@/utils/callerLookup.server";
+import { withNulSafeFetch } from "@/integrations/supabase/nulSafeFetch";
 
 const Body = z.object({
   knowledge_base_id: z.string().uuid(),
@@ -86,9 +87,13 @@ export const Route = createFileRoute("/api/kb/ingest-github")({
           return Response.json({ error: "Backend misconfigured" }, { status: 500 });
         }
 
-        const userClient = createClient(supabaseUrl, process.env.SUPABASE_PUBLISHABLE_KEY || "", {
-          global: { headers: { Authorization: `Bearer ${token}` } },
-        });
+        const userClient = createClient(
+          supabaseUrl,
+          process.env.SUPABASE_PUBLISHABLE_KEY || "",
+          withNulSafeFetch({
+            global: { headers: { Authorization: `Bearer ${token}` } },
+          }),
+        );
         const { data: userRes, error: authError } = await userClient.auth.getUser();
         const user = userRes?.user;
         if (!user) {
@@ -98,7 +103,7 @@ export const Route = createFileRoute("/api/kb/ingest-github")({
           );
         }
 
-        const admin = createClient(supabaseUrl, serviceKey);
+        const admin = createClient(supabaseUrl, serviceKey, withNulSafeFetch());
         const { data: kb } = await admin
           .from("knowledge_bases")
           .select("id, user_id")

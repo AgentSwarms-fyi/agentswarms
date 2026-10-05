@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { createFileRoute } from "@tanstack/react-router";
+import { withNulSafeFetch } from "@/integrations/supabase/nulSafeFetch";
 
 function redactEmail(email: string | null | undefined): string {
   if (!email) return "***";
@@ -27,7 +28,7 @@ export const Route = createFileRoute("/email/unsubscribe")({
           return Response.json({ error: "Token is required" }, { status: 400 });
         }
 
-        const supabase = createClient(supabaseUrl, supabaseServiceKey);
+        const supabase = createClient(supabaseUrl, supabaseServiceKey, withNulSafeFetch());
 
         // Look up the token
         const { data: tokenRecord, error: lookupError } = await supabase
@@ -90,7 +91,7 @@ export const Route = createFileRoute("/email/unsubscribe")({
           return Response.json({ error: "Token is required" }, { status: 400 });
         }
 
-        const supabase = createClient(supabaseUrl, supabaseServiceKey);
+        const supabase = createClient(supabaseUrl, supabaseServiceKey, withNulSafeFetch());
 
         // Look up the token
         const { data: tokenRecord, error: lookupError } = await supabase

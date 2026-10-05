@@ -109,6 +109,50 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-06 — R301: a NUL character in an editor's text could never be saved
+
+**Severity: medium (an edit that can never be saved, over an invisible character), every save in the
+app.** R279 found it and R300 re-queued it. Postgres refuses U+0000 in `text` and `jsonb` with
+"unsupported Unicode escape sequence". The character is invisible in an input, so the message cannot be
+acted on, and about 40 save paths showed it raw.
+
+**The before**, on R300's build, with the character set into the field as R279 did:
+
+- **A notebook title**, a browser-client write, through a new notebook `b27312c4…`. The toast said "Save
+  failed: unsupported Unicode escape sequence", and the page stayed "Unsaved changes".
+- **A BI report's header band**, a server-function write through the admin client, on "r214 after". Save
+  answered "unsupported Unicode escape sequence".
+
+**The fix, at the owner's choice: the generated clients were edited.**
+
+- **`src/integrations/supabase/nulSafeFetch.ts`** is the fetch every Supabase client now uses. A POST,
+  PATCH or PUT to `/rest/v1/` whose JSON body holds the character is parsed, cleaned at any depth (keys
+  too) and sent. Everything else goes through untouched: reads, auth, storage, and a body that is not
+  JSON. The literal text `\u0000`, which is not a NUL, survives.
+- **The two generated clients** (`client.ts`, `client.server.ts`) set it as their `global.fetch`, with a
+  header saying the edit was deliberate.
+- **The 49 other clients**, the user-scoped ones and the knowledge-base ingest routes that store fetched
+  web content, were wrapped by a codemod on the TypeScript syntax tree. It touches only `createClient`
+  imported from supabase-js; the app's Valkey `createClient` is left alone. One more,
+  `modelRegistry.functions.ts`, comes through a dynamic import and was wrapped by hand.
+- **The codemod's first run broke two files.** In `chat.ts` and `audit.functions.ts` a client sits above
+  a later import, and inserting the import at a position taken before the edits put it inside a string.
+  Their only changes were the codemod's, so they were restored from HEAD, and the import became one more
+  edit applied from the end.
+
+**Tests:** `nulSafeFetch.test.ts` checks the fetch against a stubbed `fetch`, and walks the syntax tree of
+every file in `src` to hold each supabase-js `createClient` to it. CONTRIBUTING says the same.
+
+- **Mutation harness:** 8 mutants caught, and the control survived. **Full suite:** 634 files passed.
+
+**The after:**
+
+- **The same notebook title** said "Saved", and after a reload read `R301 probe`.
+- **The same report header** said "Saved", and after a reload read `R301band`. It was then put back to
+  empty.
+
+**Fixture:** the notebook `R301 probe` is kept. Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-06 — Smoke of the real images after R296 to R300
 
 **The app image.** `7725c7187e5d` was built from `2258fabd` with `docker compose build agentswarms` and

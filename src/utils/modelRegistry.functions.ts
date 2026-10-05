@@ -52,10 +52,15 @@ export const getModelRegistry = createServerFn({ method: "POST" })
       const key = process.env.SUPABASE_PUBLISHABLE_KEY;
       if (!url || !key) throw new Error("Server not configured");
       const { createClient } = await import("@supabase/supabase-js");
-      const sb = createClient(url, key, {
-        global: { headers: { Authorization: `Bearer ${data.access_token}` } },
-        auth: { storage: undefined, persistSession: false, autoRefreshToken: false },
-      });
+      const { withNulSafeFetch } = await import("@/integrations/supabase/nulSafeFetch");
+      const sb = createClient(
+        url,
+        key,
+        withNulSafeFetch({
+          global: { headers: { Authorization: `Bearer ${data.access_token}` } },
+          auth: { storage: undefined, persistSession: false, autoRefreshToken: false },
+        }),
+      );
       const { data: userData, error: authErr } = await sb.auth.getUser();
       if (authErr || !userData?.user) throw new Error(callerFailure(authErr, "Unauthorized"));
 

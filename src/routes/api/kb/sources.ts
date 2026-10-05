@@ -16,6 +16,7 @@ import { encryptJson, decryptJson } from "@/utils/providers/crypto.server";
 import { KB_CONNECTORS, isConnectorKind } from "@/utils/kb/connectors.server";
 import { nextSyncAt } from "@/utils/kb/sync.server";
 import { callerFailure, callerFailureStatus } from "@/utils/callerLookup.server";
+import { withNulSafeFetch } from "@/integrations/supabase/nulSafeFetch";
 
 const UpsertBody = z.object({
   action: z.literal("upsert"),
@@ -57,9 +58,13 @@ async function requireUserAndAdmin(request: Request) {
   if (!supabaseUrl || !serviceKey) {
     return { error: Response.json({ error: "Backend misconfigured" }, { status: 500 }) };
   }
-  const userClient = createClient(supabaseUrl, process.env.SUPABASE_PUBLISHABLE_KEY || "", {
-    global: { headers: { Authorization: `Bearer ${token}` } },
-  });
+  const userClient = createClient(
+    supabaseUrl,
+    process.env.SUPABASE_PUBLISHABLE_KEY || "",
+    withNulSafeFetch({
+      global: { headers: { Authorization: `Bearer ${token}` } },
+    }),
+  );
   const { data: userRes, error: authError } = await userClient.auth.getUser();
   if (!userRes?.user) {
     return {
@@ -69,7 +74,7 @@ async function requireUserAndAdmin(request: Request) {
       ),
     };
   }
-  return { user: userRes.user, admin: createClient(supabaseUrl, serviceKey) };
+  return { user: userRes.user, admin: createClient(supabaseUrl, serviceKey, withNulSafeFetch()) };
 }
 
 export const Route = createFileRoute("/api/kb/sources")({

@@ -18,6 +18,7 @@ import { z } from "zod";
 import * as React from "react";
 import { TEMPLATES } from "@/lib/email-templates/registry";
 import { sendMail } from "@/lib/email/mailer.server";
+import { withNulSafeFetch } from "@/integrations/supabase/nulSafeFetch";
 
 type AnySupabase = SupabaseClient<any, any, any, any, any>;
 
@@ -139,7 +140,11 @@ export const Route = createFileRoute("/api/contact")({
           return Response.json({ success: true });
         }
 
-        const supabase: AnySupabase = createClient(supabaseUrl, supabaseServiceKey);
+        const supabase: AnySupabase = createClient(
+          supabaseUrl,
+          supabaseServiceKey,
+          withNulSafeFetch(),
+        );
 
         const userAgent = request.headers.get("user-agent") ?? null;
 

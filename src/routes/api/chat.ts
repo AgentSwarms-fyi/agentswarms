@@ -116,10 +116,14 @@ function getServerSupabase(authToken?: string) {
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_PUBLISHABLE_KEY;
   if (!url || !key) return null;
-  return createClient<Database>(url, key, {
-    auth: { storage: undefined, persistSession: false, autoRefreshToken: false },
-    global: authToken ? { headers: { Authorization: `Bearer ${authToken}` } } : undefined,
-  });
+  return createClient<Database>(
+    url,
+    key,
+    withNulSafeFetch({
+      auth: { storage: undefined, persistSession: false, autoRefreshToken: false },
+      global: authToken ? { headers: { Authorization: `Bearer ${authToken}` } } : undefined,
+    }),
+  );
 }
 
 async function getUserIdFromRequest(request: Request): Promise<string | null | CallerCheckFailed> {
@@ -490,6 +494,7 @@ import { approxTokens, estimateImageCost, isImageModel } from "@/utils/observabi
 import { priceCall } from "@/utils/observability/priceResolver";
 import { providerReportedCost } from "@/utils/observability/providerCost";
 import { CallerCheckFailed, checkFailed } from "@/utils/callerLookup.server";
+import { withNulSafeFetch } from "@/integrations/supabase/nulSafeFetch";
 
 const DECISION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

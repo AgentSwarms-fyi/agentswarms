@@ -21,6 +21,7 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { resolveGrantedResourceIds } from "@/utils/iam.server";
 import { verifySessionToken } from "./token.server";
 import { CallerCheckFailed, checkFailed } from "@/utils/callerLookup.server";
+import { withNulSafeFetch } from "@/integrations/supabase/nulSafeFetch";
 
 export type PythonCaller = {
   userId: string;
@@ -40,10 +41,14 @@ function jwtClient(token: string): SupabaseClient<Database> | null {
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_PUBLISHABLE_KEY;
   if (!url || !key) return null;
-  return createClient<Database>(url, key, {
-    auth: { storage: undefined, persistSession: false, autoRefreshToken: false },
-    global: { headers: { Authorization: `Bearer ${token}` } },
-  });
+  return createClient<Database>(
+    url,
+    key,
+    withNulSafeFetch({
+      auth: { storage: undefined, persistSession: false, autoRefreshToken: false },
+      global: { headers: { Authorization: `Bearer ${token}` } },
+    }),
+  );
 }
 
 export async function resolvePythonCaller(

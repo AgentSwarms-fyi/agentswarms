@@ -10,6 +10,7 @@ import { resolveInternalOrigin } from "@/utils/internalOrigin.server";
 import { TEMPLATES } from "@/lib/email-templates/registry";
 import { sendMail } from "@/lib/email/mailer.server";
 import { callerFailure, callerFailureStatus } from "@/utils/callerLookup.server";
+import { withNulSafeFetch } from "@/integrations/supabase/nulSafeFetch";
 
 function redactEmail(email: string | null | undefined): string {
   if (!email) return "***";
@@ -46,7 +47,7 @@ export const Route = createFileRoute("/api/email/send")({
         }
 
         const token = authHeader.slice("Bearer ".length).trim();
-        const supabase = createClient(supabaseUrl, supabaseServiceKey);
+        const supabase = createClient(supabaseUrl, supabaseServiceKey, withNulSafeFetch());
         const {
           data: { user },
           error: authError,

@@ -9,15 +9,20 @@ import { auditEvent } from "@/utils/audit.server";
 import { extractTableRefs } from "@/lib/sqlRefs";
 import { loadWarehouseConnection } from "@/utils/warehouse/connections.server";
 import { callerFailure, callerFailureStatus } from "@/utils/callerLookup.server";
+import { withNulSafeFetch } from "@/integrations/supabase/nulSafeFetch";
 
 function getServerSupabase(authToken: string) {
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_PUBLISHABLE_KEY;
   if (!url || !key) return null;
-  return createClient<Database>(url, key, {
-    auth: { storage: undefined, persistSession: false, autoRefreshToken: false },
-    global: { headers: { Authorization: `Bearer ${authToken}` } },
-  });
+  return createClient<Database>(
+    url,
+    key,
+    withNulSafeFetch({
+      auth: { storage: undefined, persistSession: false, autoRefreshToken: false },
+      global: { headers: { Authorization: `Bearer ${authToken}` } },
+    }),
+  );
 }
 
 function json(status: number, body: unknown): Response {

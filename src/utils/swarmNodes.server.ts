@@ -8,6 +8,7 @@ import type { Database } from "@/integrations/supabase/types";
 import { resolveSecretRefs } from "@/utils/secrets.server";
 import { safeFetch } from "@/utils/ssrfGuard.server";
 import type { AgentToolContext } from "@/utils/tools/registry.server";
+import { withNulSafeFetch } from "@/integrations/supabase/nulSafeFetch";
 
 // RLS-scoped client (publishable key + the caller's JWT), matching the one the
 // chat route builds for its tool context.
@@ -15,10 +16,14 @@ export function userScopedClient(authToken: string): SupabaseClient<Database> | 
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_PUBLISHABLE_KEY;
   if (!url || !key) return null;
-  return createClient<Database>(url, key, {
-    auth: { storage: undefined, persistSession: false, autoRefreshToken: false },
-    global: { headers: { Authorization: `Bearer ${authToken}` } },
-  });
+  return createClient<Database>(
+    url,
+    key,
+    withNulSafeFetch({
+      auth: { storage: undefined, persistSession: false, autoRefreshToken: false },
+      global: { headers: { Authorization: `Bearer ${authToken}` } },
+    }),
+  );
 }
 
 // ── HTTP node core ────────────────────────────────────────────────────────
