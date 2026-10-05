@@ -272,10 +272,9 @@ export const saveKbRetrievalSettings = createServerFn({ method: "POST" })
       }
 
       if (after !== before) {
-        const { data: who } = await supabase.auth.getUser();
         auditEvent({
-          userId: who.user?.id ?? null,
-          actorEmail: who.user?.email ?? null,
+          userId: context.userId,
+          actorEmail: (context.claims as { email?: string }).email ?? null,
           action: "vector_store.knowledge_base_changed",
           resourceType: "knowledge_base",
           resourceId: kb.id,

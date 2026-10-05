@@ -64,7 +64,7 @@ export async function requireSuperadmin(accessToken: string | undefined): Promis
     const { data, error } = await supabaseAdmin.auth.getUser(accessToken);
     const user = data.user;
     if (error || !user) {
-      return { ok: false, error: error?.message ?? "Invalid session" };
+      return { ok: false, error: callerFailure(error, error?.message ?? "Invalid session") };
     }
     const email = (user.email ?? "").toLowerCase();
 
@@ -279,6 +279,7 @@ export async function modelAccessRefusal(
   return null;
 }
 import { collapseModelPolicy, isModelAllowed as isModelAllowedShared } from "@/lib/iamRules";
+import { callerFailure } from "@/utils/callerLookup.server";
 
 /**
  * The grants on `resourceIds` that apply to `userId`, directly or through a

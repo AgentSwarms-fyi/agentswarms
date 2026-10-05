@@ -24,6 +24,7 @@
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { auditEvent } from "@/utils/audit.server";
 import { domainAllowed, hostnameOf, requestOriginAllowed } from "@/utils/embedOrigin";
+import { checkFailed } from "@/utils/callerLookup.server";
 
 // Re-exported so existing importers keep working.
 export { domainAllowed, hostnameOf, requestOriginAllowed };
@@ -118,7 +119,11 @@ export async function validateEmbedKey(opts: {
   // Owner preview from /dashboard: a signed-in session token belonging to
   // the key's owner bypasses the domain check (nothing else does).
   if (opts.previewToken) {
-    const { data } = await supabaseAdmin.auth.getUser(opts.previewToken);
+    const { data, error } = await supabaseAdmin.auth.getUser(opts.previewToken);
+    // A preview whose owner could not be checked says so, rather than falling
+    // through to the domain check and calling the owner's own page foreign.
+    const failed = checkFailed(error);
+    if (failed) return { ok: false, status: 503, error: failed.checkFailed };
     if (data.user?.id === row.user_id) {
       return { ok: true, row: row as EmbedKeyRow, preview: true };
     }

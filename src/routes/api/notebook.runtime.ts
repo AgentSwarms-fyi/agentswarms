@@ -31,6 +31,7 @@ import {
   touchSession,
 } from "@/utils/notebookRuntime/service.server";
 import { signSessionToken } from "@/utils/notebookRuntime/token.server";
+import { callerFailure, callerFailureStatus } from "@/utils/callerLookup.server";
 
 function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -45,9 +46,13 @@ async function handle(request: Request): Promise<Response> {
   const auth = request.headers.get("authorization");
   const token = auth?.startsWith("Bearer ") ? auth.slice(7) : undefined;
   if (!token) return json(401, { error: "Sign in to use the server runtime" });
-  const { data: userData } = await supabaseAdmin.auth.getUser(token);
+  const { data: userData, error: authError } = await supabaseAdmin.auth.getUser(token);
   const userId = userData.user?.id;
-  if (!userId) return json(401, { error: "Invalid session" });
+  if (!userId) {
+    return json(callerFailureStatus(authError), {
+      error: callerFailure(authError, "Invalid session"),
+    });
+  }
 
   let body: {
     action?: string;

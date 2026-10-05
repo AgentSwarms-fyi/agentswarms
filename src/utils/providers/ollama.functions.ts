@@ -10,6 +10,7 @@
 
 import { createServerFn } from "@tanstack/react-start";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { CallerCheckFailed, checkFailed } from "@/utils/callerLookup.server";
 
 const DEFAULT_ENDPOINT = "http://localhost:11434";
 
@@ -61,10 +62,12 @@ async function probeOllama(endpointRaw: string): Promise<OllamaProbe> {
   }
 }
 
-async function requireUser(accessToken: string | undefined): Promise<string | null> {
+async function requireUser(
+  accessToken: string | undefined,
+): Promise<string | null | CallerCheckFailed> {
   if (!accessToken) return null;
-  const { data } = await supabaseAdmin.auth.getUser(accessToken);
-  return data.user?.id ?? null;
+  const { data, error } = await supabaseAdmin.auth.getUser(accessToken);
+  return checkFailed(error) ?? data.user?.id ?? null;
 }
 
 /** Probe an Ollama server from the AgentSwarms server (default: localhost). */
@@ -79,8 +82,9 @@ export const detectOllama = createServerFn({ method: "POST" })
   })
   .handler(async ({ data }): Promise<OllamaProbe> => {
     const userId = await requireUser(data.access_token);
-    if (!userId) {
-      return { running: false, endpoint: "", models: [], detail: "Not signed in" };
+    if (!userId || typeof userId !== "string") {
+      const detail = typeof userId === "object" && userId ? userId.checkFailed : "Not signed in";
+      return { running: false, endpoint: "", models: [], detail };
     }
     return probeOllama(data.endpoint || DEFAULT_ENDPOINT);
   });
@@ -94,7 +98,8 @@ export const listOllamaModels = createServerFn({ method: "POST" })
   .handler(
     async ({ data }): Promise<{ connected: boolean; endpoint: string; models: string[] }> => {
       const userId = await requireUser(data.access_token);
-      if (!userId) return { connected: false, endpoint: "", models: [] };
+      if (!userId || typeof userId !== "string")
+        return { connected: false, endpoint: "", models: [] };
       const { data: row } = await supabaseAdmin
         .from("integrations")
         .select("config, is_active")

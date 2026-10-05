@@ -16,12 +16,13 @@ import {
   type IcebergCatalogConfig,
 } from "@/utils/lakehouse/iceberg";
 import type { IcebergCatalogRow } from "@/utils/lakehouse/iceberg.server";
+import { callerFailure } from "@/utils/callerLookup.server";
 
 type Fail = { ok: false; error: string };
 
 async function resolveCaller(accessToken: string): Promise<{ ok: true; userId: string } | Fail> {
   const { data, error } = await supabaseAdmin.auth.getUser(accessToken);
-  if (error || !data?.user) return { ok: false, error: "Not signed in" };
+  if (error || !data?.user) return { ok: false, error: callerFailure(error, "Not signed in") };
   return { ok: true, userId: data.user.id };
 }
 

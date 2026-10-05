@@ -10,6 +10,7 @@ import { createClient } from "@supabase/supabase-js";
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import type { Database } from "@/integrations/supabase/types";
+import { callerFailure } from "@/utils/callerLookup.server";
 
 // Providers we support live-testing for.
 const ProviderEnum = z.enum([
@@ -76,7 +77,10 @@ async function validateAccessToken(accessToken: unknown): Promise<AuthResult> {
 
   const { data, error } = await supabase.auth.getClaims(token);
   if (error || !data?.claims?.sub) {
-    return { ok: false, detail: "Your session is invalid or expired. Please sign in again." };
+    return {
+      ok: false,
+      detail: callerFailure(error, "Your session is invalid or expired. Please sign in again."),
+    };
   }
 
   return { ok: true, userId: data.claims.sub };

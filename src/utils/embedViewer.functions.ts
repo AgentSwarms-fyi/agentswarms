@@ -15,10 +15,11 @@ import { z } from "zod";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { auditEvent } from "@/utils/audit.server";
 import { encryptViewerSecret, generateViewerSecret } from "@/utils/embedViewer.server";
+import { callerFailure } from "@/utils/callerLookup.server";
 
 async function requireEmbedKeyOwner(accessToken: string, embedKeyId: string) {
   const { data: auth, error: authErr } = await supabaseAdmin.auth.getUser(accessToken);
-  if (authErr || !auth.user) throw new Error("Unauthorized");
+  if (authErr || !auth?.user) throw new Error(callerFailure(authErr, "Unauthorized"));
   const { data, error } = await supabaseAdmin
     .from("embed_keys")
     .select("id, user_id, name, resource_type, viewer_secret")

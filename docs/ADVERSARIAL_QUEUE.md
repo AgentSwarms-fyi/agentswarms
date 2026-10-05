@@ -495,12 +495,14 @@ least twice, not a hypothetical.
        moved on. The race could not be forced from the UI: 0 of 7 previews hit it again. So the proof
        is the real `refreshSession` against an in-memory table, where it turned a stored error into
        "stopped" and replaced the sandbox's own error text.
-     - **Open, from R295: a failed auth lookup reads as "Unauthorized".** One preview of seven read
-       only "Unauthorized" while the session was valid for another 40 minutes.
-       `resolveCaller` throws "Unauthorized" for any error from `supabaseAdmin.auth.getUser`,
-       including a network blip or a rate limit, and the same three lines are copied across the
-       `*.functions.ts` files. A lookup that failed should say it could not check, not that the
-       caller is refused.
+     - ~~**Open, from R295: a failed auth lookup reads as "Unauthorized".**~~ **R297.** Every
+       server-side `auth.getUser` and `auth.getClaims` now goes through `callerLookup.server.ts`.
+       A refusal keeps its 401 and message; a check that failed is a 503 that says so. The round
+       also found that Agent Chat ran such a turn without the IAM model rules or budget cap.
+     - **Open, from R297: the browser's own `supabase.auth.getUser()`.** Five places read the
+       browser's session with it and treat any error as "Not signed in": `SkillEditorDialog`,
+       `lib/sqlEngine`, `lib/swarmRuntime` (an approval node), `dashboard.tsx` and `skills.tsx`.
+       Same class, client side. They are listed by name in the sweep's exemptions.
 
 8. **Unsaved work lost without a word** (sweep 8, from 2026-10-05). An editor with an explicit
    Save holds edits in the page, and something replaces or leaves them with no question: picking

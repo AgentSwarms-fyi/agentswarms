@@ -64,6 +64,7 @@ export const Route = createFileRoute("/api/ml/experiments")({
       POST: async ({ request }) => {
         const caller = await resolvePythonCaller(request);
         if (!caller) return json({ error: "Not signed in" }, 401);
+        if ("checkFailed" in caller) return json({ error: caller.checkFailed }, 503);
 
         let body: z.infer<typeof schema>;
         try {

@@ -56,6 +56,7 @@ export async function createSwarmTracer(opts: {
   swarmSnapshot?: unknown;
 }): Promise<SwarmTracer | null> {
   try {
+    // caller-lookup: the browser's own session; a failed check only skips tracing.
     const { data: userData } = await supabase.auth.getUser();
     const userId = userData.user?.id;
     if (!userId) return null;

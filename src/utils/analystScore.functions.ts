@@ -18,6 +18,7 @@ import {
   scoreRowsForAnalyst,
 } from "@/utils/ml/scoreRows.server";
 import { userScopedClient } from "@/utils/swarmNodes.server";
+import { callerFailure } from "@/utils/callerLookup.server";
 
 export type Cell = string | number | boolean | null;
 
@@ -66,7 +67,7 @@ async function requireUserId(accessToken: string): Promise<string> {
   const sb = userScopedClient(accessToken);
   if (!sb) throw new Error("Server is missing Supabase configuration");
   const { data, error } = await sb.auth.getUser(accessToken);
-  if (error || !data.user) throw new Error("Unauthorized");
+  if (error || !data?.user) throw new Error(callerFailure(error, "Unauthorized"));
   return data.user.id;
 }
 

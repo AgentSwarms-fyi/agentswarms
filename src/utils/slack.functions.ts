@@ -16,6 +16,7 @@ import type { Database } from "@/integrations/supabase/types";
 import { encryptJson } from "@/utils/providers/crypto.server";
 import { auditEvent } from "@/utils/audit.server";
 import { normalizeSlashCommand } from "@/utils/channels/core";
+import { callerFailure } from "@/utils/callerLookup.server";
 
 function userClient(accessToken: string) {
   const url = process.env.SUPABASE_URL;
@@ -30,7 +31,7 @@ function userClient(accessToken: string) {
 async function requireUser(accessToken: string) {
   const sb = userClient(accessToken);
   const { data, error } = await sb.auth.getUser(accessToken);
-  if (error || !data.user) throw new Error("Unauthorized");
+  if (error || !data?.user) throw new Error(callerFailure(error, "Unauthorized"));
   return { sb, userId: data.user.id };
 }
 

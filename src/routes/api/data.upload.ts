@@ -21,6 +21,7 @@ import { detectFormat, safeTableName, UPLOAD_ACCEPT } from "@/lib/datasetParse";
 import { auditEvent } from "@/utils/audit.server";
 import { envInt, rateLimitedGlobal } from "@/utils/rateLimit.server";
 import { ingestUpload, uploadMaxBytes, uploadMaxRows } from "@/utils/data/ingest.server";
+import { callerFailure, callerFailureStatus } from "@/utils/callerLookup.server";
 
 function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -32,9 +33,13 @@ function json(status: number, body: unknown): Response {
 async function handle(request: Request): Promise<Response> {
   const bearer = (request.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
   if (!bearer) return json(401, { error: "Unauthorized" });
-  const { data: auth } = await supabaseAdmin.auth.getUser(bearer);
+  const { data: auth, error: authError } = await supabaseAdmin.auth.getUser(bearer);
   const userId = auth.user?.id;
-  if (!userId) return json(401, { error: "Unauthorized" });
+  if (!userId) {
+    return json(callerFailureStatus(authError), {
+      error: callerFailure(authError, "Unauthorized"),
+    });
+  }
 
   if (await rateLimitedGlobal(`upload:${userId}`, envInt("UPLOAD_PER_MINUTE", 10))) {
     return json(429, { error: "Too many uploads — wait a minute and try again." });

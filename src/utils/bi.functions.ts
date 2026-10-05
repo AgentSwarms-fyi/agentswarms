@@ -26,10 +26,11 @@ import {
 import { isModelAllowed, readApplicableGrants } from "@/utils/iam.server";
 import { parseModelChoice } from "@/utils/providers/modelChoice";
 import type { Json } from "@/integrations/supabase/types";
+import { callerFailure } from "@/utils/callerLookup.server";
 
 async function requireUserId(accessToken: string): Promise<string> {
   const { data, error } = await supabaseAdmin.auth.getUser(accessToken);
-  if (error || !data.user) throw new Error("Unauthorized");
+  if (error || !data?.user) throw new Error(callerFailure(error, "Unauthorized"));
   return data.user.id;
 }
 

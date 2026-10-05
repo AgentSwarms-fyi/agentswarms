@@ -15,6 +15,7 @@ import { z } from "zod";
 import { encryptJson, decryptJson } from "@/utils/providers/crypto.server";
 import { KB_CONNECTORS, isConnectorKind } from "@/utils/kb/connectors.server";
 import { nextSyncAt } from "@/utils/kb/sync.server";
+import { callerFailure, callerFailureStatus } from "@/utils/callerLookup.server";
 
 const UpsertBody = z.object({
   action: z.literal("upsert"),
@@ -59,9 +60,14 @@ async function requireUserAndAdmin(request: Request) {
   const userClient = createClient(supabaseUrl, process.env.SUPABASE_PUBLISHABLE_KEY || "", {
     global: { headers: { Authorization: `Bearer ${token}` } },
   });
-  const { data: userRes } = await userClient.auth.getUser();
+  const { data: userRes, error: authError } = await userClient.auth.getUser();
   if (!userRes?.user) {
-    return { error: Response.json({ error: "Not signed in" }, { status: 401 }) };
+    return {
+      error: Response.json(
+        { error: callerFailure(authError, "Not signed in") },
+        { status: callerFailureStatus(authError) },
+      ),
+    };
   }
   return { user: userRes.user, admin: createClient(supabaseUrl, serviceKey) };
 }

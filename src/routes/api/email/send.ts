@@ -9,6 +9,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { resolveInternalOrigin } from "@/utils/internalOrigin.server";
 import { TEMPLATES } from "@/lib/email-templates/registry";
 import { sendMail } from "@/lib/email/mailer.server";
+import { callerFailure, callerFailureStatus } from "@/utils/callerLookup.server";
 
 function redactEmail(email: string | null | undefined): string {
   if (!email) return "***";
@@ -52,7 +53,10 @@ export const Route = createFileRoute("/api/email/send")({
         } = await supabase.auth.getUser(token);
 
         if (authError || !user) {
-          return Response.json({ error: "Unauthorized" }, { status: 401 });
+          return Response.json(
+            { error: callerFailure(authError, "Unauthorized") },
+            { status: callerFailureStatus(authError) },
+          );
         }
 
         // Parse request body

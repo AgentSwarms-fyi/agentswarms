@@ -39,12 +39,13 @@ import type { WarehouseTable } from "@/utils/warehouse/types";
 import { nextEtlRunAt } from "@/utils/etl/schedule.server";
 import { validateCron } from "@/lib/cron";
 import { computeEtlOverview, type OverviewRun } from "@/lib/etlOverview";
+import { callerFailure } from "@/utils/callerLookup.server";
 
 // ── Caller resolution (house pattern) ───────────────────────────────────────
 
 async function resolveCaller(accessToken: string): Promise<string> {
   const { data, error } = await supabaseAdmin.auth.getUser(accessToken);
-  if (error || !data.user) throw new Error("Unauthorized");
+  if (error || !data?.user) throw new Error(callerFailure(error, "Unauthorized"));
   return data.user.id;
 }
 

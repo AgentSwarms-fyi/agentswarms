@@ -13,6 +13,7 @@ import {
   hashNotebookApiKey,
   notebookKeyPrefix,
 } from "@/utils/notebookApiKeys";
+import { callerFailure } from "@/utils/callerLookup.server";
 
 export type NbApiKeyRow = {
   id: string;
@@ -42,8 +43,9 @@ async function ownerOf(
   });
   const {
     data: { user },
+    error: authError,
   } = await sb.auth.getUser();
-  if (!user) return { ok: false, error: "Not signed in" };
+  if (!user) return { ok: false, error: callerFailure(authError, "Not signed in") };
 
   const { data } = await sb
     .from("user_python_notebooks")

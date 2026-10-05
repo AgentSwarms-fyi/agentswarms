@@ -13,6 +13,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { createClient } from "@supabase/supabase-js";
 import { resolveDocgenBaseUrl, docgenAuthHeaders } from "@/utils/docgenService.server";
+import { callerFailure, callerFailureStatus } from "@/utils/callerLookup.server";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -52,8 +53,14 @@ export const Route = createFileRoute("/api/docgen/pptx")({
         );
         const {
           data: { user },
+          error: authError,
         } = await userClient.auth.getUser();
-        if (!user) return json({ error: "Unauthorized" }, 401);
+        if (!user) {
+          return json(
+            { error: callerFailure(authError, "Unauthorized") },
+            callerFailureStatus(authError),
+          );
+        }
 
         const body = (await request.json().catch(() => ({}))) as {
           plan?: unknown;

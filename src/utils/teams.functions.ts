@@ -13,10 +13,11 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { Database, Json } from "@/integrations/supabase/types";
 import { auditEvent } from "@/utils/audit.server";
 import { encryptJson } from "@/utils/providers/crypto.server";
+import { callerFailure } from "@/utils/callerLookup.server";
 
 async function requireUser(accessToken: string): Promise<{ userId: string }> {
   const { data, error } = await supabaseAdmin.auth.getUser(accessToken);
-  if (error || !data?.user) throw new Error("Not signed in");
+  if (error || !data?.user) throw new Error(callerFailure(error, "Not signed in"));
   return { userId: data.user.id };
 }
 

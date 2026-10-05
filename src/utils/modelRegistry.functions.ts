@@ -9,6 +9,7 @@ import { syncModelRegistryFromAimlapi } from "@/utils/modelRegistry.server";
 import { envInt } from "@/utils/rateLimit.server";
 import { pageTraces } from "@/lib/traceWindow";
 import { z } from "zod";
+import { callerFailure } from "@/utils/callerLookup.server";
 
 // --- Public types --------------------------------------------------------
 
@@ -56,7 +57,7 @@ export const getModelRegistry = createServerFn({ method: "POST" })
         auth: { storage: undefined, persistSession: false, autoRefreshToken: false },
       });
       const { data: userData, error: authErr } = await sb.auth.getUser();
-      if (authErr || !userData?.user) throw new Error("Unauthorized");
+      if (authErr || !userData?.user) throw new Error(callerFailure(authErr, "Unauthorized"));
 
       // The count BEFORE the rows, so the page can tell a complete catalogue
       // from a prefix of one. The read used to be a single `.limit(2000)`,

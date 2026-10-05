@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { callerFailure } from "@/utils/callerLookup.server";
 
 const TraceLogInput = z.object({
   accessToken: z.string().min(1),
@@ -57,7 +58,10 @@ export const getExecutionTraces = createServerFn({ method: "POST" })
       );
       const userId = authData.user?.id;
       if (authError || !userId) {
-        return { ok: false, error: authError?.message ?? "Invalid session" };
+        return {
+          ok: false,
+          error: callerFailure(authError, authError?.message ?? "Invalid session"),
+        };
       }
 
       const since = new Date(Date.now() - data.days * 86400000).toISOString();
@@ -100,7 +104,10 @@ export const getExecutionTraceDetail = createServerFn({ method: "POST" })
       );
       const userId = authData.user?.id;
       if (authError || !userId) {
-        return { ok: false, error: authError?.message ?? "Invalid session" };
+        return {
+          ok: false,
+          error: callerFailure(authError, authError?.message ?? "Invalid session"),
+        };
       }
 
       const { data: row, error } = await supabaseAdmin

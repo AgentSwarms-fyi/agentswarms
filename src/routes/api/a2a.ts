@@ -16,6 +16,7 @@ import type { Database } from "@/integrations/supabase/types";
 import type { AgentCard, A2AMessage, Task } from "@/lib/a2aClient";
 import { assertPublicUrl, safeFetch } from "@/utils/ssrfGuard.server";
 import { resolveSecretRefs } from "@/utils/secrets.server";
+import { CallerCheckFailed, checkFailed } from "@/utils/callerLookup.server";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -32,7 +33,7 @@ function jsonResponse(body: unknown, status = 200, extraHeaders: Record<string, 
   });
 }
 
-async function getUserId(request: Request): Promise<string | null> {
+async function getUserId(request: Request): Promise<string | null | CallerCheckFailed> {
   const auth = request.headers.get("authorization");
   if (!auth?.startsWith("Bearer ")) return null;
   const token = auth.slice(7);
@@ -42,7 +43,9 @@ async function getUserId(request: Request): Promise<string | null> {
   const sb = createClient<Database>(url, key, {
     auth: { storage: undefined, persistSession: false, autoRefreshToken: false },
   });
-  const { data } = await sb.auth.getClaims(token);
+  const { data, error } = await sb.auth.getClaims(token);
+  const failed = checkFailed(error);
+  if (failed) return failed;
   return data?.claims?.sub ?? null;
 }
 
@@ -332,6 +335,7 @@ export const Route = createFileRoute("/api/a2a")({
       POST: async ({ request }) => {
         const userId = await getUserId(request);
         if (!userId) return jsonResponse({ error: "Unauthorized" }, 401);
+        if (typeof userId !== "string") return jsonResponse({ error: userId.checkFailed }, 503);
 
         const url = new URL(request.url);
         const action = url.searchParams.get("action");

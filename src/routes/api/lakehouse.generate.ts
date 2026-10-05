@@ -20,6 +20,7 @@ import { isBiCompatProvider } from "@/utils/providers/modelChoice";
 import type { ProviderId } from "@/utils/providers/types";
 import { auditEvent } from "@/utils/audit.server";
 import { accessibleSchemas, lakehouseConnection } from "@/utils/lakehouse/core.server";
+import { callerFailure, callerFailureStatus } from "@/utils/callerLookup.server";
 
 const FALLBACK_MODEL = "openai/gpt-4o-mini";
 
@@ -63,8 +64,14 @@ export const Route = createFileRoute("/api/lakehouse/generate")({
           );
           const {
             data: { user },
+            error: authError,
           } = await userClient.auth.getUser();
-          if (!user) return json({ error: "Unauthorized" }, 401);
+          if (!user) {
+            return json(
+              { error: callerFailure(authError, "Unauthorized") },
+              callerFailureStatus(authError),
+            );
+          }
 
           const body = (await request.json().catch(() => ({}))) as {
             question?: unknown;

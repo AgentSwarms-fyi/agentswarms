@@ -27,6 +27,7 @@ import {
   OPENROUTER_CHAT_URL,
   getOpenRouterApiKey,
 } from "@/utils/providers/openrouterDefault.server";
+import { callerFailure, callerFailureStatus } from "@/utils/callerLookup.server";
 
 const Body = z.object({
   knowledge_base_id: z.string().uuid(),
@@ -204,9 +205,14 @@ export const Route = createFileRoute("/api/kb/build-graph")({
         const userClient = createClient(supabaseUrl, process.env.SUPABASE_PUBLISHABLE_KEY || "", {
           global: { headers: { Authorization: `Bearer ${token}` } },
         });
-        const { data: userRes } = await userClient.auth.getUser();
+        const { data: userRes, error: authError } = await userClient.auth.getUser();
         const user = userRes?.user;
-        if (!user) return Response.json({ error: "Not signed in" }, { status: 401 });
+        if (!user) {
+          return Response.json(
+            { error: callerFailure(authError, "Not signed in") },
+            { status: callerFailureStatus(authError) },
+          );
+        }
 
         const admin = createClient(supabaseUrl, serviceKey);
 

@@ -109,6 +109,76 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-05 — R297: "you are not signed in" when it was the check that failed
+
+**Severity: medium (a false refusal everywhere; one ungoverned chat turn), every server function and API
+route.** R295 queued it. Each place that resolves the caller asked the auth server whose token it was
+handed, and read **any** error from that question as a refusal. A network blip, a rate limit or an auth
+outage told a signed-in person "Unauthorized", "Not signed in" or "Invalid session". R295's drive saw
+one such preview while the session was good for another forty minutes, and the docgen routes had once
+reported a misconfigured URL the same way.
+
+**Agent Chat had the sharper shape.** `getUserIdFromRequest` returned `null` for anything. A `null` user
+skips the IAM model rules and the budget cap, while the user-scoped client, built from the same good
+token, still served the turn. So a failed check ran that turn ungoverned. Requests with no token, or a
+refused one, were and are refused: "Authentication required for external providers", and 401.
+
+**The before** is code-level, because a real auth outage cannot be forced from the UI:
+
+- The real `biReportGet`, given a `AuthRetryableFetchError` from the lookup, answered "Not signed in".
+- The new sweep listed **71** server-side lookups that took any error as a refusal.
+
+**The fix.** `src/utils/callerLookup.server.ts` sorts the error using supabase-js's own classes:
+
+- **A refusal** is no error, or an auth error with a refusal status (400, 401, 403, 404, 422). That covers
+  `AuthApiError`, a gone session, and a JWT that would not read. The site keeps its message, with 401.
+- **Everything else** is a check that failed: a retryable fetch error, a 429, a 5xx, an unknown reply.
+  The answer is "Could not check who you are just now (…). Nothing was done; try again in a moment.",
+  with 503.
+
+**How the sites were changed:**
+
+- **40 server-function files**, rewritten by a script. Each passes its message through `callerFailure`.
+- **About 20 API routes,** by hand. They answer `callerFailureStatus`.
+- **Three helpers that answered user-or-null** (Agent Chat, A2A, and the notebook runtime's
+  `resolvePythonCaller`) now return `{ checkFailed }`. The compiler made all six of
+  `resolvePythonCaller`'s callers handle it, one more than the grep had found.
+- **The `requireSupabaseAuth` middleware's `getClaims`** goes through the same helper.
+- **The vector audit** takes its actor from that middleware's context, instead of asking again.
+
+**The drive found a defect in the first version.** It counted only `AuthApiError` as a refusal. Sent a
+junk token, `getClaims` fails locally with `AuthInvalidJwtError` ("Invalid JWT structure", status 400),
+and warehouse schema, python-chat and A2A answered 503. The rule became "any auth error with a refusal
+status", and those three answer 401 with their old messages again. Two lines then turned out redundant
+and were removed: the retryable-fetch exclusion and the session-missing special case. Mutants on each
+survived as equivalents.
+
+**Tests.** `callerLookupFailure.test.ts` covers:
+
+- the helper, against supabase-js's real error classes;
+- the real `biReportGet`, both ways;
+- a sweep of every server-side `auth.getUser` and `auth.getClaims`. Each must pass its **message**
+  through `callerFailure`, not only its status, or carry a `// caller-lookup:` comment saying why it need
+  not. Five browser files are exempt by name and queued.
+- pins on the 503s of the three user-or-null helpers.
+
+Three older pins asserted the old 401 lines and were updated: two in `apiRouteAuthz`, one in
+`ingestOwnership`.
+
+**Mutation harness:** 11 mutants caught, and the control survived. Three earlier survivors were real gaps
+(`checkFailed` untested, and the sweep accepting a status without the message) and were closed before
+this count.
+
+**The after,** on the deployed build:
+
+- **A junk token** to nine routes (notebook runtime, KB sources, docgen, upload, warehouse schema,
+  python-chat, A2A, object-store query, chat) got the same 401 and message as before.
+- **Signed in,** ETL, Secrets, Lakehouse (11 schemas, 63 tables), Sheets and Workflows loaded with no
+  sign-in complaint, and Agent Chat answered "READY".
+
+**Queued:** the browser's own `supabase.auth.getUser()` in five places. Rows in [UI test
+results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-05 — R296: a report that could not be loaded said "Report not found", or nothing
 
 **Severity: low (a false "not found", and a page with no way forward; nothing is written), BI reports.**

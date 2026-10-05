@@ -34,6 +34,7 @@ export const Route = createFileRoute("/api/ml/experiments/artifact")({
       POST: async ({ request }) => {
         const caller = await resolvePythonCaller(request);
         if (!caller) return json({ error: "Not signed in" }, 401);
+        if ("checkFailed" in caller) return json({ error: caller.checkFailed }, 503);
 
         const url = new URL(request.url);
         const runId = url.searchParams.get("run_id") ?? "";

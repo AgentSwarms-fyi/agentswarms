@@ -59,6 +59,7 @@ export const Route = createFileRoute("/api/ml/experiments/register")({
       POST: async ({ request }) => {
         const caller = await resolvePythonCaller(request);
         if (!caller) return json({ error: "Not signed in" }, 401);
+        if ("checkFailed" in caller) return json({ error: caller.checkFailed }, 503);
         const parsed = Body.safeParse(await request.json().catch(() => null));
         if (!parsed.success) {
           return json({ error: "Invalid body", issues: parsed.error.issues }, 400);

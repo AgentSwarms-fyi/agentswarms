@@ -7,6 +7,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { syncKbSource } from "@/utils/kb/sync.server";
+import { callerFailure, callerFailureStatus } from "@/utils/callerLookup.server";
 
 const Body = z.object({ source_id: z.string().uuid() });
 
@@ -36,8 +37,13 @@ export const Route = createFileRoute("/api/kb/sources/sync")({
         const userClient = createClient(supabaseUrl, process.env.SUPABASE_PUBLISHABLE_KEY || "", {
           global: { headers: { Authorization: `Bearer ${token}` } },
         });
-        const { data: userRes } = await userClient.auth.getUser();
-        if (!userRes?.user) return Response.json({ error: "Not signed in" }, { status: 401 });
+        const { data: userRes, error: authError } = await userClient.auth.getUser();
+        if (!userRes?.user) {
+          return Response.json(
+            { error: callerFailure(authError, "Not signed in") },
+            { status: callerFailureStatus(authError) },
+          );
+        }
 
         const admin = createClient(supabaseUrl, serviceKey);
         const { data: source } = await admin

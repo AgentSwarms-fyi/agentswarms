@@ -11,6 +11,7 @@ import type { Database } from "@/integrations/supabase/types";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { resumeSwarmRun } from "@/utils/swarmExecute.server";
 import { resolveInternalOrigin } from "@/utils/internalOrigin.server";
+import { callerFailure } from "@/utils/callerLookup.server";
 
 type Fail = { ok: false; error: string };
 
@@ -40,8 +41,9 @@ export const resumeApprovedSwarmRun = createServerFn({ method: "POST" })
         });
         const {
           data: { user },
+          error: authError,
         } = await sb.auth.getUser();
-        if (!user) return { ok: false, error: "Not signed in" };
+        if (!user) return { ok: false, error: callerFailure(authError, "Not signed in") };
 
         // Read under the caller's JWT: RLS decides whether this approval is
         // theirs to see, so a stolen id from another tenant resolves to nothing.
@@ -133,8 +135,9 @@ export const cancelParkedSwarmRun = createServerFn({ method: "POST" })
         });
         const {
           data: { user },
+          error: authError,
         } = await sb.auth.getUser();
-        if (!user) return { ok: false, error: "Not signed in" };
+        if (!user) return { ok: false, error: callerFailure(authError, "Not signed in") };
 
         // Read under the caller's JWT: RLS decides whether the run is theirs.
         const { data: run, error: readErr } = await sb

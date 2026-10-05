@@ -15,6 +15,7 @@ import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 import { auditEvent } from "@/utils/audit.server";
 import { runObjectStoreQuery } from "@/utils/catalog/objectStoreQuery.server";
+import { callerFailure, callerFailureStatus } from "@/utils/callerLookup.server";
 
 function getServerSupabase(authToken: string) {
   const url = process.env.SUPABASE_URL;
@@ -44,7 +45,11 @@ export const Route = createFileRoute("/api/objectstore/query")({
         const sb = getServerSupabase(token);
         if (!sb) return json(500, { error: "Server is missing Supabase configuration" });
         const { data: auth_, error: authErr } = await sb.auth.getUser(token);
-        if (authErr || !auth_.user) return json(401, { error: "Unauthorized" });
+        if (authErr || !auth_.user) {
+          return json(callerFailureStatus(authErr), {
+            error: callerFailure(authErr, "Unauthorized"),
+          });
+        }
 
         let body: { source_id?: string; sql?: string; max_rows?: number };
         try {

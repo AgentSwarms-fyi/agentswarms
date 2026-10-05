@@ -23,12 +23,13 @@ import { getPlatformResources } from "@/utils/notebookRuntime/config.server";
 import { rateLimitedGlobal } from "@/utils/rateLimit.server";
 import { requireAccess } from "@/utils/sheets/access.server";
 import { ASSIST_SYSTEM, FILL_SYSTEM } from "@/utils/sheets/assistPrompt.server";
+import { callerFailure } from "@/utils/callerLookup.server";
 
 type Fail = { ok: false; error: string };
 
 async function caller(token: string): Promise<{ ok: true; userId: string } | Fail> {
   const { data, error } = await supabaseAdmin.auth.getUser(token);
-  if (error || !data?.user) return { ok: false, error: "Not signed in" };
+  if (error || !data?.user) return { ok: false, error: callerFailure(error, "Not signed in") };
   return { ok: true, userId: data.user.id };
 }
 

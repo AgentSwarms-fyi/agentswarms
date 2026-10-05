@@ -18,6 +18,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { ensureScheduler, runCronPass } from "@/utils/bi/refresh.server";
 import { staticCronCaller } from "@/utils/cronCaller.server";
+import { callerFailure, callerFailureStatus } from "@/utils/callerLookup.server";
 
 function json(payload: unknown, status = 200) {
   return new Response(JSON.stringify(payload), {
@@ -35,11 +36,18 @@ async function handle(request: Request) {
     bootToken: process.env.AGENTSWARMS_BOOT_TOKEN,
   });
   let allowed = caller !== null;
+  let lookupError: unknown = null;
   if (!allowed && bearer) {
-    const { data } = await supabaseAdmin.auth.getUser(bearer);
+    const { data, error } = await supabaseAdmin.auth.getUser(bearer);
     allowed = Boolean(data.user);
+    lookupError = error;
   }
-  if (!allowed) return json({ error: "Unauthorized" }, 401);
+  if (!allowed) {
+    return json(
+      { error: callerFailure(lookupError, "Unauthorized") },
+      callerFailureStatus(lookupError),
+    );
+  }
   try {
     // No origin is passed: self-call origins are resolved from configuration
     // inside the scheduler (see internalOrigin.server), never from this

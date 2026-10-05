@@ -13,12 +13,15 @@ import {
   userScopedClient,
   TOOL_NODE_IDS,
 } from "@/utils/swarmNodes.server";
+import { type CallerCheckFailed, checkFailed } from "@/utils/callerLookup.server";
 
-async function userFromToken(accessToken: string | undefined): Promise<string | null> {
+async function userFromToken(
+  accessToken: string | undefined,
+): Promise<string | null | CallerCheckFailed> {
   if (!accessToken) return null;
   const { data, error } = await supabaseAdmin.auth.getUser(accessToken);
-  if (error || !data.user) return null;
-  return data.user.id;
+  // R297: a check that failed is said, not taken for "signed out".
+  return checkFailed(error) ?? data.user?.id ?? null;
 }
 
 export const executeHttpNode = createServerFn({ method: "POST" })
@@ -43,6 +46,7 @@ export const executeHttpNode = createServerFn({ method: "POST" })
     }): Promise<{ ok: false; error: string } | { ok: true; status: number; body: string }> => {
       const userId = await userFromToken(data.access_token);
       if (!userId) return { ok: false, error: "Invalid session" };
+      if (typeof userId !== "string") return { ok: false, error: userId.checkFailed };
       return runHttpNodeCore(userId, data);
     },
   );
@@ -66,6 +70,7 @@ export const executeToolNode = createServerFn({ method: "POST" })
     async ({ data }): Promise<{ ok: false; error: string } | { ok: true; result: string }> => {
       const userId = await userFromToken(data.access_token);
       if (!userId) return { ok: false, error: "Invalid session" };
+      if (typeof userId !== "string") return { ok: false, error: userId.checkFailed };
       const sb = userScopedClient(data.access_token);
       if (!sb) return { ok: false, error: "Server is missing Supabase configuration" };
       return runToolNodeCore({ userId, authToken: data.access_token, sb }, data);

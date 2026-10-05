@@ -43,6 +43,7 @@ import type { ChartSpec } from "@/lib/biAgent";
 import type { SqlDialect } from "@/lib/semanticLayer";
 import { rateLimitedGlobal, envInt } from "@/utils/rateLimit.server";
 import { auditEvent } from "@/utils/audit.server";
+import { callerFailure, callerFailureStatus } from "@/utils/callerLookup.server";
 
 function getServerSupabase(authToken: string) {
   const url = process.env.SUPABASE_URL;
@@ -80,9 +81,13 @@ export const Route = createFileRoute("/api/bi/direct-query")({
         const token = auth?.startsWith("Bearer ") ? auth.slice(7) : undefined;
         const sb = token ? getServerSupabase(token) : null;
         if (!token || !sb) return json(401, { error: "Sign in to run a live query" });
-        const { data: claims } = await sb.auth.getClaims(token);
+        const { data: claims, error: claimsErr } = await sb.auth.getClaims(token);
         const userId = claims?.claims?.sub;
-        if (!userId) return json(401, { error: "Invalid session" });
+        if (!userId) {
+          return json(callerFailureStatus(claimsErr), {
+            error: callerFailure(claimsErr, "Invalid session"),
+          });
+        }
 
         let body: { dashboard_id?: string; widget_id?: string; filters?: DirectFilter[] };
         try {

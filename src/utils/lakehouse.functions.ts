@@ -23,10 +23,11 @@ import {
   startSparkQuery,
   type SparkQueryView,
 } from "@/utils/lakehouse/sparkQuery.server";
+import { callerFailure } from "@/utils/callerLookup.server";
 
 async function resolveCaller(accessToken: string): Promise<string> {
   const { data, error } = await supabaseAdmin.auth.getUser(accessToken);
-  if (error || !data?.user) throw new Error("Not signed in");
+  if (error || !data?.user) throw new Error(callerFailure(error, "Not signed in"));
   return data.user.id;
 }
 

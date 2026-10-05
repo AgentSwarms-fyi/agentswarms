@@ -27,7 +27,7 @@ function userClient(accessToken: string) {
 async function requireUser(accessToken: string) {
   const sb = userClient(accessToken);
   const { data, error } = await sb.auth.getUser(accessToken);
-  if (error || !data.user) throw new Error("Unauthorized");
+  if (error || !data?.user) throw new Error(callerFailure(error, "Unauthorized"));
   return { sb, userId: data.user.id };
 }
 
@@ -69,6 +69,7 @@ export type AuditRow = {
 };
 
 import { trimToUniformWindow, uniformBoundary } from "@/lib/auditWindow";
+import { callerFailure } from "@/utils/callerLookup.server";
 
 const FETCH_CAP = 300;
 

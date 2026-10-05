@@ -15,6 +15,18 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-05 — R297: a refusal versus a check that failed
+
+A real failure of the auth server cannot be forced from the browser, so the before is the real
+`biReportGet` in a test. This drive checks that refusals are unchanged and that signed-in use works.
+
+| What was driven | What came back |
+| --- | --- |
+| **First version**: `Authorization: Bearer not-a-real-token` to nine routes | Six refused as before. warehouse schema, python-chat and A2A answered **503 "Could not check who you are just now (Invalid JWT structure)…"**: `getClaims` fails a junk token locally with `AuthInvalidJwtError`, which that version did not count as a refusal |
+| **After the fix**: the same nine | notebook runtime 401 "Invalid session"; KB sources 401 "Not signed in"; docgen 401 "Unauthorized"; upload 401 "Unauthorized"; warehouse schema 401 "Invalid session"; python-chat 401 "Sign in to run notebook model calls"; A2A 401 "Unauthorized"; object-store query 401 "Unauthorized"; chat 401 "Authentication required for external providers" |
+| **Signed in**: ETL, Secrets, Lakehouse, Sheets, Workflows | All loaded; no "Unauthorized", "Not signed in", "Invalid session" or "Could not check" anywhere; Lakehouse "11 schemas · 63 tables" |
+| **Signed in**: Agent Chat, "R293 budget probe 3", "Reply with the single word READY." | `READY` |
+
 ## 2026-10-05 — R296: a BI report that could not be loaded
 
 A page-side wrapper failed the browser's request for one report ("r214 after",

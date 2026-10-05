@@ -11,6 +11,7 @@ import type { Database } from "@/integrations/supabase/types";
 import { getRealTemplate, type RealTemplate } from "@/lib/realTemplates";
 import { embedAndStoreDocuments } from "@/utils/tools/embedding.server";
 import { resolveEmbedArgs } from "@/utils/tools/embedTarget.server";
+import { callerFailure, callerFailureStatus } from "@/utils/callerLookup.server";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -154,7 +155,9 @@ export const Route = createFileRoute("/api/templates/provision")({
 
           const { data: claimsData, error: claimsErr } = await sb.auth.getClaims(token);
           if (claimsErr || !claimsData?.claims?.sub) {
-            return json(401, { error: "Invalid auth token" });
+            return json(callerFailureStatus(claimsErr), {
+              error: callerFailure(claimsErr, "Invalid auth token"),
+            });
           }
           const userId = claimsData.claims.sub;
 

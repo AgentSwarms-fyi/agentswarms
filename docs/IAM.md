@@ -104,6 +104,22 @@ It manages:
   > `GOTRUE_SAML_PRIVATE_KEY`. The SSO tab detects and explains this if it's
   > not enabled yet.
 
+### Who is asking: a refusal versus a check that failed
+
+Every server function and API route first asks whose token it was handed, through
+`src/utils/callerLookup.server.ts`. The answer is one of two kinds:
+
+| What happened | What the caller gets |
+| --- | --- |
+| **The token was refused.** It was malformed or wrongly signed, its session is gone, or its user is unknown (a 4xx from the auth server, or `AuthInvalidJwtError` from reading the JWT) | 401, with the message that route has always given ("Unauthorized", "Not signed in", "Invalid session") |
+| **The check itself failed.** A network error, a 429, a 5xx, or a reply that would not parse | 503, "Could not check who you are just now (…). Nothing was done; try again in a moment." |
+
+Before R297 the second case was reported as the first, so a signed-in person was told they were not.
+Agent Chat had the sharper version. A user it could not identify skips the IAM model rules and the
+budget cap, so a failed check ran that turn ungoverned on a good token. Now it answers 503 instead.
+`callerLookupFailure.test.ts` holds every server-side `auth.getUser` and `auth.getClaims` to the helper,
+or to a `// caller-lookup:` comment at the site that says why it need not.
+
 ## Use cases
 
 Every walkthrough below uses the tabs on **Admin → IAM**: _Users_, _Groups_,

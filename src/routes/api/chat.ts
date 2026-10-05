@@ -122,13 +122,18 @@ function getServerSupabase(authToken?: string) {
   });
 }
 
-async function getUserIdFromRequest(request: Request): Promise<string | null> {
+async function getUserIdFromRequest(request: Request): Promise<string | null | CallerCheckFailed> {
   const auth = request.headers.get("authorization");
   if (!auth?.startsWith("Bearer ")) return null;
   const token = auth.slice(7);
   const sb = getServerSupabase();
   if (!sb) return null;
-  const { data } = await sb.auth.getClaims(token);
+  const { data, error } = await sb.auth.getClaims(token);
+  // R297: a check that failed is not "nobody". A null user skips the IAM
+  // model rules and the budget cap below, so this turn would have run
+  // ungoverned on a token that is good.
+  const failed = checkFailed(error);
+  if (failed) return failed;
   return data?.claims?.sub ?? null;
 }
 
@@ -484,6 +489,7 @@ import {
 import { approxTokens, estimateImageCost, isImageModel } from "@/utils/observability/pricing";
 import { priceCall } from "@/utils/observability/priceResolver";
 import { providerReportedCost } from "@/utils/observability/providerCost";
+import { CallerCheckFailed, checkFailed } from "@/utils/callerLookup.server";
 
 const DECISION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -1151,9 +1157,16 @@ export const Route = createFileRoute("/api/chat")({
           // Constant-time compare against INTERNAL_RUN_SECRET (falling back to
           // the service-role key) so the secret can't be probed by timing.
           const isInternalRun = internalSecretMatches(request.headers.get("x-internal-run-secret"));
-          const userId = isInternalRun
+          const caller = isInternalRun
             ? (body.internalUserId ?? null)
             : await getUserIdFromRequest(request);
+          if (caller !== null && typeof caller === "object") {
+            return new Response(JSON.stringify({ error: caller.checkFailed }), {
+              status: 503,
+              headers: { "Content-Type": "application/json", ...corsHeaders },
+            });
+          }
+          const userId = caller;
 
           // IAM model governance: a user subject to model rules (their own or
           // any of their groups') may only call allowed provider/model
@@ -1711,6 +1724,8 @@ export const Route = createFileRoute("/api/chat")({
                   // restricted docs stay owner-only, which is the safe side.
                   let principalEmail: string | null = null;
                   try {
+                    // caller-lookup: a failed check leaves the email unknown, and
+                    // restricted documents owner-only - the safe side (above).
                     const { data: claimsRes } = await sbAuto.auth.getClaims(authToken);
                     principalEmail =
                       (claimsRes?.claims as { email?: string } | undefined)?.email ?? null;

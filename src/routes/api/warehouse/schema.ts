@@ -5,6 +5,7 @@ import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 import { listWarehouseTables } from "@/utils/warehouse/drivers.server";
 import { loadWarehouseConnection } from "@/utils/warehouse/connections.server";
+import { callerFailure, callerFailureStatus } from "@/utils/callerLookup.server";
 
 function getServerSupabase(authToken: string) {
   const url = process.env.SUPABASE_URL;
@@ -31,9 +32,13 @@ export const Route = createFileRoute("/api/warehouse/schema")({
         const token = auth?.startsWith("Bearer ") ? auth.slice(7) : undefined;
         const sb = token ? getServerSupabase(token) : null;
         if (!token || !sb) return json(401, { error: "Sign in to browse warehouses" });
-        const { data: claims } = await sb.auth.getClaims(token);
+        const { data: claims, error: claimsErr } = await sb.auth.getClaims(token);
         const userId = claims?.claims?.sub;
-        if (!userId) return json(401, { error: "Invalid session" });
+        if (!userId) {
+          return json(callerFailureStatus(claimsErr), {
+            error: callerFailure(claimsErr, "Invalid session"),
+          });
+        }
 
         let body: { connection_id?: string };
         try {

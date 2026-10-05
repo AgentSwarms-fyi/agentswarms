@@ -7,6 +7,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { reapSessions } from "@/utils/notebookRuntime/service.server";
+import { callerFailure, callerFailureStatus } from "@/utils/callerLookup.server";
 
 function json(payload: unknown, status = 200): Response {
   return new Response(JSON.stringify(payload), {
@@ -20,11 +21,18 @@ async function handle(request: Request): Promise<Response> {
   const bearer = auth.replace(/^Bearer\s+/i, "").trim();
   const cronToken = process.env.NOTEBOOK_CRON_TOKEN || process.env.BI_CRON_TOKEN;
   let allowed = Boolean(cronToken && bearer && bearer === cronToken);
+  let lookupError: unknown = null;
   if (!allowed && bearer) {
-    const { data } = await supabaseAdmin.auth.getUser(bearer);
+    const { data, error } = await supabaseAdmin.auth.getUser(bearer);
     allowed = Boolean(data.user);
+    lookupError = error;
   }
-  if (!allowed) return json({ error: "Unauthorized" }, 401);
+  if (!allowed) {
+    return json(
+      { error: callerFailure(lookupError, "Unauthorized") },
+      callerFailureStatus(lookupError),
+    );
+  }
   try {
     const reaped = await reapSessions();
     return json({ ok: true, reaped });
