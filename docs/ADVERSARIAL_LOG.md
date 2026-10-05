@@ -109,6 +109,35 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-05 — R282: a profile form that could save blanks over the profile
+
+**Severity: moderate — lost edits, and, from reading, a stored profile wiped by one click.** The last
+form of the sweep-8 survey. The Account page's profile (names, role, designation, organization, bio)
+saves with **Save profile** and kept no record of what was saved. Driven on the smoke image
+(`aa3ce2c9db22`): "r282 bio" typed into the empty bio — no note, a dispatched `beforeunload` not
+blocked, and the sidebar Dashboard link left with no question; reopened, the bio was empty.
+
+Reading the load found the worse fault, sweep 7's shape: `loadProfile` kept `data` and dropped `error`,
+so a read that **failed** was taken for "no profile yet". The form then opened with every field blank
+and the email as the display name, and **Save profile** upserts every field — writing those blanks
+over the stored names, role, organization and bio — and the avatar, since the payload carries
+`avatar_url` too. Not driven: a failed read cannot be caused from the
+page.
+
+Now a failed read shows "Your profile could not be read: …" with **Try again**, and no form. The page
+records the form's fields as loaded and as each save stored them (the avatar saves on its own and is
+not part of it); after a save the form shows the stored values, and an edit typed while the save was
+out stays on screen, unsaved. An "Unsaved changes" note sits beside Save, and a link or the tab asks
+"Discard the changes to your profile?" — except the way out after deleting the account. Ten mutants
+caught against a verified-green baseline, control survived.
+
+Driven on R282 hot-deployed, without saving (this is the account's real profile): untouched, no note
+and not blocked; "r282 bio" typed, the note and blocked, the Dashboard link asked "Discard the changes
+to your profile? They are not saved. Leaving the page drops them." — **Cancel** kept it; deleted back to
+empty, the note went and nothing was blocked; typed again, **Discard changes** left, and the bio
+reopened empty. The save path is pinned by the tests rather than driven, so as not to rewrite the
+account's display name. **This closes the sweep-8 survey.** Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-05 — Smoke of the real image after R271 to R281
 
 Image `aa3ce2c9db22`, built from `73fd4b78` with `docker compose build agentswarms` and started with

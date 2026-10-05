@@ -521,8 +521,9 @@ least twice, not a hypothetical.
      sweep.) A wider grep — any "Save" wording, no guard — added pages that save from their own
      dialogs (Skills, Secrets), a chat (Playground), Budgets, which writes on every keystroke and so
      has nothing to lose on leaving, and one more full-page form:
-   - **The Account page's profile** (`account.tsx`, "Save profile": names, role, organization,
-     bio). To be driven before it is called a defect.
+   - ~~**The Account page's profile**~~ (**R282**: a link and the tab; and a failed read that
+     opened the form blank, for Save to write over the stored profile). **This closes the sweep-8
+     survey.**
    - **Open, from that grep — Budgets:** one write per keystroke (`150` sends 1, 15, 150) can land
      out of order and leave 15 stored under 150 on screen, and a failed write restores the value from
      before *its own* keystroke over newer ones. Not driven; a different family (writes racing each

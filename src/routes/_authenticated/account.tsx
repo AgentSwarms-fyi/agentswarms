@@ -1,8 +1,9 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useBlocker, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
+import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { deleteMyAccount } from "@/lib/account.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -55,6 +56,19 @@ type ProfileRow = {
   bio: string | null;
 };
 
+/** The fields the profile form saves; the avatar saves on its own. */
+function profileForm(p: ProfileRow): string {
+  return JSON.stringify([
+    p.first_name ?? "",
+    p.last_name ?? "",
+    p.display_name ?? "",
+    p.role ?? "",
+    p.designation ?? "",
+    p.organization ?? "",
+    p.bio ?? "",
+  ]);
+}
+
 function AccountPage() {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
@@ -68,6 +82,16 @@ function AccountPage() {
   const [profileLoading, setProfileLoading] = useState(true);
   const [profileSaving, setProfileSaving] = useState(false);
   const [avatarUploading, setAvatarUploading] = useState(false);
+  // Why the profile could not be read. The form is not offered then: it
+  // would open blank, and Save would write the blanks over the stored
+  // profile (R282).
+  const [profileError, setProfileError] = useState<string | null>(null);
+  // The form as loaded or last saved, so the page can tell what is unsaved
+  // (R282, sweep 8).
+  const [savedAs, setSavedAs] = useState<string | null>(null);
+  const unsaved = profile !== null && savedAs !== null && profileForm(profile) !== savedAs;
+  // Set once the account is deleted, so the way out does not ask about a form.
+  const accountGoneRef = useRef(false);
 
   // Auth controls
   const [newPassword, setNewPassword] = useState("");
@@ -85,26 +109,33 @@ function AccountPage() {
   async function loadProfile() {
     if (!user) return;
     setProfileLoading(true);
-    const { data } = await supabase
+    setProfileError(null);
+    const { data, error } = await supabase
       .from("profiles")
       .select("*")
       .eq("user_id", user.id)
       .maybeSingle();
-    if (data) {
-      setProfile(data as unknown as ProfileRow);
-    } else {
-      setProfile({
-        user_id: user.id,
-        display_name: user.email ?? "",
-        first_name: null,
-        last_name: null,
-        avatar_url: null,
-        role: null,
-        designation: null,
-        organization: null,
-        bio: null,
-      });
+    if (error) {
+      setProfileError(error.message);
+      setProfileLoading(false);
+      return;
     }
+    // No row is a profile not yet saved, which starts from the email.
+    const loaded: ProfileRow = data
+      ? (data as unknown as ProfileRow)
+      : {
+          user_id: user.id,
+          display_name: user.email ?? "",
+          first_name: null,
+          last_name: null,
+          avatar_url: null,
+          role: null,
+          designation: null,
+          organization: null,
+          bio: null,
+        };
+    setProfile(loaded);
+    setSavedAs(profileForm(loaded));
     setProfileLoading(false);
   }
 
@@ -131,6 +162,12 @@ function AccountPage() {
         .from("profiles")
         .upsert(payload as never, { onConflict: "user_id" });
       if (error) throw error;
+      // The form shows what was stored, and records it as saved; an edit
+      // typed while the save was out stays on screen, unsaved.
+      const stored: ProfileRow = { ...profile, ...(payload as Partial<ProfileRow>) };
+      const sentForm = profileForm(profile);
+      setProfile((p) => (p && profileForm(p) === sentForm ? stored : p));
+      setSavedAs(profileForm(stored));
       toast.success("Profile updated");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to save profile");
@@ -243,6 +280,7 @@ function AccountPage() {
       await callDelete();
       toast.success("Your account has been deleted");
       await supabase.auth.signOut();
+      accountGoneRef.current = true;
       navigate({ to: "/" });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to delete account");
@@ -257,6 +295,20 @@ function AccountPage() {
     .slice(0, 2)
     .join("")
     .toUpperCase();
+
+  // FOUND IN R282: the profile form kept no record of what was saved, so a
+  // link or a closed tab left its edits behind without a word.
+  useBlocker({
+    shouldBlockFn: async () =>
+      !accountGoneRef.current &&
+      !(await confirmAsk({
+        title: "Discard the changes to your profile?",
+        body: "They are not saved. Leaving the page drops them.",
+        actionLabel: "Discard changes",
+      })),
+    enableBeforeUnload: unsaved,
+    disabled: !unsaved,
+  });
 
   return (
     <div className="mx-auto max-w-3xl space-y-6 p-6">
@@ -282,7 +334,14 @@ function AccountPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
-          {profileLoading || !profile ? (
+          {profileError !== null ? (
+            <div className="space-y-2 text-sm" data-testid="profile-load-error">
+              <p className="text-destructive">Your profile could not be read: {profileError}</p>
+              <Button size="sm" variant="outline" onClick={() => void loadProfile()}>
+                Try again
+              </Button>
+            </div>
+          ) : profileLoading || !profile ? (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" /> Loading profile…
             </div>
@@ -413,7 +472,15 @@ function AccountPage() {
                 </div>
               </div>
 
-              <div className="flex justify-end">
+              <div className="flex items-center justify-end gap-3">
+                {unsaved && (
+                  <span
+                    className="text-xs text-amber-600 dark:text-amber-400"
+                    data-testid="profile-unsaved"
+                  >
+                    Unsaved changes
+                  </span>
+                )}
                 <Button onClick={saveProfile} disabled={profileSaving}>
                   {profileSaving ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null}
                   Save profile

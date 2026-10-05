@@ -15,6 +15,19 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-05 — R282: the Account page's profile form
+
+Account → Public Profile, the account's own profile (bio empty). An edit is text typed into the bio,
+never saved.
+
+| Step | The smoke image | R282 hot-deployed |
+| --- | --- | --- |
+| Open, touch nothing | — | no note; not blocked |
+| Type "r282 bio" | no note; **not blocked** | "Unsaved changes"; blocked |
+| Then sidebar **Dashboard** | **left with no question; reopened with the bio empty** | "Discard the changes to your profile? They are not saved. Leaving the page drops them." — **Cancel** kept it |
+| Delete back to empty | — | no note; not blocked |
+| Type "r282 again", **Dashboard**, **Discard changes** | — | left for `/dashboard`; reopened with the bio empty, no note |
+
 ## 2026-10-05 — Smoke of the real image after R271 to R281
 
 Image `aa3ce2c9db22`, built from `73fd4b78` with `docker compose build agentswarms` and started with
