@@ -15,6 +15,19 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-05 — R277: a semantic model's unsaved draft
+
+Semantic Layer, the models `stg_revenue` and "Revenue". An edit is "_EDITED" typed after the dimension
+name `region`, never saved.
+
+| Step | R276's build | R277 hot-deployed |
+| --- | --- | --- |
+| Open `stg_revenue`, touch nothing, click "Revenue" | — | not blocked; switched with no question |
+| Edit, click "Revenue" | **switched at once**; back on `stg_revenue`, "region" again | blocked; "Discard the changes to "stg_revenue"? They are not saved. Opening another model replaces them." — **Cancel** kept it |
+| Edit, **New model** | — | "…Starting a new model replaces them." — **Discard changes** opened an empty model |
+| The empty new model, click `stg_revenue` | — | not blocked; no question; "region" as saved |
+| Edit, sidebar **Dashboard** | — | "…Leaving the page drops them." — **Discard changes** left |
+
 ## 2026-10-05 — R276: a SQL model's unsaved draft
 
 SQL Models, the fixture models `r178_after` (`SELECT 1782 AS id`) and `r178_target` (`SELECT 178 AS

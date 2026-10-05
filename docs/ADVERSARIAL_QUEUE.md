@@ -499,9 +499,10 @@ least twice, not a hypothetical.
    - ~~**ETL pipeline editor**~~ (**R275**: "← Pipelines", a link and the tab).
    - ~~**SQL models**~~ (**R276**: Close, another model, New model, a link and the tab; it kept
      no record of what was saved).
-   - **The Semantic Layer editor** (`SemanticLayerEditor.tsx`), **a BI report**
-     (`bi_.report.$reportId.tsx`): each to be driven before it is called a defect — some may save
-     as they go.
+   - ~~**The Semantic Layer page**~~ (**R277**: another model, New model, a link and the tab;
+     `SemanticLayerEditor.tsx` itself is a dialog, where closing is the discard).
+   - **A BI report** (`bi_.report.$reportId.tsx`): to be driven before it is called a defect — it
+     may save as it goes.
 
 ### Sheets (new, 2026-09-25)
 

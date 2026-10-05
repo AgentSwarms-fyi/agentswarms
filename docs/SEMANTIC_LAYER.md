@@ -82,6 +82,11 @@ Open **Semantic Layer** in the sidebar:
 3. **Save**, then use the **Query runner** to pick metrics + dimensions and see
    the rows and the compiled SQL.
 
+Edits stay in the editor until Save. Opening another model, **New model**, a link
+or closing the tab with something unsaved asks first — "Discard the changes to
+"revenue"?" — and Cancel keeps it (R277). Values a **Validate** samples into the
+model count as unsaved: only the next Save keeps them.
+
 ## Importing from dbt
 
 If your models already live in dbt, you do not have to retype them. **Import

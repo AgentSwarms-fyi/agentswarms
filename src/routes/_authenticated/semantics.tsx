@@ -1,7 +1,7 @@
 // Semantic Layer — define governed metrics + dimensions over a dataset, then
 // query them (the same definitions the metric_query agent tool consumes).
 import { confirmAsk } from "@/components/ui/confirm-dialog";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useBlocker } from "@tanstack/react-router";
 import { z } from "zod";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
@@ -344,6 +344,16 @@ function SemanticsPage() {
   const [whConns, setWhConns] = useState<WhConn[]>([]);
   const [whTables, setWhTables] = useState<Record<string, WhTable[] | "loading" | "error">>({});
   const [draft, setDraft] = useState<Draft | null>(null);
+  // The draft as it was opened or last saved, so the page can tell what is
+  // unsaved (R277, sweep 8). Values a validation samples into the draft count:
+  // they are kept only by the next Save.
+  const [savedDraft, setSavedDraft] = useState<string | null>(null);
+  const unsaved = draft !== null && savedDraft !== JSON.stringify(draft);
+  /** Open a draft in the editor as the saved state. */
+  const openDraft = useCallback((d: Draft | null) => {
+    setDraft(d);
+    setSavedDraft(d ? JSON.stringify(d) : null);
+  }, []);
   // The raw DB row being edited — the "last saved" state History diffs against.
   const [draftRow, setDraftRow] = useState<Record<string, unknown> | null>(null);
   // A grantee's enforced share restrictions, when this model is shared TO the
@@ -515,7 +525,7 @@ function SemanticsPage() {
   const openOnLakehouseTable = useCallback(
     (connId: string, schema: string, table: string) => {
       ensureWhTables(connId);
-      setDraft({
+      openDraft({
         ...emptyDraft(),
         name: slug(table),
         label: table,
@@ -529,7 +539,7 @@ function SemanticsPage() {
       // work this page exists for.
       setEditorTab("fields");
     },
-    [ensureWhTables],
+    [ensureWhTables, openDraft],
   );
 
   useEffect(() => {
@@ -593,7 +603,7 @@ function SemanticsPage() {
         masked_fields: string[];
       } | null) ?? null;
     const masked = new Set((policy?.masked_fields ?? []).map((f) => f.toLowerCase()));
-    setDraft({
+    openDraft({
       id: m.id as string,
       user_id: (m.user_id as string) ?? undefined,
       name: (m.name as string) ?? "",
@@ -751,6 +761,30 @@ function SemanticsPage() {
 
   const patch = (p: Partial<Draft>) => setDraft((d) => (d ? { ...d, ...p } : d));
 
+  /**
+   * Ask before unsaved edits are replaced or left; true when it may go ahead.
+   * FOUND IN R277: another model, New model, a link and a closed tab all
+   * dropped the draft without a word.
+   */
+  async function mayDiscard(what: string): Promise<boolean> {
+    if (!unsaved) return true;
+    const savedName = models.find((m) => m.id === draft?.id)?.name as string | undefined;
+    return Boolean(
+      await confirmAsk({
+        title: savedName ? `Discard the changes to "${savedName}"?` : "Discard the new model?",
+        // A model's changes are "them"; a new model is "it".
+        body: savedName ? `They are not saved. ${what} them.` : `It is not saved. ${what} it.`,
+        actionLabel: "Discard changes",
+      }),
+    );
+  }
+
+  useBlocker({
+    shouldBlockFn: async () => !(await mayDiscard("Leaving the page drops")),
+    enableBeforeUnload: unsaved,
+    disabled: !unsaved,
+  });
+
   const save = async () => {
     if (!draft) return;
     if (isShared)
@@ -788,6 +822,7 @@ function SemanticsPage() {
       })) as { id: string };
       toast.success("Saved");
       setDraft((d) => (d ? { ...d, id: res.id } : d));
+      setSavedDraft(JSON.stringify({ ...draft, id: res.id }));
       await load();
       // Refresh the raw row: a definition change may have DECERTIFIED the
       // model (DB trigger) and has certainly written a new history version —
@@ -1201,8 +1236,9 @@ function SemanticsPage() {
           <Button
             size="sm"
             className="w-full"
-            onClick={() => {
-              setDraft(emptyDraft());
+            onClick={async () => {
+              if (!(await mayDiscard("Starting a new model replaces"))) return;
+              openDraft(emptyDraft());
               setEditorTab("source");
               setResult(null);
             }}
@@ -1240,7 +1276,12 @@ function SemanticsPage() {
                       ? "border-primary bg-primary/[0.03]"
                       : "hover:border-primary/40"
                   }`}
-                  {...clickable(() => editModel(m), `Semantic model ${m.name}`)}
+                  {...clickable(() => {
+                    if (m.id === draft?.id) return;
+                    void mayDiscard("Opening another model replaces").then((go) => {
+                      if (go) editModel(m);
+                    });
+                  }, `Semantic model ${m.name}`)}
                 >
                   <CardContent className="flex items-center justify-between gap-2 p-3">
                     <div

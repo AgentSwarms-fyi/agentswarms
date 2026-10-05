@@ -109,6 +109,28 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-05 — R277: a semantic model's draft, replaced by the next model clicked
+
+**Severity: moderate (lost work), sweep 8.** The Semantic Layer page keeps the open model as a draft and,
+like the SQL models editor, kept no record of what was saved. Driven on R276's build: `stg_revenue`'s
+dimension renamed `region_EDITED`, then a click on "Revenue" — replaced at once; back on `stg_revenue`,
+"region" again. New model, a link and a closed tab did the same. (The survey's
+`SemanticLayerEditor.tsx` turned out to be a dialog, where closing is the discard; the page is
+`semantics.tsx`.)
+
+Now every place that opens a model — a click in the list, a restore, a lakehouse table opened from
+elsewhere — opens it as the saved state, a save records what it sent, and another model, New model, a
+link or the tab asks first, by the model's saved name. Values a Validate samples into the draft count as
+unsaved, which is right: only the next Save keeps them. Six mutants caught against a verified-green
+baseline (opening a draft or a save not recorded, a model opened behind the record, another model or
+New model not asking, the blocker on with nothing unsaved), control survived.
+
+Driven on R277 hot-deployed: untouched, not blocked and switching free; edited, blocked, and "Revenue"
+asked "Discard the changes to "stg_revenue"? They are not saved. Opening another model replaces them." —
+**Cancel** kept it; **New model** asked "…Starting a new model replaces them." and **Discard changes**
+opened an empty model, which itself left freely and showed `stg_revenue` as saved; the Dashboard link
+asked "…Leaving the page drops them." and Discard left. Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-05 — R276: a SQL model's draft, dropped by Close, by another model, by New
 
 **Severity: moderate (lost work), sweep 8.** The SQL models editor holds a draft and kept no record of
