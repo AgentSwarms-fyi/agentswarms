@@ -116,6 +116,11 @@ export const biReportSave = createServerFn({ method: "POST" })
         id: z.string().uuid().nullable().optional(),
         name: z.string().trim().min(1).max(REPORT_NAME_MAX),
         description: z.string().trim().max(2000).nullable().optional(),
+        // The updated_at this page read or last saved. The update lands only on
+        // it, so a save from another tab or session in between is not written
+        // over (R284, sweep 9). Left out, the save overwrites: "Overwrite with
+        // mine", asked for after the refusal.
+        expectedUpdatedAt: z.string().min(1).optional(),
         page: z.object({
           size: z.enum(["a4", "letter", "legal", "a3"]),
           orientation: z.enum(["portrait", "landscape"]),
@@ -128,30 +133,57 @@ export const biReportSave = createServerFn({ method: "POST" })
       })
       .parse(input),
   )
-  .handler(async ({ data }): Promise<Fail | { ok: true; id: string }> => {
-    const userId = await resolveCaller(data.accessToken);
-    const blocks = data.blocks as unknown as ReportBlock[];
-    const invalid = validateReport({ name: data.name, page: data.page, blocks });
-    if (invalid) return { ok: false, error: invalid };
+  .handler(
+    async ({
+      data,
+    }): Promise<(Fail & { stale?: boolean }) | { ok: true; id: string; updatedAt: string }> => {
+      const userId = await resolveCaller(data.accessToken);
+      const blocks = data.blocks as unknown as ReportBlock[];
+      const invalid = validateReport({ name: data.name, page: data.page, blocks });
+      if (invalid) return { ok: false, error: invalid };
 
-    const patch = {
-      user_id: userId,
-      name: data.name,
-      description: data.description ?? null,
-      page: { ...data.page, margin: clampMargin(data.page.margin, 595) } as unknown as Json,
-      header: data.header as unknown as Json,
-      footer: data.footer as unknown as Json,
-      blocks: blocks as unknown as Json,
-      updated_at: new Date().toISOString(),
-    };
-    const q = data.id
-      ? supabaseAdmin.from("bi_reports").update(patch).eq("id", data.id).eq("user_id", userId)
-      : supabaseAdmin.from("bi_reports").insert(patch);
-    const { data: row, error } = await q.select("id").maybeSingle();
-    if (error) return { ok: false, error: error.message };
-    if (!row) return { ok: false, error: "Report not found" };
-    return { ok: true, id: String(row.id) };
-  });
+      const patch = {
+        user_id: userId,
+        name: data.name,
+        description: data.description ?? null,
+        page: { ...data.page, margin: clampMargin(data.page.margin, 595) } as unknown as Json,
+        header: data.header as unknown as Json,
+        footer: data.footer as unknown as Json,
+        blocks: blocks as unknown as Json,
+        updated_at: new Date().toISOString(),
+      };
+      let q;
+      if (!data.id) q = supabaseAdmin.from("bi_reports").insert(patch);
+      else {
+        q = supabaseAdmin.from("bi_reports").update(patch).eq("id", data.id).eq("user_id", userId);
+        if (data.expectedUpdatedAt) q = q.eq("updated_at", data.expectedUpdatedAt);
+      }
+      const { data: row, error } = await q.select("id, updated_at").maybeSingle();
+      if (error) return { ok: false, error: error.message };
+      if (!row) {
+        // Nothing matched: the report is gone, or it moved on since this page
+        // read it. Only the second is a stale save.
+        if (data.id && data.expectedUpdatedAt) {
+          const { data: still, error: stillError } = await supabaseAdmin
+            .from("bi_reports")
+            .select("id")
+            .eq("id", data.id)
+            .eq("user_id", userId)
+            .maybeSingle();
+          if (stillError) return { ok: false, error: stillError.message };
+          if (still) {
+            return {
+              ok: false,
+              stale: true,
+              error: "This report was changed in another tab or session after this page read it",
+            };
+          }
+        }
+        return { ok: false, error: "Report not found" };
+      }
+      return { ok: true, id: String(row.id), updatedAt: String(row.updated_at) };
+    },
+  );
 
 export const biReportCreate = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) =>

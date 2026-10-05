@@ -21,12 +21,15 @@ describe("the BI report", () => {
       /setReport\(loaded\);\s*setSavedAs\(JSON\.stringify\(loaded\)\);\s*setSavedName\(loaded\.name\);/,
     );
     expect(src).toContain("const sent = JSON.stringify(report);");
-    expect(src).toMatch(/else \{\s*setSavedAs\(sent\);\s*setSavedName\(report\.name\);/);
+    // R284: the save also takes the version it got back, before the record.
+    expect(src).toMatch(
+      /else \{\s*versionRef\.current = res\.updatedAt;\s*setStale\(false\);\s*setSavedAs\(sent\);\s*setSavedName\(report\.name\);/,
+    );
   });
 
   it("asks before a link leaves, by the saved name, and lets the browser ask before the tab closes", () => {
     expect(src).toMatch(
-      /useBlocker\(\{\s*shouldBlockFn: async \(\) =>\s*!\(await confirmAsk\(\{\s*title: `Discard the changes to "\$\{savedName\}"\?`,[^]*?enableBeforeUnload: unsaved,\s*disabled: !unsaved,\s*\}\);/,
+      /useBlocker\(\{\s*shouldBlockFn: async \(\) =>\s*!\(await confirmAsk\(\{\s*title: `Discard the changes to "\$\{savedName\}"\?`,[^]*?enableBeforeUnload: \(\) => unsaved && !reloadingRef\.current,\s*disabled: !unsaved,\s*\}\);/,
     );
     // Before the early returns, so it is called on every render.
     expect(src.indexOf("useBlocker({")).toBeLessThan(

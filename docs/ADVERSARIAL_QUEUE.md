@@ -543,11 +543,19 @@ least twice, not a hypothetical.
    guarded: the BI dashboard (a `version` column) and Sheets (its own conflict check). A survey of
    whole-document saves, each to be driven before it is called a defect:
    - ~~**The Python notebook**~~ (**R283**).
-   - **An MCP builder app** (`mcp_apps`, trigger), **SQL models** (`sql_models`, trigger),
-     **semantic models** (`semantic_models`, trigger), **the swarm canvas** (`swarms`, trigger),
-     **ETL pipelines** (`etl_pipelines`, trigger).
-   - **Workflows** and **BI reports**: no `updated_at` trigger found under those table names; check
-     the real table before choosing the guard.
+   - ~~**BI reports**~~ (**R284**: no trigger, but the save sets `updated_at` itself and is the
+     table's only writer, so the guard went into `biReportSave`; refused, the page offers Reload or
+     Overwrite with mine). `biReportGet` drops its read error, so a failed read says "Report not
+     found" — sweep 7's milder shape, no write behind it; open.
+   - **`updated_at` is not a version everywhere.** Read every writer first. On `mcp_apps` deploys
+     and the idle reaper write `status`; on `sql_models`, `etl_pipelines` and `workflows` every run
+     writes its last-run columns; `swarms` gets deploy writes and `semantic_models` certification.
+     Each moves `updated_at` with nobody editing, so those editors need a guard on the definition
+     itself — a server-side compare of what the page loaded against what is stored, before the
+     update. Without a migration that compare is not atomic; the window is a single request, and
+     the queue should say so where it is used:
+     **an MCP builder app**, **SQL models**, **semantic models**, **the swarm canvas**, **ETL
+     pipelines**, **workflows**.
    - **Budgets** (sweep 8's open note) is the same family inside one tab: its per-keystroke writes
      can land out of order.
 

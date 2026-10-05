@@ -15,6 +15,20 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-05 — R284: two tabs on one BI report
+
+BI Workspace → Reports, "r214 after" (no blocks, margin 40), open in two tabs of the browser pane, A and
+B, both loaded before either save.
+
+| Step | R283's build | R284 hot-deployed |
+| --- | --- | --- |
+| A: a Heading added, **Save** | "Saved" | "Saved" |
+| B: margin 40 → 41 (after R284, 41 → 40), **Save** | "Saved" | "This report was changed in another tab or session after this page read it"; the banner with Reload and Overwrite with mine; "Unsaved changes"; the tab guarded |
+| A: reloaded | **margin 41, "No blocks yet" — A's saved Heading gone** | the Heading there, margin 41 — B's save refused, not made |
+| B: **Overwrite with mine** | — | "Saved"; banner and note gone |
+| A: a second Heading, **Save** | — | refused in turn, the same toast and banner |
+| A: **Reload** | — | reloaded with no question; B's version: no blocks, margin 40 |
+
 ## 2026-10-05 — R283: two tabs on one Python notebook
 
 The notebook "r213 double run" open in two tabs of the browser pane, A and B, both loaded before either

@@ -3,7 +3,7 @@
 // Three columns: the blocks in order, the pages as they will print, and the
 // page setup. The middle one is the point — it paginates with the same
 // function the PDF renderer uses, so a break you see is a break you get.
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, Link, useBlocker } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
@@ -91,6 +91,12 @@ function ReportDesigner() {
   const [savedAs, setSavedAs] = useState<string | null>(null);
   const [savedName, setSavedName] = useState("");
   const unsaved = report !== null && savedAs !== null && JSON.stringify(report) !== savedAs;
+  // The version (`updated_at`) this page read or last saved. Save lands only on
+  // it (R284, sweep 9); refused, the page says so and offers Reload or
+  // Overwrite with mine.
+  const versionRef = useRef<string | null>(null);
+  const [stale, setStale] = useState(false);
+  const reloadingRef = useRef(false);
   const [warehouses, setWarehouses] = useState<WarehouseConnectionSummary[]>([]);
   const [whTables, setWhTables] = useState<Record<string, WarehouseTable[] | "loading" | "error">>(
     {},
@@ -129,6 +135,7 @@ function ReportDesigner() {
           footer: res.report.footer,
           blocks: (res.report.blocks ?? []) as unknown as ReportBlock[],
         };
+        versionRef.current = res.report.updated_at || null;
         setReport(loaded);
         setSavedAs(JSON.stringify(loaded));
         setSavedName(loaded.name);
@@ -250,7 +257,7 @@ function ReportDesigner() {
     setReport((r) => (r ? { ...r, blocks: fn(r.blocks) } : r));
   }, []);
 
-  async function save() {
+  async function save(overwrite = false) {
     if (!report) return;
     const invalid = validateReport(report);
     if (invalid) return toast.error(invalid);
@@ -268,10 +275,15 @@ function ReportDesigner() {
           header: report.header,
           footer: report.footer,
           blocks: report.blocks as unknown as Record<string, unknown>[],
+          expectedUpdatedAt: overwrite ? undefined : (versionRef.current ?? undefined),
         },
       });
-      if (!res.ok) toast.error(res.error);
-      else {
+      if (!res.ok) {
+        if (res.stale) setStale(true);
+        toast.error(res.error);
+      } else {
+        versionRef.current = res.updatedAt;
+        setStale(false);
         setSavedAs(sent);
         setSavedName(report.name);
         toast.success("Saved");
@@ -340,7 +352,7 @@ function ReportDesigner() {
         body: "They are not saved. Leaving the report drops them.",
         actionLabel: "Discard changes",
       })),
-    enableBeforeUnload: unsaved,
+    enableBeforeUnload: () => unsaved && !reloadingRef.current,
     disabled: !unsaved,
   });
 
@@ -357,6 +369,30 @@ function ReportDesigner() {
   // scrolling inside themselves. FOUND FROM THE UI — the page scrolled away.
   return (
     <div className="flex h-canvas w-full min-h-0 flex-col gap-3 overflow-hidden p-4">
+      {stale && (
+        <div
+          className="flex flex-wrap items-center gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm"
+          data-testid="report-stale"
+        >
+          <span className="min-w-0 flex-1">
+            This report was changed in another tab or session, so Save did not write over it. Reload
+            to see that version, dropping your edits here, or overwrite it with yours.
+          </span>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              reloadingRef.current = true;
+              window.location.reload();
+            }}
+          >
+            Reload
+          </Button>
+          <Button size="sm" variant="outline" disabled={saving} onClick={() => void save(true)}>
+            Overwrite with mine
+          </Button>
+        </div>
+      )}
       <div className="flex flex-wrap items-center gap-2">
         <Button asChild size="sm" variant="ghost">
           <Link to="/bi">

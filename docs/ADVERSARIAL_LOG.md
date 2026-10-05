@@ -109,6 +109,37 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-05 — R284: two tabs on one BI report, a Save undoing the other's blocks
+
+**Severity: high (silent loss of saved work), sweep 9.** `biReportSave` updated the whole report — page,
+bands, blocks — over whatever was stored. Driven on R283's build with the report "r214 after" (empty,
+margin 40) in two tabs: A added a Heading and saved ("Saved"); B, loaded before that, set the margin to 41
+and saved ("Saved"). Reloaded, A's report had margin 41 and "No blocks yet": the Heading A had saved was
+gone, and neither tab had said a word.
+
+Before choosing the guard, every writer of `bi_reports` was read: the save is the only one, and it sets
+`updated_at` itself (the table has no trigger), so `updated_at` is a sound version here. The save now
+takes `expectedUpdatedAt`, updates only where it matches, and returns the new `updated_at`. When nothing
+matched it looks again: a report that still exists moved on since the page read it — stale; one that
+does not is "Report not found", as before. The designer keeps the version it read and the one each save
+returns; refused, it says "This report was changed in another tab or session after this page read it"
+and shows a banner with **Reload** (which skips R278's tab question) and **Overwrite with mine** (a save
+without the version, chosen knowingly). Nine mutants caught against a verified-green baseline, control
+survived; R278's two pins on the save and the blocker moved to the new lines.
+
+Reading the other tables in the survey for the same guard showed it does not carry over:
+`mcp_apps`, `sql_models`, `etl_pipelines`, `workflows`, `swarms` and `semantic_models` all get writes from
+runs, deploys or certification that move `updated_at` with nobody editing. The queue now says so, and
+names the guard those need instead.
+
+Driven on R284 hot-deployed, both tabs reloaded: A's Heading saved; B's margin change was refused — the
+toast, the banner, "Unsaved changes", the tab guarded — and the store, read in A, held A's Heading at
+margin 41. B's **Overwrite with mine** saved and cleared its banner; A, now the stale one, added a second
+Heading and was refused in turn; its **Reload** reloaded with no question and showed B's version: no
+blocks, margin 40 — the report as it began. One stray pair of clicks went to a third tab of the pane
+(Agent Builder, not opened here) before the batch named its tab; nothing changed there — nine agents,
+no dialog. Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-05 — R283: two tabs on one notebook, the later save undoing the earlier
 
 **Severity: high (silent loss of saved work), opens sweep 9.** The Python notebook saved its whole

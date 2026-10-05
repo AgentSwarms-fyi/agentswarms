@@ -330,6 +330,11 @@ stay in the page until **Save**, and an "Unsaved changes" note says so. **← BI
 any other link or closing the tab with something unsaved asks first — "Discard
 the changes to "Month-end pack"?" — and Cancel keeps it (R278).
 
+Save writes only over the version the designer opened. If the report was saved
+from another tab or session since, Save is refused — "This report was changed in
+another tab or session after this page read it" — and a banner offers **Reload**
+(that version, dropping the edits here) or **Overwrite with mine** (R284).
+
 ### The two halves are shared on purpose
 
 Everything below the layout is the dashboard's. A report's chart block **is**
