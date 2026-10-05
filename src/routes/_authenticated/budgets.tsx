@@ -445,8 +445,21 @@ function BudgetsPage() {
             <AlertTriangle className="h-4 w-4 text-primary" />
             Agent-Specific Limits
           </CardTitle>
+          {/* FOUND IN R294. This read "Cap daily spend per agent and
+              optionally auto-disable on limit reached", and nothing in the
+              platform reads agent_limits: an agent with a $0 limit and
+              auto-disable on answered twice and stayed active. Enforcing it
+              needs the spend aggregate to filter by agent, which is a
+              migration; until then the card says what it does.
+              agentLimitsDisclosure.test.ts keeps this sentence in step with
+              the code. */}
           <p className="text-xs text-muted-foreground">
-            Cap daily spend per agent and optionally auto-disable on limit reached.
+            A daily spend figure per agent, and whether to switch the agent off when it is reached.
+          </p>
+          <p className="text-xs text-amber-600 dark:text-amber-400">
+            Stored, but <strong>not enforced yet</strong>: an agent past its daily figure keeps
+            running and is never switched off. The monthly cap above is the limit that can refuse
+            calls.
           </p>
         </CardHeader>
         <CardContent className="p-0">

@@ -109,6 +109,45 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-05 — R294: the per-agent spend limits were a control that did nothing
+
+**Severity: high (a guardrail shown as working, which is not), Budgets.** R293 found it. The Budgets page's
+Agent-Specific Limits card read "Cap daily spend per agent and optionally auto-disable on limit reached".
+`agent_limits` is read by that page and its loader and by nothing else: no guard, no worker, no trigger in
+any migration. It was invisible because setting a limit works perfectly; only keeping it does not.
+
+**The before**, on R293's build:
+
+- "R293 budget probe 3" was set to a daily limit of $0 with auto-disable on. A reload showed both
+  stored.
+- Two messages in Agent Chat were both answered. Traces & Logs shows them at 19:30:14 ($0.000036) and
+  19:30:28 ($0.000046), the second after the agent's spend for the day had passed $0.
+- The Budgets page still showed the agent Active.
+
+**What could be fixed here.** Enforcement needs a spend figure per agent per day.
+`budget_spend_since` filters by user, by credential scope or by a member list, never by agent. A
+client-side sum would be the capped-page sum that R39 removed. That leaves a migration, which is the
+user's to apply, so it is queued.
+
+**What this round changed:**
+
+- **The card says what it does.** "A daily spend figure per agent, and whether to switch the agent off
+  when it is reached", followed by an amber "Stored, but **not enforced yet**: an agent past its daily
+  figure keeps running and is never switched off. The monthly cap above is the limit that can refuse
+  calls."
+- **The in-app Budgets doc** carries the same warning.
+- **The test ties the sentence to the code rather than pinning it.** `agentLimitsDisclosure.test.ts`
+  walks `src` and `supabase/migrations` for anything that names `agent_limits`, outside the generated
+  types, the page, its loader, the docs and the table's own migration. While there is nothing, the page
+  and the doc must carry the warning. The day something appears, they must not.
+
+**Mutation harness:** 4 mutants caught, and the control survived. One mutant adds a comment naming
+`agent_limits` to `budgetGuard.server.ts`, and the test then asks for the warning to go.
+
+**The after**, on the deployed build: the card shows the amber line under the title, and
+`/docs/budgets` shows the warning. Probe 3 is kept with its $0 limit, as the fixture for whoever enforces
+it. Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-05 — R293: Budgets stored a cap typed as 2500 as $25
 
 **Severity: high (a spend cap stored as something other than what was typed, under "Saved"), Budgets.**

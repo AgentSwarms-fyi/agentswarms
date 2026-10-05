@@ -541,11 +541,15 @@ least twice, not a hypothetical.
      failed write restores the value from before *its own* keystroke over newer ones.~~ **R293.**
      Driven: typing 2500 stored a $25 cap. On an agent with no limit row, typing 25 sent two inserts
      and stored $2. Both are fixed by one writer per row (`src/lib/latestWrite.ts`).
-   - **Open, from R293: the Agent-Specific Limits enforce nothing.** The Budgets page offers "Cap
-     daily spend per agent and optionally auto-disable on limit reached". `agent_limits` is read by
-     the page and by `lib/budgetLoad`, and by nothing else: no guard, no worker, no trigger. Either
-     enforce the limits, as `budgetGuard` does for the monthly cap, or say on the page that they are
-     stored only. The in-app Budgets doc now says so.
+   - ~~**Open, from R293: the Agent-Specific Limits enforce nothing.**~~ **R294** proved it and
+     changed the page. An agent with a $0 limit and auto-disable on answered twice and stayed active.
+     The card now says the limits are stored and not enforced, and a test keeps that sentence true:
+     it is required while nothing else names `agent_limits`, and refused once something does.
+   - **Needs you, from R294: enforce the per-agent limits.** `budget_spend_since` has no agent
+     filter, so a daily figure per agent needs a migration: an `_agent_id` argument, or a sibling
+     function over `execution_traces.agent_id`. Then `getBudgetDecision` can check it, and
+     auto-disable can set `agents.is_active = false`. Once that ships,
+     `agentLimitsDisclosure.test.ts` will ask for the disclosure to be removed.
    - **Open, from R279:** a NUL character (pasted binary output) can never be saved — Postgres
      refuses it in `text` and `jsonb` — and the toast reads "Save failed: unsupported Unicode escape
      sequence", which names neither the character nor where it is. Likely true of every jsonb

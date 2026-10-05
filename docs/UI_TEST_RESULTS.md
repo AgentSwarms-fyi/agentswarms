@@ -15,6 +15,16 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-05 — R294: Agent-Specific Limits
+
+| What was driven | What came back |
+| --- | --- |
+| **Before**, on R293's build: "R293 budget probe 3" set to a $0 daily limit with auto-disable on; reload | Both stored: `0`, and the switch checked |
+| **Before**: Agent Chat with probe 3, "Reply with the single word OK.", then "…AGAIN." | Both answered (`OK`, `AGAIN.`); Traces & Logs shows 19:30:14 at $0.000036 and 19:30:28 at $0.000046; Budgets still shows the agent **Active** |
+| **After**: `/budgets` | Under the card's title: "A daily spend figure per agent, and whether to switch the agent off when it is reached", then, in amber, "Stored, but **not enforced yet**: an agent past its daily figure keeps running and is never switched off. The monthly cap above is the limit that can refuse calls." |
+| **After**: `/docs/budgets` | The warning "Agent-specific limits are stored, not enforced" is shown under Setting caps |
+| Fixture | Probe 3 is kept with its $0 limit and auto-disable on, for whoever enforces it |
+
 ## 2026-10-05 — R293: Budgets, per-keystroke writes
 
 A logger was added to the page for the drive. It records each write's body and the order its reply came
