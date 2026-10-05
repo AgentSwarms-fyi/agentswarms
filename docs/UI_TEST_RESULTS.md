@@ -15,6 +15,19 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-05 — Smoke of the real image after R282 to R291
+
+Image `0371e1da8fd0`, built from `44fee017` with `docker compose build agentswarms` and started with
+`docker compose up -d`. Nothing under `docker/` or `services/`, the Dockerfile or the compose file
+changed since the last image, so the notebook runtime image is still current — checked with
+`git diff --stat`, not assumed.
+
+| What was driven | What came back |
+| --- | --- |
+| Health after `up -d` | healthy; workers listening, schedulers started; nothing matching "error" or "warn" in the log |
+| Shipped code | R282 to R290's runtime strings all in `/app/dist` (R283's in the notebook chunk, R285's and R286's each in its own server chunk, R290's in the MCP server chunk), the invented control absent; R291 is test-only |
+| **Iceberg publish** `analytics.fct_region_revenue` → `local_rest`, `r181`, `smoke_0371e1da8fd0` | the dialog closed; the catalog's own metadata: columns `region, orders, revenue`, one `append` snapshot, **4 records in 1 file** (the toast had expired before it was read) |
+
 ## 2026-10-05 — R290: two tabs on one MCP server's source
 
 MCP Builder, "r214 before" (29 lines), open in two tabs of the browser pane, A and B. Lines are added at

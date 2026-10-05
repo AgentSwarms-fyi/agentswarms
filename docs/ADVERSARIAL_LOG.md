@@ -109,6 +109,19 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-05 — Smoke of the real image after R282 to R291
+
+Image `0371e1da8fd0`, built from `44fee017` with `docker compose build agentswarms` and started with
+`docker compose up -d`; healthy, every worker listening and its scheduler started, and nothing in the log
+matching "error" or "warn". Nothing under `docker/` or `services/`, the Dockerfile or the compose file
+changed since the last image, so the notebook runtime image is still current (`git diff --stat`). Nine
+rounds' runtime strings are in the image's `dist` and the invented control is not; R291 changed a test
+only. R285 and R286 share their refusal message, so each is checked inside its own server chunk, and the
+chunk filter was checked first to say "absent" for three chunks that do not hold the string. An Iceberg
+publish of `analytics.fct_region_revenue` to `local_rest`, `r181`, `smoke_0371e1da8fd0` wrote 4 records
+in 1 file, read back from the catalog's own metadata; the toast had expired before it was read. Sweep 9's
+editor list closed with R290. Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-05 — R291: a gate failed three times on one test's start-up cost
 
 **Severity: low (a false red in the gate), test infrastructure.** `tests/unit/nl2sqlEval.test.ts` timed out

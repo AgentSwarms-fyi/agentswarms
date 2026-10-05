@@ -570,6 +570,9 @@ least twice, not a hypothetical.
    - **Budgets** (sweep 8's open note) is the same family inside one tab: its per-keystroke writes
      can land out of order.
 
+   **The editor list is done** (R283 to R290). What stays open in the sweep: Budgets, above, and
+   R290's one unreproduced run.
+
 ### Sheets (new, 2026-09-25)
 
 Closed while building it: R112 (a `;` inside a string refused as a second
