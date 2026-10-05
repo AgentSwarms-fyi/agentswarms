@@ -20,6 +20,10 @@ and reports. An editable dashboard is called a **BI project**:
   grouped or stacked), and every numeric visual takes a **value format**
   (currency / percent). Widgets live on a 12-column drag-and-resize grid,
   with markdown text blocks for report narrative.
+- **Saves as you go** — an edit is saved 0.7 s later, and the badge by the
+  title reads Saving, Saved or Save failed. Until a save has gone through,
+  closing the tab asks first, and a link saves first — asking only if that
+  save fails, with the reason (R281).
 - **Filters &amp; cross-filtering** — add dashboard filters (value slicers
   and date ranges) that apply to every widget containing that column, and
   **click any bar or pie slice to cross-filter** the rest of the dashboard.

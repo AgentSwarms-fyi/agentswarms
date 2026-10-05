@@ -77,6 +77,7 @@ import { InsightSweepDialog } from "@/components/bi/InsightSweepDialog";
 import type { BiDataContext } from "@/components/bi/biDataContext";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/integrations/supabase/client";
+import { saveFailureText, useSaveBeforeLeave } from "@/hooks/use-save-before-leave";
 import { biGetSharedWidgetResults } from "@/utils/bi.functions";
 import type { Json } from "@/integrations/supabase/types";
 import {
@@ -305,6 +306,17 @@ function BiProjectPage() {
   const versionRef = useRef(0);
   const conflictRef = useRef(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // What a save still owes (R281, sweep 8): the pages the debounced save will
+  // write, and filters whose save has not come back. Cleared only by the save
+  // that wrote exactly them, so a failed save leaves them owed and leaving asks.
+  // The save state cannot say this: the filters' save sets "saved" while a
+  // pages save is still waiting on its timer.
+  const owedPagesRef = useRef<BiPage[] | null>(null);
+  const owedFiltersRef = useRef<BiFilterConfig[] | null>(null);
+  const [owed, setOwed] = useState(false);
+  const syncOwed = useCallback(() => {
+    setOwed(owedPagesRef.current !== null || owedFiltersRef.current !== null);
+  }, []);
 
   // Connected data (owner only — viewers render snapshots).
   const [datasets, setDatasets] = useState<DatasetMeta[]>([]);
@@ -483,6 +495,13 @@ function BiProjectPage() {
         setRow(r);
         versionRef.current = r.version ?? 0;
         conflictRef.current = false;
+        // What is shown now is what is stored (a restore included): nothing
+        // is owed, and a waiting save must not write over it.
+        if (saveTimer.current) clearTimeout(saveTimer.current);
+        saveTimer.current = null;
+        owedPagesRef.current = null;
+        owedFiltersRef.current = null;
+        setOwed(false);
         setName(r.name);
         const w = parseWidgets(r.widgets);
         const pgs = parsePages(r.pages, w, parseLayout(r.layout, w));
@@ -708,34 +727,74 @@ function BiProjectPage() {
   // ── Persistence (debounced autosave) ────────────────────────────────
   // Write the whole `pages` array; also mirror page 1 into the legacy
   // widgets/layout columns so older readers keep working.
+  // Writes these pages, and clears what is owed if they are still the latest.
+  const writePages = useCallback(
+    async (nextPages: BiPage[]) => {
+      // Data first, then the definition: updateDashboard strips rows from
+      // the document, so the results store is where a reload will find them.
+      // Sync failures don't block the save — the fallback is stale data, and
+      // the next refresh repairs it.
+      void syncWidgetResults(
+        dashboardId,
+        nextPages.flatMap((p) => p.widgets),
+      ).catch(() => {});
+      await commitPatch({
+        pages: nextPages as unknown as Json,
+        widgets: (nextPages[0]?.widgets ?? []) as unknown as Json,
+        layout: (nextPages[0]?.layout ?? []) as unknown as Json,
+      });
+      if (owedPagesRef.current === nextPages) owedPagesRef.current = null;
+      syncOwed();
+      setSaveState("saved");
+      maybeAutoSnapshot();
+    },
+    [commitPatch, maybeAutoSnapshot, dashboardId, syncOwed],
+  );
+
   const savePages = useCallback(
     (nextPages: BiPage[]) => {
       if (readOnly || conflictRef.current) return;
+      owedPagesRef.current = nextPages;
+      syncOwed();
       setSaveState("saving");
       if (saveTimer.current) clearTimeout(saveTimer.current);
       saveTimer.current = setTimeout(() => {
-        // Data first, then the definition: updateDashboard strips rows from
-        // the document, so the results store is where a reload will find them.
-        // Sync failures don't block the save — the fallback is stale data, and
-        // the next refresh repairs it.
-        void syncWidgetResults(
-          dashboardId,
-          nextPages.flatMap((p) => p.widgets),
-        ).catch(() => {});
-        commitPatch({
-          pages: nextPages as unknown as Json,
-          widgets: (nextPages[0]?.widgets ?? []) as unknown as Json,
-          layout: (nextPages[0]?.layout ?? []) as unknown as Json,
-        })
-          .then(() => {
-            setSaveState("saved");
-            maybeAutoSnapshot();
-          })
-          .catch(onSaveError);
+        saveTimer.current = null;
+        writePages(nextPages).catch(onSaveError);
       }, 700);
     },
-    [readOnly, commitPatch, onSaveError, maybeAutoSnapshot, dashboardId],
+    [readOnly, writePages, onSaveError, syncOwed],
   );
+
+  // Saves whatever is owed now: for a link taken inside the 700 ms, or after
+  // a save that failed. Resolves null once saved, else why it was not.
+  const saveNow = useCallback(async (): Promise<string | null> => {
+    if (conflictRef.current) return "this dashboard was changed in another session";
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = null;
+    try {
+      const owedPages = owedPagesRef.current;
+      if (owedPages) await writePages(owedPages);
+      const owedFilters = owedFiltersRef.current;
+      if (owedFilters) {
+        await commitPatch({ filters: owedFilters as unknown as Json });
+        if (owedFiltersRef.current === owedFilters) owedFiltersRef.current = null;
+        syncOwed();
+      }
+      return null;
+    } catch (e) {
+      onSaveError(e);
+      return saveFailureText(e);
+    }
+  }, [writePages, commitPatch, onSaveError, syncOwed]);
+
+  // FOUND IN R281: a closed tab inside the 700 ms, or any way out after
+  // "Save failed", dropped the edit without a question.
+  useSaveBeforeLeave({
+    unsaved: owed && !readOnly,
+    saveNow,
+    name: row !== null && row !== "missing" ? row.name : "",
+  });
 
   const persist = useCallback(
     (nextWidgets: BiWidget[], nextLayout: BiLayoutItem[]) => {
@@ -830,9 +889,15 @@ function BiProjectPage() {
   function persistFilterConfigs(next: BiFilterConfig[]) {
     setFilterConfigs(next);
     if (readOnly || conflictRef.current) return;
+    owedFiltersRef.current = next;
+    syncOwed();
     setSaveState("saving");
     commitPatch({ filters: next as unknown as Json })
-      .then(() => setSaveState("saved"))
+      .then(() => {
+        if (owedFiltersRef.current === next) owedFiltersRef.current = null;
+        syncOwed();
+        setSaveState("saved");
+      })
       .catch(onSaveError);
   }
 
@@ -1387,14 +1452,14 @@ function BiProjectPage() {
             >
               <span
                 className={`h-1.5 w-1.5 rounded-full ${
-                  saveState === "saving"
+                  saveState === "saving" || (saveState === "saved" && owed)
                     ? "animate-pulse bg-amber-500"
                     : saveState === "error" || saveState === "conflict"
                       ? "bg-destructive"
                       : "bg-emerald-500"
                 }`}
               />
-              {saveState === "saving"
+              {saveState === "saving" || (saveState === "saved" && owed)
                 ? "Saving"
                 : saveState === "conflict"
                   ? "Changed elsewhere — reload"

@@ -109,6 +109,34 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-05 — R281: a dashboard edit, dropped after "Save failed"
+
+**Severity: moderate (lost work), sweep 8.** A BI dashboard saves 700 ms after an edit and had no guard at
+all. Driven on R280's build, in "r214 widget after": a text block added — the badge said "Saving" and a
+dispatched `beforeunload` was not blocked. That window is narrow in practice: a reload keeps the old page
+running until the new one arrives, and twice (the pane's navigate, then a reload from the page 200 ms
+after the click) the save still landed, so the window's loss was not reproduced; a closed tab ends the
+page at once. The deterministic loss is after a failed save: a text block holding a NUL character, which
+Postgres refuses — "Save failed: unsupported Unicode escape sequence", the tab not blocked, and the
+sidebar Dashboard link left with no question; reopened, the block was gone. The save state could not
+carry a guard either: the filters' immediate save sets "Saved" while a pages save still waits on its
+timer (from reading).
+
+Now the page keeps what a save still owes — the pages the debounced save will write, and filters whose
+save has not come back — cleared only by the save that wrote exactly them, so a failed save stays owed. A
+load (a History restore included) clears it and drops a waiting save, so an owed save can never be
+written over a restore. The badge does not say Saved while anything is owed. Leaving goes through R279's
+`useSaveBeforeLeave`: a link writes what is owed and asks only if that fails, and the tab asks while
+anything is owed. Eight mutants caught against a verified-green baseline, control survived.
+
+Driven on R281 hot-deployed: untouched, "Saved" and not blocked; a text block added, blocked at 100 ms
+("Saving"), not blocked once "Saved". The NUL block: "Save failed", blocked, and the Dashboard link asked
+"Leave without saving "r214 widget after"? The latest changes could not be saved: unsupported Unicode
+escape sequence. Leaving drops them." — **Cancel** stayed; removing the block saved and cleared it. A
+block added and the Dashboard link clicked 100 ms later left with no question, and the block was there on
+reopening. The four test blocks were removed; the dashboard is back to its one chart. Rows in
+[UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-05 — R280: an MCP app's source, not saved when typed back to how it loaded
 
 **Severity: moderate (lost work, and a deploy of the wrong source), sweep 8.** The MCP builder saves the

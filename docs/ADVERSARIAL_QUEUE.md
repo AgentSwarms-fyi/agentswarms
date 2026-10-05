@@ -513,9 +513,8 @@ least twice, not a hypothetical.
    - ~~**An MCP builder app**~~ (**R280**: a link inside the 1.2 s, typing back to the loaded text
      after a save, a dirty flag any returning save cleared, a refused save left on "Saving…", and
      Deploy going ahead on the old source after a failed save).
-   - **The BI dashboard** (`bi_.$dashboardId.tsx`), from reading it: a 700 ms autosave whose timer
-     survives unmount, so a link is safe; closing the tab inside it, or after "Save failed", is
-     not guarded.
+   - ~~**The BI dashboard**~~ (**R281**: a closed tab inside the 700 ms, and any way out after
+     "Save failed"; a link inside the 700 ms was already safe, its timer surviving unmount).
    - **Prompts** (`prompts.tsx`) and **Data SQL** (`data-sql.tsx`) carry no tracking at all. Each
      to be driven before it is called a defect.
    - **Open, from R279:** a NUL character (pasted binary output) can never be saved — Postgres

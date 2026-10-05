@@ -15,6 +15,23 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-05 — R281: a BI dashboard's owed saves
+
+BI Workspace, the dashboard "r214 widget after" (one chart). An edit is a text block added with **Text**.
+A failed save is a text block whose content holds a NUL character, which Postgres refuses. "100 ms" steps
+were clicked from the page, to land inside the 700 ms.
+
+| Step | R280's build | R281 hot-deployed |
+| --- | --- | --- |
+| Open, touch nothing | — | "Saved"; not blocked |
+| Add a block; `beforeunload` at once | "Saving"; **not blocked** | at 100 ms "Saving", blocked; after 3 s "Saved", not blocked |
+| The pane's navigate, or a reload 200 ms after the click | the block saved anyway (the old page outlives the reload) | — |
+| Add the NUL block | "Save failed: unsupported Unicode escape sequence"; **not blocked** | "Save failed"; blocked |
+| Then sidebar **Dashboard** | **left with no question; reopened without the block** | "Leave without saving "r214 widget after"? The latest changes could not be saved: unsupported Unicode escape sequence. Leaving drops them." — **Cancel** stayed |
+| Remove the NUL block | — | "Saved"; not blocked |
+| Add a block, **Dashboard** 100 ms later | — | left with no question; the block there on reopening |
+| Remove the four test blocks | — | one chart, "Saved", not blocked |
+
 ## 2026-10-05 — R280: an MCP app's source and the autosave
 
 MCP Builder, the app "r214 before" (29 lines, no packages, not deployed). A line is added at the end of the
