@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { sessionUser } from "@/lib/sessionUser";
 import {
   Dialog,
   DialogContent,
@@ -110,9 +111,7 @@ export function SkillEditorDialog({ open, onOpenChange, onSaved, initial }: Prop
     }
     setSaving(true);
     try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
+      const user = await sessionUser();
       if (!user) throw new Error("Not signed in");
       const tagArr = tags
         .split(",")

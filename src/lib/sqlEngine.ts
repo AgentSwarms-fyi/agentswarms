@@ -22,6 +22,7 @@
 
 import Papa from "papaparse";
 import { supabase } from "@/integrations/supabase/client";
+import { sessionUser } from "@/lib/sessionUser";
 import { selectAllWindows } from "@/lib/pagedSelect";
 // Type inference and coercion are shared with the streaming server upload —
 // two implementations would eventually disagree about what a date is.
@@ -203,8 +204,10 @@ async function hydrateFromSupabaseUncoordinated(): Promise<DatasetMeta[]> {
   // shared_dataset_rows() function so the grant's row filter and column mask
   // are applied inside Postgres. RLS no longer serves those rows directly —
   // a mask enforced only in the browser would be no mask at all.
-  const { data: auth } = await supabase.auth.getUser();
-  const myId = auth.user?.id ?? null;
+  // From the session (R298): asked of the auth server, a failed request made
+  // this null, and a dataset shared with the caller was read as their own -
+  // which RLS no longer serves - so it registered empty without a word.
+  const myId = (await sessionUser())?.id ?? null;
 
   // Hydrate every table in parallel — and within each table, fetch row pages
   // in parallel batches as well. Big speedup vs. the old serial loop.

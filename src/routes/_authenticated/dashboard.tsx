@@ -33,6 +33,7 @@ import { formatMs } from "@/lib/format";
 import { mySpendSince } from "@/lib/budgetSpendClient";
 import { greetingName } from "@/lib/greetingName";
 import { supabase } from "@/integrations/supabase/client";
+import { sessionUser } from "@/lib/sessionUser";
 import { formatSpend, spendCaveat } from "@/lib/spendCompleteness";
 import { activityMetrics, activityWindow, hourlyBuckets, modelMix } from "@/lib/dashboardActivity";
 import { SpendPanel } from "@/components/dashboard/SpendPanel";
@@ -218,7 +219,7 @@ function DashboardPage() {
           )
           .order("created_at", { ascending: false })
           .limit(TRACE_FETCH_LIMIT),
-        supabase.auth.getUser(),
+        sessionUser(),
       ]);
       setCounts((prev) => ({
         ...prev,
@@ -306,8 +307,8 @@ function DashboardPage() {
         // Aggregated in the database. This used to select every trace row for
         // the month and sum cost_usd in the browser, so a truncated result set
         // — or a failed query's empty array — rendered as the month's total.
-        u.data.user?.id
-          ? mySpendSince(u.data.user.id, monthStart.toISOString())
+        u?.id
+          ? mySpendSince(u.id, monthStart.toISOString())
           : Promise.resolve({ ok: false as const, error: "not signed in" }),
       ]);
       const reads: Record<HealthKey, { count: number | null; error: { message: string } | null }> =
@@ -340,8 +341,8 @@ function DashboardPage() {
       // Account page writes and what the sidebar reads. Reading only the auth
       // metadata greeted them by a mangled email prefix while their own name
       // sat one table away. See src/lib/greetingName.ts.
-      const meta = u.data.user?.user_metadata as { full_name?: string; name?: string } | undefined;
-      const uid = u.data.user?.id;
+      const meta = u?.user_metadata as { full_name?: string; name?: string } | undefined;
+      const uid = u?.id;
       const profile = uid
         ? await supabase
             .from("profiles")
@@ -354,7 +355,7 @@ function DashboardPage() {
           firstName: profile?.data?.first_name,
           displayName: profile?.data?.display_name,
           metaFullName: meta?.full_name ?? meta?.name,
-          email: u.data.user?.email,
+          email: u?.email,
         }),
       );
       setCheckedAt(new Date());

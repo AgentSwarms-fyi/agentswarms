@@ -109,6 +109,47 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-05 — R298: the browser said "Not signed in" when one request failed
+
+**Severity: medium (a refused save; an action that did nothing; a shared dataset read as empty), five
+browser paths.** R297 queued it. Browser code asked the auth server who was signed in (`getUser`, a round
+trip) and read any failure as "nobody". The browser already holds the session it signs every request with,
+and the server checks that token on each request.
+
+**The before**, on R297's build. A page-side wrapper failed the browser's `GET /auth/v1/user` and nothing
+else:
+
+- **Skills, "Duplicate to my skills".** Nothing happened: no toast, still "My skills (0)".
+- **Skills, a new skill, Save.** The toast said **"Not signed in"**, the dialog stayed open, and nothing
+  was saved.
+- **Read from the code, not driven:**
+  - **The SQL engine.** It decides by the caller's id which tables are shared with them. With a null id,
+    a dataset shared with the caller was read as their own, which RLS no longer serves, so it registered
+    empty.
+  - **The dashboard.** Its spend and greeting lost the user.
+  - **An approval node.** It said "Not signed in".
+
+**The fix.** `src/lib/sessionUser.ts` reads the user from the stored session, with no round trip. All five
+places use it, and Duplicate now says "Not signed in" when there really is no session, instead of returning
+in silence. The R297 sweep's browser exemptions are gone, so a `getUser` anywhere in `src` must say which
+kind of "no" it got.
+
+**Tests:** `sessionUserLookup.test.ts` checks that the session is read without asking the auth server, and
+pins the five places and the toast. The full suite passed, 632 files.
+
+- **Mutation harness:** 4 mutants caught, and the control survived.
+
+**The after**, with the same failure armed:
+
+- **Duplicate** made no auth request. It said "Copied to your skills", and the tab showed "My skills (1)".
+- **Save** made no auth request. It said "Skill saved", the dialog closed, and the tab showed "My skills
+  (2)".
+- **Unarmed:** the dashboard greeted "Welcome back, Rohan" with its spend card, and the Workbench ran a
+  query against the local tables.
+
+**Fixtures:** the two skills are kept ("R298 probe" and a copy of the first sample). Rows in [UI test
+results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-05 — R297: "you are not signed in" when it was the check that failed
 
 **Severity: medium (a false refusal everywhere; one ungoverned chat turn), every server function and API

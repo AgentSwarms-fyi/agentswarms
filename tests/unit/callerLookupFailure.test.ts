@@ -122,20 +122,10 @@ function walk(dir: string): string[] {
   });
 }
 
-/**
- * Lookups that are not a request's caller check, with why. Browser code asks
- * about the browser's own session (queued separately); the rest are named.
- */
-const NOT_A_CALLER_CHECK: Record<string, string> = {
-  [join("src", "components", "skills", "SkillEditorDialog.tsx")]: "browser session",
-  [join("src", "lib", "sqlEngine.ts")]: "browser session",
-  [join("src", "lib", "swarmRuntime.ts")]: "browser session",
-  [join("src", "routes", "_authenticated", "dashboard.tsx")]: "browser session",
-  [join("src", "routes", "_authenticated", "skills.tsx")]: "browser session",
-};
-
-describe("every server-side caller lookup", () => {
-  const files = walk("src").filter((f) => /\.(ts|tsx)$/.test(f) && !(f in NOT_A_CALLER_CHECK));
+// No exemptions since R298: the browser reads its own session (lib/sessionUser),
+// so a getUser anywhere in src is a lookup that must say which kind of "no" it got.
+describe("every caller lookup, server or browser", () => {
+  const files = walk("src").filter((f) => /\.(ts|tsx)$/.test(f));
   // Both questions: getUser asks the auth server; getClaims verifies the JWT
   // and falls back to asking it, so it can fail the same way.
   const sites = files.flatMap((f) => {

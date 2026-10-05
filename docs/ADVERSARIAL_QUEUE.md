@@ -499,10 +499,8 @@ least twice, not a hypothetical.
        server-side `auth.getUser` and `auth.getClaims` now goes through `callerLookup.server.ts`.
        A refusal keeps its 401 and message; a check that failed is a 503 that says so. The round
        also found that Agent Chat ran such a turn without the IAM model rules or budget cap.
-     - **Open, from R297: the browser's own `supabase.auth.getUser()`.** Five places read the
-       browser's session with it and treat any error as "Not signed in": `SkillEditorDialog`,
-       `lib/sqlEngine`, `lib/swarmRuntime` (an approval node), `dashboard.tsx` and `skills.tsx`.
-       Same class, client side. They are listed by name in the sweep's exemptions.
+     - ~~**Open, from R297: the browser's own `supabase.auth.getUser()`.**~~ **R298.** The five read
+       the stored session through `lib/sessionUser`, and the sweep has no exemptions left.
 
 8. **Unsaved work lost without a word** (sweep 8, from 2026-10-05). An editor with an explicit
    Save holds edits in the page, and something replaces or leaves them with no question: picking

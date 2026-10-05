@@ -15,6 +15,19 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-05 — R298: the browser's own sign-in check
+
+A page-side wrapper failed the browser's `GET /auth/v1/user` and nothing else.
+
+| What was driven | What came back |
+| --- | --- |
+| **Before**, on R297's build: Skills → Sample skills → "Duplicate to my skills" | One failed auth request; no toast; still "My skills (0)" |
+| **Before**: New skill → Write manually → "R298 probe" → Save skill | One failed auth request; toast **"Not signed in"**; dialog still open; "My skills (0)" |
+| **After**, same failure armed: Duplicate to my skills | No auth request; "Copied to your skills"; "My skills (1)" |
+| **After**, same failure armed: the same new skill → Save skill | No auth request; "Skill saved"; dialog closed; "My skills (2)" |
+| **After**, unarmed: `/dashboard`, then the Workbench | "Welcome back, Rohan" and the spend card; `hr_roster` queried from the local tables, no error |
+| Fixtures | The two skills are kept |
+
 ## 2026-10-05 — R297: a refusal versus a check that failed
 
 A real failure of the auth server cannot be forced from the browser, so the before is the real

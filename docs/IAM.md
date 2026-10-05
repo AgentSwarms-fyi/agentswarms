@@ -117,8 +117,14 @@ Every server function and API route first asks whose token it was handed, throug
 Before R297 the second case was reported as the first, so a signed-in person was told they were not.
 Agent Chat had the sharper version. A user it could not identify skips the IAM model rules and the
 budget cap, so a failed check ran that turn ungoverned on a good token. Now it answers 503 instead.
-`callerLookupFailure.test.ts` holds every server-side `auth.getUser` and `auth.getClaims` to the helper,
+`callerLookupFailure.test.ts` holds every `auth.getUser` and `auth.getClaims` in `src` to the helper,
 or to a `// caller-lookup:` comment at the site that says why it need not.
+
+In the browser, the signed-in user is read from the session the browser already holds
+(`src/lib/sessionUser.ts`), not asked of the auth server. The server checks the token on every request
+anyway. Before R298, one failed request to the auth server had three effects: the skill editor said "Not
+signed in" on Save, "Duplicate to my skills" did nothing, and the SQL engine could read a dataset shared
+with you as empty.
 
 ## Use cases
 
