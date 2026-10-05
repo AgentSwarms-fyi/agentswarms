@@ -15,6 +15,21 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-05 — R283: two tabs on one Python notebook
+
+The notebook "r213 double run" open in two tabs of the browser pane, A and B, both loaded before either
+edit.
+
+| Step | R282's build | R283 hot-deployed |
+| --- | --- | --- |
+| A: " A283" appended to the title | "Saved" | "Saved" |
+| B: a cell edited (`# r283 B` added, or after R283 removed) | "Saved" — **its old title written with it** | "Save failed: this notebook was changed in another tab or session after this page read it"; the Reload banner; "Unsaved changes"; the tab guarded |
+| A: before a reload | **"r213 double run A283", "Saved"** | — |
+| A: reloaded | **"r213 double run"** with B's line — A's saved title gone | "r213 double run A283", B's line untouched — B's write refused |
+| B: sidebar **Dashboard** | — | "Leave without saving "r213 double run"? The latest changes could not be saved: this notebook was changed in another tab or session after this page read it. Leaving drops them." — **Cancel** stayed |
+| B: **Reload** | — | reloaded with no question; A's version, no banner, "Saved" |
+| B: two cleanup edits, each left to save | — | both "Saved"; the notebook back to "r213 double run" |
+
 ## 2026-10-05 — R282: the Account page's profile form
 
 Account → Public Profile, the account's own profile (bio empty). An edit is text typed into the bio,

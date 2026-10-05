@@ -533,6 +533,24 @@ least twice, not a hypothetical.
      sequence", which names neither the character nor where it is. Likely true of every jsonb
      save in the app; R279 used it to drive a real failed save.
 
+9. **A later save that silently undoes an earlier one** (sweep 9, from 2026-10-05). An editor that
+   writes its whole document writes it over whatever is stored, so of two tabs — or two people with
+   edit access — on one item, the later save undoes the earlier, and the earlier tab still says
+   "Saved". R283 proved it on the Python notebook. The shape of the fix needs no migration where
+   the table's trigger moves `updated_at` on every write: update with `.eq("updated_at", version)`
+   and `.select("updated_at")`, take no row back as "changed elsewhere", stop saving, say so, and
+   queue the page's own saves so they cannot trip each other (`src/lib/guardedSave.ts`). Already
+   guarded: the BI dashboard (a `version` column) and Sheets (its own conflict check). A survey of
+   whole-document saves, each to be driven before it is called a defect:
+   - ~~**The Python notebook**~~ (**R283**).
+   - **An MCP builder app** (`mcp_apps`, trigger), **SQL models** (`sql_models`, trigger),
+     **semantic models** (`semantic_models`, trigger), **the swarm canvas** (`swarms`, trigger),
+     **ETL pipelines** (`etl_pipelines`, trigger).
+   - **Workflows** and **BI reports**: no `updated_at` trigger found under those table names; check
+     the real table before choosing the guard.
+   - **Budgets** (sweep 8's open note) is the same family inside one tab: its per-keystroke writes
+     can land out of order.
+
 ### Sheets (new, 2026-09-25)
 
 Closed while building it: R112 (a `;` inside a string refused as a second

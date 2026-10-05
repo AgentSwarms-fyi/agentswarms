@@ -49,6 +49,7 @@ import { mayAutosave } from "@/lib/listClaim";
 import { useSharedFlight } from "@/lib/singleFlight";
 import { cellRunKey } from "@/lib/cellRunKey";
 import { useSaveBeforeLeave } from "@/hooks/use-save-before-leave";
+import { makeSaveQueue, readGuardedSave } from "@/lib/guardedSave";
 
 export const Route = createFileRoute("/_authenticated/notebooks/py/$pyNotebookId")({
   component: PyNotebookPage,
@@ -109,6 +110,12 @@ function PyNotebookPage() {
   const form = cells === null ? null : JSON.stringify({ title, cells });
   const unsaved = form !== null && savedAs !== null && form !== savedAs;
   const reloadingRef = useRef(false);
+  // The version (`updated_at`) this page read or last wrote. A save lands only
+  // on it, so another tab's newer save is not written over (R283, sweep 9);
+  // once one has been, this page stops saving and says so.
+  const versionRef = useRef<string | null>(null);
+  const [stale, setStale] = useState(false);
+  const saveQueueRef = useRef(makeSaveQueue());
   const [publishOpen, setPublishOpen] = useState(false);
   const [gitOpen, setGitOpen] = useState(false);
   const [outputs, setOutputs] = useState<Record<string, CellOutput>>({});
@@ -181,7 +188,7 @@ function PyNotebookPage() {
     setOutputs({});
     supabase
       .from("user_python_notebooks")
-      .select("id, title, cells")
+      .select("id, title, cells, updated_at")
       .eq("id", pyNotebookId)
       .maybeSingle()
       .then(({ data, error }) => {
@@ -199,6 +206,8 @@ function PyNotebookPage() {
           return;
         }
         const loadedCells = parseCells(data.cells);
+        versionRef.current = data.updated_at;
+        setStale(false);
         setTitle(data.title);
         setCells(loadedCells);
         setSavedAs(JSON.stringify({ title: data.title, cells: loadedCells }));
@@ -213,31 +222,43 @@ function PyNotebookPage() {
   // ── Autosave (debounced) ──────────────────────────────────────────────────
   // Saves what the editor holds now and records it as saved. An edit made while
   // the save is in flight stays unsaved, and is saved by its own timer.
-  const saveNow = useCallback(async (): Promise<string | null> => {
-    if (form === null || cells === null) return null;
-    setSaving((n) => n + 1);
-    const { error } = await supabase
-      .from("user_python_notebooks")
-      .update({ title: title.trim() || "Untitled notebook", cells: cells as unknown as Json })
-      .eq("id", pyNotebookId);
-    setSaving((n) => n - 1);
-    if (error) return error.message;
-    setSavedAs(form);
-    setSavedTitle(title.trim() || "Untitled notebook");
-    return null;
-  }, [form, title, cells, pyNotebookId]);
+  // Saves run one at a time, each on the version the last one returned.
+  const saveNow = useCallback(
+    (): Promise<string | null> =>
+      saveQueueRef.current(async () => {
+        if (form === null || cells === null || versionRef.current === null) return null;
+        setSaving((n) => n + 1);
+        const res = await supabase
+          .from("user_python_notebooks")
+          .update({ title: title.trim() || "Untitled notebook", cells: cells as unknown as Json })
+          .eq("id", pyNotebookId)
+          .eq("updated_at", versionRef.current)
+          .select("updated_at");
+        setSaving((n) => n - 1);
+        const saved = readGuardedSave(res, "this notebook");
+        if (!saved.ok) {
+          if (saved.stale) setStale(true);
+          return saved.error;
+        }
+        versionRef.current = saved.version;
+        setSavedAs(form);
+        setSavedTitle(title.trim() || "Untitled notebook");
+        return null;
+      }),
+    [form, title, cells, pyNotebookId],
+  );
 
   useEffect(() => {
     // Guards against saving an un-loaded editor over a real notebook — see
     // mayAutosave, which is where that rule is stated and tested.
-    if (!mayAutosave({ hydrated: loadedRef.current, cells }) || !unsaved) return;
+    if (!mayAutosave({ hydrated: loadedRef.current, cells }) || !unsaved || stale) return;
     const t = setTimeout(() => {
       void saveNow().then((error) => {
         if (error) toast.error(`Save failed: ${error}`);
       });
     }, 1200);
     return () => clearTimeout(t);
-  }, [cells, unsaved, saveNow]);
+  }, [cells, unsaved, stale, saveNow]);
 
   // FOUND IN R279: the timer above is cleared when the page unmounts, so a link
   // taken inside the 1.2 s, or after a failed save, dropped the edit.
@@ -357,6 +378,27 @@ function PyNotebookPage() {
 
   return (
     <div className="mx-auto w-full max-w-4xl p-4 lg:p-6">
+      {stale && (
+        <div
+          className="mb-4 flex flex-wrap items-center gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm"
+          data-testid="notebook-stale"
+        >
+          <span className="min-w-0 flex-1">
+            This notebook was changed in another tab or session, so edits here are no longer saved
+            over it. Reload to see that version; edits made here since the last save are dropped.
+          </span>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              reloadingRef.current = true;
+              window.location.reload();
+            }}
+          >
+            Reload
+          </Button>
+        </div>
+      )}
       {/* Header */}
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <Input

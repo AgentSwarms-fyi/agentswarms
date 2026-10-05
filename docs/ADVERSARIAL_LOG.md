@@ -109,6 +109,38 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-05 — R283: two tabs on one notebook, the later save undoing the earlier
+
+**Severity: high (silent loss of saved work), opens sweep 9.** The Python notebook saved its whole
+document — title and cells — with a plain update, over whatever was stored. Driven on R282's build, with
+"r213 double run" open in two tabs: tab A appended " A283" to the title and showed "Saved"; tab B, still
+holding the old title, added `# r283 B` to a cell and saved. Tab A went on saying "r213 double run A283"
+and "Saved"; reloaded, it read "r213 double run" with B's line — A's saved title gone, without a word to
+either tab.
+
+The notebooks table's trigger already moves `updated_at` on every write, so it serves as the version with
+no migration. Every other writer of the row was read first: the editor itself and the Git restore, which
+reloads the page after it. A save now updates with `.eq("updated_at", version)` and `.select("updated_at")`
+and takes the version it gets back; no row back means another tab or session saved since this page read
+it. Then the page latches: autosave stops, the toast says "Save failed: this notebook was changed in
+another tab or session after this page read it", a banner offers **Reload** (which skips the tab's own
+question), and a link asks through R279's hook with that reason. The page's own saves run through a
+queue, so two of them in flight cannot take each other for someone else's. `src/lib/guardedSave.ts`
+holds the reply reader and the queue for the rest of the sweep; the queue's `tail.then(run, run)` already
+runs on after a rejection, so a `.catch` that only a surviving mutant could exercise was dropped. Nine
+mutants caught against a verified-green baseline, control survived; R279's two pins on the save and the
+autosave guard were updated to the new lines.
+
+Driven on R283 hot-deployed, both tabs reloaded: A's title edit saved as usual (the guard passes its own
+version); B then removed its line — "Save failed: this notebook was changed in another tab or session
+after this page read it", the banner, "Unsaved changes", the tab guarded. The store, read in A: "r213
+double run A283" with `# r283 B` still there — B's write was refused, not made. B's Dashboard link asked
+"Leave without saving "r213 double run"? The latest changes could not be saved: this notebook was
+changed in another tab or session after this page read it. Leaving drops them." — **Cancel** stayed;
+**Reload** reloaded with no question and showed A's version. Two cleanup edits in B then saved in turn
+(one tab's saves do not trip each other), and the notebook is back to "r213 double run". Sweep 9's survey
+is in the queue. Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-05 — R282: a profile form that could save blanks over the profile
 
 **Severity: moderate — lost edits, and, from reading, a stored profile wiped by one click.** The last

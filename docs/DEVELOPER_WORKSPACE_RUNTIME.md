@@ -334,6 +334,11 @@ Reuse the existing pieces: `getEffectiveModelRules`/`isModelAllowed` (IAM gate),
   save fails — "Leave without saving "…"?", with the reason — and closing the tab
   with anything unsaved gets the browser's question (R279,
   `useSaveBeforeLeave`).
+- **Two tabs on one notebook** do not undo each other. A save lands only on the
+  version (`updated_at`) the tab read or last wrote; once another tab or session
+  has saved, this tab's next save is refused — "this notebook was changed in
+  another tab or session after this page read it" — autosave stops, and a banner
+  offers **Reload** (R283, `src/lib/guardedSave.ts`).
 
 ---
 

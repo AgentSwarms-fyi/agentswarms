@@ -63,13 +63,16 @@ describe("the Python notebook", () => {
     expect(page).toContain(
       "setSavedAs(JSON.stringify({ title: data.title, cells: loadedCells }));",
     );
-    // Recorded only once the update came back without an error.
-    expect(page).toMatch(/if \(error\) return error\.message;\s*setSavedAs\(form\);/);
+    // Recorded only once the update came back without an error (R283: and
+    // landed on this page's version).
+    expect(page).toMatch(
+      /if \(!saved\.ok\) \{[^}]*return saved\.error;\s*\}\s*versionRef\.current = saved\.version;\s*setSavedAs\(form\);/,
+    );
   });
 
   it("saves only what is unsaved, and saves or asks before leaving", () => {
     expect(page).toContain(
-      "if (!mayAutosave({ hydrated: loadedRef.current, cells }) || !unsaved) return;",
+      "if (!mayAutosave({ hydrated: loadedRef.current, cells }) || !unsaved || stale) return;",
     );
     expect(page).toContain(
       "useSaveBeforeLeave({ unsaved, saveNow, name: savedTitle, reloading: reloadingRef });",
