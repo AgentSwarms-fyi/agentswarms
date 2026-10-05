@@ -15,6 +15,22 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-05 — R276: a SQL model's unsaved draft
+
+SQL Models, the fixture models `r178_after` (`SELECT 1782 AS id`) and `r178_target` (`SELECT 178 AS
+id`). An edit is " -- EDITED" typed after the SQL, never saved.
+
+| Step | R275's build | R276 hot-deployed |
+| --- | --- | --- |
+| Open, touch nothing, click the other model | — | not blocked; switched with no question |
+| Edit, click the other model | **switched at once**; back on the first, the edit gone | blocked; "Discard the changes to "r178_target"? They are not saved. Opening another model replaces them." — **Cancel** kept it |
+| Edit, **Close** | **closed at once**; reopened without the edit | "…Closing the editor drops them." — **Discard changes** closed it; reopened as saved |
+| New model, touch nothing, click a model | — | no question |
+| New model named `r276_never`, click a model | — | "Discard the new model? It is not saved. Opening another model replaces it." — Discard; no such model saved |
+
+The first R276 build said "It is not saved. Opening another model replaces them." for an existing
+model's changes; fixed in the round, and the rows are the build with it.
+
 ## 2026-10-05 — R275: leaving the ETL pipeline editor with unsaved edits
 
 ETL Pipelines → `r227_stream`. An edit is " EDITED" typed after its name, never saved. "Blocked" is a

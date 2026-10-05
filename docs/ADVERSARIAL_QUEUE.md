@@ -497,9 +497,11 @@ least twice, not a hypothetical.
    asking itself when it is state rather than a route. A survey of full-page editors with a Save
    and no guard:
    - ~~**ETL pipeline editor**~~ (**R275**: "← Pipelines", a link and the tab).
-   - **SQL models** (`sql-models.tsx`), **the Semantic Layer editor** (`SemanticLayerEditor.tsx`),
-     **a BI report** (`bi_.report.$reportId.tsx`): each to be driven before it is called a defect —
-     some may save as they go.
+   - ~~**SQL models**~~ (**R276**: Close, another model, New model, a link and the tab; it kept
+     no record of what was saved).
+   - **The Semantic Layer editor** (`SemanticLayerEditor.tsx`), **a BI report**
+     (`bi_.report.$reportId.tsx`): each to be driven before it is called a defect — some may save
+     as they go.
 
 ### Sheets (new, 2026-09-25)
 

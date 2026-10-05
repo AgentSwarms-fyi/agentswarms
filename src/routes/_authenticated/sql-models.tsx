@@ -5,7 +5,7 @@
 // cannot answer: what order does this build in, and what broke downstream when
 // something failed.
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, createFileRoute } from "@tanstack/react-router";
+import { Link, createFileRoute, useBlocker } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import {
@@ -269,6 +269,16 @@ function SqlModelsPage() {
   const [busy, setBusy] = useState(false);
   const [tab, setTab] = useState<"editor" | "graph" | "runs">("editor");
   const [draft, setDraft] = useState<Draft | null>(null);
+  // The draft as it was opened or last saved, so the editor can tell what is
+  // unsaved (R275-R276, sweep 8). A new model's empty draft counts as saved
+  // until something is typed into it.
+  const [savedDraft, setSavedDraft] = useState<string | null>(null);
+  const unsaved = draft !== null && savedDraft !== JSON.stringify(draft);
+  /** Open a draft in the editor as the saved state. */
+  const openDraft = (d: Draft | null) => {
+    setDraft(d);
+    setSavedDraft(d ? JSON.stringify(d) : null);
+  };
   const [preview, setPreview] = useState<{
     columns: { name: string; type: string }[];
     rows: unknown[][];
@@ -303,6 +313,30 @@ function SqlModelsPage() {
     (r) => !models.some((m) => m.name === r && m.id !== draft?.id),
   );
 
+  /**
+   * Ask before unsaved edits are replaced or left; true when it may go ahead.
+   * FOUND IN R276: Close, another model, New model, a link and a closed tab all
+   * dropped the draft without a word.
+   */
+  async function mayDiscard(what: string): Promise<boolean> {
+    if (!unsaved) return true;
+    const savedName = models.find((m) => m.id === draft?.id)?.name;
+    return Boolean(
+      await confirmAsk({
+        title: savedName ? `Discard the changes to "${savedName}"?` : "Discard the new model?",
+        // A model's changes are "them"; a new model is "it".
+        body: savedName ? `They are not saved. ${what} them.` : `It is not saved. ${what} it.`,
+        actionLabel: "Discard changes",
+      }),
+    );
+  }
+
+  useBlocker({
+    shouldBlockFn: async () => !(await mayDiscard("Leaving the page drops")),
+    enableBeforeUnload: unsaved,
+    disabled: !unsaved,
+  });
+
   async function save() {
     if (!draft) return;
     const nameError = validateModelName(draft.name);
@@ -330,6 +364,7 @@ function SqlModelsPage() {
       toast.success(draft.id ? `Saved ${draft.name}` : `Created ${draft.name}`);
       await reload();
       setDraft((d) => (d ? { ...d, id: res.id } : d));
+      setSavedDraft(JSON.stringify({ ...draft, id: res.id }));
     } catch (e) {
       reportFailure("save the model", e);
     } finally {
@@ -474,9 +509,10 @@ function SqlModelsPage() {
           <Button
             size="sm"
             disabled={writable.length === 0}
-            onClick={() => {
+            onClick={async () => {
+              if (!(await mayDiscard("Starting a new model replaces"))) return;
               setPreview(null);
-              setDraft(emptyDraft(writable[0]?.name ?? ""));
+              openDraft(emptyDraft(writable[0]?.name ?? ""));
               setTab("editor");
             }}
           >
@@ -522,9 +558,11 @@ function SqlModelsPage() {
                 <button
                   key={m.id}
                   type="button"
-                  onClick={() => {
+                  onClick={async () => {
+                    if (m.id === draft?.id) return;
+                    if (!(await mayDiscard("Opening another model replaces"))) return;
                     setPreview(null);
-                    setDraft(draftOf(m));
+                    openDraft(draftOf(m));
                     setTab("editor");
                   }}
                   className={cn(
@@ -1004,7 +1042,13 @@ function SqlModelsPage() {
                         </Button>
                       </>
                     ) : null}
-                    <Button variant="ghost" onClick={() => setDraft(null)} disabled={busy}>
+                    <Button
+                      variant="ghost"
+                      onClick={async () => {
+                        if (await mayDiscard("Closing the editor drops")) openDraft(null);
+                      }}
+                      disabled={busy}
+                    >
                       Close
                     </Button>
                   </div>

@@ -109,6 +109,30 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-05 — R276: a SQL model's draft, dropped by Close, by another model, by New
+
+**Severity: moderate (lost work), sweep 8.** The SQL models editor holds a draft and kept no record of
+what was saved, so nothing could tell an edit was pending. Driven on R275's build with the fixture
+models: `r178_after`'s SQL given " -- EDITED", then a click on `r178_target` — replaced at once; back on
+`r178_after`, the edit was gone. The same edit and **Close**: the editor shut, and reopened without it.
+New model, a link and a closed tab did the same.
+
+Now the editor records the draft as it was opened or saved (a new model's empty draft counts as saved
+until something is typed), and asks before Close, another model, New model, a link or the tab replaces
+it, naming the model by its saved name — or "Discard the new model?" for one never saved. Clicking the
+model already open no longer reloads it over the edits. **The first build asked "It is not saved. Opening
+another model replaces them."** — caught in the drive: a model's changes are "they", a new model "it",
+and the body now follows the title. Six mutants caught against a verified-green baseline (opening a
+draft or a save not recorded, another model or Close not asking, the blocker on with nothing unsaved,
+a model's changes called "it"), control survived.
+
+Driven on R276 hot-deployed: untouched, `beforeunload` let through and switching free; `r178_target`
+edited, blocked, and the switch asked "Discard the changes to "r178_target"? They are not saved. Opening
+another model replaces them." — **Cancel** kept it; **Close** asked "…Closing the editor drops them."
+and **Discard changes** closed it, the model reopening as saved; an untouched New model left freely; a
+new one named `r276_never` asked "Discard the new model? It is not saved. Opening another model replaces
+it.", and Discard left no such model. Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-05 — R275: a pipeline editor that knew its edits were unsaved, and let them go
 
 **Severity: moderate (lost work), sweep 8's first named round.** R268–R270 found the same shape twice

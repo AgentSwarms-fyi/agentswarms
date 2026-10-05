@@ -77,6 +77,12 @@ imposed a build order would refuse projects that are actually fine.
 while the project still builds, rather than at the next scheduled build when
 nothing runs.
 
+**Unsaved edits are asked about.** Opening another model, starting a new one,
+**Close**, a link or closing the tab with something unsaved asks first —
+"Discard the changes to "stg_orders"?", or "Discard the new model?" for one not
+yet saved — and Cancel keeps it (R276). A new model nothing has been typed into
+leaves without a question.
+
 ### Table or view
 
 | Materialization | What happens                                         | Use it when                                         |
