@@ -553,10 +553,17 @@ least twice, not a hypothetical.
      function over `execution_traces.agent_id`. Then `getBudgetDecision` can check it, and
      auto-disable can set `agents.is_active = false`. Once that ships,
      `agentLimitsDisclosure.test.ts` will ask for the disclosure to be removed.
-   - **Open, from R279:** a NUL character (pasted binary output) can never be saved — Postgres
-     refuses it in `text` and `jsonb` — and the toast reads "Save failed: unsupported Unicode escape
-     sequence", which names neither the character nor where it is. Likely true of every jsonb
-     save in the app; R279 used it to drive a real failed save.
+   - ~~**Open, from R279:** a NUL character can never be saved.~~ **Uploads: R300.** A CSV with one
+     NUL failed its whole import; the character is now removed at the row sink and counted. The
+     first version cleaned too late: a text column's distinct values, kept in its definition, are
+     jsonb too.
+   - **Open, from R300: a NUL in an editor's text.** A title or text block holding U+0000 still
+     cannot be saved, and the toast reads "unsupported Unicode escape sequence". The character is
+     invisible in an input, so "remove it" cannot be acted on. About 40 save sites show that raw
+     message. The one universal place to strip it is the request to PostgREST, in
+     `integrations/supabase/client.ts` and `client.server.ts`, and both are marked generated. So
+     the choice is to edit them, add a fetch shim, or clean per editor. The case is rare in typed
+     text; pasted terminal output is the likely source.
 
 9. **A later save that silently undoes an earlier one** (sweep 9, from 2026-10-05). An editor that
    writes its whole document writes it over whatever is stored, so of two tabs — or two people with

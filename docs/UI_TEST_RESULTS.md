@@ -15,6 +15,25 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-06 — R300: a NUL character in an upload
+
+The CSV was built in the page and handed to the dialog's file input:
+
+```
+id,label
+1,clean
+2,pad\0ded
+3,end
+```
+
+| What was driven | What came back |
+| --- | --- |
+| **Before**, on R299's build: Workbench → Upload data → `r300_nul.csv` → Create dataset | Toast "unsupported Unicode escape sequence"; the dialog stayed; no dataset |
+| **First fix** (cleaned in `coerceRow`): the same | **The same toast**; the column definition's distinct values still held the NUL |
+| **After**: the same | "Dataset created: r300_nul, 3 rows · 2 columns · CSV · NUL characters removed from 1 cell (they cannot be stored)" |
+| **After**: `SELECT * FROM r300_nul LIMIT 10` | `1 clean`, `2 padded`, `3 end` |
+| Fixture | `r300_nul` is kept |
+
 ## 2026-10-06 — R299: stderr in a run's logs
 
 The fixture is `r299_stderr`, a code pipeline. It prints a line, then writes one line each through

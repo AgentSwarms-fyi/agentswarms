@@ -109,6 +109,37 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-06 — R300: one NUL character in a CSV and nothing was imported
+
+**Severity: medium (a whole import refused over an invisible byte, with a message that says nothing),
+data uploads.** R279's note had it as an editor problem. The upload is where it bites: rows and column
+definitions are stored as `jsonb`, Postgres cannot store U+0000 in `jsonb`, and it refuses the whole
+write over one. Legacy exports and fixed-width dumps pad with it.
+
+**The before**, on R299's build. Data Catalog → Workbench → Upload data, given a three-row CSV (built in the
+page and handed to the file input), with `pad\0ded` in one cell. The toast said only "unsupported Unicode
+escape sequence", the dialog stayed, and no dataset was created.
+
+**The fix.** `cleanRow` (`src/lib/datasetParse.ts`) removes the character from every text value and column
+name, and the ingest sink applies it **as each row arrives**, before the type sample, the inferred columns
+and coercion read it. It counts the cells it changed. The upload route returns `nulCellsCleaned`, and the
+dialog adds "NUL characters removed from N cells (they cannot be stored)".
+
+**The drive caught the first version.** That version cleaned in `coerceRow`, and the same upload failed
+again with the same message. A text column with few values keeps every distinct value in its definition,
+and `inferColumns` takes those from the raw rows **before** coercion; the definition is `jsonb` too. The
+test now shows inference over the raw rows carrying the NUL, and over the cleaned rows not.
+
+**Tests:** `uploadNulCells.test.ts`. **Mutation harness:** 6 mutants caught, and the control survived.
+
+**The after:** the same file gave "Dataset created: r300_nul, 3 rows · 2 columns · CSV · NUL characters
+removed from 1 cell (they cannot be stored)". `SELECT * FROM r300_nul` returned `1 clean`, `2 padded`,
+`3 end`.
+
+**Still open, re-queued:** the same character in an **editor's** text, R279's original case. The one
+universal place to strip it is in files marked generated, so it is a choice for the owner. The fixture
+`r300_nul` is kept. Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-06 — R299: a run's logging and warnings never reached its logs
 
 **Severity: medium (a run's own diagnostics lost for good), ETL and every batch sandbox.** R292 queued it.

@@ -212,6 +212,11 @@ month`, since the rows underneath have no `month` column to filter on.
   rather than loading a silent subset — see [deployment](./DEPLOYMENT.md).
   Types are inferred from a sample and shown after the import; re-uploading over
   an existing dataset keeps the old contents as a restorable version.
+  A NUL character (U+0000) cannot be stored in Postgres. Legacy exports and
+  fixed-width dumps often pad with it, so it is removed from values and column
+  names as each row arrives, and the result says in how many cells ("NUL
+  characters removed from 1 cell"). Before R300, one NUL anywhere failed the
+  whole import with "unsupported Unicode escape sequence".
 - **Data preparation** — a visual prep studio (BI Workspace → Data
   preparation): drag tables onto the canvas to build a join pipeline (left /
   inner / right / full outer, join keys auto-detected from matching column

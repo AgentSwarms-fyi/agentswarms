@@ -37,6 +37,7 @@ type UploadResult = {
   columns: ColumnDef[];
   format: DatasetFormat;
   skipped: number;
+  nulCellsCleaned: number;
 };
 
 export function CsvUploadDialog({
@@ -125,6 +126,7 @@ export function CsvUploadDialog({
         columns: body.columns ?? [],
         format: body.format ?? format,
         skipped: body.skipped ?? 0,
+        nulCellsCleaned: body.nulCellsCleaned ?? 0,
       });
       onUploaded();
     };
@@ -158,6 +160,9 @@ export function CsvUploadDialog({
                   {result.rowCount.toLocaleString()} rows · {result.columns.length} columns ·{" "}
                   {formatLabel(result.format)}
                   {result.skipped > 0 && ` · ${result.skipped.toLocaleString()} empty rows skipped`}
+                  {result.nulCellsCleaned > 0 &&
+                    ` · NUL characters removed from ${result.nulCellsCleaned.toLocaleString()} ` +
+                      `${result.nulCellsCleaned === 1 ? "cell" : "cells"} (they cannot be stored)`}
                 </p>
               </div>
             </div>

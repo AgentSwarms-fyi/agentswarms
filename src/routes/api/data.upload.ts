@@ -102,6 +102,7 @@ async function handle(request: Request): Promise<Response> {
       columns: result.columns,
       format: result.format,
       skipped: result.skipped,
+      nulCellsCleaned: result.nulCellsCleaned,
     });
   } catch (e) {
     return json(400, { error: (e as Error).message, maxRows: uploadMaxRows() });
