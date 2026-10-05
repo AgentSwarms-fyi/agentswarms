@@ -60,7 +60,7 @@ const FIXED: { file: string; marker: string; what: string; callsLoad?: true }[] 
   },
   {
     file: "src/routes/_authenticated/bi_.report.$reportId.tsx",
-    marker: "const res = await getFn({ data: { accessToken: token, id: reportId } });",
+    marker: "res = await getFn({ data: { accessToken: token, id: reportId } });",
     what: "the report designer's load",
   },
   {

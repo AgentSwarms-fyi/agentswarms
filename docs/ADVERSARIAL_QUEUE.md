@@ -571,8 +571,9 @@ least twice, not a hypothetical.
    - ~~**The Python notebook**~~ (**R283**).
    - ~~**BI reports**~~ (**R284**: no trigger, but the save sets `updated_at` itself and is the
      table's only writer, so the guard went into `biReportSave`; refused, the page offers Reload or
-     Overwrite with mine). `biReportGet` drops its read error, so a failed read says "Report not
-     found" — sweep 7's milder shape, no write behind it; open.
+     Overwrite with mine). ~~`biReportGet` drops its read error, so a failed read says "Report not
+     found"~~ (**R296**, which also found the page stuck on its skeleton when the request itself
+     failed).
    - **`updated_at` is not a version everywhere.** Read every writer first. On `mcp_apps` deploys
      and the idle reaper write `status`; on `sql_models`, `etl_pipelines` and `workflows` every run
      writes its last-run columns; `swarms` gets deploy writes and `semantic_models` certification.

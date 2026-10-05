@@ -15,6 +15,18 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-05 — R296: a BI report that could not be loaded
+
+A page-side wrapper failed the browser's request for one report ("r214 after",
+`83538a80-…`) and nothing else. The report was opened from BI → Reports, so the wrapper stayed in place.
+
+| What was driven | What came back |
+| --- | --- |
+| **Before**, on the smoke's image: open "r214 after" with its request failing | A skeleton, still there 20 s later; `Uncaught (in promise) TypeError: Failed to fetch` in the console; no message, no retry |
+| **After**: the same | "This report could not be loaded: Failed to fetch. The report itself is unchanged." and **Try again** |
+| **After**: failure lifted, then Try again | The designer opened "r214 after" |
+| **After**: `/bi/report/00000000-0000-4000-8000-000000000296` | "Report not found." (no alert) |
+
 ## 2026-10-05 — Smoke of the real images after R292 to R295
 
 The app image `fb08ddc179a9` was built from `52e466e1` (`docker compose build agentswarms`, then

@@ -335,6 +335,10 @@ from another tab or session since, Save is refused — "This report was changed 
 another tab or session after this page read it" — and a banner offers **Reload**
 (that version, dropping the edits here) or **Overwrite with mine** (R284).
 
+A report that could not be loaded says so, with **Try again**. That covers a read that failed on the server
+and a request that never arrived. "Report not found" means the read answered and there is no such report
+(R296). Before, a failed read said "Report not found", and a failed request left the page a skeleton.
+
 ### The two halves are shared on purpose
 
 Everything below the layout is the dashboard's. A report's chart block **is**

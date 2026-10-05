@@ -109,6 +109,43 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-05 — R296: a report that could not be loaded said "Report not found", or nothing
+
+**Severity: low (a false "not found", and a page with no way forward; nothing is written), BI reports.**
+R284 queued it. There were two shapes of one statement:
+
+- **`biReportGet` dropped its read's error.** A read that failed answered "Report not found" for a report
+  that is there.
+- **The page never caught a call that failed outright.** This was driven on the running build: a
+  page-side wrapper made the browser's request for "r214 after" fail, and only that request. The page
+  stayed a skeleton for good, with `Uncaught (in promise) TypeError: Failed to fetch` in the console, no
+  message and no way to retry.
+
+**The fix:**
+
+- **The server.** `biReportGet` now answers a failed read with "This report could not be read: <reason>".
+  It answers `{ missing: true, error: "Report not found" }` only when the read answered with no row.
+- **The page.** It catches a rejected call. Anything other than a missing report gets an alert, "This
+  report could not be loaded: …", with **Try again**, which loads it again. "Report not found." stays for
+  a report that is missing.
+
+**Tests:** `biReportLoadFailure.test.ts` runs the real server function with the framework's builder and the
+admin client faked, and pins the page.
+
+- **Mutation harness:** 5 mutants caught, and the control survived.
+- **The first gate failed** on R125's `tokenReloadSweep` pin. It anchors on the load's call line, which
+  lost its `const` here. The marker moved with it, and what that pin guards still holds: the load does
+  not follow the token, and Try again's `loadNonce` is not a token.
+
+**The after**, on the deployed build:
+
+- **The same failing request** gave "This report could not be loaded: Failed to fetch. The report itself
+  is unchanged." with Try again.
+- **With the failure lifted,** Try again loaded "r214 after".
+- **A made-up report id** still says "Report not found.".
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-05 — Smoke of the real images after R292 to R295
 
 **The app image.** `fb08ddc179a9` was built from `52e466e1` with `docker compose build agentswarms` and

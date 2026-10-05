@@ -90,17 +90,23 @@ export const biReportGet = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) =>
     z.object({ accessToken: z.string().min(1), id: z.string().uuid() }).parse(input),
   )
-  .handler(async ({ data }): Promise<Fail | { ok: true; report: BiReportRow }> => {
-    const userId = await resolveCaller(data.accessToken);
-    const { data: row } = await supabaseAdmin
-      .from("bi_reports")
-      .select("*")
-      .eq("id", data.id)
-      .eq("user_id", userId)
-      .maybeSingle();
-    if (!row) return { ok: false, error: "Report not found" };
-    return { ok: true, report: toReport(row) };
-  });
+  .handler(
+    async ({ data }): Promise<(Fail & { missing?: true }) | { ok: true; report: BiReportRow }> => {
+      const userId = await resolveCaller(data.accessToken);
+      const { data: row, error } = await supabaseAdmin
+        .from("bi_reports")
+        .select("*")
+        .eq("id", data.id)
+        .eq("user_id", userId)
+        .maybeSingle();
+      // FOUND IN R284, FIXED IN R296. The read's error was dropped, so a read
+      // that failed answered "Report not found" for a report that is there.
+      // Only an answered read with no row is a missing report.
+      if (error) return { ok: false, error: `This report could not be read: ${error.message}` };
+      if (!row) return { ok: false, missing: true, error: "Report not found" };
+      return { ok: true, report: toReport(row) };
+    },
+  );
 
 const BAND = z.object({
   left: z.string().max(200).optional(),

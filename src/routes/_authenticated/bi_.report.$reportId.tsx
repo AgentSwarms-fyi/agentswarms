@@ -103,6 +103,10 @@ function ReportDesigner() {
   );
   const listWarehousesFn = useServerFn(listWarehouseConnections);
   const [loading, setLoading] = useState(true);
+  // Why the report could not be loaded, as opposed to its not existing (R296),
+  // and a count Try again bumps to load it again.
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadNonce, setLoadNonce] = useState(0);
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [generateOpen, setGenerateOpen] = useState(false);
@@ -123,9 +127,22 @@ function ReportDesigner() {
     const token = tokenRef.current;
     if (!token) return;
     void (async () => {
-      const res = await getFn({ data: { accessToken: token, id: reportId } });
-      if (!res.ok) toast.error(res.error);
-      else {
+      // FOUND IN R296. A call that failed outright (the network, a restart)
+      // was never caught: the page stayed a skeleton for good. A read that
+      // failed on the server said "Report not found". Both now say the report
+      // could not be loaded, with Try again; only a missing report says so.
+      let res: Awaited<ReturnType<typeof getFn>>;
+      try {
+        res = await getFn({ data: { accessToken: token, id: reportId } });
+      } catch (e) {
+        setLoadError(`This report could not be loaded: ${(e as Error).message}`);
+        setLoading(false);
+        return;
+      }
+      if (!res.ok) {
+        if (!("missing" in res && res.missing)) setLoadError(res.error);
+      } else {
+        setLoadError(null);
         const loaded: BiReport = {
           id: res.report.id,
           name: res.report.name,
@@ -143,7 +160,7 @@ function ReportDesigner() {
       setLoading(false);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [getFn, signedIn, reportId]);
+  }, [getFn, signedIn, reportId, loadNonce]);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -357,6 +374,31 @@ function ReportDesigner() {
   });
 
   if (loading) return <Skeleton className="m-4 h-96" />;
+  if (!report && loadError) {
+    return (
+      <div className="p-6">
+        <div
+          role="alert"
+          className="rounded-lg border border-dashed border-warning/40 p-8 text-center text-sm"
+        >
+          <p className="text-warning">{loadError}</p>
+          <p className="mt-1 text-muted-foreground">The report itself is unchanged.</p>
+          <Button
+            variant="outline"
+            size="sm"
+            className="mt-3"
+            onClick={() => {
+              setLoadError(null);
+              setLoading(true);
+              setLoadNonce((n) => n + 1);
+            }}
+          >
+            Try again
+          </Button>
+        </div>
+      </div>
+    );
+  }
   if (!report) return <p className="p-6 text-sm text-muted-foreground">Report not found.</p>;
 
   const add = (block: ReportBlock) => {
