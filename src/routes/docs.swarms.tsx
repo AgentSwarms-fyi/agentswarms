@@ -693,6 +693,16 @@ input ──▶ split ┼──▶ legal analysis ─────┼──▶ me
         ]}
       />
 
+      {/* ── SAVING ── */}
+      <H2 id="saving">Saving</H2>
+      <P>
+        <strong>Save</strong> writes the canvas — its name, nodes and edges — and the toolbar says
+        Unsaved changes until it has. Save writes only over the swarm the canvas opened: if it was
+        saved from another tab or session since, Save is refused, the toolbar reads Changed
+        elsewhere, not saved, and offers <strong>Reload</strong> or{" "}
+        <strong>Overwrite with mine</strong>.
+      </P>
+
       {/* ── RUNNING ── */}
       <H2 id="running">Running and observing</H2>
       <UL>

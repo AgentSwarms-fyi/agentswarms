@@ -15,6 +15,20 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-05 — R288: two tabs on one swarm
+
+Agent Swarms, the canvas of "R109 chat echo" (two nodes), open in two tabs of the browser pane, A and B,
+both loaded before either save.
+
+| Step | R287's build | R288 hot-deployed |
+| --- | --- | --- |
+| A: renamed, **Save** (after R288, twice in turn) | "Swarm saved" | "Swarm saved" both times, no chip |
+| B: an Approval node added (after R288, removed), **Save** | "Swarm saved" | "This swarm was changed in another tab or session after this page read it"; "Changed elsewhere, not saved"; still "Unsaved changes" |
+| A: reloaded | **B's three nodes and the old name — A's saved rename gone** | A's last name, three nodes — B's save refused, not made |
+| B: **Overwrite with mine** | — | "Swarm saved"; the old name, two nodes |
+| A: renamed, **Save** | — | refused in turn |
+| A: **Reload** | — | "R109 chat echo", two nodes, no chip |
+
 ## 2026-10-05 — R287: two tabs on one ETL pipeline
 
 ETL Pipelines, `r214_after` (timeout 30 minutes), open in two tabs of the browser pane, A and B, both

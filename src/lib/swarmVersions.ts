@@ -4,6 +4,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import type { Node, Edge } from "@xyflow/react";
 import type { SwarmNodeData } from "@/lib/swarmRuntime";
+import { canonicalJson } from "@/lib/definitionFingerprint";
 
 const MAX_VERSIONS = 30;
 
@@ -71,6 +72,15 @@ function sortedKeys(v: unknown): unknown {
 export function canvasForm(name: string, nodes: Node<SwarmNodeData>[], edges: Edge[]): string {
   const { cleanNodes, cleanEdges } = serializeGraph(nodes, edges);
   return JSON.stringify(sortedKeys({ name, nodes: cleanNodes, edges: cleanEdges }));
+}
+
+/**
+ * A swarm's definition as it is stored, for telling whether someone saved it
+ * since this page read it (R288, sweep 9). Runs, deploys and publishing write
+ * other columns of the row, so its updated_at cannot say.
+ */
+export function swarmStoredForm(row: { name: unknown; nodes: unknown; edges: unknown }): string {
+  return canonicalJson({ name: row.name ?? "", nodes: row.nodes ?? [], edges: row.edges ?? [] });
 }
 
 // Stable fingerprint of the serialized graph — used to skip snapshotting a Save

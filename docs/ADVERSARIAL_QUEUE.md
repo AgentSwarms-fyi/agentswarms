@@ -558,7 +558,9 @@ least twice, not a hypothetical.
      definition, `src/lib/definitionFingerprint.ts`, checked in the save, which then updates only
      the row it read — atomic, since the save reads the row first anyway; and the editor's own
      Pause, undone by the next Save), ~~**semantic models**~~ (**R286**: the same guard; the upsert
-     reads the row it is about to write), **the swarm canvas**, ~~**ETL pipelines**~~ (**R287**: the
+     reads the row it is about to write), ~~**the swarm canvas**~~ (**R288**: the page saves directly, so
+     the page compares the stored name, nodes and edges with what it read, then updates on that
+     read's `updated_at`), ~~**ETL pipelines**~~ (**R287**: the
      same guard; the returned fingerprint is taken from the row as written, since `alerts` is
      written only when sent), **workflows**.
    - **Budgets** (sweep 8's open note) is the same family inside one tab: its per-keystroke writes

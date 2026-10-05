@@ -109,6 +109,32 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-05 — R288: two tabs on one swarm, a Save undoing the other's rename
+
+**Severity: high (silent loss of saved work), sweep 9.** The canvas saves name, nodes and edges with a
+direct update over whatever is stored. Driven on R287's build with "R109 chat echo" (two nodes) in two
+tabs: A renamed it "R109 chat echo A288" and saved ("Swarm saved"); B, opened before, added an Approval
+node and saved ("Swarm saved"). Reloaded, the canvas had B's three nodes and the old name — A's saved
+rename gone.
+
+Publishing and deploys write other columns of this row, so `updated_at` is not the version. There is no
+server function to put the check in — the page writes the row itself — so the page does it:
+`swarmStoredForm` (in `src/lib/swarmVersions.ts`) is canonical JSON of the stored name, nodes and edges,
+recorded by every path that opens or creates a row (`applySwarmRow`, the first swarm, a new one, the one
+created after a delete, a first save). Save reads the stored row, refuses when its form differs from the
+one recorded — unless overwriting — and updates only on the `updated_at` it read, then records what came
+back. The toolbar shows "Changed elsewhere, not saved" with **Reload** and **Overwrite with mine**. The
+Save button was `onClick={handleSave}`, which would have handed the click event to the new `overwrite`
+parameter; it calls `handleSave()` now. Eight mutants caught against a verified-green baseline, control
+survived.
+
+Driven on R288 hot-deployed, both tabs reloaded: A's two renames saved in turn. B deleted the extra
+Approval node (selected, Backspace) and saved — refused: "This swarm was changed in another tab or session
+after this page read it", the toolbar chip, still "Unsaved changes". The store, read in A: "R109 chat echo
+A288b" with three nodes — B's write refused, not made. B's **Overwrite with mine** saved its version (the
+old name, two nodes — the swarm as it began); A, then stale, was refused in turn, and its **Reload**
+showed "R109 chat echo" with two nodes. Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-05 — R287: two tabs on one ETL pipeline, a Save undoing the other's rename
 
 **Severity: high (silent loss of saved work), sweep 9.** `saveEtlPipeline` updated the whole pipeline over
