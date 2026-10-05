@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { loadBudgetData } from "@/lib/budgetLoad";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { budgetPolicy, type BudgetPolicy } from "@/utils/budgetPolicy.functions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -26,6 +26,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { toast } from "sonner";
 
+import { fieldsLeft, makePatchWriter, typedAmount, type PatchWriter } from "@/lib/latestWrite";
 import { saveStatusText, type SaveState } from "@/lib/saveStatus";
 
 export const Route = createFileRoute("/_authenticated/budgets")({
@@ -52,6 +53,53 @@ type AgentLimit = {
   auto_disable_on_limit: boolean;
 };
 
+/** The named fields of `row`. */
+function pick<T extends object>(row: T, keys: (keyof T)[]): Partial<T> {
+  return Object.fromEntries(keys.map((k) => [k, row[k]])) as Partial<T>;
+}
+
+/** What an agent with no limit row shows: the column defaults. */
+function defaultLimit(agent_id: string): AgentLimit {
+  return { id: "", agent_id, max_spend_per_day_usd: 10, auto_disable_on_limit: false };
+}
+
+/**
+ * A number field that auto-saves. It keeps what is typed, so an emptied field
+ * shows empty instead of writing 0, and writes only a figure; leaving it
+ * empty puts the value back.
+ */
+function AmountInput({
+  value,
+  onAmount,
+  ...rest
+}: {
+  value: number;
+  onAmount: (n: number) => void;
+  min?: number;
+  step?: number;
+  className?: string;
+}) {
+  const [text, setText] = useState(String(value));
+  // Follow a value set from elsewhere - the slider, a reload, a failed write
+  // put back - unless the text already says it ("2.50" is 2.5).
+  useEffect(() => {
+    setText((t) => (typedAmount(t) === value ? t : String(value)));
+  }, [value]);
+  return (
+    <Input
+      type="number"
+      value={text}
+      onChange={(e) => {
+        setText(e.target.value);
+        const n = typedAmount(e.target.value);
+        if (n !== null) onAmount(n);
+      }}
+      onBlur={() => setText(String(value))}
+      {...rest}
+    />
+  );
+}
+
 const THRESHOLD_PRESETS = [
   { label: "90% only", value: "90" },
   { label: "75% and 90%", value: "75,90" },
@@ -74,6 +122,13 @@ function BudgetsPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   /** What the last auto-save did; the status line and its toast read this, never a constant. */
   const [saveState, setSaveState] = useState<SaveState>(null);
+  // What is stored, as far as this page knows: the rows last read or written.
+  // A failed write is undone to these, never to whatever was on screen before
+  // its own keystroke.
+  const savedBudgetRef = useRef<Budget | null>(null);
+  const savedLimitsRef = useRef<Record<string, AgentLimit>>({});
+  const budgetWriterRef = useRef<PatchWriter<Partial<Budget>> | null>(null);
+  const limitWritersRef = useRef(new Map<string, PatchWriter<Partial<AgentLimit>>>());
   // Whether this deployment actually enforces the cap. Server-side env, so it
   // has to be asked for; null until it answers, so the page never guesses.
   const [policy, setPolicy] = useState<BudgetPolicy | null>(null);
@@ -104,6 +159,8 @@ function BudgetsPage() {
     setBudget(res.data.budget as Budget);
     setAgents(res.data.agents as Agent[]);
     setLimits(res.data.limits as Record<string, AgentLimit>);
+    savedBudgetRef.current = res.data.budget as Budget;
+    savedLimitsRef.current = res.data.limits as Record<string, AgentLimit>;
 
     // MTD spend, aggregated in the database — already a discriminated result
     // (null = could not compute, distinct from 0). See lib/budgetSpendClient.
@@ -127,47 +184,80 @@ function BudgetsPage() {
     });
   };
 
-  const updateBudget = async (patch: Partial<Budget>) => {
-    if (!budget) return;
-    const before = budget;
-    setBudget({ ...budget, ...patch });
-    const { error } = await supabase.from("budget_settings").update(patch).eq("id", budget.id);
-    if (error) {
-      setBudget(before);
-      failedSave("budget", error);
-      return;
-    }
-    setSaveState({ ok: true, at: new Date() });
+  // FOUND IN R293. Each change was written as its own request, all of them in
+  // flight together. Typing 2500 stored a $25 cap under a field that said
+  // 2500 and a status that said Saved; on an agent with no limit row yet,
+  // typing 25 sent two inserts, the second refused as a duplicate, and $2 was
+  // stored. Each row now has one writer (lib/latestWrite): one write in
+  // flight, later edits merged into the next, so the last edit is the last
+  // write.
+  const updateBudget = (patch: Partial<Budget>) => {
+    if (!savedBudgetRef.current) return;
+    setBudget((b) => (b ? { ...b, ...patch } : b));
+    budgetWriterRef.current ??= makePatchWriter<Partial<Budget>>(
+      async (p) =>
+        await supabase
+          .from("budget_settings")
+          .update(p)
+          .eq("id", (savedBudgetRef.current as Budget).id),
+      {
+        saved: (p) => {
+          savedBudgetRef.current = { ...(savedBudgetRef.current as Budget), ...p };
+          setSaveState({ ok: true, at: new Date() });
+        },
+        failed: (p, error, newer) => {
+          // Fields a newer edit is about to write stay as typed; that write
+          // reports for them.
+          const undo = fieldsLeft(p, newer);
+          if (undo.length === 0) return;
+          const saved = savedBudgetRef.current as Budget;
+          setBudget((b) => (b ? { ...b, ...pick(saved, undo) } : b));
+          failedSave("budget", error);
+        },
+      },
+    );
+    void budgetWriterRef.current.set(patch);
   };
 
-  const upsertLimit = async (agent_id: string, patch: Partial<AgentLimit>) => {
+  const upsertLimit = (agent_id: string, patch: Partial<AgentLimit>) => {
     if (!user) return;
-    const existing = limits[agent_id];
-    if (existing) {
-      const updated = { ...existing, ...patch };
-      const before = limits;
-      setLimits({ ...limits, [agent_id]: updated });
-      const { error } = await supabase.from("agent_limits").update(patch).eq("id", existing.id);
-      if (error) {
-        setLimits(before);
-        failedSave("agent limit", error);
-        return;
-      }
-    } else {
-      const newRow = {
-        user_id: user.id,
-        agent_id,
-        max_spend_per_day_usd: patch.max_spend_per_day_usd ?? 10,
-        auto_disable_on_limit: patch.auto_disable_on_limit ?? false,
-      };
-      const { data, error } = await supabase.from("agent_limits").insert(newRow).select().single();
-      if (error || !data) {
-        failedSave("agent limit", error ?? { message: "no row came back" });
-        return;
-      }
-      setLimits({ ...limits, [agent_id]: data as AgentLimit });
+    // Shown at once, row or no row: an agent with no limit yet snapped back
+    // to the default while its insert was in flight.
+    setLimits((l) => ({
+      ...l,
+      [agent_id]: { ...(l[agent_id] ?? defaultLimit(agent_id)), ...patch },
+    }));
+    let writer = limitWritersRef.current.get(agent_id);
+    if (!writer) {
+      writer = makePatchWriter<Partial<AgentLimit>, AgentLimit>(
+        // One statement for the first write and every later one: the agent's
+        // row if it has one, a new row if not.
+        async (p) =>
+          await supabase
+            .from("agent_limits")
+            .upsert({ user_id: user.id, agent_id, ...p }, { onConflict: "agent_id" })
+            .select()
+            .single(),
+        {
+          saved: (_p, row) => {
+            if (row) savedLimitsRef.current = { ...savedLimitsRef.current, [agent_id]: row };
+            setSaveState({ ok: true, at: new Date() });
+          },
+          failed: (p, error, newer) => {
+            const undo = fieldsLeft(p, newer);
+            if (undo.length === 0) return;
+            const saved = savedLimitsRef.current[agent_id] ?? defaultLimit(agent_id);
+            setLimits((l) => ({
+              ...l,
+              [agent_id]: { ...(l[agent_id] ?? saved), ...pick(saved, undo) },
+            }));
+            failedSave("agent limit", error);
+          },
+        },
+      );
+      limitWritersRef.current.set(agent_id, writer);
     }
-    setSaveState({ ok: true, at: new Date() });
+    void writer.set(patch);
   };
 
   if (loadError !== null) {
@@ -255,12 +345,11 @@ function BudgetsPage() {
             </div>
             <div className="space-y-2">
               <Label className="text-xs">USD / month</Label>
-              <Input
-                type="number"
+              <AmountInput
                 min={10}
                 step={10}
                 value={cap}
-                onChange={(e) => updateBudget({ monthly_cap_usd: Number(e.target.value) })}
+                onAmount={(n) => updateBudget({ monthly_cap_usd: n })}
                 className="font-mono"
               />
             </div>
@@ -404,14 +493,11 @@ function BudgetsPage() {
                       <TableCell>
                         <div className="flex items-center gap-1.5">
                           <span className="text-xs text-muted-foreground">$</span>
-                          <Input
-                            type="number"
+                          <AmountInput
                             min={0}
                             step={0.5}
-                            value={lim?.max_spend_per_day_usd ?? 10}
-                            onChange={(e) =>
-                              upsertLimit(a.id, { max_spend_per_day_usd: Number(e.target.value) })
-                            }
+                            value={Number(lim?.max_spend_per_day_usd ?? 10)}
+                            onAmount={(n) => upsertLimit(a.id, { max_spend_per_day_usd: n })}
                             className="h-8 font-mono"
                           />
                         </div>

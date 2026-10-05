@@ -537,10 +537,15 @@ least twice, not a hypothetical.
    - ~~**The Account page's profile**~~ (**R282**: a link and the tab; and a failed read that
      opened the form blank, for Save to write over the stored profile). **This closes the sweep-8
      survey.**
-   - **Open, from that grep — Budgets:** one write per keystroke (`150` sends 1, 15, 150) can land
-     out of order and leave 15 stored under 150 on screen, and a failed write restores the value from
-     before *its own* keystroke over newer ones. Not driven; a different family (writes racing each
-     other), to be proved before fixing.
+   - ~~**Open, from that grep — Budgets:** one write per keystroke can land out of order, and a
+     failed write restores the value from before *its own* keystroke over newer ones.~~ **R293.**
+     Driven: typing 2500 stored a $25 cap. On an agent with no limit row, typing 25 sent two inserts
+     and stored $2. Both are fixed by one writer per row (`src/lib/latestWrite.ts`).
+   - **Open, from R293: the Agent-Specific Limits enforce nothing.** The Budgets page offers "Cap
+     daily spend per agent and optionally auto-disable on limit reached". `agent_limits` is read by
+     the page and by `lib/budgetLoad`, and by nothing else: no guard, no worker, no trigger. Either
+     enforce the limits, as `budgetGuard` does for the monthly cap, or say on the page that they are
+     stored only. The in-app Budgets doc now says so.
    - **Open, from R279:** a NUL character (pasted binary output) can never be saved — Postgres
      refuses it in `text` and `jsonb` — and the toast reads "Save failed: unsupported Unicode escape
      sequence", which names neither the character nor where it is. Likely true of every jsonb
@@ -580,11 +585,11 @@ least twice, not a hypothetical.
      written only when sent), ~~**workflows**~~ (**R289**: like BI reports — only the save sets
      `updated_at` and no trigger moves it, so it is the version; a test holds the run code to
      never writing it).
-   - **Budgets** (sweep 8's open note) is the same family inside one tab: its per-keystroke writes
-     can land out of order.
+   - ~~**Budgets** (sweep 8's open note) is the same family inside one tab: its per-keystroke writes
+     can land out of order.~~ **R293.**
 
-   **The editor list is done** (R283 to R290). What stays open in the sweep: Budgets, above, and
-   R290's one unreproduced run.
+   **The editor list is done** (R283 to R290), and so is Budgets (R293). What stays open in the
+   sweep is R290's one unreproduced run.
 
 ### Sheets (new, 2026-09-25)
 

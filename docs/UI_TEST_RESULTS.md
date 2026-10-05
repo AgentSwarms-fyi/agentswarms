@@ -15,6 +15,21 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-05 — R293: Budgets, per-keystroke writes
+
+A logger was added to the page for the drive. It records each write's body and the order its reply came
+back; it changes nothing. Keys were pressed one at a time: the browser's `type` sends a whole string as
+one input event, and so one write.
+
+| What was driven | What came back |
+| --- | --- |
+| **Before**: the monthly cap, keys 2 5 0 0 | PATCH 2, 25, 250, 2500; replies in the order 2, 2500, 250, 25; the field said 2500 and the status Saved; **reload: $25.00** |
+| **Before**: new agent "R293 budget probe 2", keys 2 5 | POST 2 → 201; the field snapped back to 10, so the second key made it 105; POST 105 → **409 duplicate key** `agent_limits_agent_id_key`; toast "Could not save the agent limit … The value shown is what is saved"; **reload: $2** |
+| **After**: new agent "R293 budget probe 3", keys 2 5 | The field said 25 at once; upsert 2 → 201, then upsert 25 → 200, started only after the first had landed; Saved; **reload: 25** |
+| **After**: the monthly cap, keys 2 5 0 0 | Two PATCHes: 2, then 2500 after the first landed; **reload: 2500** |
+| **After**: the cap field emptied with Backspace, then Tab | No write while empty, and the field showed empty; Tab put back 2500; reload: 2500 |
+| Fixtures | The cap is back to $20 and RAG eval's limit to $10; the three probe agents are kept |
+
 ## 2026-10-05 — R292: a secret replaced mid-run, and a node preview's output
 
 The fixtures are `R292_SECRET` (Secrets), `r292_secret` (a code pipeline with the binding

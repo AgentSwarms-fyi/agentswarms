@@ -109,6 +109,63 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-05 — R293: Budgets stored a cap typed as 2500 as $25
+
+**Severity: high (a spend cap stored as something other than what was typed, under "Saved"), Budgets.**
+This closes the Budgets note carried by sweeps 8 and 9. The page wrote every change as its own request, all of them in
+flight together. A page-side logger was added for the drive, recording only each write's body and the
+order its reply came back.
+
+**The before**, on R292's build:
+
+- **The monthly cap.** The keys 2, 5, 0, 0 sent PATCHes of 2, 25, 250 and 2500. The replies came back
+  2, 2500, 250, 25. The field said 2500 and the status said Saved. After a reload: **$25.00**.
+- **An agent with no limit row.** This used a new agent, "R293 budget probe 2". The keys 2 and 5 sent an
+  insert of 2. The field then snapped back to the default 10 while that insert was in flight, so the
+  second key made it 105, and a second insert was sent. That one came back 409, `duplicate key value
+  violates unique constraint "agent_limits_agent_id_key"`. **$2** was stored, under a toast saying "The
+  value shown is what is saved".
+- **The rest, read from the code and not driven:**
+  - a failed write put back the value from before *its own* keystroke, over the newer ones on screen;
+  - every limit write spread a `limits` captured at render, so it could drop another agent's edit;
+  - an emptied field wrote `Number("")`, which is 0, and `budgetGuard` reads a cap of 0 or less as no
+    cap at all.
+
+**The fix:** one writer per row (`src/lib/latestWrite.ts`).
+
+- **One write at a time.** The writer keeps at most one write in flight. Edits made meanwhile are merged
+  into the next write, so the last edit is always the last write.
+- **Undo only what nothing newer writes.** Each outcome comes with the patch still waiting. A failure is
+  undone, to the stored value (the rows last read or written, not the screen), only in the fields
+  nothing newer is about to write.
+- **One statement for an agent's limit.** It is an upsert on `agent_id`, so no second insert can
+  happen. The new value is shown at once, whether or not the agent has a row yet.
+- **An amount field keeps what is typed.** An emptied field shows empty and writes nothing. Leaving it
+  puts the value back.
+
+**Tests:** `budgetWriteOrder.test.ts` holds the writer's replies and hands them out in any order, and it
+pins the page. R66's pins in `budgetSaveStatus.test.ts` asserted the old "put back the value before"
+and were updated.
+
+- **Mutation harness:** 12 mutants caught against a verified-green baseline, and the control survived.
+
+**The after**, on the deployed build:
+
+- **The same agent case.** A new agent, "R293 budget probe 3", with the keys 2 and 5. The field said 25
+  at once. One upsert of 2 came back 201, then one upsert of 25 came back 200, and it started only after
+  the first had landed. After a reload: 25.
+- **The cap.** The keys 2, 5, 0, 0 sent two PATCHes: 2, then 2500 once the first had landed. After a
+  reload: 2500.
+- **An emptied cap field** sent no write and showed the field empty. Tab put back 2500, and a reload
+  showed 2500.
+
+**Found on the way, and queued:** the Agent-Specific Limits enforce nothing. `agent_limits` is read by
+this page and its loader only, so the daily limit and "auto-disable on limit reached" are stored and
+never applied. The in-app Budgets doc now says so.
+
+**Fixtures:** the cap is back to $20 and RAG eval's limit to $10. The three probe agents (`R293 budget
+probe`, `2` and `3`) are kept. Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-05 — R292: a secret replaced mid-run was stored in clear; a preview was never scrubbed
 
 **Severity: high (a secret shown in clear), ETL and every batch sandbox.** This closes R253's open note.
