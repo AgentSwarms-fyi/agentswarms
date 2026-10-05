@@ -109,6 +109,22 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-05 — Smoke of the real image after R271 to R281
+
+Image `aa3ce2c9db22`, built from `73fd4b78` with `docker compose build agentswarms` and started with
+`docker compose up -d`; healthy, every worker listening, and a log with nothing but its listening lines.
+Nothing under `docker/` or `services/`, the Dockerfile or the compose file changed since the last image,
+so the notebook runtime image is still current (`git diff --stat`). Ten rounds' runtime strings are in
+the image's `dist` and the invented control is not; R272 changed a dependency array and has no string to
+find. The instrument was tried on the hot-deployed container first and needed two corrections: R274's
+first pick was a class name other pages share, and R277's strings are all also R276's, so R277's is
+checked inside the Semantic Layer's own chunk — and that chunk filter was itself checked to say "absent"
+for a chunk without the string. An Iceberg publish of `analytics.fct_region_revenue` to `local_rest`,
+`r181`, `smoke_aa3ce2c9db22` wrote 4 records in 1 file, read back from the catalog's own metadata. On the
+sweep-8 survey: Prompts edits in a dialog and Data SQL has no Save for its SQL, both struck; a wider grep
+added one more form to drive, the Account page's profile. Rows in
+[UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-05 — R281: a dashboard edit, dropped after "Save failed"
 
 **Severity: moderate (lost work), sweep 8.** A BI dashboard saves 700 ms after an edit and had no guard at

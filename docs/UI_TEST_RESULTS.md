@@ -15,6 +15,19 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-05 — Smoke of the real image after R271 to R281
+
+Image `aa3ce2c9db22`, built from `73fd4b78` with `docker compose build agentswarms` and started with
+`docker compose up -d`. Nothing under `docker/` or `services/`, the Dockerfile or the compose file
+changed since the last image, so the notebook runtime image is still current — checked with
+`git diff --stat`, not assumed.
+
+| What was driven | What came back |
+| --- | --- |
+| Health after `up -d` | healthy; every worker listening; nothing else in the log |
+| Shipped code | R271 and R273 to R281's runtime strings all in `/app/dist` (R277's inside the `semantics` chunk), the invented control absent; R272 has no string |
+| **Iceberg publish** `analytics.fct_region_revenue` → `local_rest`, `r181`, `smoke_aa3ce2c9db22` | "Published 4 row(s) to r181.smoke_aa3ce2c9db22"; the catalog's own metadata: columns `region, orders, revenue`, one `append` snapshot, **4 records in 1 file** |
+
 ## 2026-10-05 — R281: a BI dashboard's owed saves
 
 BI Workspace, the dashboard "r214 widget after" (one chart). An edit is a text block added with **Text**.

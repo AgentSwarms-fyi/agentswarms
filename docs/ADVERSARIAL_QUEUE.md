@@ -515,8 +515,18 @@ least twice, not a hypothetical.
      Deploy going ahead on the old source after a failed save).
    - ~~**The BI dashboard**~~ (**R281**: a closed tab inside the 700 ms, and any way out after
      "Save failed"; a link inside the 700 ms was already safe, its timer surviving unmount).
-   - **Prompts** (`prompts.tsx`) and **Data SQL** (`data-sql.tsx`) carry no tracking at all. Each
-     to be driven before it is called a defect.
+   - ~~**Prompts**~~ (`prompts.tsx`): edits in a dialog, where closing is the discard. ~~**Data
+     SQL**~~ (`data-sql.tsx`): no Save for the SQL at all — a scratch console whose runs are kept in
+     history. (A table clicked in its explorer replaces an unrun query; a design question, not this
+     sweep.) A wider grep — any "Save" wording, no guard — added pages that save from their own
+     dialogs (Skills, Secrets), a chat (Playground), Budgets, which writes on every keystroke and so
+     has nothing to lose on leaving, and one more full-page form:
+   - **The Account page's profile** (`account.tsx`, "Save profile": names, role, organization,
+     bio). To be driven before it is called a defect.
+   - **Open, from that grep — Budgets:** one write per keystroke (`150` sends 1, 15, 150) can land
+     out of order and leave 15 stored under 150 on screen, and a failed write restores the value from
+     before *its own* keystroke over newer ones. Not driven; a different family (writes racing each
+     other), to be proved before fixing.
    - **Open, from R279:** a NUL character (pasted binary output) can never be saved — Postgres
      refuses it in `text` and `jsonb` — and the toast reads "Save failed: unsupported Unicode escape
      sequence", which names neither the character nor where it is. Likely true of every jsonb
