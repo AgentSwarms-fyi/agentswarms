@@ -504,11 +504,26 @@ least twice, not a hypothetical.
    - ~~**A BI report**~~ (**R278**: "← BI", a link and the tab; it does not save as it goes).
 
    That list is done. A second one, from route pages with a Save and no `useBlocker` (most of the
-   rest save from a dialog, where closing is the discard): **the BI dashboard**
-   (`bi_.$dashboardId.tsx`), **an MCP builder app** (`mcp-builder_.$appId.tsx`) and **the Python
-   notebook** (`notebooks.py.$pyNotebookId.tsx`) each carry some autosave or dirty tracking to read
-   before driving; **Prompts** (`prompts.tsx`) and **Data SQL** (`data-sql.tsx`) carry none. Each
-   to be driven before it is called a defect.
+   rest save from a dialog, where closing is the discard). An editor that saves as it goes has the
+   same hole in a smaller window: its timer is cleared on unmount, so a link inside the debounce,
+   or after a failed save, drops the edit. `useSaveBeforeLeave` (R279) saves on a link and asks
+   only when that fails.
+   - ~~**The Python notebook**~~ (**R279**: a link inside the 1.2 s, after a failed save, and the
+     tab).
+   - **An MCP builder app** (`mcp-builder_.$appId.tsx`), from reading it: the same 1.2 s timer
+     cleared on unmount; its "nothing changed" test compares with the source as **loaded**, so
+     typing back to the loaded text after a save is never saved; and `flush` clears the dirty
+     flag when a save returns, erasing an edit typed while that save was in flight. A failed save
+     clears it too, and the next background reload then adopts the server's text over it.
+   - **The BI dashboard** (`bi_.$dashboardId.tsx`), from reading it: a 700 ms autosave whose timer
+     survives unmount, so a link is safe; closing the tab inside it, or after "Save failed", is
+     not guarded.
+   - **Prompts** (`prompts.tsx`) and **Data SQL** (`data-sql.tsx`) carry no tracking at all. Each
+     to be driven before it is called a defect.
+   - **Open, from R279:** a NUL character (pasted binary output) can never be saved — Postgres
+     refuses it in `text` and `jsonb` — and the toast reads "Save failed: unsupported Unicode escape
+     sequence", which names neither the character nor where it is. Likely true of every jsonb
+     save in the app; R279 used it to drive a real failed save.
 
 ### Sheets (new, 2026-09-25)
 

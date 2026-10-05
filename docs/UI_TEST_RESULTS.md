@@ -15,6 +15,22 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-05 — R279: a Python notebook's edit and the autosave's 1.2 s
+
+Developer workspace, the notebook "r213 double run". An edit is " r279" typed after the title. A failed
+save is a NUL character set into the title, which Postgres refuses.
+
+| Step | R278's build | R279 hot-deployed |
+| --- | --- | --- |
+| Open, touch nothing | — | "Saved"; not blocked |
+| Edit, sidebar **Dashboard** at once | **left with no question; reopened as "r213 double run"** | the link saved first and left with no question; reopened as "r213 double run r279" |
+| Edit, close the tab (dispatched `beforeunload`) | "Unsaved changes", **not blocked** | "Unsaved changes", blocked |
+| Edit, wait 3 s | "Saved" | — |
+| NUL in the title, wait | — | "Save failed: unsupported Unicode escape sequence"; still "Unsaved changes" |
+| Then **Dashboard** | — | "Leave without saving "r213 double run r279"? The latest changes could not be saved: unsupported Unicode escape sequence. Leaving drops them." — **Cancel** stayed |
+| Title corrected to "r213 double run" | — | "Saved"; not blocked |
+| NUL again, **Dashboard**, **Leave anyway** | — | left for `/dashboard`; reopened as "r213 double run", "Saved" |
+
 ## 2026-10-05 — R278: a BI report's unsaved blocks
 
 BI Workspace → Reports, the report "r214 after" (empty, margin 40). An edit is a Heading block added

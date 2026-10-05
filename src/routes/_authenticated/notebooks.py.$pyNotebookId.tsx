@@ -48,6 +48,7 @@ import type { PyCell } from "@/lib/pythonNotebookTemplate";
 import { mayAutosave } from "@/lib/listClaim";
 import { useSharedFlight } from "@/lib/singleFlight";
 import { cellRunKey } from "@/lib/cellRunKey";
+import { useSaveBeforeLeave } from "@/hooks/use-save-before-leave";
 
 export const Route = createFileRoute("/_authenticated/notebooks/py/$pyNotebookId")({
   component: PyNotebookPage,
@@ -100,7 +101,14 @@ function PyNotebookPage() {
   const [notFound, setNotFound] = useState(false);
   /** Set when the notebook could not be READ, as opposed to not existing. */
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [saveState, setSaveState] = useState<"saved" | "dirty" | "saving">("saved");
+  // The notebook as loaded or last saved, and its title then, so the page can
+  // tell what a save still owes (R279, sweep 8).
+  const [savedAs, setSavedAs] = useState<string | null>(null);
+  const [savedTitle, setSavedTitle] = useState("");
+  const [saving, setSaving] = useState(0);
+  const form = cells === null ? null : JSON.stringify({ title, cells });
+  const unsaved = form !== null && savedAs !== null && form !== savedAs;
+  const reloadingRef = useRef(false);
   const [publishOpen, setPublishOpen] = useState(false);
   const [gitOpen, setGitOpen] = useState(false);
   const [outputs, setOutputs] = useState<Record<string, CellOutput>>({});
@@ -190,9 +198,11 @@ function PyNotebookPage() {
           setNotFound(true);
           return;
         }
+        const loadedCells = parseCells(data.cells);
         setTitle(data.title);
-        setCells(parseCells(data.cells));
-        setSaveState("saved");
+        setCells(loadedCells);
+        setSavedAs(JSON.stringify({ title: data.title, cells: loadedCells }));
+        setSavedTitle(data.title);
         // Let the autosave effect skip the initial hydration.
         setTimeout(() => {
           loadedRef.current = true;
@@ -201,28 +211,37 @@ function PyNotebookPage() {
   }, [pyNotebookId]);
 
   // ── Autosave (debounced) ──────────────────────────────────────────────────
+  // Saves what the editor holds now and records it as saved. An edit made while
+  // the save is in flight stays unsaved, and is saved by its own timer.
+  const saveNow = useCallback(async (): Promise<string | null> => {
+    if (form === null || cells === null) return null;
+    setSaving((n) => n + 1);
+    const { error } = await supabase
+      .from("user_python_notebooks")
+      .update({ title: title.trim() || "Untitled notebook", cells: cells as unknown as Json })
+      .eq("id", pyNotebookId);
+    setSaving((n) => n - 1);
+    if (error) return error.message;
+    setSavedAs(form);
+    setSavedTitle(title.trim() || "Untitled notebook");
+    return null;
+  }, [form, title, cells, pyNotebookId]);
+
   useEffect(() => {
     // Guards against saving an un-loaded editor over a real notebook — see
     // mayAutosave, which is where that rule is stated and tested.
-    if (!mayAutosave({ hydrated: loadedRef.current, cells })) return;
-    setSaveState("dirty");
+    if (!mayAutosave({ hydrated: loadedRef.current, cells }) || !unsaved) return;
     const t = setTimeout(() => {
-      setSaveState("saving");
-      supabase
-        .from("user_python_notebooks")
-        .update({ title: title.trim() || "Untitled notebook", cells: cells as unknown as Json })
-        .eq("id", pyNotebookId)
-        .then(({ error }) => {
-          if (error) {
-            toast.error(`Save failed: ${error.message}`);
-            setSaveState("dirty");
-          } else {
-            setSaveState("saved");
-          }
-        });
+      void saveNow().then((error) => {
+        if (error) toast.error(`Save failed: ${error}`);
+      });
     }, 1200);
     return () => clearTimeout(t);
-  }, [cells, title, pyNotebookId]);
+  }, [cells, unsaved, saveNow]);
+
+  // FOUND IN R279: the timer above is cleared when the page unmounts, so a link
+  // taken inside the 1.2 s, or after a failed save, dropped the edit.
+  useSaveBeforeLeave({ unsaved, saveNow, name: savedTitle, reloading: reloadingRef });
 
   // ── Cell operations ───────────────────────────────────────────────────────
   const updateCell = useCallback((id: string, source: string) => {
@@ -350,14 +369,14 @@ function PyNotebookPage() {
           <Server className="h-3 w-3" /> Python · server kernel
         </Badge>
         <span className="text-xs text-muted-foreground">
-          {saveState === "saved" ? (
+          {saving > 0 ? (
+            "Saving…"
+          ) : unsaved ? (
+            <span data-testid="notebook-unsaved">Unsaved changes</span>
+          ) : (
             <span className="inline-flex items-center gap-1">
               <Check className="h-3 w-3 text-emerald-500" /> Saved
             </span>
-          ) : saveState === "saving" ? (
-            "Saving…"
-          ) : (
-            "Unsaved changes"
           )}
         </span>
         <div className="ml-auto flex items-center gap-2">
@@ -615,7 +634,10 @@ function PyNotebookPage() {
         token={session?.access_token ?? ""}
         // A restore rewrites the stored cells; the editor is holding the old
         // ones, and autosave would push them straight back over the restore.
-        onRestored={() => window.location.reload()}
+        onRestored={() => {
+          reloadingRef.current = true;
+          window.location.reload();
+        }}
       />
     </div>
   );

@@ -328,6 +328,12 @@ Reuse the existing pieces: `getEffectiveModelRules`/`isModelAllowed` (IAM gate),
   there is nowhere else for them to run.)
 - If `server_runtime_enabled` is false the editor renders a **Runtime required**
   panel in place of the cells, rather than a disabled switch.
+- A notebook **saves as you go**, 1.2 s after the last edit; the header says
+  "Unsaved changes", "Saving…" or "Saved" by comparing the editor with what was
+  last saved. A link taken before that save first saves, and asks only when the
+  save fails — "Leave without saving "…"?", with the reason — and closing the tab
+  with anything unsaved gets the browser's question (R279,
+  `useSaveBeforeLeave`).
 
 ---
 

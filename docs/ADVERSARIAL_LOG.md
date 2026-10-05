@@ -109,6 +109,36 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-05 — R279: a notebook edit, dropped by a link taken before the autosave
+
+**Severity: moderate (lost work), sweep 8.** The Python notebook saves 1.2 s after the last edit, on a
+timer its effect clears when the page unmounts. So a link inside that 1.2 s dropped the edit, a closed
+tab did the same, and so did leaving after a save that failed — whose state was "Unsaved changes" with
+nothing stopping the leave. The header's state was also set by whichever save returned last, so an older
+save could say "Saved" over a newer edit (from reading; not driven). Driven on R278's build: " r279" typed after the title of
+"r213 double run" and the sidebar Dashboard link clicked at once — no question, and the notebook
+reopened as "r213 double run"; typed and left alone, it said "Unsaved changes", a dispatched
+`beforeunload` was not blocked, and 3 s later it was saved (then typed back).
+
+Now the page records the notebook as loaded and as each save sent it, only once the reply has no error;
+"Unsaved changes" means the editor differs from that record. A new shared hook, `useSaveBeforeLeave`,
+saves on a link and asks only if that save fails — "Leave without saving "…"? The latest changes could
+not be saved: <reason>. Leaving drops them." — and lets the tab ask while anything is unsaved, except
+during a version restore's own reload. Ten mutants caught against a verified-green baseline (a link
+leaving without saving, a save that throws or fails letting it go, the tab asking during a restore, the
+load or a failed save mis-recorded, the autosave running with nothing unsaved, the page not guarded, the
+restore not marked, the label off the record), control survived.
+
+Driven on R279 hot-deployed: untouched, "Saved" and not blocked; " r279" typed, "Unsaved changes" and
+blocked, the Dashboard link saved and left with no question, and the notebook reopened as "r213 double
+run r279". For a real failed save, a NUL character in the title, which Postgres refuses: "Save failed:
+unsupported Unicode escape sequence", then the Dashboard link asked "Leave without saving "r213 double
+run r279"? The latest changes could not be saved: unsupported Unicode escape sequence. Leaving drops
+them." — **Cancel** stayed with the edit; the title corrected, it saved. NUL again, **Leave anyway**
+left, and the notebook reopened as last saved. The title is back to "r213 double run". Reading the MCP
+builder and the BI dashboard for the same hole put both on the queue, with what each one does
+differently. Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-05 — R278: a BI report's unsaved blocks, left behind by "← BI"
 
 **Severity: moderate (lost work), sweep 8.** The survey's last open question was whether a BI report
