@@ -15,6 +15,20 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-05 — R290: two tabs on one MCP server's source
+
+MCP Builder, "r214 before" (29 lines), open in two tabs of the browser pane, A and B. Lines are added at
+the end of the source and left to autosave (1.2 s).
+
+| Step | R289's build | R290 hot-deployed |
+| --- | --- | --- |
+| A: `# r290 A` added | autosaved | autosaved, reply "ok" (twice, with a second line) |
+| B, loaded before: a line added | **autosaved over A's** — reloaded, only B's line | reply `stale`: "This MCP server's source was changed in another tab or session after this page read it"; the chip; autosave stops |
+| First after-drive only | — | B's removal went through unrefused and A's lines were gone; **not reproduced**, see the log |
+| B typed back to exactly what it opened, **Overwrite with mine** | — | before the fix (read, not driven): nothing would be written. After: written; chip gone |
+| A, then stale: a change | — | refused in turn |
+| A: **Reload**, test lines removed | — | B's version, then the original 29 lines |
+
 ## 2026-10-05 — R289: two tabs on one workflow
 
 Workflows, `r184_badge` (timeout 720 minutes), open in two tabs of the browser pane, A and B, both loaded

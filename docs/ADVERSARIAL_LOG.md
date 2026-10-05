@@ -109,6 +109,38 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-05 — R290: two tabs on one MCP server's source, an autosave undoing the other's
+
+**Severity: high (silent loss of saved work), sweep 9.** The MCP builder autosaves the source and packages
+1.2 s after the last edit, over whatever is stored. Driven on R289's build with "r214 before" in two
+tabs: A added `# r290 A` and it autosaved; B, opened before, added `# r290 B` and it autosaved. Reloaded,
+the source had only B's line — A's saved line gone, neither tab saying a word.
+
+Deploys, the idle reaper and tool approval write this row, so a fingerprint again, of just what the editor
+saves (`mcpSourceDefinition`, `src/lib/mcpSource.ts`). The editor already keeps the source it read or last
+saved (R280's `savedAs`), so it fingerprints that and sends it with each save; `mcpAppSave`, when given a
+fingerprint, reads the row, refuses with `{ stale: true }` when the stored source no longer matches, and
+updates only on the `updated_at` it read. The fingerprint is never written into the row. Refused, the
+editor stops autosaving, shows "Changed elsewhere, not saved" with **Reload** and **Overwrite with mine**,
+and a link asks through R279's hook with the reason.
+
+The drive found a gap in the first version: `saveNow` began with `if (!unsaved) return null`, so an editor
+typed back to exactly what it opened — while the store held someone else's version — pressed **Overwrite
+with mine** and nothing was written. Overwrite now writes whenever it is asked. Nine mutants caught against
+a verified-green baseline (that one among them), control survived; R280's three pins moved to the new
+lines.
+
+Driven on R290 hot-deployed. **One run is unexplained:** in the first after-drive, B's 9 Backspaces
+removed its old line and its tab then showed nothing unsaved and no refusal, and the store ended at the
+original 29 lines — A's two autosaved lines gone, and no record of which request did it. It did not
+recur. With every save request and reply logged in both tabs, the same sequence went as designed: A's
+autosaves "ok"; B, holding the older source, typed and was refused — the reply `stale`, "This MCP server's
+source was changed in another tab or session after this page read it", the chip, still "Unsaved changes";
+a tab loaded from a version since replaced was refused likewise. Then the fixed case: B refused, typed
+back to exactly what it opened (nothing unsaved, chip still up), **Overwrite with mine** wrote it — A, by
+then stale, was refused in turn, its **Reload** showed B's version, and removing the test lines left the
+source at its original 29 lines. Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-05 — R289: two tabs on one workflow, a Save undoing the other's rename
 
 **Severity: high (silent loss of saved work), sweep 9.** `workflowSave` updated the whole workflow over

@@ -51,6 +51,8 @@ import { BiModelSelect } from "@/components/bi/BiModelSelect";
 import { useTheme } from "@/hooks/use-theme";
 import { useAuth } from "@/hooks/use-auth";
 import { saveFailureText, useSaveBeforeLeave } from "@/hooks/use-save-before-leave";
+import { fingerprintOf } from "@/lib/definitionFingerprint";
+import { mcpSourceDefinition } from "@/lib/mcpSource";
 import { cn } from "@/lib/utils";
 import { generateMcpServer } from "@/lib/mcpCodegen";
 import { isUnrestrictedKey, toolScopeLabel } from "@/lib/mcpKeyScope";
@@ -160,6 +162,9 @@ function McpAppEditor() {
   // Read by reload, which keeps the editor's text while anything is unsaved.
   const unsavedRef = useRef(false);
   unsavedRef.current = unsaved;
+  // Set when a save was refused because the source was saved elsewhere since
+  // this page read it (R290, sweep 9). Autosave stops; the header says so.
+  const [stale, setStale] = useState(false);
 
   const reload = useCallback(
     async (adopt = false) => {
@@ -179,6 +184,7 @@ function McpAppEditor() {
         setSource(adopted.source);
         setRequirements(adopted.requirements);
         setSavedAs(JSON.stringify(adopted));
+        setStale(false);
       }
     },
     [appId, getFn],
@@ -190,38 +196,64 @@ function McpAppEditor() {
 
   // Saves what the editor holds now and records it as saved, once the reply
   // has no error. An edit typed while it is out stays unsaved.
-  const saveNow = useCallback(async (): Promise<string | null> => {
-    if (!unsaved) return null;
-    const sent = form;
-    setSaving((n) => n + 1);
-    // A save the server's input check refuses rejects rather than returning
-    // { ok: false }; before R280 that left "Saving…" on screen for good.
-    let res: Awaited<ReturnType<typeof saveFn>>;
-    try {
-      res = await saveFn({ data: { id: appId, source_code: source, requirements } });
-    } catch (e) {
-      return saveFailureText(e);
-    } finally {
-      setSaving((n) => n - 1);
-    }
-    if (!res.ok) return res.error;
-    setSavedAs(sent);
-    setSaveState("saved");
-    setTimeout(() => setSaveState("idle"), 1500);
-    return null;
-  }, [unsaved, form, appId, requirements, saveFn, source]);
+  const saveNow = useCallback(
+    async (overwrite = false): Promise<string | null> => {
+      // Overwrite writes even when the editor matches what it opened: the
+      // store holds someone else's version, and that is what is being replaced.
+      if (!unsaved && !overwrite) return null;
+      const sent = form;
+      // The source this page read or last saved, which a save lands only on.
+      const base = savedAs
+        ? (JSON.parse(savedAs) as { source: string; requirements: string })
+        : null;
+      const expected =
+        overwrite || !base
+          ? undefined
+          : await fingerprintOf(
+              mcpSourceDefinition({ source_code: base.source, requirements: base.requirements }),
+            );
+      setSaving((n) => n + 1);
+      // A save the server's input check refuses rejects rather than returning
+      // { ok: false }; before R280 that left "Saving…" on screen for good.
+      let res: Awaited<ReturnType<typeof saveFn>>;
+      try {
+        res = await saveFn({
+          data: {
+            id: appId,
+            source_code: source,
+            requirements,
+            expected_source_fingerprint: expected,
+          },
+        });
+      } catch (e) {
+        return saveFailureText(e);
+      } finally {
+        setSaving((n) => n - 1);
+      }
+      if (!res.ok) {
+        if (res.stale) setStale(true);
+        return res.error;
+      }
+      setStale(false);
+      setSavedAs(sent);
+      setSaveState("saved");
+      setTimeout(() => setSaveState("idle"), 1500);
+      return null;
+    },
+    [unsaved, form, savedAs, appId, requirements, saveFn, source],
+  );
 
   // Debounced autosave. The editor is the primary surface here, so an explicit
   // save button would be one more thing to forget before pressing Deploy.
   useEffect(() => {
-    if (!unsaved) return;
+    if (!unsaved || stale) return;
     const t = setTimeout(() => {
       void saveNow().then((error) => {
         if (error) toast.error(error);
       });
     }, 1200);
     return () => clearTimeout(t);
-  }, [unsaved, saveNow]);
+  }, [unsaved, stale, saveNow]);
 
   // FOUND IN R280: the timer above is cleared when the page unmounts, so a link
   // taken inside the 1.2 s, or after a failed save, dropped the edit.
@@ -321,6 +353,35 @@ function McpAppEditor() {
         </div>
         <StatusPill status={app.status} />
         <div className="ml-auto flex items-center gap-2">
+          {stale && (
+            <span
+              className="inline-flex items-center gap-1 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-xs"
+              title="This MCP server's source was changed in another tab or session, so it is no longer saved over it."
+              data-testid="mcp-stale"
+            >
+              Changed elsewhere, not saved
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-6 px-1.5 text-xs"
+                onClick={() => void reload(true)}
+              >
+                Reload
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-6 px-1.5 text-xs"
+                onClick={() =>
+                  void saveNow(true).then((error) => {
+                    if (error) toast.error(error);
+                  })
+                }
+              >
+                Overwrite with mine
+              </Button>
+            </span>
+          )}
           <span className="text-xs text-muted-foreground">
             {saving > 0 ? (
               "Saving…"

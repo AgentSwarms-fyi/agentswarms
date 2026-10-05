@@ -32,13 +32,15 @@ describe("the MCP builder app editor", () => {
     );
     // What was sent, taken before the await, so an edit typed meanwhile stays unsaved.
     expect(src).toMatch(
-      /const sent = form;\s*setSaving\(\(n\) => n \+ 1\);[^]*?res = await saveFn\(/,
+      /const sent = form;[^]*?setSaving\(\(n\) => n \+ 1\);[^]*?res = await saveFn\(/,
     );
-    expect(src).toMatch(/if \(!res\.ok\) return res\.error;\s*setSavedAs\(sent\);/);
+    expect(src).toMatch(/return res\.error;\s*\}\s*setStale\(false\);\s*setSavedAs\(sent\);/);
   });
 
   it("autosaves only what is unsaved, and saves or asks before leaving", () => {
-    expect(src).toMatch(/useEffect\(\(\) => \{\s*if \(!unsaved\) return;\s*const t = setTimeout\(/);
+    expect(src).toMatch(
+      /useEffect\(\(\) => \{\s*if \(!unsaved \|\| stale\) return;\s*const t = setTimeout\(/,
+    );
     expect(src).toContain('useSaveBeforeLeave({ unsaved, saveNow, name: app?.name ?? "" });');
     // Before the early return, so it is called on every render.
     expect(src.indexOf("useSaveBeforeLeave({")).toBeLessThan(src.indexOf("  if (!app) {"));

@@ -554,7 +554,9 @@ least twice, not a hypothetical.
      itself — a server-side compare of what the page loaded against what is stored, before the
      update. Without a migration that compare is not atomic; the window is a single request, and
      the queue should say so where it is used:
-     **an MCP builder app**, ~~**SQL models**~~ (**R285**: a fingerprint of the stored
+     ~~**an MCP builder app**~~ (**R290**: the editor fingerprints the source it read, the save
+     compares it with the stored source; open: one run where a stale tab's autosave went unrefused, not
+     reproduced with every request logged — watch for it), ~~**SQL models**~~ (**R285**: a fingerprint of the stored
      definition, `src/lib/definitionFingerprint.ts`, checked in the save, which then updates only
      the row it read — atomic, since the save reads the row first anyway; and the editor's own
      Pause, undone by the next Save), ~~**semantic models**~~ (**R286**: the same guard; the upsert
