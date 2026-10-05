@@ -321,6 +321,11 @@ and the page count matters.
 Open **BI Workspace → Reports** (`/bi`, the Reports tab). A report opens in
 its own designer at `/bi/report/:id`.
 
+The designer does not save as it goes: blocks, page settings, header and footer
+stay in the page until **Save**, and an "Unsaved changes" note says so. **← BI**,
+any other link or closing the tab with something unsaved asks first — "Discard
+the changes to "Month-end pack"?" — and Cancel keeps it (R278).
+
 ### The two halves are shared on purpose
 
 Everything below the layout is the dashboard's. A report's chart block **is**

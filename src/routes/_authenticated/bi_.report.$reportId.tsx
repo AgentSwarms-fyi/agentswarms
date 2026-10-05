@@ -4,7 +4,7 @@
 // page setup. The middle one is the point — it paginates with the same
 // function the PDF renderer uses, so a break you see is a break you get.
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useBlocker } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import {
@@ -86,6 +86,11 @@ function ReportDesigner() {
   const saveFn = useServerFn(biReportSave);
 
   const [report, setReport] = useState<BiReport | null>(null);
+  // The report as it was loaded or last saved, and the name it is saved
+  // under, so the page can tell what is unsaved (R278, sweep 8).
+  const [savedAs, setSavedAs] = useState<string | null>(null);
+  const [savedName, setSavedName] = useState("");
+  const unsaved = report !== null && savedAs !== null && JSON.stringify(report) !== savedAs;
   const [warehouses, setWarehouses] = useState<WarehouseConnectionSummary[]>([]);
   const [whTables, setWhTables] = useState<Record<string, WarehouseTable[] | "loading" | "error">>(
     {},
@@ -115,7 +120,7 @@ function ReportDesigner() {
       const res = await getFn({ data: { accessToken: token, id: reportId } });
       if (!res.ok) toast.error(res.error);
       else {
-        setReport({
+        const loaded: BiReport = {
           id: res.report.id,
           name: res.report.name,
           description: res.report.description,
@@ -123,7 +128,10 @@ function ReportDesigner() {
           header: res.report.header,
           footer: res.report.footer,
           blocks: (res.report.blocks ?? []) as unknown as ReportBlock[],
-        });
+        };
+        setReport(loaded);
+        setSavedAs(JSON.stringify(loaded));
+        setSavedName(loaded.name);
       }
       setLoading(false);
     })();
@@ -246,6 +254,8 @@ function ReportDesigner() {
     if (!report) return;
     const invalid = validateReport(report);
     if (invalid) return toast.error(invalid);
+    // What this save sends: an edit made while it is in flight stays unsaved.
+    const sent = JSON.stringify(report);
     setSaving(true);
     try {
       const res = await saveFn({
@@ -261,7 +271,11 @@ function ReportDesigner() {
         },
       });
       if (!res.ok) toast.error(res.error);
-      else toast.success("Saved");
+      else {
+        setSavedAs(sent);
+        setSavedName(report.name);
+        toast.success("Saved");
+      }
     } catch (e) {
       reportFailure("save the report", e);
     } finally {
@@ -317,6 +331,19 @@ function ReportDesigner() {
     }
   }
 
+  // FOUND IN R278: the report kept no record of what was saved, so "← BI", a
+  // link and a closed tab left unsaved blocks behind without a word.
+  useBlocker({
+    shouldBlockFn: async () =>
+      !(await confirmAsk({
+        title: `Discard the changes to "${savedName}"?`,
+        body: "They are not saved. Leaving the report drops them.",
+        actionLabel: "Discard changes",
+      })),
+    enableBeforeUnload: unsaved,
+    disabled: !unsaved,
+  });
+
   if (loading) return <Skeleton className="m-4 h-96" />;
   if (!report) return <p className="p-6 text-sm text-muted-foreground">Report not found.</p>;
 
@@ -356,6 +383,14 @@ function ReportDesigner() {
             )}
             Export PDF
           </Button>
+          {unsaved && (
+            <span
+              className="text-xs text-amber-600 dark:text-amber-400"
+              data-testid="report-unsaved"
+            >
+              Unsaved changes
+            </span>
+          )}
           <Button size="sm" disabled={saving} onClick={() => void save()}>
             {saving ? (
               <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />

@@ -501,8 +501,14 @@ least twice, not a hypothetical.
      no record of what was saved).
    - ~~**The Semantic Layer page**~~ (**R277**: another model, New model, a link and the tab;
      `SemanticLayerEditor.tsx` itself is a dialog, where closing is the discard).
-   - **A BI report** (`bi_.report.$reportId.tsx`): to be driven before it is called a defect — it
-     may save as it goes.
+   - ~~**A BI report**~~ (**R278**: "← BI", a link and the tab; it does not save as it goes).
+
+   That list is done. A second one, from route pages with a Save and no `useBlocker` (most of the
+   rest save from a dialog, where closing is the discard): **the BI dashboard**
+   (`bi_.$dashboardId.tsx`), **an MCP builder app** (`mcp-builder_.$appId.tsx`) and **the Python
+   notebook** (`notebooks.py.$pyNotebookId.tsx`) each carry some autosave or dirty tracking to read
+   before driving; **Prompts** (`prompts.tsx`) and **Data SQL** (`data-sql.tsx`) carry none. Each
+   to be driven before it is called a defect.
 
 ### Sheets (new, 2026-09-25)
 

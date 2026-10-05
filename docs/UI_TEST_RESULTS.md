@@ -15,6 +15,19 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-05 — R278: a BI report's unsaved blocks
+
+BI Workspace → Reports, the report "r214 after" (empty, margin 40). An edit is a Heading block added
+from the Blocks panel, never saved.
+
+| Step | R277's build | R278 hot-deployed |
+| --- | --- | --- |
+| Open, touch nothing, "← BI" | — | no note; not blocked; on `/bi` with no question |
+| Add a Heading, "← BI" | **on `/bi` at once**; reopened, "No blocks yet" | "Unsaved changes"; blocked; "Discard the changes to "r214 after"? They are not saved. Leaving the report drops them." — **Cancel** kept it |
+| Edited, sidebar **Dashboard** | — | the same question — **Discard changes** left for `/dashboard`; reopened, "No blocks yet", no note, not blocked |
+| Margin 40 → 41, **Save**, "← BI" | — | the note showed, then cleared on Save; not blocked; on `/bi` with no question; 41 on reopening |
+| Margin back to 40, **Save** | — | note cleared; the report as it started |
+
 ## 2026-10-05 — R277: a semantic model's unsaved draft
 
 Semantic Layer, the models `stg_revenue` and "Revenue". An edit is "_EDITED" typed after the dimension

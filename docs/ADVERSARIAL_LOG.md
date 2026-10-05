@@ -109,6 +109,28 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-05 — R278: a BI report's unsaved blocks, left behind by "← BI"
+
+**Severity: moderate (lost work), sweep 8.** The survey's last open question was whether a BI report
+saves as it goes. It does not: the designer holds blocks, page settings, header and footer in the page
+until Save, and kept no record of what was saved. Driven on R277's build: in report "r214 after", a
+Heading block added, then "← BI" — on `/bi` at once with no question, and the report reopened with
+"No blocks yet". A link or a closed tab did the same.
+
+Now the load and every successful save record the report as sent (an edit made while a save is in
+flight stays unsaved), "← BI", any other link and the tab ask by the report's saved name through the
+router's `useBlocker`, and an "Unsaved changes" note sits beside Save. "← BI" is a route link, so the
+one blocker covers it. Five mutants caught against a verified-green baseline (the load or a save not
+recorded, the blocker on with nothing unsaved, the tab not asking, no note), control survived.
+
+Driven on R278 hot-deployed: untouched, no note, not blocked, and "← BI" left freely; a Heading added,
+the note showed, blocked, and "← BI" asked "Discard the changes to "r214 after"? They are not saved.
+Leaving the report drops them." — **Cancel** kept it; the sidebar Dashboard link asked the same and
+**Discard changes** left, the report reopening with "No blocks yet". The margin changed 40 → 41 showed
+the note, **Save** cleared it, "← BI" then left freely, and 41 was there on reopening; set back to 40
+and saved. That closes the sweep's first survey list; the queue names a second. Rows in
+[UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-05 — R277: a semantic model's draft, replaced by the next model clicked
 
 **Severity: moderate (lost work), sweep 8.** The Semantic Layer page keeps the open model as a draft and,
