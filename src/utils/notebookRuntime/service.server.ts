@@ -329,10 +329,29 @@ export async function refreshSession(row: SessionRow): Promise<SessionRow> {
       );
     }
   }
-  const { error: patchErr } = await supabaseAdmin
+  // FOUND IN R292, FIXED IN R295. This wrote over whatever the row said by
+  // now. A preview's poller read the session as "running"; the sandbox then
+  // posted its result, the callback stored it and removed the container; and
+  // this refresh, still holding the row it read, heard "gone" from the
+  // orchestrator and wrote "stopped", with no error, over the stored result.
+  // The preview read only "Preview failed". The update now lands only on the
+  // status it was decided from, and when the row has moved on, the caller
+  // gets what is stored rather than this guess.
+  const { data: written, error: patchErr } = await supabaseAdmin
     .from("notebook_runtime_sessions")
     .update(patch)
-    .eq("id", row.id);
+    .eq("id", row.id)
+    .eq("status", row.status)
+    .select("*")
+    .maybeSingle();
+  if (!patchErr && !written) {
+    const { data: stored } = await supabaseAdmin
+      .from("notebook_runtime_sessions")
+      .select("*")
+      .eq("id", row.id)
+      .maybeSingle();
+    if (stored) return stored as SessionRow;
+  }
   if (patchErr) {
     // The caller is handed the reconciled row; the table keeps the old one,
     // and the caps and the reaper read the table (R80).

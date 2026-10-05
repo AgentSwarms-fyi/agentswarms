@@ -109,6 +109,60 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-05 — R295: a poll that read "running" wrote over the stored result
+
+**Severity: medium (a finished preview shown as failing with no reason; any batch session's result can
+be lost), the runtime.** R292 found it. The first node preview after a deploy read only "Preview failed".
+The app's log had `refreshSession` "ended as error" while the result callback's teardown was already
+removing the container (409, "removal ... already in progress").
+
+**What happened:**
+
+- The preview's poller read the session as "running".
+- The sandbox posted its result, and the callback stored it and removed the container.
+- `refreshSession`, still holding the row it had read, asked the orchestrator. It heard "gone" (or
+  "exited") and wrote "stopped" (or "error" with the exit message and the container's empty log) over the
+  stored row.
+- It then handed the poller that guess, not the stored row. "stopped" with no error is exactly what the
+  preview shows as "Preview failed".
+
+**The before.** It could not be forced from the UI. Seven more previews in this round came back complete,
+except one auth blip, which is queued separately. So the proof is the real `refreshSession` in
+`sessionRefreshStale.test.ts`, against an in-memory table that honours the filters, with the orchestrator
+faked:
+
+- **The sandbox already gone:** the stored `error` became `stopped`.
+- **The sandbox exited:** the sandbox's own `RuntimeError: raised token=***` became "exited with code 1".
+
+The two cases where the row had not moved on passed before and after.
+
+**The fix.** The update is filtered on the status it was decided from, `.eq("status", row.status)`,
+and returns the row it wrote. When nothing was written, the row has moved on, and the caller gets the
+row as stored. The teardown still runs first, so a terminal row never stands over a live container
+(R93).
+
+**Tests:** R80's pin on the old destructuring was updated.
+
+- **Mutation harness:** 4 mutants caught against a verified-green baseline, and the control survived.
+  The first run let one through: dropping `.eq("id")` passed, because the fake table held one row. A
+  bystander session in the same status now has to stay untouched.
+
+**The after**, on the deployed build:
+
+- Two previews showed the full scrubbed output.
+- **Interactive kernels**, which go through the same refresh from starting to ready, were driven three
+  times.
+  - **First:** it reached "Kernel ready", and the gateway created the kernel. The browser's connect timed
+    out before the gateway's "ready".
+  - **Second:** a new session printed `1` in 271 ms.
+  - **Third,** in another notebook: its container sat in "Created" for about 25 s, then the cell
+    printed its statistics in 746 ms.
+  - The first timeout reads as this host's slow container start on the rebuilt image, not the refresh:
+    every session reached ready and its endpoint was found by the gateway.
+
+**Found on the way, and queued:** a failed auth lookup reads as "Unauthorized". Rows in [UI test
+results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-05 — R294: the per-agent spend limits were a control that did nothing
 
 **Severity: high (a guardrail shown as working, which is not), Budgets.** R293 found it. The Budgets page's

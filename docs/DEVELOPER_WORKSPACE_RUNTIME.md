@@ -378,6 +378,11 @@ Kernel containers are **Linux containers** (the frameworks are Linux-first). On 
 - **Reaper**: a cron (reuse the existing scheduled-job mechanism) sweeps `notebook_runtime_sessions` for idle/expired sessions and calls `orchestrator.stop`. A list it cannot read reaps nothing from that list on that pass. In particular an MCP server with no `mcp_apps` row is treated as orphaned and stopped, so an `mcp_apps` read that fails stops **none** of them (R249: it used to stop every one, `keep_warm` included).
 - **Backpressure**: per-user and per-instance session caps; when at capacity, `start` returns a clear "runtime at capacity" error.
 - **Crash recovery**: orphaned containers (app restarted) are reconciled by matching `container_ref` labels on startup and reaping unknowns.
+- **Who writes a session's ending**: two writers can finish a batch session. The sandbox's result callback stores the outcome
+  with the sandbox's own error and logs. `refreshSession` stores what the orchestrator reports, when a poll finds the container
+  exited or gone. The refresh writes only onto the status it read, and when the row has moved on it returns the row as stored.
+  Before R295, a poll that had read "running" a moment before the callback wrote "stopped", with no error, over the stored result,
+  and the preview read only "Preview failed".
 
 ---
 

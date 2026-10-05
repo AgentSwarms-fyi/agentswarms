@@ -49,7 +49,7 @@ describe("starting a session", () => {
 
 describe("a session's record afterwards", () => {
   it("says when the reconciled state could not be written", () => {
-    expect(refresh).toContain("const { error: patchErr } = await supabaseAdmin");
+    expect(refresh).toContain("const { data: written, error: patchErr } = await supabaseAdmin");
     expect(refresh).toContain("the table still says");
   });
 

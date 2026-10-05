@@ -490,13 +490,17 @@ least twice, not a hypothetical.
        captured by the batch runner, so it never reaches the run's logs; it stays in the container's
        log. That log is read only when a sandbox's result post was lost, and then it is scrubbed only
        against the current values. Check whether people expect `logging` output in the Logs dialog.
-     - **Open, from R292: a sandbox's result is overwritten by a stale refresh.** Seen once, on the
-       first preview after a deploy. The dialog read only "Preview failed", and the app's log had
-       `refreshSession` "ended as error" while the callback's teardown was already removing the
-       container. `refreshSession` writes its patch with `.eq("id")` alone, working from the row it
-       read, which still said "running". So it can overwrite the terminal row the result callback has
-       just written, including its error and logs. The next preview was fine. To prove: hold the
-       callback's teardown, then poll.
+     - ~~**Open, from R292: a sandbox's result is overwritten by a stale refresh.**~~ **R295.** The
+       update now lands only on the status it read, and the caller gets the stored row when the row has
+       moved on. The race could not be forced from the UI: 0 of 7 previews hit it again. So the proof
+       is the real `refreshSession` against an in-memory table, where it turned a stored error into
+       "stopped" and replaced the sandbox's own error text.
+     - **Open, from R295: a failed auth lookup reads as "Unauthorized".** One preview of seven read
+       only "Unauthorized" while the session was valid for another 40 minutes.
+       `resolveCaller` throws "Unauthorized" for any error from `supabaseAdmin.auth.getUser`,
+       including a network blip or a rate limit, and the same three lines are copied across the
+       `*.functions.ts` files. A lookup that failed should say it could not check, not that the
+       caller is refused.
 
 8. **Unsaved work lost without a word** (sweep 8, from 2026-10-05). An editor with an explicit
    Save holds edits in the page, and something replaces or leaves them with no question: picking

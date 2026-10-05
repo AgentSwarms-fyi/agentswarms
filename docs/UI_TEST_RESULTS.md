@@ -15,6 +15,16 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-05 — R295: a stale refresh over a stored result
+
+| What was driven | What came back |
+| --- | --- |
+| **Before**, on R294's build: Preview data on `r292_preview`'s Custom Python node, five times | Four showed the full output (`RuntimeError: raised token=***`, `printed token=***`); one read only "Unauthorized" while the session was valid for another 40 minutes (queued); the race did not recur. R292's occurrence: "Preview failed", with the app's log showing `refreshSession` "ended as error" during the callback's teardown (409) |
+| **Before**, the real `refreshSession` against an in-memory table (`sessionRefreshStale.test.ts`) | The stored `error` became `stopped`; the sandbox's own error text became "exited with code 1" |
+| **After**: the same preview, twice | Both showed the full output |
+| **After**: interactive kernel, `r213 double run` cell 6 | Reached "Kernel ready"; the gateway created the kernel, but the browser's connect timed out first (cold start). A rerun, on a new session: `1` in 271 ms |
+| **After**: interactive kernel, `My Python notebook`, the statistics cell | The container sat in "Created" for ~25 s, then `mean: 500 ms`, `p50 : 300.0 ms`, `max : 1450 ms`, `'2 slow calls out of 8'` in 746 ms |
+
 ## 2026-10-05 — R294: Agent-Specific Limits
 
 | What was driven | What came back |
