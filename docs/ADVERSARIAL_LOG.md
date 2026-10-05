@@ -109,6 +109,43 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-06 — Smoke of the real images after R296 to R300
+
+**The app image.** `7725c7187e5d` was built from `2258fabd` with `docker compose build agentswarms` and
+started with `docker compose up -d`. It came up healthy: eight workers listening, eight schedulers started,
+and nothing in the log matching "error" or "warn".
+
+**The runtime image.** `agentswarms/notebook-runtime` (`c36a97397cd9`) is R299's rebuild, and nothing
+under `docker/` has changed since. Its `batch_runner.py` hashes the same as the committed one
+(`e8111623…`).
+
+**Markers.** Each is in its own chunk of the image's `dist`:
+
+- R296: "This report could not be loaded";
+- R297: "Could not check who you are just now", in `callerLookup.server`;
+- R300: "NUL characters removed from" in the data-sql chunk, and `nulCellsCleaned` in `ingest.server`;
+- R298: the skills chunk now calls `getSession()`, with no `auth.getUser(` call left in it.
+
+The invented control is absent.
+
+**R298's first marker was wrong.** It was an absence across every browser chunk: no `auth.getUser(`
+anywhere. The search found two:
+
+- supabase-js's own warning text ("Use supabase.auth.getUser() instead…"), a string, not a call;
+- the tracer, which R297 left with a `// caller-lookup:` comment, because a failed check there only skips
+  tracing.
+
+The marker was narrowed to the skills chunk.
+
+**The Iceberg publish.** `analytics.fct_region_revenue` → `local_rest`, `r181`, `smoke_7725c7187e5d` gave
+"Published 4 row(s)". The catalog's own metadata shows `region, orders, revenue` and one `append`
+snapshot: **4 records in 1 file**.
+
+**R299 on the real images.** A run of `r299_stderr` logged the printed line, the `logging` line, the
+stderr line and the `UserWarning`, in order.
+
+Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-06 — R300: one NUL character in a CSV and nothing was imported
 
 **Severity: medium (a whole import refused over an invisible byte, with a message that says nothing),

@@ -15,6 +15,18 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-06 — Smoke of the real images after R296 to R300
+
+The app image `7725c7187e5d` was built from `2258fabd` and started with `docker compose up -d`. The runtime
+image `c36a97397cd9` is R299's rebuild; its `batch_runner.py` hashes the same as the committed one.
+
+| What was driven | What came back |
+| --- | --- |
+| Health after `up -d` | healthy; 8 workers listening, 8 schedulers started; nothing matching "error" or "warn" |
+| Shipped code | R296, R297 and R300's strings each in their own chunk; R298's skills chunk calls `getSession()` and no `auth.getUser(`; the invented control absent |
+| **Iceberg publish** `analytics.fct_region_revenue` → `local_rest`, `r181`, `smoke_7725c7187e5d` | "Published 4 row(s) to r181.smoke_7725c7187e5d"; the catalog's metadata shows `region, orders, revenue`, one `append` snapshot, **4 records in 1 file** |
+| R299 on the real images: Run now on `r299_stderr`, then Logs | `r299 from print`, `INFO:root:r299 from logging`, `r299 from stderr`, `<notebook>:51: UserWarning: r299 from warnings` |
+
 ## 2026-10-06 — R300: a NUL character in an upload
 
 The CSV was built in the page and handed to the dialog's file input:
