@@ -6,7 +6,8 @@
 // side panel, with the compiled Python one toggle away. Code mode is a
 // full-height editor with AI generate/refine through the shared
 // provider+model picker, so IAM model rules apply here exactly as in BI.
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useBlocker } from "@tanstack/react-router";
+import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { useServerFn } from "@tanstack/react-start";
 
 import { chainTargetsOf, describeChain } from "@/lib/etlChain";
@@ -887,6 +888,9 @@ function PipelineEditor({ id, onBack }: { id: string; onBack: () => void }) {
 
   const [p, setP] = useState<EditorPipeline | null>(null);
   const [dirty, setDirty] = useState(false);
+  // The name the pipeline is saved under, for asking about unsaved edits: the
+  // name in the editor may be one of them.
+  const [savedName, setSavedName] = useState("");
   const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState(false);
   const [tab, setTab] = useState("build");
@@ -904,6 +908,7 @@ function PipelineEditor({ id, onBack }: { id: string; onBack: () => void }) {
       try {
         const res = await getFn({ data: { access_token: token, id } });
         const row = res.pipeline;
+        setSavedName(row.name);
         setP({
           id: row.id,
           name: row.name,
@@ -986,6 +991,7 @@ function PipelineEditor({ id, onBack }: { id: string; onBack: () => void }) {
       });
       setP((prev) => (prev ? { ...prev, source_code: res.source_code } : prev));
       setDirty(false);
+      setSavedName(p.name);
       if (res.compile_error) {
         toast.warning(`Saved — but the graph can't run yet: ${res.compile_error}`);
       } else {
@@ -1019,6 +1025,28 @@ function PipelineEditor({ id, onBack }: { id: string; onBack: () => void }) {
     }
   };
 
+  /** Ask before unsaved edits are left behind; true when the editor may go. */
+  async function mayLeave(what: string): Promise<boolean> {
+    if (!dirty) return true;
+    return Boolean(
+      await confirmAsk({
+        title: `Discard the changes to "${savedName}"?`,
+        body: `They are not saved. ${what}`,
+        actionLabel: "Discard changes",
+      }),
+    );
+  }
+
+  // FOUND IN R275: "← Pipelines", a link and a closed tab all dropped unsaved
+  // edits without a word, though the editor knew it had them (Save was on).
+  // The back button is the editor's own state, not a route, so it asks itself;
+  // the blocker covers links and the tab.
+  useBlocker({
+    shouldBlockFn: async () => !(await mayLeave("Leaving the pipeline drops them.")),
+    enableBeforeUnload: dirty,
+    disabled: !dirty,
+  });
+
   if (!p) {
     return (
       <div className="w-full space-y-3 p-6">
@@ -1032,7 +1060,13 @@ function PipelineEditor({ id, onBack }: { id: string; onBack: () => void }) {
     <div className="flex h-canvas w-full flex-col gap-3 p-3 md:p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
-          <Button variant="ghost" size="sm" onClick={onBack}>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={async () => {
+              if (await mayLeave("Going back to the list drops them.")) onBack();
+            }}
+          >
             ← Pipelines
           </Button>
           <Input

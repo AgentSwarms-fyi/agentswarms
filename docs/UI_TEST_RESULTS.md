@@ -15,6 +15,17 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-10-05 — R275: leaving the ETL pipeline editor with unsaved edits
+
+ETL Pipelines → `r227_stream`. An edit is " EDITED" typed after its name, never saved. "Blocked" is a
+`beforeunload` event dispatched in the page.
+
+| Step | R274's build | R275 hot-deployed |
+| --- | --- | --- |
+| Open, touch nothing | Save **off** (the editor's dirty flag is accurate) | Save off; not blocked; **← Pipelines** left at once |
+| Edit, **← Pipelines** | **the list, at once**: the edit gone | blocked; "Discard the changes to "r227_stream"? They are not saved. Going back to the list drops them." — **Cancel** kept "r227_stream EDITED" |
+| Edit, sidebar **Dashboard** | — | "…Leaving the pipeline drops them." — **Discard changes** left; the list reads "r227_stream" |
+
 ## 2026-10-05 — R274: Rebuild on a view Sheets holds
 
 Lakehouse, the object explorer searched for each table.

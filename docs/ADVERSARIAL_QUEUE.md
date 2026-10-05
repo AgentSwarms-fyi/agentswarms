@@ -485,6 +485,22 @@ least twice, not a hypothetical.
        not fatal, so its own value is unknown to the scrubber for the rest of that run. The fix is
        a scrub list captured at run start and held for the run's lifetime only.
 
+8. **Unsaved work lost without a word** (sweep 8, from 2026-10-05). An editor with an explicit
+   Save holds edits in the page, and something replaces or leaves them with no question: picking
+   another item, a back button, a link, a closed tab — or a guard that fires on everything and
+   teaches people to ignore it. Seen three times before the sweep was named: the workflow editor
+   (R268 picking or creating another workflow, and deleting a different one; R269 a link or a
+   closed tab) and the swarm canvas (R270: a tab guard that warned on every opened swarm, and
+   Fullscreen reloading the canvas). The shape of the fix: a record of what is saved (or the
+   editor's own accurate dirty flag), a question through `confirmAsk` naming the item by its
+   saved name, the router's `useBlocker` for links and the tab, and the editor's own back button
+   asking itself when it is state rather than a route. A survey of full-page editors with a Save
+   and no guard:
+   - ~~**ETL pipeline editor**~~ (**R275**: "← Pipelines", a link and the tab).
+   - **SQL models** (`sql-models.tsx`), **the Semantic Layer editor** (`SemanticLayerEditor.tsx`),
+     **a BI report** (`bi_.report.$reportId.tsx`): each to be driven before it is called a defect —
+     some may save as they go.
+
 ### Sheets (new, 2026-09-25)
 
 Closed while building it: R112 (a `;` inside a string refused as a second

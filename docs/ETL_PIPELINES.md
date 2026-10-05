@@ -777,6 +777,11 @@ moves forward and a regretted restore has its own undo. Rows are
 service-role-written and owner-read-only, and deleting a pipeline cascades its
 history away.
 
+Edits stay in the editor until **Save** (which turns on when there is something
+to save; **Run now** saves first). Going back to the list, following a link, or
+closing the tab with unsaved edits asks first — "Discard the changes to
+"orders"?" — and Cancel keeps them (R275).
+
 ## Schema drift
 
 Each target carries a **schema policy**: `evolve` (default — load whatever

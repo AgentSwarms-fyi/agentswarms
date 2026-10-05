@@ -109,6 +109,28 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-10-05 — R275: a pipeline editor that knew its edits were unsaved, and let them go
+
+**Severity: moderate (lost work), sweep 8's first named round.** R268–R270 found the same shape twice
+(the workflow editor, the swarm canvas), so it is a sweep now: an editor with a Save, and edits left
+behind without a question. A survey of full-page editors with a Save and no guard put the ETL pipeline
+editor first. It already knew: its `dirty` flag is accurate (Save is off on opening, on after an edit),
+and **Run now** saves first. But "← Pipelines" called `onBack` straight away, and neither a link nor a
+closed tab was guarded. Driven on R274's build: `r227_stream` renamed, Save on, "← Pipelines" — the
+list, at once, the edit gone.
+
+Now the back button asks itself (it is the editor's state, not a route, so no router blocker sees it),
+and `useBlocker` covers links and the tab while — only while — something is unsaved, naming the
+pipeline by its saved name. Five mutants caught against a verified-green baseline (the back button
+not asking, the blocker on with nothing unsaved, no tab question, asking with nothing unsaved, the saved
+name not recorded on load), control survived.
+
+Driven on R275 hot-deployed, `r227_stream`: opened and left untouched, Back left at once and
+`beforeunload` was let through; renamed, `beforeunload` was blocked and Back asked "Discard the changes
+to "r227_stream"? They are not saved. Going back to the list drops them." — **Cancel** kept the edit; the
+Dashboard link asked "…Leaving the pipeline drops them.", **Discard changes** left, and the list still
+reads "r227_stream". Rows in [UI test results](./UI_TEST_RESULTS.md).
+
 ### 2026-10-05 — R274: a Rebuild button that could only ever be refused
 
 **Severity: low (a control that cannot succeed).** From the queue. A materialized view whose table Sheets
