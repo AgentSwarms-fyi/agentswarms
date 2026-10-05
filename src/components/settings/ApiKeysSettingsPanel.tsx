@@ -42,8 +42,9 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { KeyRound, Copy, Check, Plus, Trash2, ArrowRight, Cloud } from "lucide-react";
+import { KeyRound, Copy, Check, Plus, Trash2, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
+import { API_KEY_CATEGORIES } from "@/lib/apiKeyCategories";
 
 type ApiKeyRow = {
   id: string;
@@ -101,6 +102,81 @@ function CopyField({ value, label }: { value: string; label: string }) {
         </Button>
       </div>
     </div>
+  );
+}
+
+/**
+ * One category card: label/description from the static registry, count
+ * fetched live and independently — a failed or slow count on one category
+ * (e.g. a table an older self-hosted deployment hasn't migrated yet) never
+ * blocks or blanks out the others, it just shows "—" for that one card.
+ */
+function CategoryCard({ category }: { category: (typeof API_KEY_CATEGORIES)[number] }) {
+  const [count, setCount] = useState<number | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      // category.table is a plain string (the registry lists tables the
+      // generated Database type may not even know about on every
+      // deployment) — bypass the strict literal-union overload the same
+      // way the rest of this codebase does for a dynamic table name.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let query: any = supabase
+        .from(category.table as never)
+        .select("id", { count: "exact", head: true });
+      if (category.filter)
+        query = query[category.filter.op](category.filter.column, category.filter.value);
+      const { count: n, error } = await query;
+      if (cancelled) return;
+      // `head: true` means a failed request (e.g. this table doesn't exist
+      // on an older self-hosted deployment that hasn't run every migration)
+      // comes back with NO body — HTTP HEAD responses never have one — so
+      // PostgREST's error details never reach `error`, and `count` is left
+      // null rather than populated from the (absent) Content-Range header.
+      // Treating null the same as a thrown error, instead of defaulting it
+      // to 0, is the difference between "unavailable" and a false "you have
+      // none of these" — confirmed against this exact failure mode live:
+      // ml_api_keys/gateway_keys 404 on a deployment missing those
+      // migrations, and silently rendered "0" before this check existed.
+      if (error || n === null) setFailed(true);
+      else setCount(n);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [category]);
+
+  const Icon = category.icon;
+  return (
+    <Link
+      to={category.route}
+      className="group flex flex-col gap-2 rounded-lg border border-border p-4 transition-colors hover:border-primary/40 hover:bg-muted/40"
+    >
+      <div className="flex items-start justify-between gap-2">
+        <Icon className="h-4 w-4 text-primary" />
+        {failed ? (
+          <span
+            className="text-xs text-muted-foreground"
+            title="Count unavailable — this deployment may not have run the migration this feature needs yet"
+          >
+            —
+          </span>
+        ) : (
+          <Badge variant="outline" className="text-[10px] tabular-nums">
+            {count === null ? "…" : count}
+          </Badge>
+        )}
+      </div>
+      <div>
+        <p className="text-sm font-medium text-foreground">{category.label}</p>
+        <p className="mt-0.5 text-xs text-muted-foreground">{category.description}</p>
+      </div>
+      <span className="mt-auto flex items-center gap-1 pt-1 text-xs text-primary opacity-0 transition-opacity group-hover:opacity-100">
+        Manage <ArrowRight className="h-3 w-3" />
+      </span>
+    </Link>
   );
 }
 
@@ -407,20 +483,21 @@ export function ApiKeysSettingsPanel() {
 
       <Separator />
 
-      <div className="rounded-lg border border-border bg-muted/30 p-4">
-        <h3 className="flex items-center gap-2 text-sm font-medium text-foreground">
-          <Cloud className="h-4 w-4 text-primary" /> LLM provider keys
-        </h3>
-        <p className="mt-1 text-xs text-muted-foreground">
-          OpenAI, Anthropic, Gemini and other model provider credentials are managed separately,
-          with per-provider connection status and testing.
-        </p>
-        <Link
-          to="/integrations"
-          className="mt-2 inline-flex items-center gap-1 text-xs text-primary hover:underline"
-        >
-          Manage provider connections <ArrowRight className="h-3 w-3" />
-        </Link>
+      <div className="space-y-3">
+        <div>
+          <h3 className="text-sm font-medium text-foreground">Everywhere else in AgentSwarms</h3>
+          <p className="text-xs text-muted-foreground">
+            Every other credential store in the app, with a live count and a link to where it's
+            actually managed — each of these already has its own full page (connection testing,
+            rotation, domain allow-lists, whatever that category needs), so this isn't a second copy
+            of those forms, just a map to them.
+          </p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {API_KEY_CATEGORIES.map((category) => (
+            <CategoryCard key={category.id} category={category} />
+          ))}
+        </div>
       </div>
     </div>
   );
